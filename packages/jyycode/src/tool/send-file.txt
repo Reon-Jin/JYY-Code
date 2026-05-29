@@ -1,0 +1,12 @@
+Send a file from your computer to a contact via WeChat, QQ, or Email attachment. Use this tool to share documents, images, or any other files.
+
+CHANNELS:
+- **email**: Send the file as an email attachment via SMTP. Requires email configuration in jyycode.jsonc.
+- **wechat**: Send a file through the WeChat desktop app. The file path must be absolute. The WeChat app must be running and logged in.
+- **qq**: Send a file through the QQ desktop app. The file path must be absolute. The QQ app must be running and logged in.
+
+The `to` field specifies the recipient. The `filePath` must be an absolute path to a file that exists on your computer. An optional `body` can accompany the file.
+
+DEFAULTS: When the user asks to send a file by email and does not explicitly choose a channel or recipient, use channel `email`, send from `communication.email.from`, and send to `communication.finish.to` or `communication.inbox.owner`. Do not use the `qq` channel unless the user explicitly asks for it.
+
+IMPORTANT: Verify the file exists before attempting to send. For wechat/qq channels, the target app must be running. Large files may take time to transfer.

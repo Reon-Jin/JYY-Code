@@ -1,0 +1,70 @@
+import { Config } from "effect"
+
+function truthy(key: string) {
+  const value = process.env[key]?.toLowerCase()
+  return value === "true" || value === "1"
+}
+
+const JYYCODE_EXPERIMENTAL = truthy("JYYCODE_EXPERIMENTAL")
+const copy = process.env["JYYCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT"]
+
+export const Flag = {
+  OTEL_EXPORTER_OTLP_ENDPOINT: process.env["OTEL_EXPORTER_OTLP_ENDPOINT"],
+  OTEL_EXPORTER_OTLP_HEADERS: process.env["OTEL_EXPORTER_OTLP_HEADERS"],
+
+  JYYCODE_AUTO_HEAP_SNAPSHOT: truthy("JYYCODE_AUTO_HEAP_SNAPSHOT"),
+  JYYCODE_GIT_BASH_PATH: process.env["JYYCODE_GIT_BASH_PATH"],
+  JYYCODE_CONFIG: process.env["JYYCODE_CONFIG"],
+  JYYCODE_CONFIG_CONTENT: process.env["JYYCODE_CONFIG_CONTENT"],
+  JYYCODE_DISABLE_AUTOUPDATE: truthy("JYYCODE_DISABLE_AUTOUPDATE"),
+  JYYCODE_ALWAYS_NOTIFY_UPDATE: truthy("JYYCODE_ALWAYS_NOTIFY_UPDATE"),
+  JYYCODE_DISABLE_PRUNE: truthy("JYYCODE_DISABLE_PRUNE"),
+  JYYCODE_DISABLE_TERMINAL_TITLE: truthy("JYYCODE_DISABLE_TERMINAL_TITLE"),
+  JYYCODE_SHOW_TTFD: truthy("JYYCODE_SHOW_TTFD"),
+  JYYCODE_DISABLE_AUTOCOMPACT: truthy("JYYCODE_DISABLE_AUTOCOMPACT"),
+  JYYCODE_DISABLE_MODELS_FETCH: truthy("JYYCODE_DISABLE_MODELS_FETCH"),
+  JYYCODE_DISABLE_MOUSE: truthy("JYYCODE_DISABLE_MOUSE"),
+  JYYCODE_FAKE_VCS: process.env["JYYCODE_FAKE_VCS"],
+  JYYCODE_SERVER_PASSWORD: process.env["JYYCODE_SERVER_PASSWORD"],
+  JYYCODE_SERVER_USERNAME: process.env["JYYCODE_SERVER_USERNAME"],
+
+  // Experimental
+  JYYCODE_EXPERIMENTAL_FILEWATCHER: Config.boolean("JYYCODE_EXPERIMENTAL_FILEWATCHER").pipe(
+    Config.withDefault(false),
+  ),
+  JYYCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: Config.boolean("JYYCODE_EXPERIMENTAL_DISABLE_FILEWATCHER").pipe(
+    Config.withDefault(false),
+  ),
+  JYYCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT:
+    copy === undefined ? process.platform === "win32" : truthy("JYYCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT"),
+  JYYCODE_MODELS_URL: process.env["JYYCODE_MODELS_URL"],
+  JYYCODE_MODELS_PATH: process.env["JYYCODE_MODELS_PATH"],
+  JYYCODE_DB: process.env["JYYCODE_DB"],
+
+  JYYCODE_WORKSPACE_ID: process.env["JYYCODE_WORKSPACE_ID"],
+  JYYCODE_EXPERIMENTAL_WORKSPACES: JYYCODE_EXPERIMENTAL || truthy("JYYCODE_EXPERIMENTAL_WORKSPACES"),
+
+  // Evaluated at access time (not module load) because tests, the CLI, and
+  // external tooling set these env vars at runtime.
+  get JYYCODE_DISABLE_PROJECT_CONFIG() {
+    return truthy("JYYCODE_DISABLE_PROJECT_CONFIG")
+  },
+  get JYYCODE_TUI_CONFIG() {
+    return process.env["JYYCODE_TUI_CONFIG"]
+  },
+  get JYYCODE_CONFIG_DIR() {
+    return process.env["JYYCODE_CONFIG_DIR"]
+  },
+  get JYYCODE_PURE() {
+    return truthy("JYYCODE_PURE")
+  },
+  get JYYCODE_PERMISSION() {
+    return process.env["JYYCODE_PERMISSION"]
+  },
+  get JYYCODE_PLUGIN_META_FILE() {
+    return process.env["JYYCODE_PLUGIN_META_FILE"]
+  },
+  get JYYCODE_CLIENT() {
+    return process.env["JYYCODE_CLIENT"] ?? "cli"
+  },
+}

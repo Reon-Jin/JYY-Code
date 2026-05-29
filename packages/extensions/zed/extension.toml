@@ -1,0 +1,36 @@
+id = "jyycode"
+name = "JYYCode"
+description = "The open source coding agent."
+version = "1.15.10"
+schema_version = 1
+authors = ["Anomaly"]
+repository = "https://github.com/anomalyco/jyycode"
+
+[agent_servers.jyycode]
+name = "JYYCode"
+icon = "./icons/jyycode.svg"
+
+[agent_servers.jyycode.targets.darwin-aarch64]
+archive = "https://github.com/anomalyco/jyycode/releases/download/v1.15.10/jyycode-darwin-arm64.zip"
+cmd = "./jyycode"
+args = ["acp"]
+
+[agent_servers.jyycode.targets.darwin-x86_64]
+archive = "https://github.com/anomalyco/jyycode/releases/download/v1.15.10/jyycode-darwin-x64.zip"
+cmd = "./jyycode"
+args = ["acp"]
+
+[agent_servers.jyycode.targets.linux-aarch64]
+archive = "https://github.com/anomalyco/jyycode/releases/download/v1.15.10/jyycode-linux-arm64.tar.gz"
+cmd = "./jyycode"
+args = ["acp"]
+
+[agent_servers.jyycode.targets.linux-x86_64]
+archive = "https://github.com/anomalyco/jyycode/releases/download/v1.15.10/jyycode-linux-x64.tar.gz"
+cmd = "./jyycode"
+args = ["acp"]
+
+[agent_servers.jyycode.targets.windows-x86_64]
+archive = "https://github.com/anomalyco/jyycode/releases/download/v1.15.10/jyycode-windows-x64.zip"
+cmd = "./jyycode.exe"
+args = ["acp"]

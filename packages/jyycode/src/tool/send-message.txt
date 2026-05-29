@@ -1,0 +1,10 @@
+Send a message to a contact via WeChat, QQ, or Email. Use this tool when you need to notify someone, share information, or communicate with contacts.
+
+CHANNELS:
+- **email**: Send an email via SMTP. Requires email configuration in jyycode.jsonc (smtpHost, smtpPort, username, password, from). Set `subject` for the email subject line. Use `cc` to carbon-copy additional recipients.
+- **wechat**: Send a message through the WeChat desktop app on Windows. The WeChat app must be running. The `to` field should be the contact's display name exactly as it appears in WeChat. This uses Windows UI automation to control the WeChat window.
+- **qq**: Send a message through the QQ desktop app on Windows. The QQ app must be running. The `to` field should be the contact's QQ number or display name. This uses Windows UI automation to control the QQ window.
+
+DEFAULTS: When the user asks to send an email and does not explicitly choose a channel or recipient, use channel `email`, send from `communication.email.from`, and send to `communication.finish.to` or `communication.inbox.owner`. Do not use the `qq` channel unless the user explicitly asks for it.
+
+IMPORTANT: For wechat and qq channels, the target application must be running and the user must be logged in. The automation will search for the contact and paste the message. Do NOT include sensitive information in messages sent via wechat/qq as the automation uses the clipboard.

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://jyycode.ai/config.json",
+  "provider": {},
+  "permission": {
+    "*": "allow"
+  },
+  "mcp": {},
+  "tools": {
+    "github-triage": false,
+    "github-pr-search": false
+  }
+  // Personal communication credentials belong in the global config:
+  // C:\Users\35027\.config\jyycode\jyycode.jsonc
+}
