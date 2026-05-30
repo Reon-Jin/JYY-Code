@@ -49,8 +49,8 @@ export const Default = {
   reviewer_model: "deepseek-v4-pro",
   complex_model: "deepseek-v4-pro",
   simple_model: "deepseek-v4-flash",
-  max_subagents: 10,
-  max_concurrency: 8,
+  max_subagents: 100,
+  max_concurrency: 10,
   max_review_rounds: 2,
   artifact_dir: ".jyycode/agent-cluster",
 } satisfies Required<Info>

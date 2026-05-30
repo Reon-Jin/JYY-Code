@@ -30,12 +30,12 @@ describe("ConfigAgentCluster.Default", () => {
     expect(ConfigAgentCluster.Default.simple_model).toBe("deepseek-v4-flash")
   })
 
-  test("max_subagents defaults to 5", () => {
-    expect(ConfigAgentCluster.Default.max_subagents).toBe(5)
+  test("max_subagents defaults to 100", () => {
+    expect(ConfigAgentCluster.Default.max_subagents).toBe(100)
   })
 
-  test("max_concurrency defaults to 8", () => {
-    expect(ConfigAgentCluster.Default.max_concurrency).toBe(8)
+  test("max_concurrency defaults to 10", () => {
+    expect(ConfigAgentCluster.Default.max_concurrency).toBe(10)
   })
 
   test("max_review_rounds defaults to 2", () => {

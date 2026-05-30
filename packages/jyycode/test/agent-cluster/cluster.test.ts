@@ -1,7 +1,39 @@
 import { describe, expect, test } from "bun:test"
 import { AgentCluster } from "../../src/agent-cluster/cluster"
+import { ClusterPrimaryPrompt, runInstructions } from "../../src/agent-cluster/planner"
 import { ConfigAgentCluster } from "../../src/config/agent-cluster"
 import type { Session } from "../../src/session/session"
+
+describe("AgentCluster planner instructions", () => {
+  test("describe dependency steps as parallel dispatch waves", () => {
+    expect(ClusterPrimaryPrompt).toContain("A step is a dispatch wave")
+    expect(ClusterPrimaryPrompt).toContain("step i must depend only on results from steps 1 through i-1")
+    expect(ClusterPrimaryPrompt).toContain("Step 1 has no prior results")
+    expect(ClusterPrimaryPrompt).toContain("multiple planned steps have no dependency path")
+    expect(ClusterPrimaryPrompt).not.toContain("ANTI-PATTERN")
+  })
+
+  test("inject runtime scheduling rules and step metadata into the run instructions", () => {
+    const text = runInstructions({
+      runID: "run-1",
+      artifactDir: "/tmp/artifacts",
+      simpleModel: "provider/simple",
+      complexModel: "provider/complex",
+      reviewerModel: "provider/reviewer",
+      maxSubagents: 100,
+      maxConcurrency: 10,
+      maxReviewRounds: 2,
+    })
+
+    expect(text).toContain("max_subagents: 100")
+    expect(text).toContain("max_concurrency: 10")
+    expect(text).toContain("Step 1 tasks have dependencies=[]")
+    expect(text).toContain("tasks in the same step must not depend on each other")
+    expect(text).toContain("A single dependency step must not exceed max_concurrency")
+    expect(text).toContain('"step":1')
+    expect(text).toContain("treat them as ready together")
+  })
+})
 
 describe("AgentCluster.isMailSession", () => {
   test("returns true for mail session title with Email: prefix", () => {
