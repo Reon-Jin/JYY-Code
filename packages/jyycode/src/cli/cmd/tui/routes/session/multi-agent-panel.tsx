@@ -2,13 +2,17 @@ import { createMemo, For, Show } from "solid-js"
 import type { ToolPart } from "@jyycode-ai/sdk/v2"
 import { useSync } from "../../context/sync"
 import { useTheme } from "../../context/theme"
+import { useTuiConfig } from "../../context/tui-config"
+import { getScrollAcceleration } from "../../util/scroll"
 import { Locale } from "@/util/locale"
+
+type RowStatus = "queued" | "running" | "done" | "failed"
 
 type Row = {
   index: number
   role: string
   model: string
-  status: string
+  status: RowStatus
   task: string
   sessionID?: string
 }
@@ -38,6 +42,10 @@ function taskSessionID(part: ToolPart) {
   return text(metadata(part)?.sessionId) ?? text(metadata(part)?.sessionID)
 }
 
+function isBackgroundTask(part: ToolPart) {
+  return metadata(part)?.background === true
+}
+
 function modelLabel(part: ToolPart) {
   const model = metadata(part)?.model
   if (record(model)) {
@@ -48,36 +56,111 @@ function modelLabel(part: ToolPart) {
   return text(stateInput(part)?.model) ?? "-"
 }
 
-function taskStatus(part: ToolPart) {
-  if (part.state.status === "completed") return "submitted"
+function taskStatus(part: ToolPart, childStatus?: RowStatus) {
+  if (part.state.status === "completed") return isBackgroundTask(part) ? (childStatus ?? "running") : "done"
   if (part.state.status === "error") return "failed"
   if (part.state.status === "running") return "running"
   return "queued"
 }
 
+function outputStatus(state: string): RowStatus | undefined {
+  if (state === "completed") return "done"
+  if (state === "running") return "running"
+  if (state === "error" || state === "cancelled") return "failed"
+}
+
+function parseTaskOutputStatus(value: string) {
+  const taskID = value.match(/^task_id:\s*(\S+)/m)?.[1]
+  const state = value.match(/^state:\s*(\S+)/m)?.[1]
+  const status = state ? outputStatus(state) : undefined
+  if (!taskID || !status) return
+  return { taskID, status }
+}
+
 export function MultiAgentPanel(props: { sessionID: string; enabled: boolean; disabled: boolean }) {
   const sync = useSync()
   const { theme } = useTheme()
+  const tuiConfig = useTuiConfig()
+  const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
   const messages = createMemo(() => sync.data.message[props.sessionID] ?? [])
+  const taskStatusByID = createMemo(() => {
+    const out = new Map<string, RowStatus>()
+
+    for (const message of messages()) {
+      for (const part of sync.data.part[message.id] ?? []) {
+        if (part.type !== "tool" || part.tool !== "task_status") {
+          if (part.type === "text") {
+            const parsed = parseTaskOutputStatus(part.text)
+            if (parsed) out.set(parsed.taskID, parsed.status)
+          }
+          continue
+        }
+
+        const meta = metadata(part)
+        const taskID = text(meta?.task_id)
+        const state = text(meta?.state)
+        const status = state ? outputStatus(state) : undefined
+        if (taskID && status) out.set(taskID, status)
+      }
+    }
+
+    return out
+  })
+  const childStatus = (sessionID: string | undefined): RowStatus | undefined => {
+    if (!sessionID) {
+      return
+    }
+
+    const explicit = taskStatusByID().get(sessionID)
+    if (explicit) {
+      return explicit
+    }
+
+    const sessionStatus = sync.data.session_status[sessionID]
+    if (sessionStatus?.type === "busy" || sessionStatus?.type === "retry") {
+      return "running"
+    }
+
+    const childMessages = sync.data.message[sessionID] ?? []
+    const latestAssistant = childMessages.findLast((message) => message.role === "assistant")
+    if (latestAssistant?.error) {
+      return "failed"
+    }
+    if (
+      latestAssistant?.time.completed &&
+      latestAssistant.finish &&
+      !["tool-calls", "unknown"].includes(latestAssistant.finish)
+    ) {
+      return "done"
+    }
+    if (childMessages.length > 0) {
+      return "running"
+    }
+
+    return undefined
+  }
   const rows = createMemo<Row[]>(() =>
     messages()
       .flatMap((message) =>
         (sync.data.part[message.id] ?? [])
           .filter((part): part is ToolPart => part.type === "tool" && part.tool === "task")
-          .map((part, index) => ({
-            index: index + 1,
-            role: Locale.titlecase(text(stateInput(part)?.subagent_type) ?? "general"),
-            model: modelLabel(part),
-            status: taskStatus(part),
-            task: Locale.truncate(text(stateInput(part)?.description) ?? text(stateInput(part)?.prompt) ?? "", 48),
-            sessionID: taskSessionID(part),
-          })),
+          .map((part) => {
+            const sessionID = taskSessionID(part)
+            return {
+              role: Locale.titlecase(text(stateInput(part)?.subagent_type) ?? "general"),
+              model: modelLabel(part),
+              status: taskStatus(part, childStatus(sessionID)),
+              task: Locale.truncate(text(stateInput(part)?.description) ?? text(stateInput(part)?.prompt) ?? "", 48),
+              sessionID,
+            }
+          }),
       )
-      .slice(-12),
+      .map((row, index) => ({ ...row, index: index + 1 })),
   )
   const active = createMemo(() => rows().some((row) => row.status === "running" || row.status === "queued"))
-  const done = createMemo(() => rows().filter((row) => row.status === "submitted").length)
+  const done = createMemo(() => rows().filter((row) => row.status === "done").length)
   const failed = createMemo(() => rows().filter((row) => row.status === "failed").length)
+  const visibleRows = createMemo(() => Math.min(rows().length, 12))
   const status = createMemo(() => {
     if (props.disabled) return "disabled"
     if (!props.enabled && rows().length === 0) return "off"
@@ -97,7 +180,12 @@ export function MultiAgentPanel(props: { sessionID: string; enabled: boolean; di
           </span>
         </text>
         <Show when={rows().length > 0}>
-          <box flexDirection="column" paddingLeft={1}>
+          <scrollbox
+            height={visibleRows()}
+            paddingLeft={1}
+            scrollbarOptions={{ visible: false }}
+            scrollAcceleration={scrollAcceleration()}
+          >
             <For each={rows()}>
               {(row) => (
                 <text fg={row.status === "failed" ? theme.error : row.status === "running" ? theme.warning : theme.text}>
@@ -107,7 +195,7 @@ export function MultiAgentPanel(props: { sessionID: string; enabled: boolean; di
                 </text>
               )}
             </For>
-          </box>
+          </scrollbox>
         </Show>
       </box>
     </Show>
