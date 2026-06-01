@@ -25,6 +25,9 @@ export const Info = Schema.Struct({
   simple_model: Schema.optional(Schema.String).annotate({
     description: "Default model for simple cluster tasks.",
   }),
+  visual_model: Schema.optional(Schema.String).annotate({
+    description: "Model used for visual, layout, image-search, chart, and document production tasks.",
+  }),
   max_subagents: Schema.optional(PositiveInt).annotate({
     description: "Maximum number of subagents a cluster run may dispatch.",
   }),
@@ -48,7 +51,8 @@ export const Default = {
   planner_model: "deepseek-v4-pro",
   reviewer_model: "deepseek-v4-pro",
   complex_model: "deepseek-v4-pro",
-  simple_model: "deepseek-v4-flash",
+  simple_model: "deepseek-v4-pro",
+  visual_model: "mimo-v2.5",
   max_subagents: 100,
   max_concurrency: 10,
   max_review_rounds: 2,

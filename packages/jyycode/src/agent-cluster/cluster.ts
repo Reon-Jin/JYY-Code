@@ -28,6 +28,7 @@ type ClusterModels = {
   reviewer: ModelRef
   simple: ModelRef
   complex: ModelRef
+  visual: ModelRef
 }
 
 export function isMailSession(session: Pick<Session.Info, "title" | "agent" | "path">) {
@@ -78,6 +79,7 @@ export const resolveModels = Effect.fn("AgentCluster.resolveModels")(function* (
       reviewer: resolveModelRef(resolved.reviewer_model),
       simple: resolveModelRef(resolved.simple_model),
       complex: resolveModelRef(resolved.complex_model),
+      visual: resolveModelRef(resolved.visual_model),
     },
     { concurrency: "unbounded" },
   )
@@ -115,6 +117,7 @@ export function decoratePromptInput(input: {
           artifactDir: artifactDir({ session: input.session, config }),
           simpleModel: formatModel(input.models.simple),
           complexModel: formatModel(input.models.complex),
+          visualModel: formatModel(input.models.visual),
           reviewerModel: formatModel(input.models.reviewer),
           maxSubagents: config.max_subagents,
           maxConcurrency: config.max_concurrency,

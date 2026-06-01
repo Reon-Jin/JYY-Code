@@ -19,6 +19,7 @@ describe("AgentCluster planner instructions", () => {
       artifactDir: "/tmp/artifacts",
       simpleModel: "provider/simple",
       complexModel: "provider/complex",
+      visualModel: "provider/visual",
       reviewerModel: "provider/reviewer",
       maxSubagents: 100,
       maxConcurrency: 10,
@@ -32,6 +33,8 @@ describe("AgentCluster planner instructions", () => {
     expect(text).toContain("A single dependency step must not exceed max_concurrency")
     expect(text).toContain('"step":1')
     expect(text).toContain("treat them as ready together")
+    expect(text).toContain("visual_model: provider/visual")
+    expect(text).toContain("PDF/PPT/DOCX layout")
   })
 })
 

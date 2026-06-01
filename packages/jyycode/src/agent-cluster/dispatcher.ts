@@ -1,6 +1,13 @@
 import type { Complexity, TaskRole } from "./schema"
 
-export function modelForComplexity(input: { complexity: Complexity; simpleModel: string; complexModel: string }) {
+export function modelForComplexity(input: {
+  complexity: Complexity
+  simpleModel: string
+  complexModel: string
+  visualModel?: string
+  role?: TaskRole
+}) {
+  if (input.visualModel && (input.role === "chart" || input.role === "pdf")) return input.visualModel
   return input.complexity === "simple" ? input.simpleModel : input.complexModel
 }
 
