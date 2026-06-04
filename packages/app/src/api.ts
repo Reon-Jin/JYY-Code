@@ -20,6 +20,7 @@ type LegacySession = {
   agent?: string
   model?: { id?: string; providerID?: string; variant?: string }
   multiAgent?: boolean
+  permission?: PermissionRule[]
   summary?: { additions?: number; deletions?: number; files?: number; diffs?: SnapshotDiff[] }
   time: { created: number; updated: number; archived?: number; compacting?: number }
 }
@@ -93,6 +94,25 @@ type Todo = {
   priority: string
 }
 
+export type PermissionRule = {
+  permission: string
+  pattern: string
+  action: "allow" | "deny" | "ask"
+}
+
+export type PermissionRequest = {
+  id: string
+  sessionID: string
+  permission: string
+  patterns: string[]
+  metadata: Record<string, unknown>
+  always: string[]
+  tool?: {
+    messageID: string
+    callID: string
+  }
+}
+
 export type SelectedModel = {
   value: string
   providerID: string
@@ -119,6 +139,10 @@ export class ApiClient {
     return sessions.map(toSessionInfo)
   }
 
+  async session(sessionID: string) {
+    return toSessionInfo(await this.get<LegacySession>(`/session/${sessionID}`))
+  }
+
   async createSession(input: { title?: string; model?: SelectedModel; agent?: string; multiAgent?: boolean }) {
     const body = {
       title: input.title,
@@ -131,8 +155,12 @@ export class ApiClient {
     return toSessionInfo(await this.post<LegacySession>("/session", body))
   }
 
-  async updateSession(sessionID: string, input: { multiAgent?: boolean; title?: string }) {
+  async updateSession(sessionID: string, input: { multiAgent?: boolean; title?: string; permission?: PermissionRule[] }) {
     return toSessionInfo(await this.patch<LegacySession>(`/session/${sessionID}`, input))
+  }
+
+  async permissions() {
+    return this.get<PermissionRequest[]>("/permission")
   }
 
   async messages(sessionID: string) {
@@ -180,12 +208,12 @@ export class ApiClient {
     await this.postNoContent(`/session/${sessionID}/abort`, undefined)
   }
 
-  async replyPermission(sessionID: string, permissionID: string, response: "allow" | "deny") {
-    await this.postNoContent(`/session/${sessionID}/permissions/${permissionID}`, { response })
+  async replyPermission(permissionID: string, reply: "once" | "always" | "reject", message?: string) {
+    await this.postNoContent(`/permission/${permissionID}/reply`, { reply, message })
   }
 
   eventUrl() {
-    return this.url("/event")
+    return this.url("/global/event")
   }
 
   private async get<T>(path: string, query?: Record<string, string>) {
@@ -246,19 +274,25 @@ export function toModelValue(model: { providerID: string; modelID?: string; id?:
 export function toModels(list: ProviderList): ModelInfo[] {
   const connected = new Set(list.connected ?? [])
   const models = list.all.flatMap((provider) =>
-    Object.values(provider.models).flatMap((model) => {
-      const variants = model.variants && Object.keys(model.variants).length > 0 ? Object.keys(model.variants) : [""]
-      return variants.map((variant) => ({
-        id: toModelValue({ providerID: provider.id, modelID: model.id, variant: variant || undefined }),
+    Object.values(provider.models).map((model) => {
+      const supportsReasoning = Boolean(model.capabilities?.reasoning)
+      const variants = model.variants
+        ? Object.keys(model.variants).filter((variant) => variant !== "default")
+        : supportsReasoning
+          ? ["low", "medium", "high"]
+          : []
+      return {
+        id: toModelValue({ providerID: provider.id, modelID: model.id }),
         modelID: model.id,
         providerID: provider.id,
-        name: variant ? `${model.name} · ${variant}` : model.name,
+        name: model.name,
         provider: provider.name || provider.id,
         maxTokens: model.limit?.context ?? 0,
-        supportsReasoning: Boolean(model.capabilities?.reasoning),
+        supportsReasoning,
         supportsTools: model.capabilities?.toolcall !== false,
         connected: connected.has(provider.id),
-      }))
+        variants,
+      }
     }),
   )
 
@@ -311,31 +345,45 @@ export function appendPartDelta(message: Message | undefined, input: { messageID
 }
 
 function toPart(part: LegacyPart): MessagePart | undefined {
-  if (part.type === "text") return { id: part.id, type: "text", content: part.text }
-  if (part.type === "reasoning") return { id: part.id, type: "reasoning", content: part.text, collapsed: false }
+  if (part.type === "text") {
+    const text = part as Extract<LegacyPart, { type: "text" }>
+    return { id: text.id, type: "text", content: text.text }
+  }
+  if (part.type === "reasoning") {
+    const reasoning = part as Extract<LegacyPart, { type: "reasoning" }>
+    return { id: reasoning.id, type: "reasoning", content: reasoning.text, collapsed: false }
+  }
   if (part.type === "tool") {
-    const state = part.state
+    const tool = part as Extract<LegacyPart, { type: "tool" }>
+    const state = tool.state
     return {
-      id: part.id,
+      id: tool.id,
       type: "tool_call",
-      toolName: normalizeToolName(part.tool),
+      toolName: normalizeToolName(tool.tool),
       toolInput: "input" in state && state.input ? state.input : {},
       toolOutput: "output" in state ? state.output : "error" in state ? state.error : undefined,
       status: state.status,
-      elapsed:
-        "time" in state && state.time?.start && state.time.end ? (state.time.end - state.time.start) / 1000 : undefined,
+      elapsed: elapsedFromState(state),
     }
   }
   if (part.type === "subtask") {
+    const subtask = part as Extract<LegacyPart, { type: "subtask" }>
     return {
-      id: part.id,
+      id: subtask.id,
       type: "tool_call",
       toolName: "task",
-      toolInput: { agent: part.agent, description: part.description, prompt: part.prompt },
+      toolInput: { agent: subtask.agent, description: subtask.description, prompt: subtask.prompt },
       status: "running",
     }
   }
   return undefined
+}
+
+function elapsedFromState(state: Extract<LegacyPart, { type: "tool" }>["state"]) {
+  if (!("time" in state)) return undefined
+  const time = state.time as { start?: number; end?: number } | undefined
+  if (!time?.start || !time.end) return undefined
+  return (time.end - time.start) / 1000
 }
 
 function partKey(part: MessagePart) {
@@ -363,8 +411,10 @@ function toSessionInfo(session: LegacySession): SessionInfo {
     id: session.id,
     title: cleanTitle(session.title),
     projectId: session.projectID ?? session.directory,
-    model: session.model ? toModelValue(session.model) : "",
+    model: session.model?.providerID ? toModelValue(session.model as { providerID: string; id?: string; variant?: string }) : "",
     agent: session.agent ?? "build",
+    multiAgent: session.multiAgent,
+    permission: session.permission,
     status: session.time.compacting ? "running" : "idle",
     createdAt: session.time.created,
     updatedAt: session.time.updated,

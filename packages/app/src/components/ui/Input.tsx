@@ -22,44 +22,43 @@ export function Input(props: InputProps) {
 
   const labelStyle: JSX.CSSProperties = {
     'font-size': '14px',
-    'font-weight': '600',
-    color: 'var(--color-text-primary)',
-    'letter-spacing': '-0.224px',
+    'font-weight': '500',
+    color: 'var(--clr-stone-gray)',
   }
 
   const inputStyle: JSX.CSSProperties = {
     width: '100%',
-    background: isSearch ? 'var(--color-filter-bg)' : 'var(--color-white)',
-    color: 'var(--color-text-primary)',
+    background: isSearch
+      ? 'var(--color-filter-bg)'
+      : 'var(--clr-dark-surface)',
+    color: 'var(--clr-ivory)',
     border: hasError
-      ? '1px solid #ff3b30'
+      ? '1px solid var(--clr-error)'
       : focused()
-        ? '1px solid var(--color-blue-apple)'
-        : isSearch
-          ? '3px solid rgba(0,0,0,0.04)'
-          : '1px solid #d2d2d7',
-    padding: isSearch ? '6px 14px' : '10px 14px',
+        ? '1px solid var(--clr-focus-blue)'
+        : '1px solid var(--clr-border-dark)',
+    padding: '10px 14px',
     'border-radius': isSearch
-      ? 'var(--radius-search)'
-      : 'var(--radius-standard)',
-    'font-family': 'var(--font-text)',
-    'font-size': '17px',
+      ? 'var(--radius-generous)'
+      : 'var(--radius-generous)',
+    'font-family': 'var(--font-sans)',
+    'font-size': '16px',
     'font-weight': '400',
-    'line-height': '1.47',
-    'letter-spacing': '-0.374px',
+    'line-height': '1.60',
     outline: 'none',
     transition: 'border-color 0.15s, box-shadow 0.15s',
     'box-sizing': 'border-box',
-    'box-shadow': focused() && !hasError
-      ? '0 0 0 3px rgba(0,113,227,0.2)'
-      : hasError
-        ? '0 0 0 3px rgba(255,59,48,0.2)'
-        : 'none',
+    'box-shadow':
+      focused() && !hasError
+        ? '0 0 0 3px rgba(56, 152, 236, 0.25)'
+        : hasError
+          ? '0 0 0 3px rgba(181, 51, 51, 0.20)'
+          : 'none',
   }
 
   const errorStyle: JSX.CSSProperties = {
-    'font-size': '11px',
-    color: '#ff3b30',
+    'font-size': '12px',
+    color: 'var(--clr-error)',
     'margin-top': '4px',
   }
 
@@ -79,7 +78,7 @@ export function Input(props: InputProps) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  TextArea                                                           */
+/*  TextArea                                                            */
 /* ------------------------------------------------------------------ */
 
 interface TextAreaProps
@@ -103,42 +102,41 @@ export function TextArea(props: TextAreaProps) {
 
   const labelStyle: JSX.CSSProperties = {
     'font-size': '14px',
-    'font-weight': '600',
-    color: 'var(--color-text-primary)',
-    'letter-spacing': '-0.224px',
+    'font-weight': '500',
+    color: 'var(--clr-stone-gray)',
   }
 
   const textareaStyle: JSX.CSSProperties = {
     width: '100%',
     'min-height': '80px',
-    background: 'var(--color-white)',
-    color: 'var(--color-text-primary)',
+    background: 'var(--clr-dark-surface)',
+    color: 'var(--clr-ivory)',
     border: hasError
-      ? '1px solid #ff3b30'
+      ? '1px solid var(--clr-error)'
       : focused()
-        ? '1px solid var(--color-blue-apple)'
-        : '1px solid #d2d2d7',
+        ? '1px solid var(--clr-focus-blue)'
+        : '1px solid var(--clr-border-dark)',
     padding: '10px 14px',
-    'border-radius': 'var(--radius-standard)',
-    'font-family': 'var(--font-text)',
-    'font-size': '17px',
+    'border-radius': 'var(--radius-generous)',
+    'font-family': 'var(--font-sans)',
+    'font-size': '16px',
     'font-weight': '400',
-    'line-height': '1.47',
-    'letter-spacing': '-0.374px',
+    'line-height': '1.60',
     outline: 'none',
     resize: 'vertical',
     transition: 'border-color 0.15s, box-shadow 0.15s',
     'box-sizing': 'border-box',
-    'box-shadow': focused() && !hasError
-      ? '0 0 0 3px rgba(0,113,227,0.2)'
-      : hasError
-        ? '0 0 0 3px rgba(255,59,48,0.2)'
-        : 'none',
+    'box-shadow':
+      focused() && !hasError
+        ? '0 0 0 3px rgba(56, 152, 236, 0.25)'
+        : hasError
+          ? '0 0 0 3px rgba(181, 51, 51, 0.20)'
+          : 'none',
   }
 
   const errorStyle: JSX.CSSProperties = {
-    'font-size': '11px',
-    color: '#ff3b30',
+    'font-size': '12px',
+    color: 'var(--clr-error)',
     'margin-top': '4px',
   }
 

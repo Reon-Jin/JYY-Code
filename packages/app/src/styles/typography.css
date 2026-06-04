@@ -1,160 +1,269 @@
 /* ============================================================
-   Apple Typography Scale
+   Claude Typography Scale
    All values derived from DESIGN.md §3 Typography Rules table
+   Serif for headlines, Sans for UI, Mono for code
    ============================================================ */
 
 /* -----------------------------------------------------
-   Display Hero — 56px
-   Product launch headlines, maximum impact
+   Display Hero — 64px
+   Maximum impact, book-title presence
+   Font: Anthropic Serif (Georgia fallback)
    ----------------------------------------------------- */
 .text-display-hero {
-  font-family: var(--font-display);
-  font-size: 56px;
-  font-weight: 600;
-  line-height: 1.07;
-  letter-spacing: -0.28px;
+  font-family: var(--font-serif);
+  font-size: 64px;
+  font-weight: 500;
+  line-height: 1.10;
+  letter-spacing: normal;
 }
 
 /* -----------------------------------------------------
-   Section Heading — 40px
-   Feature section titles
+   Section Heading — 52px
+   Feature section anchors
+   Font: Anthropic Serif (Georgia fallback)
    ----------------------------------------------------- */
 .text-section-heading {
-  font-family: var(--font-display);
-  font-size: 40px;
-  font-weight: 600;
+  font-family: var(--font-serif);
+  font-size: 52px;
+  font-weight: 500;
+  line-height: 1.20;
+  letter-spacing: normal;
+}
+
+/* -----------------------------------------------------
+   Sub-heading Large — 36px
+   Secondary section markers
+   Font: Anthropic Serif (Georgia fallback)
+   ----------------------------------------------------- */
+.text-subheading-large {
+  font-family: var(--font-serif);
+  font-size: 36px;
+  font-weight: 500;
+  line-height: 1.30;
+  letter-spacing: normal;
+}
+
+/* -----------------------------------------------------
+   Sub-heading — 32px
+   Card titles, feature names
+   Font: Anthropic Serif (Georgia fallback)
+   ----------------------------------------------------- */
+.text-subheading {
+  font-family: var(--font-serif);
+  font-size: 32px;
+  font-weight: 500;
   line-height: 1.10;
+  letter-spacing: normal;
 }
 
 /* -----------------------------------------------------
-   Section Label — 12px
-   Small uppercase labels above sections
+   Sub-heading Small — 25px
+   Smaller section titles
+   Font: Anthropic Serif (Georgia fallback)
    ----------------------------------------------------- */
-.text-section-label {
-  font-family: var(--font-text);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.text-subheading-small {
+  font-family: var(--font-serif);
+  font-size: 25px;
+  font-weight: 500;
+  line-height: 1.20;
+  letter-spacing: normal;
 }
 
 /* -----------------------------------------------------
-   Tile Heading — 28px
-   Product tile headlines
+   Feature Title — 21px
+   Small feature headings
+   Font: Anthropic Serif (Georgia fallback)
    ----------------------------------------------------- */
-.text-tile-heading {
-  font-family: var(--font-display);
-  font-size: 28px;
-  font-weight: 400;
-  line-height: 1.14;
-  letter-spacing: 0.196px;
-}
-
-/* -----------------------------------------------------
-   Card Title Bold — 21px / 700
-   Bold card headings
-   ----------------------------------------------------- */
-.text-card-title-bold {
-  font-family: var(--font-display);
+.text-feature-title {
+  font-family: var(--font-serif);
   font-size: 21px;
-  font-weight: 700;
-  line-height: 1.19;
+  font-weight: 500;
+  line-height: 1.20;
   letter-spacing: 0.231px;
 }
 
 /* -----------------------------------------------------
-   Card Title — 21px / 400
-   Regular card headings (Sub-heading)
+   Body Serif — 17px
+   Editorial passages, literary reading
+   Font: Anthropic Serif (Georgia fallback)
    ----------------------------------------------------- */
-.text-card-title {
-  font-family: var(--font-display);
-  font-size: 21px;
+.text-body-serif {
+  font-family: var(--font-serif);
+  font-size: 17px;
   font-weight: 400;
-  line-height: 1.19;
-  letter-spacing: 0.231px;
+  line-height: 1.60;
+  letter-spacing: normal;
 }
 
 /* -----------------------------------------------------
-   Body — 17px / 400
-   Standard reading text
+   Body Large — 20px
+   Intro paragraphs
+   Font: Anthropic Sans (Arial fallback)
+   ----------------------------------------------------- */
+.text-body-large {
+  font-family: var(--font-sans);
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.60;
+  letter-spacing: normal;
+}
+
+/* -----------------------------------------------------
+   Body — 16px
+   Standard body, button text
+   Font: Anthropic Sans (Arial fallback)
    ----------------------------------------------------- */
 .text-body {
-  font-family: var(--font-text);
-  font-size: 17px;
+  font-family: var(--font-sans);
+  font-size: 16px;
   font-weight: 400;
-  line-height: 1.47;
-  letter-spacing: -0.374px;
+  line-height: 1.60;
+  letter-spacing: normal;
 }
 
 /* -----------------------------------------------------
-   Body Emphasis — 17px / 600
-   Emphasized body text, labels
+   Body Small — 15px
+   Compact body text
+   Font: Anthropic Sans (Arial fallback)
    ----------------------------------------------------- */
-.text-body-emphasis {
-  font-family: var(--font-text);
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.24;
-  letter-spacing: -0.374px;
+.text-body-small {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.60;
+  letter-spacing: normal;
 }
 
 /* -----------------------------------------------------
-   Link — 14px / 400
-   Body links, "Learn more"
+   Caption — 14px
+   Metadata, descriptions
+   Font: Anthropic Sans (Arial fallback)
    ----------------------------------------------------- */
-.text-link {
-  font-family: var(--font-text);
+.text-caption {
+  font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 400;
   line-height: 1.43;
-  letter-spacing: -0.224px;
+  letter-spacing: normal;
 }
 
 /* -----------------------------------------------------
-   Caption — 14px / 400
-   Secondary text, descriptions
+   Label — 12px
+   Badges, small labels
+   Font: Anthropic Sans (Arial fallback)
    ----------------------------------------------------- */
-.text-caption {
-  font-family: var(--font-text);
+.text-label {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.60;
+  letter-spacing: 0.12px;
+}
+
+/* -----------------------------------------------------
+   Overline — 10px
+   Uppercase overline labels
+   Font: Anthropic Sans (Arial fallback)
+   ----------------------------------------------------- */
+.text-overline {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.60;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* -----------------------------------------------------
+   Micro — 9.6px
+   Smallest text
+   Font: Anthropic Sans (Arial fallback)
+   ----------------------------------------------------- */
+.text-micro {
+  font-family: var(--font-sans);
+  font-size: 9.6px;
+  font-weight: 400;
+  line-height: 1.60;
+  letter-spacing: 0.096px;
+}
+
+/* -----------------------------------------------------
+   Code — 15px
+   Inline code, terminal
+   Font: Anthropic Mono (SFMono fallback)
+   ----------------------------------------------------- */
+.text-code {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.60;
+  letter-spacing: -0.32px;
+}
+
+/* -----------------------------------------------------
+   Backward-compatible aliases (for existing component usage)
+   ----------------------------------------------------- */
+.text-card-title {
+  font-family: var(--font-serif);
+  font-size: 25px;
+  font-weight: 500;
+  line-height: 1.20;
+  letter-spacing: normal;
+}
+
+.text-card-title-bold {
+  font-family: var(--font-serif);
+  font-size: 25px;
+  font-weight: 500;
+  line-height: 1.20;
+  letter-spacing: normal;
+}
+
+.text-tile-heading {
+  font-family: var(--font-serif);
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 1.10;
+  letter-spacing: normal;
+}
+
+.text-link {
+  font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 400;
-  line-height: 1.29;
-  letter-spacing: -0.224px;
+  line-height: 1.43;
+  letter-spacing: normal;
 }
 
-/* -----------------------------------------------------
-   Caption Bold — 14px / 600
-   Emphasized captions
-   ----------------------------------------------------- */
 .text-caption-bold {
-  font-family: var(--font-text);
+  font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 600;
   line-height: 1.29;
-  letter-spacing: -0.224px;
+  letter-spacing: normal;
 }
 
-/* -----------------------------------------------------
-   Micro — 12px / 400
-   Fine print, footnotes
-   ----------------------------------------------------- */
-.text-micro {
-  font-family: var(--font-text);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.33;
-  letter-spacing: -0.12px;
-}
-
-/* -----------------------------------------------------
-   Nano — 10px / 400
-   Legal text, smallest size
-   ----------------------------------------------------- */
 .text-nano {
-  font-family: var(--font-text);
+  font-family: var(--font-sans);
   font-size: 10px;
   font-weight: 400;
   line-height: 1.47;
   letter-spacing: -0.08px;
+}
+
+.text-body-emphasis {
+  font-family: var(--font-sans);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.24;
+  letter-spacing: normal;
+}
+
+.text-section-label {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }

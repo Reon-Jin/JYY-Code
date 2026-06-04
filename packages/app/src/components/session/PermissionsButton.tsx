@@ -1,4 +1,4 @@
-import { createSignal, For } from 'solid-js'
+import { createEffect, createSignal, For } from 'solid-js'
 import { Popover } from '../ui/Popover'
 import { Toggle } from '../ui/Toggle'
 import type { PermissionRule } from '../../types/models'
@@ -11,26 +11,36 @@ interface Props {
 const allTools = [
   { name: 'read', label: 'Read files' },
   { name: 'write', label: 'Write files' },
-  { name: 'shell', label: 'Run commands' },
-  { name: 'web_fetch', label: 'Network access' },
+  { name: 'bash', label: 'Run commands' },
+  { name: 'webfetch', label: 'Fetch URLs' },
+  { name: 'websearch', label: 'Search web' },
   { name: 'edit', label: 'Edit code' },
+  { name: 'task', label: 'Subagents' },
 ]
 
 export function PermissionsButton(props: Props) {
   const [rules, setRules] = createSignal(props.rules)
 
+  createEffect(() => {
+    setRules(props.rules)
+  })
+
   function handleToggle(toolName: string) {
     const current = rules()
-    const existing = current.find((rule) => rule.toolName === toolName)
-    const nextPolicy = existing?.policy === 'allow' ? 'ask' : 'allow'
-    const nextRules = [...current.filter((rule) => rule.toolName !== toolName), { toolName, policy: nextPolicy }]
+    const existing = current.find((rule) => rule.permission === toolName && rule.pattern === '*')
+    const nextAction = existing?.action === 'allow' ? 'ask' : 'allow'
+    const nextRule: PermissionRule = { permission: toolName, pattern: '*', action: nextAction }
+    const nextRules = [
+      ...current.filter((rule) => !(rule.permission === toolName && rule.pattern === '*')),
+      ...(nextAction === 'ask' ? [] : [nextRule]),
+    ]
 
     setRules(nextRules)
     props.onChange(nextRules)
   }
 
   function getPolicy(toolName: string): 'allow' | 'deny' | 'ask' {
-    return rules().find((rule) => rule.toolName === toolName)?.policy || 'ask'
+    return rules().find((rule) => rule.permission === toolName && rule.pattern === '*')?.action || 'ask'
   }
 
   return (
@@ -44,6 +54,7 @@ export function PermissionsButton(props: Props) {
     >
       <div class="permission-popover">
         <h4>Tool Permissions</h4>
+        <p>Rules apply to the current session.</p>
         <For each={allTools}>
           {(tool) => (
             <div class="permission-row">

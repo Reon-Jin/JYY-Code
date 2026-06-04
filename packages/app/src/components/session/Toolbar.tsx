@@ -16,6 +16,7 @@ interface ToolbarProps {
   onPermissionChange: (rules: PermissionRule[]) => void
   thinkingDepth: number
   onThinkingDepthChange: (depth: number) => void
+  thinkingVariants?: string[]
   sessionTitle?: string
   connected?: boolean
 }
@@ -33,7 +34,11 @@ export function Toolbar(props: ToolbarProps) {
       <MultiAgentToggle enabled={props.multiAgent} onChange={props.onMultiAgentChange} />
       <FileUploadButton onSelect={props.onFileSelect} />
       <PermissionsButton rules={props.permissions} onChange={props.onPermissionChange} />
-      <ThinkingDepthSlider value={props.thinkingDepth} onChange={props.onThinkingDepthChange} />
+      <ThinkingDepthSlider
+        value={props.thinkingDepth}
+        onChange={props.onThinkingDepthChange}
+        variants={props.thinkingVariants}
+      />
       <ModelSelector selected={props.model} models={props.models} onChange={props.onModelChange} />
     </header>
   )

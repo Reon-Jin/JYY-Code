@@ -10,6 +10,11 @@ type EventEnvelope = {
   properties: Record<string, any>
 }
 
+type GlobalEnvelope = {
+  directory?: string
+  payload?: EventEnvelope
+}
+
 export function useSSE() {
   const appState = useAppState()
   const [connected, setConnected] = createSignal(false)
@@ -20,14 +25,18 @@ export function useSSE() {
     if (!appState.baseUrl) return
     disconnect()
 
-    const url = new URL("/event", appState.baseUrl)
+    const url = new URL("/global/event", appState.baseUrl)
     if (appState.activeWorkspaceDir) url.searchParams.set("directory", appState.activeWorkspaceDir)
     eventSource = new EventSource(url.toString())
 
     eventSource.onopen = () => setConnected(true)
     eventSource.onmessage = (event) => {
       try {
-        handleEvent(JSON.parse(event.data), sessionId)
+        const data = JSON.parse(event.data) as EventEnvelope | GlobalEnvelope
+        if ("directory" in data && data.directory && appState.activeWorkspaceDir && data.directory !== appState.activeWorkspaceDir) {
+          return
+        }
+        handleEvent(("payload" in data && data.payload ? data.payload : data) as EventEnvelope, sessionId)
       } catch (err) {
         console.warn("SSE parse error:", err)
       }
@@ -102,25 +111,53 @@ function handleEvent(event: EventEnvelope, sessionId: string) {
       if (status !== "running") sessionActions.setStreamingMessageId(null)
       break
     }
+    case "session.updated": {
+      const info = props.info ?? {}
+      const status = info.time?.compacting ? "running" : "idle"
+      appActions.updateSession(props.sessionID, {
+        title: info.title,
+        model: info.model ? `${info.model.providerID}/${info.model.id ?? info.model.modelID}${info.model.variant ? `::${info.model.variant}` : ""}` : undefined,
+        agent: info.agent,
+        multiAgent: info.multiAgent ?? undefined,
+        permission: info.permission ?? undefined,
+        status,
+        updatedAt: info.time?.updated,
+      })
+      break
+    }
     case "permission.asked": {
       const part: PermissionRequestPart = {
         id: props.id,
         type: "permission_request",
-        toolName: props.tool?.tool ?? "tool",
-        message: props.title ?? props.message ?? "Permission required",
+        toolName: props.permission ?? "tool",
+        message: permissionMessage(props),
         status: "pending",
+        patterns: props.patterns,
+        always: props.always,
+        metadata: props.metadata,
       }
       const messageID = props.tool?.messageID ?? `permission-${props.id}`
       sessionActions.updateMessagePart(messageID, part)
       break
     }
-    case "permission.replied":
+    case "permission.replied": {
+      const requestID = props.requestID
+      if (!requestID) return
+      sessionActions.updatePermissionStatus(requestID, props.reply === "reject" ? "denied" : "approved")
       break
+    }
     case "session.error":
       sessionActions.setSessionStatus("error")
       sessionActions.setStreamingMessageId(null)
       break
   }
+}
+
+function permissionMessage(props: Record<string, any>) {
+  const patterns = Array.isArray(props.patterns) ? props.patterns.filter((item) => typeof item === "string") : []
+  if (patterns.length === 0) return "Permission required"
+  if (patterns.length === 1) return patterns[0]
+  return patterns.join(", ")
 }
 
 function eventSessionID(event: EventEnvelope) {

@@ -6,8 +6,8 @@ import { AssistantMessage } from './AssistantMessage'
 interface Props {
   messages: Message[]
   streamingMessageId?: string | null
-  onApprovePermission: (messageId: string) => void
-  onDenyPermission: (messageId: string) => void
+  onApprovePermission: (permissionId: string) => void
+  onDenyPermission: (permissionId: string) => void
 }
 
 export function MessageList(props: Props) {
@@ -49,8 +49,8 @@ export function MessageList(props: Props) {
                 <AssistantMessage
                   message={message}
                   isStreaming={message.id === props.streamingMessageId}
-                  onApprovePermission={() => props.onApprovePermission(message.id)}
-                  onDenyPermission={() => props.onDenyPermission(message.id)}
+                  onApprovePermission={props.onApprovePermission}
+                  onDenyPermission={props.onDenyPermission}
                 />
               )}
             </>

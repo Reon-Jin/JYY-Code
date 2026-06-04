@@ -8,8 +8,8 @@ import { PermissionBlock } from './blocks/PermissionBlock'
 interface Props {
   message: Message
   isStreaming?: boolean
-  onApprovePermission: () => void
-  onDenyPermission: () => void
+  onApprovePermission: (permissionId: string) => void
+  onDenyPermission: (permissionId: string) => void
 }
 
 export function AssistantMessage(props: Props) {
@@ -34,8 +34,8 @@ export function AssistantMessage(props: Props) {
 
 function PartRenderer(props: {
   part: MessagePart
-  onApprove: () => void
-  onDeny: () => void
+  onApprove: (permissionId: string) => void
+  onDeny: (permissionId: string) => void
 }) {
   return (
     <Switch>
@@ -43,7 +43,19 @@ function PartRenderer(props: {
       <Match when={props.part.type === 'reasoning' && props.part}>{(part) => <ReasoningBlock part={part()} />}</Match>
       <Match when={props.part.type === 'tool_call' && props.part}>{(part) => <ToolCallBlock part={part()} />}</Match>
       <Match when={props.part.type === 'permission_request' && props.part}>
-        {(part) => <PermissionBlock part={part()} onApprove={props.onApprove} onDeny={props.onDeny} />}
+        {(part) => (
+          <PermissionBlock
+            part={part()}
+            onApprove={() => {
+              const id = part().id
+              if (id) props.onApprove(id)
+            }}
+            onDeny={() => {
+              const id = part().id
+              if (id) props.onDeny(id)
+            }}
+          />
+        )}
       </Match>
     </Switch>
   )

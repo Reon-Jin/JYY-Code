@@ -1,5 +1,6 @@
 import { Dropdown } from '../ui/Dropdown'
 import type { ModelInfo } from '../../types/models'
+import { createMemo } from 'solid-js'
 
 interface Props {
   selected: string
@@ -8,17 +9,18 @@ interface Props {
 }
 
 export function ModelSelector(props: Props) {
-  const items = props.models.map((model) => ({
-    label: model.name,
+  const items = createMemo(() => props.models.map((model) => ({
+    label: `${model.name} · ${model.provider}`,
     value: model.id,
-    icon: model.connected === false ? 'off' : 'on',
-  }))
+    icon: model.connected === false ? '○' : '●',
+    disabled: model.connected === false,
+  })))
 
   const selectedModel = () => props.models.find((model) => model.id === props.selected)
 
   return (
     <Dropdown
-      items={items}
+      items={items()}
       selected={props.selected}
       onSelect={props.onChange}
       width={280}

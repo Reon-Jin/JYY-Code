@@ -6,7 +6,7 @@ type ButtonSize = 'sm' | 'md' | 'lg'
 interface ButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant
   size?: ButtonSize
-  pill?: boolean      // 980px pill radius
+  pill?: boolean
   loading?: boolean
   children: JSX.Element
 }
@@ -26,51 +26,56 @@ export function Button(props: ButtonProps) {
     'align-items': 'center',
     'justify-content': 'center',
     gap: 'var(--space-8)',
-    'font-family': 'var(--font-text)',
+    'font-family': 'var(--font-sans)',
     'font-size':
-      local.size === 'sm' ? '14px' : local.size === 'lg' ? '18px' : '17px',
-    'font-weight': '400',
-    'line-height': local.variant === 'link' ? '2.41' : '1',
-    'letter-spacing': '-0.374px',
+      local.size === 'sm' ? '14px' : local.size === 'lg' ? '18px' : '16px',
+    'font-weight': '500',
+    'line-height': '1',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
     border: 'none',
     outline: 'none',
     position: 'relative',
-    'border-radius': local.pill ? '980px' : 'var(--radius-standard)',
+    'border-radius': local.pill ? '980px' : 'var(--radius-generous)',
     padding:
       local.size === 'sm'
-        ? '4px 12px'
+        ? '6px 14px'
         : local.size === 'lg'
-          ? '11px 20px'
-          : '8px 15px',
+          ? '12px 24px'
+          : '8px 18px',
   }
 
-  // Variant-specific styles — only non-hover properties
+  // Claude button variants
   const variantStyles: Record<ButtonVariant, JSX.CSSProperties> = {
     primary: {
-      background: 'var(--color-blue-apple)',
-      color: 'var(--color-white)',
+      // Brand Terracotta CTA
+      background: 'var(--clr-terracotta)',
+      color: 'var(--clr-ivory)',
+      'box-shadow': 'var(--ring-terracotta)',
     },
     outline: {
-      background: 'transparent',
-      color: 'var(--color-blue-apple)',
-      border: '1px solid var(--color-blue-apple)',
+      // Warm Sand secondary
+      background: 'var(--clr-dark-surface)',
+      color: 'var(--clr-warm-silver)',
+      'box-shadow': 'var(--ring-dark)',
     },
     dark: {
-      background: 'var(--color-black-near)',
-      color: 'var(--color-white)',
+      // Dark Primary
+      background: 'var(--clr-near-black)',
+      color: 'var(--clr-warm-silver)',
+      border: '1px solid var(--clr-dark-surface)',
     },
     ghost: {
+      // Transparent with hover
       background: 'transparent',
-      color: 'var(--color-text-primary)',
+      color: 'var(--clr-stone-gray)',
     },
     link: {
+      // Text link style
       background: 'transparent',
-      color: 'var(--color-blue-link)',
+      color: 'var(--clr-coral)',
       padding: '4px 16px',
       'font-size': '14px',
-      'letter-spacing': '-0.224px',
     },
   }
 
@@ -80,16 +85,29 @@ export function Button(props: ButtonProps) {
     <>
       <style>{`
         button[data-variant="primary"]:hover { opacity: 0.88; }
-        button[data-variant="primary"]:active { background: var(--color-button-active); }
-        button[data-variant="outline"]:hover { background: rgba(0,113,227,0.06); }
-        button[data-variant="outline"]:active { background: rgba(0,113,227,0.12); }
-        button[data-variant="dark"]:hover { opacity: 0.88; }
-        button[data-variant="dark"]:active { opacity: 0.76; }
-        button[data-variant="ghost"]:hover { background: rgba(0,0,0,0.04); }
-        button[data-variant="ghost"]:active { background: rgba(0,0,0,0.08); }
-        button[data-variant="link"]:hover { text-decoration: underline; }
+        button[data-variant="primary"]:active {
+          box-shadow: inset 0px 0px 0px 1px rgba(255,255,255,0.15);
+        }
+        button[data-variant="outline"]:hover {
+          color: var(--clr-ivory);
+          background: #3a3a37;
+          box-shadow: var(--ring-deep);
+        }
+        button[data-variant="outline"]:active {
+          box-shadow: inset 0px 0px 0px 1px rgba(255,255,255,0.10);
+        }
+        button[data-variant="dark"]:hover { opacity: 0.85; }
+        button[data-variant="dark"]:active { opacity: 0.72; }
+        button[data-variant="ghost"]:hover {
+          color: var(--clr-ivory);
+          background: rgba(255,255,255,0.06);
+        }
+        button[data-variant="ghost"]:active {
+          background: rgba(255,255,255,0.10);
+        }
+        button[data-variant="link"]:hover { color: var(--clr-terracotta); }
         button[data-variant="link"]:active { opacity: 0.7; }
-        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        button:disabled { opacity: 0.35; cursor: not-allowed; }
         .spinner {
           display: inline-block;
           width: 16px;

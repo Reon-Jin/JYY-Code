@@ -10,7 +10,6 @@ interface ModalProps {
 }
 
 export function Modal(props: ModalProps) {
-  // Close on Escape
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') props.onClose()
   }
@@ -32,44 +31,46 @@ export function Modal(props: ModalProps) {
   const overlayStyle: JSX.CSSProperties = {
     position: 'fixed',
     inset: '0',
-    background: 'rgba(0,0,0,0.4)',
+    background: 'rgba(20, 20, 19, 0.64)',
     display: 'flex',
     'align-items': 'center',
     'justify-content': 'center',
     'z-index': '10000',
     'backdrop-filter': 'blur(4px)',
-    animation: 'fadeIn 0.2s ease',
+    animation: 'fadeIn 0.15s ease',
   }
 
   const modalStyle: JSX.CSSProperties = {
-    background: 'var(--color-white)',
-    'border-radius': 'var(--radius-feature)',
-    'box-shadow': 'var(--shadow-card)',
+    background: 'var(--clr-dark-surface)',
+    'border-radius': 'var(--radius-very)',
+    border: '1px solid var(--clr-border-dark)',
+    'box-shadow': 'var(--whisper-shadow)',
     'max-width': props.width ? `${props.width}px` : '560px',
     'max-height': '80vh',
     width: '90%',
     display: 'flex',
     'flex-direction': 'column',
-    animation: 'scaleIn 0.25s ease',
+    animation: 'scaleIn 0.2s ease',
   }
 
   const headerStyle: JSX.CSSProperties = {
     display: 'flex',
     'align-items': 'center',
     'justify-content': 'space-between',
-    padding: 'var(--space-20) var(--space-24) var(--space-10)',
-    'border-bottom': props.title ? '1px solid #d2d2d7' : 'none',
+    padding: '20px 24px 10px',
+    'border-bottom': props.title ? '1px solid var(--clr-border-dark)' : 'none',
   }
 
   const bodyStyle: JSX.CSSProperties = {
-    padding: 'var(--space-14) var(--space-24)',
+    padding: '16px 24px',
     'overflow-y': 'auto',
     flex: '1',
+    color: 'var(--clr-stone-gray)',
   }
 
   const footerStyle: JSX.CSSProperties = {
-    padding: 'var(--space-10) var(--space-24) var(--space-20)',
-    'border-top': '1px solid #d2d2d7',
+    padding: '12px 24px 20px',
+    'border-top': props.footer ? '1px solid var(--clr-border-dark)' : 'none',
   }
 
   return (
@@ -80,16 +81,30 @@ export function Modal(props: ModalProps) {
       >
         <div style={modalStyle}>
           <div style={headerStyle}>
-            {props.title && <h2 class="text-card-title">{props.title}</h2>}
+            {props.title && (
+              <h2
+                style={{
+                  'font-family': 'var(--font-serif)',
+                  'font-size': '25px',
+                  'font-weight': '500',
+                  'line-height': '1.20',
+                  color: 'var(--clr-ivory)',
+                  margin: '0',
+                }}
+              >
+                {props.title}
+              </h2>
+            )}
             <button
               onClick={props.onClose}
               style={{
                 background: 'none',
                 border: 'none',
                 'font-size': '20px',
-                color: 'var(--color-text-tertiary)',
+                color: 'var(--clr-warm-silver)',
                 cursor: 'pointer',
-                padding: '4px',
+                padding: '4px 8px',
+                'border-radius': 'var(--radius-comfortable)',
               }}
             >
               ✕
@@ -101,7 +116,7 @@ export function Modal(props: ModalProps) {
       </div>
       <style>{`
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        @keyframes scaleIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
       `}</style>
     </Show>
   )

@@ -15,24 +15,33 @@ interface TabBarProps {
 
 export function TabBar(props: TabBarProps) {
   return (
-    <div style={{
-      display: 'flex',
-      'border-bottom': '1px solid #d2d2d7',
-      gap: '0',
-    }} class={props.class}>
+    <div
+      style={{
+        display: 'flex',
+        'border-bottom': '1px solid var(--clr-border-dark)',
+        gap: '0',
+      }}
+      class={props.class}
+    >
       <For each={props.tabs}>
         {(tab) => (
           <button
             onClick={() => props.onChange(tab.id)}
             style={{
-              padding: '8px 16px',
+              padding: '10px 18px',
               border: 'none',
               background: 'none',
-              'font-family': 'var(--font-text)',
+              'font-family': 'var(--font-sans)',
               'font-size': '14px',
-              'font-weight': props.activeTab === tab.id ? '600' : '400',
-              color: props.activeTab === tab.id ? 'var(--color-blue-apple)' : 'var(--color-text-secondary)',
-              'border-bottom': props.activeTab === tab.id ? '2px solid var(--color-blue-apple)' : '2px solid transparent',
+              'font-weight': '500',
+              color:
+                props.activeTab === tab.id
+                  ? 'var(--clr-coral)'
+                  : 'var(--clr-stone-gray)',
+              'border-bottom':
+                props.activeTab === tab.id
+                  ? '2px solid var(--clr-terracotta)'
+                  : '2px solid transparent',
               cursor: 'pointer',
               transition: 'all 0.15s',
               display: 'flex',

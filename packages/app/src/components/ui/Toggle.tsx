@@ -12,19 +12,21 @@ export function Toggle(props: ToggleProps) {
   const isSm = props.size === 'sm'
   const isDisabled = Boolean(props.disabled)
 
-  const trackStyle: JSX.CSSProperties = {
+  const trackStyle = (): JSX.CSSProperties => ({
     width: isSm ? '36px' : '48px',
     height: isSm ? '20px' : '28px',
     'border-radius': '980px',
-    background: props.checked ? '#34c759' : 'rgba(120,120,128,0.32)',
+    background: props.checked
+      ? 'var(--clr-terracotta)'
+      : 'rgba(176, 174, 165, 0.28)',
     cursor: isDisabled ? 'not-allowed' : 'pointer',
     position: 'relative',
     transition: 'background 0.25s ease',
     'flex-shrink': '0',
     opacity: isDisabled ? 0.4 : 1,
-  }
+  })
 
-  const thumbStyle: JSX.CSSProperties = {
+  const thumbStyle = (): JSX.CSSProperties => ({
     width: isSm ? '16px' : '24px',
     height: isSm ? '16px' : '24px',
     'border-radius': '50%',
@@ -34,13 +36,14 @@ export function Toggle(props: ToggleProps) {
     top: '2px',
     left: props.checked ? (isSm ? '18px' : '22px') : '2px',
     transition: 'left 0.25s ease',
-  }
+  })
 
   const labelStyle: JSX.CSSProperties = {
     'font-size': '14px',
+    'font-family': 'var(--font-sans)',
     color: isDisabled
-      ? 'var(--color-text-tertiary)'
-      : 'var(--color-text-primary)',
+      ? 'var(--clr-warm-silver)'
+      : 'var(--clr-stone-gray)',
     'user-select': 'none',
   }
 
@@ -54,13 +57,13 @@ export function Toggle(props: ToggleProps) {
       }}
     >
       <div
-        style={trackStyle}
+        style={trackStyle()}
         onClick={() => !isDisabled && props.onChange(!props.checked)}
         role="switch"
         aria-checked={props.checked}
         aria-disabled={isDisabled}
       >
-        <div style={thumbStyle} />
+        <div style={thumbStyle()} />
       </div>
       {props.label && <span style={labelStyle}>{props.label}</span>}
     </label>

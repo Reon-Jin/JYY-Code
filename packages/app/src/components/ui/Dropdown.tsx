@@ -1,12 +1,4 @@
-import {
-  type JSX,
-  createSignal,
-  createEffect,
-  onCleanup,
-  splitProps,
-  For,
-  Show,
-} from 'solid-js'
+import { type JSX, createSignal, createEffect, onCleanup, For, Show } from 'solid-js'
 
 interface DropdownItem {
   label: string
@@ -49,35 +41,38 @@ export function Dropdown(props: DropdownProps) {
 
   onCleanup(() => document.removeEventListener('mousedown', handleClickOutside))
 
-  const menuStyle: JSX.CSSProperties = {
+  const menuStyle = (): JSX.CSSProperties => ({
     position: 'absolute',
     top: '100%',
     [props.align === 'right' ? 'right' : 'left']: '0',
     'margin-top': 'var(--space-8)',
-    'min-width': props.width ? `${props.width}px` : '200px',
-    background: 'var(--color-white)',
-    'border-radius': 'var(--radius-standard)',
-    'box-shadow': 'var(--shadow-card)',
+    'min-width': props.width ? `${props.width}px` : '220px',
+    background: 'var(--clr-dark-surface)',
+    'border-radius': 'var(--radius-generous)',
+    'box-shadow': 'var(--whisper-shadow)',
+    border: '1px solid var(--clr-border-dark)',
     padding: 'var(--space-4) 0',
     'z-index': '1000',
-    display: open() ? 'block' : 'none',
-    'backdrop-filter': 'var(--nav-blur)',
-  }
+    'backdrop-filter': 'blur(12px)',
+  })
 
   const itemStyle = (item: DropdownItem): JSX.CSSProperties => ({
     display: 'flex',
     'align-items': 'center',
     'justify-content': 'space-between',
-    padding: '6px 12px',
-    'font-size': '14px',
+    padding: '8px 14px',
+    'font-size': '15px',
+    'font-family': 'var(--font-sans)',
     color: item.disabled
-      ? 'var(--color-text-tertiary)'
+      ? 'var(--clr-warm-silver)'
       : item.value === props.selected
-        ? 'var(--color-blue-apple)'
-        : 'var(--color-text-primary)',
+        ? 'var(--clr-coral)'
+        : 'var(--clr-ivory)',
     cursor: item.disabled ? 'not-allowed' : 'pointer',
     background:
-      item.value === props.selected ? 'rgba(0,113,227,0.06)' : 'transparent',
+      item.value === props.selected
+        ? 'rgba(201, 100, 66, 0.10)'
+        : 'transparent',
     transition: 'background 0.1s',
   })
 
@@ -87,56 +82,58 @@ export function Dropdown(props: DropdownProps) {
       style={{ position: 'relative', display: 'inline-block' }}
       class={props.class}
     >
-      <div onClick={() => setOpen(!open())}>{props.trigger}</div>
-      <div ref={menuRef} style={menuStyle}>
-        <For each={props.items}>
-          {(item) => (
-            <>
-              <Show when={item.separator}>
-                <div
-                  style={{
-                    height: '1px',
-                    background: '#d2d2d7',
-                    margin: '4px 12px',
-                  }}
-                />
-              </Show>
-              <Show when={!item.separator}>
-                <div
-                  style={itemStyle(item)}
-                  onClick={() => {
-                    if (!item.disabled) {
-                      props.onSelect(item.value)
-                      setOpen(false)
-                    }
-                  }}
-                >
-                  <span
+      <div onClick={() => setOpen((value) => !value)}>{props.trigger}</div>
+      <Show when={open()}>
+        <div ref={menuRef} style={menuStyle()}>
+          <For each={props.items}>
+            {(item) => (
+              <>
+                <Show when={item.separator}>
+                  <div
                     style={{
-                      display: 'flex',
-                      'align-items': 'center',
-                      gap: '8px',
+                      height: '1px',
+                      background: 'var(--clr-border-dark)',
+                      margin: '4px 14px',
+                    }}
+                  />
+                </Show>
+                <Show when={!item.separator}>
+                  <div
+                    style={itemStyle(item)}
+                    onClick={() => {
+                      if (!item.disabled) {
+                        props.onSelect(item.value)
+                        setOpen(false)
+                      }
                     }}
                   >
-                    {item.icon && <span>{item.icon}</span>}
-                    {item.label}
-                  </span>
-                  {item.shortcut && (
                     <span
                       style={{
-                        'font-size': '12px',
-                        color: 'var(--color-text-tertiary)',
+                        display: 'flex',
+                        'align-items': 'center',
+                        gap: '8px',
                       }}
                     >
-                      {item.shortcut}
+                      {item.icon && <span>{item.icon}</span>}
+                      {item.label}
                     </span>
-                  )}
-                </div>
-              </Show>
-            </>
-          )}
-        </For>
-      </div>
+                    {item.shortcut && (
+                      <span
+                        style={{
+                          'font-size': '12px',
+                          color: 'var(--clr-stone-gray)',
+                        }}
+                      >
+                        {item.shortcut}
+                      </span>
+                    )}
+                  </div>
+                </Show>
+              </>
+            )}
+          </For>
+        </div>
+      </Show>
     </div>
   )
 }

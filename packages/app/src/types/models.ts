@@ -15,6 +15,8 @@ export interface SessionInfo {
   projectId: string
   model: string
   agent: string
+  multiAgent?: boolean
+  permission?: PermissionRule[]
   status: 'idle' | 'running' | 'error'
   createdAt: number
   updatedAt: number
@@ -64,6 +66,9 @@ export interface PermissionRequestPart {
   toolName: string
   message: string        // human-readable request message
   status: 'pending' | 'approved' | 'denied'
+  patterns?: string[]
+  always?: string[]
+  metadata?: Record<string, unknown>
 }
 
 // ==================== Task Plan ====================
@@ -127,10 +132,12 @@ export interface ModelInfo {
   supportsReasoning: boolean
   supportsTools: boolean
   connected?: boolean
+  variants?: string[]
 }
 
 // ==================== Permission ====================
 export interface PermissionRule {
-  toolName: string
-  policy: 'allow' | 'deny' | 'ask'
+  permission: string
+  pattern: string
+  action: 'allow' | 'deny' | 'ask'
 }

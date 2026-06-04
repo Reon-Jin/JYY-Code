@@ -107,6 +107,18 @@ export const sessionActions = {
     }))
   },
 
+  updatePermissionStatus(permissionId: string, status: 'approved' | 'denied') {
+    setSessionState('messages', produce((msgs) => {
+      for (const message of msgs) {
+        for (const part of message.parts) {
+          if (part.type === 'permission_request' && part.id === permissionId) {
+            part.status = status
+          }
+        }
+      }
+    }))
+  },
+
   setStreamingMessageId(id: string | null) {
     setSessionState('streamingMessageId', id)
   },

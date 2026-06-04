@@ -3,9 +3,8 @@ import { useTheme } from '../hooks/useTheme'
 
 /**
  * ThemeProvider - handles theme initialization and applies the `data-theme`
- * attribute on the document root. Dark mode CSS (dark.css) is always loaded
- * via global.css; it activates automatically via the [data-theme="dark"]
- * selector when the attribute is set.
+ * attribute on the document root. The app is dark-first (Claude design system);
+ * the [data-theme] attribute is set for future light-mode support.
  *
  * Wrap the app root with this component.
  */

@@ -22,6 +22,7 @@ const FALLBACK_MODELS: ModelInfo[] = [
     supportsReasoning: true,
     supportsTools: true,
     connected: true,
+    variants: ["low", "medium", "high"],
   },
   {
     id: "jyycode/deepseek-v4-flash-mimo-v2.5",
@@ -33,10 +34,9 @@ const FALLBACK_MODELS: ModelInfo[] = [
     supportsReasoning: true,
     supportsTools: true,
     connected: true,
+    variants: ["low", "medium", "high"],
   },
 ]
-
-const THINKING_VARIANTS = ["none", "low", "medium", "high"]
 
 export function SessionPage() {
   const params = useParams()
@@ -49,13 +49,15 @@ export function SessionPage() {
   const [selectedModel, setSelectedModel] = createSignal(FALLBACK_MODELS[0].id)
   const [multiAgent, setMultiAgent] = createSignal(false)
   const [permissions, setPermissions] = createSignal<PermissionRule[]>([])
-  const [thinkingDepth, setThinkingDepth] = createSignal(2)
+  const [thinkingDepth, setThinkingDepth] = createSignal(0)
   const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal<string | null>(null)
 
+  const selectedModelInfo = createMemo(() => models().find((model) => model.id === selectedModel()))
+  const thinkingVariants = createMemo(() => selectedModelInfo()?.variants ?? [])
   const activeModel = createMemo<SelectedModel>(() => {
     const base = parseSelectedModel(selectedModel())
-    const variant = THINKING_VARIANTS[thinkingDepth()]
+    const variant = thinkingDepth() === 0 ? undefined : thinkingVariants()[thinkingDepth() - 1]
     return { ...base, value: `${base.providerID}/${base.modelID}${variant ? `::${variant}` : ""}`, variant }
   })
 
@@ -98,6 +100,7 @@ export function SessionPage() {
         sessionID = created.id
         navigate(`/session/${created.id}`, { replace: true })
       }
+      if (!sessionID) throw new Error("Missing session id")
 
       sessionActions.resetSession()
       sessionActions.setSession(sessionID, "idle")
@@ -113,7 +116,7 @@ export function SessionPage() {
 
   async function loadModels() {
     const api = client()
-    if (!api) return
+    if (!api) return FALLBACK_MODELS
     try {
       const next = toModels(await api.providers())
       const visible = next.length ? next : FALLBACK_MODELS
@@ -123,19 +126,43 @@ export function SessionPage() {
         visible.find((model) => model.modelID === "deepseek-v4-flash-mimo-v2.5") ??
         visible[0]
       if (preferred) setSelectedModel(preferred.id)
+      return visible
     } catch {
       setModels(FALLBACK_MODELS)
       setSelectedModel(FALLBACK_MODELS[0].id)
+      return FALLBACK_MODELS
     }
   }
 
   async function syncSession(sessionID: string) {
     const api = client()
     if (!api) return
-    const [messages, plan, diff] = await Promise.all([api.messages(sessionID), api.todo(sessionID), api.diff(sessionID)])
+    const [info, messages, plan, diff, pendingPermissions] = await Promise.all([
+      api.session(sessionID),
+      api.messages(sessionID),
+      api.todo(sessionID),
+      api.diff(sessionID),
+      api.permissions(),
+    ])
+    appActions.addSession(info)
+    setMultiAgent(Boolean(info.multiAgent))
+    setPermissions(info.permission ?? [])
+    applySessionModel(info.model)
     sessionActions.setMessages(messages)
     sessionActions.setTaskPlan(plan)
     sessionActions.setFileChanges(diff)
+    for (const request of pendingPermissions.filter((request) => request.sessionID === sessionID)) {
+      sessionActions.updateMessagePart(request.tool?.messageID ?? `permission-${request.id}`, {
+        id: request.id,
+        type: "permission_request",
+        toolName: request.permission,
+        message: request.patterns.join(", ") || "Permission required",
+        status: "pending",
+        patterns: request.patterns,
+        always: request.always,
+        metadata: request.metadata,
+      })
+    }
   }
 
   async function handleSend(text: string) {
@@ -144,7 +171,7 @@ export function SessionPage() {
 
     try {
       sessionActions.setSessionStatus("running")
-      await api.updateSession(session.sessionId, { multiAgent: multiAgent() })
+      await api.updateSession(session.sessionId, { multiAgent: multiAgent(), permission: permissions() })
       await api.promptAsync({
         sessionID: session.sessionId,
         text,
@@ -162,17 +189,58 @@ export function SessionPage() {
   async function handleApprovePermission(messageId: string) {
     const api = client()
     if (!api || !session.sessionId) return
-    await api.replyPermission(session.sessionId, messageId, "allow").catch((err) => setError(String(err)))
+    await api.replyPermission(messageId, "once").catch((err) => setError(String(err)))
   }
 
   async function handleDenyPermission(messageId: string) {
     const api = client()
     if (!api || !session.sessionId) return
-    await api.replyPermission(session.sessionId, messageId, "deny").catch((err) => setError(String(err)))
+    await api.replyPermission(messageId, "reject").catch((err) => setError(String(err)))
   }
 
   function handleFileSelect(files: string[]) {
     files.forEach((file) => sessionActions.addContextFile(file))
+  }
+
+  async function handleMultiAgentChange(enabled: boolean) {
+    setMultiAgent(enabled)
+    const api = client()
+    if (!api || !session.sessionId) return
+    try {
+      const info = await api.updateSession(session.sessionId, { multiAgent: enabled })
+      appActions.addSession(info)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handlePermissionChange(rules: PermissionRule[]) {
+    setPermissions(rules)
+    const api = client()
+    if (!api || !session.sessionId) return
+    try {
+      const info = await api.updateSession(session.sessionId, { permission: rules })
+      appActions.addSession(info)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  function handleModelChange(modelId: string) {
+    setSelectedModel(modelId)
+    setThinkingDepth(0)
+  }
+
+  function applySessionModel(value: string) {
+    if (!value) return
+    const parsed = parseSelectedModel(value)
+    const base = `${parsed.providerID}/${parsed.modelID}`
+    if (models().some((model) => model.id === base)) {
+      setSelectedModel(base)
+      const variants = models().find((model) => model.id === base)?.variants ?? []
+      const index = parsed.variant ? variants.indexOf(parsed.variant) : -1
+      setThinkingDepth(index >= 0 ? index + 1 : 0)
+    }
   }
 
   return (
@@ -180,14 +248,15 @@ export function SessionPage() {
       <Toolbar
         model={selectedModel()}
         models={models()}
-        onModelChange={setSelectedModel}
+        onModelChange={handleModelChange}
         multiAgent={multiAgent()}
-        onMultiAgentChange={setMultiAgent}
+        onMultiAgentChange={handleMultiAgentChange}
         onFileSelect={handleFileSelect}
         permissions={permissions()}
-        onPermissionChange={setPermissions}
+        onPermissionChange={handlePermissionChange}
         thinkingDepth={thinkingDepth()}
         onThinkingDepthChange={setThinkingDepth}
+        thinkingVariants={thinkingVariants()}
         sessionTitle={session.sessionId ? `Task / ${session.sessionId.slice(-8)}` : "New task"}
         connected={connected()}
       />
