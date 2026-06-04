@@ -1,0 +1,37 @@
+appId: com.jyycode.app
+productName: JYYCode
+copyright: Copyright © 2024-2026 JYYCode Authors
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - dist/**/*
+  - electron/**/*
+  - assets/**/*
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

@@ -1,0 +1,110 @@
+/* ============================================================
+   Apple Global Styles
+   Import Design Tokens and Typography, then set baseline defaults.
+   ============================================================ */
+
+@import './tokens.css';
+@import './typography.css';
+@import './dark.css';
+
+/* -----------------------------------------------------
+   Reset
+   ----------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* -----------------------------------------------------
+   Root Layout
+   ----------------------------------------------------- */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-text);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.47;
+  letter-spacing: -0.374px;
+  color: var(--color-text-primary);
+  background: var(--color-gray-light);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* -----------------------------------------------------
+   Scrollbar
+   ----------------------------------------------------- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+/* -----------------------------------------------------
+   Selection
+   ----------------------------------------------------- */
+::selection {
+  background: var(--color-blue-apple);
+  color: var(--color-white);
+}
+
+/* -----------------------------------------------------
+   Anchor
+   ----------------------------------------------------- */
+a {
+  color: var(--color-blue-link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* -----------------------------------------------------
+   Code
+   ----------------------------------------------------- */
+pre,
+code {
+  font-family: var(--font-mono);
+}
+
+/* -----------------------------------------------------
+   Interactive Elements
+   ----------------------------------------------------- */
+button {
+  cursor: pointer;
+  font-family: var(--font-text);
+}
+
+input,
+textarea,
+select {
+  font-family: var(--font-text);
+  outline: none;
+}

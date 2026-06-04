@@ -1,0 +1,160 @@
+/* ============================================================
+   Apple Typography Scale
+   All values derived from DESIGN.md §3 Typography Rules table
+   ============================================================ */
+
+/* -----------------------------------------------------
+   Display Hero — 56px
+   Product launch headlines, maximum impact
+   ----------------------------------------------------- */
+.text-display-hero {
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1.07;
+  letter-spacing: -0.28px;
+}
+
+/* -----------------------------------------------------
+   Section Heading — 40px
+   Feature section titles
+   ----------------------------------------------------- */
+.text-section-heading {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.10;
+}
+
+/* -----------------------------------------------------
+   Section Label — 12px
+   Small uppercase labels above sections
+   ----------------------------------------------------- */
+.text-section-label {
+  font-family: var(--font-text);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* -----------------------------------------------------
+   Tile Heading — 28px
+   Product tile headlines
+   ----------------------------------------------------- */
+.text-tile-heading {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1.14;
+  letter-spacing: 0.196px;
+}
+
+/* -----------------------------------------------------
+   Card Title Bold — 21px / 700
+   Bold card headings
+   ----------------------------------------------------- */
+.text-card-title-bold {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.19;
+  letter-spacing: 0.231px;
+}
+
+/* -----------------------------------------------------
+   Card Title — 21px / 400
+   Regular card headings (Sub-heading)
+   ----------------------------------------------------- */
+.text-card-title {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 400;
+  line-height: 1.19;
+  letter-spacing: 0.231px;
+}
+
+/* -----------------------------------------------------
+   Body — 17px / 400
+   Standard reading text
+   ----------------------------------------------------- */
+.text-body {
+  font-family: var(--font-text);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.47;
+  letter-spacing: -0.374px;
+}
+
+/* -----------------------------------------------------
+   Body Emphasis — 17px / 600
+   Emphasized body text, labels
+   ----------------------------------------------------- */
+.text-body-emphasis {
+  font-family: var(--font-text);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.24;
+  letter-spacing: -0.374px;
+}
+
+/* -----------------------------------------------------
+   Link — 14px / 400
+   Body links, "Learn more"
+   ----------------------------------------------------- */
+.text-link {
+  font-family: var(--font-text);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.43;
+  letter-spacing: -0.224px;
+}
+
+/* -----------------------------------------------------
+   Caption — 14px / 400
+   Secondary text, descriptions
+   ----------------------------------------------------- */
+.text-caption {
+  font-family: var(--font-text);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.29;
+  letter-spacing: -0.224px;
+}
+
+/* -----------------------------------------------------
+   Caption Bold — 14px / 600
+   Emphasized captions
+   ----------------------------------------------------- */
+.text-caption-bold {
+  font-family: var(--font-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.29;
+  letter-spacing: -0.224px;
+}
+
+/* -----------------------------------------------------
+   Micro — 12px / 400
+   Fine print, footnotes
+   ----------------------------------------------------- */
+.text-micro {
+  font-family: var(--font-text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.33;
+  letter-spacing: -0.12px;
+}
+
+/* -----------------------------------------------------
+   Nano — 10px / 400
+   Legal text, smallest size
+   ----------------------------------------------------- */
+.text-nano {
+  font-family: var(--font-text);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.47;
+  letter-spacing: -0.08px;
+}

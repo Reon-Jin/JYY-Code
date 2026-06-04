@@ -1,0 +1,123 @@
+/* ============================================================
+   Apple Design Tokens
+   All values derived from DESIGN.md (Design System Inspiration of Apple)
+   ============================================================ */
+
+/* -----------------------------------------------------
+   1. Primary Colors
+   ----------------------------------------------------- */
+:root {
+  --color-black-pure: #000000;
+  --color-gray-light: #f5f5f7;
+  --color-black-near: #1d1d1f;
+  --color-white: #ffffff;
+}
+
+/* -----------------------------------------------------
+   2. Interactive Colors
+   ----------------------------------------------------- */
+:root {
+  --color-blue-apple: #0071e3;
+  --color-blue-link: #0066cc;
+  --color-blue-bright: #2997ff;
+}
+
+/* -----------------------------------------------------
+   3. Text Colors
+   ----------------------------------------------------- */
+:root {
+  --color-text-primary: #1d1d1f;
+  --color-text-secondary: rgba(0, 0, 0, 0.8);
+  --color-text-tertiary: rgba(0, 0, 0, 0.48);
+  --color-text-white: #ffffff;
+  --color-text-white-secondary: rgba(255, 255, 255, 0.8);
+}
+
+/* -----------------------------------------------------
+   4. Surface Colors (Dark)
+   ----------------------------------------------------- */
+:root {
+  --color-dark-surface-1: #272729;
+  --color-dark-surface-2: #28282a;
+  --color-dark-surface-3: #2a2a2d;
+  --color-dark-surface-4: #242426;
+}
+
+/* -----------------------------------------------------
+   5. Button States
+   ----------------------------------------------------- */
+:root {
+  --color-button-active: #ededf2;
+  --color-filter-bg: #fafafc;
+  --color-overlay: rgba(210, 210, 215, 0.64);
+}
+
+/* -----------------------------------------------------
+   6. Shadows
+   ----------------------------------------------------- */
+:root {
+  --shadow-card: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;
+}
+
+/* -----------------------------------------------------
+   7. Typography — Font Families
+   ----------------------------------------------------- */
+:root {
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-text: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+}
+
+/* -----------------------------------------------------
+   8. Border Radius (DESIGN.md §4 Border Radius Scale)
+   ----------------------------------------------------- */
+:root {
+  --radius-micro: 5px;
+  --radius-standard: 8px;
+  --radius-search: 11px;
+  --radius-feature: 12px;
+  --radius-pill: 980px;
+  --radius-circle: 50%;
+}
+
+/* -----------------------------------------------------
+   9. Spacing (DESIGN.md §5 Spacing System)
+   ----------------------------------------------------- */
+:root {
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-10: 10px;
+  --space-14: 14px;
+  --space-15: 15px;
+  --space-17: 17px;
+  --space-20: 20px;
+  --space-24: 24px;
+}
+
+/* -----------------------------------------------------
+   10. Navigation (DESIGN.md §4 Navigation)
+   ----------------------------------------------------- */
+:root {
+  --nav-bg: rgba(0, 0, 0, 0.8);
+  --nav-blur: saturate(180%) blur(20px);
+  --nav-height: 48px;
+}
+
+/* -----------------------------------------------------
+   11. Focus
+   ----------------------------------------------------- */
+:root {
+  --focus-ring: 2px solid #0071e3;
+}
+
+/* -----------------------------------------------------
+   12. Diff Colors (Light)
+   ----------------------------------------------------- */
+:root {
+  --diff-addition-bg: #e6ffed;
+  --diff-addition-border: #2cbe4e;
+  --diff-deletion-bg: #ffeef0;
+  --diff-deletion-border: #cb2431;
+}
