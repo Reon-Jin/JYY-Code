@@ -60,8 +60,8 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 
 const log = Log.create({ service: "tool.registry" })
 
-export function webSearchEnabled(providerID: ProviderID, flags = { exa: false, parallel: false }) {
-  return providerID === ProviderID.jyycode || flags.exa || flags.parallel
+export function webSearchEnabled(_providerID: ProviderID, _flags = { exa: false, parallel: false }) {
+  return true
 }
 
 type TaskDef = Tool.InferDef<typeof TaskTool>
@@ -340,10 +340,6 @@ export const layer: Layer.Layer<
         ...s.custom,
       ]
       const filtered = available.filter((tool) => {
-        if (tool.id === WebSearchTool.id) {
-          return webSearchEnabled(input.providerID, { exa: flags.enableExa, parallel: flags.enableParallel })
-        }
-
         const usePatch =
           input.modelID.includes("gpt-") && !input.modelID.includes("oss") && !input.modelID.includes("gpt-4")
         if (tool.id === ApplyPatchTool.id) return usePatch

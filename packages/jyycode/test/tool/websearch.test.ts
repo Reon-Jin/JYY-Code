@@ -36,9 +36,9 @@ describe("websearch provider", () => {
     expect(selectWebSearchProvider(SESSION_ID, { exa: false, parallel: true })).toBe("parallel")
   })
 
-  test("is only enabled for jyycode or explicit websearch provider flags", () => {
+  test("is enabled for all providers", () => {
     expect(webSearchEnabled(ProviderID.jyycode, { exa: false, parallel: false })).toBe(true)
-    expect(webSearchEnabled(ProviderID.openai, { exa: false, parallel: false })).toBe(false)
+    expect(webSearchEnabled(ProviderID.openai, { exa: false, parallel: false })).toBe(true)
     expect(webSearchEnabled(ProviderID.openai, { exa: true, parallel: false })).toBe(true)
     expect(webSearchEnabled(ProviderID.openai, { exa: false, parallel: true })).toBe(true)
   })
