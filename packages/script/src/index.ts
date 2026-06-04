@@ -49,13 +49,15 @@ const VERSION = await (async () => {
 
 const bot = ["actions-user", "jyycode", "jyycode-agent[bot]"]
 const teamPath = path.resolve(import.meta.dir, "../../../.github/TEAM_MEMBERS")
-const team = [
-  ...(await Bun.file(teamPath)
-    .text()
-    .then((x) => x.split(/\r?\n/).map((x) => x.trim()))
-    .then((x) => x.filter((x) => x && !x.startsWith("#")))),
-  ...bot,
-]
+const teamMembers = await Bun.file(teamPath)
+  .text()
+  .then((x) => x.split(/\r?\n/).map((x) => x.trim()))
+  .then((x) => x.filter((x) => x && !x.startsWith("#")))
+  .catch((error) => {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return []
+    throw error
+  })
+const team = [...teamMembers, ...bot]
 
 export const Script = {
   get channel() {

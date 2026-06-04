@@ -284,6 +284,22 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     })
   }
 
+  const toggleMultiAgent = async () => {
+    const enabled = !local.multiAgent.enabled()
+    local.multiAgent.set(enabled)
+
+    const sessionID = params.id
+    if (sessionID) {
+      await sdk.client.session.update({ sessionID, multiAgent: enabled }).catch(() => {
+        local.multiAgent.set(!enabled)
+        showToast({
+          title: language.t("common.requestFailed"),
+          variant: "error",
+        })
+      })
+    }
+  }
+
   const undo = async () => {
     const sessionID = params.id
     if (!sessionID) return
@@ -540,6 +556,17 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   ]
 
   const agentCmds = () => [
+    agentCommand({
+      id: "agent.multiAgent.toggle",
+      title: local.multiAgent.enabled()
+        ? language.t("command.agent.multiAgent.disable")
+        : language.t("command.agent.multiAgent.enable"),
+      description: language.t("command.agent.multiAgent.description"),
+      keybind: "f9",
+      onSelect: () => {
+        void toggleMultiAgent()
+      },
+    }),
     agentCommand({
       id: "agent.cycle",
       title: language.t("command.agent.cycle"),

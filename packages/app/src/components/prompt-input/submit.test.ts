@@ -20,10 +20,12 @@ const storedSessions: Record<string, Array<{ id: string; title?: string }>> = {}
 const promoted: Array<{ directory: string; sessionID: string }> = []
 const sentShell: string[] = []
 const syncedDirectories: string[] = []
+const sessionCreateInputs: unknown[] = []
 
 let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
+let multiAgent = false
 
 const promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
 
@@ -31,7 +33,8 @@ const clientFor = (directory: string) => {
   createdClients.push(directory)
   return {
     session: {
-      create: async () => {
+      create: async (input?: unknown) => {
+        sessionCreateInputs.push(input)
         createdSessions.push(directory)
         return {
           data: {
@@ -86,6 +89,9 @@ beforeAll(async () => {
       },
       agent: {
         current: () => ({ name: "agent" }),
+      },
+      multiAgent: {
+        enabled: () => multiAgent,
       },
       session: {
         promote(directory: string, sessionID: string) {
@@ -211,8 +217,10 @@ beforeEach(() => {
   params = {}
   sentShell.length = 0
   syncedDirectories.length = 0
+  sessionCreateInputs.length = 0
   selected = "/repo/worktree-a"
   variant = undefined
+  multiAgent = false
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
 
@@ -279,6 +287,35 @@ describe("prompt submit worktree selection", () => {
     await submit.handleSubmit(event)
 
     expect(enabledAutoAccept).toEqual([{ sessionID: "session-1", directory: "/repo/worktree-a" }])
+  })
+
+  test("creates new sessions with multi-agent enabled from the draft toggle", async () => {
+    multiAgent = true
+
+    const submit = createPromptSubmit({
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    const event = { preventDefault: () => undefined } as unknown as Event
+
+    await submit.handleSubmit(event)
+
+    expect(sessionCreateInputs).toEqual([{ multiAgent: true }])
   })
 
   test("includes the selected variant on optimistic prompts", async () => {

@@ -43,3 +43,5 @@ tsconfig.tsbuildinfo
 **/.jyycode/plans/
 **/.jyycode/references/
 **/.jyycode/*.local.jsonc
+
+/apple

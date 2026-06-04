@@ -16,6 +16,7 @@ type State = {
   agent?: string
   model?: ModelKey
   variant?: string | null
+  multiAgent?: boolean
 }
 
 type Saved = {
@@ -122,6 +123,20 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       const session = id()
       if (!session) return store.draft
       return saved.session[session] ?? handoff.get(handoffKey(sdk.directory, session))
+    })
+
+    createEffect(() => {
+      const session = id()
+      if (!session) return
+
+      const multiAgent = sync.session.get(session)?.multiAgent
+      if (multiAgent === undefined) return
+      if (scope()?.multiAgent === multiAgent) return
+
+      setSaved("session", session, {
+        ...(scope() ?? {}),
+        multiAgent,
+      })
     })
 
     createEffect(() => {
@@ -249,6 +264,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         agent: agent.current()?.name,
         model: model ? { providerID: model.provider.id, modelID: model.id } : undefined,
         variant: selected(),
+        multiAgent: scope()?.multiAgent,
       } satisfies State
     }
 
@@ -363,6 +379,17 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       slug: createMemo(() => base64Encode(sdk.directory)),
       model,
       agent,
+      multiAgent: {
+        enabled() {
+          return scope()?.multiAgent === true
+        },
+        set(enabled: boolean) {
+          write({ multiAgent: enabled })
+        },
+        toggle() {
+          this.set(!this.enabled())
+        },
+      },
       session: {
         reset() {
           setStore("draft", undefined)

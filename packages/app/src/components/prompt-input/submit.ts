@@ -362,8 +362,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     let session = input.info()
     if (!session && isNewSession) {
+      const multiAgent = local.multiAgent?.enabled?.() === true
       const created = await client.session
-        .create()
+        .create(multiAgent ? { multiAgent: true } : undefined)
         .then((x) => x.data ?? undefined)
         .catch((err) => {
           showToast({

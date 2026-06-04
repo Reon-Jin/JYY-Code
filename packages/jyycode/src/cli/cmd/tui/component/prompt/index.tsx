@@ -75,6 +75,11 @@ export type PromptProps = {
     normal?: string[]
     shell?: string[]
   }
+  multiAgent?: {
+    enabled: () => boolean
+    disabled?: () => boolean
+    toggle: () => void | Promise<void>
+  }
 }
 
 export type PromptRef = {
@@ -200,6 +205,8 @@ export function Prompt(props: PromptProps) {
   const [cursorVersion, setCursorVersion] = createSignal(0)
   const currentProviderLabel = createMemo(() => local.model.parsed().provider)
   const hasRightContent = createMemo(() => Boolean(props.right))
+  const multiAgentDisabled = createMemo(() => props.multiAgent?.disabled?.() === true)
+  const multiAgentEnabled = createMemo(() => props.multiAgent?.enabled() === true && !multiAgentDisabled())
 
   function selectWorkspace(selection: WorkspaceSelection | undefined) {
     setWorkspaceSelection(selection)
@@ -427,6 +434,24 @@ export function Prompt(props: PromptProps) {
           dialog.clear()
         },
       },
+      ...(!props.sessionID && props.multiAgent
+        ? [
+            {
+              title: multiAgentEnabled() ? "Disable Multi-Agent" : "Enable Multi-Agent",
+              name: "session.toggle.multi_agent",
+              category: "Session",
+              run: async () => {
+                await props.multiAgent?.toggle()
+                toast.show({
+                  message: `Multi-Agent ${multiAgentEnabled() ? "enabled" : "disabled"} for the next prompt`,
+                  variant: "info",
+                  duration: 2500,
+                })
+                dialog.clear()
+              },
+            },
+          ]
+        : []),
       {
         title: "Remove editor context",
         name: "prompt.editor_context.clear",
@@ -634,6 +659,7 @@ export function Prompt(props: PromptProps) {
       "prompt.stash.pop",
       "prompt.stash.list",
       "session.interrupt",
+      "session.toggle.multi_agent",
       "workspace.set",
     ]),
   }))
@@ -1068,6 +1094,7 @@ export function Prompt(props: PromptProps) {
       const res = await sdk.client.session.create({
         workspace: workspaceID,
         agent: agent.name,
+        multiAgent: multiAgentEnabled() ? true : undefined,
         model: {
           providerID: selectedModel.providerID,
           id: selectedModel.modelID,
@@ -1183,7 +1210,9 @@ export function Prompt(props: PromptProps) {
           model: selectedModel,
           variant,
           agentCluster: {
-            enabled: (workspaceSession?.multiAgent ?? sync.data.config.agent_cluster?.default_on) === true,
+            enabled: props.sessionID
+              ? (workspaceSession?.multiAgent ?? sync.data.config.agent_cluster?.default_on) === true
+              : multiAgentEnabled(),
           },
           parts: [
             ...editorParts,

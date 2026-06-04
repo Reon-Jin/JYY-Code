@@ -1,5 +1,5 @@
 import { Prompt, type PromptRef } from "@tui/component/prompt"
-import { createEffect, createSignal, onMount } from "solid-js"
+import { createEffect, createMemo, createSignal, onMount } from "solid-js"
 import { Logo } from "../component/logo"
 import { useSync } from "../context/sync"
 import { Toast } from "../ui/toast"
@@ -9,6 +9,7 @@ import { usePromptRef } from "../context/prompt"
 import { useLocal } from "../context/local"
 import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
 import { useEditorContext } from "@tui/context/editor"
+import { useTheme } from "../context/theme"
 
 let once = false
 const placeholder = {
@@ -24,10 +25,19 @@ export function Home() {
   const args = useArgs()
   const local = useLocal()
   const editor = useEditorContext()
+  const { theme } = useTheme()
+  const defaultMultiAgent = createMemo(() => sync.data.config.agent_cluster?.default_on === true)
+  const [multiAgentTouched, setMultiAgentTouched] = createSignal(false)
+  const [multiAgent, setMultiAgent] = createSignal(defaultMultiAgent())
   let sent = false
 
   onMount(() => {
     editor.clearSelection()
+  })
+
+  createEffect(() => {
+    if (multiAgentTouched()) return
+    setMultiAgent(defaultMultiAgent())
   })
 
   const bind = (r: PromptRef | undefined) => {
@@ -69,7 +79,25 @@ export function Home() {
         <box height={1} minHeight={0} flexShrink={1} />
         <box width="100%" maxWidth={75} zIndex={1000} paddingTop={1} flexShrink={0}>
           <TuiPluginRuntime.Slot name="home_prompt" mode="replace" ref={bind}>
-            <Prompt ref={bind} right={<TuiPluginRuntime.Slot name="home_prompt_right" />} placeholders={placeholder} />
+            <Prompt
+              ref={bind}
+              multiAgent={{
+                enabled: multiAgent,
+                toggle: () => {
+                  setMultiAgentTouched(true)
+                  setMultiAgent((value) => !value)
+                },
+              }}
+              right={
+                <box flexDirection="row" gap={1}>
+                  <text fg={multiAgent() ? theme.success : theme.textMuted}>
+                    Multi-Agent {multiAgent() ? "●" : "○"}
+                  </text>
+                  <TuiPluginRuntime.Slot name="home_prompt_right" />
+                </box>
+              }
+              placeholders={placeholder}
+            />
           </TuiPluginRuntime.Slot>
         </box>
         <TuiPluginRuntime.Slot name="home_bottom" />
