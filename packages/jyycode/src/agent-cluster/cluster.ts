@@ -167,6 +167,38 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
       })
     })
 
+  const publishReview = (taskID: string, decision: string, issues: string) =>
+    Effect.gen(function* () {
+      const createdAt = Date.now()
+      Database.use((db) =>
+        db
+          .insert(AgentClusterEventTable)
+          .values({
+            id: ulid(),
+            run_id: runID,
+            type: "review",
+            message: `Review for task ${taskID}: ${decision}`,
+            metadata: {
+              status: "reviewing",
+              taskID,
+              decision,
+              issues,
+            },
+          })
+          .run(),
+      )
+      yield* bus.publish(Event, {
+        sessionID: input.session.id,
+        runID,
+        type: "review",
+        status: "reviewing",
+        taskID: taskID as any,
+        message: `Review for task ${taskID}: ${decision}`,
+        metadata: { taskID, decision, issues },
+        createdAt,
+      })
+    })
+
   const now = Date.now()
   Database.use((db) =>
     db
