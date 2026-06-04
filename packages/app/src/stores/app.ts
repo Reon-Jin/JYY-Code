@@ -8,6 +8,7 @@ export interface AppState {
   // Projects
   projects: Project[]
   activeProjectId: string | null
+  activeWorkspaceDir: string | null
 
   // Sessions
   sessions: SessionInfo[]
@@ -28,6 +29,7 @@ const initialState: AppState = {
   theme: 'system',
   projects: [],
   activeProjectId: null,
+  activeWorkspaceDir: null,
   sessions: [],
   activeSessionId: null,
   emailUnreadCount: 0,
@@ -55,6 +57,10 @@ export const appActions = {
 
   setActiveProject(projectId: string | null) {
     setAppState('activeProjectId', projectId)
+  },
+
+  setActiveWorkspaceDir(directory: string | null) {
+    setAppState('activeWorkspaceDir', directory)
   },
 
   addProject(project: Project) {
@@ -111,9 +117,17 @@ export const appActions = {
 export async function startSidecar(workspaceDir: string) {
   appActions.setSidecarStatus('starting')
   try {
+    if (!window.electron?.startSidecar) {
+      const fallback = { port: 4096, baseUrl: 'http://127.0.0.1:4096' }
+      appActions.setBaseUrl(fallback.baseUrl)
+      appActions.setActiveWorkspaceDir(workspaceDir)
+      appActions.setSidecarStatus('running')
+      return fallback
+    }
     const result = await window.electron?.startSidecar(workspaceDir)
     if (result) {
       appActions.setBaseUrl(result.baseUrl)
+      appActions.setActiveWorkspaceDir(workspaceDir)
       appActions.setSidecarStatus('running')
       return result
     }

@@ -4,27 +4,11 @@ import { Sidebar } from './Sidebar'
 
 export function AppLayout(props: RouteSectionProps) {
   return (
-    <div style={{
-      display: 'flex',
-      'flex-direction': 'column',
-      height: '100vh',
-      overflow: 'hidden',
-    }}>
+    <div class="app-shell">
       <TitleBar />
-      <div style={{
-        display: 'flex',
-        flex: '1',
-        overflow: 'hidden',
-      }}>
+      <div class="app-body">
         <Sidebar />
-        <main style={{
-          flex: '1',
-          overflow: 'hidden',
-          display: 'flex',
-          'flex-direction': 'column',
-        }}>
-          {props.children}
-        </main>
+        <main class="app-main">{props.children}</main>
       </div>
     </div>
   )

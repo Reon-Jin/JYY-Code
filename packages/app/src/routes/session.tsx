@@ -1,188 +1,214 @@
-import { useParams } from '@solidjs/router'
-import { createEffect, onMount, onCleanup, createSignal } from 'solid-js'
-import { appActions, useAppState } from '../stores/app'
-import { useSessionStore, sessionActions } from '../stores/session'
-import { useSSE } from '../hooks/useSSE'
-import { Toolbar } from '../components/session/Toolbar'
-import { MessageList } from '../components/session/MessageList'
-import { InputArea } from '../components/session/InputArea'
-import { RightPanel } from '../components/rightpanel/RightPanel'
-import type { ModelInfo, PermissionRule, Message } from '../types/models'
+import { useNavigate, useParams } from "@solidjs/router"
+import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js"
+import { parseSelectedModel, toModels, type SelectedModel } from "../api"
+import { Toolbar } from "../components/session/Toolbar"
+import { MessageList } from "../components/session/MessageList"
+import { InputArea } from "../components/session/InputArea"
+import { RightPanel } from "../components/rightpanel/RightPanel"
+import { appActions } from "../stores/app"
+import { sessionActions, useSessionStore } from "../stores/session"
+import { useSDK } from "../hooks/useSDK"
+import { useSSE } from "../hooks/useSSE"
+import type { ModelInfo, PermissionRule } from "../types/models"
 
-// Default models for demo
-const DEMO_MODELS: ModelInfo[] = [
-  { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', maxTokens: 128000, supportsReasoning: true, supportsTools: true },
-  { id: 'claude-sonnet-4', name: 'Claude 4 Sonnet', provider: 'anthropic', maxTokens: 200000, supportsReasoning: true, supportsTools: true },
-  { id: 'deepseek-v4', name: 'DeepSeek V4', provider: 'deepseek', maxTokens: 128000, supportsReasoning: true, supportsTools: true },
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'google', maxTokens: 1000000, supportsReasoning: true, supportsTools: true },
+const FALLBACK_MODELS: ModelInfo[] = [
+  {
+    id: "jyycode/deepseek-v4-pro",
+    providerID: "jyycode",
+    modelID: "deepseek-v4-pro",
+    name: "DeepSeek V4 Pro",
+    provider: "JYYCode",
+    maxTokens: 128000,
+    supportsReasoning: true,
+    supportsTools: true,
+    connected: true,
+  },
+  {
+    id: "jyycode/deepseek-v4-flash-mimo-v2.5",
+    providerID: "jyycode",
+    modelID: "deepseek-v4-flash-mimo-v2.5",
+    name: "DeepSeek V4 Flash MIMO v2.5",
+    provider: "JYYCode",
+    maxTokens: 128000,
+    supportsReasoning: true,
+    supportsTools: true,
+    connected: true,
+  },
 ]
+
+const THINKING_VARIANTS = ["none", "low", "medium", "high"]
 
 export function SessionPage() {
   const params = useParams()
-  const appState = useAppState()
+  const navigate = useNavigate()
   const session = useSessionStore()
+  const client = useSDK()
   const { connected, connect, disconnect } = useSSE()
 
-  // Local state for toolbar options
-  const [selectedModel, setSelectedModel] = createSignal('gpt-4o')
+  const [models, setModels] = createSignal<ModelInfo[]>(FALLBACK_MODELS)
+  const [selectedModel, setSelectedModel] = createSignal(FALLBACK_MODELS[0].id)
   const [multiAgent, setMultiAgent] = createSignal(false)
   const [permissions, setPermissions] = createSignal<PermissionRule[]>([])
-  const [thinkingDepth, setThinkingDepth] = createSignal(1) // 0-3
+  const [thinkingDepth, setThinkingDepth] = createSignal(2)
+  const [loading, setLoading] = createSignal(true)
+  const [error, setError] = createSignal<string | null>(null)
 
-  // Initialize session on mount
+  const activeModel = createMemo<SelectedModel>(() => {
+    const base = parseSelectedModel(selectedModel())
+    const variant = THINKING_VARIANTS[thinkingDepth()]
+    return { ...base, value: `${base.providerID}/${base.modelID}${variant ? `::${variant}` : ""}`, variant }
+  })
+
   onMount(() => {
-    const sessionId = params.id === 'new' ? null : params.id
-    if (sessionId) {
-      sessionActions.setSession(sessionId, 'idle')
-      // Connect SSE for real-time events
-      connect(sessionId)
+    void bootstrap()
+  })
 
-      // Load messages from API (placeholder - would use SDK in production)
-      loadMessages(sessionId)
-    } else {
-      // New session - create via API
-      createNewSession()
-    }
+  createEffect(() => {
+    const id = session.sessionId
+    if (!id) return
+    connect(id)
   })
 
   onCleanup(() => {
     disconnect()
   })
 
-  async function createNewSession() {
-    if (!appState.baseUrl) return
-    try {
-      const sdk = (await import('../hooks/useSDK')).useSDK()
-      // In production, call SDK client to create session
-      // const result = await client.session.create({ workspaceId: ..., title: '新会话' })
-      const mockId = `session-${Date.now()}`
-      sessionActions.setSession(mockId, 'idle')
-      appActions.setActiveSession(mockId)
-    } catch (err) {
-      console.error('Failed to create session:', err)
+  async function bootstrap() {
+    const api = client()
+    if (!api) {
+      setLoading(false)
+      setError("Please open a project first.")
+      return
     }
-  }
 
-  async function loadMessages(sessionId: string) {
-    // Placeholder: load messages from API
-    // In production, use SDK client
-    console.log('Loading messages for session:', sessionId)
-  }
-
-  // Handle sending a message
-  async function handleSend(text: string) {
-    if (!session.sessionId || session.status === 'running') return
-
-    // Add user message to local store
-    const userMessage: Message = {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      parts: [{ type: 'text', content: text }],
-      timestamp: Date.now(),
-    }
-    sessionActions.addMessage(userMessage)
-    sessionActions.setSessionStatus('running')
-
-    // Send to backend via SDK
+    setLoading(true)
+    setError(null)
     try {
-      // In production, stream response via SSE
-      // For now, simulate a response
-      const assistantMessage: Message = {
-        id: `msg-${Date.now() + 1}`,
-        role: 'assistant',
-        parts: [{
-          type: 'text',
-          content: `收到您的消息："${text}"。\n\n正在处理中...\n\n当前模型: ${selectedModel()}\n多Agent模式: ${multiAgent() ? '开启' : '关闭'}\n思考深度: ${['极少', '标准', '深度', '极限'][thinkingDepth()]}`,
-        }],
-        timestamp: Date.now(),
+      await loadModels()
+      let sessionID = params.id
+      if (sessionID === "new") {
+        const created = await api.createSession({
+          title: "New task",
+          model: activeModel(),
+          multiAgent: multiAgent(),
+          agent: "build",
+        })
+        appActions.addSession(created)
+        appActions.setActiveSession(created.id)
+        sessionID = created.id
+        navigate(`/session/${created.id}`, { replace: true })
       }
-      setTimeout(() => {
-        sessionActions.addMessage(assistantMessage)
-        sessionActions.setSessionStatus('idle')
-      }, 1500)
+
+      sessionActions.resetSession()
+      sessionActions.setSession(sessionID, "idle")
+      appActions.setActiveSession(sessionID)
+      await syncSession(sessionID)
     } catch (err) {
-      console.error('Send failed:', err)
-      sessionActions.setSessionStatus('error')
+      setError(err instanceof Error ? err.message : String(err))
+      sessionActions.setSessionStatus("error")
+    } finally {
+      setLoading(false)
     }
   }
 
-  function handleApprovePermission(messageId: string) {
-    // Send approval to backend
-    console.log('Approved permission for message:', messageId)
+  async function loadModels() {
+    const api = client()
+    if (!api) return
+    try {
+      const next = toModels(await api.providers())
+      const visible = next.length ? next : FALLBACK_MODELS
+      setModels(visible)
+      const preferred =
+        visible.find((model) => model.modelID === "deepseek-v4-pro") ??
+        visible.find((model) => model.modelID === "deepseek-v4-flash-mimo-v2.5") ??
+        visible[0]
+      if (preferred) setSelectedModel(preferred.id)
+    } catch {
+      setModels(FALLBACK_MODELS)
+      setSelectedModel(FALLBACK_MODELS[0].id)
+    }
   }
 
-  function handleDenyPermission(messageId: string) {
-    console.log('Denied permission for message:', messageId)
+  async function syncSession(sessionID: string) {
+    const api = client()
+    if (!api) return
+    const [messages, plan, diff] = await Promise.all([api.messages(sessionID), api.todo(sessionID), api.diff(sessionID)])
+    sessionActions.setMessages(messages)
+    sessionActions.setTaskPlan(plan)
+    sessionActions.setFileChanges(diff)
   }
 
-  function handleModelChange(modelId: string) {
-    setSelectedModel(modelId)
+  async function handleSend(text: string) {
+    const api = client()
+    if (!api || !session.sessionId || session.status === "running") return
+
+    try {
+      sessionActions.setSessionStatus("running")
+      await api.updateSession(session.sessionId, { multiAgent: multiAgent() })
+      await api.promptAsync({
+        sessionID: session.sessionId,
+        text,
+        model: activeModel(),
+        agent: "build",
+        multiAgent: multiAgent(),
+        files: session.contextFiles,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      sessionActions.setSessionStatus("error")
+    }
+  }
+
+  async function handleApprovePermission(messageId: string) {
+    const api = client()
+    if (!api || !session.sessionId) return
+    await api.replyPermission(session.sessionId, messageId, "allow").catch((err) => setError(String(err)))
+  }
+
+  async function handleDenyPermission(messageId: string) {
+    const api = client()
+    if (!api || !session.sessionId) return
+    await api.replyPermission(session.sessionId, messageId, "deny").catch((err) => setError(String(err)))
   }
 
   function handleFileSelect(files: string[]) {
-    files.forEach(f => sessionActions.addContextFile(f))
-  }
-
-  function handlePermissionChange(rules: PermissionRule[]) {
-    setPermissions(rules)
+    files.forEach((file) => sessionActions.addContextFile(file))
   }
 
   return (
-    <div style={{
-      flex: '1',
-      display: 'flex',
-      'flex-direction': 'column',
-      overflow: 'hidden',
-      background: 'var(--color-white)',
-    }}>
-      {/* Toolbar */}
+    <div class="session-screen">
       <Toolbar
         model={selectedModel()}
-        models={DEMO_MODELS}
-        onModelChange={handleModelChange}
+        models={models()}
+        onModelChange={setSelectedModel}
         multiAgent={multiAgent()}
         onMultiAgentChange={setMultiAgent}
         onFileSelect={handleFileSelect}
         permissions={permissions()}
-        onPermissionChange={handlePermissionChange}
+        onPermissionChange={setPermissions}
         thinkingDepth={thinkingDepth()}
         onThinkingDepthChange={setThinkingDepth}
-        sessionTitle={`会话 · ${session.sessionId?.slice(-8) || '新建'}`}
+        sessionTitle={session.sessionId ? `Task / ${session.sessionId.slice(-8)}` : "New task"}
+        connected={connected()}
       />
 
-      {/* Main content area */}
-      <div style={{
-        flex: '1',
-        display: 'flex',
-        overflow: 'hidden',
-      }}>
-        {/* Chat area */}
-        <div style={{
-          flex: '1',
-          display: 'flex',
-          'flex-direction': 'column',
-          overflow: 'hidden',
-        }}>
-          {/* Messages */}
-          <MessageList
-            messages={session.messages}
-            streamingMessageId={session.streamingMessageId}
-            onApprovePermission={handleApprovePermission}
-            onDenyPermission={handleDenyPermission}
-          />
+      <Show when={error()}>
+        <div class="app-error">{error()}</div>
+      </Show>
 
-          {/* Input */}
-          <InputArea
-            onSend={handleSend}
-            disabled={session.status === 'running'}
-          />
+      <div class="session-main">
+        <div class="chat-pane">
+          <Show when={!loading()} fallback={<div class="loading-state">Loading session...</div>}>
+            <MessageList
+              messages={session.messages}
+              streamingMessageId={session.streamingMessageId}
+              onApprovePermission={handleApprovePermission}
+              onDenyPermission={handleDenyPermission}
+            />
+            <InputArea onSend={handleSend} disabled={session.status === "running"} />
+          </Show>
         </div>
-
-        {/* Right panel */}
-        <RightPanel
-          taskPlan={session.taskPlan}
-          fileChanges={session.fileChanges}
-        />
+        <RightPanel taskPlan={session.taskPlan} fileChanges={session.fileChanges} />
       </div>
     </div>
   )

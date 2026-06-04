@@ -75,9 +75,21 @@ export const sessionActions = {
     }))
   },
 
+  updateMessage(messageId: string, updater: (message: Message | undefined) => Message | undefined) {
+    setSessionState('messages', produce((msgs) => {
+      const idx = msgs.findIndex(m => m.id === messageId)
+      const current = idx >= 0 ? msgs[idx] : undefined
+      const next = updater(current)
+      if (!next) return
+      if (idx >= 0) msgs[idx] = next
+      else msgs.push(next)
+    }))
+  },
+
   updateMessagePart(messageId: string, part: MessagePart) {
     setSessionState('messages', (m) => m.id === messageId, 'parts', produce((parts) => {
       const idx = parts.findIndex(p => {
+        if ('id' in p && 'id' in part && p.id && part.id) return p.id === part.id
         if (p.type === part.type) {
           // Match tool calls by toolName for running state updates
           if (p.type === 'tool_call' && part.type === 'tool_call') {

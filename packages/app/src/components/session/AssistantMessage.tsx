@@ -1,4 +1,4 @@
-import { For, Show, Switch, Match } from 'solid-js'
+import { For, Match, Show, Switch } from 'solid-js'
 import type { Message, MessagePart } from '../../types/models'
 import { TextBlock } from './blocks/TextBlock'
 import { ReasoningBlock } from './blocks/ReasoningBlock'
@@ -14,50 +14,16 @@ interface Props {
 
 export function AssistantMessage(props: Props) {
   return (
-    <div style={{
-      display: 'flex',
-      'flex-direction': 'column',
-      gap: 'var(--space-6)',
-      position: 'relative',
-    }}>
-      {/* Avatar/indicator */}
-      <div style={{
-        display: 'flex',
-        'align-items': 'center',
-        gap: 'var(--space-8)',
-        'margin-bottom': 'var(--space-4)',
-      }}>
-        <div style={{
-          width: '28px',
-          height: '28px',
-          'border-radius': '50%',
-          background: 'linear-gradient(135deg, #0071e3, #2997ff)',
-          display: 'flex',
-          'align-items': 'center',
-          'justify-content': 'center',
-          'font-size': '14px',
-          color: 'white',
-        }}>
-          🧠
-        </div>
-        <span class="text-caption-bold" style={{ color: 'var(--color-text-tertiary)' }}>
-          JYYCode
-        </span>
-        {props.isStreaming && (
-          <span style={{
-            width: '6px', height: '6px', 'border-radius': '50%',
-            background: 'var(--color-blue-apple)',
-            animation: 'pulse 1s infinite',
-          }} />
-        )}
+    <div class="message-row assistant-row">
+      <div class="assistant-meta">
+        <span class="assistant-mark">J</span>
+        <span>JYYCode</span>
+        <Show when={props.isStreaming}>
+          <span class="stream-dot" />
+        </Show>
       </div>
 
-      {/* Message parts */}
-      <div style={{
-        display: 'flex',
-        'flex-direction': 'column',
-        gap: 'var(--space-4)',
-      }}>
+      <div class="assistant-parts">
         <For each={props.message.parts}>
           {(part) => <PartRenderer part={part} onApprove={props.onApprovePermission} onDeny={props.onDenyPermission} />}
         </For>
@@ -66,7 +32,6 @@ export function AssistantMessage(props: Props) {
   )
 }
 
-// Part dispatcher
 function PartRenderer(props: {
   part: MessagePart
   onApprove: () => void
@@ -74,23 +39,11 @@ function PartRenderer(props: {
 }) {
   return (
     <Switch>
-      <Match when={props.part.type === 'text' && props.part}>
-        {(p) => <TextBlock part={p()} />}
-      </Match>
-      <Match when={props.part.type === 'reasoning' && props.part}>
-        {(p) => <ReasoningBlock part={p()} />}
-      </Match>
-      <Match when={props.part.type === 'tool_call' && props.part}>
-        {(p) => <ToolCallBlock part={p()} />}
-      </Match>
+      <Match when={props.part.type === 'text' && props.part}>{(part) => <TextBlock part={part()} />}</Match>
+      <Match when={props.part.type === 'reasoning' && props.part}>{(part) => <ReasoningBlock part={part()} />}</Match>
+      <Match when={props.part.type === 'tool_call' && props.part}>{(part) => <ToolCallBlock part={part()} />}</Match>
       <Match when={props.part.type === 'permission_request' && props.part}>
-        {(p) => (
-          <PermissionBlock
-            part={p()}
-            onApprove={props.onApprove}
-            onDeny={props.onDeny}
-          />
-        )}
+        {(part) => <PermissionBlock part={part()} onApprove={props.onApprove} onDeny={props.onDeny} />}
       </Match>
     </Switch>
   )

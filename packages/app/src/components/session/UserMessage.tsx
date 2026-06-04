@@ -5,34 +5,15 @@ interface Props {
 }
 
 export function UserMessage(props: Props) {
-  // Extract text content from parts
-  const textContent = () => {
-    return props.message.parts
-      .filter(p => p.type === 'text')
-      .map(p => p.content)
+  const textContent = () =>
+    props.message.parts
+      .filter((part) => part.type === 'text')
+      .map((part) => part.content)
       .join('\n')
-  }
 
   return (
-    <div style={{
-      display: 'flex',
-      'justify-content': 'flex-end',
-    }}>
-      <div style={{
-        'max-width': '75%',
-        background: 'var(--color-blue-apple)',
-        color: 'var(--color-white)',
-        'border-radius': 'var(--radius-feature) var(--radius-feature) 4px var(--radius-feature)',
-        padding: 'var(--space-10) var(--space-14)',
-      }}>
-        <p class="text-body" style={{
-          color: 'inherit',
-          'white-space': 'pre-wrap',
-          'word-break': 'break-word',
-        }}>
-          {textContent()}
-        </p>
-      </div>
+    <div class="message-row user-row">
+      <div class="user-bubble">{textContent()}</div>
     </div>
   )
 }

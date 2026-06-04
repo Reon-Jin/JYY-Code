@@ -36,17 +36,20 @@ export type MessagePart =
   | PermissionRequestPart
 
 export interface TextPart {
+  id?: string
   type: 'text'
   content: string    // markdown string
 }
 
 export interface ReasoningPart {
+  id?: string
   type: 'reasoning'
   content: string
   collapsed: boolean    // UI state: is the reasoning block collapsed?
 }
 
 export interface ToolCallPart {
+  id?: string
   type: 'tool_call'
   toolName: 'read' | 'write' | 'shell' | 'grep' | 'glob' | 'edit' | 'apply_patch' | 'web_fetch' | 'web_search' | 'task' | 'question' | 'skill'
   toolInput: Record<string, unknown>
@@ -56,6 +59,7 @@ export interface ToolCallPart {
 }
 
 export interface PermissionRequestPart {
+  id?: string
   type: 'permission_request'
   toolName: string
   message: string        // human-readable request message
@@ -85,6 +89,7 @@ export interface FileChange {
   additions: number
   deletions: number
   hunks: DiffHunk[]
+  patch?: string
 }
 
 export interface DiffHunk {
@@ -114,11 +119,14 @@ export interface Email {
 // ==================== Model ====================
 export interface ModelInfo {
   id: string
+  modelID: string
+  providerID: string
   name: string
   provider: string
   maxTokens: number
   supportsReasoning: boolean
   supportsTools: boolean
+  connected?: boolean
 }
 
 // ==================== Permission ====================

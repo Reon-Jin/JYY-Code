@@ -1,4 +1,4 @@
-import { For, createEffect, onCleanup } from 'solid-js'
+import { For, Show, createEffect } from 'solid-js'
 import type { Message } from '../../types/models'
 import { UserMessage } from './UserMessage'
 import { AssistantMessage } from './AssistantMessage'
@@ -14,40 +14,33 @@ export function MessageList(props: Props) {
   let containerRef!: HTMLDivElement
   let shouldAutoScroll = true
 
-  // Auto-scroll to bottom on new messages (unless user scrolled up)
   function handleScroll() {
     if (!containerRef) return
     const { scrollTop, scrollHeight, clientHeight } = containerRef
-    shouldAutoScroll = scrollHeight - scrollTop - clientHeight < 100
+    shouldAutoScroll = scrollHeight - scrollTop - clientHeight < 120
   }
 
   createEffect(() => {
-    // Trigger re-scroll when messages change
     props.messages.length
+    props.streamingMessageId
     if (shouldAutoScroll && containerRef) {
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         containerRef.scrollTop = containerRef.scrollHeight
-      }, 50)
+      })
     }
   })
 
   return (
-    <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      style={{
-        flex: '1',
-        overflow: 'auto',
-        padding: 'var(--space-14) var(--space-20)',
-      }}
-    >
-      <div style={{
-        'max-width': '760px',
-        margin: '0 auto',
-        display: 'flex',
-        'flex-direction': 'column',
-        gap: 'var(--space-14)',
-      }}>
+    <main ref={containerRef} onScroll={handleScroll} class="message-scroll">
+      <div class="message-stack">
+        <Show when={props.messages.length === 0}>
+          <div class="empty-session">
+            <div class="brand-mark">J</div>
+            <h1>Let's build something useful</h1>
+            <p>Pick a project, choose a DeepSeek model, attach files, then start a task.</p>
+          </div>
+        </Show>
+
         <For each={props.messages}>
           {(message) => (
             <>
@@ -63,22 +56,7 @@ export function MessageList(props: Props) {
             </>
           )}
         </For>
-
-        {/* Empty state */}
-        {props.messages.length === 0 && (
-          <div style={{
-            'text-align': 'center',
-            padding: '64px 0',
-            color: 'var(--color-text-tertiary)',
-          }}>
-            <p style={{ 'font-size': '32px', 'margin-bottom': '16px' }}>💬</p>
-            <p class="text-body">开始与 JYYCode 对话</p>
-            <p class="text-caption" style={{ 'margin-top': '8px' }}>
-              在下方输入您的问题，AI 将为您提供帮助
-            </p>
-          </div>
-        )}
       </div>
-    </div>
+    </main>
   )
 }

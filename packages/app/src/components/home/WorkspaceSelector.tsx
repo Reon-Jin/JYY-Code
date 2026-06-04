@@ -12,44 +12,22 @@ export function WorkspaceSelector(props: Props) {
   async function handleBrowse() {
     if (!window.electron?.selectDirectory) return
     const selected = await window.electron.selectDirectory()
-    if (selected) {
-      setDir(selected)
-      props.onSelect(selected)
-    }
+    if (!selected) return
+
+    setDir(selected)
+    props.onSelect(selected)
   }
 
   return (
-    <div style={{
-      'text-align': 'center',
-    }}>
-      <div style={{
-        background: 'var(--color-white)',
-        'border-radius': 'var(--radius-standard)',
-        padding: '24px',
-        display: 'inline-flex',
-        'flex-direction': 'column',
-        'align-items': 'center',
-        gap: 'var(--space-14)',
-        'box-shadow': 'var(--shadow-card)',
-        'max-width': '400px',
-        width: '100%',
-      }}>
-        <div style={{
-          'font-size': '32px',
-        }}>📁</div>
-        <p class="text-body" style={{ color: 'var(--color-text-primary)' }}>
-          {dir() ? dir() : '选择一个工作空间目录'}
-        </p>
-        <Button
-          variant="primary"
-          pill
-          size="lg"
-          loading={props.loading}
-          onClick={handleBrowse}
-        >
-          {props.loading ? '启动中...' : '选择目录'}
-        </Button>
+    <section class="workspace-card">
+      <div>
+        <span class="eyebrow">Workspace</span>
+        <h2>{dir() ? dir() : 'Choose a project folder'}</h2>
+        <p>JYYCode will use this folder for sessions, file context, tool calls, and diffs.</p>
       </div>
-    </div>
+      <Button variant="primary" size="lg" loading={props.loading} onClick={handleBrowse}>
+        {props.loading ? 'Starting...' : 'Open Folder'}
+      </Button>
+    </section>
   )
 }

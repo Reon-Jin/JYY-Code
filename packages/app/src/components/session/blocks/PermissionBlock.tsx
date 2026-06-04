@@ -8,45 +8,20 @@ interface Props {
 }
 
 export function PermissionBlock(props: Props) {
-  const { part } = props
-
   return (
-    <div style={{
-      margin: 'var(--space-10) 0',
-      padding: 'var(--space-14)',
-      'border-radius': 'var(--radius-feature)',
-      border: '1px solid rgba(0,113,227,0.3)',
-      background: 'rgba(0,113,227,0.04)',
-    }}>
-      <div style={{
-        display: 'flex',
-        'align-items': 'flex-start',
-        gap: 'var(--space-10)',
-        'margin-bottom': 'var(--space-10)',
-      }}>
-        <span style={{ 'font-size': '20px' }}>🔒</span>
-        <div>
-          <p class="text-caption-bold" style={{ 'margin-bottom': '4px' }}>
-            {part.toolName} — 需要权限
-          </p>
-          <p class="text-caption" style={{ color: 'var(--color-text-secondary)' }}>
-            {part.message}
-          </p>
-        </div>
+    <section class="permission-block">
+      <div>
+        <strong>{props.part.toolName} needs permission</strong>
+        <p>{props.part.message}</p>
       </div>
-
-      <div style={{
-        display: 'flex',
-        gap: 'var(--space-8)',
-        'justify-content': 'flex-end',
-      }}>
+      <div class="permission-actions">
         <Button variant="outline" size="sm" onClick={props.onDeny}>
-          拒绝
+          Deny
         </Button>
         <Button variant="primary" size="sm" onClick={props.onApprove}>
-          允许
+          Allow
         </Button>
       </div>
-    </div>
+    </section>
   )
 }
