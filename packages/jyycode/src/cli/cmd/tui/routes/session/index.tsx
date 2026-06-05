@@ -64,6 +64,7 @@ import { DialogSessionRename } from "../../component/dialog-session-rename"
 import { Sidebar } from "./sidebar"
 import { SubagentFooter } from "./subagent-footer.tsx"
 import { MultiAgentPanel } from "./multi-agent-panel"
+import { stripAgentClusterPlanText } from "./agent-cluster-state"
 import { LANGUAGE_EXTENSIONS } from "@/lsp/language"
 import { MailSession } from "@/communication/mail-session"
 import parsers from "../../../../../../parsers-config.ts"
@@ -1661,14 +1662,19 @@ function CollapsedReasoningText(props: { title: string | null; duration: number 
 function TextPart(props: { last: boolean; part: TextPart; message: AssistantMessage }) {
   const ctx = use()
   const { theme, syntax } = useTheme()
+  const content = createMemo(() => {
+    const text = props.part.text.trim()
+    if (props.message.agent !== "cluster" && props.message.mode !== "cluster") return text
+    return stripAgentClusterPlanText(text).trim()
+  })
   return (
-    <Show when={props.part.text.trim()}>
+    <Show when={content()}>
       <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexShrink={0}>
         <markdown
           syntaxStyle={syntax()}
           streaming={true}
           internalBlockMode="top-level"
-          content={props.part.text.trim()}
+          content={content()}
           tableOptions={{ style: "grid" }}
           conceal={ctx.conceal()}
           fg={theme.markdownText}

@@ -13,6 +13,7 @@ export function modelForComplexity(input: {
 
 export const SubagentDescriptions = {
   researcher: "Research specialist for source collection, citation extraction, and evidence notes.",
+  picture_searcher: "Image research specialist for finding relevant images, diagrams, and visual assets.",
   analyst: "Analysis specialist for data interpretation, tradeoff comparison, and insight synthesis.",
   writer: "Writing specialist for polished sections, concise summaries, and narrative assembly.",
   chart: "Chart specialist for chart data, visualization specs, and generated chart artifacts.",

@@ -1218,7 +1218,9 @@ export const layer = Layer.effect(
         config: cfg.agent_cluster,
         requested: input.agentCluster?.enabled,
       })
-      const clusterModels = useCluster ? yield* AgentCluster.resolveModels(cfg.agent_cluster ?? {}).pipe(Effect.orDie) : undefined
+      const clusterModels = useCluster
+        ? yield* AgentCluster.resolveModels(cfg.agent_cluster ?? {}).pipe(Effect.orDie)
+        : undefined
       const runID = useCluster ? AgentCluster.createRunID() : undefined
       const promptInput =
         useCluster && clusterModels && runID
@@ -1272,6 +1274,54 @@ export const layer = Layer.effect(
         let structured: unknown
         let step = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
+        const clusterDispatchReminderKind = "agent_cluster_dispatch_reminder"
+
+        function hasTaskTool(messages: MessageV2.WithParts[]) {
+          return messages.some((message) => message.parts.some((part) => part.type === "tool" && part.tool === "task"))
+        }
+
+        function hasClusterPlan(message: MessageV2.WithParts | undefined) {
+          if (!message || message.info.role !== "assistant") return false
+          if (message.info.agent !== "cluster" && message.info.mode !== "cluster") return false
+          const text = message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
+          return /"goal"\s*:/.test(text) && /"tasks"\s*:/.test(text)
+        }
+
+        function isClusterDispatchReminder(message: MessageV2.WithParts | undefined) {
+          if (!message || message.info.role !== "user") return false
+          return message.parts.some(
+            (part) => part.type === "text" && part.synthetic && part.metadata?.kind === clusterDispatchReminderKind,
+          )
+        }
+
+        const createClusterDispatchReminder = Effect.fn("SessionPrompt.createClusterDispatchReminder")(function* (
+          lastUser: MessageV2.User,
+        ) {
+          const userMsg: MessageV2.User = {
+            id: MessageID.ascending(),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: lastUser.agent,
+            model: lastUser.model,
+          }
+          yield* sessions.updateMessage(userMsg)
+          yield* sessions.updatePart({
+            id: PartID.ascending(),
+            messageID: userMsg.id,
+            sessionID,
+            type: "text",
+            synthetic: true,
+            metadata: { kind: clusterDispatchReminderKind },
+            text: [
+              "<system-reminder>",
+              "The Multi-Agent plan has been presented, but no subagents were dispatched.",
+              "Immediately dispatch every ready step-1 task now using parallel task tool calls.",
+              "Do not repeat the plan and do not stop after text; this turn must include the task tool calls.",
+              "</system-reminder>",
+            ].join("\n"),
+          } satisfies MessageV2.TextPart)
+        })
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
@@ -1299,6 +1349,16 @@ export const layer = Layer.effect(
             !hasToolCalls &&
             lastUser.id < lastAssistant.id
           ) {
+            if (
+              lastUser.agent === "cluster" &&
+              hasClusterPlan(lastAssistantMsg) &&
+              !hasTaskTool(msgs) &&
+              !isClusterDispatchReminder(msgs.find((msg) => msg.info.id === lastUser.id))
+            ) {
+              yield* slog.info("cluster plan produced without task dispatch; requesting dispatch")
+              yield* createClusterDispatchReminder(lastUser)
+              continue
+            }
             yield* slog.info("exiting loop")
             break
           }

@@ -18,6 +18,7 @@ export const TaskRole = Schema.Literals([
   "coder",
   "tester",
   "reviewer",
+  "picture_searcher",
   "general",
 ])
 export type TaskRole = Schema.Schema.Type<typeof TaskRole>
