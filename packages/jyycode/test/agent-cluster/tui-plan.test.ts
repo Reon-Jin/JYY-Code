@@ -93,6 +93,36 @@ describe("agent cluster TUI plan parsing", () => {
     expect(stripped).toBe("")
   })
 
+  test("extracts completed tasks from partial streaming plan JSON", () => {
+    const partial = [
+      "Before work, here is the plan:",
+      "```json",
+      '{"goal":"Build a detailed report","tasks":[',
+      JSON.stringify({
+        id: "research",
+        step: 1,
+        title: "Research sources",
+        role: "researcher",
+        complexity: "complex",
+        model: "deepseek/deepseek-v4-pro",
+        dependencies: [],
+        prompt: "Research the topic",
+        acceptanceCriteria: ["sources collected"],
+        expectedArtifacts: ["research.md"],
+      }),
+      ',{"id":"write","step":2,"title":"Wri',
+    ].join("\n")
+
+    const plan = extractAgentClusterPlan(partial)
+
+    expect(plan?.partial).toBe(true)
+    expect(plan?.goal).toBe("Build a detailed report")
+    expect(plan?.tasks.map((task) => [task.id, task.step, task.title])).toEqual([
+      ["research", 1, "Research sources"],
+    ])
+    expect(stripAgentClusterPlanText(partial)).toBe("")
+  })
+
   test("merges planned steps with dispatched task status", () => {
     const parent = "ses_parent"
     const assistant = "msg_assistant"
@@ -190,5 +220,65 @@ describe("agent cluster TUI plan parsing", () => {
       [1, "done", 1],
       [2, "queued", 1],
     ])
+  })
+
+  test("shows a partial plan in the snapshot while planning", () => {
+    const parent = "ses_parent"
+    const assistant = "msg_assistant"
+    const messagesBySession: Record<string, Message[]> = {
+      [parent]: [
+        {
+          id: assistant,
+          parentID: "msg_user",
+          sessionID: parent,
+          role: "assistant",
+          mode: "cluster",
+          agent: "cluster",
+          path: { cwd: ".", root: "." },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: "deepseek-v4-pro",
+          providerID: "deepseek",
+          time: { created: 1 },
+        },
+      ],
+    }
+    const partsByMessage: Record<string, Part[]> = {
+      [assistant]: [
+        {
+          id: "part_plan",
+          sessionID: parent,
+          messageID: assistant,
+          type: "text",
+          text: [
+            '{"goal":"Build a detailed report","tasks":[',
+            JSON.stringify({
+              id: "research",
+              step: 1,
+              title: "Research sources",
+              role: "researcher",
+              model: "deepseek/deepseek-v4-pro",
+              dependencies: [],
+            }),
+            ',{"id":"write","step":2,"title":"Wri',
+          ].join("\n"),
+        },
+      ],
+    }
+
+    const snapshot = agentClusterSnapshot({
+      sessionID: parent,
+      enabled: true,
+      disabled: false,
+      messages: (sessionID) => messagesBySession[sessionID] ?? [],
+      parts: (messageID) => partsByMessage[messageID] ?? [],
+      sessionStatus: () => ({ type: "busy" }),
+    })
+
+    expect(snapshot.status).toBe("planning")
+    expect(snapshot.plan?.partial).toBe(true)
+    expect(snapshot.totalSteps).toBe(1)
+    expect(snapshot.currentStep).toBe(1)
+    expect(snapshot.totalAgents).toBe(1)
   })
 })

@@ -18,6 +18,7 @@ export type AgentClusterPlanTask = {
 export type AgentClusterPlan = {
   goal: string
   tasks: AgentClusterPlanTask[]
+  partial?: boolean
 }
 
 export type AgentClusterStep = {
@@ -154,35 +155,37 @@ function parseTaskOutputStatus(value: string) {
   return { taskID, status }
 }
 
+function normalizePlanTask(item: unknown): AgentClusterPlanTask[] {
+  const task = record(item)
+  if (!task) return []
+
+  const title = text(task.title) ?? text(task.description)
+  const id = text(task.id) ?? title
+  if (!title || !id) return []
+
+  return [
+    {
+      id,
+      step: Math.max(1, Math.trunc(number(task.step) ?? 1)),
+      title,
+      role: text(task.role) ?? "general",
+      complexity: text(task.complexity),
+      model: text(task.model) ?? "-",
+      dependencies: stringList(task.dependencies),
+      acceptanceCriteria: stringList(task.acceptanceCriteria),
+      expectedArtifacts: stringList(task.expectedArtifacts),
+      status: "queued",
+    },
+  ]
+}
+
 function normalizePlan(value: unknown): AgentClusterPlan | undefined {
   const obj = record(value)
   const goal = text(obj?.goal)
   const rawTasks = obj?.tasks
   if (!goal || !Array.isArray(rawTasks)) return
 
-  const tasks = rawTasks.flatMap((item, index): AgentClusterPlanTask[] => {
-    const task = record(item)
-    if (!task) return []
-
-    const title = text(task.title) ?? text(task.description)
-    const id = text(task.id) ?? title
-    if (!title || !id) return []
-
-    return [
-      {
-        id,
-        step: Math.max(1, Math.trunc(number(task.step) ?? 1)),
-        title,
-        role: text(task.role) ?? "general",
-        complexity: text(task.complexity),
-        model: text(task.model) ?? "-",
-        dependencies: stringList(task.dependencies),
-        acceptanceCriteria: stringList(task.acceptanceCriteria),
-        expectedArtifacts: stringList(task.expectedArtifacts),
-        status: "queued",
-      },
-    ]
-  })
+  const tasks = rawTasks.flatMap(normalizePlanTask)
 
   if (tasks.length === 0) return
   return { goal, tasks }
@@ -202,6 +205,91 @@ function parsePlanJson(json: string): AgentClusterPlan | undefined {
 
 function repairInvalidJsonEscapes(json: string) {
   return json.replace(/\\+(?=[^"\\/bfnrtu])/g, (slashes) => (slashes.length % 2 === 0 ? slashes : slashes + "\\"))
+}
+
+function parseJsonStringLiteral(value: string, key: string): string | undefined {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = value.match(new RegExp(`"${escapedKey}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, "s"))
+  if (!match) return undefined
+  try {
+    const parsed = JSON.parse(`"${match[1]}"`)
+    return typeof parsed === "string" ? parsed : undefined
+  } catch {
+    return match[1]?.replace(/\\"/g, '"').replace(/\\\\/g, "\\")
+  }
+}
+
+function completedObjectsInArray(value: string, arrayStart: number) {
+  const objects: string[] = []
+  let objectStart = -1
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = arrayStart; index < value.length; index++) {
+    const char = value[index]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+        continue
+      }
+      if (char === "\\") {
+        escaped = true
+        continue
+      }
+      if (char === '"') inString = false
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      continue
+    }
+    if (char === "]" && depth === 0) break
+    if (char !== "{" && depth === 0) continue
+
+    if (char === "{") {
+      if (depth === 0) objectStart = index
+      depth++
+      continue
+    }
+    if (char !== "}") continue
+
+    depth--
+    if (depth === 0 && objectStart !== -1) {
+      objects.push(value.slice(objectStart, index + 1))
+      objectStart = -1
+    }
+  }
+
+  return objects
+}
+
+function parsePartialPlanJson(value: string): AgentClusterPlan | undefined {
+  const jsonStart = value.indexOf("{")
+  if (jsonStart === -1) return undefined
+
+  const json = value.slice(jsonStart)
+  const tasksMatch = /"tasks"\s*:\s*\[/.exec(json)
+  if (!tasksMatch) return undefined
+
+  const goal = parseJsonStringLiteral(json, "goal") ?? ""
+  const objectJsons = completedObjectsInArray(json, (tasksMatch.index ?? 0) + tasksMatch[0].length)
+  const tasks = objectJsons.flatMap((taskJson) => {
+    try {
+      return normalizePlanTask(JSON.parse(taskJson))
+    } catch {
+      try {
+        return normalizePlanTask(JSON.parse(repairInvalidJsonEscapes(taskJson)))
+      } catch {
+        return []
+      }
+    }
+  })
+
+  if (tasks.length === 0) return undefined
+  return { goal, tasks, partial: true }
 }
 
 function collectJsonCandidates(textValue: string): JsonCandidate[] {
@@ -314,7 +402,7 @@ function trimPlanOnlyPreamble(value: string) {
 }
 
 export function extractAgentClusterPlan(textValue: string): AgentClusterPlan | undefined {
-  return collectPlanRanges(textValue).at(-1)?.plan
+  return collectPlanRanges(textValue).at(-1)?.plan ?? parsePartialPlanJson(collectPartialPlanRange(textValue)?.json ?? "")
 }
 
 export function stripAgentClusterPlanText(textValue: string): string {
@@ -499,6 +587,8 @@ export function agentClusterSnapshot(input: SnapshotInput): AgentClusterSnapshot
       ? "off"
       : !planWithStatus && rows.length === 0
         ? "planning"
+        : planWithStatus?.partial && rows.length === 0
+          ? "planning"
         : active
           ? "dispatching"
           : rows.length > 0 || planWithStatus
