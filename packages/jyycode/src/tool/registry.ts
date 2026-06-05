@@ -15,6 +15,8 @@ import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
 import { SendMessageTool } from "./send-message"
 import { SendFileTool } from "./send-file"
+import { MemorySearchTool } from "./memory_search"
+import { MemoryReadTool } from "./memory_read"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@jyycode-ai/plugin"
@@ -35,7 +37,7 @@ import { ApplyPatchTool } from "./apply_patch"
 import { Glob } from "@jyycode-ai/core/util/glob"
 import path from "path"
 import { pathToFileURL } from "url"
-import { Effect, Layer, Context } from "effect"
+import { Effect, Layer, Context, Option } from "effect"
 import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
@@ -57,6 +59,7 @@ import { Reference } from "@/reference/reference"
 import { BackgroundJob } from "@/background/job"
 import { SessionStatus } from "@/session/status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { Memory } from "@/memory/memory"
 
 const log = Log.create({ service: "tool.registry" })
 
@@ -142,6 +145,11 @@ export const layer: Layer.Layer<
     const skilltool = yield* SkillTool
     const sendMessage = yield* SendMessageTool
     const sendFile = yield* SendFileTool
+    const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
+    const memorySearch = memory
+      ? yield* MemorySearchTool.pipe(Effect.provideService(Memory.Service, memory))
+      : undefined
+    const memoryRead = memory ? yield* MemoryReadTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -254,6 +262,8 @@ export const layer: Layer.Layer<
           plan: Tool.init(plan),
           send_message: Tool.init(sendMessage),
           send_file: Tool.init(sendFile),
+          memory_search: memorySearch ? Tool.init(memorySearch) : Effect.succeed(undefined),
+          memory_read: memoryRead ? Tool.init(memoryRead) : Effect.succeed(undefined),
         })
 
         return {
@@ -277,6 +287,8 @@ export const layer: Layer.Layer<
             tool.patch,
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
+            ...(tool.memory_search ? [tool.memory_search] : []),
+            ...(tool.memory_read ? [tool.memory_read] : []),
             tool.send_message,
             tool.send_file,
           ],
@@ -416,7 +428,7 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Format.defaultLayer),
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
-      Layer.provide(Truncate.defaultLayer),
+      Layer.provide(Layer.mergeAll(Truncate.defaultLayer, Memory.defaultLayer)),
     )
     .pipe(Layer.provide(RuntimeFlags.defaultLayer)),
 )

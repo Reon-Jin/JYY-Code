@@ -1,0 +1,3 @@
+Read persistent memory sections.
+
+Use this only when broad memory context is explicitly needed or when memory_search results indicate that a full section should be inspected. Prefer memory_search for ordinary recall.

@@ -45,3 +45,6 @@ tsconfig.tsbuildinfo
 **/.jyycode/*.local.jsonc
 
 /apple
+
+# Persistent local agent memory
+/memory/

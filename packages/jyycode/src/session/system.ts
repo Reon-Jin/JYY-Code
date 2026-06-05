@@ -59,6 +59,8 @@ export const layer = Layer.effect(
             `  Platform: ${process.platform}`,
             `  Today's date: ${new Date().toDateString()}`,
             `</env>`,
+            ``,
+            `Persistent memory is available through tools. Do not assume memory is already loaded, and do not ask for it on every request. Use memory_search when prior user preferences, project conventions, recurring workflows, past lessons, or recent session history may affect the task. Use memory_read only when a full memory section is explicitly needed.`,
           ].join("\n"),
         ]
       }),

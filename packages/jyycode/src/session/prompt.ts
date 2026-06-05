@@ -62,6 +62,7 @@ import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@jyycode-ai/llm"
 import { AgentCluster } from "@/agent-cluster/cluster"
+import { Memory } from "@/memory/memory"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -124,6 +125,7 @@ export const layer = Layer.effect(
     const references = yield* Reference.Service
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
+    const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -1567,6 +1569,11 @@ export const layer = Layer.effect(
 
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
         const result = yield* lastAssistant(sessionID)
+        if (memory) {
+          yield* memory
+            .updateAfterTurn(sessionID)
+            .pipe(Effect.catchCause((cause) => elog.error("failed to update persistent memory", { cause })))
+        }
         return result
       },
     )
@@ -1732,7 +1739,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
-    Layer.provide(Image.defaultLayer),
+    Layer.provide(Layer.mergeAll(Image.defaultLayer, Memory.defaultLayer)),
     Layer.provide(
       Layer.mergeAll(
         EventV2Bridge.defaultLayer,
