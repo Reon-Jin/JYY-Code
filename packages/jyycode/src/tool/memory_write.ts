@@ -7,8 +7,10 @@ const Scope = Schema.Literals(["memory", "user"])
 const Confidence = Schema.Literals(["low", "medium", "high"])
 
 export const Parameters = Schema.Struct({
-  scope: Scope.annotate({ description: "Write to MEMORY.md for project memory, or USER.md for user memory." }),
-  section: Schema.String.annotate({ description: "Target markdown section name." }),
+  scope: Scope.annotate({
+    description: "Write to D:/jyycode/memory/MEMORY.md for project memory, or D:/jyycode/memory/USER.md for user memory.",
+  }),
+  section: Schema.String.annotate({ description: "Target markdown section name in the fixed memory store." }),
   content: Schema.String.annotate({ description: "Durable memory content to store." }),
   reason: Schema.String.annotate({ description: "Why this should be remembered long term." }),
   confidence: Schema.optional(Confidence).annotate({ description: "Confidence in this memory. Defaults to medium." }),
@@ -41,7 +43,7 @@ export const MemoryWriteTool = Tool.define(
           })
           return {
             title: "Memory write",
-            metadata: { id: result.id, status: result.status, truncated: false },
+            metadata: { id: result.id, file: result.file, status: result.status, truncated: false },
             output: result.message,
           }
         }).pipe(Effect.orDie),

@@ -38,7 +38,7 @@ export const MemorySupersedeTool = Tool.define(
           const result = yield* memory.supersede({ sessionID: ctx.sessionID, ...params })
           return {
             title: "Memory supersede",
-            metadata: { id: result.id, status: result.status, truncated: false },
+            metadata: { id: result.id, file: result.file, status: result.status, truncated: false },
             output: result.message,
           }
         }).pipe(Effect.orDie),

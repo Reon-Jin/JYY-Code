@@ -5,7 +5,7 @@ import { Memory } from "@/memory/memory"
 
 export const Parameters = Schema.Struct({
   scope: Schema.Literals(["memory", "user"]).annotate({
-    description: "Read MEMORY.md with memory, or USER.md with user preferences.",
+    description: "Read D:/jyycode/memory/MEMORY.md with memory, or D:/jyycode/memory/USER.md with user preferences.",
   }),
   section: Schema.optional(Schema.String).annotate({
     description: "Optional section name, for example 'Engineering Conventions' or 'Communication Style'.",

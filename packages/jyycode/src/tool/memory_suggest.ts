@@ -40,7 +40,7 @@ export const MemorySuggestTool = Tool.define(
           })
           return {
             title: "Memory suggestion",
-            metadata: { id: result.id, status: result.status, truncated: false },
+            metadata: { id: result.id, file: result.file, status: result.status, truncated: false },
             output: result.message,
           }
         }).pipe(Effect.orDie),

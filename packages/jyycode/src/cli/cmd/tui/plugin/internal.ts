@@ -3,7 +3,6 @@ import HomeTips from "../feature-plugins/home/tips"
 import SidebarContext from "../feature-plugins/sidebar/context"
 import SidebarMcp from "../feature-plugins/sidebar/mcp"
 import SidebarLsp from "../feature-plugins/sidebar/lsp"
-import SidebarMultiAgent from "../feature-plugins/sidebar/multi-agent"
 import SidebarTodo from "../feature-plugins/sidebar/todo"
 import SidebarFiles from "../feature-plugins/sidebar/files"
 import SidebarFooter from "../feature-plugins/sidebar/footer"
@@ -28,7 +27,6 @@ export function internalTuiPlugins(flags: Pick<RuntimeFlags.Info, "experimentalE
     SidebarContext,
     SidebarMcp,
     SidebarLsp,
-    SidebarMultiAgent,
     SidebarTodo,
     SidebarFiles,
     SidebarFooter,

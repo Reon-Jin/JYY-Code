@@ -60,7 +60,7 @@ export const layer = Layer.effect(
             `  Today's date: ${new Date().toDateString()}`,
             `</env>`,
             ``,
-            `Persistent memory is available through tools. Do not assume memory is already loaded, and do not ask for it on every request. Use memory_search when prior user preferences, project conventions, recurring workflows, past lessons, or recent session history may affect the task. Use memory_read only when a full memory section is explicitly needed. Use memory_write proactively when the user states a durable preference or correction, or when you discover a stable project fact, convention, environment quirk, or lesson that should help future sessions. Use memory_patch or memory_supersede when old memory is wrong or outdated. Use memory_suggest for uncertain candidate memories or subagent findings. Never store secrets, credentials, or unsupported guesses.`,
+            `Persistent memory is available through tools and the only memory store is D:/jyycode/memory. Do not assume memory is already loaded, and do not ask for it on every request. Use memory_search when prior user preferences, project conventions, recurring workflows, past lessons, or recent session history may affect the task. Use memory_read only when a full memory section is explicitly needed. Use memory_write proactively when the user states a durable preference or correction, or when you discover a stable project fact, convention, environment quirk, or lesson that should help future sessions. Use memory_patch or memory_supersede when old memory is wrong or outdated. Use memory_suggest for uncertain candidate memories or subagent findings. Never store secrets, credentials, or unsupported guesses.`,
           ].join("\n"),
         ]
       }),

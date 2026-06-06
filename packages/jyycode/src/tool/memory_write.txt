@@ -1,3 +1,3 @@
-Write durable persistent memory.
+Write durable persistent memory to D:/jyycode/memory.
 
 Use this when the user explicitly states a stable preference or correction, or when you discover a stable project fact, convention, environment quirk, or lesson that should help future sessions. Do not store temporary task progress, secrets, credentials, or unsupported guesses.

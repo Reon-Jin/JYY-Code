@@ -13,6 +13,7 @@ const log = Log.create({ service: "memory" })
 
 const MEMORY_FILE = "MEMORY.md"
 const USER_FILE = "USER.md"
+export const DIRECTORY = path.normalize("D:/jyycode/memory")
 const MAX_RECENT_SESSIONS = 30
 
 type Scope = "memory" | "user"
@@ -56,6 +57,7 @@ type MemorySuggestInput = {
 
 export type MutationResult = {
   id?: string
+  file?: string
   status: "written" | "duplicate" | "patched" | "superseded" | "suggested"
   message: string
 }
@@ -138,15 +140,8 @@ export const layer = Layer.effect(
     const fs = yield* AppFileSystem.Service
     const sessions = yield* Session.Service
 
-    const root = Effect.fn("Memory.root")(function* (sessionID: SessionID) {
-      const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
-      if (!session.path) return session.directory
-      const depth = session.path.split("/").filter(Boolean).length
-      return path.resolve(session.directory, ...Array.from({ length: depth }, () => ".."))
-    })
-
-    const dir = Effect.fn("Memory.dir")(function* (sessionID: SessionID) {
-      return path.join(yield* root(sessionID), "memory")
+    const dir = Effect.fn("Memory.dir")(function* (_sessionID: SessionID) {
+      return DIRECTORY
     })
 
     const filePath = Effect.fn("Memory.filePath")(function* (sessionID: SessionID, scope: Scope) {
@@ -197,6 +192,7 @@ export const layer = Layer.effect(
       const results: SearchResult[] = []
 
       for (const scope of scopes) {
+        const sourceFile = yield* filePath(input.sessionID, scope)
         const text = yield* readFull(input.sessionID, scope)
         let currentSection = "Document"
         const lines = text.split(/\r?\n/)
@@ -212,7 +208,7 @@ export const layer = Layer.effect(
           const score = scoreLine(tokens, body)
           if (score <= 0) continue
           results.push({
-            file: filenames[scope],
+            file: sourceFile,
             section: currentSection,
             line: i + 1,
             score,
@@ -236,6 +232,7 @@ export const layer = Layer.effect(
       if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
       if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
 
+      const targetFile = yield* filePath(input.sessionID, input.scope)
       const current = yield* readFull(input.sessionID, input.scope)
       const existingID = findDuplicateID(current, clean)
       if (existingID) {
@@ -248,8 +245,9 @@ export const layer = Layer.effect(
         })
         return {
           id: existingID,
+          file: targetFile,
           status: "duplicate" as const,
-          message: `Duplicate memory already exists: ${existingID}`,
+          message: `Duplicate memory already exists: ${existingID}\nFile: ${targetFile}`,
         }
       }
 
@@ -272,7 +270,7 @@ export const layer = Layer.effect(
         id,
         reason: input.reason,
       })
-      return { id, status: "written" as const, message: `Memory written: ${id}` }
+      return { id, file: targetFile, status: "written" as const, message: `Memory written: ${id}\nFile: ${targetFile}` }
     })
 
     const patch = Effect.fn("Memory.patch")(function* (input: MemoryPatchInput) {
@@ -281,6 +279,7 @@ export const layer = Layer.effect(
       if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
       if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
 
+      const targetFile = yield* filePath(input.sessionID, input.scope)
       const current = yield* readFull(input.sessionID, input.scope)
       const updated = replaceEntry(current, input.id, (block) =>
         setEntryFields(block, {
@@ -297,12 +296,13 @@ export const layer = Layer.effect(
         id: input.id,
         reason: input.reason,
       })
-      return { id: input.id, status: "patched" as const, message: `Memory patched: ${input.id}` }
+      return { id: input.id, file: targetFile, status: "patched" as const, message: `Memory patched: ${input.id}\nFile: ${targetFile}` }
     })
 
     const supersede = Effect.fn("Memory.supersede")(function* (input: MemorySupersedeInput) {
       yield* ensure(input.sessionID)
       let replacementID: string | undefined
+      const targetFile = yield* filePath(input.sessionID, input.scope)
       if (input.replacement?.content) {
         const result = yield* write({
           sessionID: input.sessionID,
@@ -336,8 +336,11 @@ export const layer = Layer.effect(
       })
       return {
         id: input.id,
+        file: targetFile,
         status: "superseded" as const,
-        message: replacementID ? `Memory superseded: ${input.id} -> ${replacementID}` : `Memory superseded: ${input.id}`,
+        message: replacementID
+          ? `Memory superseded: ${input.id} -> ${replacementID}\nFile: ${targetFile}`
+          : `Memory superseded: ${input.id}\nFile: ${targetFile}`,
       }
     })
 
@@ -374,7 +377,7 @@ export const layer = Layer.effect(
         id,
         reason: input.reason,
       })
-      return { id, status: "suggested" as const, message: `Memory suggestion saved: ${id}` }
+      return { id, file: target, status: "suggested" as const, message: `Memory suggestion saved: ${id}\nFile: ${target}` }
     })
 
     const updateAfterTurn = Effect.fn("Memory.updateAfterTurn")(function* (sessionID: SessionID) {
