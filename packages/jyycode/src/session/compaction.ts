@@ -15,7 +15,24 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect, Layer, Context, Schema } from "effect"
 import * as DateTime from "effect/DateTime"
 import { InstanceState } from "@/effect/instance-state"
-import { isOverflow as overflow, shouldCompact as predictiveOverflow, usable } from "./overflow"
+import {
+  isOverflow as overflow,
+  shouldCompact as predictiveOverflow,
+  usable,
+  getAutocompactBufferTokens,
+  getEffectiveContextWindow,
+  getAutoCompactThreshold,
+  calculateTokenWarningState,
+  estimateMaxTurnGrowth,
+} from "./overflow"
+import { isCompactable, microCompactOutput, estimateMicroCompactSavings } from "./micro-compact"
+import {
+  detectReactiveCompactTrigger,
+  shouldAttemptReactiveCompact,
+  createReactiveCompactState,
+  type ReactiveCompactConfig,
+  type ReactiveCompactState,
+} from "./reactive-compact"
 import { serviceUse } from "@/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -39,7 +56,7 @@ const PRUNE_PROTECTED_TOOLS = ["skill"]
 const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
 const MAX_PRESERVE_RECENT_TOKENS = 8_000
-export const AUTO_FAILURE_LIMIT = 2
+export const AUTO_FAILURE_LIMIT = 3
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Goal
@@ -194,6 +211,19 @@ export interface Interface {
     model: Provider.Model
   }) => Effect.Effect<boolean>
   readonly prune: (input: { sessionID: SessionID }) => Effect.Effect<void>
+  /** Micro-compact tool results within a message array without full compaction. */
+  readonly microCompact: (input: {
+    messages: MessageV2.WithParts[]
+  }) => Effect.Effect<MessageV2.WithParts[]>
+  /** Detect if the conversation needs reactive (emergency) compaction. */
+  readonly detectReactiveNeed: (input: {
+    messages: MessageV2.WithParts[]
+  }) => Effect.Effect<"prompt_too_long" | "media_size" | null>
+  /** Get detailed token warning state for UI. */
+  readonly tokenWarningState: (input: {
+    tokenUsage: number
+    model: Provider.Model
+  }) => Effect.Effect<ReturnType<typeof calculateTokenWarningState>>
   readonly process: (input: {
     parentID: MessageID
     messages: MessageV2.WithParts[]
@@ -614,6 +644,41 @@ export const layer = Layer.effect(
       return failed
     }
 
+    const microCompactFn = Effect.fn("SessionCompaction.microCompact")(function* (input: {
+      messages: MessageV2.WithParts[]
+    }) {
+      const result = structuredClone(input.messages)
+      for (const msg of result) {
+        for (const part of msg.parts) {
+          if (part.type !== "tool") continue
+          if (!isCompactable(part)) continue
+          const compacted = microCompactOutput(part.state.output)
+          if (compacted) {
+            part.state.output = compacted.content
+          }
+        }
+      }
+      return result
+    })
+
+    const detectReactiveNeed = Effect.fn("SessionCompaction.detectReactiveNeed")(function* (input: {
+      messages: MessageV2.WithParts[]
+    }) {
+      return detectReactiveCompactTrigger(input.messages)
+    })
+
+    const tokenWarningStateFn = Effect.fn("SessionCompaction.tokenWarningState")(function* (input: {
+      tokenUsage: number
+      model: Provider.Model
+    }) {
+      const cfg = yield* config.get()
+      return calculateTokenWarningState({
+        tokenUsage: input.tokenUsage,
+        model: input.model,
+        config: cfg,
+      })
+    })
+
     const create = Effect.fn("SessionCompaction.create")(function* (input: {
       sessionID: SessionID
       agent: string
@@ -662,6 +727,9 @@ export const layer = Layer.effect(
       isOverflow,
       shouldCompact,
       prune,
+      microCompact: microCompactFn,
+      detectReactiveNeed,
+      tokenWarningState: tokenWarningStateFn,
       process: processCompaction,
       create,
     })
