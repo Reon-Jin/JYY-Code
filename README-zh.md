@@ -1,6 +1,6 @@
 # JYY-Code
 
-[![License](https://img.shields.io/github/license/anomalyco/jyycode?style=flat-square)](https://github.com/anomalyco/jyycode/blob/main/LICENSE)
+[![License](https://img.shields.io/github/license/anomalyco/jyycode?style=flat-square)](https://github.com/Reon-Jin/JYY-Code/blob/main/LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
 [![TypeScript](https://img.shields.io/badge/language-TypeScript-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 
