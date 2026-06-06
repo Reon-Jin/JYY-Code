@@ -188,6 +188,9 @@ export const layer = Layer.effect(
     }
 
     const result = Service.of({
+      // TODO(v2): Implement proper V2 session creation. This stub exists to
+      // unblock the V2 API surface while the full implementation is in progress.
+      // Callers MUST NOT rely on the returned object having any valid properties.
       create: Effect.fn("V2Session.create")(function* (_input) {
         return {} as any
       }),

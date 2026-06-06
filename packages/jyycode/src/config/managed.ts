@@ -36,11 +36,16 @@ export function managedConfigDir() {
 }
 
 export function parseManagedPlist(json: string): string {
-  const raw = JSON.parse(json)
-  for (const key of Object.keys(raw)) {
-    if (PLIST_META.has(key)) delete raw[key]
+  try {
+    const raw = JSON.parse(json)
+    for (const key of Object.keys(raw)) {
+      if (PLIST_META.has(key)) delete raw[key]
+    }
+    return JSON.stringify(raw)
+  } catch (err) {
+    log.error("failed to parse managed plist", { error: err })
+    return json
   }
-  return JSON.stringify(raw)
 }
 
 export async function readManagedPreferences() {

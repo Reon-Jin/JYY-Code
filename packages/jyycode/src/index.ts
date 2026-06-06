@@ -48,12 +48,17 @@ process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
     e: errorMessage(e),
   })
+  process.exitCode = 1
 })
 
 process.on("uncaughtException", (e) => {
   Log.Default.error("exception", {
     e: errorMessage(e),
   })
+  process.exitCode = 1
+  // Force exit: an uncaught exception leaves the process in an undefined state.
+  // Give stderr 100ms to flush, then exit to avoid hanging indefinitely.
+  setTimeout(() => process.exit(1), 100).unref()
 })
 
 const args = hideBin(process.argv)
@@ -248,6 +253,11 @@ try {
   // Some subprocesses don't react properly to SIGTERM and similar signals.
   // Most notably, some docker-container-based MCP servers don't handle such signals unless
   // run using `docker run --init`.
-  // Explicitly exit to avoid any hanging subprocesses.
-  process.exit()
+  // Give the process 500ms grace period for cleanup, then force exit to avoid hanging.
+  const forceExit = setTimeout(() => process.exit(process.exitCode || 0), 500)
+  forceExit.unref()
+  // Allow the event loop to drain naturally if possible.
+  if (process.exitCode && process.exitCode !== 0) {
+    process.exit(process.exitCode)
+  }
 }
