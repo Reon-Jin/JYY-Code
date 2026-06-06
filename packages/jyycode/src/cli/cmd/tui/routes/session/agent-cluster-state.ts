@@ -484,21 +484,32 @@ function taskRuns(input: SnapshotInput, statuses: Map<string, AgentClusterTaskSt
 
 function explicitTaskStatus(input: SnapshotInput) {
   const out = new Map<string, AgentClusterTaskStatus>()
+  const setStatus = (taskID: string, status: AgentClusterTaskStatus) => {
+    const current = out.get(taskID)
+    if ((current === "done" || current === "failed") && status === "running") return
+    out.set(taskID, status)
+  }
+  const setFromText = (value: string | undefined) => {
+    if (!value) return
+    const parsed = parseTaskOutputStatus(value)
+    if (parsed) setStatus(parsed.taskID, parsed.status)
+  }
 
   for (const message of input.messages(input.sessionID)) {
     for (const part of input.parts(message.id)) {
       if (part.type === "text") {
-        const parsed = parseTaskOutputStatus(part.text)
-        if (parsed) out.set(parsed.taskID, parsed.status)
+        setFromText(part.text)
         continue
       }
 
-      if (part.type !== "tool" || part.tool !== "task_status") continue
+      if (part.type !== "tool") continue
+      if (part.state.status === "completed" && part.tool === "task_status") setFromText(part.state.output)
+      if (part.tool !== "task_status") continue
       const meta = metadata(part)
       const taskID = text(meta?.task_id)
       const state = text(meta?.state)
       const status = state ? outputStatus(state) : undefined
-      if (taskID && status) out.set(taskID, status)
+      if (taskID && status) setStatus(taskID, status)
     }
   }
 

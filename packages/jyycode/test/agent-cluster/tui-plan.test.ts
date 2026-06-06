@@ -222,6 +222,186 @@ describe("agent cluster TUI plan parsing", () => {
     ])
   })
 
+  test("uses completed task_status tool output when child messages are not synced", () => {
+    const parent = "ses_parent"
+    const assistant = "msg_assistant"
+    const messagesBySession: Record<string, Message[]> = {
+      [parent]: [
+        {
+          id: assistant,
+          parentID: "msg_user",
+          sessionID: parent,
+          role: "assistant",
+          mode: "cluster",
+          agent: "cluster",
+          path: { cwd: ".", root: "." },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: "deepseek-v4-pro",
+          providerID: "deepseek",
+          time: { created: 1 },
+        },
+      ],
+    }
+    const partsByMessage: Record<string, Part[]> = {
+      [assistant]: [
+        {
+          id: "part_plan",
+          sessionID: parent,
+          messageID: assistant,
+          type: "text",
+          text: planJson,
+        },
+        {
+          id: "part_task",
+          sessionID: parent,
+          messageID: assistant,
+          type: "tool",
+          callID: "call_task",
+          tool: "task",
+          state: {
+            status: "completed",
+            title: "Research sources",
+            input: {
+              description: "Research sources",
+              subagent_type: "researcher",
+              task_id: "research",
+            },
+            metadata: {
+              sessionId: "ses_child",
+              background: true,
+            },
+            output: "task_id: ses_child\nstate: running",
+            time: { start: 1, end: 2 },
+          },
+        },
+        {
+          id: "part_status",
+          sessionID: parent,
+          messageID: assistant,
+          type: "tool",
+          callID: "call_status",
+          tool: "task_status",
+          state: {
+            status: "completed",
+            title: "Task status",
+            input: {
+              task_id: "ses_child",
+              wait: true,
+            },
+            metadata: {},
+            output: "task_id: ses_child\nstate: completed\n\n<task_result>\ndone\n</task_result>",
+            time: { start: 3, end: 4 },
+          },
+        },
+      ],
+    }
+
+    const snapshot = agentClusterSnapshot({
+      sessionID: parent,
+      enabled: true,
+      disabled: false,
+      messages: (sessionID) => messagesBySession[sessionID] ?? [],
+      parts: (messageID) => partsByMessage[messageID] ?? [],
+      sessionStatus: () => ({ type: "idle" }),
+    })
+
+    expect(snapshot.steps[0]?.tasks[0]?.status).toBe("done")
+    expect(snapshot.completedSteps).toBe(1)
+    expect(snapshot.doneAgents).toBe(1)
+    expect(snapshot.currentStep).toBe(2)
+  })
+
+  test("uses injected background task result text when child messages are not synced", () => {
+    const parent = "ses_parent"
+    const assistant = "msg_assistant"
+    const injected = "msg_injected"
+    const messagesBySession: Record<string, Message[]> = {
+      [parent]: [
+        {
+          id: assistant,
+          parentID: "msg_user",
+          sessionID: parent,
+          role: "assistant",
+          mode: "cluster",
+          agent: "cluster",
+          path: { cwd: ".", root: "." },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: "deepseek-v4-pro",
+          providerID: "deepseek",
+          time: { created: 1 },
+        },
+        {
+          id: injected,
+          sessionID: parent,
+          role: "user",
+          agent: "cluster",
+          model: { providerID: "deepseek", modelID: "deepseek-v4-pro" },
+          time: { created: 2 },
+        },
+      ],
+    }
+    const partsByMessage: Record<string, Part[]> = {
+      [assistant]: [
+        {
+          id: "part_plan",
+          sessionID: parent,
+          messageID: assistant,
+          type: "text",
+          text: planJson,
+        },
+        {
+          id: "part_task",
+          sessionID: parent,
+          messageID: assistant,
+          type: "tool",
+          callID: "call_task",
+          tool: "task",
+          state: {
+            status: "completed",
+            title: "Research sources",
+            input: {
+              description: "Research sources",
+              subagent_type: "researcher",
+              task_id: "research",
+            },
+            metadata: {
+              sessionId: "ses_child",
+              background: true,
+            },
+            output: "task_id: ses_child\nstate: running",
+            time: { start: 1, end: 2 },
+          },
+        },
+      ],
+      [injected]: [
+        {
+          id: "part_injected",
+          sessionID: parent,
+          messageID: injected,
+          type: "text",
+          synthetic: true,
+          text: "Background task completed: Research sources\ntask_id: ses_child\nstate: completed\n\n<task_result>\ndone\n</task_result>",
+        },
+      ],
+    }
+
+    const snapshot = agentClusterSnapshot({
+      sessionID: parent,
+      enabled: true,
+      disabled: false,
+      messages: (sessionID) => messagesBySession[sessionID] ?? [],
+      parts: (messageID) => partsByMessage[messageID] ?? [],
+      sessionStatus: () => ({ type: "idle" }),
+    })
+
+    expect(snapshot.steps[0]?.tasks[0]?.status).toBe("done")
+    expect(snapshot.completedSteps).toBe(1)
+    expect(snapshot.doneAgents).toBe(1)
+    expect(snapshot.currentStep).toBe(2)
+  })
+
   test("shows a partial plan in the snapshot while planning", () => {
     const parent = "ses_parent"
     const assistant = "msg_assistant"
