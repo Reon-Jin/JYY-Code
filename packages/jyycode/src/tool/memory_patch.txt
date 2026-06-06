@@ -1,0 +1,3 @@
+Patch an existing persistent memory entry by id.
+
+Use this when a remembered fact or preference is still valid but its content needs correction or clarification. Use memory_search first if you do not know the id.

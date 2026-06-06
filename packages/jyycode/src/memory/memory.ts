@@ -7,6 +7,7 @@ import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { MessageV2 } from "@/session/message-v2"
 import * as Log from "@jyycode-ai/core/util/log"
+import { ulid } from "ulid"
 
 const log = Log.create({ service: "memory" })
 
@@ -15,6 +16,49 @@ const USER_FILE = "USER.md"
 const MAX_RECENT_SESSIONS = 30
 
 type Scope = "memory" | "user"
+type Confidence = "low" | "medium" | "high"
+
+type MemoryWriteInput = {
+  sessionID: SessionID
+  scope: Scope
+  section: string
+  content: string
+  reason: string
+  confidence?: Confidence
+  source?: string
+}
+
+type MemoryPatchInput = {
+  sessionID: SessionID
+  scope: Scope
+  id: string
+  content: string
+  reason: string
+}
+
+type MemorySupersedeInput = {
+  sessionID: SessionID
+  scope: Scope
+  id: string
+  reason: string
+  replacement?: Omit<MemoryWriteInput, "sessionID" | "scope" | "reason"> & { reason?: string }
+}
+
+type MemorySuggestInput = {
+  sessionID: SessionID
+  scope: Scope
+  section: string
+  content: string
+  reason: string
+  confidence?: Confidence
+  source?: string
+}
+
+export type MutationResult = {
+  id?: string
+  status: "written" | "duplicate" | "patched" | "superseded" | "suggested"
+  message: string
+}
 
 export const SearchResult = Schema.Struct({
   file: Schema.String,
@@ -35,6 +79,10 @@ export interface Interface {
     scope?: Scope | "all"
     limit?: number
   }) => Effect.Effect<SearchResult[]>
+  readonly write: (input: MemoryWriteInput) => Effect.Effect<MutationResult, Error>
+  readonly patch: (input: MemoryPatchInput) => Effect.Effect<MutationResult, Error>
+  readonly supersede: (input: MemorySupersedeInput) => Effect.Effect<MutationResult, Error>
+  readonly suggest: (input: MemorySuggestInput) => Effect.Effect<MutationResult, Error>
   readonly updateAfterTurn: (sessionID: SessionID) => Effect.Effect<void>
 }
 
@@ -176,6 +224,159 @@ export const layer = Layer.effect(
       return results.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file)).slice(0, input.limit ?? 8)
     })
 
+    const audit = Effect.fn("Memory.audit")(function* (sessionID: SessionID, entry: Record<string, unknown>) {
+      yield* appendAudit(sessionID, { time: new Date().toISOString(), ...entry }).pipe(
+        Effect.catchCause((cause) => Effect.sync(() => log.error("failed to append memory audit", { cause }))),
+      )
+    })
+
+    const write = Effect.fn("Memory.write")(function* (input: MemoryWriteInput) {
+      yield* ensure(input.sessionID)
+      const clean = sanitizeContent(input.content)
+      if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
+      if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
+
+      const current = yield* readFull(input.sessionID, input.scope)
+      const existingID = findDuplicateID(current, clean)
+      if (existingID) {
+        yield* audit(input.sessionID, {
+          action: "memory.duplicate",
+          scope: input.scope,
+          section: input.section,
+          id: existingID,
+          reason: input.reason,
+        })
+        return {
+          id: existingID,
+          status: "duplicate" as const,
+          message: `Duplicate memory already exists: ${existingID}`,
+        }
+      }
+
+      const id = createMemoryID(input.scope)
+      const now = new Date().toISOString()
+      const block = formatEntryBlock({
+        id,
+        date: now,
+        confidence: input.confidence ?? "medium",
+        source: input.source ?? `session:${input.sessionID}`,
+        reason: sanitizeInline(input.reason),
+        content: clean,
+      })
+      const next = updateMetadata(appendEntry(current, input.section, block), now, input.sessionID)
+      yield* writeFull(input.sessionID, input.scope, next)
+      yield* audit(input.sessionID, {
+        action: "memory.write",
+        scope: input.scope,
+        section: input.section,
+        id,
+        reason: input.reason,
+      })
+      return { id, status: "written" as const, message: `Memory written: ${id}` }
+    })
+
+    const patch = Effect.fn("Memory.patch")(function* (input: MemoryPatchInput) {
+      yield* ensure(input.sessionID)
+      const clean = sanitizeContent(input.content)
+      if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
+      if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
+
+      const current = yield* readFull(input.sessionID, input.scope)
+      const updated = replaceEntry(current, input.id, (block) =>
+        setEntryFields(block, {
+          content: clean,
+          updated: new Date().toISOString(),
+          reason: sanitizeInline(input.reason),
+        }),
+      )
+      if (!updated) return yield* Effect.fail(new Error(`Memory id not found: ${input.id}`))
+      yield* writeFull(input.sessionID, input.scope, updateMetadata(updated, new Date().toISOString(), input.sessionID))
+      yield* audit(input.sessionID, {
+        action: "memory.patch",
+        scope: input.scope,
+        id: input.id,
+        reason: input.reason,
+      })
+      return { id: input.id, status: "patched" as const, message: `Memory patched: ${input.id}` }
+    })
+
+    const supersede = Effect.fn("Memory.supersede")(function* (input: MemorySupersedeInput) {
+      yield* ensure(input.sessionID)
+      let replacementID: string | undefined
+      if (input.replacement?.content) {
+        const result = yield* write({
+          sessionID: input.sessionID,
+          scope: input.scope,
+          section: input.replacement.section,
+          content: input.replacement.content,
+          reason: input.replacement.reason ?? input.reason,
+          confidence: input.replacement.confidence,
+          source: input.replacement.source,
+        })
+        replacementID = result.id
+      }
+
+      const current = yield* readFull(input.sessionID, input.scope)
+      const updated = replaceEntry(current, input.id, (block) =>
+        setEntryFields(block, {
+          status: "superseded",
+          superseded_by: replacementID ?? "none",
+          updated: new Date().toISOString(),
+          reason: sanitizeInline(input.reason),
+        }),
+      )
+      if (!updated) return yield* Effect.fail(new Error(`Memory id not found: ${input.id}`))
+      yield* writeFull(input.sessionID, input.scope, updateMetadata(updated, new Date().toISOString(), input.sessionID))
+      yield* audit(input.sessionID, {
+        action: "memory.supersede",
+        scope: input.scope,
+        id: input.id,
+        replacementID,
+        reason: input.reason,
+      })
+      return {
+        id: input.id,
+        status: "superseded" as const,
+        message: replacementID ? `Memory superseded: ${input.id} -> ${replacementID}` : `Memory superseded: ${input.id}`,
+      }
+    })
+
+    const suggest = Effect.fn("Memory.suggest")(function* (input: MemorySuggestInput) {
+      yield* ensure(input.sessionID)
+      const clean = sanitizeContent(input.content)
+      if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
+      if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to suggest sensitive memory content"))
+      const id = createMemoryID(input.scope)
+      const target = path.join(yield* dir(input.sessionID), "pending", `${Date.now()}-${id}.json`)
+      yield* fs
+        .writeWithDirs(
+          target,
+          JSON.stringify(
+            {
+              id,
+              scope: input.scope,
+              section: input.section,
+              content: clean,
+              reason: input.reason,
+              confidence: input.confidence ?? "low",
+              source: input.source ?? `session:${input.sessionID}`,
+              time: new Date().toISOString(),
+            },
+            null,
+            2,
+          ),
+        )
+        .pipe(Effect.orDie)
+      yield* audit(input.sessionID, {
+        action: "memory.suggest",
+        scope: input.scope,
+        section: input.section,
+        id,
+        reason: input.reason,
+      })
+      return { id, status: "suggested" as const, message: `Memory suggestion saved: ${id}` }
+    })
+
     const updateAfterTurn = Effect.fn("Memory.updateAfterTurn")(function* (sessionID: SessionID) {
       yield* ensure(sessionID)
       const msgs = yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
@@ -201,9 +402,30 @@ export const layer = Layer.effect(
       let userMemoryText = updateMetadata(yield* readFull(sessionID, "user"), now, sessionID)
       const preferences = extractUserPreferences(userText)
       if (preferences.length > 0) {
-        userMemoryText = upsertBullets(userMemoryText, "Communication Style", preferences.communication)
-        userMemoryText = upsertBullets(userMemoryText, "Engineering Preferences", preferences.engineering)
+        for (const item of preferences.communication) {
+          yield* write({
+            sessionID,
+            scope: "user",
+            section: "Communication Style",
+            content: item,
+            reason: "Post-turn curator extracted an explicit communication preference.",
+            confidence: "high",
+            source: `session:${sessionID}`,
+          }).pipe(Effect.catchCause((cause) => Effect.sync(() => log.error("failed to write user memory", { cause }))))
+        }
+        for (const item of preferences.engineering) {
+          yield* write({
+            sessionID,
+            scope: "user",
+            section: "Engineering Preferences",
+            content: item,
+            reason: "Post-turn curator extracted an explicit engineering preference.",
+            confidence: "high",
+            source: `session:${sessionID}`,
+          }).pipe(Effect.catchCause((cause) => Effect.sync(() => log.error("failed to write user memory", { cause }))))
+        }
       }
+      userMemoryText = updateMetadata(yield* readFull(sessionID, "user"), now, sessionID)
       yield* writeFull(sessionID, "user", userMemoryText)
 
       yield* appendAudit(sessionID, {
@@ -229,6 +451,10 @@ export const layer = Layer.effect(
       ensure,
       read,
       search,
+      write,
+      patch,
+      supersede,
+      suggest,
       updateAfterTurn,
     })
   }),
@@ -347,6 +573,115 @@ function escapeInline(input: string) {
   return input.replaceAll("\\", "\\\\").replaceAll('"', '\\"')
 }
 
+function createMemoryID(scope: Scope) {
+  return `${scope === "user" ? "user" : "mem"}_${ulid().toLowerCase()}`
+}
+
+function sanitizeContent(input: string) {
+  return input.replace(/\s+/g, " ").trim()
+}
+
+function sanitizeInline(input: string) {
+  return sanitizeContent(input).replaceAll('"', "'")
+}
+
+function normalizedContent(input: string) {
+  return sanitizeContent(input).toLowerCase()
+}
+
+function findDuplicateID(markdown: string, content: string) {
+  const target = normalizedContent(content)
+  const blocks = entryBlocks(markdown)
+  for (const block of blocks) {
+    const existing = fieldValue(block.text, "content")
+    if (existing && normalizedContent(existing) === target) return block.id
+  }
+  return undefined
+}
+
+function formatEntryBlock(input: {
+  id: string
+  date: string
+  confidence: Confidence
+  source: string
+  reason: string
+  content: string
+}) {
+  return [
+    `- id: ${input.id}`,
+    `  date: ${input.date}`,
+    `  confidence: ${input.confidence}`,
+    `  source: ${input.source}`,
+    `  reason: ${input.reason}`,
+    `  content: ${input.content}`,
+  ].join("\n")
+}
+
+function appendEntry(markdown: string, section: string, block: string) {
+  return replaceSectionBody(markdown, section, (body) => {
+    const trimmed = body.trimEnd()
+    return trimmed ? `${trimmed}\n${block}\n` : `${block}\n`
+  })
+}
+
+function replaceSectionBody(markdown: string, section: string, update: (body: string) => string) {
+  const heading = `## ${section}`
+  const lines = markdown.split(/\r?\n/)
+  const start = lines.findIndex((line) => line.trim() === heading)
+  if (start === -1) {
+    return [markdown.trimEnd(), "", heading, update("").trimEnd(), ""].join("\n")
+  }
+  const end = lines.findIndex((line, index) => index > start && /^##\s+/.test(line))
+  const sectionEnd = end === -1 ? lines.length : end
+  const before = lines.slice(0, start + 1)
+  const body = lines.slice(start + 1, sectionEnd).join("\n")
+  const after = lines.slice(sectionEnd)
+  return [...before, update(body).trimEnd(), "", ...after].join("\n")
+}
+
+function entryBlocks(markdown: string) {
+  const lines = markdown.split(/\r?\n/)
+  const blocks: { id: string; start: number; end: number; text: string }[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i]?.match(/^\-\s+id:\s+(\S+)/)
+    if (!match?.[1]) continue
+    let end = i + 1
+    while (end < lines.length && !/^\-\s+id:\s+\S+/.test(lines[end] ?? "") && !/^##\s+/.test(lines[end] ?? "")) {
+      end++
+    }
+    blocks.push({ id: match[1], start: i, end, text: lines.slice(i, end).join("\n") })
+    i = end - 1
+  }
+  return blocks
+}
+
+function replaceEntry(markdown: string, id: string, update: (block: string) => string) {
+  const lines = markdown.split(/\r?\n/)
+  const block = entryBlocks(markdown).find((item) => item.id === id)
+  if (!block) return undefined
+  return [...lines.slice(0, block.start), update(block.text), ...lines.slice(block.end)].join("\n")
+}
+
+function fieldValue(block: string, field: string) {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = block.match(new RegExp(`^\\s*${escaped}:\\s*(.*)$`, "m"))
+  return match?.[1]?.trim()
+}
+
+function setEntryFields(block: string, fields: Record<string, string>) {
+  let next = block
+  for (const [field, value] of Object.entries(fields)) {
+    const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const pattern = new RegExp(`^(\\s*)${escaped}:\\s*.*$`, "m")
+    if (pattern.test(next)) {
+      next = next.replace(pattern, `$1${field}: ${value}`)
+      continue
+    }
+    next += `\n  ${field}: ${value}`
+  }
+  return next
+}
+
 function extractUserPreferences(input: string) {
   if (!input.trim()) return preferenceResult([], [])
   const lines = input
@@ -358,9 +693,9 @@ function extractUserPreferences(input: string) {
   for (const line of lines) {
     if (!looksLikePreference(line)) continue
     if (looksSensitive(line)) continue
-    const bullet = `- [${new Date().toISOString().slice(0, 10)}][source: explicit-user] ${summarizeText(line, 220)}`
-    if (isCommunicationPreference(line)) communication.push(bullet)
-    else engineering.push(bullet)
+    const memory = summarizeText(line, 220)
+    if (isCommunicationPreference(line)) communication.push(memory)
+    else engineering.push(memory)
   }
   return preferenceResult(communication, engineering)
 }
