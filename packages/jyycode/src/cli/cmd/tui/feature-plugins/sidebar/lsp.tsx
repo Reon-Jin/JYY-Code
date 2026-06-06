@@ -1,6 +1,7 @@
 import type { TuiPlugin, TuiPluginApi } from "@jyycode-ai/plugin/tui"
 import type { InternalTuiPlugin } from "../../plugin/internal"
 import { createMemo, For, Show, createSignal } from "solid-js"
+import { StatusIcon } from "../../component/status-icon"
 
 const id = "internal:sidebar-lsp"
 
@@ -27,13 +28,8 @@ function View(props: { api: TuiPluginApi }) {
         <For each={list()}>
           {(item) => (
             <box flexDirection="row" gap={1}>
-              <text
-                flexShrink={0}
-                style={{
-                  fg: item.status === "connected" ? theme().success : theme().error,
-                }}
-              >
-                •
+              <text flexShrink={0}>
+                <StatusIcon status={item.status === "connected" ? "success" : "error"} />
               </text>
               <text fg={theme().textMuted}>
                 {item.id} {item.root}

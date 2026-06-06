@@ -1,8 +1,17 @@
 import type { TuiPlugin, TuiPluginApi } from "@jyycode-ai/plugin/tui"
 import type { InternalTuiPlugin } from "../../plugin/internal"
 import { createMemo, For, Match, Show, Switch, createSignal } from "solid-js"
+import { StatusIcon } from "../../component/status-icon"
 
 const id = "internal:sidebar-mcp"
+
+function mcpStatus(status: string) {
+  if (status === "connected") return "success" as const
+  if (status === "failed") return "error" as const
+  if (status === "needs_auth") return "warning" as const
+  if (status === "needs_client_registration") return "error" as const
+  return "pending" as const
+}
 
 function View(props: { api: TuiPluginApi }) {
   const [open, setOpen] = createSignal(true)
@@ -16,15 +25,6 @@ function View(props: { api: TuiPluginApi }) {
           item.status === "failed" || item.status === "needs_auth" || item.status === "needs_client_registration",
       ).length,
   )
-
-  const dot = (status: string) => {
-    if (status === "connected") return theme().success
-    if (status === "failed") return theme().error
-    if (status === "disabled") return theme().textMuted
-    if (status === "needs_auth") return theme().warning
-    if (status === "needs_client_registration") return theme().error
-    return theme().textMuted
-  }
 
   return (
     <Show when={list().length > 0}>
@@ -47,13 +47,8 @@ function View(props: { api: TuiPluginApi }) {
           <For each={list()}>
             {(item) => (
               <box flexDirection="row" gap={1}>
-                <text
-                  flexShrink={0}
-                  style={{
-                    fg: dot(item.status),
-                  }}
-                >
-                  •
+                <text flexShrink={0}>
+                  <StatusIcon status={mcpStatus(item.status)} />
                 </text>
                 <text fg={theme().text} wrapMode="word">
                   {item.name}{" "}

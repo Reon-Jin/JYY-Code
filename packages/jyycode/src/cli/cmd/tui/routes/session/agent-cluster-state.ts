@@ -100,10 +100,6 @@ function normalizeKey(value: string) {
   return value.toLowerCase().replace(/\s+/g, "")
 }
 
-function isClusterAssistant(message: Message): message is AssistantMessage {
-  return message.role === "assistant" && (message.agent === "cluster" || message.mode === "cluster")
-}
-
 function stateInput(part: ToolPart) {
   return "input" in part.state ? record(part.state.input) : undefined
 }
@@ -450,7 +446,7 @@ function childStatus(
 function latestPlan(input: SnapshotInput) {
   let plan: AgentClusterPlan | undefined
   for (const message of input.messages(input.sessionID)) {
-    if (!isClusterAssistant(message)) continue
+    if (message.role !== "assistant") continue
     for (const part of input.parts(message.id)) {
       if (part.type !== "text") continue
       plan = extractAgentClusterPlan(part.text) ?? plan
