@@ -38,6 +38,7 @@ import { SessionStatus } from "../../src/session/status"
 import { SessionV2 } from "../../src/v2/session"
 import { Skill } from "../../src/skill"
 import { SystemPrompt } from "../../src/session/system"
+import { Memory } from "@/memory/memory"
 import { Shell } from "../../src/shell/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
@@ -152,6 +153,34 @@ const lsp = Layer.succeed(
   }),
 )
 
+const memorySearchLayer = Layer.succeed(
+  Memory.Service,
+  Memory.Service.of({
+    dir: () => Effect.succeed(Memory.DIRECTORY),
+    ensure: () => Effect.void,
+    read: () => Effect.succeed(""),
+    search: (input) =>
+      Effect.succeed(
+        input.query.includes("用户")
+          ? [
+              {
+                file: path.join(Memory.DIRECTORY, "USER.md"),
+                section: "Personal / Stable Context",
+                line: 18,
+                score: 3,
+                text: "content: 用户是金毅阳。",
+              },
+            ]
+          : [],
+      ),
+    write: () => Effect.die("unexpected memory write in retrieval middleware test"),
+    patch: () => Effect.die("unexpected memory patch in retrieval middleware test"),
+    supersede: () => Effect.die("unexpected memory supersede in retrieval middleware test"),
+    suggest: () => Effect.die("unexpected memory suggest in retrieval middleware test"),
+    updateAfterTurn: () => Effect.void,
+  }),
+)
+
 const status = SessionStatus.layer.pipe(Layer.provideMerge(Bus.layer))
 const run = SessionRunState.layer.pipe(Layer.provide(status))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
@@ -164,7 +193,7 @@ const blockingProcessor = Layer.succeed(
   }),
 )
 
-function makePrompt(input?: { processor?: "blocking" }) {
+function makePrompt(input?: { processor?: "blocking"; memory?: Layer.Layer<Memory.Service> }) {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -215,7 +244,7 @@ function makePrompt(input?: { processor?: "blocking" }) {
     Layer.provideMerge(proc),
     Layer.provideMerge(deps),
   )
-  return SessionPrompt.layer.pipe(
+  const promptLayer = SessionPrompt.layer.pipe(
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(Image.defaultLayer),
     Layer.provide(Reference.defaultLayer),
@@ -231,17 +260,19 @@ function makePrompt(input?: { processor?: "blocking" }) {
     Layer.provideMerge(deps),
     Layer.provide(summary),
   )
+  return input?.memory ? promptLayer.pipe(Layer.provide(input.memory)) : promptLayer
 }
 
-function makeHttp(input?: { processor?: "blocking" }) {
+function makeHttp(input?: { processor?: "blocking"; memory?: Layer.Layer<Memory.Service> }) {
   return Layer.mergeAll(TestLLMServer.layer, makePrompt(input))
 }
 
-function makeHttpNoLLMServer(input?: { processor?: "blocking" }) {
+function makeHttpNoLLMServer(input?: { processor?: "blocking"; memory?: Layer.Layer<Memory.Service> }) {
   return makePrompt(input)
 }
 
 const it = testEffect(makeHttp())
+const withMemory = testEffect(makeHttp({ memory: memorySearchLayer }))
 const noLLMServer = testEffect(makeHttpNoLLMServer())
 const raceNoLLMServer = testEffect(makeHttpNoLLMServer({ processor: "blocking" }))
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
@@ -479,6 +510,32 @@ it.instance("loop calls LLM and returns assistant message", () =>
     const parts = result.parts.filter((p) => p.type === "text")
     expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
     expect(yield* llm.hits).toHaveLength(1)
+  }),
+)
+
+withMemory.instance("loop injects automatic memory retrieval results into model messages", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Pinned",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "我叫什么？" }],
+    })
+    yield* llm.text("你是金毅阳。")
+
+    yield* prompt.loop({ sessionID: chat.id })
+
+    const inputs = yield* llm.inputs
+    const payload = JSON.stringify(inputs.at(-1)?.messages)
+    expect(payload).toContain("Relevant persistent memory was automatically retrieved from D:/jyycode/memory")
+    expect(payload).toContain("content: 用户是金毅阳。")
   }),
 )
 

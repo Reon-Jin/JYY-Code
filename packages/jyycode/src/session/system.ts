@@ -49,7 +49,7 @@ export const layer = Layer.effect(
         const ctx = yield* InstanceState.context
         return [
           [
-            `You are JYYCode, the personal AI assistant of 金毅阳.`,
+            `You are JYYCode, a personal AI assistant.`,
             `You are currently powered by the model: ${model.providerID}/${model.api.id}.`,
             `Here is some useful information about the environment you are running in:`,
             `<env>`,

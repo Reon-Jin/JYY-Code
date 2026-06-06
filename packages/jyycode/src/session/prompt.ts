@@ -81,6 +81,10 @@ IMPORTANT:
 - This tool provides your final answer - no further actions are taken after calling it`
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
+const MEMORY_RETRIEVAL_LIMIT = 5
+const MEMORY_RETRIEVAL_QUERY_MAX = 240
+const MEMORY_RETRIEVAL_TEXT_MAX = 1800
+const MEMORY_RETRIEVAL_KIND = "memory-retrieval"
 
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
@@ -236,6 +240,55 @@ export const layer = Layer.effect(
         { concurrency: "unbounded", discard: true },
       )
       return parts
+    })
+
+    const applyMemoryRetrieval = Effect.fn("SessionPrompt.applyMemoryRetrieval")(function* (input: {
+      sessionID: SessionID
+      messages: MessageV2.WithParts[]
+      lastUser: MessageV2.User
+    }) {
+      if (!memory) return input.messages
+      const source = latestRealUserText(input.messages)
+      const query = memoryRetrievalQuery(source)
+      if (!query) return input.messages
+      const results = yield* memory
+        .search({
+          sessionID: input.sessionID,
+          query,
+          scope: "all",
+          limit: MEMORY_RETRIEVAL_LIMIT,
+        })
+        .pipe(
+          Effect.catchCause((cause) =>
+            elog.error("failed to retrieve persistent memory", { cause }).pipe(Effect.as([] as Memory.SearchResult[])),
+          ),
+        )
+      if (results.length === 0) return input.messages
+      const text = formatMemoryRetrieval(query, results)
+      const messageID = MessageID.ascending()
+      const reminder: MessageV2.WithParts = {
+        info: {
+          ...input.lastUser,
+          id: messageID,
+          time: { created: Date.now() },
+        },
+        parts: [
+          {
+            id: PartID.ascending(),
+            sessionID: input.sessionID,
+            messageID,
+            type: "text",
+            synthetic: true,
+            text,
+            metadata: {
+              kind: MEMORY_RETRIEVAL_KIND,
+              query,
+              matches: results.length,
+            },
+          } satisfies MessageV2.TextPart,
+        ],
+      }
+      return [...input.messages, reminder]
     })
 
     const title = Effect.fn("SessionPrompt.ensureTitle")(function* (input: {
@@ -1551,6 +1604,7 @@ export const layer = Layer.effect(
             }
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+            msgs = yield* applyMemoryRetrieval({ sessionID, messages: msgs, lastUser })
 
             const [skills, env, instructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
@@ -1800,6 +1854,63 @@ export const defaultLayer = Layer.suspend(() =>
     ),
   ),
 )
+
+function latestRealUserText(messages: MessageV2.WithParts[]) {
+  let selected: MessageV2.WithParts | undefined
+  for (const message of messages) {
+    if (message.info.role !== "user") continue
+    const text = message.parts
+      .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic && !part.ignored)
+      .map((part) => part.text.trim())
+      .filter(Boolean)
+      .join("\n")
+    if (!text) continue
+    if (!selected || message.info.id > selected.info.id) selected = message
+  }
+  if (!selected) return ""
+  return selected.parts
+    .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic && !part.ignored)
+    .map((part) => part.text.trim())
+    .filter(Boolean)
+    .join("\n")
+}
+
+function memoryRetrievalQuery(input: string) {
+  const text = input.replace(/\s+/g, " ").trim()
+  if (!text) return ""
+  const hints: string[] = []
+  if (/(我.*(叫|名字|姓名|称呼|是谁)|名字|姓名|称呼)/.test(text)) {
+    hints.push("用户 个人 身份 名字 姓名 称呼")
+  }
+  if (/(偏好|喜欢|习惯|风格|怎么回答|中文|英文|不要|别|必须)/.test(text)) {
+    hints.push("偏好 喜欢 习惯 风格 沟通 回答 Communication Style Engineering Preferences")
+  }
+  if (/(项目|约定|工作流|经验|教训|环境|路径|目录|记忆库|memory)/i.test(text)) {
+    hints.push("项目 约定 工作流 经验 教训 环境 路径 目录 Project Facts Engineering Conventions")
+  }
+  return [text, ...hints].join(" ").replace(/\s+/g, " ").trim().slice(0, MEMORY_RETRIEVAL_QUERY_MAX)
+}
+
+function formatMemoryRetrieval(query: string, results: Memory.SearchResult[]) {
+  const body = results
+    .map((item, index) =>
+      [`${index + 1}. ${item.file}:${item.line} [${item.section}] score=${item.score}`, item.text].join("\n"),
+    )
+    .join("\n\n")
+  const text = [
+    "<system-reminder>",
+    "Relevant persistent memory was automatically retrieved from D:/jyycode/memory for this turn.",
+    `Retrieval query: ${query}`,
+    "",
+    body,
+    "",
+    "Use these memories when relevant. Do not mention this retrieval unless the user asks how memory was used.",
+    "</system-reminder>",
+  ].join("\n")
+  if (text.length <= MEMORY_RETRIEVAL_TEXT_MAX) return text
+  return text.slice(0, MEMORY_RETRIEVAL_TEXT_MAX) + "\n[retrieved memory truncated]\n</system-reminder>"
+}
+
 const ModelRef = Schema.Struct({
   providerID: ProviderID,
   modelID: ModelID,
