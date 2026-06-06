@@ -292,6 +292,15 @@ export const Info = Schema.Struct({
           "Fraction of the usable context window that triggers predictive compaction before the next model call (default: 0.92).",
       }),
     }),
+      micro_compact: Schema.optional(Schema.Boolean).annotate({
+        description: "Enable micro-compaction of tool results to save context (default: true)",
+      }),
+      micro_compact_max_chars: Schema.optional(NonNegativeInt).annotate({
+        description: "Maximum characters to keep from micro-compacted tool results (default: 8000)",
+      }),
+      reactive_compact: Schema.optional(Schema.Boolean).annotate({
+        description: "Enable emergency compaction on prompt-too-long API errors (default: true)",
+      }),
   ),
   experimental: Schema.optional(
     Schema.Struct({

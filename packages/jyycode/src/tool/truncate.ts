@@ -18,12 +18,56 @@ export const MAX_BYTES = 50 * 1024
 export const DIR = TRUNCATION_DIR
 export const GLOB = path.join(TRUNCATION_DIR, "*")
 
+/**
+ * Per-tool-type truncation strategies.
+ * - "head": Keep first N lines (default for read/search tools)
+ * - "tail": Keep last N lines (better for shell/build output)
+ * - "head_tail": Keep first + last portions (for long logs)
+ */
+export type TruncationStrategy = "head" | "tail" | "head_tail"
+
+/** Default truncation strategy per tool category. */
+export const TOOL_STRATEGY: Record<string, TruncationStrategy> = {
+  read: "head",
+  grep: "head",
+  glob: "head",
+  shell: "tail",
+  webfetch: "head",
+  websearch: "head",
+}
+
+/** Get the recommended truncation strategy for a tool. */
+export function strategyForTool(toolName: string): TruncationStrategy {
+  return TOOL_STRATEGY[toolName] ?? "head"
+}
+
+/** Per-tool max bytes overrides — search tools need less context preservation. */
+export const TOOL_MAX_BYTES: Record<string, number> = {
+  grep: 30 * 1024,
+  glob: 10 * 1024,
+  websearch: 20 * 1024,
+}
+
+/** Get the max bytes for a specific tool. */
+export function maxBytesForTool(toolName: string, defaultMax: number): number {
+  return TOOL_MAX_BYTES[toolName] ?? defaultMax
+}
+
+/**
+ * Session-scoped truncation subdirectory.
+ * Organizes truncated output by session for easier cleanup and debugging.
+ */
+export function sessionDir(sessionId?: string): string {
+  return sessionId ? path.join(TRUNCATION_DIR, sessionId) : TRUNCATION_DIR
+}
+
 export type Result = { content: string; truncated: false } | { content: string; truncated: true; outputPath: string }
 
 export interface Options {
   maxLines?: number
   maxBytes?: number
   direction?: "head" | "tail"
+  toolName?: string
 }
 
 function hasTaskTool(agent?: Agent.Info) {
@@ -33,16 +77,16 @@ function hasTaskTool(agent?: Agent.Info) {
 
 export interface Interface {
   readonly cleanup: () => Effect.Effect<void>
-  readonly write: (text: string) => Effect.Effect<string>
+  readonly write: (text: string, sessionId?: string) => Effect.Effect<string>
   /**
    * Returns output unchanged when it fits within the limits, otherwise writes the full text
    * to the truncation directory and returns a preview plus a hint to inspect the saved file.
    */
-  readonly output: (text: string, options?: Options, agent?: Agent.Info) => Effect.Effect<Result>
+  readonly output: (text: string, options?: Options, agent?: Agent.Info, sessionId?: string) => Effect.Effect<Result>
   /**
    * Resolved truncation limits: values from `tool_output` in jyycode config, or MAX_LINES / MAX_BYTES if unset.
    */
-  readonly limits: () => Effect.Effect<{ maxLines: number; maxBytes: number }>
+  readonly limits: (toolName?: string) => Effect.Effect<{ maxLines: number; maxBytes: number }>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/Truncate") {}
@@ -56,38 +100,61 @@ export const layer = Layer.effect(
       const cutoff = Identifier.timestamp(
         Identifier.create("tool", "ascending", Date.now() - Duration.toMillis(RETENTION)),
       )
-      const entries = yield* fs.readDirectory(TRUNCATION_DIR).pipe(
-        Effect.map((all) => all.filter((name) => name.startsWith("tool_"))),
+      // Walk both root truncation dir and session subdirectories
+      const allEntries: string[] = []
+      const rootEntries = yield* fs.readDirectory(TRUNCATION_DIR).pipe(
         Effect.catch(() => Effect.succeed([])),
       )
-      for (const entry of entries) {
-        if (Identifier.timestamp(entry) >= cutoff) continue
-        yield* fs.remove(path.join(TRUNCATION_DIR, entry)).pipe(Effect.catch(() => Effect.void))
+      for (const entry of rootEntries) {
+        const fullPath = path.join(TRUNCATION_DIR, entry)
+        const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+        if (stat?.type === "directory") {
+          // Session subdirectory — check its contents
+          const subEntries = yield* fs.readDirectory(fullPath).pipe(
+            Effect.catch(() => Effect.succeed([])),
+          )
+          for (const sub of subEntries) {
+            if (Identifier.timestamp(sub) < cutoff) {
+              yield* fs.remove(path.join(fullPath, sub)).pipe(Effect.catch(() => Effect.void))
+            }
+          }
+          // Remove empty session dirs
+          const remaining = yield* fs.readDirectory(fullPath).pipe(
+            Effect.catch(() => Effect.succeed([])),
+          )
+          if (remaining.length === 0) {
+            yield* fs.remove(fullPath).pipe(Effect.catch(() => Effect.void))
+          }
+        } else if (entry.startsWith("tool_") && Identifier.timestamp(entry) < cutoff) {
+          yield* fs.remove(fullPath).pipe(Effect.catch(() => Effect.void))
+        }
       }
     })
 
-    const write = Effect.fn("Truncate.write")(function* (text: string) {
-      const file = path.join(TRUNCATION_DIR, ToolID.ascending())
-      yield* fs.ensureDir(TRUNCATION_DIR).pipe(Effect.orDie)
+    const write = Effect.fn("Truncate.write")(function* (text: string, sessionId?: string) {
+      const dir = sessionDir(sessionId)
+      const file = path.join(dir, ToolID.ascending())
+      yield* fs.ensureDir(dir).pipe(Effect.orDie)
       yield* fs.writeFileString(file, text).pipe(Effect.orDie)
       return file
     })
 
-    const limits = Effect.fn("Truncate.limits")(function* () {
+    const limits = Effect.fn("Truncate.limits")(function* (toolName?: string) {
       const configSvc = yield* Effect.serviceOption(Config.Service)
       if (Option.isNone(configSvc)) return { maxLines: MAX_LINES, maxBytes: MAX_BYTES }
       const cfg = yield* configSvc.value.get().pipe(Effect.catch(() => Effect.succeed(undefined)))
+      const defaultMaxBytes = cfg?.tool_output?.max_bytes ?? MAX_BYTES
       return {
         maxLines: cfg?.tool_output?.max_lines ?? MAX_LINES,
-        maxBytes: cfg?.tool_output?.max_bytes ?? MAX_BYTES,
+        maxBytes: toolName ? maxBytesForTool(toolName, defaultMaxBytes) : defaultMaxBytes,
       }
     })
 
-    const output = Effect.fn("Truncate.output")(function* (text: string, options: Options = {}, agent?: Agent.Info) {
-      const resolved = yield* limits()
+    const output = Effect.fn("Truncate.output")(function* (text: string, options: Options = {}, agent?: Agent.Info, sessionId?: string) {
+      const resolved = yield* limits(options.toolName)
       const maxLines = options.maxLines ?? resolved.maxLines
       const maxBytes = options.maxBytes ?? resolved.maxBytes
-      const direction = options.direction ?? "head"
+      const direction = options.direction ?? (options.toolName ? strategyForTool(options.toolName) : "head")
       const lines = text.split("\n")
       const totalBytes = Buffer.byteLength(text, "utf-8")
 
@@ -125,7 +192,7 @@ export const layer = Layer.effect(
       const removed = hitBytes ? totalBytes - bytes : lines.length - out.length
       const unit = hitBytes ? "bytes" : "lines"
       const preview = out.join("\n")
-      const file = yield* write(text)
+      const file = yield* write(text, sessionId)
 
       const hint = hasTaskTool(agent)
         ? `The tool call succeeded but the output was truncated. Full output saved to: ${file}\nUse the Task tool to have explore agent process this file with Grep and Read (with offset/limit). Do NOT read the full file yourself - delegate to save context.`

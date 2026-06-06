@@ -52,6 +52,17 @@ export class Service extends ConfigService.Service<Service>()("@jyycode/RuntimeF
   bashDefaultTimeoutMs: positiveInteger("JYYCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS"),
   experimentalNativeLlm: enabledByExperimental("JYYCODE_EXPERIMENTAL_NATIVE_LLM"),
   client: Config.string("JYYCODE_CLIENT").pipe(Config.withDefault("cli")),
+  // --- New feature flags (P2.1) ---
+  skillSearch: enabledByExperimental("JYYCODE_SKILL_SEARCH"),
+  toolSearch: enabledByExperimental("JYYCODE_TOOL_SEARCH"),
+  skillLearning: enabledByExperimental("JYYCODE_SKILL_LEARNING"),
+  proactiveMode: enabledByExperimental("JYYCODE_PROACTIVE_MODE"),
+  microCompact: enabledByExperimental("JYYCODE_MICRO_COMPACT"),
+  reactiveCompact: enabledByExperimental("JYYCODE_REACTIVE_COMPACT"),
+  costTracking: enabledByExperimental("JYYCODE_COST_TRACKING"),
+  daemonMode: enabledByExperimental("JYYCODE_DAEMON_MODE"),
+  langfuse: enabledByExperimental("JYYCODE_LANGFUSE"),
+  buildOptimization: enabledByExperimental("JYYCODE_BUILD_OPTIMIZATION"),
 }) {}
 
 export type Info = Context.Service.Shape<typeof Service>

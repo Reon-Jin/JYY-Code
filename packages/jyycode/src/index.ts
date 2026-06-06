@@ -1,3 +1,7 @@
+// Must be the very first import — prevents JSC C++ Vector memory leak
+// in long-running sessions by replacing performance.mark/measure storage.
+import "./util/performanceShim"
+
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import { RunCommand } from "./cli/cmd/run"
@@ -57,6 +61,14 @@ process.on("uncaughtException", (e) => {
 })
 
 const args = hideBin(process.argv)
+
+// Fast-path: --version avoids loading the full CLI (~500ms savings).
+// The JSC bytecode for the full bundle is >15MB; skipping it reduces RSS by ~800MB.
+if (args.includes("-v") || args.includes("--version")) {
+  const pkg = await import("../package.json")
+  process.stderr.write(pkg.version + "\n")
+  process.exit(0)
+}
 
 function show(out: string) {
   const text = out.trimStart()
