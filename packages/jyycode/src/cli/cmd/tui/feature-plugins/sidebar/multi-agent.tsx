@@ -4,6 +4,7 @@ import { createMemo, For, Show } from "solid-js"
 import { Locale } from "@/util/locale"
 import { agentClusterSnapshot, type AgentClusterTaskStatus } from "../../routes/session/agent-cluster-state"
 import { MailSession } from "@/communication/mail-session"
+import { ProgressBar } from "../../component/progress-bar"
 
 const id = "internal:sidebar-multi-agent"
 
@@ -56,6 +57,12 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
           {snapshot().totalSteps || 0} steps · current {snapshot().currentStep ?? "-"} · completed{" "}
           {snapshot().completedSteps}/{snapshot().totalSteps || 0}
         </text>
+        <Show when={snapshot().totalSteps && snapshot().totalSteps > 0}>
+          <ProgressBar
+            ratio={snapshot().totalSteps ? snapshot().completedSteps / snapshot().totalSteps : 0}
+            width={36}
+          />
+        </Show>
         <text fg={theme().textMuted}>
           agents {snapshot().totalAgents} · running {snapshot().runningAgents} · done {snapshot().doneAgents} · failed{" "}
           {snapshot().failedAgents}

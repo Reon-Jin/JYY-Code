@@ -21,6 +21,7 @@ import { useSync } from "@tui/context/sync"
 import { useEvent } from "@tui/context/event"
 import { SplitBorder } from "@tui/component/border"
 import { Spinner } from "@tui/component/spinner"
+import { NewMessagesPill } from "@tui/component/new-messages-pill"
 import { generateSubtleSyntax, selectedForeground, useTheme } from "@tui/context/theme"
 import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA } from "@opentui/core"
 import { Prompt, type PromptRef } from "@tui/component/prompt"
@@ -1144,6 +1145,25 @@ export function Session() {
     }
   })
 
+  // NewMessagePill: track seen message count, reset when new user message arrives
+  const [seenMessageCount, setSeenMessageCount] = createSignal(0)
+  createEffect(() => {
+    if (seenMessageCount() === 0) setSeenMessageCount(messages().length)
+  })
+  createEffect(
+    on(
+      () => messages().filter((m) => m.role === "user").length,
+      () => {
+        // Allow toBottom's 50ms timeout to fire first, then sync count
+        setTimeout(() => setSeenMessageCount(messages().length), 100)
+      },
+      { defer: true },
+    ),
+  )
+
+  const pillVisible = () => messages().length > seenMessageCount()
+  const pillCount = () => messages().length - seenMessageCount()
+
   // snap to bottom when session changes
   createEffect(on(() => route.sessionID, toBottom))
 
@@ -1339,6 +1359,12 @@ export function Session() {
                   </TuiPluginRuntime.Slot>
                 </Show>
               </box>
+              <Show when={pillVisible()}>
+                <NewMessagesPill
+                  count={pillCount()}
+                  onClick={() => toBottom()}
+                />
+              </Show>
             </Show>
             <Toast />
           </box>
