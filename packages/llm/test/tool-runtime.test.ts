@@ -29,6 +29,7 @@ const get_weather = tool({
   description: "Get current weather for a city.",
   parameters: Schema.Struct({ city: Schema.String }),
   success: Schema.Struct({ temperature: Schema.Number, condition: Schema.String }),
+  isConcurrencySafe: () => true,
   execute: ({ city }) =>
     Effect.gen(function* () {
       if (city === "FAIL")
@@ -584,6 +585,87 @@ describe("LLMClient tools", () => {
       const results = events.filter(LLMEvent.is.toolResult)
       expect(results).toHaveLength(2)
       expect(results.map((event) => event.id).toSorted()).toEqual(["c1", "c2"])
+    }),
+  )
+
+  it.effect("runs undeclared tools serially even when runtime concurrency is high", () =>
+    Effect.gen(function* () {
+      let inFlight = 0
+      let maxInFlight = 0
+      const unsafe = tool({
+        description: "Mutate shared state.",
+        parameters: Schema.Struct({ value: Schema.String }),
+        success: Schema.Struct({ ok: Schema.Boolean }),
+        execute: () =>
+          Effect.gen(function* () {
+            inFlight++
+            maxInFlight = Math.max(maxInFlight, inFlight)
+            yield* Effect.yieldNow
+            inFlight--
+            return { ok: true }
+          }),
+      })
+
+      const events = Array.from(
+        yield* ToolRuntime.stream({
+          request: baseRequest,
+          tools: { unsafe },
+          concurrency: 10,
+          stopWhen: (state) => state.step >= 0,
+          stream: () =>
+            Stream.fromIterable<LLMEvent>([
+              LLMEvent.stepStart({ index: 0 }),
+              LLMEvent.toolCall({ id: "unsafe_1", name: "unsafe", input: { value: "a" } }),
+              LLMEvent.toolCall({ id: "unsafe_2", name: "unsafe", input: { value: "b" } }),
+              LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+              LLMEvent.finish({ reason: "tool-calls" }),
+            ]),
+        }).pipe(Stream.runCollect),
+      )
+
+      expect(events.filter(LLMEvent.is.toolResult)).toHaveLength(2)
+      expect(maxInFlight).toBe(1)
+    }),
+  )
+
+  it.effect("runs adjacent concurrency-safe tool calls in parallel", () =>
+    Effect.gen(function* () {
+      let inFlight = 0
+      let maxInFlight = 0
+      const safe = tool({
+        description: "Read shared state.",
+        parameters: Schema.Struct({ value: Schema.String }),
+        success: Schema.Struct({ ok: Schema.Boolean }),
+        isConcurrencySafe: () => true,
+        execute: () =>
+          Effect.gen(function* () {
+            inFlight++
+            maxInFlight = Math.max(maxInFlight, inFlight)
+            yield* Effect.yieldNow
+            inFlight--
+            return { ok: true }
+          }),
+      })
+
+      const events = Array.from(
+        yield* ToolRuntime.stream({
+          request: baseRequest,
+          tools: { safe },
+          concurrency: 10,
+          stopWhen: (state) => state.step >= 0,
+          stream: () =>
+            Stream.fromIterable<LLMEvent>([
+              LLMEvent.stepStart({ index: 0 }),
+              LLMEvent.toolCall({ id: "safe_1", name: "safe", input: { value: "a" } }),
+              LLMEvent.toolCall({ id: "safe_2", name: "safe", input: { value: "b" } }),
+              LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+              LLMEvent.finish({ reason: "tool-calls" }),
+            ]),
+        }).pipe(Stream.runCollect),
+      )
+
+      expect(events.filter(LLMEvent.is.toolResult)).toHaveLength(2)
+      expect(maxInFlight).toBe(2)
     }),
   )
 })

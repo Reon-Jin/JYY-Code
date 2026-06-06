@@ -12,13 +12,14 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { TaskTool, type TaskPromptOps } from "../../src/tool/task"
+import { TaskTool, type TaskGitOps, type TaskPromptOps, type TaskWorktreeOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderTest } from "../fake/provider"
 import { disposeAllInstances } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+import path from "path"
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -133,6 +134,16 @@ function reply(input: SessionPrompt.PromptInput, text: string): MessageV2.WithPa
   }
 }
 
+function gitResult(text = "", exitCode = 0) {
+  return {
+    exitCode,
+    text: () => text,
+    stdout: Buffer.from(text),
+    stderr: Buffer.alloc(0),
+    truncated: false,
+  }
+}
+
 describe("tool.task", () => {
   it.instance(
     "description sorts subagents by name and is stable across calls",
@@ -149,6 +160,25 @@ describe("tool.task", () => {
         const second = yield* get()
 
         expect(first).toBe(second)
+
+        const schema =
+          (yield* registry.tools({ ...ref, agent: build })).find((tool) => tool.id === TaskTool.id)?.jsonSchema as
+            | { properties?: { subagent_type?: { enum?: string[] } } }
+            | undefined
+        expect(schema?.properties?.subagent_type?.enum).toEqual([
+          "alpha",
+          "analyst",
+          "chart",
+          "coder",
+          "explore",
+          "general",
+          "pdf",
+          "researcher",
+          "reviewer",
+          "tester",
+          "writer",
+          "zebra",
+        ])
 
         const alpha = first.indexOf("- alpha: Alpha agent")
         const explore = first.indexOf("- explore:")
@@ -188,6 +218,13 @@ describe("tool.task", () => {
 
         expect(description).toContain("- alpha: Alpha agent")
         expect(description).not.toContain("- zebra: Zebra agent")
+        expect(description).not.toContain("- shadow: Shadow agent")
+
+        const task = (yield* registry.tools({ ...ref, agent: build })).find((tool) => tool.id === TaskTool.id)
+        const schema = task?.jsonSchema as { properties?: { subagent_type?: { enum?: string[] } } } | undefined
+        expect(schema?.properties?.subagent_type?.enum).toContain("alpha")
+        expect(schema?.properties?.subagent_type?.enum).not.toContain("zebra")
+        expect(schema?.properties?.subagent_type?.enum).not.toContain("shadow")
       }),
     {
       config: {
@@ -206,9 +243,42 @@ describe("tool.task", () => {
             description: "Alpha agent",
             mode: "subagent",
           },
+          shadow: {
+            description: "Shadow agent",
+            mode: "subagent",
+            hidden: true,
+          },
         },
       },
     },
+  )
+
+  it.instance("tool_search searches the current tool catalog", () =>
+    Effect.gen(function* () {
+      const agent = yield* Agent.Service
+      const build = yield* agent.get("build")
+      const registry = yield* ToolRegistry.Service
+      const tools = yield* registry.tools({ ...ref, agent: build })
+      const search = tools.find((tool) => tool.id === "tool_search")
+      expect(search).toBeTruthy()
+
+      const result = yield* search!.execute(
+        { query: "subagent task", limit: 3 },
+        {
+          sessionID: SessionID.make("ses_tool_search"),
+          messageID: MessageID.ascending(),
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: {},
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      expect(result.output).toContain("- task")
+      expect(result.output).toContain("subagent_type")
+    }),
   )
 
   it.instance("execute resumes an existing task session from task_id", () =>
@@ -380,6 +450,368 @@ describe("tool.task", () => {
       expect(result.metadata.sessionId).not.toBe("ses_missing")
       expect(result.output).toContain(`task_id: ${result.metadata.sessionId}`)
       expect(seen?.sessionID).toBe(result.metadata.sessionId)
+    }),
+  )
+
+  it.instance("execute with fork injects recent parent context into the child prompt", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      const parentUser = yield* sessions.findMessage(chat.id, (item) => item.info.role === "user").pipe(Effect.orDie)
+      if (parentUser._tag === "Some") {
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: parentUser.value.info.id,
+          sessionID: chat.id,
+          type: "text",
+          text: "Parent found the cache key bug in src/cache.ts",
+        })
+      }
+      const parentMessages = yield* sessions.messages({ sessionID: chat.id })
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      let seen: SessionPrompt.PromptInput | undefined
+      const promptOps = stubOps({ text: "forked", onPrompt: (input) => (seen = input) })
+
+      const result = yield* def.execute(
+        {
+          description: "continue fix",
+          prompt: "Patch only the cache key bug.",
+          subagent_type: "general",
+          fork: true,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps },
+          messages: parentMessages,
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      expect(result.metadata.fork).toBe(true)
+      const text = seen?.parts.find((part) => part.type === "text")?.text ?? ""
+      expect(text).toContain("<forked-context>")
+      expect(text).toContain("Parent found the cache key bug in src/cache.ts")
+      expect(text).toContain("<directive>")
+      expect(text).toContain("Patch only the cache key bug.")
+    }),
+  )
+
+  it.instance("execute passes structured context parts to the child prompt", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      let seen: SessionPrompt.PromptInput | undefined
+
+      yield* def.execute(
+        {
+          description: "inspect context",
+          prompt: "Use the supplied context.",
+          subagent_type: "general",
+          context: [
+            { type: "text", value: "Regression started after changing cache keys.", note: "summary" },
+            { type: "file", value: "src/cache.ts", note: "suspect" },
+            { type: "directory", value: "test/cache", note: "focused tests" },
+          ],
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps: stubOps({ onPrompt: (input) => (seen = input) }) },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const text = seen?.parts.find((part) => part.type === "text")?.text ?? ""
+      expect(text).toContain("<task-context>")
+      expect(text).toContain("Regression started after changing cache keys.")
+      expect(seen?.parts.filter((part) => part.type === "file")).toEqual([
+        expect.objectContaining({ mime: "text/plain", filename: path.resolve(chat.directory, "src/cache.ts") }),
+        expect.objectContaining({
+          mime: "application/x-directory",
+          filename: path.resolve(chat.directory, "test/cache"),
+        }),
+      ])
+    }),
+  )
+
+  it.instance("rejects recursive fork tasks", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed("continue fix (@general fork)")
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+
+      const exit = yield* def
+        .execute(
+          {
+            description: "recursive fork",
+            prompt: "Fork again",
+            subagent_type: "general",
+            fork: true,
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps: stubOps() },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+    }),
+  )
+
+  it.instance("execute with worktree isolation creates child session in the isolated directory", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      let seen: SessionPrompt.PromptInput | undefined
+      let requestedName: string | undefined
+      const worktreeInfo = {
+        name: "inspect-cache",
+        branch: "jyycode/inspect-cache",
+        directory: "C:/tmp/jyycode-worktree/inspect-cache",
+      }
+      const worktreeOps: TaskWorktreeOps = {
+        create: (input) =>
+          Effect.sync(() => {
+            requestedName = input?.name
+            return worktreeInfo
+          }),
+      }
+
+      const result = yield* def.execute(
+        {
+          description: "inspect cache",
+          prompt: "Patch the cache bug and run focused tests.",
+          subagent_type: "general",
+          isolation: "worktree",
+          worktree_name: "inspect-cache",
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps: stubOps({ onPrompt: (input) => (seen = input) }), worktreeOps },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const child = yield* sessions.get(result.metadata.sessionId)
+      expect(requestedName).toBe("inspect-cache")
+      expect(child.directory).toBe(worktreeInfo.directory)
+      expect(child.permission).toContainEqual(
+        expect.objectContaining({
+          permission: "external_directory",
+          action: "allow",
+        }),
+      )
+      expect(result.metadata.isolation).toBe("worktree")
+      expect(result.metadata.worktree).toEqual(worktreeInfo)
+      const text = seen?.parts.find((part) => part.type === "text")?.text ?? ""
+      expect(text).toContain("<worktree-isolation>")
+      expect(text).toContain(worktreeInfo.directory)
+      expect(text).toContain("Patch the cache bug and run focused tests.")
+    }),
+  )
+
+  it.instance("execute with worktree auto-merge commits child changes and merges into parent branch", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const worktreeInfo = {
+        name: "merge-cache",
+        branch: "jyycode/merge-cache",
+        directory: "C:/tmp/jyycode-worktree/merge-cache",
+      }
+      const calls: string[] = []
+      const worktreeOps: TaskWorktreeOps = {
+        create: () => Effect.succeed(worktreeInfo),
+      }
+      const gitOps: TaskGitOps = {
+        branch: () => Effect.succeed("jyycode/merge-cache"),
+        patchAll: () => Effect.succeed({ text: "diff --git a/src/cache.ts b/src/cache.ts", truncated: false }),
+        status: (cwd) =>
+          Effect.succeed(
+            cwd === worktreeInfo.directory
+              ? [{ file: "src/cache.ts", code: " M", status: "modified" as const }]
+              : [],
+          ),
+        run: (args, opts) =>
+          Effect.sync(() => {
+            calls.push(`${opts.cwd}: ${args.join(" ")}`)
+            if (args[0] === "diff") return gitResult("M\tsrc/cache.ts\n")
+            if (args[0] === "rev-parse") return gitResult("abc123\n")
+            return gitResult("")
+          }),
+      }
+
+      const result = yield* def.execute(
+        {
+          description: "merge cache",
+          prompt: "Patch the cache bug.",
+          subagent_type: "general",
+          isolation: "worktree",
+          merge: "auto",
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps: stubOps({ text: "child done" }), worktreeOps, gitOps },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      expect(result.metadata.merge).toBe("auto")
+      expect(result.output).toContain("<worktree_review>")
+      expect(result.output).toContain("state: merged")
+      expect(result.output).toContain("Parent HEAD is abc123")
+      expect(calls).toContain(`${worktreeInfo.directory}: add -A`)
+      expect(calls).toContain(`${worktreeInfo.directory}: commit -m Task: merge cache`)
+      expect(calls).toContain(`${chat.directory}: merge --no-ff --no-edit jyycode/merge-cache`)
+    }),
+  )
+
+  it.instance("execute with worktree auto-merge blocks when parent worktree is dirty", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const worktreeInfo = {
+        name: "blocked-cache",
+        branch: "jyycode/blocked-cache",
+        directory: "C:/tmp/jyycode-worktree/blocked-cache",
+      }
+      const calls: string[] = []
+      const worktreeOps: TaskWorktreeOps = {
+        create: () => Effect.succeed(worktreeInfo),
+      }
+      const gitOps: TaskGitOps = {
+        branch: () => Effect.succeed("jyycode/blocked-cache"),
+        patchAll: () => Effect.succeed({ text: "", truncated: false }),
+        status: (cwd) =>
+          Effect.succeed(
+            cwd === chat.directory ? [{ file: "README.md", code: " M", status: "modified" as const }] : [],
+          ),
+        run: (args, opts) =>
+          Effect.sync(() => {
+            calls.push(`${opts.cwd}: ${args.join(" ")}`)
+            return gitResult("")
+          }),
+      }
+
+      const result = yield* def.execute(
+        {
+          description: "blocked merge",
+          prompt: "Patch the cache bug.",
+          subagent_type: "general",
+          isolation: "worktree",
+          merge: "auto",
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps: stubOps({ text: "child done" }), worktreeOps, gitOps },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      expect(result.output).toContain("state: blocked")
+      expect(result.output).toContain("parent worktree has local changes")
+      expect(calls.some((call) => call.includes(": merge "))).toBe(false)
+    }),
+  )
+
+  it.instance("rejects automatic merge without worktree isolation", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+
+      const exit = yield* def
+        .execute(
+          {
+            description: "bad merge",
+            prompt: "Patch the cache bug.",
+            subagent_type: "general",
+            merge: "auto",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps: stubOps() },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+    }),
+  )
+
+  it.instance("rejects worktree isolation when resuming an existing task", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      const child = yield* sessions.create({ parentID: chat.id, title: "Existing child" })
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+
+      const exit = yield* def
+        .execute(
+          {
+            description: "resume isolated",
+            prompt: "continue",
+            subagent_type: "general",
+            task_id: child.id,
+            isolation: "worktree",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps: stubOps() },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
     }),
   )
 

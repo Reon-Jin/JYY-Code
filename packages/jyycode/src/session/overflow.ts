@@ -4,6 +4,7 @@ import { ProviderTransform } from "@/provider/transform"
 import type { MessageV2 } from "./message-v2"
 
 const COMPACTION_BUFFER = 20_000
+const PREDICTIVE_RATIO = 0.92
 
 export function usable(input: { cfg: Config.Info; model: Provider.Model; outputTokenMax?: number }) {
   const context = input.model.limit.context
@@ -29,4 +30,16 @@ export function isOverflow(input: {
   const count =
     input.tokens.total || input.tokens.input + input.tokens.output + input.tokens.cache.read + input.tokens.cache.write
   return count >= usable(input)
+}
+
+export function shouldCompact(input: {
+  cfg: Config.Info
+  model: Provider.Model
+  estimatedInputTokens: number
+  outputTokenMax?: number
+}) {
+  if (input.cfg.compaction?.auto === false) return false
+  if (input.model.limit.context === 0) return false
+  const ratio = input.cfg.compaction?.trigger_ratio ?? PREDICTIVE_RATIO
+  return input.estimatedInputTokens >= Math.floor(usable(input) * ratio)
 }

@@ -15,7 +15,7 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect, Layer, Context, Schema } from "effect"
 import * as DateTime from "effect/DateTime"
 import { InstanceState } from "@/effect/instance-state"
-import { isOverflow as overflow, usable } from "./overflow"
+import { isOverflow as overflow, shouldCompact as predictiveOverflow, usable } from "./overflow"
 import { serviceUse } from "@/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -39,6 +39,7 @@ const PRUNE_PROTECTED_TOOLS = ["skill"]
 const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
 const MAX_PRESERVE_RECENT_TOKENS = 8_000
+export const AUTO_FAILURE_LIMIT = 2
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Goal
@@ -188,6 +189,10 @@ export interface Interface {
     tokens: MessageV2.Assistant["tokens"]
     model: Provider.Model
   }) => Effect.Effect<boolean>
+  readonly shouldCompact: (input: {
+    messages: MessageV2.WithParts[]
+    model: Provider.Model
+  }) => Effect.Effect<boolean>
   readonly prune: (input: { sessionID: SessionID }) => Effect.Effect<void>
   readonly process: (input: {
     parentID: MessageID
@@ -202,7 +207,7 @@ export interface Interface {
     model: { providerID: ProviderID; modelID: ModelID }
     auto: boolean
     overflow?: boolean
-  }) => Effect.Effect<void>
+  }) => Effect.Effect<boolean>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/SessionCompaction") {}
@@ -240,6 +245,19 @@ export const layer = Layer.effect(
     }) {
       const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model)
       return Token.estimate(JSON.stringify(msgs))
+    })
+
+    const shouldCompact = Effect.fn("SessionCompaction.shouldCompact")(function* (input: {
+      messages: MessageV2.WithParts[]
+      model: Provider.Model
+    }) {
+      const estimatedInputTokens = yield* estimate(input)
+      return predictiveOverflow({
+        cfg: yield* config.get(),
+        model: input.model,
+        estimatedInputTokens,
+        outputTokenMax: flags.outputTokenMax,
+      })
     })
 
     const select = Effect.fn("SessionCompaction.select")(function* (input: {
@@ -581,6 +599,21 @@ export const layer = Layer.effect(
       return result
     })
 
+    const failedAutoCompactions = (messages: MessageV2.WithParts[]) => {
+      let failed = 0
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i]
+        if (msg.info.role !== "assistant") continue
+        if (!msg.info.summary) continue
+        if (msg.info.error) {
+          failed++
+          continue
+        }
+        if (msg.info.finish) break
+      }
+      return failed
+    }
+
     const create = Effect.fn("SessionCompaction.create")(function* (input: {
       sessionID: SessionID
       agent: string
@@ -588,6 +621,17 @@ export const layer = Layer.effect(
       auto: boolean
       overflow?: boolean
     }) {
+      if (input.auto) {
+        const messages = yield* session
+          .messages({ sessionID: input.sessionID })
+          .pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed([])))
+        const failures = failedAutoCompactions(messages)
+        if (failures >= AUTO_FAILURE_LIMIT) {
+          log.warn("auto compaction circuit open", { sessionID: input.sessionID, failures })
+          return false
+        }
+      }
+
       const msg = yield* session.updateMessage({
         id: MessageID.ascending(),
         role: "user",
@@ -611,10 +655,12 @@ export const layer = Layer.effect(
           reason: input.auto ? "auto" : "manual",
         })
       }
+      return true
     })
 
     return Service.of({
       isOverflow,
+      shouldCompact,
       prune,
       process: processCompaction,
       create,

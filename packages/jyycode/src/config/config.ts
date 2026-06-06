@@ -287,6 +287,10 @@ export const Info = Schema.Struct({
       reserved: Schema.optional(NonNegativeInt).annotate({
         description: "Token buffer for compaction. Leaves enough window to avoid overflow during compaction.",
       }),
+      trigger_ratio: Schema.optional(Schema.Finite).annotate({
+        description:
+          "Fraction of the usable context window that triggers predictive compaction before the next model call (default: 0.92).",
+      }),
     }),
   ),
   experimental: Schema.optional(

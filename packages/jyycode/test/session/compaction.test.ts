@@ -558,6 +558,68 @@ describe("session.compaction.isOverflow", () => {
   )
 })
 
+describe("session.compaction.shouldCompact", () => {
+  it.instance("predicts compaction before the next model request reaches the usable window", () =>
+    Effect.gen(function* () {
+      const compact = yield* SessionCompaction.Service
+      const model = createModel({ context: 100_000, output: 32_000 })
+      const messages: MessageV2.WithParts[] = [
+        {
+          info: {
+            id: MessageID.ascending(),
+            role: "user",
+            sessionID: SessionID.make("ses_predictive_compaction"),
+            agent: "build",
+            model: ref,
+            time: { created: Date.now() },
+          },
+          parts: [
+            {
+              id: PartID.ascending(),
+              messageID: MessageID.ascending(),
+              sessionID: SessionID.make("ses_predictive_compaction"),
+              type: "text",
+              text: "x".repeat(320_000),
+            },
+          ],
+        },
+      ]
+
+      expect(yield* compact.shouldCompact({ messages, model })).toBe(true)
+    }),
+  )
+
+  it.instance("does not predict compaction for small requests", () =>
+    Effect.gen(function* () {
+      const compact = yield* SessionCompaction.Service
+      const model = createModel({ context: 100_000, output: 32_000 })
+      const messages: MessageV2.WithParts[] = [
+        {
+          info: {
+            id: MessageID.ascending(),
+            role: "user",
+            sessionID: SessionID.make("ses_small_predictive_compaction"),
+            agent: "build",
+            model: ref,
+            time: { created: Date.now() },
+          },
+          parts: [
+            {
+              id: PartID.ascending(),
+              messageID: MessageID.ascending(),
+              sessionID: SessionID.make("ses_small_predictive_compaction"),
+              type: "text",
+              text: "small request",
+            },
+          ],
+        },
+      ]
+
+      expect(yield* compact.shouldCompact({ messages, model })).toBe(false)
+    }),
+  )
+})
+
 describe("session.compaction.create", () => {
   it.live(
     "creates a compaction user message and part",
@@ -596,6 +658,64 @@ describe("session.compaction.create", () => {
         })
       }),
     ),
+  )
+
+  it.instance(
+    "opens an auto-compaction circuit after repeated failed summaries",
+    () =>
+      Effect.gen(function* () {
+        const sessions = yield* SessionNs.Service
+        const compact = yield* SessionCompaction.Service
+        const info = yield* sessions.create()
+        const first = yield* createUserMessage(info.id, "first")
+        yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "assistant",
+          sessionID: info.id,
+          parentID: first.id,
+          mode: "compaction",
+          agent: "compaction",
+          summary: true,
+          path: { cwd: info.directory, root: info.directory },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          error: new MessageV2.ContextOverflowError({ message: "failed one" }).toObject(),
+          time: { created: Date.now() },
+          finish: "error",
+        })
+        const second = yield* createUserMessage(info.id, "second")
+        yield* sessions.updateMessage({
+          id: MessageID.ascending(),
+          role: "assistant",
+          sessionID: info.id,
+          parentID: second.id,
+          mode: "compaction",
+          agent: "compaction",
+          summary: true,
+          path: { cwd: info.directory, root: info.directory },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          error: new MessageV2.ContextOverflowError({ message: "failed two" }).toObject(),
+          time: { created: Date.now() },
+          finish: "error",
+        })
+
+        const created = yield* compact.create({
+          sessionID: info.id,
+          agent: "build",
+          model: ref,
+          auto: true,
+        })
+
+        expect(created).toBe(false)
+        const messages = yield* sessions.messages({ sessionID: info.id })
+        expect(messages.flatMap((msg) => msg.parts).filter((part) => part.type === "compaction")).toHaveLength(0)
+      }),
+    { timeout: 10_000 },
   )
 })
 

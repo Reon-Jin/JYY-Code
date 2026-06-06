@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { AgentCluster } from "../../src/agent-cluster/cluster"
 import { ClusterPrimaryPrompt, runInstructions } from "../../src/agent-cluster/planner"
+import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 import { ConfigAgentCluster } from "../../src/config/agent-cluster"
 import type { Session } from "../../src/session/session"
 
@@ -244,5 +245,88 @@ describe("AgentCluster.createRunID", () => {
   test("returns unique values", () => {
     const ids = new Set(Array.from({ length: 10 }, () => AgentCluster.createRunID()))
     expect(ids.size).toBe(10)
+  })
+})
+
+describe("AgentClusterRuntime.validatePlan", () => {
+  const task = (input: {
+    id: string
+    step: number
+    dependencies?: string[]
+    title?: string
+  }) => ({
+    id: AgentClusterRuntime.coerceTaskID(input.id),
+    step: input.step,
+    title: input.title ?? input.id,
+    role: "researcher" as const,
+    complexity: "simple" as const,
+    model: "provider/model",
+    dependencies: (input.dependencies ?? []).map(AgentClusterRuntime.coerceTaskID),
+    prompt: `Do ${input.id}`,
+    acceptanceCriteria: ["done"],
+    expectedArtifacts: [],
+  })
+
+  test("accepts a dependency DAG with parallel ready work", () => {
+    const plan = {
+      goal: "ship feature",
+      tasks: [
+        task({ id: "research", step: 1 }),
+        task({ id: "inspect", step: 1 }),
+        task({ id: "build", step: 2, dependencies: ["research"] }),
+      ],
+    }
+
+    expect(AgentClusterRuntime.validatePlan(plan, { maxSubagents: 10, maxConcurrency: 3 })).toEqual({
+      valid: true,
+      errors: [],
+    })
+    expect(
+      AgentClusterRuntime.nextReadyBatch(plan, {
+        completed: [],
+      }).tasks.map((item) => String(item.id)),
+    ).toEqual(["inspect", "research"])
+  })
+
+  test("rejects duplicate ids, same-step dependencies, and over-wide steps", () => {
+    const plan = {
+      goal: "bad plan",
+      tasks: [
+        task({ id: "a", step: 1 }),
+        task({ id: "a", step: 1, title: "duplicate" }),
+        task({ id: "b", step: 1, dependencies: ["a"] }),
+      ],
+    }
+
+    const result = AgentClusterRuntime.validatePlan(plan, { maxSubagents: 10, maxConcurrency: 2 })
+    expect(result.valid).toBe(false)
+    expect(result.errors.join("\n")).toContain("duplicate task id: a")
+    expect(result.errors.join("\n")).toContain("dependencies must be in earlier steps")
+    expect(result.errors.join("\n")).toContain("exceeding max_concurrency=2")
+  })
+
+  test("blocks ready tasks when dependencies are missing or failed", () => {
+    const plan = {
+      goal: "ship feature",
+      tasks: [
+        task({ id: "research", step: 1 }),
+        task({ id: "build", step: 2, dependencies: ["research"] }),
+      ],
+    }
+
+    expect(
+      AgentClusterRuntime.nextReadyBatch(plan, {
+        completed: [],
+        failed: ["research"],
+      }),
+    ).toMatchObject({
+      tasks: [],
+      blocked: [{ reason: "dependency failed: research" }],
+    })
+  })
+
+  test("enforces review round limit", () => {
+    expect(AgentClusterRuntime.canRequestRevision({ roundsUsed: 1, limits: { maxReviewRounds: 2 } })).toBe(true)
+    expect(AgentClusterRuntime.canRequestRevision({ roundsUsed: 2, limits: { maxReviewRounds: 2 } })).toBe(false)
   })
 })

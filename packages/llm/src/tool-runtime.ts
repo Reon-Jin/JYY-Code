@@ -111,12 +111,11 @@ export const stream = <T extends Tools>(options: StreamOptions<T>): Stream.Strea
             if (state.finishReason !== "tool-calls" || state.toolCalls.length === 0) return finishStream
             if (options.toolExecution === "none") return finishStream
 
-            const dispatched = yield* Effect.forEach(
-              state.toolCalls,
-              (call) =>
-                dispatch(tools, call).pipe(Effect.map((result) => [call, result.result, result.error] as const)),
-              { concurrency },
-            )
+            const dispatched = yield* dispatchToolCalls({
+              tools,
+              calls: state.toolCalls,
+              concurrency,
+            })
             const resultStream = Stream.fromIterable(
               dispatched.flatMap(([call, result, error]) => emitEvents(call, result, error)),
             )
@@ -315,6 +314,64 @@ const decodeAndExecute = (tool: AnyTool, call: ToolCallPart): Effect.Effect<Tool
       (encoded): ToolResultValueType => (ToolResultValue.is(encoded) ? encoded : { type: "json", value: encoded }),
     ),
   )
+
+type DispatchedToolCall = readonly [ToolCallPart, ToolResultValueType, unknown]
+type ToolCallBatch = {
+  readonly concurrencySafe: boolean
+  readonly calls: ReadonlyArray<ToolCallPart>
+}
+
+const isConcurrencySafe = (tools: Tools, call: ToolCallPart): Effect.Effect<boolean> => {
+  const tool = tools[call.name]
+  if (!tool?.execute || !tool.isConcurrencySafe) return Effect.succeed(false)
+  return tool._decode(call.input).pipe(
+    Effect.map((decoded) => {
+      try {
+        return tool.isConcurrencySafe?.(decoded) === true
+      } catch {
+        return false
+      }
+    }),
+    Effect.catch(() => Effect.succeed(false)),
+  )
+}
+
+const partitionToolCalls = (
+  tools: Tools,
+  calls: ReadonlyArray<ToolCallPart>,
+): Effect.Effect<ReadonlyArray<ToolCallBatch>> =>
+  Effect.gen(function* () {
+    const batches: ToolCallBatch[] = []
+    for (const call of calls) {
+      const concurrencySafe = yield* isConcurrencySafe(tools, call)
+      const previous = batches.at(-1)
+      if (concurrencySafe && previous?.concurrencySafe) {
+        batches[batches.length - 1] = { concurrencySafe: true, calls: [...previous.calls, call] }
+      } else {
+        batches.push({ concurrencySafe, calls: [call] })
+      }
+    }
+    return batches
+  })
+
+const dispatchToolCalls = (input: {
+  readonly tools: Tools
+  readonly calls: ReadonlyArray<ToolCallPart>
+  readonly concurrency: Concurrency
+}): Effect.Effect<ReadonlyArray<DispatchedToolCall>> =>
+  Effect.gen(function* () {
+    const batches = yield* partitionToolCalls(input.tools, input.calls)
+    const dispatched: DispatchedToolCall[] = []
+    for (const batch of batches) {
+      const results = yield* Effect.forEach(
+        batch.calls,
+        (call) => dispatch(input.tools, call).pipe(Effect.map((result) => [call, result.result, result.error] as const)),
+        { concurrency: batch.concurrencySafe ? input.concurrency : 1 },
+      )
+      dispatched.push(...results)
+    }
+    return dispatched
+  })
 
 const emitEvents = (call: ToolCallPart, result: ToolResultValueType, error: unknown): ReadonlyArray<LLMEvent> =>
   result.type === "error"

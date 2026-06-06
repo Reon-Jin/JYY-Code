@@ -18,6 +18,7 @@ import { SendFileTool } from "./send-file"
 import { MemorySearchTool } from "./memory_search"
 import { MemoryReadTool } from "./memory_read"
 import * as Tool from "./tool"
+import { ToolJsonSchema } from "./json-schema"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@jyycode-ai/plugin"
 import type { JSONSchema7, JSONSchema7Definition } from "@ai-sdk/provider"
@@ -78,6 +79,11 @@ type State = {
   taskStatus: TaskStatusDef
   read: ReadDef
 }
+
+const ToolSearchParameters = Schema.Struct({
+  query: Schema.String.annotate({ description: "Search terms for finding relevant available tools" }),
+  limit: Schema.optional(Schema.Number).annotate({ description: "Maximum number of tool matches to return (default: 8)" }),
+})
 
 export interface Interface {
   readonly ids: () => Effect.Effect<string[]>
@@ -328,11 +334,7 @@ export const layer: Layer.Layer<
     })
 
     const describeTask = Effect.fn("ToolRegistry.describeTask")(function* (agent: Agent.Info) {
-      const items = (yield* agents.list()).filter((item) => item.mode !== "primary")
-      const filtered = items.filter(
-        (item) => Permission.evaluate("task", item.name, agent.permission).action !== "deny",
-      )
-      const list = filtered.toSorted((a, b) => a.name.localeCompare(b.name))
+      const list = yield* allowedTaskAgents(agent)
       const description = list
         .map(
           (item) =>
@@ -340,6 +342,14 @@ export const layer: Layer.Layer<
         )
         .join("\n")
       return ["Available agent types and the tools they have access to:", description].join("\n")
+    })
+
+    const allowedTaskAgents = Effect.fn("ToolRegistry.allowedTaskAgents")(function* (agent: Agent.Info) {
+      const items = (yield* agents.list()).filter((item) => item.mode !== "primary" && item.hidden !== true)
+      const filtered = items.filter(
+        (item) => Permission.evaluate("task", item.name, agent.permission).action !== "deny",
+      )
+      return filtered.toSorted((a, b) => a.name.localeCompare(b.name))
     })
 
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
@@ -360,7 +370,7 @@ export const layer: Layer.Layer<
         return true
       })
 
-      return yield* Effect.forEach(
+      const resolved = yield* Effect.forEach(
         filtered,
         Effect.fnUntraced(function* (tool: Tool.Def) {
           using _ = log.time(tool.id)
@@ -375,6 +385,13 @@ export const layer: Layer.Layer<
               ? output.jsonSchema
               : undefined
           const clusterTask = tool.id === TaskTool.id && input.agent.name === "cluster"
+          const taskAgents = tool.id === TaskTool.id ? yield* allowedTaskAgents(input.agent) : undefined
+          const taskJsonSchema = taskAgents
+            ? withTaskAgentEnum(
+                output.jsonSchema ?? ToolJsonSchema.fromSchema(output.parameters as Schema.Top),
+                taskAgents,
+              )
+            : undefined
           return {
             id: tool.id,
             description: [
@@ -388,13 +405,14 @@ export const layer: Layer.Layer<
               .filter(Boolean)
               .join("\n"),
             parameters: output.parameters,
-            jsonSchema: clusterTask ? undefined : jsonSchema,
+            jsonSchema: taskJsonSchema ?? (clusterTask ? undefined : jsonSchema),
             execute: tool.execute,
             formatValidationError: tool.formatValidationError,
           }
         }),
         { concurrency: "unbounded" },
       )
+      return [toolSearchDef(resolved), ...resolved]
     })
 
     const named: Interface["named"] = Effect.fn("ToolRegistry.named")(function* () {
@@ -432,6 +450,81 @@ export const defaultLayer = Layer.suspend(() =>
     )
     .pipe(Layer.provide(RuntimeFlags.defaultLayer)),
 )
+
+function toolSearchDef(tools: Tool.Def[]): Tool.Def<typeof ToolSearchParameters> {
+  return {
+    id: "tool_search",
+    description:
+      "Search the currently available tool catalog by keyword. Use this when you are unsure which tool is best for a task.",
+    parameters: ToolSearchParameters,
+    execute: (params) =>
+      Effect.sync(() => {
+        const limit = Math.max(1, Math.min(20, Math.floor(params.limit ?? 8)))
+        const terms = params.query
+          .toLowerCase()
+          .split(/\s+/)
+          .map((item) => item.trim())
+          .filter(Boolean)
+        const scored = tools
+          .filter((tool) => tool.id !== "tool_search")
+          .map((tool) => {
+            const haystack = `${tool.id}\n${tool.description}`.toLowerCase()
+            const score = terms.reduce((sum, term) => {
+              if (tool.id.toLowerCase() === term) return sum + 8
+              if (tool.id.toLowerCase().includes(term)) return sum + 5
+              return sum + (haystack.includes(term) ? 1 : 0)
+            }, 0)
+            return { tool, score }
+          })
+          .filter((item) => item.score > 0)
+          .toSorted((a, b) => b.score - a.score || a.tool.id.localeCompare(b.tool.id))
+          .slice(0, limit)
+
+        const output =
+          scored.length === 0
+            ? "No matching tools found in the currently available tool catalog."
+            : scored
+                .map(({ tool }) => {
+                  const schema = tool.jsonSchema && typeof tool.jsonSchema !== "boolean" ? tool.jsonSchema : undefined
+                  const properties =
+                    schema?.properties && typeof schema.properties === "object"
+                      ? Object.keys(schema.properties).join(", ")
+                      : "(schema unavailable)"
+                  return [`- ${tool.id}`, `  parameters: ${properties}`, `  description: ${tool.description}`].join("\n")
+                })
+                .join("\n\n")
+
+        return {
+          title: `Tool search: ${params.query}`,
+          metadata: { matches: scored.length, truncated: false },
+          output,
+        }
+      }),
+  }
+}
+
+function withTaskAgentEnum(schema: JSONSchema7, agents: Agent.Info[]): JSONSchema7 {
+  const cloned = JSON.parse(JSON.stringify(schema)) as JSONSchema7
+  if (typeof cloned === "boolean") return cloned
+  const properties = cloned.properties
+  if (!properties || typeof properties !== "object") return cloned
+  const subagent = properties.subagent_type
+  if (!subagent || typeof subagent === "boolean") return cloned
+  const enumValues = agents.map((item) => item.name)
+  properties.subagent_type = {
+    ...subagent,
+    enum: enumValues,
+    description: [
+      typeof subagent.description === "string" ? subagent.description : "The type of specialized agent to use",
+      "",
+      "Allowed values:",
+      ...agents.map(
+        (item) => `- ${item.name}: ${item.description ?? "This subagent should only be called manually by the user."}`,
+      ),
+    ].join("\n"),
+  }
+  return cloned
+}
 
 function isZodType(value: unknown): value is z.ZodType {
   return typeof value === "object" && value !== null && "_zod" in value

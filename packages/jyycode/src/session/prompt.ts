@@ -26,6 +26,7 @@ import * as Stream from "effect/Stream"
 import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
+import { ConfigAgentCluster } from "@/config/agent-cluster"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@jyycode-ai/core/util/error"
@@ -62,6 +63,7 @@ import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@jyycode-ai/llm"
 import { AgentCluster } from "@/agent-cluster/cluster"
+import { AgentClusterRuntime } from "@/agent-cluster/runtime"
 import { Memory } from "@/memory/memory"
 
 // @ts-ignore
@@ -1282,11 +1284,15 @@ export const layer = Layer.effect(
           return messages.some((message) => message.parts.some((part) => part.type === "tool" && part.tool === "task"))
         }
 
-        function hasClusterPlan(message: MessageV2.WithParts | undefined) {
+        function clusterPlan(message: MessageV2.WithParts | undefined) {
           if (!message || message.info.role !== "assistant") return false
           if (message.info.agent !== "cluster" && message.info.mode !== "cluster") return false
           const text = message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
-          return /"goal"\s*:/.test(text) && /"tasks"\s*:/.test(text)
+          return AgentClusterRuntime.extractPlanFromText(text)
+        }
+
+        function hasClusterPlan(message: MessageV2.WithParts | undefined) {
+          return clusterPlan(message) !== undefined
         }
 
         function isClusterDispatchReminder(message: MessageV2.WithParts | undefined) {
@@ -1296,16 +1302,30 @@ export const layer = Layer.effect(
           )
         }
 
-        const createClusterDispatchReminder = Effect.fn("SessionPrompt.createClusterDispatchReminder")(function* (
-          lastUser: MessageV2.User,
-        ) {
+        const createClusterDispatchReminder = Effect.fn("SessionPrompt.createClusterDispatchReminder")(function* (input: {
+          lastUser: MessageV2.User
+          plan: ReturnType<typeof AgentClusterRuntime.extractPlanFromText>
+        }) {
+          const cfg = yield* config.get()
+          const clusterConfig = ConfigAgentCluster.resolve(cfg.agent_cluster)
+          const validation = input.plan
+            ? AgentClusterRuntime.validatePlan(input.plan, {
+                maxSubagents: clusterConfig.max_subagents,
+                maxConcurrency: clusterConfig.max_concurrency,
+              })
+            : undefined
+          const ready = input.plan
+            ? AgentClusterRuntime.nextReadyBatch(input.plan, {
+                completed: [],
+              }).tasks
+            : []
           const userMsg: MessageV2.User = {
             id: MessageID.ascending(),
             sessionID,
             role: "user",
             time: { created: Date.now() },
-            agent: lastUser.agent,
-            model: lastUser.model,
+            agent: input.lastUser.agent,
+            model: input.lastUser.model,
           }
           yield* sessions.updateMessage(userMsg)
           yield* sessions.updatePart({
@@ -1318,7 +1338,19 @@ export const layer = Layer.effect(
             text: [
               "<system-reminder>",
               "The Multi-Agent plan has been presented, but no subagents were dispatched.",
-              "Immediately dispatch every ready step-1 task now using parallel task tool calls.",
+              ...(validation && !validation.valid
+                ? [
+                    "The plan violates runtime scheduling rules. Fix the plan first, then dispatch ready tasks.",
+                    "Plan errors:",
+                    ...validation.errors.map((error) => `- ${error}`),
+                  ]
+                : ready.length > 0
+                  ? [
+                      "Runtime validation passed. Immediately dispatch every ready task now using parallel task tool calls.",
+                      "Ready task ids:",
+                      ...ready.map((task) => `- ${task.id}`),
+                    ]
+                  : ["No tasks are ready. Explain the blocker or revise the plan so step-1 tasks are dependency-free."]),
               "Do not repeat the plan and do not stop after text; this turn must include the task tool calls.",
               "</system-reminder>",
             ].join("\n"),
@@ -1351,14 +1383,15 @@ export const layer = Layer.effect(
             !hasToolCalls &&
             lastUser.id < lastAssistant.id
           ) {
+            const plan = clusterPlan(lastAssistantMsg)
             if (
               lastUser.agent === "cluster" &&
-              hasClusterPlan(lastAssistantMsg) &&
+              plan &&
               !hasTaskTool(msgs) &&
               !isClusterDispatchReminder(msgs.find((msg) => msg.info.id === lastUser.id))
             ) {
               yield* slog.info("cluster plan produced without task dispatch; requesting dispatch")
-              yield* createClusterDispatchReminder(lastUser)
+              yield* createClusterDispatchReminder({ lastUser, plan })
               continue
             }
             yield* slog.info("exiting loop")
@@ -1399,7 +1432,8 @@ export const layer = Layer.effect(
             lastFinished.summary !== true &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
-            yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
+            const created = yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
+            if (!created) break
             continue
           }
 
@@ -1418,6 +1452,17 @@ export const layer = Layer.effect(
             Effect.provideService(AppFileSystem.Service, fsys),
             Effect.provideService(Session.Service, sessions),
           )
+          if (yield* compaction.shouldCompact({ messages: msgs, model })) {
+            const created = yield* compaction.create({
+              sessionID,
+              agent: lastUser.agent,
+              model: lastUser.model,
+              auto: true,
+              overflow: true,
+            })
+            if (!created) break
+            continue
+          }
 
           const msg: MessageV2.Assistant = {
             id: MessageID.ascending(),
@@ -1550,13 +1595,14 @@ export const layer = Layer.effect(
 
             if (result === "stop") return "break" as const
             if (result === "compact") {
-              yield* compaction.create({
+              const created = yield* compaction.create({
                 sessionID,
                 agent: lastUser.agent,
                 model: lastUser.model,
                 auto: true,
                 overflow: !handle.message.finish,
               })
+              if (!created) return "break" as const
             }
             return "continue" as const
           }).pipe(

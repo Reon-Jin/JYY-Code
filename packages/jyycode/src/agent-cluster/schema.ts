@@ -60,6 +60,7 @@ export type Artifact = Schema.Schema.Type<typeof Artifact>
 
 export const PlannedTask = Schema.Struct({
   id: TaskID,
+  step: Schema.Number,
   title: Schema.String,
   role: TaskRole,
   complexity: Complexity,
