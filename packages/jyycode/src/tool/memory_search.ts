@@ -9,9 +9,6 @@ export const Parameters = Schema.Struct({
     description: "Which memory file to search. Defaults to all.",
   }),
   limit: Schema.optional(Schema.Number).annotate({ description: "Maximum number of results. Defaults to 8." }),
-  concepts: Schema.optional(Schema.Array(Schema.String)).annotate({
-    description: "Optional concept tags to filter results by (e.g. ['python', 'fastapi']).",
-  }),
 })
 
 export const MemorySearchTool = Tool.define(
@@ -34,7 +31,6 @@ export const MemorySearchTool = Tool.define(
             query: params.query,
             scope: params.scope,
             limit: params.limit,
-            concepts: params.concepts as string[] | undefined,
           })
           const output =
             results.length === 0
