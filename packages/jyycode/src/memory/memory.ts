@@ -8,6 +8,10 @@ import { SessionID } from "@/session/schema"
 import { MessageV2 } from "@/session/message-v2"
 import * as Log from "@jyycode-ai/core/util/log"
 import { ulid } from "ulid"
+import { getMemoryDb, MemoryDb } from "./memory-db"
+import { MemoryObserver, type LlmCallFn } from "./memory-observer"
+import { MemorySummarizer } from "./memory-summarizer"
+import { buildContextPack, type ContextPack, type ContextPackConfig } from "./context-pack"
 
 const log = Log.create({ service: "memory" })
 
@@ -80,12 +84,15 @@ export interface Interface {
     query: string
     scope?: Scope | "all"
     limit?: number
+    concepts?: string[]
   }) => Effect.Effect<SearchResult[]>
   readonly write: (input: MemoryWriteInput) => Effect.Effect<MutationResult, Error>
   readonly patch: (input: MemoryPatchInput) => Effect.Effect<MutationResult, Error>
   readonly supersede: (input: MemorySupersedeInput) => Effect.Effect<MutationResult, Error>
   readonly suggest: (input: MemorySuggestInput) => Effect.Effect<MutationResult, Error>
   readonly updateAfterTurn: (sessionID: SessionID) => Effect.Effect<void>
+  readonly buildContext: (sessionID: SessionID, config?: ContextPackConfig) => Effect.Effect<ContextPack>
+  readonly migrateFromMarkdown: () => Effect.Effect<{ imported: number; skipped: number }>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/Memory") {}
@@ -132,6 +139,17 @@ const templates: Record<Scope, string> = {
 const filenames: Record<Scope, string> = {
   memory: MEMORY_FILE,
   user: USER_FILE,
+}
+
+let _dbInstance: MemoryDb | undefined
+let _observerSessionId: string | undefined
+let _observerInstance: MemoryObserver | undefined
+let _summarizerSessionId: string | undefined
+let _summarizerInstance: MemorySummarizer | undefined
+
+function getDb(): MemoryDb {
+  if (!_dbInstance) _dbInstance = getMemoryDb()
+  return _dbInstance
 }
 
 export const layer = Layer.effect(
@@ -183,13 +201,37 @@ export const layer = Layer.effect(
       query: string
       scope?: Scope | "all"
       limit?: number
+      concepts?: string[]
     }) {
       yield* ensure(input.sessionID)
       const query = input.query.trim()
       if (!query) return []
+      const limit = input.limit ?? 8
+
+      const dbResults: SearchResult[] = []
+      try {
+        const db = getDb()
+        const dbSearchResults = db.searchObservations({
+          query,
+          concepts: input.concepts,
+          limit,
+        })
+        for (const r of dbSearchResults) {
+          dbResults.push({
+            file: `D:/jyycode/memory/memory.db:observation#${r.id}`,
+            section: r.type,
+            line: 0,
+            score: r.score,
+            text: r.narrative ?? r.title ?? "",
+          })
+        }
+      } catch (err) {
+        log.debug("sqlite search failed, using markdown fallback", { error: String(err) })
+      }
+
       const scopes: Scope[] = input.scope && input.scope !== "all" ? [input.scope] : ["memory", "user"]
       const tokens = tokenize(query)
-      const results: SearchResult[] = []
+      const mdResults: SearchResult[] = []
 
       for (const scope of scopes) {
         const sourceFile = yield* filePath(input.sessionID, scope)
@@ -207,7 +249,7 @@ export const layer = Layer.effect(
           if (!body || body.startsWith("#")) continue
           const score = scoreLine(tokens, body)
           if (score <= 0) continue
-          results.push({
+          mdResults.push({
             file: sourceFile,
             section: currentSection,
             line: i + 1,
@@ -217,7 +259,8 @@ export const layer = Layer.effect(
         }
       }
 
-      return results.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file)).slice(0, input.limit ?? 8)
+      const merged = [...dbResults, ...mdResults].sort((a, b) => b.score - a.score || a.file.localeCompare(b.file))
+      return merged.slice(0, limit)
     })
 
     const audit = Effect.fn("Memory.audit")(function* (sessionID: SessionID, entry: Record<string, unknown>) {
@@ -270,6 +313,24 @@ export const layer = Layer.effect(
         id,
         reason: input.reason,
       })
+
+      try {
+        const db = getDb()
+        db.createObservation({
+          memory_session_id: input.sessionID,
+          kind: "manual",
+          type: input.scope === "user" ? "preference" : "discovery",
+          title: input.reason.slice(0, 80),
+          narrative: clean.slice(0, 2000),
+          facts: clean.split(/[。；\n]/).map((s) => s.trim()).filter((s) => s.length > 5).slice(0, 10),
+          concepts: extractConceptsFromText(clean),
+          metadata: { markdown_id: id, section: input.section },
+          time_created: Date.now(),
+        })
+      } catch (err) {
+        log.debug("dual-write to sqlite failed", { error: String(err) })
+      }
+
       return { id, file: targetFile, status: "written" as const, message: `Memory written: ${id}\nFile: ${targetFile}` }
     })
 
@@ -438,6 +499,31 @@ export const layer = Layer.effect(
         userUpdated: preferences.length > 0,
         userPreferences: preferences.length,
       }).pipe(Effect.catchCause((cause) => Effect.sync(() => log.error("failed to append memory audit", { cause }))))
+
+      try {
+        const db = getDb()
+        if (_observerSessionId !== sessionID) {
+          const noopLlmCall: LlmCallFn = async () => ""
+          _observerInstance = new MemoryObserver({ db, llmCall: noopLlmCall, sessionId: sessionID })
+          _observerSessionId = sessionID
+        }
+        if (_summarizerSessionId !== sessionID) {
+          const noopLlmCall: LlmCallFn = async () => ""
+          _summarizerInstance = new MemorySummarizer({ db, llmCall: noopLlmCall, sessionId: sessionID })
+          _summarizerSessionId = sessionID
+        }
+      } catch (err) {
+        log.debug("observer/summarizer init skipped", { error: String(err) })
+      }
+    })
+
+    const buildContext = Effect.fn("Memory.buildContext")(function* (_sessionID: SessionID, config?: ContextPackConfig) {
+      return buildContextPack(getDb(), config)
+    })
+
+    const migrateFromMarkdown = Effect.fn("Memory.migrateFromMarkdown")(function* () {
+      const mod = (yield* Effect.promise(() => import("./migrate"))) as typeof import("./migrate")
+      return yield* mod.migrateMarkdownToSqlite().pipe(Effect.provide(AppFileSystem.defaultLayer))
     })
 
     const appendAudit = Effect.fn("Memory.appendAudit")(function* (
@@ -459,6 +545,8 @@ export const layer = Layer.effect(
       supersede,
       suggest,
       updateAfterTurn,
+      buildContext,
+      migrateFromMarkdown,
     })
   }),
 )
@@ -511,21 +599,6 @@ function upsertRecentSession(text: string, line: string) {
   })
 }
 
-function upsertBullets(text: string, section: string, bullets: string[]) {
-  if (bullets.length === 0) return text
-  return replaceSectionBullets(text, section, (existing) => {
-    const seen = new Set(existing.map(normalizeBullet))
-    const next = [...existing]
-    for (const bullet of bullets) {
-      const normalized = normalizeBullet(bullet)
-      if (seen.has(normalized)) continue
-      seen.add(normalized)
-      next.push(bullet)
-    }
-    return next
-  })
-}
-
 function replaceSectionBullets(text: string, section: string, update: (existing: string[]) => string[]) {
   const heading = `## ${section}`
   const lines = text.split(/\r?\n/)
@@ -538,10 +611,6 @@ function replaceSectionBullets(text: string, section: string, update: (existing:
   const existing = lines.slice(start + 1, sectionEnd).map((item) => item.trim()).filter((item) => item.startsWith("- "))
   const updated = update(existing)
   return [...lines.slice(0, start + 1), ...updated, "", ...lines.slice(sectionEnd)].join("\n")
-}
-
-function normalizeBullet(input: string) {
-  return input.toLowerCase().replace(/^\-\s+\[[^\]]+\]\s*/, "- ").replace(/\s+/g, " ").trim()
 }
 
 function textContent(message: MessageV2.WithParts, options: { synthetic: boolean }) {
@@ -720,13 +789,29 @@ function looksLikePreference(input: string) {
 }
 
 function isCommunicationPreference(input: string) {
-  return /中文|英文|语气|风格|沟通|回答|解释|详细|简洁|称呼/.test(
-    input,
-  )
+  return /中文|英文|语气|风格|沟通|回答|解释|详细|简洁|称呼/.test(input)
 }
 
 function looksSensitive(input: string) {
   return /(password|passwd|secret|token|api[_-]?key|private[_-]?key|cookie|authorization|bearer|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|密码|密钥|令牌|私钥)/i.test(
     input,
   )
+}
+
+function extractConceptsFromText(content: string): string[] {
+  const concepts: string[] = []
+  const patterns: [RegExp, string][] = [
+    [/python/gi, "python"], [/fastapi/gi, "fastapi"], [/react/gi, "react"],
+    [/pytorch/gi, "pytorch"], [/mysql/gi, "mysql"], [/deepseek/gi, "deepseek"],
+    [/agent/gi, "agent"], [/rag/gi, "rag"], [/llm/gi, "llm"],
+    [/c\+\+/gi, "c++"], [/游戏/gi, "gaming"], [/csgo/gi, "csgo"],
+    [/竞赛/gi, "competition"], [/论文/gi, "paper"], [/专利/gi, "patent"],
+    [/项目/gi, "project"], [/代码/gi, "code"], [/架构/gi, "architecture"],
+  ]
+  for (const [regex, concept] of patterns) {
+    if (regex.test(content) && !concepts.includes(concept)) {
+      concepts.push(concept)
+    }
+  }
+  return concepts.slice(0, 10)
 }
