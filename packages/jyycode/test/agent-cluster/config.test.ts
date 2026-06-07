@@ -14,16 +14,16 @@ describe("ConfigAgentCluster.Default", () => {
     expect(ConfigAgentCluster.Default.disable_for_routes).toContain("mail")
   })
 
-  test("planner_model defaults to deepseek-v4-pro", () => {
-    expect(ConfigAgentCluster.Default.planner_model).toBe("deepseek-v4-pro")
+  test("planner_model defaults to deepseek-v4-flash", () => {
+    expect(ConfigAgentCluster.Default.planner_model).toBe("deepseek-v4-flash")
   })
 
-  test("reviewer_model defaults to deepseek-v4-pro", () => {
-    expect(ConfigAgentCluster.Default.reviewer_model).toBe("deepseek-v4-pro")
+  test("reviewer_model defaults to deepseek-v4-flash", () => {
+    expect(ConfigAgentCluster.Default.reviewer_model).toBe("deepseek-v4-flash")
   })
 
-  test("complex_model defaults to deepseek-v4-pro", () => {
-    expect(ConfigAgentCluster.Default.complex_model).toBe("deepseek-v4-pro")
+  test("complex_model defaults to deepseek-v4-flash", () => {
+    expect(ConfigAgentCluster.Default.complex_model).toBe("deepseek-v4-flash")
   })
 
   test("simple_model defaults to deepseek-v4-flash", () => {
