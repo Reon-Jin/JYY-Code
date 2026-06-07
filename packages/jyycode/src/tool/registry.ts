@@ -15,12 +15,7 @@ import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
 import { SendMessageTool } from "./send-message"
 import { SendFileTool } from "./send-file"
-import { MemorySearchTool } from "./memory_search"
-import { MemoryReadTool } from "./memory_read"
-import { MemoryWriteTool } from "./memory_write"
-import { MemoryPatchTool } from "./memory_patch"
-import { MemorySupersedeTool } from "./memory_supersede"
-import { MemorySuggestTool } from "./memory_suggest"
+import { MemoryTool } from "./memory"
 import * as Tool from "./tool"
 import { ToolJsonSchema } from "./json-schema"
 import { Config } from "@/config/config"
@@ -156,18 +151,7 @@ export const layer: Layer.Layer<
     const sendMessage = yield* SendMessageTool
     const sendFile = yield* SendFileTool
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
-    const memorySearch = memory
-      ? yield* MemorySearchTool.pipe(Effect.provideService(Memory.Service, memory))
-      : undefined
-    const memoryRead = memory ? yield* MemoryReadTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
-    const memoryWrite = memory ? yield* MemoryWriteTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
-    const memoryPatch = memory ? yield* MemoryPatchTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
-    const memorySupersede = memory
-      ? yield* MemorySupersedeTool.pipe(Effect.provideService(Memory.Service, memory))
-      : undefined
-    const memorySuggest = memory
-      ? yield* MemorySuggestTool.pipe(Effect.provideService(Memory.Service, memory))
-      : undefined
+    const memtool = memory ? yield* MemoryTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
     const agent = yield* Agent.Service
 
     const state = yield* InstanceState.make<State>(
@@ -280,12 +264,7 @@ export const layer: Layer.Layer<
           plan: Tool.init(plan),
           send_message: Tool.init(sendMessage),
           send_file: Tool.init(sendFile),
-          memory_search: memorySearch ? Tool.init(memorySearch) : Effect.succeed(undefined),
-          memory_read: memoryRead ? Tool.init(memoryRead) : Effect.succeed(undefined),
-          memory_write: memoryWrite ? Tool.init(memoryWrite) : Effect.succeed(undefined),
-          memory_patch: memoryPatch ? Tool.init(memoryPatch) : Effect.succeed(undefined),
-          memory_supersede: memorySupersede ? Tool.init(memorySupersede) : Effect.succeed(undefined),
-          memory_suggest: memorySuggest ? Tool.init(memorySuggest) : Effect.succeed(undefined),
+          memory: memtool ? Tool.init(memtool) : Effect.succeed(undefined),
         })
 
         return {
@@ -309,12 +288,7 @@ export const layer: Layer.Layer<
             tool.patch,
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
-            ...(tool.memory_search ? [tool.memory_search] : []),
-            ...(tool.memory_read ? [tool.memory_read] : []),
-            ...(tool.memory_write ? [tool.memory_write] : []),
-            ...(tool.memory_patch ? [tool.memory_patch] : []),
-            ...(tool.memory_supersede ? [tool.memory_supersede] : []),
-            ...(tool.memory_suggest ? [tool.memory_suggest] : []),
+            ...(tool.memory ? [tool.memory] : []),
             tool.send_message,
             tool.send_file,
           ],

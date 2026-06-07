@@ -7,14 +7,15 @@ import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { MessageV2 } from "@/session/message-v2"
 import * as Log from "@jyycode-ai/core/util/log"
-import { ulid } from "ulid"
-
 const log = Log.create({ service: "memory" })
 
 const MEMORY_FILE = "MEMORY.md"
 const USER_FILE = "USER.md"
 export const DIRECTORY = path.normalize("D:/jyycode/memory")
 const MAX_RECENT_SESSIONS = 30
+const MEMORY_CHAR_LIMIT = 2200
+const USER_CHAR_LIMIT = 1375
+const CAPACITY_WARN_THRESHOLD = 0.8
 
 type Scope = "memory" | "user"
 type Confidence = "low" | "medium" | "high"
@@ -29,36 +30,10 @@ type MemoryWriteInput = {
   source?: string
 }
 
-type MemoryPatchInput = {
-  sessionID: SessionID
-  scope: Scope
-  id: string
-  content: string
-  reason: string
-}
-
-type MemorySupersedeInput = {
-  sessionID: SessionID
-  scope: Scope
-  id: string
-  reason: string
-  replacement?: Omit<MemoryWriteInput, "sessionID" | "scope" | "reason"> & { reason?: string }
-}
-
-type MemorySuggestInput = {
-  sessionID: SessionID
-  scope: Scope
-  section: string
-  content: string
-  reason: string
-  confidence?: Confidence
-  source?: string
-}
-
 export type MutationResult = {
   id?: string
   file?: string
-  status: "written" | "duplicate" | "patched" | "superseded" | "suggested"
+  status: "written" | "duplicate" | "replaced" | "removed"
   message: string
 }
 
@@ -71,6 +46,13 @@ export const SearchResult = Schema.Struct({
 })
 export type SearchResult = Schema.Schema.Type<typeof SearchResult>
 
+export type UsageInfo = {
+  percentage: number
+  used: number
+  limit: number
+  scope: Scope
+}
+
 export interface Interface {
   readonly dir: (sessionID: SessionID) => Effect.Effect<string>
   readonly ensure: (sessionID: SessionID) => Effect.Effect<void>
@@ -82,9 +64,20 @@ export interface Interface {
     limit?: number
   }) => Effect.Effect<SearchResult[]>
   readonly write: (input: MemoryWriteInput) => Effect.Effect<MutationResult, Error>
-  readonly patch: (input: MemoryPatchInput) => Effect.Effect<MutationResult, Error>
-  readonly supersede: (input: MemorySupersedeInput) => Effect.Effect<MutationResult, Error>
-  readonly suggest: (input: MemorySuggestInput) => Effect.Effect<MutationResult, Error>
+  readonly replaceBySubstring: (input: {
+    sessionID: SessionID
+    scope: Scope
+    oldText: string
+    newContent: string
+    reason: string
+  }) => Effect.Effect<MutationResult, Error>
+  readonly removeBySubstring: (input: {
+    sessionID: SessionID
+    scope: Scope
+    oldText: string
+    reason: string
+  }) => Effect.Effect<MutationResult, Error>
+  readonly usage: (sessionID: SessionID, scope: Scope) => Effect.Effect<UsageInfo>
   readonly updateAfterTurn: (sessionID: SessionID) => Effect.Effect<void>
 }
 
@@ -234,150 +227,107 @@ export const layer = Layer.effect(
 
       const targetFile = yield* filePath(input.sessionID, input.scope)
       const current = yield* readFull(input.sessionID, input.scope)
-      const existingID = findDuplicateID(current, clean)
-      if (existingID) {
+      if (findDuplicate(current, clean)) {
         yield* audit(input.sessionID, {
           action: "memory.duplicate",
           scope: input.scope,
           section: input.section,
-          id: existingID,
+          content: clean,
           reason: input.reason,
         })
         return {
-          id: existingID,
           file: targetFile,
           status: "duplicate" as const,
-          message: `Duplicate memory already exists: ${existingID}\nFile: ${targetFile}`,
+          message: `Duplicate memory already exists.\nFile: ${targetFile}`,
         }
       }
 
-      const id = createMemoryID(input.scope)
+      const usage = computeUsage(current, input.scope)
+      if (usage.used + clean.length + 4 > usage.limit) {
+        return yield* Effect.fail(new Error(capacityError(current, clean, input.scope)))
+      }
+
       const now = new Date().toISOString()
-      const block = formatEntryBlock({
-        id,
-        date: now,
-        confidence: input.confidence ?? "medium",
-        source: input.source ?? `session:${input.sessionID}`,
-        reason: sanitizeInline(input.reason),
-        content: clean,
-      })
-      const next = updateMetadata(appendEntry(current, input.section, block), now, input.sessionID)
+      const next = updateMetadata(appendEntry(current, input.section, clean), now, input.sessionID)
       yield* writeFull(input.sessionID, input.scope, next)
       yield* audit(input.sessionID, {
         action: "memory.write",
         scope: input.scope,
         section: input.section,
-        id,
+        content: clean,
         reason: input.reason,
       })
-      return { id, file: targetFile, status: "written" as const, message: `Memory written: ${id}\nFile: ${targetFile}` }
+      const newUsage = computeUsage(next, input.scope)
+      let message = `Memory written.\nFile: ${targetFile}`
+      if (newUsage.percentage >= CAPACITY_WARN_THRESHOLD * 100) {
+        message += `\nWarning: memory at ${newUsage.percentage}% capacity (${newUsage.used}/${newUsage.limit} chars). Consider consolidating entries.`
+      }
+      return { file: targetFile, status: "written" as const, message }
     })
 
-    const patch = Effect.fn("Memory.patch")(function* (input: MemoryPatchInput) {
+    const replaceBySubstring = Effect.fn("Memory.replaceBySubstring")(function* (input: {
+      sessionID: SessionID
+      scope: Scope
+      oldText: string
+      newContent: string
+      reason: string
+    }) {
       yield* ensure(input.sessionID)
-      const clean = sanitizeContent(input.content)
+      const clean = sanitizeContent(input.newContent)
       if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
       if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
 
       const targetFile = yield* filePath(input.sessionID, input.scope)
       const current = yield* readFull(input.sessionID, input.scope)
-      const updated = replaceEntry(current, input.id, (block) =>
-        setEntryFields(block, {
-          content: clean,
-          updated: new Date().toISOString(),
-          reason: sanitizeInline(input.reason),
-        }),
-      )
-      if (!updated) return yield* Effect.fail(new Error(`Memory id not found: ${input.id}`))
+      const { match, error } = findEntryBySubstring(current, input.oldText)
+      if (error) return yield* Effect.fail(new Error(error))
+
+      const updated = replaceEntryByIndex(current, match!.index, clean)
       yield* writeFull(input.sessionID, input.scope, updateMetadata(updated, new Date().toISOString(), input.sessionID))
       yield* audit(input.sessionID, {
-        action: "memory.patch",
+        action: "memory.replace",
         scope: input.scope,
-        id: input.id,
+        oldText: input.oldText,
+        newContent: clean,
         reason: input.reason,
       })
-      return { id: input.id, file: targetFile, status: "patched" as const, message: `Memory patched: ${input.id}\nFile: ${targetFile}` }
+      return { file: targetFile, status: "replaced" as const, message: `Memory replaced.\nFile: ${targetFile}` }
     })
 
-    const supersede = Effect.fn("Memory.supersede")(function* (input: MemorySupersedeInput) {
+    const removeBySubstring = Effect.fn("Memory.removeBySubstring")(function* (input: {
+      sessionID: SessionID
+      scope: Scope
+      oldText: string
+      reason: string
+    }) {
       yield* ensure(input.sessionID)
-      let replacementID: string | undefined
       const targetFile = yield* filePath(input.sessionID, input.scope)
-      if (input.replacement?.content) {
-        const result = yield* write({
-          sessionID: input.sessionID,
-          scope: input.scope,
-          section: input.replacement.section,
-          content: input.replacement.content,
-          reason: input.replacement.reason ?? input.reason,
-          confidence: input.replacement.confidence,
-          source: input.replacement.source,
-        })
-        replacementID = result.id
-      }
-
       const current = yield* readFull(input.sessionID, input.scope)
-      const updated = replaceEntry(current, input.id, (block) =>
-        setEntryFields(block, {
-          status: "superseded",
-          superseded_by: replacementID ?? "none",
-          updated: new Date().toISOString(),
-          reason: sanitizeInline(input.reason),
-        }),
-      )
-      if (!updated) return yield* Effect.fail(new Error(`Memory id not found: ${input.id}`))
+      const { match, error } = findEntryBySubstring(current, input.oldText)
+      if (error) return yield* Effect.fail(new Error(error))
+
+      const updated = removeEntryByIndex(current, match!.index)
       yield* writeFull(input.sessionID, input.scope, updateMetadata(updated, new Date().toISOString(), input.sessionID))
       yield* audit(input.sessionID, {
-        action: "memory.supersede",
+        action: "memory.remove",
         scope: input.scope,
-        id: input.id,
-        replacementID,
+        oldText: input.oldText,
         reason: input.reason,
       })
-      return {
-        id: input.id,
-        file: targetFile,
-        status: "superseded" as const,
-        message: replacementID
-          ? `Memory superseded: ${input.id} -> ${replacementID}\nFile: ${targetFile}`
-          : `Memory superseded: ${input.id}\nFile: ${targetFile}`,
-      }
+      return { file: targetFile, status: "removed" as const, message: `Memory removed.\nFile: ${targetFile}` }
     })
 
-    const suggest = Effect.fn("Memory.suggest")(function* (input: MemorySuggestInput) {
-      yield* ensure(input.sessionID)
-      const clean = sanitizeContent(input.content)
-      if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
-      if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to suggest sensitive memory content"))
-      const id = createMemoryID(input.scope)
-      const target = path.join(yield* dir(input.sessionID), "pending", `${Date.now()}-${id}.json`)
-      yield* fs
-        .writeWithDirs(
-          target,
-          JSON.stringify(
-            {
-              id,
-              scope: input.scope,
-              section: input.section,
-              content: clean,
-              reason: input.reason,
-              confidence: input.confidence ?? "low",
-              source: input.source ?? `session:${input.sessionID}`,
-              time: new Date().toISOString(),
-            },
-            null,
-            2,
-          ),
-        )
-        .pipe(Effect.orDie)
-      yield* audit(input.sessionID, {
-        action: "memory.suggest",
-        scope: input.scope,
-        section: input.section,
-        id,
-        reason: input.reason,
-      })
-      return { id, file: target, status: "suggested" as const, message: `Memory suggestion saved: ${id}\nFile: ${target}` }
+    const usage = Effect.fn("Memory.usage")(function* (sessionID: SessionID, scope: Scope) {
+      yield* ensure(sessionID)
+      const text = yield* readFull(sessionID, scope)
+      return computeUsage(text, scope)
+    })
+
+    const formatWithHeader = Effect.fn("Memory.formatWithHeader")(function* (sessionID: SessionID, scope: Scope) {
+      yield* ensure(sessionID)
+      const text = yield* readFull(sessionID, scope)
+      const header = formatMemoryHeader(scope, text)
+      return header + text
     })
 
     const updateAfterTurn = Effect.fn("Memory.updateAfterTurn")(function* (sessionID: SessionID) {
@@ -455,15 +405,51 @@ export const layer = Layer.effect(
       read,
       search,
       write,
-      patch,
-      supersede,
-      suggest,
+      replaceBySubstring,
+      removeBySubstring,
+      usage,
+      formatWithHeader,
       updateAfterTurn,
     })
   }),
 )
 
 export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer), Layer.provide(Session.defaultLayer))
+
+function charLimit(scope: Scope) {
+  return scope === "user" ? USER_CHAR_LIMIT : MEMORY_CHAR_LIMIT
+}
+
+function computeUsage(text: string, scope: Scope): UsageInfo {
+  const limit = charLimit(scope)
+  const used = text.length
+  const percentage = Math.round((used / limit) * 100)
+  return { percentage, used, limit, scope }
+}
+
+function formatMemoryHeader(scope: Scope, text: string) {
+  const { percentage, used, limit } = computeUsage(text, scope)
+  const label = scope === "user" ? "USER PROFILE (your preferences)" : "MEMORY (your personal notes)"
+  const left = `${label} [${percentage}% — ${used}/${limit} chars]`
+  const totalWidth = 64
+  const padLeft = Math.max(2, Math.floor((totalWidth - left.length) / 2))
+  const line = "═".repeat(padLeft) + " " + left + " " + "═".repeat(Math.max(0, totalWidth - padLeft - left.length - 1))
+  return `\n${line}\n`
+}
+
+function capacityError(current: string, newContent: string, scope: Scope) {
+  const info = computeUsage(current, scope)
+  const newEntrySize = newContent.trim().length + 4
+  const entries = parseEntries(current)
+  const lines = entries.map((e) => `  - "${e.text.slice(0, 80)}${e.text.length > 80 ? "..." : ""}"`)
+  return [
+    `Memory at ${info.used}/${info.limit} chars (${info.percentage}%).`,
+    `Adding this entry (${newEntrySize} chars) would exceed the ${info.limit} char limit.`,
+    `Replace or remove existing entries first.`,
+    `Current entries:`,
+    ...lines,
+  ].join("\n")
+}
 
 function tokenize(input: string) {
   const ascii = input
@@ -576,54 +562,20 @@ function escapeInline(input: string) {
   return input.replaceAll("\\", "\\\\").replaceAll('"', '\\"')
 }
 
-function createMemoryID(scope: Scope) {
-  return `${scope === "user" ? "user" : "mem"}_${ulid().toLowerCase()}`
-}
-
 function sanitizeContent(input: string) {
   return input.replace(/\s+/g, " ").trim()
-}
-
-function sanitizeInline(input: string) {
-  return sanitizeContent(input).replaceAll('"', "'")
 }
 
 function normalizedContent(input: string) {
   return sanitizeContent(input).toLowerCase()
 }
 
-function findDuplicateID(markdown: string, content: string) {
-  const target = normalizedContent(content)
-  const blocks = entryBlocks(markdown)
-  for (const block of blocks) {
-    const existing = fieldValue(block.text, "content")
-    if (existing && normalizedContent(existing) === target) return block.id
-  }
-  return undefined
-}
-
-function formatEntryBlock(input: {
-  id: string
-  date: string
-  confidence: Confidence
-  source: string
-  reason: string
-  content: string
-}) {
-  return [
-    `- id: ${input.id}`,
-    `  date: ${input.date}`,
-    `  confidence: ${input.confidence}`,
-    `  source: ${input.source}`,
-    `  reason: ${input.reason}`,
-    `  content: ${input.content}`,
-  ].join("\n")
-}
-
-function appendEntry(markdown: string, section: string, block: string) {
+// §-delimited entries. Each entry is the raw text between § markers.
+// Entries are stored inside markdown sections; § delimiters separate entries.
+function appendEntry(markdown: string, section: string, content: string) {
   return replaceSectionBody(markdown, section, (body) => {
     const trimmed = body.trimEnd()
-    return trimmed ? `${trimmed}\n${block}\n` : `${block}\n`
+    return trimmed ? `${trimmed}\n${content}\n§` : `${content}\n§`
   })
 }
 
@@ -642,47 +594,78 @@ function replaceSectionBody(markdown: string, section: string, update: (body: st
   return [...before, update(body).trimEnd(), "", ...after].join("\n")
 }
 
-function entryBlocks(markdown: string) {
-  const lines = markdown.split(/\r?\n/)
-  const blocks: { id: string; start: number; end: number; text: string }[] = []
-  for (let i = 0; i < lines.length; i++) {
-    const match = lines[i]?.match(/^\-\s+id:\s+(\S+)/)
-    if (!match?.[1]) continue
-    let end = i + 1
-    while (end < lines.length && !/^\-\s+id:\s+\S+/.test(lines[end] ?? "") && !/^##\s+/.test(lines[end] ?? "")) {
-      end++
+type EntryInfo = { index: number; text: string }
+
+function parseEntries(markdown: string): EntryInfo[] {
+  const blocks: EntryInfo[] = []
+  let index = 0
+  const parts = markdown.split(/(?:^|\n)§(?:\n|$)/)
+  for (const part of parts) {
+    const trimmed = part.trim()
+    if (trimmed && !trimmed.startsWith("#")) {
+      blocks.push({ index, text: trimmed })
     }
-    blocks.push({ id: match[1], start: i, end, text: lines.slice(i, end).join("\n") })
-    i = end - 1
+    index++
   }
   return blocks
 }
 
-function replaceEntry(markdown: string, id: string, update: (block: string) => string) {
+function findDuplicate(markdown: string, content: string) {
+  const target = normalizedContent(content)
+  return parseEntries(markdown).some((entry) => normalizedContent(entry.text) === target)
+}
+
+function findEntryBySubstring(markdown: string, substring: string) {
+  const normalized = normalizedContent(substring)
+  const entries = parseEntries(markdown)
+  const matches = entries.filter((entry) => normalizedContent(entry.text).includes(normalized))
+  if (matches.length === 0) return { match: null as null, error: `No entry found matching: "${substring}"` }
+  if (matches.length > 1) {
+    const snippets = matches.map((e) => `  - "${e.text.slice(0, 60)}..."`).join("\n")
+    return { match: null as null, error: `Multiple entries match "${substring}":\n${snippets}\nUse a more specific substring.` }
+  }
+  return { match: matches[0]!, error: null as null }
+}
+
+function replaceEntryByIndex(markdown: string, entryIndex: number, newContent: string) {
   const lines = markdown.split(/\r?\n/)
-  const block = entryBlocks(markdown).find((item) => item.id === id)
-  if (!block) return undefined
-  return [...lines.slice(0, block.start), update(block.text), ...lines.slice(block.end)].join("\n")
-}
-
-function fieldValue(block: string, field: string) {
-  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const match = block.match(new RegExp(`^\\s*${escaped}:\\s*(.*)$`, "m"))
-  return match?.[1]?.trim()
-}
-
-function setEntryFields(block: string, fields: Record<string, string>) {
-  let next = block
-  for (const [field, value] of Object.entries(fields)) {
-    const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    const pattern = new RegExp(`^(\\s*)${escaped}:\\s*.*$`, "m")
-    if (pattern.test(next)) {
-      next = next.replace(pattern, `$1${field}: ${value}`)
+  let currentEntry = 0
+  let start = -1
+  let end = -1
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim()
+    if (line === "§") {
+      if (currentEntry === entryIndex) { end = i; break }
+      currentEntry++
+      start = -1
       continue
     }
-    next += `\n  ${field}: ${value}`
+    if (!line || line.startsWith("#")) continue
+    if (currentEntry === entryIndex && start === -1) start = i
   }
-  return next
+  if (start === -1 || end === -1) return markdown
+  return [...lines.slice(0, start), newContent, ...lines.slice(end)].join("\n")
+}
+
+function removeEntryByIndex(markdown: string, entryIndex: number) {
+  const lines = markdown.split(/\r?\n/)
+  let currentEntry = 0
+  let start = -1
+  let end = -1
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim()
+    if (line === "§") {
+      if (currentEntry === entryIndex) { end = i + 1; break }
+      currentEntry++
+      start = -1
+      continue
+    }
+    if (!line || line.startsWith("#")) continue
+    if (currentEntry === entryIndex && start === -1) start = i
+  }
+  if (start === -1) return markdown
+  if (end === -1) return [...lines.slice(0, start), ...lines.slice(start + 1)].join("\n")
+  return [...lines.slice(0, start), ...lines.slice(end)].join("\n")
 }
 
 function extractUserPreferences(input: string) {
