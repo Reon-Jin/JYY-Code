@@ -49,3 +49,4 @@ tsconfig.tsbuildinfo
 # Persistent local agent memory
 /memory/
 /claudecode
+/claude-memory
