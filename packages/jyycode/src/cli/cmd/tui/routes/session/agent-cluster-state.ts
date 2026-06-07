@@ -499,7 +499,8 @@ function explicitTaskStatus(input: SnapshotInput) {
       }
 
       if (part.type !== "tool") continue
-      if (part.state.status === "completed" && part.tool === "task_status") setFromText(part.state.output)
+      if (part.state.status === "completed" && (part.tool === "task_status" || part.tool === "task"))
+        setFromText(part.state.output)
       if (part.tool !== "task_status") continue
       const meta = metadata(part)
       const taskID = text(meta?.task_id)
@@ -516,7 +517,7 @@ function mergePlanStatus(
   plan: AgentClusterPlan,
   rows: AgentClusterTaskRun[],
   statuses: Map<string, AgentClusterTaskStatus>,
-) {
+): AgentClusterPlan {
   const byID = new Map<string, AgentClusterTaskStatus>()
   const byTitle = new Map<string, AgentClusterTaskStatus>()
 
@@ -527,12 +528,48 @@ function mergePlanStatus(
   }
   for (const [id, status] of statuses) byID.set(id, status)
 
+  // Count how many plan tasks share each (step, role) combination.
+  // When a role is unique within a step, we can safely match by role
+  // even when the title/description wording differs.
+  const roleCountInStep = new Map<string, number>()
+  for (const task of plan.tasks) {
+    const key = `${task.step}:${task.role}`
+    roleCountInStep.set(key, (roleCountInStep.get(key) ?? 0) + 1)
+  }
+
+  // Track which rows have been consumed by role-based matching
+  const consumed = new Set<number>()
+
+  function findUnmatchedRowByRole(role: string): AgentClusterTaskRun | undefined {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i]!.role === role && !consumed.has(rows[i]!.index)) return rows[i]!
+    }
+  }
+
   return {
     ...plan,
-    tasks: plan.tasks.map((task) => ({
-      ...task,
-      status: byID.get(task.id) ?? byTitle.get(normalizeKey(task.title)) ?? "queued",
-    })),
+    tasks: plan.tasks.map((task) => {
+      // 1. Exact ID match (plan task id ↔ row id from task_id param, or session IDs from statuses)
+      const idMatch = byID.get(task.id)
+      if (idMatch !== undefined) return { ...task, status: idMatch }
+
+      // 2. Normalized title ↔ description match
+      const titleMatch = byTitle.get(normalizeKey(task.title))
+      if (titleMatch !== undefined) return { ...task, status: titleMatch }
+
+      // 3. Role-based fallback: if this is the ONLY task with this role in its step,
+      //    match it to the most recent unmatched row with the same role
+      const key = `${task.step}:${task.role}`
+      if (roleCountInStep.get(key) === 1) {
+        const row = findUnmatchedRowByRole(task.role)
+        if (row) {
+          consumed.add(row.index)
+          return { ...task, status: row.status }
+        }
+      }
+
+      return { ...task, status: "queued" }
+    }),
   }
 }
 
@@ -558,7 +595,7 @@ function buildSteps(plan: AgentClusterPlan | undefined): AgentClusterStep[] {
             ? "running"
             : done === tasks.length
               ? "done"
-              : tasks.some((task) => task.status === "done")
+              : done > 0
                 ? "running"
                 : "queued"
 
