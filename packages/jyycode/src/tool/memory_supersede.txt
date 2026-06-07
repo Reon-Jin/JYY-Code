@@ -1,3 +1,0 @@
-Mark an existing persistent memory entry as superseded, optionally replacing it with a new entry.
-
-Use this when old memory conflicts with newer information. Prefer superseding over deleting so future sessions can understand why the old memory changed.

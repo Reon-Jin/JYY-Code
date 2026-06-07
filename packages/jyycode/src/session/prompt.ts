@@ -1606,13 +1606,31 @@ export const layer = Layer.effect(
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
             msgs = yield* applyMemoryRetrieval({ sessionID, messages: msgs, lastUser })
 
+            const memorySnapshot = step === 1 && memory
+              ? yield* memory
+                  .formatWithHeader(sessionID, "memory")
+                  .pipe(
+                    Effect.andThen((mem) =>
+                      memory!.formatWithHeader(sessionID, "user").pipe(
+                        Effect.map((user) => [mem, user].join("\n")),
+                      ),
+                    ),
+                    Effect.catchCause(() => Effect.succeed(undefined)),
+                  )
+              : undefined
+
             const [skills, env, instructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
               sys.environment(model),
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
-            const system = [...env, ...instructions, ...(skills ? [skills] : [])]
+            const system = [
+              ...(memorySnapshot ? [memorySnapshot] : []),
+              ...env,
+              ...instructions,
+              ...(skills ? [skills] : []),
+            ]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({

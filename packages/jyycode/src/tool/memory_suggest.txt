@@ -1,3 +1,0 @@
-Save a pending memory suggestion without committing it to MEMORY.md or USER.md.
-
-Use this from uncertain contexts or subagents when a possible durable memory should be reviewed by the main agent or curator before being committed.

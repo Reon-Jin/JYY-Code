@@ -60,7 +60,7 @@ export const layer = Layer.effect(
             `  Today's date: ${new Date().toDateString()}`,
             `</env>`,
             ``,
-            `Persistent memory is available through tools and the only memory store is D:/jyycode/memory. Do not assume memory is already loaded, and do not ask for it on every request. Use memory_search when prior user preferences, project conventions, recurring workflows, past lessons, or recent session history may affect the task. Use memory_read only when a full memory section is explicitly needed. Use memory_write proactively when the user states a durable preference or correction, or when you discover a stable project fact, convention, environment quirk, or lesson that should help future sessions. Use memory_patch or memory_supersede when old memory is wrong or outdated. Use memory_suggest for uncertain candidate memories or subagent findings. Never store secrets, credentials, or unsupported guesses.`,
+            `Persistent memory is stored in D:/jyycode/memory/ with two files: MEMORY.md (project facts, conventions, workflows, lessons, session history — limit 2,200 chars) and USER.md (user identity, preferences, communication style — limit 1,375 chars). Memory contents are injected as a frozen snapshot at session start. Use the memory tool to manage entries: add (write a new entry), replace (find by old_text substring match and update), remove (delete by old_text substring match). When memory usage exceeds 80%, consolidate entries before adding new ones. Never store secrets, credentials, or unsupported guesses.`,
           ].join("\n"),
         ]
       }),

@@ -1,0 +1,13 @@
+Manage persistent memory with add, replace, or remove actions.
+
+MEMORY (target="memory"): store project facts, conventions, environment quirks, workflows, lessons learned. Limit 2,200 chars.
+USER PROFILE (target="user"): store user identity, preferences, communication style, sensitivities. Limit 1,375 chars.
+
+Actions:
+- add: write a new memory entry. Fails if the entry would exceed the char limit — consolidate, replace, or remove existing entries first.
+- replace: find an entry by old_text substring match and replace it with new content. old_text must uniquely identify a single entry. Use this to update or consolidate entries.
+- remove: delete an entry found by old_text substring match. old_text must uniquely identify a single entry.
+
+Substring matching: old_text is matched case-insensitively against entry content. If multiple entries match, the tool returns an error listing which entries matched — use a more specific substring.
+
+When memory usage exceeds 80%, consolidate entries before adding new ones. Merge related facts into compact, multi-fact entries.
