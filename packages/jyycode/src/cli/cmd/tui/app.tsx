@@ -41,7 +41,6 @@ import { DialogThemeList } from "@tui/component/dialog-theme-list"
 import { DialogHelp } from "./ui/dialog-help"
 import { DialogAgent } from "@tui/component/dialog-agent"
 import { DialogSessionList } from "@tui/component/dialog-session-list"
-import { DialogConsoleOrg } from "@tui/component/dialog-console-org"
 import { ThemeProvider, useTheme } from "@tui/context/theme"
 import { Home } from "@tui/routes/home"
 import { Session } from "@tui/routes/session"
@@ -696,21 +695,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
         },
         category: "Provider",
       },
-      ...(sync.data.console_state.switchableOrgCount > 1
-        ? [
-            {
-              name: "console.org.switch",
-              title: "Switch org",
-              suggested: Boolean(sync.data.console_state.activeOrgName),
-              slashName: "org",
-              slashAliases: ["orgs", "switch-org"],
-              run: () => {
-                dialog.replace(() => <DialogConsoleOrg />)
-              },
-              category: "Provider",
-            },
-          ]
-        : []),
       {
         name: "jyycode.status",
         title: "View status",

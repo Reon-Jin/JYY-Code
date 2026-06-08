@@ -55,7 +55,7 @@ export const Default = {
   visual_model: "deepseek-v4-flash",
   max_subagents: 100,
   max_concurrency: 10,
-  max_review_rounds: 2,
+  max_review_rounds: 3,
   artifact_dir: ".jyycode/agent-cluster",
 } satisfies Required<Info>
 

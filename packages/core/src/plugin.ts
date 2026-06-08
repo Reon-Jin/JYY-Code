@@ -15,14 +15,6 @@ type HookSpec = {
     input: Catalog.Context
     output: {}
   }
-  "account.switched": {
-    input: {
-      serviceID: import("./account").AccountV2.ServiceID
-      from?: import("./account").AccountV2.ID
-      to?: import("./account").AccountV2.ID
-    }
-    output: {}
-  }
   "aisdk.language": {
     input: {
       model: ModelV2.Info

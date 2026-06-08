@@ -1,15 +1,12 @@
 import { describe, expect, mock } from "bun:test"
-import { Effect, Layer } from "effect"
-import { AccountV2 } from "@jyycode-ai/core/account"
+import { Effect } from "effect"
 import { Catalog } from "@jyycode-ai/core/catalog"
 import { EventV2 } from "@jyycode-ai/core/event"
 import { Location } from "@jyycode-ai/core/location"
 import { PluginV2 } from "@jyycode-ai/core/plugin"
-import { AccountPlugin } from "@jyycode-ai/core/plugin/account"
 import { GitLabPlugin } from "@jyycode-ai/core/plugin/provider/gitlab"
 import { ProviderV2 } from "@jyycode-ai/core/provider"
-import { testEffect } from "../lib/effect"
-import { it, model, npmLayer, withEnv } from "./provider-helper"
+import { it, model, withEnv } from "./provider-helper"
 
 const gitlabSDKOptions: Record<string, unknown>[] = []
 
@@ -25,16 +22,6 @@ void mock.module("gitlab-ai-provider", () => ({
   discoverWorkflowModels: async () => ({ models: [], project: undefined }),
   isWorkflowModel: (id: string) => id === "duo-workflow" || id === "duo-workflow-exact",
 }))
-
-const itWithAccount = testEffect(
-  Catalog.layer.pipe(
-    Layer.provideMerge(PluginV2.defaultLayer),
-    Layer.provideMerge(AccountV2.defaultLayer),
-    Layer.provideMerge(EventV2.defaultLayer),
-    Layer.provideMerge(Layer.succeed(Location.Service, Location.Service.of({ directory: "test" }))),
-    Layer.provideMerge(npmLayer),
-  ),
-)
 
 describe("GitLabPlugin", () => {
   it.effect("creates SDKs with legacy default instance URL, token env, headers, and feature flags", () =>
@@ -151,97 +138,6 @@ describe("GitLabPlugin", () => {
       expect(result.sdk).toBeUndefined()
       expect(gitlabSDKOptions).toHaveLength(0)
     }),
-  )
-
-  itWithAccount.effect("uses active account API token over GITLAB_TOKEN", () =>
-    withEnv(
-      {
-        GITLAB_TOKEN: "env-token",
-      },
-      () =>
-        Effect.gen(function* () {
-          gitlabSDKOptions.length = 0
-          const plugin = yield* PluginV2.Service
-          const accounts = yield* AccountV2.Service
-          const catalog = yield* Catalog.Service
-          const events = yield* EventV2.Service
-          yield* accounts.create({
-            serviceID: AccountV2.ServiceID.make("gitlab"),
-            credential: new AccountV2.ApiKeyCredential({ type: "api", key: "account-token" }),
-          })
-          yield* plugin.add({
-            ...AccountPlugin,
-            effect: AccountPlugin.effect.pipe(
-              Effect.provideService(AccountV2.Service, accounts),
-              Effect.provideService(Catalog.Service, catalog),
-              Effect.provideService(EventV2.Service, events),
-              Effect.provideService(PluginV2.Service, plugin),
-            ),
-          })
-          yield* plugin.add(GitLabPlugin)
-          const load = yield* catalog.loader()
-          yield* load((catalog) => catalog.provider.update(ProviderV2.ID.make("gitlab"), () => {}))
-          const provider = yield* catalog.provider.get(ProviderV2.ID.make("gitlab"))
-          yield* plugin.trigger(
-            "aisdk.sdk",
-            {
-              model: model("gitlab", "claude"),
-              package: "gitlab-ai-provider",
-              options: provider.options.aisdk.provider,
-            },
-            {},
-          )
-          expect(gitlabSDKOptions[0].apiKey).toBe("account-token")
-        }),
-    ),
-  )
-
-  itWithAccount.effect("uses active account OAuth access token when no API token exists", () =>
-    withEnv(
-      {
-        GITLAB_TOKEN: undefined,
-      },
-      () =>
-        Effect.gen(function* () {
-          gitlabSDKOptions.length = 0
-          const plugin = yield* PluginV2.Service
-          const accounts = yield* AccountV2.Service
-          const catalog = yield* Catalog.Service
-          const events = yield* EventV2.Service
-          yield* accounts.create({
-            serviceID: AccountV2.ServiceID.make("gitlab"),
-            credential: new AccountV2.OAuthCredential({
-              type: "oauth",
-              refresh: "refresh-token",
-              access: "account-oauth-token",
-              expires: 9999999999999,
-            }),
-          })
-          yield* plugin.add({
-            ...AccountPlugin,
-            effect: AccountPlugin.effect.pipe(
-              Effect.provideService(AccountV2.Service, accounts),
-              Effect.provideService(Catalog.Service, catalog),
-              Effect.provideService(EventV2.Service, events),
-              Effect.provideService(PluginV2.Service, plugin),
-            ),
-          })
-          yield* plugin.add(GitLabPlugin)
-          const load = yield* catalog.loader()
-          yield* load((catalog) => catalog.provider.update(ProviderV2.ID.make("gitlab"), () => {}))
-          const provider = yield* catalog.provider.get(ProviderV2.ID.make("gitlab"))
-          yield* plugin.trigger(
-            "aisdk.sdk",
-            {
-              model: model("gitlab", "claude"),
-              package: "gitlab-ai-provider",
-              options: provider.options.aisdk.provider,
-            },
-            {},
-          )
-          expect(gitlabSDKOptions[0].apiKey).toBe("account-oauth-token")
-        }),
-    ),
   )
 
   it.effect("uses workflowChat for duo workflow models and preserves selectedModelRef", () =>

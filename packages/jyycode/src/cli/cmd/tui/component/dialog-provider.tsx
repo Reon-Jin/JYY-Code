@@ -12,7 +12,6 @@ import type { ProviderAuthAuthorization, ProviderAuthMethod } from "@jyycode-ai/
 import { DialogModel } from "./dialog-model"
 import * as Clipboard from "@tui/util/clipboard"
 import { useToast } from "../ui/toast"
-import { isConsoleManagedProvider } from "@tui/util/provider-origin"
 import { useConnected } from "./use-connected"
 import { useBindings } from "../keymap"
 
@@ -128,14 +127,14 @@ export function createDialogProviderOptions() {
         }
 
         const providerID = provider.providerID
-        const consoleManaged = isConsoleManagedProvider(sync.data.console_state.consoleManagedProviders, providerID)
+        const consoleManaged = false
         const connected = sync.data.provider_next.connected.includes(providerID)
 
         return {
           title: provider.title,
           value: provider.value,
           description: provider.description,
-          footer: consoleManaged ? sync.data.console_state.activeOrgName : undefined,
+          footer: undefined,
           category: provider.category,
           gutter: connected && onboarded() ? () => <text fg={theme.success}>✓</text> : undefined,
           async onSelect() {

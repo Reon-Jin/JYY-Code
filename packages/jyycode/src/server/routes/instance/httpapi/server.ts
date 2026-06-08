@@ -10,7 +10,6 @@ import {
 } from "effect/unstable/http"
 import * as Socket from "effect/unstable/socket/Socket"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
-import { Account } from "@/account/account"
 import { Agent } from "@/agent/agent"
 import { Auth } from "@/auth"
 import { Bus } from "@/bus"
@@ -191,7 +190,6 @@ export function createRoutes(
       corsVaryFix,
       fenceLayer,
       cors(corsOptions),
-      Account.defaultLayer,
       Agent.defaultLayer,
       Auth.defaultLayer,
       Command.defaultLayer,
