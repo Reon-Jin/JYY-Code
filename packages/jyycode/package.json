@@ -19,6 +19,7 @@
     "db": "bun drizzle-kit"
   },
   "bin": {
+    "jyy": "./bin/jyycode",
     "jyycode": "./bin/jyycode"
   },
   "exports": {

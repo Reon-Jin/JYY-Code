@@ -62,6 +62,27 @@ function mergeConfigConcatArrays(target: Info, source: Info): Info {
 function normalizeLoadedConfig(data: unknown, source: string) {
   if (!isRecord(data)) return data
   const copy = { ...data }
+  const aliases = [
+    ["providers", "provider"],
+    ["permissions", "permission"],
+    ["plugins", "plugin"],
+  ] as const
+
+  for (const [alias, canonical] of aliases) {
+    if (!(alias in copy)) continue
+    const aliased = copy[alias]
+    const existing = copy[canonical]
+    if (existing === undefined) {
+      copy[canonical] = aliased
+    } else if (Array.isArray(aliased) && Array.isArray(existing)) {
+      copy[canonical] = [...aliased, ...existing]
+    } else if (isRecord(aliased) && isRecord(existing)) {
+      copy[canonical] = mergeDeep(aliased, existing)
+    }
+    delete copy[alias]
+    log.warn(`${alias} in jyycode config is deprecated; use ${canonical}`, { path: source })
+  }
+
   const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
   if (!hadLegacy) return copy
   delete copy.theme

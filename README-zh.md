@@ -98,19 +98,62 @@ JYY-Code 使用结构化文件记忆保存项目事实、工程约定、用户�
 
 ### 环境要求
 
-- [Bun](https://bun.sh/) >= 1.3.14
+- 普通用户需要 Node.js 20+ 和 npm。
+- 只有从源码开发时才需要 [Bun](https://bun.sh/) >= 1.3.14。
 
 ### 安装运行
 
 ```bash
-# 克隆仓库
+# 安装已发布的 CLI 包装器
+npm install -g jyycode-ai
+
+# 在当前终端目录启动 JYY-Code
+jyy
+```
+
+`jyy` 和 `jyycode` 指向同一个 CLI。进程会继承终端当前工作目录，所以在 `/path/to/project` 里运行 `jyy`，JYY-Code 的工作目录就是 `/path/to/project`。
+
+### 配置大模型 Provider
+
+推荐使用内置凭证命令：
+
+```bash
+jyycode auth login --provider openai
+jyycode models openai
+jyy
+```
+
+也可以使用所选 Provider 支持的环境变量，例如：
+
+```bash
+export OPENAI_API_KEY="sk-..."
+jyycode models openai
+```
+
+或者写入全局配置文件 `~/.config/jyycode/jyycode.jsonc`：
+
+```jsonc
+{
+  "$schema": "https://jyycode.ai/config.json",
+  "model": "openai/gpt-5",
+  "provider": {
+    "openai": {
+      "options": {
+        "apiKey": "sk-...",
+      },
+    },
+  },
+}
+```
+
+规范配置键是 `provider`、`permission`、`plugin`。加载器也兼容常见的复数别名 `providers`、`permissions`、`plugins`，避免按旧文档填写后配置不生效。
+
+### 从源码开发
+
+```bash
 git clone https://github.com/anomalyco/jyycode.git
 cd jyycode
-
-# 安装依赖
 bun install
-
-# 开发模式运行
 bun run dev
 ```
 
@@ -183,12 +226,12 @@ Multi-Agent 模式：
 
 主要配置项：
 
-- **providers**：LLM 提供商凭证与模型偏好。
-- **permissions**：工具访问规则，支持按工具和 Agent 配置 ask/allow/deny。
+- **provider**：LLM 提供商凭证与模型偏好。
+- **permission**：工具访问规则，支持按工具和 Agent 配置 ask/allow/deny。
 - **agent_cluster**：多 Agent 集群参数，包括模型选择、并发数和审查轮次。
 - **mcp**：MCP 服务连接配置。
 - **skills**：技能发现路径。
-- **plugins**：TUI 和运行时插件来源。
+- **plugin**：TUI 和运行时插件来源。
 
 ## 重要 API
 

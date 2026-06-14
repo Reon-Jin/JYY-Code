@@ -98,19 +98,62 @@ Token-based relevance scoring helps the agent find the right tool without exposi
 
 ### Prerequisites
 
-- [Bun](https://bun.sh/) >= 1.3.14
+- Node.js 20+ and npm for normal users.
+- [Bun](https://bun.sh/) >= 1.3.14 only if you are developing from source.
 
 ### Install
 
 ```bash
-# Clone the repository
+# Install the published CLI wrapper.
+npm install -g jyycode-ai
+
+# Start JYY-Code in the current terminal directory.
+jyy
+```
+
+`jyy` and `jyycode` point to the same CLI. The process inherits the terminal's current working directory, so running `jyy` from `/path/to/project` starts JYY-Code against `/path/to/project`.
+
+### Configure A Model Provider
+
+The easiest path is the built-in credential command:
+
+```bash
+jyycode auth login --provider openai
+jyycode models openai
+jyy
+```
+
+You can also use environment variables supported by the selected provider, for example:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+jyycode models openai
+```
+
+Or write the global config file at `~/.config/jyycode/jyycode.jsonc`:
+
+```jsonc
+{
+  "$schema": "https://jyycode.ai/config.json",
+  "model": "openai/gpt-5",
+  "provider": {
+    "openai": {
+      "options": {
+        "apiKey": "sk-...",
+      },
+    },
+  },
+}
+```
+
+Use `provider`, `permission`, and `plugin` as the canonical config keys. The loader also accepts the common plural aliases `providers`, `permissions`, and `plugins` for compatibility.
+
+### Develop From Source
+
+```bash
 git clone https://github.com/anomalyco/jyycode.git
 cd jyycode
-
-# Install dependencies
 bun install
-
-# Run in development mode
 bun run dev
 ```
 
@@ -161,12 +204,12 @@ Project-level configuration lives in `.jyycode/jyycode.jsonc`. Global user confi
 
 Key configuration areas:
 
-- **providers** - LLM provider credentials and model preferences.
-- **permissions** - tool access rules with ask/allow/deny per tool and agent.
+- **provider** - LLM provider credentials and model preferences.
+- **permission** - tool access rules with ask/allow/deny per tool and agent.
 - **agent_cluster** - multi-agent orchestration settings, model routing, concurrency, and review rounds.
 - **mcp** - MCP server connections.
 - **skills** - skill discovery paths.
-- **plugins** - TUI and runtime plugin origins.
+- **plugin** - TUI and runtime plugin origins.
 
 ## Notable API
 

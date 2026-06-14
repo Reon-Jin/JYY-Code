@@ -30,6 +30,7 @@ for (const filepath of new Bun.Glob("*/package.json").scanSync({ cwd: "./dist" }
 }
 console.log("binaries", binaries)
 const version = Object.values(binaries)[0]
+const wrapperPackageName = `${pkg.name}-ai`
 
 await $`mkdir -p ./dist/${pkg.name}`
 await $`mkdir -p ./dist/${pkg.name}/bin`
@@ -37,15 +38,15 @@ await $`cp ./script/postinstall.mjs ./dist/${pkg.name}/postinstall.mjs`
 await Bun.file(`./dist/${pkg.name}/LICENSE`).write(await Bun.file("../../LICENSE").text())
 await Bun.file(`./dist/${pkg.name}/bin/${pkg.name}.exe`).write(
   [
-    `echo "Error: ${pkg.name}-ai's postinstall script was not run." >&2`,
+    `echo "Error: ${wrapperPackageName}'s postinstall script was not run." >&2`,
     'echo "" >&2',
     'echo "This occurs when using --ignore-scripts during installation, or when using a" >&2',
     'echo "package manager like pnpm that does not run postinstall scripts by default." >&2',
     'echo "" >&2',
     'echo "To fix this, run the postinstall script manually:" >&2',
-    `echo "  cd node_modules/${pkg.name}-ai && node postinstall.mjs" >&2`,
+    `echo "  cd node_modules/${wrapperPackageName} && node postinstall.mjs" >&2`,
     'echo "" >&2',
-    `echo "Or reinstall ${pkg.name}-ai without the --ignore-scripts flag." >&2`,
+    `echo "Or reinstall ${wrapperPackageName} without the --ignore-scripts flag." >&2`,
     "exit 1",
     "",
   ].join("\n"),
@@ -54,8 +55,9 @@ await Bun.file(`./dist/${pkg.name}/bin/${pkg.name}.exe`).write(
 await Bun.file(`./dist/${pkg.name}/package.json`).write(
   JSON.stringify(
     {
-      name: pkg.name + "-ai",
+      name: wrapperPackageName,
       bin: {
+        jyy: `./bin/${pkg.name}.exe`,
         [pkg.name]: `./bin/${pkg.name}.exe`,
       },
       scripts: {
