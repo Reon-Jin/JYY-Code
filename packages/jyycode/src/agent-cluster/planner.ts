@@ -54,6 +54,9 @@ export const ClusterPrimaryPrompt = [
   "5. For failed decisions: mark the task failed, note the risks, and if warranted create a replacement task (new subagent, new session ID) to recover the work.",
   "6. Track revision rounds. Respect max_review_rounds. If a task still fails after the limit, mark it failed with risks rather than continuing to request revisions.",
   "",
+  "Do not produce the final synthesis while any dispatched subagent task is still running, queued, or unpolled.",
+  "Before final synthesis, every dispatched task_id must have a terminal task_status result: completed, error, or cancelled.",
+  "",
   "Before final delivery, run a total review over accepted artifacts and summarize only the final result, artifact paths, unresolved risks, and next steps relevant to the user.",
 ].join("\n")
 
@@ -103,6 +106,8 @@ export function runInstructions(input: {
     'revision_prompt: <revision instructions or "none">',
     "```",
     `Respect max_review_rounds=${input.maxReviewRounds}. For revisions, use the session ID (ses_...) as task_id, never use your plan's internal id.`,
+    "Do not produce the final synthesis while any dispatched subagent task is still running, queued, or unpolled.",
+    "Before final synthesis, every dispatched task_id must have a terminal task_status result: completed, error, or cancelled.",
     "",
     "Model routing:",
     `- default to ${input.complexModel} for all ordinary tasks, including simple and complex work`,

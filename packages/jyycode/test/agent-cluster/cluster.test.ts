@@ -47,6 +47,23 @@ describe("AgentCluster planner instructions", () => {
     expect(text).toContain("visual_model: provider/visual")
     expect(text).toContain("PDF/PPT/DOCX layout")
   })
+
+  test("planner instructions require terminal task_status before final synthesis", () => {
+    const text = runInstructions({
+      runID: "run_test",
+      artifactDir: ".jyycode/agent-cluster",
+      simpleModel: "p/m1",
+      complexModel: "p/m2",
+      visualModel: "p/m3",
+      reviewerModel: "p/m4",
+      maxSubagents: 10,
+      maxConcurrency: 3,
+      maxReviewRounds: 2,
+    })
+
+    expect(text).toContain("Do not produce the final synthesis")
+    expect(text).toContain("terminal task_status")
+  })
 })
 
 describe("AgentCluster.isMailSession", () => {
