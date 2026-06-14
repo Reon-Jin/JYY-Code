@@ -106,7 +106,6 @@ export function runInstructions(input: {
     "Model routing:",
     `- default to ${input.complexModel} for all ordinary tasks, including simple and complex work`,
     `- use ${input.visualModel} for tasks that need visual capability, image search, image evaluation, PDF/PPT/DOCX layout, presentation or document production, polished charts, diagrams, tables, visual assets, or export-ready visual artifacts`,
-    `- use ${input.visualModel} for chart and pdf roles unless the user explicitly requests a different model`,
     `- use ${input.reviewerModel} for reviewer tasks`,
     "- if the user explicitly requested a model for a task, use that model",
     "- when calling task, pass the chosen model in the model field",
