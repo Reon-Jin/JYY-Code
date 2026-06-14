@@ -2,6 +2,7 @@ import * as Tool from "./tool"
 import DESCRIPTION from "./task.txt"
 import { ToolJsonSchema } from "./json-schema"
 import { BackgroundJob } from "@/background/job"
+import { AgentCluster } from "@/agent-cluster/cluster"
 import { Bus } from "@/bus"
 import { Session } from "@/session/session"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
@@ -52,6 +53,17 @@ const BACKGROUND_DESCRIPTION = [
   ].join(" "),
 ].join("\n")
 const FORK_CONTEXT_MAX_CHARS = 20_000
+
+function agentClusterRunID(ctx: Tool.Context) {
+  if (typeof ctx.extra?.agentClusterRunID === "string") return ctx.extra.agentClusterRunID
+  for (const message of ctx.messages) {
+    for (const part of message.parts) {
+      const metadata = part.metadata as { kind?: string; runID?: string } | undefined
+      if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID
+    }
+  }
+  return undefined
+}
 
 const BaseParameters = Schema.Struct({
   description: Schema.String.annotate({ description: "A short (3-5 words) description of the task" }),
@@ -336,6 +348,10 @@ export const TaskTool = Tool.define(
       const cfg = yield* config.get()
       const clusterBackground = ctx.agent === "cluster"
       const runInBackground = params.background === true || clusterBackground
+      const clusterPlanTaskID =
+        clusterBackground && params.task_id && !params.task_id.startsWith("ses") ? params.task_id : undefined
+      const resumeTaskID = clusterPlanTaskID ? undefined : params.task_id
+      const clusterRunID = clusterPlanTaskID ? agentClusterRunID(ctx) : undefined
       if (runInBackground && !clusterBackground && !flags.experimentalBackgroundSubagents) {
         return yield* Effect.fail(
           new Error("Background subagents require JYYCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true"),
@@ -377,7 +393,7 @@ export const TaskTool = Tool.define(
         return yield* Effect.fail(new Error(`Task model not found: ${model}`))
       })
 
-      const taskID = params.task_id
+      const taskID = resumeTaskID
       const session = taskID
         ? yield* sessions.get(SessionID.make(taskID)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
@@ -469,6 +485,7 @@ export const TaskTool = Tool.define(
             }
           : {}),
         ...(runInBackground ? { background: true } : {}),
+        ...(clusterRunID && clusterPlanTaskID ? { agentCluster: { runID: clusterRunID, taskID: clusterPlanTaskID } } : {}),
       }
 
       yield* ctx.metadata({
@@ -755,6 +772,13 @@ export const TaskTool = Tool.define(
             ),
           ),
         })
+        if (clusterPlanTaskID) {
+          yield* AgentCluster.markTaskRunning({
+            runID: clusterRunID,
+            taskID: clusterPlanTaskID,
+            childSessionID: nextSession.id,
+          })
+        }
 
         return {
           title: params.description,

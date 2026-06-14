@@ -7,16 +7,17 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import type { Session } from "@/session/session"
 import type { MessageV2 } from "@/session/message-v2"
 import type { PromptInput } from "@/session/prompt"
+import type { SessionID } from "@/session/schema"
 import { Bus } from "@/bus"
 import * as Database from "@/storage/db"
-import { eq } from "@/storage/db"
+import { and, eq } from "@/storage/db"
 import { Cause, Effect } from "effect"
 import path from "path"
 import { ulid } from "ulid"
 import { AgentClusterRunTable, AgentClusterEventTable, AgentClusterTaskTable } from "./cluster.sql"
 import { Event } from "./event"
 import { runInstructions } from "./planner"
-import type { Plan, RunID, RunStatus } from "./schema"
+import type { Plan, RunID, RunStatus, TaskID } from "./schema"
 
 type ModelRef = {
   providerID: ProviderID
@@ -154,6 +155,30 @@ export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (inpu
         })),
       )
       .onConflictDoNothing()
+      .run(),
+  )
+})
+
+export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(function* (input: {
+  runID?: string
+  taskID?: string
+  childSessionID: SessionID
+}) {
+  if (!input.runID || !input.taskID) return
+  Database.use((db) =>
+    db
+      .update(AgentClusterTaskTable)
+      .set({
+        child_session_id: input.childSessionID,
+        status: "running",
+        time_updated: Date.now(),
+      })
+      .where(
+        and(
+          eq(AgentClusterTaskTable.run_id, input.runID as RunID),
+          eq(AgentClusterTaskTable.id, input.taskID as TaskID),
+        ),
+      )
       .run(),
   )
 })

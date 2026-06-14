@@ -4,6 +4,7 @@ import { Agent } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
 import { Bus } from "@/bus"
 import { Config } from "@/config/config"
+import { AgentClusterRunTable, AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { Session } from "@/session/session"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -16,6 +17,7 @@ import { TaskTool, type TaskGitOps, type TaskPromptOps, type TaskWorktreeOps } f
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import * as Database from "@/storage/db"
 import { ProviderTest } from "../fake/provider"
 import { disposeAllInstances } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
@@ -989,6 +991,88 @@ describe("tool.task", () => {
       expect(result.metadata.background).toBe(true)
       expect(result.output).toContain("state: running")
       expect(job?.status).toBe("running")
+    }),
+  )
+
+  it.instance("cluster task updates agent_cluster_task child session", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      const runID = "run_task_binding"
+      const planTaskID = "research"
+      yield* sessions.updatePart({
+        id: PartID.ascending(),
+        messageID: assistant.parentID!,
+        sessionID: chat.id,
+        type: "text",
+        synthetic: true,
+        metadata: { kind: "agent_cluster", runID },
+        text: "Agent cluster instructions",
+      })
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      Database.use((db) => {
+        const now = Date.now()
+        db.insert(AgentClusterRunTable)
+          .values({
+            id: runID as any,
+            session_id: chat.id,
+            parent_message_id: assistant.parentID!,
+            enabled: true,
+            status: "dispatching",
+            goal: "Investigate bug",
+            planner_model: "test/planner",
+            reviewer_model: "test/reviewer",
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+        db.insert(AgentClusterTaskTable)
+          .values({
+            id: planTaskID as any,
+            run_id: runID as any,
+            role: "researcher",
+            title: "Research",
+            prompt: "Find the bug",
+            complexity: "simple",
+            model: "test/simple",
+            status: "planned",
+            acceptance_criteria: ["done"],
+            artifact_paths: [],
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+      })
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+
+      const result = yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+          task_id: planTaskID,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "cluster",
+          abort: new AbortController().signal,
+          extra: {
+            promptOps: {
+              ...stubOps(),
+              prompt: () => Effect.never,
+            } satisfies TaskPromptOps,
+          },
+          messages,
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const row = Database.use((db) => db.select().from(AgentClusterTaskTable).get())
+      expect(row?.child_session_id).toBe(result.metadata.sessionId)
+      expect(row?.status).toBe("running")
     }),
   )
 
