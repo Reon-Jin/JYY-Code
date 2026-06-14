@@ -11,6 +11,7 @@ import {
 } from "../../src/cli/cmd/tui/context/sync"
 import { taskStatusRank } from "../../src/cli/cmd/tui/component/task-item"
 import { visibleTaskRows } from "../../src/cli/cmd/tui/feature-plugins/sidebar/tasks"
+import { shouldShowTodoPanel } from "../../src/cli/cmd/tui/feature-plugins/sidebar/todo"
 
 const planJson = JSON.stringify({
   goal: "Build a detailed report",
@@ -54,6 +55,10 @@ describe("agent cluster TUI plan parsing", () => {
     ])
 
     expect(rows.map((row) => row.id)).toEqual(["b", "a"])
+  })
+
+  test("todo panel is hidden when structured cluster tasks exist", () => {
+    expect(shouldShowTodoPanel({ todoCount: 2, openTodoCount: 1, clusterTaskCount: 1 })).toBe(false)
   })
 
   test("agent_cluster.event updates task status by task id", () => {
