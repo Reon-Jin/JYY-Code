@@ -50,4 +50,11 @@ describe("subagentPrompt", () => {
     expect(prompt).toContain("Coding specialist")
     expect(prompt).toContain("Multi-Agent cluster")
   })
+
+  test("subagent prompt requires structured final status", () => {
+    const prompt = subagentPrompt("coder")
+    expect(prompt).toContain("**Status**: success | partial | failed | blocked")
+    expect(prompt).toContain("**Summary**:")
+    expect(prompt).toContain("Files touched")
+  })
 })

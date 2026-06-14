@@ -24,6 +24,20 @@ export const SubagentDescriptions = {
   general: "General specialist for tasks that do not fit a narrower cluster role.",
 } satisfies Record<TaskRole, string>
 
+const RETURN_FORMAT = [
+  "",
+  "## Return format",
+  "",
+  "Your final assistant message must start with:",
+  "**Status**: success | partial | failed | blocked",
+  "**Summary**: one sentence describing the result",
+  "",
+  "Then include the deliverable.",
+  "If applicable, include:",
+  "**Files touched**: comma-separated paths or (none)",
+  "**Findings worth promoting**: bullet list or (none)",
+].join("\n")
+
 export function subagentPrompt(role: TaskRole) {
   return [
     SubagentDescriptions[role],
@@ -31,5 +45,6 @@ export function subagentPrompt(role: TaskRole) {
     "You are working inside a Multi-Agent cluster. Complete only the delegated task.",
     "Follow the acceptance criteria exactly, write requested artifacts to the specified paths, and return a concise report containing status, artifact paths, key findings, and any blockers.",
     "Do not claim completion for artifacts you did not create or verify.",
+    RETURN_FORMAT,
   ].join("\n")
 }
