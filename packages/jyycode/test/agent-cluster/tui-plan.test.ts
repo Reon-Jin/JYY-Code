@@ -5,6 +5,10 @@ import {
   extractAgentClusterPlan,
   stripAgentClusterPlanText,
 } from "../../src/cli/cmd/tui/routes/session/agent-cluster-state"
+import {
+  applyAgentClusterEvent,
+  type AgentClusterState,
+} from "../../src/cli/cmd/tui/context/sync"
 
 const planJson = JSON.stringify({
   goal: "Build a detailed report",
@@ -37,6 +41,63 @@ const planJson = JSON.stringify({
 })
 
 describe("agent cluster TUI plan parsing", () => {
+  test("agent_cluster.event updates task status by task id", () => {
+    const initial: AgentClusterState = {
+      runs: [
+        {
+          id: "run_1",
+          session_id: "ses_parent",
+          parent_message_id: "msg_user",
+          enabled: true,
+          status: "dispatching",
+          goal: "goal",
+          planner_model: "test/planner",
+          reviewer_model: "test/reviewer",
+          time_created: 1,
+          time_updated: 1,
+          completed_at: null,
+        },
+      ],
+      tasks: [
+        {
+          id: "inspect",
+          run_id: "run_1",
+          parent_task_id: null,
+          child_session_id: null,
+          role: "researcher",
+          title: "Inspect code",
+          prompt: "Inspect code",
+          complexity: "simple",
+          model: "test/simple",
+          status: "planned",
+          review_round: 0,
+          acceptance_criteria: [],
+          artifact_paths: [],
+          last_event: null,
+          time_created: 1,
+          time_updated: 1,
+        },
+      ],
+    }
+
+    const next = applyAgentClusterEvent(initial, {
+      id: "evt_1",
+      type: "agent_cluster.event",
+      properties: {
+        sessionID: "ses_parent",
+        runID: "run_1",
+        taskID: "inspect",
+        type: "task",
+        status: "running",
+        message: "inspect running",
+        createdAt: 2,
+      },
+    })
+
+    expect(next.tasks.find((task) => task.id === "inspect")?.status).toBe("running")
+    expect(next.tasks.find((task) => task.id === "inspect")?.last_event).toBe("inspect running")
+  })
+
   test("extracts a fenced plan JSON block", () => {
     const plan = extractAgentClusterPlan(["Before work, here is the plan:", "```json", planJson, "```"].join("\n"))
 

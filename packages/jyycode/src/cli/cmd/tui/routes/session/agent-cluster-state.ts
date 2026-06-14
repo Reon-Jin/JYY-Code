@@ -423,7 +423,7 @@ function childStatus(
   if (!sessionID) return
 
   const explicit = statuses.get(sessionID)
-  if (explicit) return explicit
+  if (explicit === "done" || explicit === "failed") return explicit
 
   const sessionStatus = input.sessionStatus?.(sessionID)
   if (sessionStatus?.type === "busy" || sessionStatus?.type === "retry") return "running"
@@ -440,6 +440,7 @@ function childStatus(
   ) {
     return "done"
   }
+  if (explicit) return explicit
   if (childMessages.length > 0) return "running"
 }
 
