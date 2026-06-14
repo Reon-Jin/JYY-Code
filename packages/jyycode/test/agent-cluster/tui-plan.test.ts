@@ -9,6 +9,7 @@ import {
   applyAgentClusterEvent,
   type AgentClusterState,
 } from "../../src/cli/cmd/tui/context/sync"
+import { taskStatusRank } from "../../src/cli/cmd/tui/component/task-item"
 
 const planJson = JSON.stringify({
   goal: "Build a detailed report",
@@ -41,6 +42,10 @@ const planJson = JSON.stringify({
 })
 
 describe("agent cluster TUI plan parsing", () => {
+  test("task status order puts running before queued", () => {
+    expect(taskStatusRank("running")).toBeLessThan(taskStatusRank("queued"))
+  })
+
   test("agent_cluster.event updates task status by task id", () => {
     const initial: AgentClusterState = {
       runs: [
