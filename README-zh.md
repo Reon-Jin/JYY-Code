@@ -1,6 +1,6 @@
 # JYY-Code
 
-[![License](https://img.shields.io/github/license/Reon-Jin/JYY-Code?style=flat-square)](https://github.com/Reon-Jin/JYY-Code/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://github.com/Reon-Jin/JYY-Code/blob/main/LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
 [![TypeScript](https://img.shields.io/badge/language-TypeScript-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 
