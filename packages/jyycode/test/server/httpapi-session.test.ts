@@ -20,6 +20,8 @@ import { MessageID, PartID, SessionID, type SessionID as SessionIDType } from ".
 import { MessageV2 } from "../../src/session/message-v2"
 import { Database } from "@/storage/db"
 import { SessionMessageTable, SessionTable } from "@/session/session.sql"
+import { AgentClusterRunTable, AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
+import type { RunID, TaskID } from "@/agent-cluster/schema"
 import { SessionMessage } from "@jyycode-ai/core/session-message"
 import { ModelV2 } from "@jyycode-ai/core/model"
 import { ProviderV2 } from "@jyycode-ai/core/provider"
@@ -327,6 +329,47 @@ describe("session HttpApi", () => {
         expect(
           yield* requestJson<unknown[]>(pathFor(SessionPaths.todo, { sessionID: parent.id }), { headers }),
         ).toEqual([])
+
+        const now = Date.now()
+        Database.use((db) => {
+          db.insert(AgentClusterRunTable)
+            .values({
+              id: "run_1" as RunID,
+              session_id: parent.id,
+              parent_message_id: message.info.id,
+              enabled: true,
+              status: "dispatching",
+              goal: "Build feature",
+              planner_model: "test/planner",
+              reviewer_model: "test/reviewer",
+              time_created: now,
+              time_updated: now,
+            })
+            .run()
+          db.insert(AgentClusterTaskTable)
+            .values({
+              id: "inspect" as TaskID,
+              run_id: "run_1" as RunID,
+              role: "researcher",
+              title: "Inspect code",
+              prompt: "Inspect the code",
+              complexity: "simple",
+              model: "test/simple",
+              status: "running",
+              acceptance_criteria: ["notes written"],
+              artifact_paths: [],
+              time_created: now,
+              time_updated: now,
+            })
+            .run()
+        })
+
+        const cluster = yield* requestJson<{
+          runs: Array<{ id: string }>
+          tasks: Array<{ status: string }>
+        }>(pathFor(SessionPaths.agentCluster, { sessionID: parent.id }), { headers })
+        expect(cluster.runs[0]?.id).toBe("run_1")
+        expect(cluster.tasks[0]?.status).toBe("running")
 
         expect(
           yield* requestJson<unknown[]>(pathFor(SessionPaths.diff, { sessionID: parent.id }), { headers }),

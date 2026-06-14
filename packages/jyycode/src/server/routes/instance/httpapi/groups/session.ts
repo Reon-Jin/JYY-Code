@@ -1,6 +1,14 @@
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
+import {
+  Complexity,
+  RunID,
+  RunStatus,
+  TaskID,
+  TaskRole,
+  TaskStatus,
+} from "@/agent-cluster/schema"
 import { Session } from "@/session/session"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
@@ -71,12 +79,48 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: Permission.Reply,
 })
+const AgentClusterRunRow = Schema.Struct({
+  id: RunID,
+  session_id: SessionID,
+  parent_message_id: MessageID,
+  enabled: Schema.Boolean,
+  status: RunStatus,
+  goal: Schema.String,
+  planner_model: Schema.String,
+  reviewer_model: Schema.String,
+  time_created: Schema.Number,
+  time_updated: Schema.Number,
+  completed_at: Schema.NullOr(Schema.Number),
+})
+const AgentClusterTaskRow = Schema.Struct({
+  id: TaskID,
+  run_id: RunID,
+  parent_task_id: Schema.NullOr(TaskID),
+  child_session_id: Schema.NullOr(SessionID),
+  role: TaskRole,
+  title: Schema.String,
+  prompt: Schema.String,
+  complexity: Complexity,
+  model: Schema.String,
+  status: TaskStatus,
+  review_round: Schema.Number,
+  acceptance_criteria: Schema.Array(Schema.String),
+  artifact_paths: Schema.Array(Schema.String),
+  last_event: Schema.NullOr(Schema.String),
+  time_created: Schema.Number,
+  time_updated: Schema.Number,
+})
+export const AgentClusterStatePayload = Schema.Struct({
+  runs: Schema.Array(AgentClusterRunRow),
+  tasks: Schema.Array(AgentClusterTaskRow),
+})
 
 export const SessionPaths = {
   list: root,
   status: `${root}/status`,
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
+  agentCluster: `${root}/:sessionID/agent-cluster`,
   todo: `${root}/:sessionID/todo`,
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
@@ -148,6 +192,18 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.children",
             summary: "Get session children",
             description: "Retrieve all child sessions that were forked from the specified parent session.",
+          }),
+        ),
+        HttpApiEndpoint.get("agentCluster", SessionPaths.agentCluster, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(AgentClusterStatePayload, "Agent cluster state"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.agentCluster",
+            summary: "Get session agent cluster state",
+            description: "Retrieve persisted agent cluster runs and tasks for a specific session.",
           }),
         ),
         HttpApiEndpoint.get("todo", SessionPaths.todo, {

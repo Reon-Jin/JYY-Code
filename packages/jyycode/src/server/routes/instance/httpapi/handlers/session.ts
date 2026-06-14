@@ -1,4 +1,5 @@
 import { Agent } from "@/agent/agent"
+import { AgentCluster } from "@/agent-cluster/cluster"
 import { Bus } from "@/bus"
 import { Command } from "@/command"
 import { Permission } from "@/permission"
@@ -86,6 +87,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const children = Effect.fn("SessionHttpApi.children")(function* (ctx: { params: { sessionID: SessionID } }) {
       yield* requireSession(ctx.params.sessionID)
       return yield* session.children(ctx.params.sessionID)
+    })
+
+    const agentCluster = Effect.fn("SessionHttpApi.agentCluster")(function* (ctx: {
+      params: { sessionID: SessionID }
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      return yield* AgentCluster.getSessionState(ctx.params.sessionID)
     })
 
     const todo = Effect.fn("SessionHttpApi.todo")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -411,6 +419,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("status", status)
       .handle("get", get)
       .handle("children", children)
+      .handle("agentCluster", agentCluster)
       .handle("todo", todo)
       .handle("diff", diff)
       .handle("messages", messages)

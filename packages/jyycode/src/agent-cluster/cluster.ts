@@ -10,7 +10,7 @@ import type { PromptInput } from "@/session/prompt"
 import type { SessionID } from "@/session/schema"
 import { Bus } from "@/bus"
 import * as Database from "@/storage/db"
-import { and, eq } from "@/storage/db"
+import { and, eq, inArray } from "@/storage/db"
 import { Cause, Effect } from "effect"
 import path from "path"
 import { ulid } from "ulid"
@@ -200,6 +200,21 @@ export const finalizeRunIfTerminal = Effect.fn("AgentCluster.finalizeRunIfTermin
       .run(),
   )
   return true
+})
+
+export const getSessionState = Effect.fn("AgentCluster.getSessionState")(function* (sessionID: SessionID) {
+  return Database.use((db) => {
+    const runs = db.select().from(AgentClusterRunTable).where(eq(AgentClusterRunTable.session_id, sessionID)).all()
+    const tasks =
+      runs.length === 0
+        ? []
+        : db
+            .select()
+            .from(AgentClusterTaskTable)
+            .where(inArray(AgentClusterTaskTable.run_id, runs.map((run) => run.id)))
+            .all()
+    return { runs, tasks }
+  })
 })
 
 export const run = Effect.fn("AgentCluster.run")(function* (input: {
