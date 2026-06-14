@@ -333,6 +333,66 @@ describe("AgentCluster.persistPlan", () => {
   )
 })
 
+describe("AgentCluster.finalizeRunIfTerminal", () => {
+  it.instance("does not complete a run while tasks are running", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Cluster run" })
+      const user = yield* sessions.updateMessage({
+        id: MessageID.ascending(),
+        role: "user",
+        sessionID: chat.id,
+        agent: "cluster",
+        model: { providerID: "test", modelID: "test" },
+        time: { created: Date.now() },
+      })
+      const runID = AgentCluster.createRunID() as RunID
+      Database.use((db) => {
+        const now = Date.now()
+        db.insert(AgentClusterRunTable)
+          .values({
+            id: runID,
+            session_id: chat.id,
+            parent_message_id: user.id,
+            enabled: true,
+            status: "dispatching",
+            goal: "Build feature",
+            planner_model: "test/planner",
+            reviewer_model: "test/reviewer",
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+        db.insert(AgentClusterTaskTable)
+          .values({
+            id: AgentClusterRuntime.coerceTaskID("running-research"),
+            run_id: runID,
+            role: "researcher",
+            title: "Research",
+            prompt: "Research the feature",
+            complexity: "simple",
+            model: "test/simple",
+            status: "running",
+            acceptance_criteria: ["done"],
+            artifact_paths: [],
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+      })
+
+      const completed = yield* AgentCluster.finalizeRunIfTerminal(runID)
+
+      const row = Database.use((db) =>
+        db.select().from(AgentClusterRunTable).where(Database.eq(AgentClusterRunTable.id, runID)).get(),
+      )
+      expect(completed).toBe(false)
+      expect(row?.status).toBe("dispatching")
+      expect(row?.completed_at).toBeNull()
+    }),
+  )
+})
+
 describe("AgentClusterRuntime.validatePlan", () => {
   const task = (input: {
     id: string

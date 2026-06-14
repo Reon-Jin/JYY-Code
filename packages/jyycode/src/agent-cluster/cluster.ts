@@ -32,6 +32,8 @@ type ClusterModels = {
   visual: ModelRef
 }
 
+const TERMINAL_TASK_STATUSES = ["accepted", "failed", "cancelled"] as const
+
 export function isMailSession(session: Pick<Session.Info, "title" | "agent" | "path">) {
   if (MailSession.isMailSessionTitle(session.title)) return true
   if (session.agent === "mail") return true
@@ -183,6 +185,23 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
   )
 })
 
+export const finalizeRunIfTerminal = Effect.fn("AgentCluster.finalizeRunIfTerminal")(function* (runID: RunID) {
+  const open = Database.use((db) =>
+    db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.run_id, runID)).all(),
+  ).filter((task) => !TERMINAL_TASK_STATUSES.includes(task.status as any))
+
+  if (open.length > 0) return false
+
+  Database.use((db) =>
+    db
+      .update(AgentClusterRunTable)
+      .set({ status: "completed", completed_at: Date.now(), time_updated: Date.now() })
+      .where(eq(AgentClusterRunTable.id, runID))
+      .run(),
+  )
+  return true
+})
+
 export const run = Effect.fn("AgentCluster.run")(function* (input: {
   runID: string
   session: Session.Info
@@ -276,15 +295,9 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
 
   return yield* input.runLoop.pipe(
     Effect.tap(() =>
-      Effect.sync(() =>
-        Database.use((db) =>
-          db
-            .update(AgentClusterRunTable)
-            .set({ status: "completed", completed_at: Date.now(), time_updated: Date.now() })
-            .where(eq(AgentClusterRunTable.id, runID))
-            .run(),
-        ),
-      ).pipe(Effect.andThen(publish("completed", "main: completed"))),
+      finalizeRunIfTerminal(runID).pipe(
+        Effect.andThen((completed) => (completed ? publish("completed", "main: completed") : Effect.void)),
+      ),
     ),
     Effect.catchCause((cause) =>
       Effect.sync(() =>
