@@ -26,6 +26,7 @@ export function MultiAgentPanel(props: { sessionID: string; enabled: boolean; di
       sessionID: props.sessionID,
       enabled: props.enabled,
       disabled: props.disabled,
+      cluster: sync.data.agent_cluster[props.sessionID],
       messages: (sessionID) => sync.data.message[sessionID] ?? [],
       parts: (messageID) => sync.data.part[messageID] ?? [],
       sessionStatus: (sessionID) => sync.data.session_status[sessionID],

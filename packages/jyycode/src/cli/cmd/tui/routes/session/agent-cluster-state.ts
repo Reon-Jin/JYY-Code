@@ -66,10 +66,32 @@ type SessionStatusLike = {
   type?: string
 }
 
+type AgentClusterRowState = {
+  runs: readonly {
+    id: string
+    status?: string
+    goal?: string
+  }[]
+  tasks: readonly {
+    id: string
+    run_id?: string
+    child_session_id?: string | null
+    step?: number
+    title: string
+    role: string
+    complexity?: string
+    model?: string
+    status: string
+    acceptance_criteria?: readonly string[]
+    artifact_paths?: readonly string[]
+  }[]
+}
+
 type SnapshotInput = {
   sessionID: string
   enabled: boolean
   disabled: boolean
+  cluster?: AgentClusterRowState
   messages: (sessionID: string) => readonly Message[]
   parts: (messageID: string) => readonly Part[]
   sessionStatus?: (sessionID: string) => SessionStatusLike | undefined
@@ -479,6 +501,45 @@ function taskRuns(input: SnapshotInput, statuses: Map<string, AgentClusterTaskSt
     .map((row, index) => ({ ...row, index: index + 1 }))
 }
 
+function clusterTaskStatus(status: string): AgentClusterTaskStatus {
+  if (status === "accepted") return "done"
+  if (status === "failed" || status === "cancelled") return "failed"
+  if (["running", "submitted", "reviewing", "revision_requested", "revising"].includes(status)) return "running"
+  return "queued"
+}
+
+function clusterPlan(cluster: AgentClusterRowState | undefined): AgentClusterPlan | undefined {
+  if (!cluster?.tasks.length) return
+  return {
+    goal: cluster.runs.at(-1)?.goal ?? "Multi-Agent cluster run",
+    tasks: cluster.tasks.map((task) => ({
+      id: task.id,
+      step: Math.max(1, Math.trunc(task.step ?? 1)),
+      title: task.title,
+      role: task.role,
+      complexity: task.complexity,
+      model: task.model ?? "-",
+      dependencies: [],
+      acceptanceCriteria: [...(task.acceptance_criteria ?? [])],
+      expectedArtifacts: [...(task.artifact_paths ?? [])],
+      status: clusterTaskStatus(task.status),
+    })),
+  }
+}
+
+function clusterTaskRuns(cluster: AgentClusterRowState | undefined): AgentClusterTaskRun[] {
+  if (!cluster?.tasks.length) return []
+  return cluster.tasks.map((task, index) => ({
+    index: index + 1,
+    id: task.id,
+    role: task.role,
+    model: task.model ?? "-",
+    status: clusterTaskStatus(task.status),
+    task: task.title,
+    sessionID: task.child_session_id ?? undefined,
+  }))
+}
+
 function explicitTaskStatus(input: SnapshotInput) {
   const out = new Map<string, AgentClusterTaskStatus>()
   const setStatus = (taskID: string, status: AgentClusterTaskStatus) => {
@@ -613,10 +674,11 @@ function buildSteps(plan: AgentClusterPlan | undefined): AgentClusterStep[] {
 }
 
 export function agentClusterSnapshot(input: SnapshotInput): AgentClusterSnapshot {
+  const authoritativePlan = clusterPlan(input.cluster)
   const statuses = explicitTaskStatus(input)
-  const rows = taskRuns(input, statuses)
-  const plan = latestPlan(input)
-  const planWithStatus = plan ? mergePlanStatus(plan, rows, statuses) : undefined
+  const rows = authoritativePlan ? clusterTaskRuns(input.cluster) : taskRuns(input, statuses)
+  const plan = authoritativePlan ?? latestPlan(input)
+  const planWithStatus = authoritativePlan ?? (plan ? mergePlanStatus(plan, rows, statuses) : undefined)
   const steps = buildSteps(planWithStatus)
   const taskSource = planWithStatus?.tasks ?? rows
   const runningAgents = taskSource.filter((task) => task.status === "running").length

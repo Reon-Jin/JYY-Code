@@ -41,6 +41,7 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
       sessionID: props.session_id,
       enabled: enabled(),
       disabled: disabled(),
+      cluster: props.api.state.session.agentCluster(props.session_id),
       messages: (sessionID) => props.api.state.session.messages(sessionID),
       parts: (messageID) => props.api.state.part(messageID),
       sessionStatus: (sessionID) => props.api.state.session.status(sessionID),

@@ -463,6 +463,23 @@ describe("agent cluster TUI plan parsing", () => {
     expect(snapshot.currentStep).toBe(2)
   })
 
+  test("snapshot uses persisted task status over title matching", () => {
+    const snapshot = agentClusterSnapshot({
+      sessionID: "ses_parent",
+      enabled: true,
+      disabled: false,
+      cluster: {
+        runs: [{ id: "run_1", status: "dispatching", goal: "goal" }],
+        tasks: [{ id: "inspect", title: "Inspect code", status: "running", step: 1, role: "researcher" }],
+      },
+      messages: () => [],
+      parts: () => [],
+    })
+
+    expect(snapshot.runningAgents).toBe(1)
+    expect(snapshot.steps[0]?.tasks[0]?.status).toBe("running")
+  })
+
   test("shows a partial plan in the snapshot while planning", () => {
     const parent = "ses_parent"
     const assistant = "msg_assistant"
