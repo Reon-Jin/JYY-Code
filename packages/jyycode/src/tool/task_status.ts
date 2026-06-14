@@ -30,6 +30,11 @@ function format(input: { taskID: SessionID; state: State; text: string }) {
   return [`task_id: ${input.taskID}`, `state: ${input.state}`, "", `<${tag}>`, input.text, `</${tag}>`].join("\n")
 }
 
+function parseReportedStatus(text: string) {
+  const match = text.match(/^\*\*Status\*\*:\s*(success|partial|failed|blocked)\b/im)
+  return match?.[1]
+}
+
 function errorText(error: NonNullable<MessageV2.Assistant["error"]>) {
   const data = Reflect.get(error, "data")
   const message = data && typeof data === "object" ? Reflect.get(data, "message") : undefined
@@ -153,6 +158,7 @@ export const TaskStatusTool = Tool.define(
       const text = inspected.timedOut
         ? `Timed out after ${params.timeout_ms ?? DEFAULT_TIMEOUT}ms while waiting for task completion.`
         : inspected.result.text
+      const reported = parseReportedStatus(inspected.result.text)
 
       return {
         title: "Task status",
@@ -160,6 +166,7 @@ export const TaskStatusTool = Tool.define(
           task_id: params.task_id,
           state: inspected.result.state,
           timed_out: inspected.timedOut,
+          ...(reported ? { reported_status: reported } : {}),
         },
         output: format({
           taskID: params.task_id,
