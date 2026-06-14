@@ -1,9 +1,18 @@
 import { describe, expect, test } from "bun:test"
 import { AgentCluster } from "../../src/agent-cluster/cluster"
+import { AgentClusterRunTable, AgentClusterTaskTable } from "../../src/agent-cluster/cluster.sql"
+import type { Plan, RunID } from "../../src/agent-cluster/schema"
 import { ClusterPrimaryPrompt, runInstructions } from "../../src/agent-cluster/planner"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 import { ConfigAgentCluster } from "../../src/config/agent-cluster"
-import type { Session } from "../../src/session/session"
+import * as Database from "../../src/storage/db"
+import { Session } from "../../src/session/session"
+import { MessageID } from "../../src/session/schema"
+import type { Session as SessionInfo } from "../../src/session/session"
+import { Effect } from "effect"
+import { testEffect } from "../lib/effect"
+
+const it = testEffect(Session.defaultLayer)
 
 describe("AgentCluster planner instructions", () => {
   test("describe dependency steps as parallel dispatch waves", () => {
@@ -109,7 +118,7 @@ describe("AgentCluster.canUseAgentCluster", () => {
     agent: "build" as const,
     path: undefined,
     multiAgent: undefined as boolean | undefined,
-  } satisfies Pick<Session.Info, "title" | "agent" | "path" | "multiAgent">
+  } satisfies Pick<SessionInfo.Info, "title" | "agent" | "path" | "multiAgent">
 
   test("returns false when config.enabled is false", () => {
     expect(
@@ -246,6 +255,82 @@ describe("AgentCluster.createRunID", () => {
     const ids = new Set(Array.from({ length: 10 }, () => AgentCluster.createRunID()))
     expect(ids.size).toBe(10)
   })
+})
+
+describe("AgentCluster.persistPlan", () => {
+  it.instance("inserts planned task rows", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Cluster run" })
+      const user = yield* sessions.updateMessage({
+        id: MessageID.ascending(),
+        role: "user",
+        sessionID: chat.id,
+        agent: "cluster",
+        model: { providerID: "test", modelID: "test" },
+        time: { created: Date.now() },
+      })
+      const runID = AgentCluster.createRunID() as RunID
+      Database.use((db) =>
+        db
+          .insert(AgentClusterRunTable)
+          .values({
+            id: runID,
+            session_id: chat.id,
+            parent_message_id: user.id,
+            enabled: true,
+            status: "planning",
+            goal: "Build feature",
+            planner_model: "test/planner",
+            reviewer_model: "test/reviewer",
+            time_created: Date.now(),
+            time_updated: Date.now(),
+          })
+          .run(),
+      )
+      const plan: Plan = {
+        goal: "Build feature",
+        tasks: [
+          {
+            id: AgentClusterRuntime.coerceTaskID("research"),
+            step: 1,
+            title: "Research",
+            role: "researcher",
+            complexity: "simple",
+            model: "test/simple",
+            dependencies: [],
+            prompt: "Research the feature",
+            acceptanceCriteria: ["notes written"],
+            expectedArtifacts: ["notes.md"],
+          },
+          {
+            id: AgentClusterRuntime.coerceTaskID("build"),
+            step: 2,
+            title: "Build",
+            role: "coder",
+            complexity: "complex",
+            model: "test/complex",
+            dependencies: [AgentClusterRuntime.coerceTaskID("research")],
+            prompt: "Build the feature",
+            acceptanceCriteria: ["tests pass"],
+            expectedArtifacts: ["patch"],
+          },
+        ],
+      }
+
+      yield* AgentCluster.persistPlan({ runID, plan })
+
+      const rows = Database.use((db) => db.select().from(AgentClusterTaskTable).all())
+      expect(
+        rows
+          .map((row) => ({ id: row.id, status: row.status, runID: row.run_id }))
+          .sort((a, b) => a.id.localeCompare(b.id)),
+      ).toEqual([
+        { id: "build", status: "planned", runID },
+        { id: "research", status: "planned", runID },
+      ])
+    }),
+  )
 })
 
 describe("AgentClusterRuntime.validatePlan", () => {

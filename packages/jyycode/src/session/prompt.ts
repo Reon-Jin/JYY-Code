@@ -64,6 +64,7 @@ import { SessionTools } from "./tools"
 import { LLMEvent } from "@jyycode-ai/llm"
 import { AgentCluster } from "@/agent-cluster/cluster"
 import { AgentClusterRuntime } from "@/agent-cluster/runtime"
+import type { RunID } from "@/agent-cluster/schema"
 import { Memory } from "@/memory/memory"
 
 // @ts-ignore
@@ -1348,6 +1349,16 @@ export const layer = Layer.effect(
           return clusterPlan(message) !== undefined
         }
 
+        function clusterRunID(messages: MessageV2.WithParts[]) {
+          for (const message of messages) {
+            for (const part of message.parts) {
+              const metadata = part.metadata as { kind?: string; runID?: string } | undefined
+              if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID as RunID
+            }
+          }
+          return undefined
+        }
+
         function isClusterDispatchReminder(message: MessageV2.WithParts | undefined) {
           if (!message || message.info.role !== "user") return false
           return message.parts.some(
@@ -1437,15 +1448,21 @@ export const layer = Layer.effect(
             lastUser.id < lastAssistant.id
           ) {
             const plan = clusterPlan(lastAssistantMsg)
-            if (
-              lastUser.agent === "cluster" &&
-              plan &&
-              !hasTaskTool(msgs) &&
-              !isClusterDispatchReminder(msgs.find((msg) => msg.info.id === lastUser.id))
-            ) {
-              yield* slog.info("cluster plan produced without task dispatch; requesting dispatch")
-              yield* createClusterDispatchReminder({ lastUser, plan })
-              continue
+            if (lastUser.agent === "cluster" && plan) {
+              const clusterConfig = ConfigAgentCluster.resolve((yield* config.get()).agent_cluster)
+              const validation = AgentClusterRuntime.validatePlan(plan, {
+                maxSubagents: clusterConfig.max_subagents,
+                maxConcurrency: clusterConfig.max_concurrency,
+              })
+              const persistedRunID = clusterRunID(msgs)
+              if (validation.valid && persistedRunID) {
+                yield* AgentCluster.persistPlan({ runID: persistedRunID, plan })
+              }
+              if (!hasTaskTool(msgs) && !isClusterDispatchReminder(msgs.find((msg) => msg.info.id === lastUser.id))) {
+                yield* slog.info("cluster plan produced without task dispatch; requesting dispatch")
+                yield* createClusterDispatchReminder({ lastUser, plan })
+                continue
+              }
             }
             yield* slog.info("exiting loop")
             break

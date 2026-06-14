@@ -13,10 +13,10 @@ import { eq } from "@/storage/db"
 import { Cause, Effect } from "effect"
 import path from "path"
 import { ulid } from "ulid"
-import { AgentClusterRunTable, AgentClusterEventTable } from "./cluster.sql"
+import { AgentClusterRunTable, AgentClusterEventTable, AgentClusterTaskTable } from "./cluster.sql"
 import { Event } from "./event"
 import { runInstructions } from "./planner"
-import type { RunID, RunStatus } from "./schema"
+import type { Plan, RunID, RunStatus } from "./schema"
 
 type ModelRef = {
   providerID: ProviderID
@@ -131,6 +131,32 @@ export function decoratePromptInput(input: {
     ],
   }
 }
+
+export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (input: { runID: RunID; plan: Plan }) {
+  const now = Date.now()
+  Database.use((db) =>
+    db
+      .insert(AgentClusterTaskTable)
+      .values(
+        input.plan.tasks.map((task) => ({
+          id: task.id,
+          run_id: input.runID,
+          role: task.role,
+          title: task.title,
+          prompt: task.prompt,
+          complexity: task.complexity,
+          model: task.model,
+          status: "planned" as const,
+          acceptance_criteria: task.acceptanceCriteria,
+          artifact_paths: task.expectedArtifacts,
+          time_created: now,
+          time_updated: now,
+        })),
+      )
+      .onConflictDoNothing()
+      .run(),
+  )
+})
 
 export const run = Effect.fn("AgentCluster.run")(function* (input: {
   runID: string
