@@ -68,7 +68,7 @@ jobs:
           fi
 
       - name: Build and upload CLI release assets
-        run: ./packages/jyycode/script/build.ts --skip-embed-web-ui
+        run: bun ./packages/jyycode/script/build.ts --skip-embed-web-ui
         env:
           JYYCODE_VERSION: ${{ inputs.version }}
           JYYCODE_RELEASE: "1"
