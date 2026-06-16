@@ -88,7 +88,8 @@ export async function* generatorsAll<A>(
   }
 
   const next = (generator: AsyncGenerator<A, void>): Promise<Queued> => {
-    const promise = generator.next().then(({ done, value }) => ({
+    let promise!: Promise<Queued>
+    promise = generator.next().then(({ done, value }) => ({
       done,
       value,
       generator,
