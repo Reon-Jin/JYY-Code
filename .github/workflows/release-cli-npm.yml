@@ -1,0 +1,87 @@
+name: release-cli-npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, for example 1.15.11"
+        required: true
+        type: string
+      npm_tag:
+        description: "npm dist-tag"
+        required: false
+        default: latest
+        type: string
+
+permissions:
+  contents: write
+
+concurrency: release-cli-npm-${{ inputs.version }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      NPM_TAG: ${{ inputs.npm_tag }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Validate release inputs
+        shell: bash
+        run: |
+          node -e "const version=process.env.VERSION; if (!/^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error('Invalid semver: ' + version)"
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "Missing repository secret: NPM_TOKEN"
+            exit 1
+          fi
+
+      - name: Install archive tools
+        run: sudo apt-get update && sudo apt-get install -y zip
+
+      - name: Set package versions
+        run: node ./script/set-release-version.cjs "$VERSION"
+
+      - name: Create draft GitHub release
+        shell: bash
+        run: |
+          if gh release view "v$VERSION" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release edit "v$VERSION" --repo "$GH_REPO" --title "v$VERSION" --notes "JYY-Code v$VERSION"
+          else
+            gh release create "v$VERSION" --repo "$GH_REPO" --draft --title "v$VERSION" --notes "JYY-Code v$VERSION"
+          fi
+
+      - name: Build and upload CLI release assets
+        run: ./packages/jyycode/script/build.ts --skip-embed-web-ui
+        env:
+          JYYCODE_VERSION: ${{ inputs.version }}
+          JYYCODE_RELEASE: "1"
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
+      - name: Check npm package contents
+        run: npm pack --dry-run
+
+      - name: Publish npm wrapper
+        run: npm publish --access public --tag "$NPM_TAG"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish GitHub release
+        run: gh release edit "v$VERSION" --repo "$GH_REPO" --draft=false

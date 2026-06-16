@@ -151,7 +151,7 @@ jyycode models openai
 ### 从源码开发
 
 ```bash
-git clone https://github.com/anomalyco/jyycode.git
+git clone https://github.com/Reon-Jin/JYY-Code.git
 cd jyycode
 bun install
 bun run dev
@@ -243,4 +243,4 @@ GET /session/:sessionID/agent-cluster
 
 ## License
 
-MIT (c) [JYYCode](https://github.com/anomalyco/jyycode)
+MIT (c) [JYYCode](https://github.com/Reon-Jin/JYY-Code)

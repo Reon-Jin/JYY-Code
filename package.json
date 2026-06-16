@@ -1,18 +1,31 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "jyycode",
-  "description": "JYYCode: AI-powered development tool with communication capabilities",
-  "private": true,
+  "name": "jyycode-ai",
+  "version": "1.15.10",
+  "description": "JYYCode CLI installer",
+  "private": false,
   "type": "module",
   "packageManager": "bun@1.3.14",
   "scripts": {
     "dev": "bun run --cwd packages/jyycode --conditions=browser src/index.ts",
     "lint": "oxlint",
     "typecheck": "bun turbo typecheck",
-    "postinstall": "bun run --cwd packages/jyycode fix-node-pty",
-    "prepare": "husky",
+    "postinstall": "node ./script/postinstall.cjs",
+    "prepare": "node ./script/prepare.cjs",
     "test": "echo 'do not run tests from root' && exit 1"
   },
+  "bin": {
+    "jyy": "./bin/jyycode.cjs",
+    "jyycode": "./bin/jyycode.cjs"
+  },
+  "files": [
+    "bin",
+    "script/postinstall.cjs",
+    "script/prepare.cjs",
+    "LICENSE",
+    "README.md",
+    "README-zh.md"
+  ],
   "workspaces": {
     "packages": [
       "packages/*",
@@ -69,12 +82,9 @@
     "semver": "^7.6.0",
     "turbo": "2.8.13"
   },
-  "dependencies": {
-    "typescript": "catalog:"
-  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/anomalyco/jyycode"
+    "url": "https://github.com/Reon-Jin/JYY-Code"
   },
   "license": "MIT",
   "prettier": {

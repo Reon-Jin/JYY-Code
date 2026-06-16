@@ -151,7 +151,7 @@ Use `provider`, `permission`, and `plugin` as the canonical config keys. The loa
 ### Develop From Source
 
 ```bash
-git clone https://github.com/anomalyco/jyycode.git
+git clone https://github.com/Reon-Jin/JYY-Code.git
 cd jyycode
 bun install
 bun run dev
@@ -221,4 +221,4 @@ Returns persisted agent cluster runs and tasks for a session. The TUI uses this 
 
 ## License
 
-MIT (c) [JYYCode](https://github.com/anomalyco/jyycode)
+MIT (c) [JYYCode](https://github.com/Reon-Jin/JYY-Code)
