@@ -620,6 +620,90 @@ describe("session.compaction.shouldCompact", () => {
   )
 })
 
+describe("session.compaction.microCompact", () => {
+  it.instance("ignores pending, running, and error tool states", () =>
+    Effect.gen(function* () {
+      const compact = yield* SessionCompaction.Service
+      const sessionID = SessionID.make("ses_micro_compaction_states")
+      const parentID = MessageID.ascending()
+      const messageID = MessageID.ascending()
+      const messages: MessageV2.WithParts[] = [
+        {
+          info: {
+            id: messageID,
+            role: "assistant",
+            sessionID,
+            mode: "build",
+            agent: "build",
+            path: { cwd: "/tmp", root: "/tmp" },
+            cost: 0,
+            tokens: {
+              output: 0,
+              input: 0,
+              reasoning: 0,
+              cache: { read: 0, write: 0 },
+            },
+            modelID: ref.modelID,
+            providerID: ref.providerID,
+            parentID,
+            time: { created: Date.now() },
+            finish: "end_turn",
+          },
+          parts: [
+            {
+              id: PartID.ascending(),
+              messageID,
+              sessionID,
+              type: "tool",
+              callID: "pending",
+              tool: "bash",
+              state: { status: "pending", input: {}, raw: "{}" },
+            },
+            {
+              id: PartID.ascending(),
+              messageID,
+              sessionID,
+              type: "tool",
+              callID: "running",
+              tool: "bash",
+              state: { status: "running", input: {}, time: { start: Date.now() } },
+            },
+            {
+              id: PartID.ascending(),
+              messageID,
+              sessionID,
+              type: "tool",
+              callID: "completed",
+              tool: "bash",
+              state: {
+                status: "completed",
+                input: {},
+                output: "completed output",
+                title: "done",
+                metadata: {},
+                time: { start: Date.now(), end: Date.now() },
+              },
+            },
+            {
+              id: PartID.ascending(),
+              messageID,
+              sessionID,
+              type: "tool",
+              callID: "error",
+              tool: "bash",
+              state: { status: "error", input: {}, error: "failed", time: { start: Date.now(), end: Date.now() } },
+            },
+          ],
+        },
+      ]
+
+      const result = yield* compact.microCompact({ messages })
+
+      expect(result).toEqual(messages)
+    }),
+  )
+})
+
 describe("session.compaction.create", () => {
   it.live(
     "creates a compaction user message and part",

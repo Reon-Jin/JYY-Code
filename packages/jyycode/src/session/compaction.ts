@@ -57,6 +57,13 @@ const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
 const MAX_PRESERVE_RECENT_TOKENS = 8_000
 export const AUTO_FAILURE_LIMIT = 3
+
+function isCompletedToolPart(part: MessageV2.Part): part is MessageV2.ToolPart & {
+  state: MessageV2.ToolStateCompleted
+} {
+  return part.type === "tool" && part.state.status === "completed"
+}
+
 const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
 <template>
 ## Goal
@@ -650,7 +657,7 @@ export const layer = Layer.effect(
       const result = structuredClone(input.messages)
       for (const msg of result) {
         for (const part of msg.parts) {
-          if (part.type !== "tool") continue
+          if (!isCompletedToolPart(part)) continue
           if (!isCompactable(part)) continue
           const compacted = microCompactOutput(part.state.output)
           if (compacted) {
@@ -664,7 +671,7 @@ export const layer = Layer.effect(
     const detectReactiveNeed = Effect.fn("SessionCompaction.detectReactiveNeed")(function* (input: {
       messages: MessageV2.WithParts[]
     }) {
-      return detectReactiveCompactTrigger(input.messages)
+      return detectReactiveCompactTrigger(input.messages) ? "prompt_too_long" : null
     })
 
     const tokenWarningStateFn = Effect.fn("SessionCompaction.tokenWarningState")(function* (input: {
