@@ -104,6 +104,10 @@ function run(command, args, options = {}) {
   }
 }
 
+function psSingleQuoted(value) {
+  return `'${String(value).replace(/'/g, "''")}'`
+}
+
 async function extract(archive, binary, target) {
   const tmp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "jyycode-"))
   try {
@@ -114,9 +118,7 @@ async function extract(archive, binary, target) {
           "-ExecutionPolicy",
           "Bypass",
           "-Command",
-          "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
-          archive,
-          tmp,
+          `Expand-Archive -LiteralPath ${psSingleQuoted(archive)} -DestinationPath ${psSingleQuoted(tmp)} -Force`,
         ])
       } else {
         run("unzip", ["-oq", archive, "-d", tmp])
