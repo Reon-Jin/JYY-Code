@@ -85,8 +85,7 @@ export const layer = Layer.effect(
       )
       for (const entry of rootEntries) {
         const fullPath = path.join(TRUNCATION_DIR, entry)
-        const stat = yield* fs.stat(fullPath).pipe(Effect.catch(() => Effect.succeed(undefined)))
-        if (stat?.type === "directory") {
+        if (yield* fs.isDir(fullPath).pipe(Effect.catch(() => Effect.succeed(false)))) {
           const subEntries = yield* fs.readDirectory(fullPath).pipe(
             Effect.catch(() => Effect.succeed([])),
           )

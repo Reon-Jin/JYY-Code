@@ -261,5 +261,26 @@ describe("Truncate", () => {
         expect(yield* fs.exists(recent)).toBe(true)
       }),
     )
+
+    it.live("cleans stale files inside session directories", () =>
+      Effect.gen(function* () {
+        const svc = yield* Truncate.Service
+        const fs = yield* FileSystem.FileSystem
+
+        const sessionDir = path.join(Truncate.DIR, `cleanup-session-${Date.now()}`)
+        yield* Effect.addFinalizer(() => fs.remove(sessionDir, { recursive: true, force: true }).pipe(Effect.orDie))
+        yield* fs.makeDirectory(sessionDir, { recursive: true })
+
+        const old = path.join(sessionDir, Identifier.create("tool", "ascending", Date.now() - 10 * DAY_MS))
+        const recent = path.join(sessionDir, Identifier.create("tool", "ascending", Date.now() - 3 * DAY_MS))
+
+        yield* writeFileStringScoped(old, "old content")
+        yield* writeFileStringScoped(recent, "recent content")
+        yield* svc.cleanup()
+
+        expect(yield* fs.exists(old)).toBe(false)
+        expect(yield* fs.exists(recent)).toBe(true)
+      }),
+    )
   })
 })
