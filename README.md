@@ -115,13 +115,7 @@ jyy
 
 ### Configure A Model Provider
 
-The easiest path is the built-in credential command:
-
-```bash
-jyycode auth login --provider openai
-jyycode models openai
-jyy
-```
+Use the /connect command to select a model provider and enter your API key.
 
 You can also use environment variables supported by the selected provider, for example:
 
