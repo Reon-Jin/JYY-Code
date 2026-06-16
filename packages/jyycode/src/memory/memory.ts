@@ -78,6 +78,7 @@ export interface Interface {
     reason: string
   }) => Effect.Effect<MutationResult, Error>
   readonly usage: (sessionID: SessionID, scope: Scope) => Effect.Effect<UsageInfo>
+  readonly formatWithHeader: (sessionID: SessionID, scope: Scope) => Effect.Effect<string>
   readonly updateAfterTurn: (sessionID: SessionID) => Effect.Effect<void>
 }
 
