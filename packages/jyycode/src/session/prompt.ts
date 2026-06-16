@@ -1345,14 +1345,14 @@ export const layer = Layer.effect(
           return AgentClusterRuntime.extractPlanFromText(text)
         }
 
-        function hasClusterPlan(message: MessageV2.WithParts | undefined) {
-          return clusterPlan(message) !== undefined
-        }
-
         function clusterRunID(messages: MessageV2.WithParts[]) {
+          function metadataOf(part: MessageV2.Part): Record<string, unknown> | undefined {
+            return "metadata" in part ? part.metadata : undefined
+          }
+
           for (const message of messages) {
             for (const part of message.parts) {
-              const metadata = part.metadata as { kind?: string; runID?: string } | undefined
+              const metadata = metadataOf(part) as { kind?: string; runID?: string } | undefined
               if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID as RunID
             }
           }

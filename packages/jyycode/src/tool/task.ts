@@ -58,7 +58,7 @@ function agentClusterRunID(ctx: Tool.Context) {
   if (typeof ctx.extra?.agentClusterRunID === "string") return ctx.extra.agentClusterRunID
   for (const message of ctx.messages) {
     for (const part of message.parts) {
-      const metadata = part.metadata as { kind?: string; runID?: string } | undefined
+      const metadata = "metadata" in part ? (part.metadata as { kind?: string; runID?: string } | undefined) : undefined
       if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID
     }
   }
