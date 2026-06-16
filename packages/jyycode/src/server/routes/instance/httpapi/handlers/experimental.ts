@@ -10,7 +10,12 @@ import { Effect } from "effect"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { SessionListQuery, ToolListQuery, WorktreeApiError } from "../groups/experimental"
+import {
+  ConsoleSwitchPayload,
+  SessionListQuery,
+  ToolListQuery,
+  WorktreeApiError,
+} from "../groups/experimental"
 
 function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
   return self.pipe(
@@ -25,6 +30,23 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const project = yield* Project.Service
     const registry = yield* ToolRegistry.Service
     const worktreeSvc = yield* Worktree.Service
+
+    const console = Effect.fn("ExperimentalHttpApi.console")(function* () {
+      return {
+        consoleManagedProviders: [],
+        switchableOrgCount: 0,
+      }
+    })
+
+    const consoleOrgs = Effect.fn("ExperimentalHttpApi.consoleOrgs")(function* () {
+      return { orgs: [] }
+    })
+
+    const consoleSwitch = Effect.fn("ExperimentalHttpApi.consoleSwitch")(function* (_ctx: {
+      payload: typeof ConsoleSwitchPayload.Type
+    }) {
+      return true
+    })
 
     const tool = Effect.fn("ExperimentalHttpApi.tool")(function* (ctx: { query: typeof ToolListQuery.Type }) {
       const list = yield* registry.tools({
@@ -97,6 +119,9 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     })
 
     return handlers
+      .handle("console", console)
+      .handle("consoleOrgs", consoleOrgs)
+      .handle("consoleSwitch", consoleSwitch)
       .handle("tool", tool)
       .handle("toolIDs", toolIDs)
       .handle("worktree", worktree)

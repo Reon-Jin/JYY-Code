@@ -21,6 +21,18 @@ const ToolListItem = Schema.Struct({
   parameters: Schema.Unknown,
 }).annotate({ identifier: "ToolListItem" })
 const ToolList = Schema.Array(ToolListItem).annotate({ identifier: "ToolList" })
+export const ConsoleState = Schema.Struct({
+  consoleManagedProviders: Schema.Array(Schema.String),
+  switchableOrgCount: Schema.Number,
+}).annotate({ identifier: "ConsoleState" })
+export const ConsoleOrgList = Schema.Struct({
+  orgs: Schema.Array(Schema.Unknown),
+}).annotate({ identifier: "ConsoleOrgList" })
+export const ConsoleSwitchPayload = Schema.Struct({
+  accountID: Schema.String,
+  orgID: Schema.String,
+}).annotate({ identifier: "ConsoleSwitchPayload" })
+const ConsoleSwitchResult = Schema.Boolean.annotate({ identifier: "ConsoleSwitchResult" })
 export const ToolListQuery = Schema.Struct({
   ...WorkspaceRoutingQueryFields,
   provider: ProviderID,
@@ -55,6 +67,9 @@ export const SessionListQuery = Schema.Struct({
 })
 
 export const ExperimentalPaths = {
+  console: "/experimental/console",
+  consoleOrgs: "/experimental/console/orgs",
+  consoleSwitch: "/experimental/console/switch",
   tool: "/experimental/tool",
   toolIDs: "/experimental/tool/ids",
   worktree: "/experimental/worktree",
@@ -67,6 +82,34 @@ export const ExperimentalApi = HttpApi.make("experimental")
   .add(
     HttpApiGroup.make("experimental")
       .add(
+        HttpApiEndpoint.get("console", ExperimentalPaths.console, {
+          success: described(ConsoleState, "Console state"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.console.get",
+            summary: "Get console state",
+            description: "Get console-managed provider state and organization switching availability.",
+          }),
+        ),
+        HttpApiEndpoint.get("consoleOrgs", ExperimentalPaths.consoleOrgs, {
+          success: described(ConsoleOrgList, "Console organizations"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.console.listOrgs",
+            summary: "List console organizations",
+            description: "List console organizations available for switching.",
+          }),
+        ),
+        HttpApiEndpoint.post("consoleSwitch", ExperimentalPaths.consoleSwitch, {
+          payload: ConsoleSwitchPayload,
+          success: described(ConsoleSwitchResult, "Console organization switched"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.console.switchOrg",
+            summary: "Switch console organization",
+            description: "Switch the active console organization for an authenticated account.",
+          }),
+        ),
         HttpApiEndpoint.get("tool", ExperimentalPaths.tool, {
           query: ToolListQuery,
           success: described(ToolList, "Tools"),

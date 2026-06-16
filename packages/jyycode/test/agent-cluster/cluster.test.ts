@@ -5,6 +5,7 @@ import type { Plan, RunID } from "../../src/agent-cluster/schema"
 import { ClusterPrimaryPrompt, runInstructions } from "../../src/agent-cluster/planner"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 import { ConfigAgentCluster } from "../../src/config/agent-cluster"
+import { ModelID, ProviderID } from "../../src/provider/schema"
 import * as Database from "../../src/storage/db"
 import { Session } from "../../src/session/session"
 import { MessageID } from "../../src/session/schema"
@@ -284,7 +285,7 @@ describe("AgentCluster.persistPlan", () => {
         role: "user",
         sessionID: chat.id,
         agent: "cluster",
-        model: { providerID: "test", modelID: "test" },
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
         time: { created: Date.now() },
       })
       const runID = AgentCluster.createRunID() as RunID
@@ -343,8 +344,8 @@ describe("AgentCluster.persistPlan", () => {
           .map((row) => ({ id: row.id, status: row.status, runID: row.run_id }))
           .sort((a, b) => a.id.localeCompare(b.id)),
       ).toEqual([
-        { id: "build", status: "planned", runID },
-        { id: "research", status: "planned", runID },
+        { id: AgentClusterRuntime.coerceTaskID("build"), status: "planned", runID },
+        { id: AgentClusterRuntime.coerceTaskID("research"), status: "planned", runID },
       ])
     }),
   )
@@ -360,7 +361,7 @@ describe("AgentCluster.finalizeRunIfTerminal", () => {
         role: "user",
         sessionID: chat.id,
         agent: "cluster",
-        model: { providerID: "test", modelID: "test" },
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
         time: { created: Date.now() },
       })
       const runID = AgentCluster.createRunID() as RunID
@@ -479,7 +480,7 @@ describe("AgentClusterRuntime.validatePlan", () => {
     expect(
       AgentClusterRuntime.nextReadyBatch(plan, {
         completed: [],
-        failed: ["research"],
+        failed: [AgentClusterRuntime.coerceTaskID("research")],
       }),
     ).toMatchObject({
       tasks: [],

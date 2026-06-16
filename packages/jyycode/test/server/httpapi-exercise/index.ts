@@ -378,9 +378,10 @@ const scenarios: Scenario[] = [
     .json(
       200,
       (body, ctx) => {
+        const command = process.platform === "win32" ? "cmd.exe" : "/bin/sh"
         object(body)
         check(body.title === "HTTP API PTY", "PTY create should return requested title")
-        check(body.command === "/bin/sh", "PTY create should use controlled shell command")
+        check(body.command === command, "PTY create should use controlled shell command")
         check(body.cwd === ctx.directory, "PTY create should default cwd to scenario directory")
       },
       "status",
@@ -427,7 +428,9 @@ const scenarios: Scenario[] = [
       headers: ctx.headers(),
       body: { accountID: "httpapi-account", orgID: "httpapi-org" },
     }))
-    .status(400, undefined, "none"),
+    .json(200, (body) => {
+      check(body === true, "console organization switch should return true")
+    }),
   http.protected.get("/experimental/workspace/adapter", "experimental.workspace.adapter.list").json(200, array),
   http.protected.get("/experimental/workspace", "experimental.workspace.list").json(200, array),
   http.protected.get("/experimental/workspace/status", "experimental.workspace.status").json(200, array),
@@ -498,8 +501,14 @@ const scenarios: Scenario[] = [
       headers: ctx.headers(),
       body: { directory: ctx.state.directory },
     }))
-    .jsonEffect(200, (body, ctx) =>
+    .jsonEffect(process.platform === "win32" ? 400 : 200, (body, ctx) =>
       Effect.gen(function* () {
+        if (process.platform === "win32") {
+          object(body)
+          check(body.name === "WorktreeResetFailedError", "Windows worktree reset should return declared error")
+          yield* ctx.worktreeRemove(ctx.state.directory)
+          return
+        }
         check(body === true, "worktree reset should return true")
         yield* ctx.worktreeRemove(ctx.state.directory)
       }),
@@ -816,6 +825,18 @@ const scenarios: Scenario[] = [
         body.some((item) => isRecord(item) && item.id === ctx.state.child.id && item.parentID === ctx.state.parent.id),
         "children should include seeded child",
       )
+    }),
+  http.protected
+    .get("/session/{sessionID}/agent-cluster", "session.agentCluster")
+    .seeded((ctx) => ctx.session({ title: "Cluster state session" }))
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/agent-cluster", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(Array.isArray(body.runs), "agent cluster state should include runs")
+      check(Array.isArray(body.tasks), "agent cluster state should include tasks")
     }),
   http.protected
     .get("/session/{sessionID}/todo", "session.todo")
