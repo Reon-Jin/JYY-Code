@@ -72,11 +72,15 @@ Markdown-based skills load domain knowledge, workflows, and tool integrations fr
 
 ### Intelligent Tool Search
 
-Token-based relevance scoring helps the agent find the right tool without exposing the full catalog every turn.
+Field-weighted BM25 retrieval helps the agent find the right tool without exposing the full catalog every turn.
 
-- Scores tool IDs and descriptions.
-- Ranks exact, substring, and content matches.
+- Searches the currently available prompt tool catalog instead of a static global list.
+- Scores tool IDs, tags, categories, parameter names, descriptions, and examples with separate field weights.
+- Uses BM25 term-frequency and inverse-document-frequency scoring so rare, specific terms outrank generic repeated words.
+- Preserves strong exact-match boosts for tool IDs and full-query ID matches.
+- Supports category filtering and intent bonuses for write-oriented and communication-oriented requests.
 - Returns parameter summaries for fast tool selection.
+- Covered by deterministic top-k fixtures and real registry tests that verify common intents such as read, edit, write, grep, web fetch, and sub-agent delegation rank the expected tool in the top results.
 
 ### Architecture Optimizations
 
