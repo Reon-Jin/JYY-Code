@@ -31,6 +31,12 @@ export const MemoryTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
+      catalog: {
+        category: "memory",
+        mutability: "write",
+        risk: "medium",
+        detail: "standard",
+      },
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           yield* ctx.ask({

@@ -334,6 +334,12 @@ export const ReadTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
+      catalog: {
+        category: "filesystem",
+        mutability: "read",
+        risk: "low",
+        detail: "core",
+      },
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         run(params, ctx).pipe(Effect.orDie),
     }

@@ -107,6 +107,12 @@ export const WebSearchTool = Tool.define(
         return DESCRIPTION.replace("{{year}}", new Date().getFullYear().toString())
       },
       parameters: Parameters,
+      catalog: {
+        category: "web",
+        mutability: "external",
+        risk: "medium",
+        detail: "standard",
+      },
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const provider = selectWebSearchProvider(ctx.sessionID, {

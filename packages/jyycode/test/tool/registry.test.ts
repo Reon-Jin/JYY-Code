@@ -121,6 +121,31 @@ describe("tool.registry", () => {
     }),
   )
 
+  it.instance("preserves catalog metadata on prompt tools", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const tools = yield* registry.tools({
+        providerID: ProviderID.jyycode,
+        modelID: ModelID.make("test"),
+        agent: yield* agents.defaultInfo(),
+      })
+      const read = tools.find((tool) => tool.id === "read")
+      const grep = tools.find((tool) => tool.id === "grep")
+
+      expect(read?.catalog).toMatchObject({
+        category: "filesystem",
+        mutability: "read",
+        risk: "low",
+      })
+      expect(grep?.catalog).toMatchObject({
+        category: "code-search",
+        mutability: "read",
+        risk: "low",
+      })
+    }),
+  )
+
   scout.instance("shows repo research tools when experimental scout is enabled", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service

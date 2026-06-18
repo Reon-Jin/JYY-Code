@@ -826,6 +826,12 @@ export const TaskTool = Tool.define(
     return {
       description: flags.experimentalBackgroundSubagents ? DESCRIPTION + BACKGROUND_DESCRIPTION : DESCRIPTION,
       parameters: Parameters,
+      catalog: {
+        category: "subagent",
+        mutability: "external",
+        risk: "medium",
+        detail: "core",
+      },
       jsonSchema: flags.experimentalBackgroundSubagents ? undefined : ToolJsonSchema.fromSchema(BaseParameters),
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         run(params, ctx).pipe(Effect.orDie),

@@ -179,6 +179,12 @@ export const TaskStatusTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
+      catalog: {
+        category: "subagent",
+        mutability: "read",
+        risk: "medium",
+        detail: "standard",
+      },
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         run(params, ctx).pipe(Effect.orDie),
     }

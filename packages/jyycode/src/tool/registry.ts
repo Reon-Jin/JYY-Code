@@ -176,6 +176,12 @@ export const layer: Layer.Layer<
             parameters,
             jsonSchema,
             description: def.description,
+            catalog: {
+              category: "other",
+              mutability: "external",
+              risk: "medium",
+              detail: "advanced",
+            },
             execute: (args, toolCtx) =>
               Effect.gen(function* () {
                 // Bridge the host's Effect-based `ask` into a Promise-returning
@@ -401,6 +407,7 @@ export const layer: Layer.Layer<
               .filter(Boolean)
               .join("\n"),
             parameters: output.parameters,
+            catalog: tool.catalog,
             jsonSchema: taskJsonSchema ?? (clusterTask ? undefined : jsonSchema),
             execute: tool.execute,
             formatValidationError: tool.formatValidationError,

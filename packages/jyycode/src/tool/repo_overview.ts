@@ -176,6 +176,12 @@ export const RepoOverviewTool = Tool.define<typeof Parameters, Metadata, AppFile
     return {
       description: DESCRIPTION,
       parameters: Parameters,
+      catalog: {
+        category: "code-search",
+        mutability: "read",
+        risk: "low",
+        detail: "standard",
+      },
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<Metadata>) =>
         Effect.gen(function* () {
           const target = yield* resolveTarget(params)

@@ -78,6 +78,30 @@ describe("Tool.define", () => {
     }),
   )
 
+  it.effect("preserves catalog metadata through init", () =>
+    Effect.gen(function* () {
+      const info = yield* Tool.define(
+        "test-catalog",
+        Effect.succeed({
+          ...makeTool("test"),
+          catalog: {
+            category: "filesystem" as const,
+            mutability: "read" as const,
+            risk: "low" as const,
+          },
+        }),
+      )
+
+      const loaded = yield* Tool.init(info)
+
+      expect(loaded.catalog).toMatchObject({
+        category: "filesystem",
+        mutability: "read",
+        risk: "low",
+      })
+    }),
+  )
+
   it.effect("execute receives decoded parameters", () =>
     Effect.gen(function* () {
       const parameters = Schema.Struct({

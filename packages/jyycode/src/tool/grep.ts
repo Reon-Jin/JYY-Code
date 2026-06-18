@@ -31,6 +31,12 @@ export const GrepTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
+      catalog: {
+        category: "code-search",
+        mutability: "read",
+        risk: "low",
+        detail: "core",
+      },
       execute: (params: { pattern: string; path?: string; include?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const empty = {

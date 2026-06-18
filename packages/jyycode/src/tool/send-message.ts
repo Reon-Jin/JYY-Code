@@ -20,6 +20,12 @@ export const SendMessageTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
+      catalog: {
+        category: "communication",
+        mutability: "external",
+        risk: "high",
+        detail: "advanced",
+      },
       execute: (params: typeof Parameters.Type, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const cfg = yield* config.get()

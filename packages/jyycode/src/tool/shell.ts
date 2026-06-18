@@ -607,6 +607,12 @@ export const ShellTool = Tool.define(
         return {
           description: prompt.description,
           parameters: prompt.parameters,
+          catalog: {
+            category: "execution",
+            mutability: "execute",
+            risk: "high",
+            detail: "core",
+          },
           execute: (params: Parameters, ctx: Tool.Context) =>
             Effect.gen(function* () {
               const instanceCtx = yield* InstanceState.context

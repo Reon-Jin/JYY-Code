@@ -50,6 +50,24 @@ export interface ExecuteResult<M extends Metadata = Metadata> {
   attachments?: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[]
 }
 
+export interface CatalogMetadata {
+  category?:
+    | "filesystem"
+    | "code-search"
+    | "execution"
+    | "web"
+    | "mcp"
+    | "subagent"
+    | "communication"
+    | "memory"
+    | "other"
+  mutability?: "read" | "write" | "execute" | "external"
+  risk?: "low" | "medium" | "high"
+  tags?: string[]
+  examples?: string[]
+  detail?: "core" | "standard" | "advanced"
+}
+
 export interface Def<
   Parameters extends Schema.Decoder<unknown> = Schema.Decoder<unknown>,
   M extends Metadata = Metadata,
@@ -57,6 +75,7 @@ export interface Def<
   id: string
   description: string
   parameters: Parameters
+  catalog?: CatalogMetadata
   jsonSchema?: JSONSchema7
   execute(args: Schema.Schema.Type<Parameters>, ctx: Context): Effect.Effect<ExecuteResult<M>>
   formatValidationError?(error: unknown): string
