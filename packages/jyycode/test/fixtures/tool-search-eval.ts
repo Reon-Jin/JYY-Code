@@ -1,7 +1,7 @@
 export const toolSearchEvalFixtures = [
   {
     query: "change one file",
-    expectedTopK: ["apply_patch", "edit", "write"],
+    expectedTopK: ["edit", "apply_patch", "write"],
   },
   {
     query: "find symbol definition",

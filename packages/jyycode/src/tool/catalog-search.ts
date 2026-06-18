@@ -17,9 +17,29 @@ export type SearchResult = {
   score: number
 }
 
+type FieldName = "id" | "tags" | "category" | "parameters" | "description" | "examples"
+
+type FieldStats = {
+  averageLength: number
+  documentFrequency: Map<string, number>
+}
+
+type SearchStats = Record<FieldName, FieldStats>
+
 const DEFAULT_LIMIT = 8
 const MIN_LIMIT = 1
 const MAX_LIMIT = 20
+const BM25_K1 = 1.2
+const BM25_B = 0.75
+
+const FIELD_WEIGHTS: Record<FieldName, number> = {
+  id: 4,
+  tags: 3,
+  category: 1.5,
+  parameters: 1.2,
+  description: 1,
+  examples: 1.5,
+}
 
 export function clampLimit(limit = DEFAULT_LIMIT) {
   return Math.max(MIN_LIMIT, Math.min(MAX_LIMIT, Math.floor(limit)))
@@ -38,12 +58,15 @@ export function search(input: SearchInput): SearchResult[] {
   const limit = clampLimit(input.limit)
   if (terms.length === 0 && !category) return []
 
-  return input.tools
+  const candidates = input.tools
     .filter((tool) => tool.id !== "tool_search")
     .filter((tool) => (category ? tool.catalog?.category === category : true))
+  const stats = buildStats(candidates)
+
+  return candidates
     .map((tool) => ({
       tool,
-      score: score(tool, terms, input.query) + (category && terms.length === 0 ? 20 : 0),
+      score: score(tool, terms, input.query, stats, candidates.length) + (category && terms.length === 0 ? 20 : 0),
     }))
     .filter((item) => item.score > 0)
     .toSorted((a, b) => b.score - a.score || a.tool.id.localeCompare(b.tool.id))
@@ -57,23 +80,17 @@ export function formatResults(results: SearchResult[], options: { detail?: Detai
   return results.map((result) => formatResult(result, detail)).join("\n\n")
 }
 
-function score(tool: Tool.Def, terms: string[], query: string) {
+function score(tool: Tool.Def, terms: string[], query: string, stats: SearchStats, documentCount: number) {
   const id = tool.id.toLowerCase()
-  const idTokens = tokenize(tool.id)
-  const descriptionTokens = tokenize(tool.description)
-  const categoryTokens = tokenize(tool.catalog?.category)
-  const tagTokens = (tool.catalog?.tags ?? []).flatMap(tokenize)
-  const parameterTokens = parameterNames(tool).flatMap(tokenize)
   const normalizedQuery = query.trim().toLowerCase()
+  const fields = toolFields(tool)
 
   let total = normalizedQuery === id ? 100 : 0
   for (const term of terms) {
     if (id === term) total += 100
-    if (idTokens.includes(term)) total += 40
-    if (tagTokens.includes(term)) total += 25
-    if (categoryTokens.includes(term)) total += 20
-    if (descriptionTokens.includes(term)) total += bm25ish(descriptionTokens, term) * 10
-    if (parameterTokens.includes(term)) total += 5
+    for (const [field, tokens] of Object.entries(fields) as [FieldName, string[]][]) {
+      total += FIELD_WEIGHTS[field] * bm25(tokens, term, stats[field], documentCount)
+    }
   }
   total += intentBonus(tool, terms)
   return total
@@ -91,10 +108,47 @@ function intentBonus(tool: Tool.Def, terms: string[]) {
   return 0
 }
 
-function bm25ish(tokens: string[], term: string) {
+function buildStats(tools: Tool.Def[]): SearchStats {
+  const fields = Object.keys(FIELD_WEIGHTS) as FieldName[]
+  const result = Object.fromEntries(
+    fields.map((field) => [field, { averageLength: 0, documentFrequency: new Map<string, number>() }]),
+  ) as SearchStats
+
+  for (const field of fields) {
+    const documents = tools.map((tool) => toolFields(tool)[field])
+    result[field].averageLength =
+      documents.length === 0 ? 0 : documents.reduce((sum, tokens) => sum + tokens.length, 0) / documents.length
+    for (const tokens of documents) {
+      for (const token of new Set(tokens)) {
+        result[field].documentFrequency.set(token, (result[field].documentFrequency.get(token) ?? 0) + 1)
+      }
+    }
+  }
+
+  return result
+}
+
+function toolFields(tool: Tool.Def): Record<FieldName, string[]> {
+  return {
+    id: tokenize(tool.id),
+    tags: (tool.catalog?.tags ?? []).flatMap(tokenize),
+    category: tokenize(tool.catalog?.category),
+    parameters: parameterNames(tool).flatMap(tokenize),
+    description: tokenize(tool.description),
+    examples: (tool.catalog?.examples ?? []).flatMap(tokenize),
+  }
+}
+
+function bm25(tokens: string[], term: string, stats: FieldStats, documentCount: number) {
   const frequency = tokens.filter((token) => token === term).length
   if (frequency === 0) return 0
-  return frequency / (frequency + 1)
+  const documentFrequency = stats.documentFrequency.get(term) ?? 0
+  const idf = Math.log(1 + (documentCount - documentFrequency + 0.5) / (documentFrequency + 0.5))
+  const averageLength = stats.averageLength || 1
+  const length = tokens.length
+  const normalizedFrequency =
+    (frequency * (BM25_K1 + 1)) / (frequency + BM25_K1 * (1 - BM25_B + BM25_B * (length / averageLength)))
+  return idf * normalizedFrequency
 }
 
 function formatResult(result: SearchResult, detail: Detail) {

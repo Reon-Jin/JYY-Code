@@ -133,6 +133,35 @@ describe("CatalogSearch", () => {
     expect(results.map((item) => item.tool.id)).toEqual(["search"])
   })
 
+  it("downweights common terms compared with rarer field matches", () => {
+    const tools = [
+      tool({
+        id: "reader",
+        description: "Read file content",
+        catalog: { tags: ["file"] },
+      }),
+      tool({
+        id: "opener",
+        description: "Open file content",
+        catalog: { tags: ["file"] },
+      }),
+      tool({
+        id: "previewer",
+        description: "Preview file content",
+        catalog: { tags: ["file"] },
+      }),
+      tool({
+        id: "symbol_search",
+        description: "Search file symbols",
+        catalog: { tags: ["symbol"] },
+      }),
+    ]
+
+    const results = CatalogSearch.search({ query: "file symbol", tools })
+
+    expect(results[0]?.tool.id).toBe("symbol_search")
+  })
+
   it("keeps deterministic tool search eval fixtures meaningful", () => {
     const evalTools = [
       tool({
