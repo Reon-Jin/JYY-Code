@@ -28,6 +28,7 @@ import { ProviderV2 } from "@jyycode-ai/core/provider"
 import * as DateTime from "effect/DateTime"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Usage, type LLMEvent } from "@jyycode-ai/llm"
+import { ToolTelemetry } from "@/tool/telemetry"
 
 const DOOM_LOOP_THRESHOLD = 3
 const log = Log.create({ service: "session.processor" })
@@ -497,6 +498,16 @@ export const layer = Layer.effect(
                 timestamp: DateTime.makeUnsafe(Date.now()),
               })
             }
+            if (value.providerExecuted === true || toolCall?.part.metadata?.providerExecuted === true) {
+              yield* ToolTelemetry.executionCompleted(bus, {
+                sessionID: ctx.sessionID,
+                messageID: ctx.assistantMessage.id,
+                callID: value.id,
+                tool: value.name,
+                success: true,
+                status: "success",
+              })
+            }
             yield* completeToolCall(value.id, output)
             return
           }
@@ -516,6 +527,17 @@ export const layer = Layer.effect(
                   executed: toolCall?.part.metadata?.providerExecuted === true,
                 },
                 timestamp: DateTime.makeUnsafe(Date.now()),
+              })
+            }
+            if (toolCall?.part.metadata?.providerExecuted === true) {
+              yield* ToolTelemetry.executionCompleted(bus, {
+                sessionID: ctx.sessionID,
+                messageID: ctx.assistantMessage.id,
+                callID: value.id,
+                tool: value.name,
+                success: false,
+                status: "error",
+                error: value.message,
               })
             }
             yield* failToolCall(value.id, value.error ?? new Error(value.message))

@@ -61,6 +61,7 @@ import { SessionStatus } from "@/session/status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Memory } from "@/memory/memory"
 import { CatalogSearch } from "./catalog-search"
+import { ToolTelemetry } from "./telemetry"
 
 const log = Log.create({ service: "tool.registry" })
 
@@ -133,6 +134,7 @@ export const layer: Layer.Layer<
     const skill = yield* Skill.Service
     const truncate = yield* Truncate.Service
     const flags = yield* RuntimeFlags.Service
+    const bus = yield* Bus.Service
 
     const invalid = yield* InvalidTool
     const task = yield* TaskTool
@@ -420,7 +422,7 @@ export const layer: Layer.Layer<
         }),
         { concurrency: "unbounded" },
       )
-      return [toolSearchDef(resolved), ...resolved]
+      return [toolSearchDef(resolved, bus), ...resolved]
     })
 
     const named: Interface["named"] = Effect.fn("ToolRegistry.named")(function* () {
@@ -459,14 +461,14 @@ export const defaultLayer = Layer.suspend(() =>
     .pipe(Layer.provide(RuntimeFlags.defaultLayer)),
 )
 
-function toolSearchDef(tools: Tool.Def[]): Tool.Def<typeof ToolSearchParameters> {
+function toolSearchDef(tools: Tool.Def[], bus: Bus.Interface): Tool.Def<typeof ToolSearchParameters> {
   return {
     id: "tool_search",
     description:
       "Search the currently available tool catalog by ranked metadata and keyword matches. Use this when you are unsure which tool is best for a task.",
     parameters: ToolSearchParameters,
-    execute: (params) =>
-      Effect.sync(() => {
+    execute: (params, ctx) =>
+      Effect.gen(function* () {
         const detail = params.detail ?? "summary"
         const scored = CatalogSearch.search({
           tools,
@@ -476,12 +478,22 @@ function toolSearchDef(tools: Tool.Def[]): Tool.Def<typeof ToolSearchParameters>
           category: params.category,
         })
         const output = CatalogSearch.formatResults(scored, { detail })
+        const resultIDs = scored.map((item) => item.tool.id)
+        yield* ToolTelemetry.searchExecuted(bus, {
+          sessionID: ctx.sessionID,
+          messageID: ctx.messageID,
+          callID: ctx.callID,
+          query: params.query,
+          detail,
+          category: params.category,
+          resultIDs,
+        })
 
         return {
           title: `Tool search: ${params.query}`,
           metadata: {
             matches: scored.length,
-            resultIDs: scored.map((item) => item.tool.id),
+            resultIDs,
             detail,
             truncated: false,
           },
