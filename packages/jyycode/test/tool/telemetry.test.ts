@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect } from "bun:test"
 import { Effect, Layer, Schema } from "effect"
 import { Bus } from "@/bus"
 import { MCP } from "@/mcp"
@@ -13,7 +13,6 @@ import { Truncate } from "@/tool/truncate"
 import { Agent } from "@/agent/agent"
 import { testEffect, pollWithTimeout } from "../lib/effect"
 import { ProviderTest } from "../fake/provider"
-import { toolSearchEvalFixtures } from "../fixtures/tool-search-eval"
 
 const Parameters = Schema.Struct({ query: Schema.String })
 const provider = ProviderTest.fake()
@@ -207,15 +206,4 @@ describe("ToolTelemetry", () => {
       })
     }),
   )
-
-  test("keeps deterministic tool search eval fixtures", () => {
-    expect(toolSearchEvalFixtures.map((fixture) => fixture.query)).toEqual([
-      "change one file",
-      "find symbol definition",
-      "send file to user",
-      "query jira mcp",
-      "search docs",
-    ])
-    expect(toolSearchEvalFixtures.every((fixture) => fixture.expectedTopK.length > 0)).toBe(true)
-  })
 })

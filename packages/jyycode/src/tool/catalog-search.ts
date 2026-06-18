@@ -41,7 +41,10 @@ export function search(input: SearchInput): SearchResult[] {
   return input.tools
     .filter((tool) => tool.id !== "tool_search")
     .filter((tool) => (category ? tool.catalog?.category === category : true))
-    .map((tool) => ({ tool, score: score(tool, terms, input.query) }))
+    .map((tool) => ({
+      tool,
+      score: score(tool, terms, input.query) + (category && terms.length === 0 ? 20 : 0),
+    }))
     .filter((item) => item.score > 0)
     .toSorted((a, b) => b.score - a.score || a.tool.id.localeCompare(b.tool.id))
     .slice(0, limit)
@@ -72,7 +75,20 @@ function score(tool: Tool.Def, terms: string[], query: string) {
     if (descriptionTokens.includes(term)) total += bm25ish(descriptionTokens, term) * 10
     if (parameterTokens.includes(term)) total += 5
   }
+  total += intentBonus(tool, terms)
   return total
+}
+
+function intentBonus(tool: Tool.Def, terms: string[]) {
+  const writeTerms = ["change", "edit", "modify", "patch", "write"]
+  const communicationTerms = ["send", "message", "email", "share"]
+  if (tool.catalog?.mutability === "write" && terms.some((term) => writeTerms.includes(term))) {
+    return 30
+  }
+  if (tool.catalog?.category === "communication" && terms.some((term) => communicationTerms.includes(term))) {
+    return 30
+  }
+  return 0
 }
 
 function bm25ish(tokens: string[], term: string) {

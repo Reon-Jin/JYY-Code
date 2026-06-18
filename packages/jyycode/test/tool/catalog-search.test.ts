@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { Schema } from "effect"
 import { CatalogSearch } from "@/tool/catalog-search"
 import type { Tool } from "@/tool/tool"
+import { toolSearchEvalFixtures } from "../fixtures/tool-search-eval"
 
 const Empty = Schema.Struct({})
 
@@ -117,5 +118,83 @@ describe("CatalogSearch", () => {
     expect(full).toContain("score:")
     expect(summary.length).toBeLessThan(schema.length)
     expect(schema.length).toBeLessThan(full.length)
+  })
+
+  it("returns category-only matches", () => {
+    const results = CatalogSearch.search({
+      query: "",
+      category: "web",
+      tools: [
+        tool({ id: "read", description: "Read a file", catalog: { category: "filesystem" } }),
+        tool({ id: "search", description: "Search web docs", catalog: { category: "web" } }),
+      ],
+    })
+
+    expect(results.map((item) => item.tool.id)).toEqual(["search"])
+  })
+
+  it("keeps deterministic tool search eval fixtures meaningful", () => {
+    const evalTools = [
+      tool({
+        id: "apply_patch",
+        description: "Apply a patch to change one or more files",
+        catalog: { category: "filesystem", mutability: "write", tags: ["change", "edit", "file"] },
+      }),
+      tool({
+        id: "edit",
+        description: "Edit one existing file",
+        catalog: { category: "filesystem", mutability: "write", tags: ["change", "file"] },
+      }),
+      tool({
+        id: "write",
+        description: "Write content to a file",
+        catalog: { category: "filesystem", mutability: "write", tags: ["change", "file"] },
+      }),
+      tool({
+        id: "lsp",
+        description: "Find symbol definitions and references",
+        catalog: { category: "code-search", mutability: "read", tags: ["find", "symbol", "definition"] },
+      }),
+      tool({
+        id: "grep",
+        description: "Search file contents for matching text",
+        catalog: { category: "code-search", mutability: "read", tags: ["find", "symbol"] },
+      }),
+      tool({
+        id: "send_file",
+        description: "Send a file to a user",
+        catalog: { category: "communication", mutability: "external", tags: ["send", "file", "user"] },
+      }),
+      tool({
+        id: "mcp_call",
+        description: "Call an MCP server tool such as Jira query tools",
+        catalog: { category: "mcp", mutability: "external", tags: ["query", "jira", "mcp"] },
+      }),
+      tool({
+        id: "tool_exec",
+        description: "Execute a deferred tool from the hidden catalog",
+        catalog: { category: "mcp", mutability: "external", tags: ["query", "mcp"] },
+      }),
+      tool({
+        id: "search",
+        description: "Search the web or documentation",
+        catalog: { category: "web", mutability: "external", tags: ["search", "docs"] },
+      }),
+      tool({
+        id: "fetch",
+        description: "Fetch documentation or web content from a URL",
+        catalog: { category: "web", mutability: "external", tags: ["fetch", "docs"] },
+      }),
+    ]
+
+    for (const fixture of toolSearchEvalFixtures) {
+      const ids = CatalogSearch.search({
+        query: fixture.query,
+        tools: evalTools,
+        limit: fixture.expectedTopK.length,
+      }).map((item) => item.tool.id)
+
+      expect(ids).toEqual([...fixture.expectedTopK])
+    }
   })
 })
