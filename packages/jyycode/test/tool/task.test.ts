@@ -280,6 +280,7 @@ describe("tool.task", () => {
 
       expect(result.output).toContain("- task")
       expect(result.output).toContain("subagent_type")
+      expect(result.metadata).toMatchObject({ matches: expect.any(Number), detail: "summary" })
     }),
   )
 

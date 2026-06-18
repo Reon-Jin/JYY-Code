@@ -60,6 +60,7 @@ import { BackgroundJob } from "@/background/job"
 import { SessionStatus } from "@/session/status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Memory } from "@/memory/memory"
+import { CatalogSearch } from "./catalog-search"
 
 const log = Log.create({ service: "tool.registry" })
 
@@ -82,6 +83,10 @@ type State = {
 const ToolSearchParameters = Schema.Struct({
   query: Schema.String.annotate({ description: "Search terms for finding relevant available tools" }),
   limit: Schema.optional(Schema.Number).annotate({ description: "Maximum number of tool matches to return (default: 8)" }),
+  detail: Schema.optional(Schema.Literals(["summary", "schema", "full"])).annotate({
+    description: "How much information to return for each match (default: summary)",
+  }),
+  category: Schema.optional(Schema.String).annotate({ description: "Optional catalog category filter" }),
 })
 
 export interface Interface {
@@ -458,48 +463,28 @@ function toolSearchDef(tools: Tool.Def[]): Tool.Def<typeof ToolSearchParameters>
   return {
     id: "tool_search",
     description:
-      "Search the currently available tool catalog by keyword. Use this when you are unsure which tool is best for a task.",
+      "Search the currently available tool catalog by ranked metadata and keyword matches. Use this when you are unsure which tool is best for a task.",
     parameters: ToolSearchParameters,
     execute: (params) =>
       Effect.sync(() => {
-        const limit = Math.max(1, Math.min(20, Math.floor(params.limit ?? 8)))
-        const terms = params.query
-          .toLowerCase()
-          .split(/\s+/)
-          .map((item) => item.trim())
-          .filter(Boolean)
-        const scored = tools
-          .filter((tool) => tool.id !== "tool_search")
-          .map((tool) => {
-            const haystack = `${tool.id}\n${tool.description}`.toLowerCase()
-            const score = terms.reduce((sum, term) => {
-              if (tool.id.toLowerCase() === term) return sum + 8
-              if (tool.id.toLowerCase().includes(term)) return sum + 5
-              return sum + (haystack.includes(term) ? 1 : 0)
-            }, 0)
-            return { tool, score }
-          })
-          .filter((item) => item.score > 0)
-          .toSorted((a, b) => b.score - a.score || a.tool.id.localeCompare(b.tool.id))
-          .slice(0, limit)
-
-        const output =
-          scored.length === 0
-            ? "No matching tools found in the currently available tool catalog."
-            : scored
-                .map(({ tool }) => {
-                  const schema = tool.jsonSchema && typeof tool.jsonSchema !== "boolean" ? tool.jsonSchema : undefined
-                  const properties =
-                    schema?.properties && typeof schema.properties === "object"
-                      ? Object.keys(schema.properties).join(", ")
-                      : "(schema unavailable)"
-                  return [`- ${tool.id}`, `  parameters: ${properties}`, `  description: ${tool.description}`].join("\n")
-                })
-                .join("\n\n")
+        const detail = params.detail ?? "summary"
+        const scored = CatalogSearch.search({
+          tools,
+          query: params.query,
+          limit: params.limit,
+          detail,
+          category: params.category,
+        })
+        const output = CatalogSearch.formatResults(scored, { detail })
 
         return {
           title: `Tool search: ${params.query}`,
-          metadata: { matches: scored.length, truncated: false },
+          metadata: {
+            matches: scored.length,
+            resultIDs: scored.map((item) => item.tool.id),
+            detail,
+            truncated: false,
+          },
           output,
         }
       }),
