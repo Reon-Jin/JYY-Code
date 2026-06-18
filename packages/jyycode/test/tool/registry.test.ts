@@ -6,6 +6,7 @@ import { Effect, Layer, Result, Schema } from "effect"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { ToolRegistry } from "@/tool/registry"
 import { Tool } from "@/tool/tool"
+import { CatalogSearch } from "@/tool/catalog-search"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { TestConfig } from "../fixture/config"
@@ -143,6 +144,31 @@ describe("tool.registry", () => {
         mutability: "read",
         risk: "low",
       })
+    }),
+  )
+
+  it.instance("catalog search ranks expected tools from the real prompt catalog", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const tools = yield* registry.tools({
+        providerID: ProviderID.jyycode,
+        modelID: ModelID.make("test"),
+        agent: yield* agents.defaultInfo(),
+      })
+      const cases = [
+        { query: "read local file contents", expected: "read" },
+        { query: "edit a file in the workspace", expected: "edit" },
+        { query: "write a new file", expected: "write" },
+        { query: "search text across project files", expected: "grep" },
+        { query: "fetch a web page url", expected: "webfetch" },
+        { query: "delegate work to a subagent", expected: "task" },
+      ]
+
+      for (const item of cases) {
+        const ranked = CatalogSearch.search({ tools, query: item.query, limit: 5 }).map((result) => result.tool.id)
+        expect(ranked.slice(0, 3), item.query).toContain(item.expected)
+      }
     }),
   )
 
