@@ -269,7 +269,10 @@ export const ReadTool = Tool.define(
 
       if (isImage || isPdfAttachment(mime)) {
         const bytes = yield* fs.readFile(filepath)
-        const msg = isPdfAttachment(mime) ? "PDF read successfully" : "Image read successfully"
+        const filename = path.basename(filepath)
+        const msg = isPdfAttachment(mime)
+          ? `PDF read successfully: ${filename}`
+          : `Image read successfully: ${filename}`
         return {
           title,
           output: msg,
@@ -282,6 +285,7 @@ export const ReadTool = Tool.define(
             {
               type: "file" as const,
               mime,
+              filename,
               url: `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`,
             },
           ],

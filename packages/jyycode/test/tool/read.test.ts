@@ -528,9 +528,25 @@ describe("tool.read truncation", () => {
       yield* put(path.join(dir, "image.bin"), jpeg)
 
       const result = yield* exec(dir, { filePath: path.join(dir, "image.bin") })
-      expect(result.output).toBe("Image read successfully")
+      expect(result.output).toBe("Image read successfully: image.bin")
       expect(result.attachments?.[0].mime).toBe("image/jpeg")
       expect(result.attachments?.[0].url.startsWith("data:image/jpeg;base64,")).toBe(true)
+    }),
+  )
+
+  it.live("preserves PDF filename in attachment metadata and preview", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const filepath = path.join(dir, "sample.pdf")
+      yield* put(filepath, Buffer.from("%PDF-1.4\n%%EOF\n"))
+
+      const result = yield* exec(dir, { filePath: filepath })
+      expect(result.attachments?.[0]).toMatchObject({
+        type: "file",
+        mime: "application/pdf",
+        filename: "sample.pdf",
+      })
+      expect(result.metadata.preview).toContain("sample.pdf")
     }),
   )
 
