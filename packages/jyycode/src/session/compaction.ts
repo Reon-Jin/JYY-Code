@@ -37,6 +37,7 @@ import { serviceUse } from "@/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { SessionEvent } from "@jyycode-ai/core/session-event"
+import { estimateContextTokens } from "./context-estimate"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -280,8 +281,7 @@ export const layer = Layer.effect(
       messages: MessageV2.WithParts[]
       model: Provider.Model
     }) {
-      const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model)
-      return Token.estimate(JSON.stringify(msgs))
+      return estimateContextTokens({ messages: input.messages }).totalTokens
     })
 
     const shouldCompact = Effect.fn("SessionCompaction.shouldCompact")(function* (input: {

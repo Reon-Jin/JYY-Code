@@ -618,6 +618,42 @@ describe("session.compaction.shouldCompact", () => {
       expect(yield* compact.shouldCompact({ messages, model })).toBe(false)
     }),
   )
+
+  it.instance("does not count PDF base64 string length as text context", () =>
+    Effect.gen(function* () {
+      const compact = yield* SessionCompaction.Service
+      const model = createModel({ context: 1_000_000, output: 32_000 })
+      const sessionID = SessionID.make("ses_pdf_estimate")
+      const messageID = MessageID.ascending()
+      const pdfBytes = 3 * 1024 * 1024
+      const pdfData = Buffer.alloc(pdfBytes, 1).toString("base64")
+      const messages: MessageV2.WithParts[] = [
+        {
+          info: {
+            id: messageID,
+            role: "user",
+            sessionID,
+            agent: "build",
+            model: ref,
+            time: { created: Date.now() },
+          },
+          parts: [
+            {
+              id: PartID.ascending(),
+              messageID,
+              sessionID,
+              type: "file",
+              mime: "application/pdf",
+              filename: "sample.pdf",
+              url: `data:application/pdf;base64,${pdfData}`,
+            },
+          ],
+        },
+      ]
+
+      expect(yield* compact.shouldCompact({ messages, model })).toBe(false)
+    }),
+  )
 })
 
 describe("session.compaction.microCompact", () => {
