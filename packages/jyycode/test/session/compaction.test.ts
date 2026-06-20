@@ -1147,6 +1147,40 @@ describe("session.compaction.process", () => {
     }),
   )
 
+  itCompaction.instance("predictive auto-continue does not claim provider size failure", () => {
+    const stub = llm()
+    stub.push(reply("summary"))
+
+    return Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      yield* createUserMessage(session.id, "continue work")
+      yield* SessionCompaction.use.create({
+        sessionID: session.id,
+        agent: "build",
+        model: ref,
+        auto: true,
+        overflow: true,
+      })
+      const msgs = yield* ssn.messages({ sessionID: session.id })
+      const parent = msgs.at(-1)?.info.id
+      expect(parent).toBeTruthy()
+      yield* SessionCompaction.use.process({
+        parentID: parent!,
+        messages: msgs,
+        sessionID: session.id,
+        auto: true,
+        overflow: false,
+      })
+
+      const all = yield* ssn.messages({ sessionID: session.id })
+      const continuation = all.findLast((item) =>
+        item.parts.some((part) => part.type === "text" && part.metadata?.compaction_continue === true),
+      )
+      const text = continuation?.parts.find((part): part is MessageV2.TextPart => part.type === "text")?.text ?? ""
+      expect(text).not.toContain("previous request exceeded the provider's size limit")
+    }).pipe(withCompaction({ llm: stub.layer }))
+  })
   itCompaction.instance(
     "persists tail_start_id for retained recent turns",
     Effect.gen(function* () {
