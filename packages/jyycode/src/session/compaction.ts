@@ -159,6 +159,27 @@ function buildPrompt(input: { previousSummary?: string; context: string[] }) {
   return [anchor, SUMMARY_TEMPLATE, ...input.context].join("\n\n")
 }
 
+function mediaManifest(messages: MessageV2.WithParts[]) {
+  const lines: string[] = []
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type === "file" && MessageV2.isMedia(part.mime)) {
+        lines.push(`- message=${message.info.id} mime=${part.mime} filename=${part.filename ?? "file"}`)
+      }
+      if (part.type === "tool" && part.state.status === "completed") {
+        for (const attachment of part.state.attachments ?? []) {
+          if (!MessageV2.isMedia(attachment.mime)) continue
+          lines.push(
+            `- message=${message.info.id} tool=${part.tool} mime=${attachment.mime} filename=${attachment.filename ?? "file"}`,
+          )
+        }
+      }
+    }
+  }
+  if (!lines.length) return []
+  return ["<media-manifest>", ...lines, "</media-manifest>"]
+}
+
 function preserveRecentBudget(input: { cfg: Config.Info; model: Provider.Model }) {
   return (
     input.cfg.compaction?.preserve_recent_tokens ??
@@ -455,7 +476,8 @@ export const layer = Layer.effect(
         { sessionID: input.sessionID },
         { context: [], prompt: undefined },
       )
-      const nextPrompt = compacting.prompt ?? buildPrompt({ previousSummary, context: compacting.context })
+      const nextPrompt =
+        compacting.prompt ?? buildPrompt({ previousSummary, context: [...compacting.context, ...mediaManifest(history)] })
       const msgs = structuredClone(selected.head)
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
       const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {

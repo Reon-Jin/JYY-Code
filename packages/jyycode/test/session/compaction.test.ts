@@ -1618,6 +1618,45 @@ describe("session.compaction.process", () => {
     { git: true },
   )
 
+  itCompaction.instance("includes a media manifest in compaction prompt", () => {
+    const stub = llm()
+    let captured = ""
+    stub.push(
+      reply("summary", (input) => {
+        captured = JSON.stringify(input.messages)
+      }),
+    )
+
+    return Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      const user = yield* createUserMessage(session.id, "read this pdf")
+      yield* ssn.updatePart({
+        id: PartID.ascending(),
+        messageID: user.id,
+        sessionID: session.id,
+        type: "file",
+        mime: "application/pdf",
+        filename: "sample.pdf",
+        url: `data:application/pdf;base64,${Buffer.from("pdf").toString("base64")}`,
+      })
+      yield* createCompactionMarker(session.id)
+
+      const msgs = yield* ssn.messages({ sessionID: session.id })
+      const parent = msgs.at(-1)?.info.id
+      expect(parent).toBeTruthy()
+      yield* SessionCompaction.use.process({
+        parentID: parent!,
+        messages: msgs,
+        sessionID: session.id,
+        auto: false,
+      })
+
+      expect(captured).toContain("<media-manifest>")
+      expect(captured).toContain("sample.pdf")
+      expect(captured).toContain("application/pdf")
+    }).pipe(withCompaction({ llm: stub.layer }))
+  })
   itCompaction.instance(
     "anchors repeated compactions with the previous summary",
     () => {
