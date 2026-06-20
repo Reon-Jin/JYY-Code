@@ -61,6 +61,7 @@ import { Flag } from "@jyycode-ai/core/flag/flag"
 import { type WorkspaceStatus } from "../workspace-label"
 import { JYYCODE_BASE_MODE, useBindings, useCommandShortcut, useLeaderActive, useJyycodeKeymap } from "../../keymap"
 import { useTuiConfig } from "../../context/tui-config"
+import { formatContextUsage } from "../../util/context-usage"
 
 export type PromptProps = {
   sessionID?: string
@@ -350,10 +351,9 @@ export function Prompt(props: PromptProps) {
     if (tokens <= 0) return
 
     const model = sync.data.provider.find((item) => item.id === last.providerID)?.models[last.modelID]
-    const pct = model?.limit.context ? `${Math.round((tokens / model.limit.context) * 100)}%` : undefined
     const cost = session?.cost ?? 0
     return {
-      context: pct ? `${Locale.number(tokens)} (${pct})` : Locale.number(tokens),
+      provider: formatContextUsage({ providerTokens: tokens, contextLimit: model?.limit.context }).provider,
       cost: cost > 0 ? money.format(cost) : undefined,
     }
   })
@@ -1782,7 +1782,7 @@ export function Prompt(props: PromptProps) {
                     <Match when={usage()}>
                       {(item) => (
                         <text fg={theme.textMuted} wrapMode="none">
-                          {[item().context, item().cost].filter(Boolean).join(" · ")}
+                          {[item().provider, item().cost].filter(Boolean).join(" · ")}
                         </text>
                       )}
                     </Match>
