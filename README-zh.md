@@ -82,6 +82,8 @@ JYY-Code 使用结构化文件记忆保存项目事实、工程约定、用户�
 - 返回工具参数摘要，帮助 Agent 更快完成工具选择。
 - 通过固定 top-k fixture 和真实工具注册表测试验证，覆盖读取、编辑、写入、项目搜索、网页抓取和子 Agent 委派等常见意图。
 
+启用 `JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS` 后，JYY-Code 会进入实验性的渐进式工具披露模式：读取、搜索、终端、编辑、任务和 Todo 等核心工具仍然直接暴露给模型；MCP、插件、通信和高级低频工具则通过 `tool_search` 按需发现，再由 `tool_exec` 代理执行。`JYYCODE_DEFERRED_TOOL_THRESHOLD` 可控制工具目录超过多少个时才进行拆分；关闭实验开关即可恢复默认行为。
+
 ### 架构优化
 
 - **工作流状态**：会话、消息、Todo、集群运行、集群任务和事件投影均由 SQLite/Drizzle 管理。

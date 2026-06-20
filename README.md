@@ -82,6 +82,8 @@ Field-weighted BM25 retrieval helps the agent find the right tool without exposi
 - Returns parameter summaries for fast tool selection.
 - Covered by deterministic top-k fixtures and real registry tests that verify common intents such as read, edit, write, grep, web fetch, and sub-agent delegation rank the expected tool in the top results.
 
+Experimental progressive tool disclosure can be enabled with `JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS`. In this mode, JYY-Code keeps core tools such as read, grep, shell, edit, task, and todo directly visible, while long-tail MCP, plugin, communication, and advanced tools are discoverable through `tool_search` and executed through `tool_exec`. `JYYCODE_DEFERRED_TOOL_THRESHOLD` controls when the catalog is partitioned, and disabling the flag restores the default behavior.
+
 ### Architecture Optimizations
 
 - **Workflow state** - SQLite-backed sessions, message parts, todos, cluster runs, cluster tasks, and event projection.
