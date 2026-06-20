@@ -1,14 +1,9 @@
-// the approaches in this edit tool are sourced from
-// https://github.com/cline/cline/blob/main/evals/diff-edits/diff-apply/diff-06-23-25.ts
-// https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/utils/editCorrector.ts
-// https://github.com/cline/cline/blob/main/evals/diff-edits/diff-apply/diff-06-26-25.ts
-
 import * as path from "path"
 import { Effect, Schema, Semaphore } from "effect"
 import * as Tool from "./tool"
 import { LSP } from "@/lsp/lsp"
 import { createTwoFilesPatch, diffLines } from "diff"
-import DESCRIPTION from "./edit.txt"
+import DESCRIPTION from "./multi-edit.txt"
 import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
 import { Bus } from "../bus"
@@ -20,7 +15,20 @@ import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import * as Bom from "@/util/bom"
 import { applyEditOperations, normalizeLineEndings, trimDiff } from "./edit-shared"
 
-export { trimDiff } from "./edit-shared"
+const EditItem = Schema.Struct({
+  oldString: Schema.String.annotate({ description: "The exact text to replace" }),
+  newString: Schema.String.annotate({ description: "Replacement text. Must differ from oldString." }),
+  replaceAll: Schema.optional(Schema.Boolean).annotate({
+    description: "Replace all occurrences of oldString for this edit. Defaults to false.",
+  }),
+})
+
+export const Parameters = Schema.Struct({
+  filePath: Schema.String.annotate({ description: "The absolute path to the file to modify" }),
+  edits: Schema.Array(EditItem).check(Schema.isMinLength(1), Schema.isMaxLength(50)).annotate({
+    description: "Ordered edits to apply atomically to one file",
+  }),
+})
 
 const locks = new Map<string, Semaphore.Semaphore>()
 
@@ -28,25 +36,13 @@ function lock(filePath: string) {
   const resolvedFilePath = AppFileSystem.resolve(filePath)
   const hit = locks.get(resolvedFilePath)
   if (hit) return hit
-
   const next = Semaphore.makeUnsafe(1)
   locks.set(resolvedFilePath, next)
   return next
 }
 
-export const Parameters = Schema.Struct({
-  filePath: Schema.String.annotate({ description: "The absolute path to the file to modify" }),
-  oldString: Schema.String.annotate({ description: "The text to replace" }),
-  newString: Schema.String.annotate({
-    description: "The text to replace it with (must be different from oldString)",
-  }),
-  replaceAll: Schema.optional(Schema.Boolean).annotate({
-    description: "Replace all occurrences of oldString (default false)",
-  }),
-})
-
-export const EditTool = Tool.define(
-  "edit",
+export const MultiEditTool = Tool.define(
+  "multi_edit",
   Effect.gen(function* () {
     const lsp = yield* LSP.Service
     const afs = yield* AppFileSystem.Service
@@ -64,14 +60,6 @@ export const EditTool = Tool.define(
       },
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
-          if (!params.filePath) {
-            throw new Error("filePath is required")
-          }
-
-          if (params.oldString === params.newString) {
-            throw new Error("No changes to apply: oldString and newString are identical.")
-          }
-
           const instance = yield* InstanceState.context
           const filePath = path.isAbsolute(params.filePath)
             ? params.filePath
@@ -81,52 +69,17 @@ export const EditTool = Tool.define(
           let diff = ""
           let contentOld = ""
           let contentNew = ""
+
           yield* lock(filePath).withPermits(1)(
             Effect.gen(function* () {
-              if (params.oldString === "") {
-                const existed = yield* afs.existsSafe(filePath)
-                const source = existed ? yield* Bom.readFile(afs, filePath) : { bom: false, text: "" }
-                const next = Bom.split(params.newString)
-                const desiredBom = source.bom || next.bom
-                contentOld = source.text
-                contentNew = next.text
-                diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-                yield* ctx.ask({
-                  permission: "edit",
-                  patterns: [path.relative(instance.worktree, filePath)],
-                  always: ["*"],
-                  metadata: {
-                    filepath: filePath,
-                    diff,
-                  },
-                })
-                yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
-                if (yield* format.file(filePath)) {
-                  contentNew = yield* Bom.syncFile(afs, filePath, desiredBom)
-                }
-                yield* bus.publish(File.Event.Edited, { file: filePath })
-                yield* bus.publish(FileWatcher.Event.Updated, {
-                  file: filePath,
-                  event: existed ? "change" : "add",
-                })
-                return
-              }
-
               const info = yield* afs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
               if (!info) throw new Error(`File ${filePath} not found`)
               if (info.type === "Directory") throw new Error(`Path is a directory, not a file: ${filePath}`)
+
               const source = yield* Bom.readFile(afs, filePath)
               contentOld = source.text
 
-              const next = Bom.split(
-                applyEditOperations(contentOld, [
-                  {
-                    oldString: params.oldString,
-                    newString: params.newString,
-                    replaceAll: params.replaceAll,
-                  },
-                ]),
-              )
+              const next = Bom.split(applyEditOperations(contentOld, params.edits))
               const desiredBom = source.bom || next.bom
               contentNew = next.text
 
@@ -138,14 +91,12 @@ export const EditTool = Tool.define(
                   normalizeLineEndings(contentNew),
                 ),
               )
+
               yield* ctx.ask({
                 permission: "edit",
                 patterns: [path.relative(instance.worktree, filePath)],
                 always: ["*"],
-                metadata: {
-                  filepath: filePath,
-                  diff,
-                },
+                metadata: { filepath: filePath, diff },
               })
 
               yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
@@ -153,10 +104,7 @@ export const EditTool = Tool.define(
                 contentNew = yield* Bom.syncFile(afs, filePath, desiredBom)
               }
               yield* bus.publish(File.Event.Edited, { file: filePath })
-              yield* bus.publish(FileWatcher.Event.Updated, {
-                file: filePath,
-                event: "change",
-              })
+              yield* bus.publish(FileWatcher.Event.Updated, { file: filePath, event: "change" })
               diff = trimDiff(
                 createTwoFilesPatch(
                   filePath,
@@ -181,15 +129,9 @@ export const EditTool = Tool.define(
             deletions,
           }
 
-          yield* ctx.metadata({
-            metadata: {
-              diff,
-              filediff,
-              diagnostics: {},
-            },
-          })
+          yield* ctx.metadata({ metadata: { diff, filediff, diagnostics: {} } })
 
-          let output = "Edit applied successfully."
+          let output = "Multi-edit applied successfully."
           yield* lsp.touchFile(filePath, "document")
           const diagnostics = yield* lsp.diagnostics()
           const normalizedFilePath = AppFileSystem.normalizePath(filePath)
@@ -197,11 +139,7 @@ export const EditTool = Tool.define(
           if (block) output += `\n\nLSP errors detected in this file, please fix:\n${block}`
 
           return {
-            metadata: {
-              diagnostics,
-              diff,
-              filediff,
-            },
+            metadata: { diagnostics, diff, filediff },
             title: `${path.relative(instance.worktree, filePath)}`,
             output,
           }

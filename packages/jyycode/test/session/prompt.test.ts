@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "url"
 import { NamedError } from "@jyycode-ai/core/util/error"
 import { Agent as AgentSvc } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
+import { BackgroundProcess } from "@/process/job"
 import { Bus } from "../../src/bus"
 import { Command } from "../../src/command"
 import { Config } from "@/config/config"
@@ -116,6 +117,7 @@ const mcp = Layer.succeed(
     status: () => Effect.succeed({}),
     clients: () => Effect.succeed({}),
     tools: () => Effect.succeed({}),
+    toolDefs: () => Effect.succeed([]),
     prompts: () => Effect.succeed({}),
     resources: () => Effect.succeed({}),
     add: () => Effect.succeed({ status: { status: "disabled" as const } }),
@@ -210,6 +212,7 @@ function makePrompt(input?: { processor?: "blocking"; memory?: Layer.Layer<Memor
     mcp,
     AppFileSystem.defaultLayer,
     BackgroundJob.defaultLayer,
+    BackgroundProcess.defaultLayer,
     status,
     SyncEvent.defaultLayer,
     EventV2Bridge.defaultLayer,

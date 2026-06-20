@@ -6,11 +6,10 @@ import { Permission } from "@/permission"
 import { Tool } from "@/tool/tool"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
-import { Truncate } from "@/tool/truncate"
 import { ModelID } from "@/provider/schema"
 import { Plugin } from "@/plugin"
 import type { TaskPromptOps } from "@/tool/task"
-import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions, asSchema } from "ai"
+import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions } from "ai"
 import { Effect } from "effect"
 import { MessageV2 } from "./message-v2"
 import * as Session from "./session"
@@ -20,6 +19,9 @@ import * as Log from "@jyycode-ai/core/util/log"
 import { EffectBridge } from "@/effect/bridge"
 import { Bus } from "@/bus"
 import { ToolTelemetry } from "@/tool/telemetry"
+import { RuntimeFlags } from "@/effect/runtime-flags"
+import { ToolDisclosure } from "@/tool/disclosure"
+import { CatalogSearch } from "@/tool/catalog-search"
 
 const log = Log.create({ service: "session.tools" })
 
@@ -39,8 +41,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const permission = yield* Permission.Service
   const registry = yield* ToolRegistry.Service
   const mcp = yield* MCP.Service
-  const truncate = yield* Truncate.Service
   const bus = yield* Bus.Service
+  const flags = yield* RuntimeFlags.Service
   let schemaBytes = 0
 
   const context = (args: Record<string, unknown>, options: ToolExecutionOptions): Tool.Context => ({
@@ -76,11 +78,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
         .pipe(Effect.orDie),
   })
 
-  for (const item of yield* registry.tools({
-    modelID: ModelID.make(input.model.api.id),
-    providerID: input.model.providerID,
-    agent: input.agent,
-  })) {
+  const addToolDef = (item: Tool.Def) => {
     const schema = ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
     schemaBytes += ToolTelemetry.approximateSchemaBytes(schema)
     tools[item.id] = tool({
@@ -127,6 +125,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
                     success: true,
                     status: "success",
                     durationMs: Date.now() - started,
+                    delegatedTool:
+                      typeof output.metadata.delegatedTool === "string" ? output.metadata.delegatedTool : undefined,
                   }).pipe(Effect.as(output)),
                 onFailure: (cause) => {
                   const failure = ToolTelemetry.executionFailure(cause)
@@ -149,121 +149,22 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     })
   }
 
-  for (const [key, item] of Object.entries(yield* mcp.tools())) {
-    const execute = item.execute
-    if (!execute) continue
+  const registryDefs = yield* registry.tools({
+    modelID: ModelID.make(input.model.api.id),
+    providerID: input.model.providerID,
+    agent: input.agent,
+  })
+  const mcpDefs = yield* mcp.toolDefs()
+  const promptDefs = composeDeferredMcpTools({
+    registryDefs,
+    mcpDefs,
+    enabled: flags.experimentalDeferredTools,
+    threshold: flags.deferredToolThreshold ?? 40,
+    bus,
+  })
 
-    const schema = yield* Effect.promise(() => Promise.resolve(asSchema(item.inputSchema).jsonSchema))
-    const transformed = ProviderTransform.schema(input.model, schema)
-    schemaBytes += ToolTelemetry.approximateSchemaBytes(transformed)
-    item.inputSchema = jsonSchema(transformed)
-    item.execute = (args, opts) =>
-      run.promise(
-        Effect.gen(function* () {
-          const ctx = context(args, opts)
-          const started = Date.now()
-          return yield* Effect.gen(function* () {
-            yield* plugin.trigger(
-              "tool.execute.before",
-              { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
-              { args },
-            )
-            const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
-              yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
-              return yield* Effect.promise(() => execute(args, opts))
-            }).pipe(
-              Effect.withSpan("Tool.execute", {
-                attributes: {
-                  "tool.name": key,
-                  "tool.call_id": opts.toolCallId,
-                  "session.id": ctx.sessionID,
-                  "message.id": input.processor.message.id,
-                },
-              }),
-            )
-            yield* plugin.trigger(
-              "tool.execute.after",
-              { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
-              result,
-            )
-
-            const textParts: string[] = []
-            const attachments: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[] = []
-            for (const contentItem of result.content) {
-              if (contentItem.type === "text") textParts.push(contentItem.text)
-              else if (contentItem.type === "image") {
-                attachments.push({
-                  type: "file",
-                  mime: contentItem.mimeType,
-                  url: `data:${contentItem.mimeType};base64,${contentItem.data}`,
-                })
-              } else if (contentItem.type === "resource") {
-                const { resource } = contentItem
-                if (resource.text) textParts.push(resource.text)
-                if (resource.blob) {
-                  attachments.push({
-                    type: "file",
-                    mime: resource.mimeType ?? "application/octet-stream",
-                    url: `data:${resource.mimeType ?? "application/octet-stream"};base64,${resource.blob}`,
-                    filename: resource.uri,
-                  })
-                }
-              }
-            }
-
-            const truncated = yield* truncate.output(textParts.join("\n\n"), {}, input.agent)
-            const metadata = {
-              ...result.metadata,
-              truncated: truncated.truncated,
-              ...(truncated.truncated && { outputPath: truncated.outputPath }),
-            }
-
-            const output = {
-              title: "",
-              metadata,
-              output: truncated.content,
-              attachments: attachments.map((attachment) => ({
-                ...attachment,
-                id: PartID.ascending(),
-                sessionID: ctx.sessionID,
-                messageID: input.processor.message.id,
-              })),
-              content: result.content,
-            }
-            if (opts.abortSignal?.aborted) {
-              yield* input.processor.completeToolCall(opts.toolCallId, output)
-            }
-            return output
-          }).pipe(
-            Effect.matchCauseEffect({
-              onSuccess: (output) =>
-                ToolTelemetry.executionCompleted(bus, {
-                  sessionID: ctx.sessionID,
-                  messageID: ctx.messageID,
-                  callID: ctx.callID,
-                  tool: key,
-                  success: true,
-                  status: "success",
-                  durationMs: Date.now() - started,
-                }).pipe(Effect.as(output)),
-              onFailure: (cause) => {
-                const failure = ToolTelemetry.executionFailure(cause)
-                return ToolTelemetry.executionCompleted(bus, {
-                  sessionID: ctx.sessionID,
-                  messageID: ctx.messageID,
-                  callID: ctx.callID,
-                  tool: key,
-                  success: false,
-                  status: failure.status,
-                  durationMs: Date.now() - started,
-                  error: failure.error,
-                }).pipe(Effect.andThen(Effect.failCause(cause)))
-              },
-            }),
-          )
-        }),
-      )
-    tools[key] = item
+  for (const item of promptDefs) {
+    addToolDef(item)
   }
 
   yield* ToolTelemetry.catalogResolved(bus, {
@@ -278,5 +179,84 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
 
   return tools
 })
+
+function composeDeferredMcpTools(input: {
+  registryDefs: Tool.Def[]
+  mcpDefs: Tool.Def[]
+  enabled: boolean
+  threshold: number
+  bus: Bus.Interface
+}) {
+  if (!input.enabled || input.mcpDefs.length === 0 || input.registryDefs.length + input.mcpDefs.length <= input.threshold) {
+    return [...input.registryDefs, ...input.mcpDefs]
+  }
+
+  const existingSearch = input.registryDefs.find((item) => item.id === "tool_search")
+  const existingExec = input.registryDefs.find((item) => item.id === "tool_exec")
+  const directRegistry = input.registryDefs.filter((item) => item.id !== "tool_search" && item.id !== "tool_exec")
+  const directIDs = new Set(input.registryDefs.filter((item) => item.id !== "tool_exec").map((item) => item.id))
+  const mcpExec = ToolDisclosure.toolExecDef({
+    hidden: input.mcpDefs,
+    directIDs,
+    bus: input.bus,
+  })
+  const toolExec = existingExec ? composeToolExec(existingExec, mcpExec) : mcpExec
+  const toolSearch = existingSearch ? composeToolSearch(existingSearch, input.mcpDefs, input.bus) : undefined
+
+  return [...(toolSearch ? [toolSearch] : []), ...directRegistry, toolExec]
+}
+
+function composeToolExec(primary: Tool.Def, fallback: Tool.Def): Tool.Def {
+  return {
+    ...primary,
+    execute: (params, ctx) =>
+      fallback.execute(params, ctx).pipe(
+        Effect.catch((error) =>
+          String(error).includes("Unknown hidden tool") ? primary.execute(params, ctx) : Effect.fail(error),
+        ),
+      ),
+  }
+}
+
+function composeToolSearch(existing: Tool.Def, hidden: Tool.Def[], bus: Bus.Interface): Tool.Def {
+  return {
+    ...existing,
+    execute: (params: any, ctx) =>
+      existing.execute(params, ctx).pipe(
+        Effect.flatMap((base) => {
+          const detail = params.detail ?? "summary"
+          const scored = CatalogSearch.search({
+            tools: hidden,
+            query: params.query,
+            limit: params.limit,
+            detail,
+            category: params.category,
+          })
+          if (scored.length === 0) return Effect.succeed(base)
+
+          const resultIDs = scored.map((item) => item.tool.id)
+          const output = CatalogSearch.formatResults(scored, { detail })
+          return ToolTelemetry.searchExecuted(bus, {
+            sessionID: ctx.sessionID,
+            messageID: ctx.messageID,
+            callID: ctx.callID,
+            query: params.query,
+            detail,
+            category: params.category,
+            resultIDs,
+          }).pipe(
+            Effect.as({
+              ...base,
+              output: [base.output, "Hidden MCP tools:", output].filter(Boolean).join("\n\n"),
+              metadata: {
+                ...base.metadata,
+                hiddenMcpResultIDs: resultIDs,
+              },
+            }),
+          )
+        }),
+      ),
+  }
+}
 
 export * as SessionTools from "./tools"

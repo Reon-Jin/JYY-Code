@@ -17,6 +17,7 @@ import { Todo } from "@/session/todo"
 import { Skill } from "@/skill"
 import { Agent } from "@/agent/agent"
 import { BackgroundJob } from "@/background/job"
+import { BackgroundProcess } from "@/process/job"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { Provider } from "@/provider/provider"
@@ -56,7 +57,7 @@ const registryLayer = (opts: RegistryLayerOptions = {}) =>
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),
       Layer.provide(Session.defaultLayer),
-      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer)),
+      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer, BackgroundProcess.defaultLayer)),
       Layer.provide(Provider.defaultLayer),
       Layer.provide(Layer.mergeAll(Git.defaultLayer, RepositoryCache.defaultLayer)),
       Layer.provide(Reference.defaultLayer),
@@ -103,6 +104,16 @@ const scout = testEffect(
 const background = testEffect(
   Layer.mergeAll(registryLayer({ flags: { experimentalBackgroundSubagents: true } }), node, Agent.defaultLayer),
 )
+const deferredDisabled = testEffect(
+  Layer.mergeAll(registryLayer({ flags: { experimentalDeferredTools: false } }), node, Agent.defaultLayer),
+)
+const deferredEnabled = testEffect(
+  Layer.mergeAll(
+    registryLayer({ flags: { experimentalDeferredTools: true, deferredToolThreshold: 1 } }),
+    node,
+    Agent.defaultLayer,
+  ),
+)
 const withBrokenPlugin = testEffect(
   Layer.mergeAll(registryLayer({ plugin: brokenPluginLayer }), node, Agent.defaultLayer),
 )
@@ -122,6 +133,19 @@ describe("tool.registry", () => {
     }),
   )
 
+  it.instance("exposes filesystem and process helper tools", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const ids = yield* registry.ids()
+
+      expect(ids).toContain("ls")
+      expect(ids).toContain("multi_edit")
+      expect(ids).toContain("process_start")
+      expect(ids).toContain("process_output")
+      expect(ids).toContain("kill_process")
+    }),
+  )
+
   it.instance("preserves catalog metadata on prompt tools", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
@@ -133,6 +157,9 @@ describe("tool.registry", () => {
       })
       const read = tools.find((tool) => tool.id === "read")
       const grep = tools.find((tool) => tool.id === "grep")
+      const ls = tools.find((tool) => tool.id === "ls")
+      const multiEdit = tools.find((tool) => tool.id === "multi_edit")
+      const processStart = tools.find((tool) => tool.id === "process_start")
 
       expect(read?.catalog).toMatchObject({
         category: "filesystem",
@@ -143,6 +170,21 @@ describe("tool.registry", () => {
         category: "code-search",
         mutability: "read",
         risk: "low",
+      })
+      expect(ls?.catalog).toMatchObject({
+        category: "filesystem",
+        mutability: "read",
+        risk: "low",
+      })
+      expect(multiEdit?.catalog).toMatchObject({
+        category: "filesystem",
+        mutability: "write",
+        risk: "high",
+      })
+      expect(processStart?.catalog).toMatchObject({
+        category: "execution",
+        mutability: "execute",
+        risk: "high",
       })
     }),
   )
@@ -169,6 +211,40 @@ describe("tool.registry", () => {
         const ranked = CatalogSearch.search({ tools, query: item.query, limit: 5 }).map((result) => result.tool.id)
         expect(ranked.slice(0, 3), item.query).toContain(item.expected)
       }
+    }),
+  )
+
+  deferredDisabled.instance("keeps direct catalog unchanged when deferred tools are disabled", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const tools = yield* registry.tools({
+        providerID: ProviderID.jyycode,
+        modelID: ModelID.make("test"),
+        agent: yield* agents.defaultInfo(),
+      })
+      const ids = tools.map((tool) => tool.id)
+
+      expect(ids).toContain("send_message")
+      expect(ids).not.toContain("tool_exec")
+    }),
+  )
+
+  deferredEnabled.instance("adds tool_exec and hides communication tools when deferred tools are enabled over threshold", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const tools = yield* registry.tools({
+        providerID: ProviderID.jyycode,
+        modelID: ModelID.make("test"),
+        agent: yield* agents.defaultInfo(),
+      })
+
+      const ids = tools.map((tool) => tool.id)
+      expect(ids).toContain("tool_search")
+      expect(ids).toContain("tool_exec")
+      expect(ids).toContain("read")
+      expect(ids).not.toContain("send_message")
     }),
   )
 

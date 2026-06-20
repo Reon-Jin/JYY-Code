@@ -1,0 +1,3 @@
+List files and directories without reading file contents.
+
+Use this tool when you need to inspect the shape of a directory, verify files exist, or explore a project tree. Prefer this over shell directory commands such as ls, dir, find, or Get-ChildItem.

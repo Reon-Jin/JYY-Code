@@ -45,6 +45,7 @@ import { Todo } from "@/session/todo"
 import { SessionShare } from "@/share/session"
 import { ShareNext } from "@/share/share-next"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { BackgroundProcess } from "@/process/job"
 import { Skill } from "@/skill"
 import { Snapshot } from "@/snapshot"
 import { SyncEvent } from "@/sync"
@@ -211,6 +212,7 @@ export function createRoutes(
       Question.defaultLayer,
       Ripgrep.defaultLayer,
       RuntimeFlags.defaultLayer,
+      BackgroundProcess.defaultLayer,
       Session.defaultLayer,
       SessionCompaction.defaultLayer,
       SessionPrompt.defaultLayer,

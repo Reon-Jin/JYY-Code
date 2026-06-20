@@ -1,0 +1,3 @@
+Read captured output from a background process started with process_start.
+
+Use this to poll server startup logs, inspect watcher output, or confirm a background process is still running.

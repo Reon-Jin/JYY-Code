@@ -31,12 +31,14 @@ const CORE_DIRECT_TOOL_IDS = new Set([
   "read",
   "glob",
   "grep",
+  "bash",
   "shell",
   "apply_patch",
   "edit",
   "write",
   "task",
   "task_status",
+  "todowrite",
   "todo",
 ])
 
@@ -46,6 +48,10 @@ function shouldHide(tool: Tool.Def) {
   if (tool.catalog?.category === "communication") return true
   if (tool.catalog?.detail === "advanced") return true
   return false
+}
+
+function toolExecFailure(message: string) {
+  return Effect.fail(new Error(message)) as unknown as Effect.Effect<Tool.ExecuteResult>
 }
 
 export function partition(input: PartitionInput): PartitionResult {
@@ -80,12 +86,12 @@ export function toolExecDef(input: ToolExecInput): Tool.Def<typeof ToolExecParam
     },
     execute: (params, ctx) => {
       if (input.directIDs.has(params.tool)) {
-        return Effect.fail(new Error(`${params.tool} is directly available and is not available through tool_exec`))
+        return toolExecFailure(`${params.tool} is directly available and is not available through tool_exec`)
       }
 
       const target = hiddenByID.get(params.tool)
       if (!target) {
-        return Effect.fail(new Error(`Unknown hidden tool ${params.tool}`))
+        return toolExecFailure(`Unknown hidden tool ${params.tool}`)
       }
 
       const decode = Schema.decodeUnknownEffect(target.parameters)
@@ -104,6 +110,7 @@ export function toolExecDef(input: ToolExecInput): Tool.Def<typeof ToolExecParam
                 detail: String(error),
               }),
           ),
+          Effect.orDie,
         )
         const result = yield* target.execute(args, ctx)
         return {

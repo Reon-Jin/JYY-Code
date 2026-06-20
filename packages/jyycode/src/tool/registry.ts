@@ -5,6 +5,9 @@ import { ShellTool } from "./shell"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
+import { LsTool } from "./ls"
+import { MultiEditTool } from "./multi-edit"
+import { KillProcessTool, ProcessOutputTool, ProcessStartTool } from "./process"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { TaskStatusTool } from "./task_status"
@@ -57,11 +60,13 @@ import { Skill } from "../skill"
 import { Permission } from "@/permission"
 import { Reference } from "@/reference/reference"
 import { BackgroundJob } from "@/background/job"
+import { BackgroundProcess } from "@/process/job"
 import { SessionStatus } from "@/session/status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Memory } from "@/memory/memory"
 import { CatalogSearch } from "./catalog-search"
 import { ToolTelemetry } from "./telemetry"
+import { ToolDisclosure } from "./disclosure"
 
 const log = Log.create({ service: "tool.registry" })
 
@@ -111,6 +116,7 @@ export const layer: Layer.Layer<
   | Session.Service
   | SessionStatus.Service
   | BackgroundJob.Service
+  | BackgroundProcess.Service
   | Provider.Service
   | Git.Service
   | RepositoryCache.Service
@@ -140,6 +146,7 @@ export const layer: Layer.Layer<
     const task = yield* TaskTool
     const taskStatus = yield* TaskStatusTool
     const read = yield* ReadTool
+    const ls = yield* LsTool
     const question = yield* QuestionTool
     const todo = yield* TodoWriteTool
     const lsptool = yield* LspTool
@@ -152,6 +159,10 @@ export const layer: Layer.Layer<
     const globtool = yield* GlobTool
     const writetool = yield* WriteTool
     const edit = yield* EditTool
+    const multiEdit = yield* MultiEditTool
+    const processStart = yield* ProcessStartTool
+    const processOutput = yield* ProcessOutputTool
+    const killProcess = yield* KillProcessTool
     const greptool = yield* GrepTool
     const patchtool = yield* ApplyPatchTool
     const skilltool = yield* SkillTool
@@ -259,9 +270,14 @@ export const layer: Layer.Layer<
           invalid: Tool.init(invalid),
           shell: Tool.init(shell),
           read: Tool.init(read),
+          ls: Tool.init(ls),
           glob: Tool.init(globtool),
           grep: Tool.init(greptool),
           edit: Tool.init(edit),
+          multi_edit: Tool.init(multiEdit),
+          process_start: Tool.init(processStart),
+          process_output: Tool.init(processOutput),
+          kill_process: Tool.init(killProcess),
           write: Tool.init(writetool),
           task: Tool.init(task),
           task_status: Tool.init(taskStatus),
@@ -287,9 +303,14 @@ export const layer: Layer.Layer<
             ...(questionEnabled ? [tool.question] : []),
             tool.shell,
             tool.read,
+            tool.ls,
             tool.glob,
             tool.grep,
             tool.edit,
+            tool.multi_edit,
+            tool.process_start,
+            tool.process_output,
+            tool.kill_process,
             tool.write,
             tool.task,
             ...(flags.experimentalBackgroundSubagents ? [tool.task_status] : []),
@@ -422,7 +443,23 @@ export const layer: Layer.Layer<
         }),
         { concurrency: "unbounded" },
       )
-      return [toolSearchDef(resolved, bus), ...resolved]
+      const searchable = [toolSearchDef(resolved, bus), ...resolved]
+      const disclosure = ToolDisclosure.partition({
+        tools: searchable,
+        enabled: flags.experimentalDeferredTools,
+        threshold: flags.deferredToolThreshold ?? 40,
+      })
+      if (disclosure.hidden.length === 0) return searchable
+
+      const toolSearch = toolSearchDef(searchable, bus)
+      const directWithoutSearch = disclosure.direct.filter((tool) => tool.id !== "tool_search")
+      const directIDs = new Set(disclosure.direct.map((tool) => tool.id))
+      const toolExec = ToolDisclosure.toolExecDef({
+        hidden: disclosure.hidden,
+        directIDs,
+        bus,
+      })
+      return [toolSearch, ...directWithoutSearch, toolExec]
     })
 
     const named: Interface["named"] = Effect.fn("ToolRegistry.named")(function* () {
@@ -444,7 +481,7 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),
       Layer.provide(Session.defaultLayer),
-      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer)),
+      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer, BackgroundProcess.defaultLayer)),
       Layer.provide(Provider.defaultLayer),
       Layer.provide(Layer.mergeAll(Git.defaultLayer, RepositoryCache.defaultLayer)),
       Layer.provide(Reference.defaultLayer),

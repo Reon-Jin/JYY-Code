@@ -222,6 +222,37 @@ it.instance(
   { config: { mcp: {} } },
 )
 
+it.instance(
+  "exposes MCP tools as catalog definitions",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        lastCreatedClientName = "catalog-server"
+        const serverState = getOrCreateClientState("catalog-server")
+        serverState.tools = [
+          { name: "search_issue", description: "Search issues", inputSchema: { type: "object", properties: {} } },
+        ]
+
+        yield* mcp.add("catalog-server", {
+          type: "local",
+          command: ["echo", "test"],
+        })
+
+        const defs = yield* mcp.toolDefs()
+
+        expect(defs[0]).toMatchObject({
+          id: expect.stringContaining("_"),
+          catalog: {
+            category: "mcp",
+            mutability: "external",
+            risk: "medium",
+          },
+        })
+      }),
+    ),
+  { config: { mcp: {} } },
+)
+
 // ========================================================================
 // Test: tool change notifications refresh the cache
 // ========================================================================

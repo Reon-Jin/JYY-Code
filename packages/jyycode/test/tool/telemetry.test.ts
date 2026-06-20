@@ -13,6 +13,7 @@ import { Truncate } from "@/tool/truncate"
 import { Agent } from "@/agent/agent"
 import { testEffect, pollWithTimeout } from "../lib/effect"
 import { ProviderTest } from "../fake/provider"
+import { RuntimeFlags } from "@/effect/runtime-flags"
 
 const Parameters = Schema.Struct({ query: Schema.String })
 const provider = ProviderTest.fake()
@@ -62,6 +63,7 @@ const mcpLayer = Layer.succeed(
     status: () => Effect.succeed({}),
     clients: () => Effect.succeed({}),
     tools: () => Effect.succeed({}),
+    toolDefs: () => Effect.succeed([]),
     prompts: () => Effect.succeed({}),
     resources: () => Effect.succeed({}),
     add: () => Effect.succeed({ status: {} }),
@@ -97,7 +99,14 @@ const permissionLayer = Layer.succeed(
   }),
 )
 
-const baseLayer = Layer.mergeAll(Bus.layer, pluginLayer, permissionLayer, mcpLayer, Truncate.defaultLayer)
+const baseLayer = Layer.mergeAll(
+  Bus.layer,
+  pluginLayer,
+  permissionLayer,
+  mcpLayer,
+  Truncate.defaultLayer,
+  RuntimeFlags.layer(),
+)
 const it = testEffect(baseLayer)
 
 function processor() {
@@ -203,6 +212,37 @@ describe("ToolTelemetry", () => {
         category: "filesystem",
         matches: 2,
         resultIDs: ["edit", "apply_patch"],
+      })
+    }),
+  )
+
+  it.instance("publishes deferred execution events", () =>
+    Effect.gen(function* () {
+      const events: Array<{ type: string; properties: any }> = []
+      const bus = yield* Bus.Service
+      const off = yield* bus.subscribeAllCallback((event) => events.push(event))
+
+      yield* ToolTelemetry.deferredExecuted(bus, {
+        sessionID: session.id,
+        messageID: message.id,
+        callID: "call_exec",
+        tool: "tool_exec",
+        delegatedTool: "send_message",
+        delegatedCategory: "communication",
+        delegatedRisk: "medium",
+        success: true,
+      })
+
+      const event = yield* pollWithTimeout(
+        Effect.sync(() => events.find((item) => item.type === ToolTelemetry.Event.DeferredExecuted.type)),
+        "deferred execution telemetry event not published",
+      )
+      off()
+
+      expect(event.properties).toMatchObject({
+        tool: "tool_exec",
+        delegatedTool: "send_message",
+        success: true,
       })
     }),
   )

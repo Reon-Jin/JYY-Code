@@ -1,4 +1,4 @@
-import { dynamicTool, type Tool, jsonSchema, type JSONSchema7 } from "ai"
+import { dynamicTool, type Tool as AITool, jsonSchema, type JSONSchema7 } from "ai"
 import { serviceUse } from "@/effect/service-use"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -31,6 +31,7 @@ import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
+import { Tool as JYYTool } from "@/tool/tool"
 
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
@@ -155,7 +156,7 @@ function listTools(key: string, client: MCPClient, timeout: number) {
 }
 
 // Convert MCP tool definition to AI SDK Tool type
-function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number): Tool {
+function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number): AITool {
   const inputSchema = mcpTool.inputSchema
 
   // Spread first, then override type to ensure it's always "object"
@@ -183,6 +184,92 @@ function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number
       )
     },
   })
+}
+
+const McpToolParameters = Schema.Record(Schema.String, Schema.Unknown)
+
+function convertMcpToolDef(
+  clientName: string,
+  mcpTool: MCPToolDef,
+  client: MCPClient,
+  timeout?: number,
+): JYYTool.Def<typeof McpToolParameters> {
+  const id = sanitize(clientName) + "_" + sanitize(mcpTool.name)
+  const inputSchema = mcpTool.inputSchema
+  const schema: JSONSchema7 = {
+    ...(inputSchema as JSONSchema7),
+    type: "object",
+    properties: (inputSchema.properties ?? {}) as JSONSchema7["properties"],
+    additionalProperties: false,
+  }
+
+  return {
+    id,
+    description: mcpTool.description ?? `MCP tool ${mcpTool.name} from ${clientName}`,
+    parameters: McpToolParameters,
+    jsonSchema: schema,
+    catalog: {
+      category: "mcp",
+      mutability: "external",
+      risk: "medium",
+      tags: [clientName, mcpTool.name, "mcp"],
+    },
+    execute: (args, ctx) =>
+      Effect.gen(function* () {
+        yield* ctx.ask({ permission: id, metadata: {}, patterns: ["*"], always: ["*"] })
+        const result = (yield* Effect.tryPromise({
+          try: () =>
+            client.callTool(
+              {
+                name: mcpTool.name,
+                arguments: (args || {}) as Record<string, unknown>,
+              },
+              CallToolResultSchema,
+              {
+                resetTimeoutOnProgress: true,
+                timeout,
+              },
+            ),
+          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+        }).pipe(Effect.orDie)) as Awaited<ReturnType<MCPClient["callTool"]>>
+
+        const textParts: string[] = []
+        const attachments: NonNullable<JYYTool.ExecuteResult["attachments"]> = []
+        for (const contentItem of result.content as any[]) {
+          if (contentItem.type === "text") textParts.push(contentItem.text)
+          else if (contentItem.type === "image") {
+            attachments.push({
+              type: "file",
+              mime: contentItem.mimeType,
+              url: `data:${contentItem.mimeType};base64,${contentItem.data}`,
+            })
+          } else if (contentItem.type === "resource") {
+            const { resource } = contentItem
+            if ("text" in resource && resource.text) textParts.push(resource.text)
+            if ("blob" in resource && resource.blob) {
+              attachments.push({
+                type: "file",
+                mime: resource.mimeType ?? "application/octet-stream",
+                url: `data:${resource.mimeType ?? "application/octet-stream"};base64,${resource.blob}`,
+                filename: resource.uri,
+              })
+            }
+          }
+        }
+
+        return {
+          title: "",
+          metadata: {
+            ...(typeof result.metadata === "object" && result.metadata !== null ? result.metadata : {}),
+            mcpServer: clientName,
+            mcpTool: mcpTool.name,
+            truncated: false,
+          },
+          output: textParts.join("\n\n"),
+          attachments,
+        }
+      }),
+  }
 }
 
 function defs(key: string, client: MCPClient, timeout?: number) {
@@ -242,7 +329,8 @@ interface State {
 export interface Interface {
   readonly status: () => Effect.Effect<Record<string, Status>>
   readonly clients: () => Effect.Effect<Record<string, MCPClient>>
-  readonly tools: () => Effect.Effect<Record<string, Tool>>
+  readonly tools: () => Effect.Effect<Record<string, AITool>>
+  readonly toolDefs: () => Effect.Effect<JYYTool.Def[]>
   readonly prompts: () => Effect.Effect<Record<string, PromptInfo & { client: string }>>
   readonly resources: () => Effect.Effect<Record<string, ResourceInfo & { client: string }>>
   readonly add: (name: string, mcp: ConfigMCP.Info) => Effect.Effect<{ status: Record<string, Status> | Status }>
@@ -661,7 +749,7 @@ export const layer = Layer.effect(
     })
 
     const tools = Effect.fn("MCP.tools")(function* () {
-      const result: Record<string, Tool> = {}
+      const result: Record<string, AITool> = {}
       const s = yield* InstanceState.get(state)
 
       const cfg = yield* cfgSvc.get()
@@ -688,6 +776,41 @@ export const layer = Layer.effect(
             const timeout = entry?.timeout ?? defaultTimeout
             for (const mcpTool of listed) {
               result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = convertMcpTool(mcpTool, client, timeout)
+            }
+          }),
+        { concurrency: "unbounded" },
+      )
+      return result
+    })
+
+    const toolDefs = Effect.fn("MCP.toolDefs")(function* () {
+      const result: JYYTool.Def[] = []
+      const s = yield* InstanceState.get(state)
+
+      const cfg = yield* cfgSvc.get()
+      const config = cfg.mcp ?? {}
+      const defaultTimeout = cfg.experimental?.mcp_timeout
+
+      const connectedClients = Object.entries(s.clients).filter(
+        ([clientName]) => s.status[clientName]?.status === "connected",
+      )
+
+      yield* Effect.forEach(
+        connectedClients,
+        ([clientName, client]) =>
+          Effect.gen(function* () {
+            const mcpConfig = config[clientName]
+            const entry = mcpConfig && isMcpConfigured(mcpConfig) ? mcpConfig : undefined
+
+            const listed = s.defs[clientName]
+            if (!listed) {
+              log.warn("missing cached tools for connected server", { clientName })
+              return
+            }
+
+            const timeout = entry?.timeout ?? defaultTimeout
+            for (const mcpTool of listed) {
+              result.push(convertMcpToolDef(clientName, mcpTool, client, timeout))
             }
           }),
         { concurrency: "unbounded" },
@@ -938,6 +1061,7 @@ export const layer = Layer.effect(
       status,
       clients,
       tools,
+      toolDefs,
       prompts,
       resources,
       add,

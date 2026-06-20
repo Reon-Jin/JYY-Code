@@ -296,6 +296,18 @@ describe("tool.edit", () => {
   })
 
   describe("line endings", () => {
+    it.instance("preserves line endings through shared edit application", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const filepath = path.join(test.directory, "windows.txt")
+        yield* put(filepath, "one\r\ntwo\r\n")
+
+        yield* run({ filePath: filepath, oldString: "two", newString: "three" })
+
+        expect(yield* loadRaw(filepath)).toBe("one\r\nthree\r\n")
+      }),
+    )
+
     const old = "alpha\nbeta\ngamma"
     const next = "alpha\nbeta-updated\ngamma"
     const alt = "alpha\nbeta\nomega"
