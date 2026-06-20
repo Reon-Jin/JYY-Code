@@ -91,6 +91,30 @@ describe("RuntimeFlags", () => {
     }),
   )
 
+  it.effect("reads deferred tool flags", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(
+        Effect.provide(
+          fromConfig({
+            JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS: "true",
+            JYYCODE_DEFERRED_TOOL_THRESHOLD: "12",
+          }),
+        ),
+      )
+
+      expect(flags.experimentalDeferredTools).toBe(true)
+      expect(flags.deferredToolThreshold).toBe(12)
+    }),
+  )
+
+  it.effect("enables deferred tools through broad experimental flag", () =>
+    Effect.gen(function* () {
+      const flags = yield* readFlags.pipe(Effect.provide(fromConfig({ JYYCODE_EXPERIMENTAL: "true" })))
+
+      expect(flags.experimentalDeferredTools).toBe(true)
+    }),
+  )
+
   it.effect("layer accepts partial test overrides and fills defaults from Config definitions", () =>
     Effect.gen(function* () {
       const flags = yield* readFlags.pipe(
