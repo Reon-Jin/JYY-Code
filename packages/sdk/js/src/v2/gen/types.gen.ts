@@ -6496,6 +6496,9 @@ export type SessionPromptData = {
     agentCluster?: {
       enabled?: boolean
     }
+    toolDisclosure?: {
+      deferredTools?: boolean
+    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -6888,6 +6891,9 @@ export type SessionCommandData = {
     arguments: string
     command: string
     variant?: string
+    toolDisclosure?: {
+      deferredTools?: boolean
+    }
     parts?: Array<{
       id?: string
       type: "file"

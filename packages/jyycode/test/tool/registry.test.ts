@@ -248,6 +248,25 @@ describe("tool.registry", () => {
     }),
   )
 
+  deferredEnabled.instance("keeps filesystem and process helper tools direct in deferred mode", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const tools = yield* registry.tools({
+        providerID: ProviderID.jyycode,
+        modelID: ModelID.make("test"),
+        agent: yield* agents.defaultInfo(),
+      })
+
+      const ids = tools.map((tool) => tool.id)
+      expect(ids).toContain("ls")
+      expect(ids).toContain("multi_edit")
+      expect(ids).toContain("process_start")
+      expect(ids).toContain("process_output")
+      expect(ids).toContain("kill_process")
+    }),
+  )
+
   scout.instance("shows repo research tools when experimental scout is enabled", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service

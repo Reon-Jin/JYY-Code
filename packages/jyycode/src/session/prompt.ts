@@ -134,6 +134,15 @@ export const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
+    const toolDisclosureOverrides = new Map<SessionID, { readonly deferredTools?: boolean }>()
+    const runtimeFlagsForSession = (sessionID: SessionID) => {
+      const override = toolDisclosureOverrides.get(sessionID)
+      if (override?.deferredTools === undefined) return flags
+      return RuntimeFlags.Service.of({
+        ...flags,
+        experimentalDeferredTools: override.deferredTools,
+      })
+    }
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -1269,53 +1278,67 @@ export const layer = Layer.effect(
 
     const prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts, Image.Error> = Effect.fn(
       "SessionPrompt.prompt",
-    )(function* (input) {
-      const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
-      const cfg = yield* config.get()
-      const useCluster = AgentCluster.canUseAgentCluster({
-        session,
-        config: cfg.agent_cluster,
-        requested: input.agentCluster?.enabled,
+    )((input) => {
+      const hasToolDisclosureOverride = input.toolDisclosure?.deferredTools !== undefined
+      const previousToolDisclosure = toolDisclosureOverrides.get(input.sessionID)
+      const restoreToolDisclosure = Effect.sync(() => {
+        if (!hasToolDisclosureOverride) return
+        if (previousToolDisclosure) {
+          toolDisclosureOverrides.set(input.sessionID, previousToolDisclosure)
+          return
+        }
+        toolDisclosureOverrides.delete(input.sessionID)
       })
-      const clusterModels = useCluster
-        ? yield* AgentCluster.resolveModels(cfg.agent_cluster ?? {}).pipe(Effect.orDie)
-        : undefined
-      const runID = useCluster ? AgentCluster.createRunID() : undefined
-      const promptInput =
-        useCluster && clusterModels && runID
-          ? AgentCluster.decoratePromptInput({
-              prompt: input,
-              runID,
-              session,
-              config: cfg.agent_cluster ?? {},
-              models: clusterModels,
-            })
-          : input
-      yield* revert.cleanup(session)
-      const message = yield* createUserMessage(promptInput)
-      yield* sessions.touch(input.sessionID)
-
-      const permissions: Permission.Rule[] = []
-      for (const [t, enabled] of Object.entries(promptInput.tools ?? {})) {
-        permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
-      }
-      if (permissions.length > 0) {
-        session.permission = permissions
-        yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
-      }
-
-      if (promptInput.noReply === true) return message
-      if (useCluster && clusterModels && runID) {
-        return yield* AgentCluster.run({
-          runID,
+      const body = Effect.gen(function* () {
+        if (hasToolDisclosureOverride) toolDisclosureOverrides.set(input.sessionID, input.toolDisclosure!)
+        const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+        const cfg = yield* config.get()
+        const useCluster = AgentCluster.canUseAgentCluster({
           session,
-          message,
-          config: cfg.agent_cluster ?? {},
-          models: clusterModels,
-          runLoop: loop({ sessionID: input.sessionID }),
+          config: cfg.agent_cluster,
+          requested: input.agentCluster?.enabled,
         })
-      }
-      return yield* loop({ sessionID: input.sessionID })
+        const clusterModels = useCluster
+          ? yield* AgentCluster.resolveModels(cfg.agent_cluster ?? {}).pipe(Effect.orDie)
+          : undefined
+        const runID = useCluster ? AgentCluster.createRunID() : undefined
+        const promptInput =
+          useCluster && clusterModels && runID
+            ? AgentCluster.decoratePromptInput({
+                prompt: input,
+                runID,
+                session,
+                config: cfg.agent_cluster ?? {},
+                models: clusterModels,
+              })
+            : input
+        yield* revert.cleanup(session)
+        const message = yield* createUserMessage(promptInput)
+        yield* sessions.touch(input.sessionID)
+
+        const permissions: Permission.Rule[] = []
+        for (const [t, enabled] of Object.entries(promptInput.tools ?? {})) {
+          permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
+        }
+        if (permissions.length > 0) {
+          session.permission = permissions
+          yield* sessions.setPermission({ sessionID: session.id, permission: permissions })
+        }
+
+        if (promptInput.noReply === true) return message
+        if (useCluster && clusterModels && runID) {
+          return yield* AgentCluster.run({
+            runID,
+            session,
+            message,
+            config: cfg.agent_cluster ?? {},
+            models: clusterModels,
+            runLoop: loop({ sessionID: input.sessionID }),
+          })
+        }
+        return yield* loop({ sessionID: input.sessionID })
+      })
+      return body.pipe(Effect.ensuring(restoreToolDisclosure))
     }) as (input: PromptInput) => Effect.Effect<MessageV2.WithParts, Image.Error>
 
     const lastAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -1519,7 +1542,7 @@ export const layer = Layer.effect(
           const maxSteps = agent.steps ?? Infinity
           const isLastStep = step >= maxSteps
           msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
-            Effect.provideService(RuntimeFlags.Service, flags),
+            Effect.provideService(RuntimeFlags.Service, runtimeFlagsForSession(sessionID)),
             Effect.provideService(AppFileSystem.Service, fsys),
             Effect.provideService(Session.Service, sessions),
           )
@@ -1590,7 +1613,7 @@ export const layer = Layer.effect(
               Effect.provideService(MCP.Service, mcp),
               Effect.provideService(Truncate.Service, truncate),
               Effect.provideService(Bus.Service, bus),
-              Effect.provideService(RuntimeFlags.Service, flags),
+              Effect.provideService(RuntimeFlags.Service, runtimeFlagsForSession(sessionID)),
             )
 
             if (lastUser.format?.type === "json_schema") {
@@ -1836,6 +1859,7 @@ export const layer = Layer.effect(
         agent: userAgent,
         parts,
         variant: input.variant,
+        toolDisclosure: input.toolDisclosure,
       })
       yield* bus.publish(Command.Event.Executed, {
         name: input.command,
@@ -1955,6 +1979,10 @@ const ModelRef = Schema.Struct({
   modelID: ModelID,
 })
 
+const ToolDisclosureInput = Schema.Struct({
+  deferredTools: Schema.optional(Schema.Boolean),
+})
+
 export const PromptInput = Schema.Struct({
   sessionID: SessionID,
   messageID: Schema.optional(MessageID),
@@ -1973,6 +2001,7 @@ export const PromptInput = Schema.Struct({
       enabled: Schema.optional(Schema.Boolean),
     }),
   ),
+  toolDisclosure: Schema.optional(ToolDisclosureInput),
   parts: Schema.Array(
     Schema.Union([
       MessageV2.TextPartInput,
@@ -2005,6 +2034,7 @@ export const CommandInput = Schema.Struct({
   arguments: Schema.String,
   command: Schema.String,
   variant: Schema.optional(Schema.String),
+  toolDisclosure: Schema.optional(ToolDisclosureInput),
   // Inlined (no identifier annotation) to keep the original SDK output �?the
   // PromptInput call site below references FilePartInput by ref via the
   // Schema export in message-v2.ts.

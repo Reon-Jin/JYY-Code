@@ -84,9 +84,17 @@ Field-weighted BM25 retrieval helps the agent find the right tool without exposi
 - Preserves strong exact-match boosts for tool IDs and full-query ID matches.
 - Supports category filtering and intent bonuses for write-oriented and communication-oriented requests.
 - Returns parameter summaries for fast tool selection.
-- Covered by deterministic top-k fixtures and real registry tests that verify common intents such as read, edit, write, grep, web fetch, and sub-agent delegation rank the expected tool in the top results.
+- Covered by deterministic top-k fixtures and real registry tests that verify common intents such as read, list, edit, multi-edit, write, grep, process control, web fetch, and sub-agent delegation rank the expected tool in the top results.
 
-Experimental progressive tool disclosure can be enabled with `JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS`. In this mode, JYY-Code keeps core tools such as read, grep, shell, edit, task, and todo directly visible, while long-tail MCP, plugin, communication, and advanced tools are discoverable through `tool_search` and executed through `tool_exec`. MCP tools are normalized into the same catalog metadata path as built-in and plugin tools, so search ranking, permission checks, and telemetry use the delegated underlying tool identity. `JYYCODE_DEFERRED_TOOL_THRESHOLD` controls when the catalog is partitioned, and disabling the flag restores the default behavior.
+Experimental progressive tool disclosure can be enabled with `JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS`. In this mode, JYY-Code keeps core tools such as read, ls, grep, shell, edit, multi_edit, task, and todo directly visible, while long-tail MCP, plugin, communication, and advanced tools are discoverable through `tool_search` and executed through `tool_exec`. MCP tools are normalized into the same catalog metadata path as built-in and plugin tools, so search ranking, permission checks, and telemetry use the delegated underlying tool identity. `JYYCODE_DEFERRED_TOOL_THRESHOLD` controls when the catalog is partitioned, and disabling the flag restores the default behavior.
+
+### Expanded Core Tools
+
+The built-in toolset includes focused filesystem, editing, and process-control helpers for common agent workflows:
+
+- `ls` lists directory contents and shallow trees without reading file contents, making exploration cheaper and safer than broad reads.
+- `multi_edit` applies ordered edits to one file atomically, reusing the same replacement engine as `edit` while preserving BOM and line endings.
+- `process_start`, `process_output`, and `kill_process` manage long-running background shell processes by ID, with permission scanning before launch and incremental output retrieval afterward.
 
 ### Architecture Optimizations
 

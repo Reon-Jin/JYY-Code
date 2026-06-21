@@ -84,9 +84,17 @@ JYY-Code 使用结构化文件记忆保存项目事实、工程约定、用户�
 - 保留工具 ID 精确匹配和完整查询命中工具 ID 的强加分。
 - 支持类别过滤，并对写入类意图、通信类意图做额外加权。
 - 返回工具参数摘要，帮助 Agent 更快完成工具选择。
-- 通过固定 top-k fixture 和真实工具注册表测试验证，覆盖读取、编辑、写入、项目搜索、网页抓取和子 Agent 委派等常见意图。
+- 通过固定 top-k fixture 和真实工具注册表测试验证，覆盖读取、目录列出、编辑、多段编辑、写入、项目搜索、进程控制、网页抓取和子 Agent 委派等常见意图。
 
-启用 `JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS` 后，JYY-Code 会进入实验性的渐进式工具披露模式：读取、搜索、终端、编辑、任务和 Todo 等核心工具仍然直接暴露给模型；MCP、插件、通信和高级低频工具则通过 `tool_search` 按需发现，再由 `tool_exec` 代理执行。MCP 工具会被规范化到和内置、插件工具一致的 catalog metadata 路径中，因此搜索排序、权限检查和 telemetry 都会使用被代理的底层工具身份。`JYYCODE_DEFERRED_TOOL_THRESHOLD` 可控制工具目录超过多少个时才进行拆分；关闭实验开关即可恢复默认行为。
+启用 `JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS` 后，JYY-Code 会进入实验性的渐进式工具披露模式：读取、目录列出、搜索、终端、编辑、多段编辑、任务和 Todo 等核心工具仍然直接暴露给模型；MCP、插件、通信和高级低频工具则通过 `tool_search` 按需发现，再由 `tool_exec` 代理执行。MCP 工具会被规范化到和内置、插件工具一致的 catalog metadata 路径中，因此搜索排序、权限检查和 telemetry 都会使用被代理的底层工具身份。`JYYCODE_DEFERRED_TOOL_THRESHOLD` 可控制工具目录超过多少个时才进行拆分；关闭实验开关即可恢复默认行为。
+
+### 核心工具扩展
+
+内置工具集补充了更适合常见 Agent 工作流的文件系统、编辑和进程控制能力：
+
+- `ls` 用于列出目录内容和浅层目录树，不读取文件正文，适合更低成本、更安全地探索项目结构。
+- `multi_edit` 可以对同一个文件按顺序原子应用多段编辑，复用 `edit` 的替换引擎，并保留 BOM 和原有换行风格。
+- `process_start`、`process_output` 和 `kill_process` 用于按 ID 管理长时间运行的后台 shell 进程，启动前执行权限扫描，启动后可增量读取输出或停止进程。
 
 ### 架构优化
 
