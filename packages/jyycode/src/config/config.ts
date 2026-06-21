@@ -308,7 +308,7 @@ export const Info = Schema.Struct({
       }),
       trigger_ratio: Schema.optional(Schema.Finite).annotate({
         description:
-          "Fraction of the usable context window that triggers predictive compaction before the next model call (default: 0.92).",
+          "Fraction of media-aware active context estimate that triggers predictive compaction before the next model call (default: 0.92). Media attachments are estimated by MIME/decoded bytes, not base64 string length.",
       }),
       micro_compact: Schema.optional(Schema.Boolean).annotate({
         description:

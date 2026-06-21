@@ -43,6 +43,10 @@ The terminal UI now separates planning, execution, and classic TodoWrite items:
 
 This avoids duplicate or conflicting progress signals and makes long-running multi-agent sessions easier to scan.
 
+### Context and PDF Attachments
+
+JYY-Code estimates active context using message text, tool output, and decoded media size. PDF and image attachments are not counted by their base64 data URL length. The TUI shows provider-reported tokens separately from estimated active context because providers account for files differently.
+
 ### Email & Communication
 
 Built-in SMTP/IMAP adapters allow agents to send and receive email directly within sessions.
