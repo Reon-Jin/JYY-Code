@@ -1147,6 +1147,47 @@ describe("session.compaction.process", () => {
     }),
   )
 
+  itCompaction.instance("automatic compaction creates one continuation and no fresh compaction task", () => {
+    const stub = llm()
+    stub.push(reply("summary"))
+
+    return Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      yield* createUserMessage(session.id, "continue work")
+      const created = yield* SessionCompaction.use.create({
+        sessionID: session.id,
+        agent: "build",
+        model: ref,
+        auto: true,
+      })
+      expect(created).toBe(true)
+
+      const msgs = yield* ssn.messages({ sessionID: session.id })
+      const parent = msgs.at(-1)?.info.id
+      expect(parent).toBeTruthy()
+      yield* SessionCompaction.use.process({
+        parentID: parent!,
+        messages: msgs,
+        sessionID: session.id,
+        auto: true,
+      })
+
+      const all = yield* ssn.messages({ sessionID: session.id })
+      const continuations = all.filter((item) =>
+        item.parts.some((part) => part.type === "text" && part.metadata?.compaction_continue === true),
+      )
+      const compactions = all.flatMap((item) => item.parts.filter((part) => part.type === "compaction"))
+      const latest = MessageV2.latest(MessageV2.filterCompacted(all))
+
+      expect(continuations).toHaveLength(1)
+      expect(compactions).toHaveLength(1)
+      expect(latest.user?.id).toBe(continuations[0]?.info.id)
+      expect(latest.finished?.summary).toBe(true)
+      expect(latest.tasks).toEqual([])
+    }).pipe(withCompaction({ llm: stub.layer }))
+  })
+
   itCompaction.instance("predictive auto-continue does not claim provider size failure", () => {
     const stub = llm()
     stub.push(reply("summary"))

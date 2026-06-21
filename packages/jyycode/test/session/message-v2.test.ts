@@ -1558,7 +1558,16 @@ describe("session.message-v2.latest", () => {
 
   const tailUser: MessageV2.WithParts = {
     info: userInfo(TAIL_USER),
-    parts: [{ ...basePart(TAIL_USER, "p1"), type: "text", text: "original prompt" }] as MessageV2.Part[],
+    parts: [
+      { ...basePart(TAIL_USER, "p1"), type: "text", text: "original prompt" },
+      {
+        ...basePart(TAIL_USER, "p2"),
+        type: "file",
+        mime: "application/pdf",
+        filename: "sample.pdf",
+        url: `data:application/pdf;base64,${Buffer.from("pdf").toString("base64")}`,
+      },
+    ] as MessageV2.Part[],
   }
 
   const overflowAssistant: MessageV2.WithParts = {
@@ -1621,6 +1630,11 @@ describe("session.message-v2.latest", () => {
 
     const state = MessageV2.latest(filtered)
 
+    expect(
+      filtered.some((message) =>
+        message.parts.some((part) => part.type === "file" && part.filename === "sample.pdf"),
+      ),
+    ).toBe(true)
     expect(state.finished?.id).toBe(SUMMARY_ASSISTANT)
     expect(state.finished?.summary).toBe(true)
     expect(state.user?.id).toBe(CONTINUE_USER)
