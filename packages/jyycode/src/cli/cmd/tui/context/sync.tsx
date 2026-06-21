@@ -92,6 +92,17 @@ export type AgentClusterState = {
   tasks: AgentClusterTask[]
 }
 
+export type SessionContextEstimate = {
+  totalTokens: number
+  textTokens: number
+  toolTokens: number
+  mediaTokens: number
+  mediaBytes: number
+  overheadTokens: number
+  thresholdTokens?: number
+  shouldCompact?: boolean
+}
+
 export function applyAgentClusterEvent(state: AgentClusterState, event: Extract<Event, { type: "agent_cluster.event" }>) {
   const next: AgentClusterState = {
     runs: state.runs.map((run) => ({ ...run })),
@@ -143,6 +154,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       session_diff: {
         [sessionID: string]: Snapshot.FileDiff[]
       }
+      session_context: {
+        [sessionID: string]: SessionContextEstimate
+      }
       agent_cluster: {
         [sessionID: string]: AgentClusterState
       }
@@ -182,6 +196,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       session: [],
       session_status: {},
       session_diff: {},
+      session_context: {},
       agent_cluster: {},
       todo: {},
       message: {},
@@ -226,6 +241,22 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       const response = await sdk.fetch(url, { headers })
       if (!response.ok) throw new Error(await response.text())
       return (await response.json()) as AgentClusterState
+    }
+
+    async function fetchSessionContext(sessionID: string) {
+      const url = new URL(`/session/${encodeURIComponent(sessionID)}/context`, sdk.url)
+      const headers = new Headers(sdk.headers)
+      if (sdk.directory && !headers.has("x-jyycode-directory")) {
+        headers.set("x-jyycode-directory", encodeURIComponent(sdk.directory))
+      }
+      const response = await sdk.fetch(url, { headers })
+      if (!response.ok) throw new Error(await response.text())
+      return (await response.json()) as SessionContextEstimate
+    }
+
+    async function refreshSessionContext(sessionID: string) {
+      const state = await fetchSessionContext(sessionID)
+      setStore("session_context", sessionID, reconcile(state))
     }
 
     async function refreshAgentCluster(sessionID: string) {
@@ -381,11 +412,17 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const messages = store.message[event.properties.info.sessionID]
           if (!messages) {
             setStore("message", event.properties.info.sessionID, [event.properties.info])
+            if (fullSyncedSessions.has(event.properties.info.sessionID)) {
+              void refreshSessionContext(event.properties.info.sessionID)
+            }
             break
           }
           const result = Binary.search(messages, event.properties.info.id, (m) => m.id)
           if (result.found) {
             setStore("message", event.properties.info.sessionID, result.index, reconcile(event.properties.info))
+            if (fullSyncedSessions.has(event.properties.info.sessionID)) {
+              void refreshSessionContext(event.properties.info.sessionID)
+            }
             break
           }
           setStore(
@@ -414,6 +451,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               )
             })
           }
+          if (fullSyncedSessions.has(event.properties.info.sessionID)) {
+            void refreshSessionContext(event.properties.info.sessionID)
+          }
           break
         }
         case "message.removed": {
@@ -434,11 +474,17 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const parts = store.part[event.properties.part.messageID]
           if (!parts) {
             setStore("part", event.properties.part.messageID, [event.properties.part])
+            if (fullSyncedSessions.has(event.properties.part.sessionID)) {
+              void refreshSessionContext(event.properties.part.sessionID)
+            }
             break
           }
           const result = Binary.search(parts, event.properties.part.id, (p) => p.id)
           if (result.found) {
             setStore("part", event.properties.part.messageID, result.index, reconcile(event.properties.part))
+            if (fullSyncedSessions.has(event.properties.part.sessionID)) {
+              void refreshSessionContext(event.properties.part.sessionID)
+            }
             break
           }
           setStore(
@@ -448,6 +494,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               draft.splice(result.index, 0, event.properties.part)
             }),
           )
+          if (fullSyncedSessions.has(event.properties.part.sessionID)) {
+            void refreshSessionContext(event.properties.part.sessionID)
+          }
           break
         }
 
@@ -638,12 +687,13 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         },
         async sync(sessionID: string) {
           if (fullSyncedSessions.has(sessionID)) return
-          const [session, messages, todo, diff, agentCluster] = await Promise.all([
+          const [session, messages, todo, diff, agentCluster, context] = await Promise.all([
             sdk.client.session.get({ sessionID }, { throwOnError: true }),
             sdk.client.session.messages({ sessionID, limit: 100 }),
             sdk.client.session.todo({ sessionID }),
             sdk.client.session.diff({ sessionID }),
             fetchAgentCluster(sessionID),
+            fetchSessionContext(sessionID),
           ])
           setStore(
             produce((draft) => {
@@ -659,6 +709,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               draft.message[sessionID] = infos
               draft.session_diff[sessionID] = diff.data ?? []
               draft.agent_cluster[sessionID] = agentCluster
+              draft.session_context[sessionID] = context
             }),
           )
           fullSyncedSessions.add(sessionID)

@@ -330,6 +330,34 @@ describe("session HttpApi", () => {
           yield* requestJson<unknown[]>(pathFor(SessionPaths.todo, { sessionID: parent.id }), { headers }),
         ).toEqual([])
 
+        const pdfData = Buffer.alloc(2 * 1024 * 1024, 1).toString("base64")
+        yield* Session.use.updatePart({
+          id: PartID.ascending(),
+          sessionID: parent.id,
+          messageID: message.info.id,
+          type: "file",
+          mime: "application/pdf",
+          filename: "sample.pdf",
+          url: `data:application/pdf;base64,${pdfData}`,
+        })
+
+        const context = yield* requestJson<{
+          totalTokens: number
+          textTokens: number
+          toolTokens: number
+          mediaTokens: number
+          mediaBytes: number
+          overheadTokens: number
+          thresholdTokens?: number
+          shouldCompact?: boolean
+        }>(pathFor(SessionPaths.context, { sessionID: parent.id }), { headers })
+        expect(context.textTokens).toBeLessThan(100)
+        expect(context.mediaBytes).toBe(2 * 1024 * 1024)
+        expect(context.mediaTokens).toBeGreaterThan(0)
+        expect(context.totalTokens).toBe(
+          context.textTokens + context.toolTokens + context.mediaTokens + context.overheadTokens,
+        )
+
         const now = Date.now()
         Database.use((db) => {
           db.insert(AgentClusterRunTable)

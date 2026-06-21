@@ -114,12 +114,23 @@ export const AgentClusterStatePayload = Schema.Struct({
   runs: Schema.Array(AgentClusterRunRow),
   tasks: Schema.Array(AgentClusterTaskRow),
 })
+export const ContextPayload = Schema.Struct({
+  totalTokens: Schema.Finite,
+  textTokens: Schema.Finite,
+  toolTokens: Schema.Finite,
+  mediaTokens: Schema.Finite,
+  mediaBytes: Schema.Finite,
+  overheadTokens: Schema.Finite,
+  thresholdTokens: Schema.optional(Schema.Finite),
+  shouldCompact: Schema.optional(Schema.Boolean),
+})
 
 export const SessionPaths = {
   list: root,
   status: `${root}/status`,
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
+  context: `${root}/:sessionID/context`,
   agentCluster: `${root}/:sessionID/agent-cluster`,
   todo: `${root}/:sessionID/todo`,
   diff: `${root}/:sessionID/diff`,
@@ -192,6 +203,19 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.children",
             summary: "Get session children",
             description: "Retrieve all child sessions that were forked from the specified parent session.",
+          }),
+        ),
+        HttpApiEndpoint.get("context", SessionPaths.context, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(ContextPayload, "Media-aware active context estimate"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.context",
+            summary: "Get active context estimate",
+            description:
+              "Retrieve a media-aware active context estimate for a session, including decoded media bytes.",
           }),
         ),
         HttpApiEndpoint.get("agentCluster", SessionPaths.agentCluster, {

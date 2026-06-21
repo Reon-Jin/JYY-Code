@@ -2,12 +2,16 @@ import { Agent } from "@/agent/agent"
 import { AgentCluster } from "@/agent-cluster/cluster"
 import { Bus } from "@/bus"
 import { Command } from "@/command"
+import { Config } from "@/config/config"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
+import { Provider } from "@/provider/provider"
 import { SessionShare } from "@/share/session"
 import { Session } from "@/session/session"
 import { SessionCompaction } from "@/session/compaction"
+import { estimateContextTokens } from "@/session/context-estimate"
 import { MessageV2 } from "@/session/message-v2"
+import { getPredictiveCompactThreshold } from "@/session/overflow"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
 import { SessionRunState } from "@/session/run-state"
@@ -16,13 +20,14 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NamedError } from "@jyycode-ai/core/util/error"
-import { Cause, Effect, Option, Schema, Scope } from "effect"
+import { Cause, Effect, Exit, Option, Schema, Scope } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
 import {
   CommandPayload,
+  ContextPayload,
   DiffQuery,
   ForkPayload,
   InitPayload,
@@ -47,6 +52,8 @@ const tryParseJson = (text: string) =>
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* Session.Service
+    const config = yield* Config.Service
+    const provider = yield* Provider.Service
     const shareSvc = yield* SessionShare.Service
     const promptSvc = yield* SessionPrompt.Service
     const revertSvc = yield* SessionRevert.Service
@@ -87,6 +94,31 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const children = Effect.fn("SessionHttpApi.children")(function* (ctx: { params: { sessionID: SessionID } }) {
       yield* requireSession(ctx.params.sessionID)
       return yield* session.children(ctx.params.sessionID)
+    })
+
+    const context = Effect.fn("SessionHttpApi.context")(function* (ctx: { params: { sessionID: SessionID } }) {
+      yield* requireSession(ctx.params.sessionID)
+      const messages = yield* MessageV2.filterCompactedEffect(ctx.params.sessionID)
+      const estimate = estimateContextTokens({ messages })
+      const result: typeof ContextPayload.Type = { ...estimate }
+      const latestUser = messages.findLast((message) => message.info.role === "user")
+      if (!latestUser) return result
+
+      const model = yield* provider
+        .getModel(latestUser.info.model.providerID, latestUser.info.model.modelID)
+        .pipe(Effect.exit)
+      if (Exit.isFailure(model)) return result
+
+      const cfg = yield* config.get()
+      const thresholdTokens = getPredictiveCompactThreshold({ cfg, model: model.value })
+      return {
+        ...result,
+        thresholdTokens,
+        shouldCompact:
+          cfg.compaction?.auto !== false &&
+          model.value.limit.context !== 0 &&
+          estimate.totalTokens >= thresholdTokens,
+      }
     })
 
     const agentCluster = Effect.fn("SessionHttpApi.agentCluster")(function* (ctx: {
@@ -419,6 +451,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("status", status)
       .handle("get", get)
       .handle("children", children)
+      .handle("context", context)
       .handle("agentCluster", agentCluster)
       .handle("todo", todo)
       .handle("diff", diff)

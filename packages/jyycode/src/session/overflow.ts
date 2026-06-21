@@ -75,6 +75,15 @@ export function getAutoCompactThreshold(input: {
   return effectiveWindow - buffer
 }
 
+export function getPredictiveCompactThreshold(input: {
+  cfg: Config.Info
+  model: Provider.Model
+  outputTokenMax?: number
+}) {
+  const ratio = input.cfg.compaction?.trigger_ratio ?? PREDICTIVE_RATIO
+  return Math.floor(usable(input) * ratio)
+}
+
 /**
  * Calculate detailed token warning state for UI feedback.
  */
@@ -144,6 +153,5 @@ export function shouldCompact(input: {
 }) {
   if (input.cfg.compaction?.auto === false) return false
   if (input.model.limit.context === 0) return false
-  const ratio = input.cfg.compaction?.trigger_ratio ?? PREDICTIVE_RATIO
-  return input.estimatedInputTokens >= Math.floor(usable(input) * ratio)
+  return input.estimatedInputTokens >= getPredictiveCompactThreshold(input)
 }

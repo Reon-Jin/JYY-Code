@@ -162,6 +162,9 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
       messages(sessionID) {
         return sync.data.message[sessionID] ?? []
       },
+      context(sessionID) {
+        return sync.data.session_context[sessionID]
+      },
       status(sessionID) {
         return sync.data.session_status[sessionID]
       },

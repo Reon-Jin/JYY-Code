@@ -372,6 +372,17 @@ export type TuiKV = {
   readonly ready: boolean
 }
 
+export type TuiSessionContextEstimate = {
+  totalTokens: number
+  textTokens: number
+  toolTokens: number
+  mediaTokens: number
+  mediaBytes: number
+  overheadTokens: number
+  thresholdTokens?: number
+  shouldCompact?: boolean
+}
+
 export type TuiState = {
   readonly ready: boolean
   readonly config: SdkConfig
@@ -389,6 +400,7 @@ export type TuiState = {
     diff: (sessionID: string) => ReadonlyArray<TuiSidebarFileItem>
     todo: (sessionID: string) => ReadonlyArray<TuiSidebarTodoItem>
     messages: (sessionID: string) => ReadonlyArray<Message>
+    context: (sessionID: string) => TuiSessionContextEstimate | undefined
     status: (sessionID: string) => SessionStatus | undefined
     permission: (sessionID: string) => ReadonlyArray<PermissionRequest>
     question: (sessionID: string) => ReadonlyArray<QuestionRequest>

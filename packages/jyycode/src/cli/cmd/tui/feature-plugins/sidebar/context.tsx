@@ -18,14 +18,20 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   const cost = createMemo(() => session()?.cost ?? 0)
 
   const state = createMemo(() => {
+    const estimate = props.api.state.session.context(props.session_id)
     const last = msg().findLast((item): item is AssistantMessage => item.role === "assistant" && item.tokens.output > 0)
-    if (!last) return {}
+    if (!last) {
+      return formatContextUsage({
+        estimatedTokens: estimate?.totalTokens,
+      })
+    }
 
     const tokens =
       last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write
     const model = props.api.state.provider.find((item) => item.id === last.providerID)?.models[last.modelID]
     return formatContextUsage({
       providerTokens: tokens,
+      estimatedTokens: estimate?.totalTokens,
       contextLimit: model?.limit.context,
     })
   })
