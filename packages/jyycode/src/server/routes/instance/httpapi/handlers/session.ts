@@ -101,7 +101,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       const messages = yield* MessageV2.filterCompactedEffect(ctx.params.sessionID)
       const estimate = estimateContextTokens({ messages })
       const result: typeof ContextPayload.Type = { ...estimate }
-      const latestUser = messages.findLast((message) => message.info.role === "user")
+      const latestUser = messages.findLast(
+        (message): message is MessageV2.WithParts & { info: MessageV2.User } => message.info.role === "user",
+      )
       if (!latestUser) return result
 
       const model = yield* provider
