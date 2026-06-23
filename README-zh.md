@@ -6,6 +6,14 @@
 
 > 基于 OpenCode 深度扩展的 AI 编程 Agent，融合多 Agent 协作、持久记忆、技能学习、通信能力和更可靠的任务状态管理。
 
+<p align="center">
+  <img
+    src="./logo/logo.gif"
+    alt="Rotating 3D wireframe demo"
+    width="500"
+  />
+</p>
+
 JYY-Code 是一个 AI 驱动的开发助手。它在 OpenCode 协议基础上扩展了多 Agent 编排、SQLite 持久化状态、权限控制、工具规范化、终端 UI 和跨会话记忆，目标是让 Agent 能更稳定地完成复杂、长耗时、多步骤的软件工程任务。
 
 ## 核心特性

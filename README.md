@@ -6,6 +6,14 @@
 
 > AI-powered development tool with communication capabilities, built on OpenCode and inspired by Claude Code.
 
+<p align="center">
+  <img
+    src="./logo/logo.gif"
+    alt="Rotating 3D wireframe demo"
+    width="500"
+  />
+</p>
+
 JYY-Code is an intelligent coding agent that combines multi-agent orchestration, persistent memory, skill learning, and communication features into a unified development assistant. It extends the OpenCode protocol with stronger workflow state, safer tool execution, and a terminal UI designed for long-running agent work.
 
 ## Features
