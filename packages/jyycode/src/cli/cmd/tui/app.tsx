@@ -30,6 +30,7 @@ import { EditorContextProvider } from "@tui/context/editor"
 import { useEvent } from "@tui/context/event"
 import { SDKProvider, useSDK } from "@tui/context/sdk"
 import { StartupLoading } from "@tui/component/startup-loading"
+import { StartupIntro } from "@tui/component/startup-intro"
 import { SyncProvider, useSync } from "@tui/context/sync"
 import { SyncProviderV2 } from "@tui/context/sync-v2"
 import { LocalProvider, useLocal } from "@tui/context/local"
@@ -279,6 +280,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   const event = useEvent()
   const sdk = useSDK()
   const toast = useToast()
+  const args = useArgs()
   const themeState = useTheme()
   const { theme, mode, setMode, locked, lock, unlock } = themeState
   const sync = useSync()
@@ -310,6 +312,10 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
     attention,
   })
   const [ready, setReady] = createSignal(false)
+  const [introComplete, setIntroComplete] = createSignal(
+    Boolean(args.continue || args.sessionID) || route.data.type !== "home",
+  )
+  const showIntro = createMemo(() => ready() && !introComplete() && route.data.type === "home")
   TuiPluginRuntime.init({
     api,
     config: tuiConfig,
@@ -399,7 +405,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
     }
   })
 
-  const args = useArgs()
   onMount(() => {
     batch(() => {
       if (args.agent) local.agent.set(args.agent)
@@ -1014,7 +1019,15 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       <Show when={Flag.JYYCODE_SHOW_TTFD}>
         <TimeToFirstDraw />
       </Show>
-      <Show when={ready()}>
+      <Show when={showIntro()}>
+        <StartupIntro
+          onComplete={() => {
+            route.navigate({ type: "home" })
+            setIntroComplete(true)
+          }}
+        />
+      </Show>
+      <Show when={ready() && !showIntro()}>
         <box flexGrow={1} minHeight={0} flexDirection="column">
           <Switch>
             <Match when={route.data.type === "home"}>
