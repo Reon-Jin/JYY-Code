@@ -18,7 +18,7 @@ JYY-Code is an intelligent coding agent that combines multi-agent orchestration,
 
 ## Features
 
-### Multi-Agent Cluster
+### Multi-Agent Cluster(Press F9 to Use)
 
 JYY-Code includes an orchestrator-planner-reviewer architecture that decomposes complex tasks, dispatches them to specialized sub-agents, reviews their output, and synthesizes the final result.
 
@@ -82,7 +82,7 @@ Markdown-based skills load domain knowledge, workflows, and tool integrations fr
 - Frontmatter metadata for relevance matching.
 - Runtime skill loading through the skill tool.
 
-### Intelligent Tool Search
+### Intelligent Tool Search(Press F10 to Use)
 
 Field-weighted BM25 retrieval helps the agent find the right tool without exposing the full catalog every turn.
 
