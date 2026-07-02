@@ -9,7 +9,7 @@ import {
 import type { Binding } from "@opentui/keymap"
 import { useTheme, selectedForeground } from "@tui/context/theme"
 import { entries, filter, flatMap, groupBy, pipe } from "remeda"
-import { batch, createEffect, createMemo, For, Show, type JSX, on } from "solid-js"
+import { batch, createEffect, createMemo, For, Show, type JSX, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useTerminalDimensions } from "@opentui/solid"
 import * as fuzzysort from "fuzzysort"
@@ -31,6 +31,7 @@ export interface DialogSelectProps<T> {
   onSelect?: (option: DialogSelectOption<T>) => void
   skipFilter?: boolean
   renderFilter?: boolean
+  preserveSelection?: boolean
   actions?: {
     command: string
     title: string
@@ -77,6 +78,9 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     filter: "",
     input: "keyboard" as "keyboard" | "mouse",
   })
+  let selection: { value: T; category?: string } | undefined
+  let resetSelection = false
+  let visibilityGeneration = 0
 
   createEffect(
     on(
@@ -86,6 +90,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           const currentIndex = flat().findIndex((opt) => isDeepEqual(opt.value, current))
           if (currentIndex >= 0) {
             setStore("selected", currentIndex)
+            selection = flat()[currentIndex]
           }
         }
       },
@@ -176,10 +181,68 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   const selected = createMemo(() => flat()[store.selected])
 
   createEffect(
+    on(
+      () => props.options,
+      () => {
+        if (!props.preserveSelection) return
+        if (resetSelection && store.filter.length > 0) {
+          const option = flat()[0]
+          if (!option) return
+          setStore("selected", 0)
+          selection = option
+          return
+        }
+        if (!selection) {
+          if (props.current !== undefined) {
+            const index = flat().findIndex((option) => isDeepEqual(option.value, props.current))
+            if (index >= 0) {
+              setStore("selected", index)
+              selection = flat()[index]
+              return
+            }
+          }
+          const option = selected()
+          if (!option) return
+          selection = option
+          return
+        }
+        const previous = selection
+        const index = flat().findIndex((option) => isDeepEqual(option.value, previous.value))
+        if (index >= 0) {
+          const option = flat()[index]
+          const moved = index !== store.selected || option.category !== previous.category
+          setStore("selected", index)
+          selection = option
+          if (!moved) return
+          const value = option.value
+          const generation = ++visibilityGeneration
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              if (generation !== visibilityGeneration) return
+              if (!props.preserveSelection || store.filter.length > 0) return
+              if (!isDeepEqual(selected()?.value, value)) return
+              scrollToSelection(false)
+            })
+          })
+          return
+        }
+        const next = Math.min(store.selected, flat().length - 1)
+        if (next < 0) return
+        setStore("selected", next)
+        selection = flat()[next]
+      },
+    ),
+  )
+  onCleanup(() => {
+    visibilityGeneration++
+  })
+
+  createEffect(
     on([() => store.filter, () => props.current], ([filter, current]) => {
+      if (filter.length > 0) resetSelection = true
       setTimeout(() => {
         if (filter.length > 0) {
-          moveTo(0, true)
+          moveTo(0, true, false)
         } else if (current) {
           const currentIndex = flat().findIndex((opt) => isDeepEqual(opt.value, current))
           if (currentIndex >= 0) {
@@ -198,10 +261,18 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
     moveTo(next, true)
   }
 
-  function moveTo(next: number, center = false) {
+  function moveTo(next: number, center = false, preserve = true) {
     setStore("selected", next)
     const option = selected()
+    if (option) {
+      selection = option
+      resetSelection = !preserve
+    }
     if (option) props.onMove?.(option)
+    scrollToSelection(center)
+  }
+
+  function scrollToSelection(center: boolean) {
     if (!scroll) return
     const target = scroll.getChildren().find((child: { id?: string }) => {
       return child.id === JSON.stringify(selected()?.value)
