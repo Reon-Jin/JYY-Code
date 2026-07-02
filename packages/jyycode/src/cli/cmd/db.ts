@@ -8,6 +8,111 @@ import { cmd } from "./cmd"
 import { JsonMigration } from "@/storage/json-migration"
 import { EOL } from "os"
 import { errorMessage } from "../../util/error"
+import { existsSync, readdirSync, statSync } from "fs"
+import path from "path"
+import type { RuntimeFlags } from "@/effect/runtime-flags"
+
+type StatusFlags = Pick<RuntimeFlags.Info, "disableChannelDb">
+
+export interface DatabaseCounts {
+  sessions: number
+  projects: number
+  messages: number
+  parts: number
+  migrations: number
+}
+
+export interface DatabaseStatus {
+  active: ReturnType<typeof Database.describePath> & {
+    exists: boolean
+    size: number
+    counts: DatabaseCounts
+    error?: string
+  }
+  databases: Array<{ path: string; size: number; sessions: number; error?: string }>
+  hint?: string
+}
+
+function tableExists(db: BunDatabase, table: string) {
+  return db.query("SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1").get(table) !== null
+}
+
+function tableCount(db: BunDatabase, table: string) {
+  if (!tableExists(db, table)) return 0
+  return Number((db.query(`SELECT count(*) AS count FROM "${table}"`).get() as { count: number | bigint }).count)
+}
+
+function fileSize(file: string) {
+  return existsSync(file) ? statSync(file).size : 0
+}
+
+function activeCounts(file: string): { counts: DatabaseCounts; error?: string } {
+  const empty = { sessions: 0, projects: 0, messages: 0, parts: 0, migrations: 0 }
+  if (!existsSync(file)) return { counts: empty }
+  const db = new BunDatabase(file, { readonly: true })
+  try {
+    return {
+      counts: {
+        sessions: tableCount(db, "session"),
+        projects: tableCount(db, "project"),
+        messages: tableCount(db, "message"),
+        parts: tableCount(db, "part"),
+        migrations: tableExists(db, "migration")
+          ? tableCount(db, "migration")
+          : tableCount(db, "__drizzle_migrations"),
+      },
+    }
+  } catch (error) {
+    return { counts: empty, error: errorMessage(error) }
+  } finally {
+    db.close()
+  }
+}
+
+function discoveredDatabase(file: string) {
+  const db = new BunDatabase(file, { readonly: true })
+  try {
+    return { path: file, size: fileSize(file), sessions: tableCount(db, "session") }
+  } catch (error) {
+    return { path: file, size: fileSize(file), sessions: 0, error: errorMessage(error) }
+  } finally {
+    db.close()
+  }
+}
+
+export function collectDatabaseStatus(flags?: StatusFlags): DatabaseStatus {
+  const selection = Database.describePath(flags)
+  const activeResult = activeCounts(selection.path)
+  const directory = path.dirname(selection.path)
+  const databases = existsSync(directory)
+    ? readdirSync(directory, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && /^jyycode.*\.db$/i.test(entry.name))
+        .map((entry) => path.join(directory, entry.name))
+        .filter((file) => path.resolve(file) !== path.resolve(selection.path))
+        .map(discoveredDatabase)
+        .toSorted((a, b) => a.path.localeCompare(b.path))
+    : []
+  const hint =
+    activeResult.counts.sessions === 0 && databases.some((item) => item.sessions > 0)
+      ? "Another channel database contains sessions. Set JYYCODE_DISABLE_CHANNEL_DB=1 only after backing up databases and confirming schema compatibility."
+      : undefined
+
+  return {
+    active: {
+      ...selection,
+      exists: existsSync(selection.path),
+      size: fileSize(selection.path),
+      counts: activeResult.counts,
+      ...(activeResult.error ? { error: activeResult.error } : {}),
+    },
+    databases,
+    ...(hint ? { hint } : {}),
+  }
+}
+
+function formatSize(size: number) {
+  return `${size.toLocaleString("en-US")} bytes`
+}
 
 const QueryCommand = cmd({
   command: "$0 [query]",
@@ -59,6 +164,29 @@ const PathCommand = cmd({
   describe: "print the database path",
   handler: () => {
     console.log(Database.getPath())
+  },
+})
+
+const StatusCommand = cmd({
+  command: "status",
+  describe: "show the active database and discovered channel databases",
+  handler: () => {
+    const status = collectDatabaseStatus()
+    UI.println(`Active database: ${status.active.path}`)
+    UI.println(`Channel: ${status.active.channel}`)
+    UI.println(`Selection source: ${status.active.source}`)
+    UI.println(`Exists: ${status.active.exists ? "yes" : "no"}`)
+    UI.println(`Size: ${formatSize(status.active.size)}`)
+    UI.println(
+      `Rows: ${status.active.counts.sessions} sessions, ${status.active.counts.projects} projects, ${status.active.counts.messages} messages, ${status.active.counts.parts} parts`,
+    )
+    UI.println(`Applied migrations: ${status.active.counts.migrations}`)
+    if (status.active.error) UI.println(`Read error: ${status.active.error}`)
+    for (const item of status.databases) {
+      UI.println(`Other database: ${item.path} (${formatSize(item.size)}, ${item.sessions} sessions)`)
+      if (item.error) UI.println(`  Read error: ${item.error}`)
+    }
+    if (status.hint) UI.println(`Hint: ${status.hint}`)
   },
 })
 
@@ -114,7 +242,7 @@ export const DbCommand = cmd({
   command: "db",
   describe: "database tools",
   builder: (yargs: Argv) => {
-    return yargs.command(QueryCommand).command(PathCommand).command(MigrateCommand).demandCommand()
+    return yargs.command(QueryCommand).command(PathCommand).command(StatusCommand).command(MigrateCommand).demandCommand()
   },
   handler: () => {},
 })

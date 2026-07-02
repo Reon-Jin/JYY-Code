@@ -43,6 +43,15 @@ export const getPath = (flags?: Pick<DatabaseFlags, "disableChannelDb">) => {
   return getChannelPath(flags)
 }
 
+export function describePath(flags: Pick<DatabaseFlags, "disableChannelDb"> = readRuntimeFlags()) {
+  return {
+    path: getPath(flags),
+    channel: InstallationChannel,
+    source: Flag.JYYCODE_DB ? ("override" as const) : flags.disableChannelDb ? ("shared" as const) : ("channel" as const),
+    shared: flags.disableChannelDb || ["latest", "beta", "prod"].includes(InstallationChannel),
+  }
+}
+
 export type Transaction = SQLiteTransaction<"sync", void>
 
 type Client = ReturnType<typeof init>

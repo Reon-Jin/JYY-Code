@@ -183,6 +183,17 @@ bun install
 bun run dev
 ```
 
+## 会话数据库与恢复
+
+JYY-Code 会隔离不同发布渠道的数据库，避免开发版本的 schema 在不知情的情况下修改稳定版数据库：
+
+- 已打包的 `latest`、`beta` 和 `prod` 版本使用 `jyycode.db`。
+- 源码运行通常使用 `jyycode-local.db`；其他自定义渠道使用独立的 `jyycode-<channel>.db`。
+- `jyycode db status` 会显示当前数据库路径、选择来源、行数、迁移数量，以及其他渠道数据库中的会话数量。该命令不会迁移或修改数据库。
+- `JYYCODE_DISABLE_CHANNEL_DB=1` 是显式的专家级覆盖选项，会改用共享的 `jyycode.db`。存在 schema 不兼容的二进制版本时，不要让它们共同访问该文件。
+
+更改渠道策略前，请先停止 JYY-Code，并备份数据库及其 `-wal`、`-shm` 配套文件。
+
 ## 项目结构
 
 ```text

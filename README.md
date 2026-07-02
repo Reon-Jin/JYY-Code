@@ -177,6 +177,17 @@ bun install
 bun run dev
 ```
 
+## Session Database and Recovery
+
+JYY-Code keeps release channels isolated so development schemas cannot silently mutate a stable database:
+
+- Packaged `latest`, `beta`, and `prod` builds use `jyycode.db`.
+- Source runs normally use `jyycode-local.db`; other custom channels use their own `jyycode-<channel>.db` file.
+- `jyycode db status` shows the active path, selection source, row counts, migrations, and session counts in other discovered channel databases. It never migrates or modifies those databases.
+- `JYYCODE_DISABLE_CHANNEL_DB=1` is an expert override that selects the shared `jyycode.db`. Do not use it while binaries with incompatible schemas may run against the same file.
+
+Back up the database, including any `-wal` and `-shm` companions, before changing channel policy. Stop JYY-Code before copying these files.
+
 ## Project Structure
 
 ```text
