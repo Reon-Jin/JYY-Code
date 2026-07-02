@@ -137,7 +137,7 @@ export function decoratePromptInput(input: {
 
 export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (input: { runID: RunID; plan: Plan }) {
   const now = Date.now()
-  Database.use((db) =>
+  yield* Database.query((db) =>
     db
       .insert(AgentClusterTaskTable)
       .values(
@@ -167,7 +167,7 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
   childSessionID: SessionID
 }) {
   if (!input.runID || !input.taskID) return
-  Database.use((db) =>
+  yield* Database.query((db) =>
     db
       .update(AgentClusterTaskTable)
       .set({
@@ -186,13 +186,13 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
 })
 
 export const finalizeRunIfTerminal = Effect.fn("AgentCluster.finalizeRunIfTerminal")(function* (runID: RunID) {
-  const open = Database.use((db) =>
+  const open = (yield* Database.query((db) =>
     db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.run_id, runID)).all(),
-  ).filter((task) => !TERMINAL_TASK_STATUSES.includes(task.status as any))
+  )).filter((task) => !TERMINAL_TASK_STATUSES.includes(task.status as any))
 
   if (open.length > 0) return false
 
-  Database.use((db) =>
+  yield* Database.query((db) =>
     db
       .update(AgentClusterRunTable)
       .set({ status: "completed", completed_at: Date.now(), time_updated: Date.now() })
@@ -203,18 +203,29 @@ export const finalizeRunIfTerminal = Effect.fn("AgentCluster.finalizeRunIfTermin
 })
 
 export const getSessionState = Effect.fn("AgentCluster.getSessionState")(function* (sessionID: SessionID) {
-  return Database.use((db) => {
-    const runs = db.select().from(AgentClusterRunTable).where(eq(AgentClusterRunTable.session_id, sessionID)).all()
-    const tasks =
-      runs.length === 0
-        ? []
-        : db
-            .select()
-            .from(AgentClusterTaskTable)
-            .where(inArray(AgentClusterTaskTable.run_id, runs.map((run) => run.id)))
-            .all()
-    return { runs, tasks }
-  })
+  return yield* Database.query((db) =>
+    Effect.gen(function* () {
+      const runs = yield* db
+        .select()
+        .from(AgentClusterRunTable)
+        .where(eq(AgentClusterRunTable.session_id, sessionID))
+        .all()
+      const tasks =
+        runs.length === 0
+          ? []
+          : yield* db
+              .select()
+              .from(AgentClusterTaskTable)
+              .where(
+                inArray(
+                  AgentClusterTaskTable.run_id,
+                  runs.map((run) => run.id),
+                ),
+              )
+              .all()
+      return { runs, tasks }
+    }),
+  )
 })
 
 export const run = Effect.fn("AgentCluster.run")(function* (input: {
@@ -230,7 +241,7 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
   const publish = (status: RunStatus, message: string) =>
     Effect.gen(function* () {
       const createdAt = Date.now()
-      Database.use((db) =>
+      yield* Database.query((db) =>
         db
           .insert(AgentClusterEventTable)
           .values({
@@ -255,7 +266,7 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
   const publishReview = (taskID: string, decision: string, issues: string) =>
     Effect.gen(function* () {
       const createdAt = Date.now()
-      Database.use((db) =>
+      yield* Database.query((db) =>
         db
           .insert(AgentClusterEventTable)
           .values({
@@ -285,7 +296,7 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
     })
 
   const now = Date.now()
-  Database.use((db) =>
+  yield* Database.query((db) =>
     db
       .insert(AgentClusterRunTable)
       .values({
@@ -315,14 +326,12 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
       ),
     ),
     Effect.catchCause((cause) =>
-      Effect.sync(() =>
-        Database.use((db) =>
-          db
-            .update(AgentClusterRunTable)
-            .set({ status: "failed", completed_at: Date.now(), time_updated: Date.now() })
-            .where(eq(AgentClusterRunTable.id, runID))
-            .run(),
-        ),
+      Database.query((db) =>
+        db
+          .update(AgentClusterRunTable)
+          .set({ status: "failed", completed_at: Date.now(), time_updated: Date.now() })
+          .where(eq(AgentClusterRunTable.id, runID))
+          .run(),
       ).pipe(Effect.andThen(publish("failed", Cause.pretty(cause))), Effect.andThen(Effect.failCause(cause))),
     ),
   )

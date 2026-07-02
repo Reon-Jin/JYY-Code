@@ -78,7 +78,7 @@ export const syncHandlers = HttpApiBuilder.group(InstanceHttpApi, "sync", (handl
 
     const history = Effect.fn("SyncHttpApi.history")(function* (ctx: { payload: typeof HistoryPayload.Type }) {
       const exclude = Object.entries(ctx.payload)
-      return Database.use((db) =>
+      return yield* Database.query((db) =>
         db
           .select()
           .from(EventTable)

@@ -138,9 +138,7 @@ describe("scoped database service", () => {
 
     const count = await Effect.runPromise(
       ScopedDatabase.Service.use((service) =>
-        Effect.sync(
-          () => (service.legacy.get<{ count: number }>("SELECT count(*) AS count FROM persisted")?.count ?? 0),
-        ),
+        Effect.sync(() => service.legacy.get<{ count: number }>("SELECT count(*) AS count FROM persisted")?.count ?? 0),
       ).pipe(Effect.provide(layer()), Effect.scoped),
     )
     expect(count).toBe(1)
@@ -178,6 +176,47 @@ describe("database compatibility context", () => {
           throw new Error("rollback")
         }),
       ).toThrow("rollback")
+      expect(order).toEqual([])
+    } finally {
+      Database.close()
+    }
+  })
+})
+
+describe("Effect database transaction context", () => {
+  test.serial("runs afterCommit effects only after a successful commit", async () => {
+    Database.close()
+    const order: string[] = []
+    try {
+      await Effect.runPromise(
+        Database.withTransaction(() =>
+          Effect.gen(function* () {
+            yield* Database.afterCommit(Effect.sync(() => order.push("after")))
+            order.push("inside")
+            expect(order).toEqual(["inside"])
+          }),
+        ),
+      )
+      expect(order).toEqual(["inside", "after"])
+    } finally {
+      Database.close()
+    }
+  })
+
+  test.serial("drops afterCommit effects when the transaction rolls back", async () => {
+    Database.close()
+    const order: string[] = []
+    try {
+      await expect(
+        Effect.runPromise(
+          Database.withTransaction(() =>
+            Effect.gen(function* () {
+              yield* Database.afterCommit(Effect.sync(() => order.push("after")))
+              return yield* Effect.fail("rollback")
+            }),
+          ),
+        ),
+      ).rejects.toBeDefined()
       expect(order).toEqual([])
     } finally {
       Database.close()

@@ -78,7 +78,7 @@ export const layer = Layer.effect(Service)(
         throw new Error(`Unknown event type: ${event.type}`)
       }
 
-      const row = Database.use((db) =>
+      const row = yield* Database.query((db) =>
         db
           .select({ seq: EventSequenceTable.seq, ownerID: EventSequenceTable.owner_id })
           .from(EventSequenceTable)
@@ -105,7 +105,7 @@ export const layer = Layer.effect(Service)(
       // full Effect context, so the forked publish + GlobalBus emit run with
       // the right state without a per-call attachWith.
       const bridge = yield* EffectBridge.make()
-      process(def, event, {
+      yield* process(def, event, {
         bus,
         bridge,
         publish,
@@ -151,19 +151,20 @@ export const layer = Layer.effect(Service)(
       // Note that this is an "immediate" transaction which is critical.
       // We need to make sure we can safely read and write with nothing
       // else changing the data from under us
-      Database.transaction(
-        (tx) => {
-          const id = EventID.ascending()
-          const row = tx
-            .select({ seq: EventSequenceTable.seq })
-            .from(EventSequenceTable)
-            .where(eq(EventSequenceTable.aggregate_id, agg))
-            .get()
-          const seq = row?.seq != null ? row.seq + 1 : 0
+      yield* Database.withTransaction(
+        (tx) =>
+          Effect.gen(function* () {
+            const id = EventID.ascending()
+            const row = yield* tx
+              .select({ seq: EventSequenceTable.seq })
+              .from(EventSequenceTable)
+              .where(eq(EventSequenceTable.aggregate_id, agg))
+              .get()
+            const seq = row?.seq != null ? row.seq + 1 : 0
 
-          const event = { id, seq, aggregateID: agg, data }
-          process(def, event, { bus, bridge, publish, experimentalWorkspaces: flags.experimentalWorkspaces })
-        },
+            const event = { id, seq, aggregateID: agg, data }
+            yield* process(def, event, { bus, bridge, publish, experimentalWorkspaces: flags.experimentalWorkspaces })
+          }),
         {
           behavior: "immediate",
         },
@@ -171,21 +172,21 @@ export const layer = Layer.effect(Service)(
     })
 
     const remove: Interface["remove"] = Effect.fn("SyncEvent.remove")(function* (aggregateID) {
-      Database.transaction((tx) => {
-        tx.delete(EventSequenceTable).where(eq(EventSequenceTable.aggregate_id, aggregateID)).run()
-        tx.delete(EventTable).where(eq(EventTable.aggregate_id, aggregateID)).run()
-      })
+      yield* Database.withTransaction((tx) =>
+        Effect.gen(function* () {
+          yield* tx.delete(EventSequenceTable).where(eq(EventSequenceTable.aggregate_id, aggregateID)).run()
+          yield* tx.delete(EventTable).where(eq(EventTable.aggregate_id, aggregateID)).run()
+        }),
+      )
     })
 
     const claim: Interface["claim"] = Effect.fn("SyncEvent.claim")((aggregateID, ownerID) =>
-      Effect.sync(() =>
-        Database.use((db) =>
-          db
-            .update(EventSequenceTable)
-            .set({ owner_id: ownerID })
-            .where(eq(EventSequenceTable.aggregate_id, aggregateID))
-            .run(),
-        ),
+      Database.query((db) =>
+        db
+          .update(EventSequenceTable)
+          .set({ owner_id: ownerID })
+          .where(eq(EventSequenceTable.aggregate_id, aggregateID))
+          .run(),
       ),
     )
 
@@ -290,7 +291,7 @@ function register(def: Definition) {
   registry.set(versionedType(def.type, def.version), def)
 }
 
-function process<Def extends Definition>(
+const process = Effect.fnUntraced(function* <Def extends Definition>(
   def: Def,
   event: Event<Def>,
   options: {
@@ -311,67 +312,76 @@ function process<Def extends Definition>(
     return
   }
 
-  Database.transaction((tx) => {
-    projector(tx, event.data, event)
+  yield* Database.withTransaction((tx) =>
+    Effect.gen(function* () {
+      // Projectors remain synchronous while their generated shapes are shared
+      // with legacy replay code. Both adapters use the same scoped connection,
+      // so these writes participate in the Effect-owned native transaction.
+      yield* Effect.sync(() => Database.legacyQuery((db) => projector(db, event.data, event)))
 
-    if (options.experimentalWorkspaces) {
-      tx.insert(EventSequenceTable)
-        .values({
-          aggregate_id: event.aggregateID,
-          seq: event.seq,
-          owner_id: options?.ownerID,
-        })
-        .onConflictDoUpdate({
-          target: EventSequenceTable.aggregate_id,
-          set: { seq: event.seq },
-        })
-        .run()
-      tx.insert(EventTable)
-        .values({
-          id: event.id,
-          seq: event.seq,
-          aggregate_id: event.aggregateID,
-          type: versionedType(def.type, def.version),
-          data: event.data as Record<string, unknown>,
-        })
-        .run()
-    }
-
-    Database.effect(() => {
-      if (!options.publish) return
-      const result = convertEvent(def.type, event.data)
-      // The bridge was built inside the caller's fiber so it already carries
-      // InstanceRef/WorkspaceRef and the full Effect context. Both the bus
-      // publish and the GlobalBus emit run inside the forked Effect so they
-      // share the same instance/workspace lookup.
-      const publish = (data: unknown) =>
-        options.bridge.fork(
-          Effect.gen(function* () {
-            yield* options.bus.publish(def, data as Properties<Def>, { id: event.id })
-            const instance = yield* InstanceState.context
-            const workspace = yield* InstanceState.workspaceID
-            GlobalBus.emit("event", {
-              directory: instance.directory,
-              project: instance.project.id,
-              workspace,
-              payload: {
-                type: "sync",
-                syncEvent: {
-                  type: versionedType(def.type, def.version),
-                  ...event,
-                },
-              },
-            })
-          }),
-        )
-      if (result instanceof Promise) {
-        void result.then(publish)
-      } else {
-        publish(result)
+      if (options.experimentalWorkspaces) {
+        yield* tx
+          .insert(EventSequenceTable)
+          .values({
+            aggregate_id: event.aggregateID,
+            seq: event.seq,
+            owner_id: options?.ownerID,
+          })
+          .onConflictDoUpdate({
+            target: EventSequenceTable.aggregate_id,
+            set: { seq: event.seq },
+          })
+          .run()
+        yield* tx
+          .insert(EventTable)
+          .values({
+            id: event.id,
+            seq: event.seq,
+            aggregate_id: event.aggregateID,
+            type: versionedType(def.type, def.version),
+            data: event.data as Record<string, unknown>,
+          })
+          .run()
       }
-    })
-  })
-}
+
+      yield* Database.afterCommit(
+        Effect.sync(() => {
+          if (!options.publish) return
+          const result = convertEvent(def.type, event.data)
+          // The bridge was built inside the caller's fiber so it already carries
+          // InstanceRef/WorkspaceRef and the full Effect context. Both the bus
+          // publish and the GlobalBus emit run inside the forked Effect so they
+          // share the same instance/workspace lookup.
+          const publish = (data: unknown) =>
+            options.bridge.fork(
+              Effect.gen(function* () {
+                yield* options.bus.publish(def, data as Properties<Def>, { id: event.id })
+                const instance = yield* InstanceState.context
+                const workspace = yield* InstanceState.workspaceID
+                GlobalBus.emit("event", {
+                  directory: instance.directory,
+                  project: instance.project.id,
+                  workspace,
+                  payload: {
+                    type: "sync",
+                    syncEvent: {
+                      type: versionedType(def.type, def.version),
+                      ...event,
+                    },
+                  },
+                })
+              }),
+            )
+          if (result instanceof Promise) {
+            void result.then(publish)
+          } else {
+            publish(result)
+          }
+        }),
+      )
+    }),
+  )
+})
 
 export function effectPayloads() {
   return [

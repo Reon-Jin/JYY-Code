@@ -74,8 +74,7 @@ function fromRow(row: typeof WorkspaceTable.$inferSelect): Info {
   }
 }
 
-const db = <T>(fn: (d: Parameters<typeof Database.use>[0] extends (trx: infer D) => any ? D : never) => T) =>
-  Effect.sync(() => Database.use(fn))
+const db = <T>(fn: (d: Database.TxOrDb) => T) => Effect.sync(() => Database.legacyQuery(fn))
 
 const log = Log.create({ service: "workspace-sync" })
 
@@ -1049,7 +1048,7 @@ function synced(state: Record<string, number>) {
   if (ids.length === 0) return true
 
   const done = Object.fromEntries(
-    Database.use((db) =>
+    Database.legacyQuery((db) =>
       db
         .select({
           id: EventSequenceTable.aggregate_id,

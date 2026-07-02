@@ -11,7 +11,7 @@ export function initProjectors() {
     convertEvent: (type, data) => {
       if (type === "session.updated") {
         const id = (data as SyncEvent.Event<typeof Session.Event.Updated>["data"]).sessionID
-        const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
+        const row = Database.legacyQuery((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
 
         if (!row) return data
 

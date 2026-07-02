@@ -78,8 +78,7 @@ export class Service extends Context.Service<Service, Interface>()("@jyycode/Sha
 
 export const use = serviceUse(Service)
 
-const db = <T>(fn: (d: Parameters<typeof Database.use>[0] extends (trx: infer D) => any ? D : never) => T) =>
-  Effect.sync(() => Database.use(fn))
+const db = <T>(fn: (d: Database.TxOrDb) => T) => Effect.sync(() => Database.legacyQuery(fn))
 
 function api(resource: string): Api {
   return {

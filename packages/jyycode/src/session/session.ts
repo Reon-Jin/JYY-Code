@@ -514,8 +514,7 @@ export const use = serviceUse(Service)
 
 export type Patch = Types.DeepMutable<SyncEvent.Event<typeof Event.Updated>["data"]["info"]>
 
-const db = <T>(fn: (d: Parameters<typeof Database.use>[0] extends (trx: infer D) => any ? D : never) => T) =>
-  Effect.sync(() => Database.use(fn))
+const db = Database.query
 
 export const layer: Layer.Layer<
   Service,
@@ -644,7 +643,7 @@ export const layer: Layer.Layer<
       }).pipe(Effect.withSpan("Session.updatePart"))
 
     const getPart: Interface["getPart"] = Effect.fn("Session.getPart")(function* (input) {
-      const row = Database.use((db) =>
+      const row = yield* Database.query((db) =>
         db
           .select()
           .from(PartTable)
@@ -945,7 +944,10 @@ function* listByProject(
 
       conditions.push(
         input.directory
-          ? or(...conds, and(isNull(SessionTable.path), storagePathCondition(SessionTable.directory, input.directory))!)!
+          ? or(
+              ...conds,
+              and(isNull(SessionTable.path), storagePathCondition(SessionTable.directory, input.directory))!,
+            )!
           : or(...conds)!,
       )
     }
@@ -966,7 +968,7 @@ function* listByProject(
 
   const limit = input.limit ?? 100
 
-  const rows = Database.use((db) =>
+  const rows = Database.legacyQuery((db) =>
     db
       .select()
       .from(SessionTable)
@@ -1012,7 +1014,7 @@ export function* listGlobal(input?: {
 
   const limit = input?.limit ?? 100
 
-  const rows = Database.use((db) => {
+  const rows = Database.legacyQuery((db) => {
     const query =
       conditions.length > 0
         ? db
@@ -1027,7 +1029,7 @@ export function* listGlobal(input?: {
   const projects = new Map<string, ProjectInfo>()
 
   if (ids.length > 0) {
-    const items = Database.use((db) =>
+    const items = Database.legacyQuery((db) =>
       db
         .select({ id: ProjectTable.id, name: ProjectTable.name, worktree: ProjectTable.worktree })
         .from(ProjectTable)

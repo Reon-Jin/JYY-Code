@@ -11,7 +11,7 @@ export type State = Record<string, number>
 const log = Log.create({ service: "fence" })
 
 export function load(ids?: string[]) {
-  const rows = Database.use((db) => {
+  const rows = Database.legacyQuery((db) => {
     if (!ids?.length) {
       return db.select().from(EventSequenceTable).all()
     }

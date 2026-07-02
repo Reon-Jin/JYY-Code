@@ -737,7 +737,7 @@ export const layer = Layer.effect(
     })
 
     const currentModel = Effect.fnUntraced(function* (sessionID: SessionID) {
-      const current = Database.use((db) =>
+      const current = yield* Database.query((db) =>
         db.select({ model: SessionTable.model }).from(SessionTable).where(eq(SessionTable.id, sessionID)).get(),
       )
       if (current?.model) {
@@ -765,7 +765,7 @@ export const layer = Layer.effect(
         throw error
       }
 
-      const current = Database.use((db) =>
+      const current = yield* Database.query((db) =>
         db
           .select({ agent: SessionTable.agent, model: SessionTable.model })
           .from(SessionTable)
@@ -1390,60 +1390,64 @@ export const layer = Layer.effect(
           )
         }
 
-        const createClusterDispatchReminder = Effect.fn("SessionPrompt.createClusterDispatchReminder")(function* (input: {
-          lastUser: MessageV2.User
-          plan: ReturnType<typeof AgentClusterRuntime.extractPlanFromText>
-        }) {
-          const cfg = yield* config.get()
-          const clusterConfig = ConfigAgentCluster.resolve(cfg.agent_cluster)
-          const validation = input.plan
-            ? AgentClusterRuntime.validatePlan(input.plan, {
-                maxSubagents: clusterConfig.max_subagents,
-                maxConcurrency: clusterConfig.max_concurrency,
-              })
-            : undefined
-          const ready = input.plan
-            ? AgentClusterRuntime.nextReadyBatch(input.plan, {
-                completed: [],
-              }).tasks
-            : []
-          const userMsg: MessageV2.User = {
-            id: MessageID.ascending(),
-            sessionID,
-            role: "user",
-            time: { created: Date.now() },
-            agent: input.lastUser.agent,
-            model: input.lastUser.model,
-          }
-          yield* sessions.updateMessage(userMsg)
-          yield* sessions.updatePart({
-            id: PartID.ascending(),
-            messageID: userMsg.id,
-            sessionID,
-            type: "text",
-            synthetic: true,
-            metadata: { kind: clusterDispatchReminderKind },
-            text: [
-              "<system-reminder>",
-              "The Multi-Agent plan has been presented, but no subagents were dispatched.",
-              ...(validation && !validation.valid
-                ? [
-                    "The plan violates runtime scheduling rules. Fix the plan first, then dispatch ready tasks.",
-                    "Plan errors:",
-                    ...validation.errors.map((error) => `- ${error}`),
-                  ]
-                : ready.length > 0
+        const createClusterDispatchReminder = Effect.fn("SessionPrompt.createClusterDispatchReminder")(
+          function* (input: {
+            lastUser: MessageV2.User
+            plan: ReturnType<typeof AgentClusterRuntime.extractPlanFromText>
+          }) {
+            const cfg = yield* config.get()
+            const clusterConfig = ConfigAgentCluster.resolve(cfg.agent_cluster)
+            const validation = input.plan
+              ? AgentClusterRuntime.validatePlan(input.plan, {
+                  maxSubagents: clusterConfig.max_subagents,
+                  maxConcurrency: clusterConfig.max_concurrency,
+                })
+              : undefined
+            const ready = input.plan
+              ? AgentClusterRuntime.nextReadyBatch(input.plan, {
+                  completed: [],
+                }).tasks
+              : []
+            const userMsg: MessageV2.User = {
+              id: MessageID.ascending(),
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: input.lastUser.agent,
+              model: input.lastUser.model,
+            }
+            yield* sessions.updateMessage(userMsg)
+            yield* sessions.updatePart({
+              id: PartID.ascending(),
+              messageID: userMsg.id,
+              sessionID,
+              type: "text",
+              synthetic: true,
+              metadata: { kind: clusterDispatchReminderKind },
+              text: [
+                "<system-reminder>",
+                "The Multi-Agent plan has been presented, but no subagents were dispatched.",
+                ...(validation && !validation.valid
                   ? [
-                      "Runtime validation passed. Immediately dispatch every ready task now using parallel task tool calls.",
-                      "Ready task ids:",
-                      ...ready.map((task) => `- ${task.id}`),
+                      "The plan violates runtime scheduling rules. Fix the plan first, then dispatch ready tasks.",
+                      "Plan errors:",
+                      ...validation.errors.map((error) => `- ${error}`),
                     ]
-                  : ["No tasks are ready. Explain the blocker or revise the plan so step-1 tasks are dependency-free."]),
-              "Do not repeat the plan and do not stop after text; this turn must include the task tool calls.",
-              "</system-reminder>",
-            ].join("\n"),
-          } satisfies MessageV2.TextPart)
-        })
+                  : ready.length > 0
+                    ? [
+                        "Runtime validation passed. Immediately dispatch every ready task now using parallel task tool calls.",
+                        "Ready task ids:",
+                        ...ready.map((task) => `- ${task.id}`),
+                      ]
+                    : [
+                        "No tasks are ready. Explain the blocker or revise the plan so step-1 tasks are dependency-free.",
+                      ]),
+                "Do not repeat the plan and do not stop after text; this turn must include the task tool calls.",
+                "</system-reminder>",
+              ].join("\n"),
+            } satisfies MessageV2.TextPart)
+          },
+        )
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
@@ -1526,7 +1530,12 @@ export const layer = Layer.effect(
             lastFinished.summary !== true &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
-            const created = yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
+            const created = yield* compaction.create({
+              sessionID,
+              agent: lastUser.agent,
+              model: lastUser.model,
+              auto: true,
+            })
             if (!created) break
             continue
           }
@@ -1649,18 +1658,15 @@ export const layer = Layer.effect(
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
             msgs = yield* applyMemoryRetrieval({ sessionID, messages: msgs, lastUser })
 
-            const memorySnapshot = step === 1 && memory
-              ? yield* memory
-                  .formatWithHeader(sessionID, "memory")
-                  .pipe(
+            const memorySnapshot =
+              step === 1 && memory
+                ? yield* memory.formatWithHeader(sessionID, "memory").pipe(
                     Effect.andThen((mem) =>
-                      memory!.formatWithHeader(sessionID, "user").pipe(
-                        Effect.map((user) => [mem, user].join("\n")),
-                      ),
+                      memory!.formatWithHeader(sessionID, "user").pipe(Effect.map((user) => [mem, user].join("\n"))),
                     ),
                     Effect.catchCause(() => Effect.succeed(undefined)),
                   )
-              : undefined
+                : undefined
 
             const [skills, env, instructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),

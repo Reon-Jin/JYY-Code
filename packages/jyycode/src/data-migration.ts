@@ -32,7 +32,7 @@ export const layer = Layer.effect(
           for (let cursor: SessionID | undefined, page = 1; ; page++) {
             const next = yield* Effect.gen(function* () {
               const sessions = yield* Effect.sync(() =>
-                Database.use((db) =>
+                Database.legacyQuery((db) =>
                   db
                     .select({ id: SessionTable.id })
                     .from(SessionTable)
@@ -45,7 +45,7 @@ export const layer = Layer.effect(
               if (sessions.length === 0) return
 
               yield* Effect.sync(() =>
-                Database.transaction((db) => {
+                Database.legacyTransaction((db) => {
                   const usageBySession = new Map<SessionID, Usage>(
                     sessions.map((session) => [
                       session.id,
@@ -126,7 +126,7 @@ export const layer = Layer.effect(
       // Migrations run in a background fiber, so they must be resumable until
       // their completion row is written.
       for (const migration of migrations) {
-        const completed = Database.use((db) =>
+        const completed = Database.legacyQuery((db) =>
           db
             .select({ name: DataMigrationTable.name })
             .from(DataMigrationTable)
@@ -137,7 +137,7 @@ export const layer = Layer.effect(
 
         log.info("running data migration", { name: migration.name })
         yield* migration.run.pipe(Effect.withSpan("DataMigration", { attributes: { name: migration.name } }))
-        Database.use((db) =>
+        Database.legacyQuery((db) =>
           db
             .insert(DataMigrationTable)
             .values({ name: migration.name, time_completed: Date.now() })

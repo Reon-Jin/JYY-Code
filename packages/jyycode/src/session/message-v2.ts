@@ -595,11 +595,11 @@ const part = (row: typeof PartTable.$inferSelect) =>
 const older = (row: Cursor) =>
   or(lt(MessageTable.time_created, row.time), and(eq(MessageTable.time_created, row.time), lt(MessageTable.id, row.id)))
 
-function hydrate(rows: (typeof MessageTable.$inferSelect)[]) {
+const hydrate = Effect.fn("MessageV2.hydrate")(function* (rows: (typeof MessageTable.$inferSelect)[]) {
   const ids = rows.map((row) => row.id)
   const partByMessage = new Map<string, Part[]>()
   if (ids.length > 0) {
-    const partRows = Database.use((db) =>
+    const partRows = yield* Database.query((db) =>
       db
         .select()
         .from(PartTable)
@@ -619,7 +619,7 @@ function hydrate(rows: (typeof MessageTable.$inferSelect)[]) {
     info: info(row),
     parts: partByMessage.get(row.id) ?? [],
   }))
-}
+})
 
 function providerMeta(metadata: Record<string, any> | undefined) {
   if (!metadata) return undefined
@@ -929,7 +929,7 @@ export const page = Effect.fn("MessageV2.page")(function* (input: {
   const where = before
     ? and(eq(MessageTable.session_id, input.sessionID), older(before))
     : eq(MessageTable.session_id, input.sessionID)
-  const rows = Database.use((db) =>
+  const rows = yield* Database.query((db) =>
     db
       .select()
       .from(MessageTable)
@@ -939,7 +939,7 @@ export const page = Effect.fn("MessageV2.page")(function* (input: {
       .all(),
   )
   if (rows.length === 0) {
-    const row = Database.use((db) =>
+    const row = yield* Database.query((db) =>
       db.select({ id: SessionTable.id }).from(SessionTable).where(eq(SessionTable.id, input.sessionID)).get(),
     )
     if (!row) return yield* new NotFoundError({ message: `Session not found: ${input.sessionID}` })
@@ -951,7 +951,7 @@ export const page = Effect.fn("MessageV2.page")(function* (input: {
 
   const more = rows.length > input.limit
   const slice = more ? rows.slice(0, input.limit) : rows
-  const items = hydrate(slice)
+  const items = yield* hydrate(slice)
   items.reverse()
   const tail = slice.at(-1)
   return {
@@ -974,7 +974,7 @@ export function* stream(sessionID: SessionID) {
     )
     if (next.items.length === 0) break
     for (let i = next.items.length - 1; i >= 0; i--) {
-      yield next.items[i]
+      yield next.items[i]!
     }
     if (!next.more || !next.cursor) break
     before = next.cursor
@@ -982,7 +982,7 @@ export function* stream(sessionID: SessionID) {
 }
 
 export function parts(message_id: MessageID) {
-  const rows = Database.use((db) =>
+  const rows = Database.legacyQuery((db) =>
     db.select().from(PartTable).where(eq(PartTable.message_id, message_id)).orderBy(PartTable.id).all(),
   )
   return rows.map(
@@ -997,7 +997,7 @@ export function parts(message_id: MessageID) {
 }
 
 export const get = Effect.fn("MessageV2.get")(function* (input: { sessionID: SessionID; messageID: MessageID }) {
-  const row = Database.use((db) =>
+  const row = yield* Database.query((db) =>
     db
       .select()
       .from(MessageTable)

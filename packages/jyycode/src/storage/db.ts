@@ -41,7 +41,11 @@ export function describePath(flags: Pick<DatabaseFlags, "disableChannelDb"> = re
   return {
     path: getPath(flags),
     channel: InstallationChannel,
-    source: Flag.JYYCODE_DB ? ("override" as const) : flags.disableChannelDb ? ("shared" as const) : ("channel" as const),
+    source: Flag.JYYCODE_DB
+      ? ("override" as const)
+      : flags.disableChannelDb
+        ? ("shared" as const)
+        : ("channel" as const),
     shared: flags.disableChannelDb || ["latest", "beta", "prod"].includes(InstallationChannel),
   }
 }
@@ -49,6 +53,68 @@ export function describePath(flags: Pick<DatabaseFlags, "disableChannelDb"> = re
 export type Client = ScopedDatabase.Interface["legacy"]
 export type Transaction = Parameters<Parameters<Client["transaction"]>[0]>[0]
 export type TxOrDb = Transaction | Client
+export const Service = ScopedDatabase.Service
+
+export type EffectClient = ScopedDatabase.Interface["db"]
+export type EffectTransaction = Parameters<Parameters<EffectClient["transaction"]>[0]>[0]
+export type EffectTxOrDb = EffectTransaction | EffectClient
+
+interface EffectTransactionState {
+  readonly tx: EffectTxOrDb
+  readonly afterCommit: Array<Effect.Effect<unknown, never, never>>
+}
+
+const EffectTransactionRef = Context.Reference<EffectTransactionState | undefined>(
+  "@jyycode/storage/EffectDatabaseTransaction",
+  { defaultValue: () => undefined },
+)
+
+export function query<A, E, R>(callback: (db: EffectTxOrDb) => Effect.Effect<A, E, R>) {
+  return Effect.withFiber((fiber) => {
+    const active = Context.get(fiber.context, EffectTransactionRef)
+    const db = active?.tx ?? compatibilityService().db
+    return callback(db).pipe(Effect.orDie)
+  })
+}
+
+export function withTransaction<A, E, R>(
+  callback: (tx: EffectTxOrDb) => Effect.Effect<A, E, R>,
+  options?: { behavior?: "deferred" | "immediate" | "exclusive" },
+) {
+  return Effect.withFiber((fiber) => {
+    const active = Context.get(fiber.context, EffectTransactionRef)
+    if (active) return callback(active.tx).pipe(Effect.orDie)
+    const db = compatibilityService().db
+    return db
+      .transaction(
+        (tx) =>
+          Effect.gen(function* () {
+            const state: EffectTransactionState = { tx, afterCommit: [] }
+            const result = yield* callback(tx).pipe(Effect.provideService(EffectTransactionRef, state))
+            return { result, effects: state.afterCommit }
+          }),
+        options,
+      )
+      .pipe(
+        Effect.orDie,
+        Effect.tap((committed) =>
+          Effect.forEach(committed.effects, (pending) => pending.pipe(Effect.orDie), { discard: true }),
+        ),
+        Effect.map((committed) => committed.result),
+      )
+  })
+}
+
+export function afterCommit<A, E>(pending: Effect.Effect<A, E, never>) {
+  return Effect.gen(function* () {
+    const active = yield* EffectTransactionRef
+    if (active) {
+      active.afterCommit.push(pending.pipe(Effect.orDie))
+      return
+    }
+    yield* pending
+  })
+}
 
 export function layerFromFlags(flags: DatabaseFlags = readRuntimeFlags()) {
   log.info("opening database", { path: getPath(flags) })
@@ -123,6 +189,12 @@ export function use<T>(callback: (trx: TxOrDb) => T): T {
   return result
 }
 
+/**
+ * Explicit compatibility boundary for synchronous public APIs and CLI/admin
+ * code that cannot yet yield Effect-backed Drizzle queries.
+ */
+export const legacyQuery = use
+
 export function effect(fn: () => unknown | Promise<unknown>) {
   const bound = EffectBridge.bind(fn)
   const active = transactionState()
@@ -148,5 +220,8 @@ export function transaction<T>(
   for (const pending of effects) void pending()
   return result as NotPromise<T>
 }
+
+export const legacyTransaction = transaction
+export const legacyClient = Client
 
 export * as Database from "./db"

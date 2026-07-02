@@ -164,8 +164,7 @@ export const layer = Layer.effect(
       Effect.catch(() => Effect.succeed({ code: 1, text: "", stderr: "" } satisfies GitResult)),
     )
 
-    const db = <T>(fn: (d: Parameters<typeof Database.use>[0] extends (trx: infer D) => any ? D : never) => T) =>
-      Effect.sync(() => Database.use(fn))
+    const db = Database.query
 
     const emitUpdated = (data: Info) =>
       Effect.sync(() =>
@@ -188,13 +187,14 @@ export const layer = Layer.effect(
       if (oldID === ProjectID.global) return
       if (oldID === newID) return
 
-      yield* Effect.sync(() =>
-        Database.transaction(
-          (d) => {
-            const oldProject = d.select().from(ProjectTable).where(eq(ProjectTable.id, oldID)).get()
-            const newProject = d.select().from(ProjectTable).where(eq(ProjectTable.id, newID)).get()
+      yield* Database.withTransaction(
+        (d) =>
+          Effect.gen(function* () {
+            const oldProject = yield* d.select().from(ProjectTable).where(eq(ProjectTable.id, oldID)).get()
+            const newProject = yield* d.select().from(ProjectTable).where(eq(ProjectTable.id, newID)).get()
             if (oldProject && !newProject) {
-              d.insert(ProjectTable)
+              yield* d
+                .insert(ProjectTable)
                 .values({
                   ...oldProject,
                   id: newID,
@@ -203,10 +203,19 @@ export const layer = Layer.effect(
                 .run()
             }
 
-            const oldPermission = d.select().from(PermissionTable).where(eq(PermissionTable.project_id, oldID)).get()
-            const newPermission = d.select().from(PermissionTable).where(eq(PermissionTable.project_id, newID)).get()
+            const oldPermission = yield* d
+              .select()
+              .from(PermissionTable)
+              .where(eq(PermissionTable.project_id, oldID))
+              .get()
+            const newPermission = yield* d
+              .select()
+              .from(PermissionTable)
+              .where(eq(PermissionTable.project_id, newID))
+              .get()
             if (oldPermission && newPermission) {
-              d.update(PermissionTable)
+              yield* d
+                .update(PermissionTable)
                 .set({
                   data: mergePermissionRules(oldPermission.data, newPermission.data),
                   time_created: Math.min(oldPermission.time_created, newPermission.time_created),
@@ -214,19 +223,22 @@ export const layer = Layer.effect(
                 })
                 .where(eq(PermissionTable.project_id, newID))
                 .run()
-              d.delete(PermissionTable).where(eq(PermissionTable.project_id, oldID)).run()
+              yield* d.delete(PermissionTable).where(eq(PermissionTable.project_id, oldID)).run()
             }
             if (oldPermission && !newPermission) {
-              d.update(PermissionTable).set({ project_id: newID }).where(eq(PermissionTable.project_id, oldID)).run()
+              yield* d
+                .update(PermissionTable)
+                .set({ project_id: newID })
+                .where(eq(PermissionTable.project_id, oldID))
+                .run()
             }
 
-            d.update(SessionTable).set({ project_id: newID }).where(eq(SessionTable.project_id, oldID)).run()
-            d.update(WorkspaceTable).set({ project_id: newID }).where(eq(WorkspaceTable.project_id, oldID)).run()
+            yield* d.update(SessionTable).set({ project_id: newID }).where(eq(SessionTable.project_id, oldID)).run()
+            yield* d.update(WorkspaceTable).set({ project_id: newID }).where(eq(WorkspaceTable.project_id, oldID)).run()
 
-            if (oldProject) d.delete(ProjectTable).where(eq(ProjectTable.id, oldID)).run()
-          },
-          { behavior: "immediate" },
-        ),
+            if (oldProject) yield* d.delete(ProjectTable).where(eq(ProjectTable.id, oldID)).run()
+          }),
+        { behavior: "immediate" },
       )
     })
 
@@ -351,7 +363,13 @@ export const layer = Layer.effect(
     })
 
     const list = Effect.fn("Project.list")(function* () {
-      return yield* db((d) => d.select().from(ProjectTable).all().map(fromRow))
+      return yield* db((d) =>
+        d
+          .select()
+          .from(ProjectTable)
+          .all()
+          .pipe(Effect.map((rows) => rows.map(fromRow))),
+      )
     })
 
     const get = Effect.fn("Project.get")(function* (id: ProjectID) {
@@ -489,7 +507,7 @@ export const defaultLayer = layer.pipe(
 export const use = serviceUse(Service)
 
 export function list() {
-  return Database.use((db) =>
+  return Database.legacyQuery((db) =>
     db
       .select()
       .from(ProjectTable)
@@ -499,13 +517,13 @@ export function list() {
 }
 
 export function get(id: ProjectID): Info | undefined {
-  const row = Database.use((db) => db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
+  const row = Database.legacyQuery((db) => db.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
   if (!row) return undefined
   return fromRow(row)
 }
 
 export function setInitialized(id: ProjectID) {
-  Database.use((db) =>
+  Database.legacyQuery((db) =>
     db.update(ProjectTable).set({ time_initialized: Date.now() }).where(eq(ProjectTable.id, id)).run(),
   )
 }
