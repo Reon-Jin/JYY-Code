@@ -22,11 +22,15 @@ const baselineFlag = process.argv.includes("--baseline")
 const skipInstall = process.argv.includes("--skip-install")
 const sourcemapsFlag = process.argv.includes("--sourcemaps")
 const plugin = createSolidTransformPlugin()
-const skipEmbedWebUi = process.argv.includes("--skip-embed-web-ui")
+const appDir = path.resolve(dir, "../app")
+const skipEmbedWebUi = process.argv.includes("--skip-embed-web-ui") || !fs.existsSync(appDir)
+
+if (!fs.existsSync(appDir) && !process.argv.includes("--skip-embed-web-ui")) {
+  console.log(`Web UI package not found at ${appDir}; building without embedded Web UI`)
+}
 
 const createEmbeddedWebUIBundle = async () => {
   console.log(`Building Web UI to embed in the binary`)
-  const appDir = path.join(import.meta.dirname, "../../app")
   const dist = path.join(appDir, "dist")
   await $`JYYCODE_CHANNEL=${Script.channel} bun run --cwd ${appDir} build`
   const files = (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: dist })))
@@ -198,10 +202,13 @@ for (const item of targets) {
   // Smoke test: only run if binary is for current platform
   if (item.os === process.platform && item.arch === process.arch && !item.abi) {
     const binaryPath = `dist/${name}/bin/jyycode`
-    console.log(`Running smoke test: ${binaryPath} --version`)
+    const binaryFile = item.os === "win32" ? `${binaryPath}.exe` : binaryPath
+    console.log(`Running smoke test: ${binaryFile} --version`)
     try {
-      const versionOutput = await $`${binaryPath} --version`.text()
+      const versionOutput = await $`${binaryFile} --version`.text()
       console.log(`Smoke test passed: ${versionOutput.trim()}`)
+      console.log(`Running session persistence smoke test: ${binaryFile}`)
+      await $`bun ${path.join(__dirname, "session-persistence-smoke.ts")} ${path.resolve(binaryFile)}`
     } catch (e) {
       console.error(`Smoke test failed for ${name}:`, e)
       process.exit(1)
