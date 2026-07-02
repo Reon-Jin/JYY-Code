@@ -58,6 +58,7 @@ import { BackgroundJob } from "@/background/job"
 import { BackgroundProcess } from "@/process/job"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { Database } from "@/storage/db"
 
 export const AppLayer = Layer.mergeAll(
   Npm.defaultLayer,
@@ -85,6 +86,7 @@ export const AppLayer = Layer.mergeAll(
   SessionStatus.defaultLayer,
   BackgroundJob.defaultLayer,
   BackgroundProcess.defaultLayer,
+  Database.layer,
   RuntimeFlags.defaultLayer,
   SessionRunState.defaultLayer,
   SessionProcessor.defaultLayer,

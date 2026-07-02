@@ -1,9 +1,6 @@
-import { type SQLiteBunDatabase } from "drizzle-orm/bun-sqlite"
 import { migrate } from "drizzle-orm/bun-sqlite/migrator"
-import { type SQLiteTransaction } from "drizzle-orm/sqlite-core"
 export * from "drizzle-orm"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { LocalContext } from "@/util/local-context"
 import { Global } from "@jyycode-ai/core/global"
 import * as Log from "@jyycode-ai/core/util/log"
 import { NamedError } from "@jyycode-ai/core/util/error"
@@ -12,8 +9,9 @@ import { readFileSync, readdirSync, existsSync } from "fs"
 import { Flag } from "@jyycode-ai/core/flag/flag"
 import { InstallationChannel } from "@jyycode-ai/core/installation/version"
 import { EffectBridge } from "@/effect/bridge"
-import { init } from "#db"
-import { Effect, Schema } from "effect"
+import { Context, Effect, Fiber, ManagedRuntime } from "effect"
+import { Database as ScopedDatabase } from "@jyycode-ai/core/database/database"
+import { Schema } from "effect"
 
 declare const JYYCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
 
@@ -52,16 +50,15 @@ export function describePath(flags: Pick<DatabaseFlags, "disableChannelDb"> = re
   }
 }
 
-export type Transaction = SQLiteTransaction<"sync", void>
-
-type Client = ReturnType<typeof init>
+export type Client = ScopedDatabase.Interface["legacy"]
+export type Transaction = Parameters<Parameters<Client["transaction"]>[0]>[0]
+export type TxOrDb = Transaction | Client
 
 type Journal = { sql: string; timestamp: number; name: string }[]
 
-// Drizzle's migrate overloads trigger expensive variance checks here; narrow to the journal overload we actually use.
-const migrateFromJournal = migrate as unknown as (db: SQLiteBunDatabase, entries: Journal) => void
+const migrateFromJournal = migrate as unknown as (db: Client, entries: Journal) => void
 
-function applyMigrations(db: SQLiteBunDatabase, entries: Journal) {
+function applyMigrations(db: Client, entries: Journal) {
   migrateFromJournal(db, entries)
 }
 
@@ -98,112 +95,121 @@ function migrations(dir: string): Journal {
   return sql.sort((a, b) => a.timestamp - b.timestamp)
 }
 
-let client: Client | undefined
-let loaded = false
-
-export const Client = Object.assign(
-  (flags: DatabaseFlags = readRuntimeFlags()): Client => {
-    if (loaded) return client as Client
-
-    const dbPath = getPath(flags)
-    log.info("opening database", { path: dbPath })
-
-    const db = init(dbPath)
-
-    db.run("PRAGMA journal_mode = WAL")
-    db.run("PRAGMA synchronous = NORMAL")
-    db.run("PRAGMA busy_timeout = 5000")
-    db.run("PRAGMA cache_size = -64000")
-    db.run("PRAGMA foreign_keys = ON")
-    db.run("PRAGMA wal_checkpoint(PASSIVE)")
-
-    // Apply schema migrations
-    const entries =
-      typeof JYYCODE_MIGRATIONS !== "undefined"
-        ? JYYCODE_MIGRATIONS
-        : migrations(path.join(import.meta.dirname, "../../migration"))
-    if (entries.length > 0) {
+function initialize(flags: DatabaseFlags): ScopedDatabase.Initialize {
+  return ({ legacy }) =>
+    Effect.sync(() => {
+      const entries =
+        typeof JYYCODE_MIGRATIONS !== "undefined"
+          ? JYYCODE_MIGRATIONS
+          : migrations(path.join(import.meta.dirname, "../../migration"))
+      if (entries.length === 0) return
       log.info("applying migrations", {
         count: entries.length,
         mode: typeof JYYCODE_MIGRATIONS !== "undefined" ? "bundled" : "dev",
       })
-      if (flags.skipMigrations) {
-        for (const item of entries) {
-          item.sql = "select 1;"
-        }
-      }
-      applyMigrations(db, entries)
-    }
+      applyMigrations(
+        legacy,
+        flags.skipMigrations ? entries.map((item) => ({ ...item, sql: "select 1;" })) : entries,
+      )
+    })
+}
 
-    client = db
-    loaded = true
-    return db
-  },
-  {
-    reset: () => {
-      loaded = false
-      client = undefined
-    },
-    loaded: () => loaded,
-  },
-)
+export function layerFromFlags(flags: DatabaseFlags = readRuntimeFlags()) {
+  return ScopedDatabase.layerFromPath(getPath(flags), initialize(flags))
+}
+
+export const layer = layerFromFlags()
+
+type CompatRuntime = ManagedRuntime.ManagedRuntime<ScopedDatabase.Service, never>
+let compat: { key: string; runtime: CompatRuntime } | undefined
+
+function currentService() {
+  const fiber = Fiber.getCurrent()
+  if (!fiber) return undefined
+  const service = Context.getOption(fiber.context, ScopedDatabase.Service)
+  return service._tag === "Some" ? service.value : undefined
+}
+
+function compatibilityService(flags: DatabaseFlags = readRuntimeFlags()) {
+  const active = currentService()
+  if (active) return active
+
+  const key = `${getPath(flags)}\0${flags.skipMigrations ? "skip" : "migrate"}`
+  if (compat && compat.key !== key) {
+    Effect.runSync(compat.runtime.disposeEffect)
+    compat = undefined
+  }
+  if (!compat) compat = { key, runtime: ManagedRuntime.make(layerFromFlags(flags)) }
+  return compat.runtime.runSync(ScopedDatabase.Service)
+}
+
+export function Client(flags: DatabaseFlags = readRuntimeFlags()): Client {
+  return compatibilityService(flags).legacy
+}
 
 export function close() {
-  if (!Client.loaded()) return
-  Client().$client.close()
-  Client.reset()
+  if (!compat) return
+  const current = compat
+  compat = undefined
+  Effect.runSync(current.runtime.disposeEffect)
 }
 
-export type TxOrDb = Transaction | Client
+interface TransactionState {
+  readonly tx: TxOrDb
+  readonly effects: Array<() => unknown | Promise<unknown>>
+}
 
-const ctx = LocalContext.create<{
-  tx: TxOrDb
-  effects: (() => void | Promise<void>)[]
-}>("database")
+const TransactionRef = Context.Reference<TransactionState | undefined>("@jyycode/storage/DatabaseTransaction", {
+  defaultValue: () => undefined,
+})
+
+function transactionState() {
+  const fiber = Fiber.getCurrent()
+  return fiber ? Context.get(fiber.context, TransactionRef) : undefined
+}
+
+function withTransactionState<T>(state: TransactionState, callback: () => T) {
+  const fiber = Fiber.getCurrent()
+  const context = Context.add(fiber?.context ?? Context.empty(), TransactionRef, state)
+  return Effect.runSync(Effect.sync(callback).pipe(Effect.provide(context)))
+}
 
 export function use<T>(callback: (trx: TxOrDb) => T): T {
-  try {
-    return callback(ctx.use().tx)
-  } catch (err) {
-    if (err instanceof LocalContext.NotFound) {
-      const effects: (() => void | Promise<void>)[] = []
-      const result = ctx.provide({ effects, tx: Client() }, () => callback(Client()))
-      for (const effect of effects) effect()
-      return result
-    }
-    throw err
-  }
+  const active = transactionState()
+  if (active) return callback(active.tx)
+
+  const effects: Array<() => unknown | Promise<unknown>> = []
+  const result = withTransactionState({ effects, tx: compatibilityService().legacy }, () =>
+    callback(compatibilityService().legacy),
+  )
+  for (const pending of effects) void pending()
+  return result
 }
 
-export function effect(fn: () => any | Promise<any>) {
+export function effect(fn: () => unknown | Promise<unknown>) {
   const bound = EffectBridge.bind(fn)
-  try {
-    ctx.use().effects.push(bound)
-  } catch {
-    bound()
-  }
+  const active = transactionState()
+  if (active) active.effects.push(bound)
+  else void bound()
 }
 
 type NotPromise<T> = T extends Promise<any> ? never : T
 
 export function transaction<T>(
   callback: (tx: TxOrDb) => NotPromise<T>,
-  options?: {
-    behavior?: "deferred" | "immediate" | "exclusive"
-  },
+  options?: { behavior?: "deferred" | "immediate" | "exclusive" },
 ): NotPromise<T> {
-  try {
-    return callback(ctx.use().tx)
-  } catch (err) {
-    if (err instanceof LocalContext.NotFound) {
-      const effects: (() => void | Promise<void>)[] = []
-      const txCallback = EffectBridge.bind((tx: TxOrDb) => ctx.provide({ tx, effects }, () => callback(tx)))
-      const result = Client().transaction(txCallback, { behavior: options?.behavior })
-      for (const effect of effects) effect()
-      return result as NotPromise<T>
-    }
-    throw err
-  }
+  const active = transactionState()
+  if (active) return callback(active.tx)
+
+  const database = compatibilityService().legacy
+  const effects: Array<() => unknown | Promise<unknown>> = []
+  const result = database.transaction(
+    ((tx: Transaction) => withTransactionState({ tx, effects }, () => callback(tx))) as any,
+    { behavior: options?.behavior },
+  )
+  for (const pending of effects) void pending()
+  return result as NotPromise<T>
 }
 
 export * as Database from "./db"

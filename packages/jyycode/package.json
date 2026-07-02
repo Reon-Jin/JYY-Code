@@ -104,6 +104,7 @@
     "@octokit/rest": "catalog:",
     "@openauthjs/openauth": "catalog:",
     "@jyycode-ai/llm": "workspace:*",
+    "@jyycode-ai/effect-drizzle-sqlite": "workspace:*",
     "@jyycode-ai/plugin": "workspace:*",
     "@jyycode-ai/script": "workspace:*",
     "@jyycode-ai/sdk": "workspace:*",
