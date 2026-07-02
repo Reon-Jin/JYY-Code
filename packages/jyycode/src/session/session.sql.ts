@@ -8,6 +8,7 @@ import type { ProjectID } from "../project/schema"
 import type { SessionID, MessageID, PartID } from "./schema"
 import type { WorkspaceID } from "../control-plane/schema"
 import { Timestamps } from "../storage/schema.sql"
+import { directoryColumn, pathColumn } from "@jyycode-ai/core/database/path"
 
 type PartData = Omit<MessageV2.Part, "id" | "sessionID" | "messageID">
 type InfoData<T extends MessageV2.Info = MessageV2.Info> = T extends unknown ? Omit<T, "id" | "sessionID"> : never
@@ -24,8 +25,8 @@ export const SessionTable = sqliteTable(
     workspace_id: text().$type<WorkspaceID>(),
     parent_id: text().$type<SessionID>(),
     slug: text().notNull(),
-    directory: text().notNull(),
-    path: text(),
+    directory: directoryColumn().notNull(),
+    path: pathColumn(),
     title: text().notNull(),
     version: text().notNull(),
     share_url: text(),

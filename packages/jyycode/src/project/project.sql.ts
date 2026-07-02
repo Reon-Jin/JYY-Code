@@ -1,10 +1,11 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core"
 import { Timestamps } from "../storage/schema.sql"
 import type { ProjectID } from "./schema"
+import { absoluteArrayColumn, directoryColumn } from "@jyycode-ai/core/database/path"
 
 export const ProjectTable = sqliteTable("project", {
   id: text().$type<ProjectID>().primaryKey(),
-  worktree: text().notNull(),
+  worktree: directoryColumn().notNull(),
   vcs: text(),
   name: text(),
   icon_url: text(),
@@ -12,6 +13,6 @@ export const ProjectTable = sqliteTable("project", {
   icon_color: text(),
   ...Timestamps,
   time_initialized: integer(),
-  sandboxes: text({ mode: "json" }).notNull().$type<string[]>(),
+  sandboxes: absoluteArrayColumn().notNull().$type<string[]>(),
   commands: text({ mode: "json" }).$type<{ start?: string }>(),
 })

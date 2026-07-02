@@ -19,6 +19,7 @@ import { like } from "drizzle-orm"
 import { inArray } from "drizzle-orm"
 import { lt } from "drizzle-orm"
 import { or } from "drizzle-orm"
+import { sql } from "drizzle-orm"
 import { SyncEvent } from "../sync"
 import type { SQL } from "drizzle-orm"
 import { PartTable, SessionTable } from "./session.sql"
@@ -911,6 +912,19 @@ const cancelBackgroundJobs = Effect.fn("Session.cancelBackgroundJobs")(function*
   )
 })
 
+function storagePathCondition(
+  column: typeof SessionTable.path | typeof SessionTable.directory,
+  value: string,
+  prefix = false,
+): SQL {
+  const normalized = process.platform === "win32" ? value.replaceAll("\\", "/") : value
+  if (process.platform === "win32") {
+    const stored = sql`lower(replace(${column}, char(92), '/'))`
+    return prefix ? sql`${stored} LIKE lower(${`${normalized}/%`})` : sql`${stored} = lower(${normalized})`
+  }
+  return prefix ? sql`${column} LIKE ${`${normalized}/%`}` : sql`${column} = ${normalized}`
+}
+
 function* listByProject(
   input: ListInput & {
     projectID: ProjectID
@@ -924,17 +938,20 @@ function* listByProject(
   }
   if (input.path !== undefined) {
     if (input.path) {
-      const conds = [eq(SessionTable.path, input.path), like(SessionTable.path, `${input.path}/%`)]
+      const conds = [
+        storagePathCondition(SessionTable.path, input.path),
+        storagePathCondition(SessionTable.path, input.path, true),
+      ]
 
       conditions.push(
         input.directory
-          ? or(...conds, and(isNull(SessionTable.path), eq(SessionTable.directory, input.directory))!)!
+          ? or(...conds, and(isNull(SessionTable.path), storagePathCondition(SessionTable.directory, input.directory))!)!
           : or(...conds)!,
       )
     }
   } else if (input.scope !== "project" && !input.experimentalWorkspaces) {
     if (input.directory) {
-      conditions.push(eq(SessionTable.directory, input.directory))
+      conditions.push(storagePathCondition(SessionTable.directory, input.directory))
     }
   }
   if (input.roots) {
@@ -975,7 +992,7 @@ export function* listGlobal(input?: {
   const conditions: SQL[] = []
 
   if (input?.directory) {
-    conditions.push(eq(SessionTable.directory, input.directory))
+    conditions.push(storagePathCondition(SessionTable.directory, input.directory))
   }
   if (input?.roots) {
     conditions.push(isNull(SessionTable.parent_id))

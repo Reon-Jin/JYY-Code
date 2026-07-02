@@ -227,4 +227,21 @@ describe("session.list", () => {
       }),
     { git: true },
   )
+
+  it.instance(
+    "matches Windows drive letters case-insensitively",
+    () =>
+      Effect.gen(function* () {
+        if (process.platform !== "win32") return
+        const created = yield* withSession({ title: "drive-case" })
+        const lower = created.directory.replace(/^[A-Z]:/, (drive) => drive.toLowerCase())
+        const upper = lower.replace(/^[a-z]:/, (drive) => drive.toUpperCase())
+        yield* Effect.sync(() =>
+          Database.Client().$client.prepare("UPDATE session SET directory = ? WHERE id = ?").run(lower, created.id),
+        )
+        const ids = (yield* SessionNs.use.list({ directory: upper })).map((session) => session.id)
+        expect(ids).toContain(created.id)
+      }),
+    { git: true },
+  )
 })
