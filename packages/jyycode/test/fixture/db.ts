@@ -10,3 +10,9 @@ export async function resetDatabase() {
   await rm(`${dbPath}-wal`, { force: true }).catch(() => undefined)
   await rm(`${dbPath}-shm`, { force: true }).catch(() => undefined)
 }
+
+export async function reopenDatabase() {
+  await disposeAllInstances().catch(() => undefined)
+  Database.close()
+  Database.Client()
+}
