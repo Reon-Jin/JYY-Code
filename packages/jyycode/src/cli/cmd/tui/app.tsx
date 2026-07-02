@@ -328,14 +328,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       setReady(true)
     })
 
-  const removeCurrentSessionOnExit = exit.before.add(async () => {
-    if (route.data.type !== "session") return
-    const result = await sdk.client.session.delete({ sessionID: route.data.sessionID }).catch((error) => ({ error }))
-    if (result.error) {
-      console.error(`Failed to delete session on exit: ${errorMessage(result.error)}`)
-    }
-  })
-
   // Let selection copy/dismiss win ahead of normal bindings when the feature flag is on.
   const offSelectionKeys = keymap.intercept(
     "key",
@@ -358,7 +350,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
     { priority: 2 },
   )
   onCleanup(() => {
-    removeCurrentSessionOnExit()
     offEmailSessionKeys()
     offSelectionKeys()
     attention.dispose()
