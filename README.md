@@ -18,6 +18,19 @@ JYY-Code is an intelligent coding agent that combines multi-agent orchestration,
 
 ## Features
 
+### Durable Session Management
+
+The upgraded session system treats local history as durable application state instead of temporary TUI state:
+
+- A normal TUI exit never deletes the active session. Session deletion only occurs through an explicit delete action.
+- Opening `/sessions` queries up to 100 persisted root sessions from the active SQLite database, without the old 30-day cache cutoff. Search returns up to 30 matching roots.
+- While a database query is pending or unavailable, the switcher falls back to synchronized in-memory data and keeps the current and pinned sessions visible.
+- Sessions and user messages survive graceful shutdown, SQLite close, process restart, and packaged-binary restart.
+- Session, message, part, project, Todo, and event-journal writes share an Effect-scoped SQLite lifecycle. Transactional `afterCommit` publication prevents rolled-back changes from reaching the event bus.
+- Typed migrations run once and remain compatible with existing Drizzle migration journals. Persisted Windows paths are normalized so separator or drive-letter case differences do not hide valid sessions.
+
+Use `/sessions` to reopen history in the current project. Use `jyycode db status` when expected history is not visible; it reports which channel database is active and whether another isolated database contains sessions.
+
 ### Multi-Agent Cluster(Press F9 to Use)
 
 JYY-Code includes an orchestrator-planner-reviewer architecture that decomposes complex tasks, dispatches them to specialized sub-agents, reviews their output, and synthesizes the final result.
@@ -179,6 +192,10 @@ bun run dev
 
 ## Session Database and Recovery
 
+Sessions, messages, parts, project metadata, Todos, and event journals are stored in SQLite. The database is owned by one scoped runtime connection, migrations and projectors are transactional, and a clean shutdown closes the connection without deleting session rows.
+
+The `/sessions` dialog reads persisted root sessions directly from the active database. Default browsing loads up to 100 roots; text search loads up to 30. Child sessions are filtered before the SQL limit is applied, and synchronized cache data remains available as a fallback.
+
 JYY-Code keeps release channels isolated so development schemas cannot silently mutate a stable database:
 
 - Packaged `latest`, `beta`, and `prod` builds use `jyycode.db`.
@@ -187,6 +204,12 @@ JYY-Code keeps release channels isolated so development schemas cannot silently 
 - `JYYCODE_DISABLE_CHANNEL_DB=1` is an expert override that selects the shared `jyycode.db`. Do not use it while binaries with incompatible schemas may run against the same file.
 
 Back up the database, including any `-wal` and `-shm` companions, before changing channel policy. Stop JYY-Code before copying these files.
+
+If a session appears missing:
+
+1. Run `jyycode db status` and confirm the active path and channel.
+2. Open `/sessions` from the same project or worktree; project and normalized path filters still apply.
+3. If another channel database contains the session, stop JYY-Code and back up both databases before changing channel policy. Databases are never merged automatically.
 
 ## Project Structure
 
