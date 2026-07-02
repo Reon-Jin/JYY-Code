@@ -4,6 +4,7 @@ import { EffectDrizzleSqlite } from "@jyycode-ai/effect-drizzle-sqlite"
 import { layer as sqliteLayer } from "#sqlite"
 import { Context, Effect, Layer } from "effect"
 import { Sqlite } from "./sqlite"
+import { DatabaseMigration } from "./migration"
 
 const makeDatabase = EffectDrizzleSqlite.makeWithDefaults()
 export type EffectDatabase = Effect.Success<typeof makeDatabase>
@@ -17,6 +18,7 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@jyycode/storage/Database") {}
 
 export type Initialize = (database: Interface) => Effect.Effect<void>
+export const noMigrations: Initialize = () => Effect.void
 
 const serviceLayer = (initialize?: Initialize) =>
   Layer.effect(
@@ -39,6 +41,9 @@ const serviceLayer = (initialize?: Initialize) =>
     }).pipe(Effect.orDie),
   )
 
-export function layerFromPath(filename: string, initialize?: Initialize) {
+export function layerFromPath(
+  filename: string,
+  initialize: Initialize = ({ db }) => DatabaseMigration.apply(db).pipe(Effect.orDie),
+) {
   return serviceLayer(initialize).pipe(Layer.provide(sqliteLayer({ filename })))
 }

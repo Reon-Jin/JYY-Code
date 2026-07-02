@@ -1,19 +1,15 @@
-import { migrate } from "drizzle-orm/bun-sqlite/migrator"
 export * from "drizzle-orm"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Global } from "@jyycode-ai/core/global"
 import * as Log from "@jyycode-ai/core/util/log"
 import { NamedError } from "@jyycode-ai/core/util/error"
 import path from "path"
-import { readFileSync, readdirSync, existsSync } from "fs"
 import { Flag } from "@jyycode-ai/core/flag/flag"
 import { InstallationChannel } from "@jyycode-ai/core/installation/version"
 import { EffectBridge } from "@/effect/bridge"
 import { Context, Effect, Fiber, ManagedRuntime } from "effect"
 import { Database as ScopedDatabase } from "@jyycode-ai/core/database/database"
 import { Schema } from "effect"
-
-declare const JYYCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
 
 export const NotFoundError = NamedError.create("NotFoundError", {
   message: Schema.String,
@@ -54,68 +50,9 @@ export type Client = ScopedDatabase.Interface["legacy"]
 export type Transaction = Parameters<Parameters<Client["transaction"]>[0]>[0]
 export type TxOrDb = Transaction | Client
 
-type Journal = { sql: string; timestamp: number; name: string }[]
-
-const migrateFromJournal = migrate as unknown as (db: Client, entries: Journal) => void
-
-function applyMigrations(db: Client, entries: Journal) {
-  migrateFromJournal(db, entries)
-}
-
-function time(tag: string) {
-  const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(tag)
-  if (!match) return 0
-  return Date.UTC(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-    Number(match[4]),
-    Number(match[5]),
-    Number(match[6]),
-  )
-}
-
-function migrations(dir: string): Journal {
-  const dirs = readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-
-  const sql = dirs
-    .map((name) => {
-      const file = path.join(dir, name, "migration.sql")
-      if (!existsSync(file)) return
-      return {
-        sql: readFileSync(file, "utf-8"),
-        timestamp: time(name),
-        name,
-      }
-    })
-    .filter(Boolean) as Journal
-
-  return sql.sort((a, b) => a.timestamp - b.timestamp)
-}
-
-function initialize(flags: DatabaseFlags): ScopedDatabase.Initialize {
-  return ({ legacy }) =>
-    Effect.sync(() => {
-      const entries =
-        typeof JYYCODE_MIGRATIONS !== "undefined"
-          ? JYYCODE_MIGRATIONS
-          : migrations(path.join(import.meta.dirname, "../../migration"))
-      if (entries.length === 0) return
-      log.info("applying migrations", {
-        count: entries.length,
-        mode: typeof JYYCODE_MIGRATIONS !== "undefined" ? "bundled" : "dev",
-      })
-      applyMigrations(
-        legacy,
-        flags.skipMigrations ? entries.map((item) => ({ ...item, sql: "select 1;" })) : entries,
-      )
-    })
-}
-
 export function layerFromFlags(flags: DatabaseFlags = readRuntimeFlags()) {
-  return ScopedDatabase.layerFromPath(getPath(flags), initialize(flags))
+  log.info("opening database", { path: getPath(flags) })
+  return ScopedDatabase.layerFromPath(getPath(flags), flags.skipMigrations ? ScopedDatabase.noMigrations : undefined)
 }
 
 export const layer = layerFromFlags()
