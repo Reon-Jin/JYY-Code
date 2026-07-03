@@ -14,6 +14,30 @@ type RunningServer = {
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
+const smokeModel = { providerID: "persistence-smoke", modelID: "test-model" }
+const smokeConfig = JSON.stringify({
+  model: `${smokeModel.providerID}/${smokeModel.modelID}`,
+  provider: {
+    [smokeModel.providerID]: {
+      name: "Persistence Smoke Test",
+      env: [],
+      npm: "@ai-sdk/openai-compatible",
+      models: {
+        [smokeModel.modelID]: {
+          name: "Persistence Smoke Test Model",
+          attachment: false,
+          reasoning: false,
+          temperature: false,
+          tool_call: false,
+          limit: { context: 1_000, output: 100 },
+          cost: { input: 0, output: 0 },
+        },
+      },
+      options: { apiKey: "unused", baseURL: "http://127.0.0.1" },
+    },
+  },
+})
+
 function defaultBinary() {
   const platform = process.platform === "win32" ? "windows" : process.platform
   const base = path.resolve(import.meta.dirname, `../dist/jyycode-${platform}-${process.arch}/bin/jyycode`)
@@ -51,8 +75,10 @@ async function startServer(input: { binary: string; database: string; directory:
         ...process.env,
         JYYCODE_DB: input.database,
         JYYCODE_CONFIG_DIR: path.join(path.dirname(input.database), "config"),
-        JYYCODE_CONFIG_CONTENT: "{}",
+        JYYCODE_CONFIG_CONTENT: smokeConfig,
+        JYYCODE_AUTH_CONTENT: "{}",
         JYYCODE_DISABLE_AUTOUPDATE: "1",
+        JYYCODE_DISABLE_MODELS_FETCH: "1",
         JYYCODE_DISABLE_PROJECT_CONFIG: "1",
       },
       stdin: "ignore",
@@ -155,6 +181,7 @@ export async function runSessionPersistenceSmoke(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        model: smokeModel,
         noReply: true,
         parts: [{ type: "text", text: "persist this message" }],
       }),
