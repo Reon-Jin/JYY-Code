@@ -18,19 +18,6 @@ JYY-Code is an intelligent coding agent that combines multi-agent orchestration,
 
 ## Features
 
-### Durable Session Management
-
-The upgraded session system treats local history as durable application state instead of temporary TUI state:
-
-- A normal TUI exit never deletes the active session. Session deletion only occurs through an explicit delete action.
-- Opening `/sessions` queries up to 100 persisted root sessions from the active SQLite database, without the old 30-day cache cutoff. Search returns up to 30 matching roots.
-- While a database query is pending or unavailable, the switcher falls back to synchronized in-memory data and keeps the current and pinned sessions visible.
-- Sessions and user messages survive graceful shutdown, SQLite close, process restart, and packaged-binary restart.
-- Session, message, part, project, Todo, and event-journal writes share an Effect-scoped SQLite lifecycle. Transactional `afterCommit` publication prevents rolled-back changes from reaching the event bus.
-- Typed migrations run once and remain compatible with existing Drizzle migration journals. Persisted Windows paths are normalized so separator or drive-letter case differences do not hide valid sessions.
-
-Use `/sessions` to reopen history in the current project. Use `jyycode db status` when expected history is not visible; it reports which channel database is active and whether another isolated database contains sessions.
-
 ### Multi-Agent Cluster(Press F9 to Use)
 
 JYY-Code includes an orchestrator-planner-reviewer architecture that decomposes complex tasks, dispatches them to specialized sub-agents, reviews their output, and synthesizes the final result.
