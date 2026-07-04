@@ -4,21 +4,31 @@
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
 [![TypeScript](https://img.shields.io/badge/language-TypeScript-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 
-> 基于 OpenCode 深度扩展的 AI 编程 Agent，融合多 Agent 协作、持久记忆、技能学习、通信能力和更可靠的任务状态管理。
+[中文文档](README-zh.md) · [English](README.md)
+
+> **面向复杂、长任务的可观察、可恢复多 Agent 编程 CLI，基于 OpenCode 深度扩展。**
+>
+> 规划 → 委派 → 监控 → 恢复 → 审查。
 
 <p align="center">
   <img
     src="./logo/logo.gif"
-    alt="Rotating 3D wireframe demo"
+    alt="JYY-Code 动态标志"
     width="500"
   />
 </p>
 
-JYY-Code 是一个 AI 驱动的开发助手。它在 OpenCode 协议基础上扩展了多 Agent 编排、SQLite 持久化状态、权限控制、工具规范化、终端 UI 和跨会话记忆，目标是让 Agent 能更稳定地完成复杂、长耗时、多步骤的软件工程任务。
+JYY-Code 面向复杂、长耗时的软件工程任务：它不把运行状态寄托在模型文本里，而是将计划、任务依赖和执行状态写入 SQLite。这样后台工作可以被看见、审查，并在会话刷新后恢复。
+
+**为什么选择 JYY-Code**
+
+- **持久化执行**：集群运行、任务与事件写入 SQLite，作为权威状态源，而非仅从模型输出文本推断。
+- **可观察协作**：终端 UI 分开展示计划、queued/running/done/failed 结构化任务和普通 Todo。
+- **可恢复工作流**：后台子会话与结构化任务 ID 持续绑定，执行过程中和会话刷新后都能可靠追踪。
+
+**安装：** `npm install -g jyycode-ai` · **启动：** `jyy`
 
 ## 核心特性
-
-使用 `/sessions` 重新打开当前项目的历史会话。如果预期历史没有出现，请运行 `jyycode db status`，确认当前使用的渠道数据库，并检查其他隔离数据库中是否存在会话。
 
 ### 多 Agent 集群(按 F9 启动)
 

@@ -4,17 +4,29 @@
 [![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
 [![TypeScript](https://img.shields.io/badge/language-TypeScript-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 
-> AI-powered development tool with communication capabilities, built on OpenCode and inspired by Claude Code.
+[中文文档](README-zh.md) · [English](README.md)
+
+> **Durable multi-agent coding CLI, built on OpenCode.**
+>
+> Plan → delegate → monitor → resume → review.
 
 <p align="center">
   <img
     src="./logo/logo.gif"
-    alt="Rotating 3D wireframe demo"
+    alt="JYY-Code animated logo"
     width="500"
   />
 </p>
 
-JYY-Code is an intelligent coding agent that combines multi-agent orchestration, persistent memory, skill learning, and communication features into a unified development assistant. It extends the OpenCode protocol with stronger workflow state, safer tool execution, and a terminal UI designed for long-running agent work.
+JYY-Code is built for complex, long-running software tasks where a stream of agent text is not enough. It turns work into structured, observable runs and persists plans, task dependencies, and execution state in SQLite so background work can be monitored, reviewed, and recovered across session refreshes.
+
+**Why JYY-Code**
+
+- **Durable execution** — Cluster runs, tasks, and events are stored in SQLite as the source of truth instead of being inferred only from assistant text.
+- **Observable collaboration** — The terminal UI separates plans, queued/running/done/failed tasks, and ordinary todos.
+- **Recoverable workflows** — Background child sessions stay bound to structured task IDs across execution and session refreshes.
+
+**Install:** `npm install -g jyycode-ai` · **Launch:** `jyy`
 
 ## Features
 
