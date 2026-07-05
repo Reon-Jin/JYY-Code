@@ -17,6 +17,7 @@ import { ulid } from "ulid"
 import { AgentClusterRunTable, AgentClusterEventTable, AgentClusterTaskTable } from "./cluster.sql"
 import { Event } from "./event"
 import { runInstructions } from "./planner"
+import { AgentClusterLifecycle } from "./lifecycle"
 import type { Plan, RunID, RunStatus, TaskID } from "./schema"
 
 type ModelRef = {
@@ -355,16 +356,38 @@ export const transitionRun = Effect.fn("AgentCluster.transitionRun")(function* (
 })
 
 export const finalizeRunIfTerminal = Effect.fn("AgentCluster.finalizeRunIfTerminal")(function* (runID: RunID) {
-  const open = (yield* Database.query((db) =>
-    db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.run_id, runID)).all(),
-  )).filter((task) => !TERMINAL_TASK_STATUSES.includes(task.status as any))
+  const run = yield* Database.query((db) =>
+    db.select().from(AgentClusterRunTable).where(eq(AgentClusterRunTable.id, runID)).get(),
+  )
 
+  if (!run) return false
+
+  // Never auto-complete a planning run — it has no tasks yet
+  if (run.status === "planning") return false
+
+  const tasks = yield* Database.query((db) =>
+    db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.run_id, runID)).all(),
+  )
+
+  // Must have at least one task to consider completion
+  if (tasks.length === 0) return false
+
+  const open = tasks.filter((task) => !TERMINAL_TASK_STATUSES.includes(task.status as any))
   if (open.length > 0) return false
+
+  // All tasks terminal — derive status from lifecycle
+  const statuses = tasks.map((t) => t.status as import("./schema").TaskStatus)
+  const derived = AgentClusterLifecycle.deriveRunStatus(statuses)
+  const now = Date.now()
 
   yield* Database.query((db) =>
     db
       .update(AgentClusterRunTable)
-      .set({ status: "completed", completed_at: Date.now(), time_updated: Date.now() })
+      .set({
+        status: derived,
+        completed_at: derived === "completed" || derived === "failed" ? now : undefined,
+        time_updated: now,
+      })
       .where(eq(AgentClusterRunTable.id, runID))
       .run(),
   )
