@@ -6,7 +6,7 @@ import { Provider } from "@/provider/provider"
 import type { Provider as ProviderType } from "@/provider/provider"
 import * as Database from "@/storage/db"
 import { and, eq } from "@/storage/db"
-import { Effect, Schema } from "effect"
+import { Effect, Schema, Cause } from "effect"
 
 export const ReviewInstructions = [
   "Review each subagent result as the cluster primary.",
@@ -197,11 +197,12 @@ export const reviewTask = Effect.fn("AgentClusterReviewer.reviewTask")(function*
       // Call reviewer model (with retry for transient errors)
       const start = Date.now()
       const decision = yield* input.adapter.review(reviewInput).pipe(
-        Effect.catchAll((err) => {
+        Effect.catchCause((cause) => {
+          const err = Cause.squash(cause)
           if (err instanceof ReviewModelError && err.retryable) {
             return input.adapter.review(reviewInput)
           }
-          return Effect.fail(err)
+          return Effect.failCause(cause)
         }),
       )
       const reviewLatency = Date.now() - start

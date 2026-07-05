@@ -1457,7 +1457,7 @@ export const layer = Layer.effect(
           // Child-session intervention checkpoint: deliver pending guidance before model call
           if (session.parentID) {
             const pending = yield* AgentClusterIntervention.pending(sessionID).pipe(
-              Effect.catchAll(() => Effect.succeed([])),
+              Effect.catchCause(() => Effect.succeed([])),
             )
             if (pending.length > 0) {
               const initialMsgs = yield* MessageV2.filterCompactedEffect(sessionID)
@@ -1465,7 +1465,7 @@ export const layer = Layer.effect(
               if (lastMsg) {
                 for (const intervention of pending) {
                   const delivered = yield* AgentClusterIntervention.deliverNext(sessionID).pipe(
-                    Effect.catchAll(() => Effect.succeed(undefined)),
+                    Effect.catchCause(() => Effect.succeed(undefined)),
                   )
                   if (!delivered) continue
                   const text = AgentClusterIntervention.interventionText({
@@ -1485,7 +1485,7 @@ export const layer = Layer.effect(
                     type: "text", synthetic: true, text,
                   } satisfies MessageV2.TextPart)
                   yield* AgentClusterIntervention.acknowledge(delivered.id).pipe(
-                    Effect.catchAll(() => Effect.void),
+                    Effect.catchCause(() => Effect.void),
                   )
                 }
                 yield* slog.info("delivered interventions", { count: pending.length })

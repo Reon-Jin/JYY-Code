@@ -72,7 +72,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
     const bus = yield* Bus.Service
-    const backgroundJobs = yield* BackgroundJob.Service
     const scope = yield* Scope.Scope
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
@@ -195,11 +194,14 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         content: ctx.payload.content,
       })
 
-      // Interrupt mode: cancel the active inference so guidance takes effect immediately
+      // Interrupt mode: cancel the active inference if BackgroundJob is available
       if (ctx.payload.mode === "interrupt" && taskRow.child_session_id) {
-        yield* backgroundJobs.cancel(taskRow.child_session_id).pipe(
-          Effect.catchAll(() => Effect.void),
-        )
+        const jobs = yield* Effect.serviceOption(BackgroundJob.Service)
+        if (jobs._tag === "Some") {
+          yield* jobs.value.cancel(taskRow.child_session_id).pipe(
+            Effect.catchCause(() => Effect.void),
+          )
+        }
       }
 
       const createdAt = Date.now()
