@@ -31,6 +31,20 @@ function fixture() {
         ensureDir: () => Effect.void,
         existsSafe: (target) => Effect.succeed(files.has(target)),
         readFileStringSafe: (target) => Effect.succeed(files.get(target)),
+        writeFileString: (target, content) =>
+          Effect.sync(() => {
+            files.set(target, content)
+            mtimes.set(target, (mtimes.get(target) ?? 0) + 1)
+          }),
+        rename: (from, to) =>
+          Effect.sync(() => {
+            const content = files.get(from)
+            if (content === undefined) throw new Error(`Missing mock file: ${from}`)
+            files.set(to, content)
+            files.delete(from)
+            mtimes.set(to, (mtimes.get(to) ?? 0) + 1)
+          }),
+        remove: (target) => Effect.sync(() => void files.delete(target)),
         writeWithDirs: (target, content) =>
           Effect.sync(() => {
             files.set(target, typeof content === "string" ? content : new TextDecoder().decode(content))

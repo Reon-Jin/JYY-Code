@@ -1,7 +1,9 @@
 export * as Memory from "./memory"
 
 import path from "path"
+import { randomUUID } from "crypto"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
+import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
@@ -217,14 +219,17 @@ const filenames: Record<Scope, string> = {
   user: USER_FILE,
 }
 
-export const layer = Layer.effect(
+export const layerWithDirectory = (directory: string) =>
+  Layer.effect(
   Service,
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
     const sessions = yield* Session.Service
+    const flock = yield* EffectFlock.Service
+    const memoryDirectory = path.normalize(directory)
 
     const dir = Effect.fn("Memory.dir")(function* (_sessionID: SessionID) {
-      return DIRECTORY
+      return memoryDirectory
     })
 
     const filePath = Effect.fn("Memory.filePath")(function* (sessionID: SessionID, scope: Scope) {
@@ -250,10 +255,18 @@ export const layer = Layer.effect(
       return (yield* fs.readFileStringSafe(yield* filePath(sessionID, scope)).pipe(Effect.orDie)) ?? templates[scope]
     })
 
-    const writeFull = Effect.fn("Memory.writeFull")(function* (sessionID: SessionID, scope: Scope, text: string) {
-      yield* fs.writeWithDirs(yield* filePath(sessionID, scope), text.endsWith("\n") ? text : text + "\n").pipe(
+    const writeFileAtomic = Effect.fn("Memory.writeFileAtomic")(function* (target: string, content: string) {
+      const temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomUUID()}.tmp`)
+      yield* fs.writeFileString(temp, content).pipe(
+        Effect.flatMap(() => fs.rename(temp, target)),
+        Effect.ensuring(fs.remove(temp, { force: true }).pipe(Effect.ignore)),
         Effect.orDie,
       )
+    })
+
+    const writeFull = Effect.fn("Memory.writeFull")(function* (sessionID: SessionID, scope: Scope, text: string) {
+      const target = yield* filePath(sessionID, scope)
+      yield* writeFileAtomic(target, text.endsWith("\n") ? text : text + "\n")
     })
 
     const read = Effect.fn("Memory.read")(function* (input: {
@@ -322,39 +335,44 @@ export const layer = Layer.effect(
       yield* ensure(sessionID)
       const scope = candidate.scope
       const targetFile = yield* filePath(sessionID, scope)
-      const current = yield* readFull(sessionID, scope)
-      const entries = parseStructuredEntries(current, scope)
-      const normalized = parseEntry(scope, serializeEntry(candidate))
-      const key = entryKey(normalized)
-      const index = entries.findIndex((entry) => entryKey(entry) === key)
-      const status: MutationResult["status"] =
-        index === -1
-          ? "written"
-          : entriesEquivalent(entries[index]!, normalized)
-            ? "duplicate"
-            : "replaced"
+      return yield* flock.withLock(
+        Effect.gen(function* () {
+          const current = yield* readFull(sessionID, scope)
+          const entries = parseStructuredEntries(current, scope)
+          const normalized = parseEntry(scope, serializeEntry(candidate))
+          const key = entryKey(normalized)
+          const index = entries.findIndex((entry) => entryKey(entry) === key)
+          const status: MutationResult["status"] =
+            index === -1
+              ? "written"
+              : entriesEquivalent(entries[index]!, normalized)
+                ? "duplicate"
+                : "replaced"
 
-      if (status !== "duplicate") {
-        if (index === -1) entries.push(normalized)
-        else entries[index] = normalized
-        yield* writeFull(sessionID, scope, renderStructuredDocument(current, scope, entries))
-      }
-      yield* audit(sessionID, {
-        writerSessionID: sessionID,
-        writerKind: "primary",
-        action: `memory.${status}`,
-        scope,
-        key,
-        reason: status === "duplicate" ? "Exact structured entry already exists." : "Structured memory upsert.",
-      })
-      return {
-        file: targetFile,
-        status,
-        message:
-          status === "duplicate"
-            ? `Duplicate memory already exists.\nFile: ${targetFile}`
-            : `Memory ${status === "written" ? "written" : "updated"}.\nFile: ${targetFile}`,
-      }
+          if (status !== "duplicate") {
+            if (index === -1) entries.push(normalized)
+            else entries[index] = normalized
+            yield* writeFull(sessionID, scope, renderStructuredDocument(current, scope, entries))
+          }
+          yield* audit(sessionID, {
+            writerSessionID: sessionID,
+            writerKind: "primary",
+            action: `memory.${status}`,
+            scope,
+            key,
+            reason: status === "duplicate" ? "Exact structured entry already exists." : "Structured memory upsert.",
+          })
+          return {
+            file: targetFile,
+            status,
+            message:
+              status === "duplicate"
+                ? `Duplicate memory already exists.\nFile: ${targetFile}`
+                : `Memory ${status === "written" ? "written" : "updated"}.\nFile: ${targetFile}`,
+          }
+        }),
+        targetFile,
+      )
     })
 
     const upsertTaskMemory = Effect.fn("Memory.upsertTaskMemory")(function* (input: TaskMemoryUpsertInput) {
@@ -385,43 +403,48 @@ export const layer = Layer.effect(
       if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
 
       const targetFile = yield* filePath(input.sessionID, input.scope)
-      const current = yield* readFull(input.sessionID, input.scope)
-      if (findDuplicate(current, clean)) {
-        yield* audit(input.sessionID, {
-          action: "memory.duplicate",
-          scope: input.scope,
-          section: input.section,
-          content: clean,
-          reason: input.reason,
-        })
-        return {
-          file: targetFile,
-          status: "duplicate" as const,
-          message: `Duplicate memory already exists.\nFile: ${targetFile}`,
-        }
-      }
+      return yield* flock.withLock(
+        Effect.gen(function* () {
+          const current = yield* readFull(input.sessionID, input.scope)
+          if (findDuplicate(current, clean)) {
+            yield* audit(input.sessionID, {
+              action: "memory.duplicate",
+              scope: input.scope,
+              section: input.section,
+              content: clean,
+              reason: input.reason,
+            })
+            return {
+              file: targetFile,
+              status: "duplicate" as const,
+              message: `Duplicate memory already exists.\nFile: ${targetFile}`,
+            }
+          }
 
-      const usage = computeUsage(current, input.scope)
-      if (usage.used + clean.length + 4 > usage.limit) {
-        return yield* Effect.fail(new Error(capacityError(current, clean, input.scope)))
-      }
+          const usage = computeUsage(current, input.scope)
+          if (usage.used + clean.length + 4 > usage.limit) {
+            return yield* Effect.fail(new Error(capacityError(current, clean, input.scope)))
+          }
 
-      const now = new Date().toISOString()
-      const next = updateMetadata(appendEntry(current, input.section, clean), now, input.sessionID)
-      yield* writeFull(input.sessionID, input.scope, next)
-      yield* audit(input.sessionID, {
-        action: "memory.write",
-        scope: input.scope,
-        section: input.section,
-        content: clean,
-        reason: input.reason,
-      })
-      const newUsage = computeUsage(next, input.scope)
-      let message = `Memory written.\nFile: ${targetFile}`
-      if (newUsage.percentage >= CAPACITY_WARN_THRESHOLD * 100) {
-        message += `\nWarning: memory at ${newUsage.percentage}% capacity (${newUsage.used}/${newUsage.limit} chars). Consider consolidating entries.`
-      }
-      return { file: targetFile, status: "written" as const, message }
+          const now = new Date().toISOString()
+          const next = updateMetadata(appendEntry(current, input.section, clean), now, input.sessionID)
+          yield* writeFull(input.sessionID, input.scope, next)
+          yield* audit(input.sessionID, {
+            action: "memory.write",
+            scope: input.scope,
+            section: input.section,
+            content: clean,
+            reason: input.reason,
+          })
+          const newUsage = computeUsage(next, input.scope)
+          let message = `Memory written.\nFile: ${targetFile}`
+          if (newUsage.percentage >= CAPACITY_WARN_THRESHOLD * 100) {
+            message += `\nWarning: memory at ${newUsage.percentage}% capacity (${newUsage.used}/${newUsage.limit} chars). Consider consolidating entries.`
+          }
+          return { file: targetFile, status: "written" as const, message }
+        }),
+        targetFile,
+      )
     })
 
     const replaceBySubstring = Effect.fn("Memory.replaceBySubstring")(function* (input: {
@@ -438,20 +461,29 @@ export const layer = Layer.effect(
       if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
 
       const targetFile = yield* filePath(input.sessionID, input.scope)
-      const current = yield* readFull(input.sessionID, input.scope)
-      const { match, error } = findEntryBySubstring(current, input.oldText)
-      if (error) return yield* Effect.fail(new Error(error))
+      return yield* flock.withLock(
+        Effect.gen(function* () {
+          const current = yield* readFull(input.sessionID, input.scope)
+          const { match, error } = findEntryBySubstring(current, input.oldText)
+          if (error) return yield* Effect.fail(new Error(error))
 
-      const updated = replaceEntryByIndex(current, match!.index, clean)
-      yield* writeFull(input.sessionID, input.scope, updateMetadata(updated, new Date().toISOString(), input.sessionID))
-      yield* audit(input.sessionID, {
-        action: "memory.replace",
-        scope: input.scope,
-        oldText: input.oldText,
-        newContent: clean,
-        reason: input.reason,
-      })
-      return { file: targetFile, status: "replaced" as const, message: `Memory replaced.\nFile: ${targetFile}` }
+          const updated = replaceEntryByIndex(current, match!.index, clean)
+          yield* writeFull(
+            input.sessionID,
+            input.scope,
+            updateMetadata(updated, new Date().toISOString(), input.sessionID),
+          )
+          yield* audit(input.sessionID, {
+            action: "memory.replace",
+            scope: input.scope,
+            oldText: input.oldText,
+            newContent: clean,
+            reason: input.reason,
+          })
+          return { file: targetFile, status: "replaced" as const, message: `Memory replaced.\nFile: ${targetFile}` }
+        }),
+        targetFile,
+      )
     })
 
     const removeBySubstring = Effect.fn("Memory.removeBySubstring")(function* (input: {
@@ -463,19 +495,28 @@ export const layer = Layer.effect(
       yield* assertPrimaryWriter(input.sessionID)
       yield* ensure(input.sessionID)
       const targetFile = yield* filePath(input.sessionID, input.scope)
-      const current = yield* readFull(input.sessionID, input.scope)
-      const { match, error } = findEntryBySubstring(current, input.oldText)
-      if (error) return yield* Effect.fail(new Error(error))
+      return yield* flock.withLock(
+        Effect.gen(function* () {
+          const current = yield* readFull(input.sessionID, input.scope)
+          const { match, error } = findEntryBySubstring(current, input.oldText)
+          if (error) return yield* Effect.fail(new Error(error))
 
-      const updated = removeEntryByIndex(current, match!.index)
-      yield* writeFull(input.sessionID, input.scope, updateMetadata(updated, new Date().toISOString(), input.sessionID))
-      yield* audit(input.sessionID, {
-        action: "memory.remove",
-        scope: input.scope,
-        oldText: input.oldText,
-        reason: input.reason,
-      })
-      return { file: targetFile, status: "removed" as const, message: `Memory removed.\nFile: ${targetFile}` }
+          const updated = removeEntryByIndex(current, match!.index)
+          yield* writeFull(
+            input.sessionID,
+            input.scope,
+            updateMetadata(updated, new Date().toISOString(), input.sessionID),
+          )
+          yield* audit(input.sessionID, {
+            action: "memory.remove",
+            scope: input.scope,
+            oldText: input.oldText,
+            reason: input.reason,
+          })
+          return { file: targetFile, status: "removed" as const, message: `Memory removed.\nFile: ${targetFile}` }
+        }),
+        targetFile,
+      )
     })
 
     const compact = Effect.fn("Memory.compact")(function* (input: { sessionID: SessionID; scope: Scope }) {
@@ -582,8 +623,14 @@ export const layer = Layer.effect(
       entry: Record<string, unknown>,
     ) {
       const target = path.join(yield* dir(sessionID), "audit.jsonl")
-      const current = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
-      yield* fs.writeWithDirs(target, current + JSON.stringify(entry) + "\n").pipe(Effect.orDie)
+      yield* fs.ensureDir(path.dirname(target)).pipe(Effect.orDie)
+      yield* flock.withLock(
+        Effect.gen(function* () {
+          const current = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
+          yield* writeFileAtomic(target, current + JSON.stringify(entry) + "\n")
+        }),
+        target,
+      )
     })
 
     return Service.of({
@@ -602,7 +649,9 @@ export const layer = Layer.effect(
       updateAfterTurn,
     })
   }),
-)
+).pipe(Layer.provide(EffectFlock.defaultLayer))
+
+export const layer = layerWithDirectory(DIRECTORY)
 
 export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer), Layer.provide(Session.defaultLayer))
 
