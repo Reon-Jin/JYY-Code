@@ -69,6 +69,31 @@ export const AgentClusterTaskTable = sqliteTable(
   ],
 )
 
+export const AgentClusterInterventionTable = sqliteTable(
+  "agent_cluster_intervention",
+  {
+    id: text().primaryKey(),
+    run_id: text()
+      .$type<RunID>()
+      .notNull()
+      .references(() => AgentClusterRunTable.id, { onDelete: "cascade" }),
+    task_id: text().$type<TaskID>().notNull(),
+    child_session_id: text().$type<SessionID>().notNull(),
+    source: text().$type<"user" | "primary" | "reviewer">().notNull(),
+    mode: text().$type<"next_checkpoint" | "interrupt" | "parent_only">().notNull(),
+    content: text().notNull(),
+    status: text().$type<"queued" | "delivered" | "acknowledged" | "rejected" | "cancelled">().notNull(),
+    sequence: integer().notNull(),
+    delivered_at: integer(),
+    acknowledged_at: integer(),
+    ...Timestamps,
+  },
+  (table) => [
+    index("agent_cluster_intervention_child_session_idx").on(table.child_session_id, table.status, table.sequence),
+    index("agent_cluster_intervention_run_task_idx").on(table.run_id, table.task_id),
+  ],
+)
+
 export const AgentClusterEventTable = sqliteTable(
   "agent_cluster_event",
   {

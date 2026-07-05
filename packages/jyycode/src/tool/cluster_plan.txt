@@ -1,0 +1,1 @@
+Submit the complete task plan for this Multi-Agent cluster run. Must be called before dispatching any tasks with the task tool. The plan is validated against runtime limits and persisted as the authoritative task topology. Only the cluster primary agent may use this tool.
