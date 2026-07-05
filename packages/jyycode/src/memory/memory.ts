@@ -15,9 +15,12 @@ const MEMORY_FILE = "MEMORY.md"
 const USER_FILE = "USER.md"
 export const DIRECTORY = path.normalize("D:/jyycode/memory")
 const MAX_RECENT_SESSIONS = 30
-const MEMORY_CHAR_LIMIT = 2200
-const USER_CHAR_LIMIT = 1375
+const MEMORY_CHAR_LIMIT = 10_000
+const USER_CHAR_LIMIT = 2_000
+const ENTRY_LIMIT = 50
 const CAPACITY_WARN_THRESHOLD = 0.8
+const COMPACTION_TARGET = 0.7
+const COMPACTION_ENTRY_TARGET = 45
 
 export type Scope = "memory" | "user"
 type Confidence = "low" | "medium" | "high"
@@ -153,8 +156,17 @@ export type UserMemoryUpsertInput = Omit<UserMemoryEntry, "scope"> & { sessionID
 export type MutationResult = {
   id?: string
   file?: string
-  status: "written" | "duplicate" | "replaced" | "removed" | "compacted"
+  status: "written" | "duplicate" | "replaced" | "removed" | "compacted" | "capacity_rejected"
   message: string
+}
+
+export type CompactionResult = MutationResult & {
+  status: "compacted"
+  removed: number
+  merged: number
+  retained: number
+  before: UsageInfo & { entries: number }
+  after: UsageInfo & { entries: number }
 }
 
 export const SearchResult = Schema.Struct({
@@ -199,7 +211,7 @@ export interface Interface {
     oldText: string
     reason: string
   }) => Effect.Effect<MutationResult, Error>
-  readonly compact: (input: { sessionID: SessionID; scope: Scope }) => Effect.Effect<MutationResult, Error>
+  readonly compact: (input: { sessionID: SessionID; scope: Scope }) => Effect.Effect<CompactionResult, Error>
   readonly usage: (sessionID: SessionID, scope: Scope) => Effect.Effect<UsageInfo>
   readonly formatWithHeader: (sessionID: SessionID, scope: Scope) => Effect.Effect<string>
   readonly updateAfterTurn: (
@@ -342,7 +354,7 @@ export const layerWithDirectory = (directory: string) =>
           const normalized = parseEntry(scope, serializeEntry(candidate))
           const key = entryKey(normalized)
           const index = entries.findIndex((entry) => entryKey(entry) === key)
-          const status: MutationResult["status"] =
+          const status: "written" | "duplicate" | "replaced" =
             index === -1
               ? "written"
               : entriesEquivalent(entries[index]!, normalized)
@@ -352,7 +364,44 @@ export const layerWithDirectory = (directory: string) =>
           if (status !== "duplicate") {
             if (index === -1) entries.push(normalized)
             else entries[index] = normalized
-            yield* writeFull(sessionID, scope, renderStructuredDocument(current, scope, entries))
+            const projected = renderStructuredDocument(current, scope, entries)
+            const shouldCompact =
+              projected.length >= charLimit(scope) * CAPACITY_WARN_THRESHOLD || entries.length > ENTRY_LIMIT
+            if (shouldCompact) {
+              const outcome = compactEntrySet(current, scope, entries)
+              const retained = containsCandidate(outcome.entries, normalized)
+              if (!retained || outcome.after.used > outcome.after.limit || outcome.after.entries > ENTRY_LIMIT) {
+                yield* audit(sessionID, {
+                  writerSessionID: sessionID,
+                  writerKind: "primary",
+                  action: "memory.capacity_rejected",
+                  scope,
+                  key,
+                  before: outcome.before,
+                  after: outcome.after,
+                  reason: "Candidate could not be retained within hard capacity limits.",
+                })
+                return {
+                  file: targetFile,
+                  status: "capacity_rejected" as const,
+                  message: `Memory candidate rejected at capacity.\nFile: ${targetFile}`,
+                }
+              }
+              yield* writeFull(sessionID, scope, outcome.text)
+              yield* audit(sessionID, {
+                writerSessionID: sessionID,
+                writerKind: "primary",
+                action: "memory.compact",
+                scope,
+                removed: outcome.removed,
+                merged: outcome.merged,
+                before: outcome.before,
+                after: outcome.after,
+                reason: "Automatic threshold compaction before upsert.",
+              })
+            } else {
+              yield* writeFull(sessionID, scope, projected)
+            }
           }
           yield* audit(sessionID, {
             writerSessionID: sessionID,
@@ -523,16 +572,38 @@ export const layerWithDirectory = (directory: string) =>
       yield* assertPrimaryWriter(input.sessionID)
       yield* ensure(input.sessionID)
       const targetFile = yield* filePath(input.sessionID, input.scope)
-      yield* audit(input.sessionID, {
-        action: "memory.compact",
-        scope: input.scope,
-        reason: "Manual compaction requested; deterministic compaction is implemented in the capacity phase.",
-      })
-      return {
-        file: targetFile,
-        status: "compacted" as const,
-        message: `Memory compaction authorized.\nFile: ${targetFile}`,
-      }
+      return yield* flock.withLock(
+        Effect.gen(function* () {
+          const current = yield* readFull(input.sessionID, input.scope)
+          const outcome = compactEntrySet(current, input.scope, parseStructuredEntries(current, input.scope))
+          if (outcome.after.used > outcome.after.limit || outcome.after.entries > ENTRY_LIMIT) {
+            return yield* Effect.fail(new Error(`Memory cannot be compacted within hard limits for ${input.scope}`))
+          }
+          yield* writeFull(input.sessionID, input.scope, outcome.text)
+          yield* audit(input.sessionID, {
+            writerSessionID: input.sessionID,
+            writerKind: "primary",
+            action: "memory.compact",
+            scope: input.scope,
+            removed: outcome.removed,
+            merged: outcome.merged,
+            before: outcome.before,
+            after: outcome.after,
+            reason: "Manual deterministic compaction.",
+          })
+          return {
+            file: targetFile,
+            status: "compacted" as const,
+            message: `Memory compacted.\nFile: ${targetFile}`,
+            removed: outcome.removed,
+            merged: outcome.merged,
+            retained: outcome.entries.length,
+            before: outcome.before,
+            after: outcome.after,
+          }
+        }),
+        targetFile,
+      )
     })
 
     const usage = Effect.fn("Memory.usage")(function* (sessionID: SessionID, scope: Scope) {
@@ -669,7 +740,12 @@ function parseStructuredEntries(text: string, scope: Scope): MemoryEntry[] {
   return entries
 }
 
-function renderStructuredDocument(original: string, scope: Scope, entries: readonly MemoryEntry[]): string {
+function renderStructuredDocument(
+  original: string,
+  scope: Scope,
+  entries: readonly MemoryEntry[],
+  lastCompactedOverride?: string,
+): string {
   const lines = entries.map(serializeEntry)
   if (!/<!--\s*schema:\s*2\s*;/u.test(original)) {
     const legacy = original
@@ -680,8 +756,139 @@ function renderStructuredDocument(original: string, scope: Scope, entries: reado
     return [legacy, "", "## Structured V2 Entries", "", ...lines, ""].join("\n")
   }
   const title = scope === "memory" ? "# JYY-Code Memory" : "# User Memory"
-  const lastCompacted = original.match(/last_compacted:\s*([^\s;]+)\s*-->/u)?.[1] ?? "never"
+  const lastCompacted =
+    lastCompactedOverride ?? original.match(/last_compacted:\s*([^\s;]+)\s*-->/u)?.[1] ?? "never"
   return [title, "", `<!-- schema: 2; last_compacted: ${lastCompacted} -->`, "", ...lines, ""].join("\n")
+}
+
+type CompactOutcome = {
+  entries: MemoryEntry[]
+  text: string
+  removed: number
+  merged: number
+  before: UsageInfo & { entries: number }
+  after: UsageInfo & { entries: number }
+}
+
+function compactEntrySet(original: string, scope: Scope, source: readonly MemoryEntry[]): CompactOutcome {
+  const beforeText = renderStructuredDocument(original, scope, source)
+  const before = usageWithEntries(beforeText, scope, source.length)
+  const entries: MemoryEntry[] = []
+  let removed = 0
+  let merged = 0
+
+  for (const entry of source) {
+    const exact = entries.findIndex((item) => serializeEntry(item) === serializeEntry(entry))
+    if (exact !== -1) {
+      removed++
+      continue
+    }
+    const sameKey = entries.findIndex((item) => entryKey(item) === entryKey(entry))
+    if (sameKey !== -1) {
+      entries[sameKey] = mergeEntries(entries[sameKey]!, entry)
+      merged++
+      continue
+    }
+    entries.push(entry)
+  }
+
+  for (let left = 0; left < entries.length; left++) {
+    for (let right = entries.length - 1; right > left; right--) {
+      if (!entriesAreSimilar(entries[left]!, entries[right]!)) continue
+      entries[left] = mergeEntries(entries[left]!, entries[right]!)
+      entries.splice(right, 1)
+      merged++
+    }
+  }
+
+  for (let index = 0; index < entries.length; index++) {
+    entries[index] = { ...entries[index]!, content: refineContent(entries[index]!.content) }
+  }
+
+  const targetChars = Math.floor(charLimit(scope) * COMPACTION_TARGET)
+  const keywordReuse = new Map<string, number>()
+  for (const entry of entries) {
+    for (const keyword of entry.keywords) keywordReuse.set(keyword, (keywordReuse.get(keyword) ?? 0) + 1)
+  }
+  const retention = (entry: MemoryEntry, index: number) => {
+    const reuse = entry.keywords.reduce((sum, keyword) => sum + (keywordReuse.get(keyword) ?? 0), 0)
+    const recency = entry.scope === "memory" ? dateRecency(entry.date) : 0
+    return entry.importance * 100 + recency + reuse * 5 + index / 1_000
+  }
+
+  while (entries.length > 0) {
+    const text = renderStructuredDocument(original, scope, entries, localDate(new Date()))
+    if (text.length <= targetChars && entries.length <= COMPACTION_ENTRY_TARGET) break
+    const candidates = entries
+      .map((entry, index) => ({ entry, index, score: retention(entry, index) }))
+      .filter(({ entry }) => !(entry.scope === "user" && entry.importance >= 9))
+      .sort((a, b) => a.score - b.score || a.index - b.index)
+    const evicted = candidates[0]
+    if (!evicted) break
+    entries.splice(evicted.index, 1)
+    removed++
+  }
+
+  const text = renderStructuredDocument(original, scope, entries, localDate(new Date()))
+  return {
+    entries,
+    text,
+    removed,
+    merged,
+    before,
+    after: usageWithEntries(text, scope, entries.length),
+  }
+}
+
+function entriesAreSimilar(left: MemoryEntry, right: MemoryEntry): boolean {
+  if (left.scope !== right.scope) return false
+  const leftKeys = new Set(left.keywords)
+  const rightKeys = new Set(right.keywords)
+  const intersection = [...leftKeys].filter((keyword) => rightKeys.has(keyword)).length
+  const union = new Set([...leftKeys, ...rightKeys]).size
+  if (union > 0 && intersection / union >= 0.6) return true
+  if (left.scope !== "user") return false
+  return left.keywords.some((a) => right.keywords.some((b) => a.includes(b) || b.includes(a)))
+}
+
+function mergeEntries(left: MemoryEntry, right: MemoryEntry): MemoryEntry {
+  const preferred = preferredEntry(left, right)
+  const other = preferred === left ? right : left
+  const keywords = normalizeKeywords([...preferred.keywords, ...other.keywords]).slice(0, 3)
+  const content = preferred.content.length >= other.content.length ? preferred.content : other.content
+  if (preferred.scope === "memory") {
+    return {
+      ...preferred,
+      importance: Math.max(left.importance, right.importance) as Importance,
+      keywords,
+      content,
+      date: left.scope === "memory" && right.scope === "memory" && left.date > right.date ? left.date : preferred.date,
+    }
+  }
+  return { ...preferred, importance: Math.max(left.importance, right.importance) as Importance, keywords, content }
+}
+
+function preferredEntry(left: MemoryEntry, right: MemoryEntry): MemoryEntry {
+  if (left.scope === "memory" && right.scope === "memory") {
+    if (left.date !== right.date) return left.date > right.date ? left : right
+    if (left.importance !== right.importance) return left.importance > right.importance ? left : right
+  }
+  return right
+}
+
+function refineContent(content: string): string {
+  const compact = content.replace(/\s+/gu, " ").trim()
+  return compact.length <= 120 ? compact : compact.slice(0, 119).trimEnd() + "…"
+}
+
+function dateRecency(date: string): number {
+  const parsed = Date.UTC(Number(date.slice(0, 4)), Number(date.slice(4, 6)) - 1, Number(date.slice(6, 8)))
+  const days = Math.max(0, Math.floor((Date.now() - parsed) / 86_400_000))
+  return Math.max(0, 30 - Math.min(30, days))
+}
+
+function usageWithEntries(text: string, scope: Scope, entries: number): UsageInfo & { entries: number } {
+  return { ...computeUsage(text, scope), entries }
 }
 
 function entriesEquivalent(left: MemoryEntry, right: MemoryEntry): boolean {
@@ -690,6 +897,15 @@ function entriesEquivalent(left: MemoryEntry, right: MemoryEntry): boolean {
   if (entryKey(left) !== entryKey(right)) return false
   if (left.keywords.join("\u001f") !== right.keywords.join("\u001f")) return false
   return left.scope === "user" || (right.scope === "memory" && left.sessionID === right.sessionID)
+}
+
+function containsCandidate(entries: readonly MemoryEntry[], candidate: MemoryEntry): boolean {
+  if (candidate.scope === "memory") {
+    return entries.some((entry) => entry.scope === "memory" && entry.sessionID === candidate.sessionID)
+  }
+  return entries.some(
+    (entry) => entry.scope === "user" && candidate.keywords.every((keyword) => entry.keywords.includes(keyword)),
+  )
 }
 
 function localDate(date: Date): string {
