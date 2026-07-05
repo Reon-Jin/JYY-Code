@@ -18,7 +18,11 @@ import { AgentClusterRunTable, AgentClusterEventTable, AgentClusterTaskTable } f
 import { Event } from "./event"
 import { runInstructions } from "./planner"
 import { AgentClusterLifecycle } from "./lifecycle"
+import { AgentClusterTelemetry } from "./telemetry"
 import type { Plan, RunID, RunStatus, TaskID } from "./schema"
+import * as Log from "@jyycode-ai/core/util/log"
+
+const clusterLog = Log.create({ service: "agent-cluster" })
 
 type ModelRef = {
   providerID: ProviderID
@@ -391,6 +395,35 @@ export const finalizeRunIfTerminal = Effect.fn("AgentCluster.finalizeRunIfTermin
       .where(eq(AgentClusterRunTable.id, runID))
       .run(),
   )
+
+  // Telemetry: summarize run on completion
+  const wallTimes = tasks
+    .map((t) => ({ created: t.time_created, submitted: t.submitted_at, accepted: t.accepted_at }))
+    .filter((t) => t.submitted)
+  const avgWallMs = wallTimes.length > 0
+    ? Math.round(wallTimes.reduce((sum, t) => sum + ((t.accepted ?? t.submitted!) - t.created), 0) / wallTimes.length)
+    : 0
+  const terminal = { accepted: statuses.filter((s) => s === "accepted").length, failed: statuses.filter((s) => s === "failed").length, cancelled: statuses.filter((s) => s === "cancelled").length }
+  const reviewerDecisions: Record<string, number> = {}
+  const revisionCounts: number[] = []
+  for (const t of tasks) {
+    if (t.review_round > 0) revisionCounts.push(t.review_round)
+    if (t.last_event?.startsWith("Review:")) {
+      const dec = t.last_event.replace("Review: ", "")
+      reviewerDecisions[dec] = (reviewerDecisions[dec] ?? 0) + 1
+    }
+  }
+  yield* Effect.sync(() => {
+    clusterLog.info("Run completed", {
+      runID,
+      status: derived,
+      tasks: terminal,
+      timing: { avgWallMs, totalTasks: tasks.length },
+      reviewer: { decisions: reviewerDecisions, totalReviews: revisionCounts.length },
+      revisions: { counts: revisionCounts, total: revisionCounts.length },
+    })
+  })
+
   return true
 })
 

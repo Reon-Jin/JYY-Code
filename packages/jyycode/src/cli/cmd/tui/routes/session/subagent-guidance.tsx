@@ -1,4 +1,4 @@
-import { createMemo, createSignal, Show, createEffect } from "solid-js"
+import { createMemo, createSignal, Show, onCleanup } from "solid-js"
 import { useRouteData } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
 import { useTheme } from "@tui/context/theme"
@@ -11,18 +11,25 @@ export function SubagentGuidance() {
   const { theme } = useTheme()
   const session = createMemo(() => sync.session.get(route.sessionID))
 
-  // Only show for child sessions
   const isChildSession = createMemo(() => {
     const s = session()
     if (!s) return false
     return !!s.parentID
   })
 
-  // Check cluster task binding
+  const childSessionID = createMemo(() => {
+    const s = session()
+    return s?.id ?? ""
+  })
+
+  const isBusy = createMemo(() => {
+    const status = sync.data.session_status[childSessionID()]
+    return status?.type === "busy" || status?.type === "retry"
+  })
+
   const clusterTask = createMemo(() => {
     const s = session()
     if (!s?.parentID) return undefined
-    // Search agent_cluster state for a task matching this child session
     const cluster = sync.data.agent_cluster[s.parentID]
     if (!cluster) return undefined
     const task = cluster.tasks.find((t) => t.child_session_id === route.sessionID)
@@ -40,7 +47,7 @@ export function SubagentGuidance() {
     return ["accepted", "failed", "cancelled"].includes(task.status)
   })
 
-  const [mode, setMode] = createSignal<"next_checkpoint" | "parent_only">("next_checkpoint")
+  const [mode, setMode] = createSignal<"next_checkpoint" | "interrupt" | "parent_only">("next_checkpoint")
   const [content, setContent] = createSignal("")
   const [sending, setSending] = createSignal(false)
   const [feedback, setFeedback] = createSignal<string | undefined>()
@@ -56,25 +63,30 @@ export function SubagentGuidance() {
     if (!text) return
     const task = clusterTask()
     if (!task) return
+    const sessID = session()?.parentID
+    if (!sessID) return
 
     setSending(true)
     setFeedback(undefined)
     try {
-      const sessionID = route.sessionID
-      // Use the parent session's workspace routing
-      const url = `/session/${sessionID}/agent-cluster/task/${task.planTaskID}/intervention`
+      const url = `/session/${sessID}/agent-cluster/task/${task.planTaskID}/intervention`
+      const currentMode = mode()
       const resp = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: mode(), content: text }),
+        body: JSON.stringify({ mode: currentMode, content: text }),
       })
       if (!resp.ok) {
         const errText = await resp.text().catch(() => "Request failed")
         setFeedback(errText)
         setFeedbackError(true)
       } else {
-        const result = await resp.json() as { id: string; sequence: number }
-        setFeedback(`Guidance queued (#${result.sequence}). The subagent will see it at its next checkpoint.`)
+        const result = (await resp.json()) as { id: string; sequence: number }
+        const msg =
+          currentMode === "interrupt"
+            ? `Interrupt sent (#${result.sequence}). Guidance will take effect immediately when the subagent restarts.`
+            : `Guidance queued (#${result.sequence}). The subagent will see it at its next checkpoint.`
+        setFeedback(msg)
         setFeedbackError(false)
         setContent("")
       }
@@ -87,15 +99,19 @@ export function SubagentGuidance() {
   }
 
   // Clear feedback after a timeout
-  createEffect(() => {
-    const msg = feedback()
-    if (msg) {
-      const to = setTimeout(() => setFeedback(undefined), 8000)
-      return () => clearTimeout(to)
-    }
-  })
+  const feedbackMsg = feedback()
+  if (feedbackMsg) {
+    const to = setTimeout(() => setFeedback(undefined), 8000)
+    onCleanup(() => clearTimeout(to))
+  }
 
   useTerminalDimensions()
+
+  const sendLabel = createMemo(() => {
+    if (sending()) return "..."
+    if (mode() === "interrupt") return "Interrupt"
+    return "Send"
+  })
 
   return (
     <Show when={isChildSession()}>
@@ -116,8 +132,11 @@ export function SubagentGuidance() {
             <box flexDirection="row" justifyContent="space-between" gap={1}>
               <text fg={theme.textMuted}>
                 <b>Guide subagent</b>
+                <Show when={isBusy()}>
+                  <span style={{ fg: theme.textAccent }}> (active)</span>
+                </Show>
                 <Show when={isTerminal()}>
-                  <span style={{ fg: theme.textMuted }}> (task is terminal)</span>
+                  <span style={{ fg: theme.textMuted }}> (finished)</span>
                 </Show>
               </text>
               {/* Mode selector */}
@@ -129,8 +148,20 @@ export function SubagentGuidance() {
                     bold: mode() === "next_checkpoint",
                   }}
                 >
-                  at checkpoint
+                  checkpoint
                 </text>
+                <Show when={isBusy()}>
+                  <text fg={theme.textMuted}>|</text>
+                  <text
+                    onMouseUp={() => setMode("interrupt")}
+                    style={{
+                      fg: mode() === "interrupt" ? theme.textError ?? theme.text : theme.textMuted,
+                      bold: mode() === "interrupt",
+                    }}
+                  >
+                    interrupt
+                  </text>
+                </Show>
                 <text fg={theme.textMuted}>|</text>
                 <text
                   onMouseUp={() => setMode("parent_only")}
@@ -139,7 +170,7 @@ export function SubagentGuidance() {
                     bold: mode() === "parent_only",
                   }}
                 >
-                  parent only
+                  parent
                 </text>
               </box>
             </box>
@@ -152,7 +183,7 @@ export function SubagentGuidance() {
                     editable={true}
                     value={content()}
                     onChange={(v: string) => setContent(enforceLength(v))}
-                    placeholder="Guide this subagent..."
+                    placeholder={mode() === "interrupt" ? "Interrupt and redirect this subagent..." : "Guide this subagent..."}
                     multiline={true}
                   />
                 </Show>
@@ -161,22 +192,24 @@ export function SubagentGuidance() {
                 <text
                   onMouseUp={() => sendGuidance()}
                   style={{
-                    fg: sending() || isTerminal() ? theme.textMuted : theme.textAccent ?? theme.text,
+                    fg: sending() || isTerminal()
+                      ? theme.textMuted
+                      : mode() === "interrupt"
+                        ? theme.textError ?? theme.text
+                        : theme.textAccent ?? theme.text,
                     bold: !sending() && !isTerminal(),
                   }}
                 >
-                  {sending() ? "..." : "Send"}
+                  {sendLabel()}
                 </text>
               </box>
             </box>
 
             {/* Feedback row */}
-            <Show when={feedback()}>
-              {(msg) => (
-                <text fg={feedbackError() ? theme.textError ?? theme.text : theme.textMuted} wrapMode="wrap">
-                  {msg()}
-                </text>
-              )}
+            <Show when={feedbackMsg}>
+              <text fg={feedbackError() ? (theme.textError ?? theme.text) : theme.textMuted} wrapMode="wrap">
+                {feedbackMsg}
+              </text>
             </Show>
           </box>
         </box>

@@ -149,9 +149,41 @@ export function interventionText(intervention: {
   id: string
 }): string {
   const label = intervention.mode === "parent_only" ? "Coordinator note" : "User guidance"
+  const prefix = intervention.mode === "interrupt"
+    ? "⚠️ The user has interrupted your work with this guidance. Address it immediately before continuing your previous task."
+    : ""
   return [
     `<intervention id="${intervention.id}" source="${intervention.source}" mode="${intervention.mode}" sequence="${intervention.sequence}">`,
+    prefix,
     `**${label}:** ${intervention.content}`,
     `</intervention>`,
-  ].join("\n")
+  ].filter(Boolean).join("\n")
 }
+
+// Per-child-session execution gate: prevents two concurrent loops in the same child
+const childLoopGates = new Map<string, { locked: boolean; pending: Array<() => void> }>()
+
+function acquireChildGate(sessionID: string) {
+  const gate = childLoopGates.get(sessionID) ?? { locked: false, pending: [] }
+  childLoopGates.set(sessionID, gate)
+  if (!gate.locked) {
+    gate.locked = true
+    return undefined // acquired immediately
+  }
+  return new Promise<void>((resolve) => {
+    gate.pending.push(resolve)
+  })
+}
+
+function releaseChildGate(sessionID: string) {
+  const gate = childLoopGates.get(sessionID)
+  if (!gate) return
+  const next = gate.pending.shift()
+  if (next) {
+    next() // resolve the next waiter (it will re-acquire on its next iteration)
+  }
+  // Always unlock — the resolved waiter is now the active loop
+  gate.locked = false
+}
+
+export { acquireChildGate, releaseChildGate }

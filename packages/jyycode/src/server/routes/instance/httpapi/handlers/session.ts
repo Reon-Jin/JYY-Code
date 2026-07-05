@@ -3,6 +3,7 @@ import { AgentCluster } from "@/agent-cluster/cluster"
 import { AgentClusterRunTable, AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
 import { AgentClusterIntervention } from "@/agent-cluster/intervention"
 import { AgentClusterEvent } from "@/agent-cluster/event"
+import { BackgroundJob } from "@/background/job"
 import * as Database from "@/storage/db"
 import { Bus } from "@/bus"
 import { Command } from "@/command"
@@ -71,6 +72,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
     const bus = yield* Bus.Service
+    const backgroundJobs = yield* BackgroundJob.Service
     const scope = yield* Scope.Scope
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
@@ -193,13 +195,20 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         content: ctx.payload.content,
       })
 
+      // Interrupt mode: cancel the active inference so guidance takes effect immediately
+      if (ctx.payload.mode === "interrupt" && taskRow.child_session_id) {
+        yield* backgroundJobs.cancel(taskRow.child_session_id).pipe(
+          Effect.catchAll(() => Effect.void),
+        )
+      }
+
       const createdAt = Date.now()
       yield* bus.publish(AgentClusterEvent.Event, {
         sessionID: ctx.params.sessionID,
         runID: taskRow.run_id as import("@/agent-cluster/schema").RunID,
         taskID: taskRow.id as import("@/agent-cluster/schema").TaskID,
         type: "intervention",
-        message: `User guidance enqueued for task ${ctx.params.taskID}`,
+        message: `User guidance enqueued for task ${ctx.params.taskID}${ctx.payload.mode === "interrupt" ? " (interrupt)" : ""}`,
         metadata: { interventionID: intervention.id, mode: ctx.payload.mode },
         version: 0,
         createdAt,
