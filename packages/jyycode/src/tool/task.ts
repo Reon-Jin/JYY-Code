@@ -763,8 +763,8 @@ export const TaskTool = Tool.define(
             yield* AgentCluster.transitionTask({
               runID: clusterRunID as import("@/agent-cluster/schema").RunID,
               taskID: row.id as import("@/agent-cluster/schema").TaskID,
-              from: ["running", "revising"],
-              to: taskStatus,
+              from: ["running" as const, "revising" as const],
+              to: taskStatus as "submitted" | "failed",
               message:
                 state === "completed"
                   ? `Background job completed successfully`
@@ -773,7 +773,7 @@ export const TaskTool = Tool.define(
                 result_text: text.slice(0, 100_000),
                 submitted_at: state === "completed" ? Date.now() : undefined,
               },
-            }).pipe(Effect.catchAll(() => Effect.void))
+            }).pipe(Effect.orDie)
           }
         }
 

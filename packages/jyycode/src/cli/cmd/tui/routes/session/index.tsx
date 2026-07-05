@@ -64,7 +64,6 @@ import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
 import { Sidebar } from "./sidebar"
 import { SubagentFooter } from "./subagent-footer.tsx"
-import { SubagentGuidance } from "./subagent-guidance.tsx"
 import { MultiAgentPanel } from "./multi-agent-panel"
 import { stripAgentClusterPlanText } from "./agent-cluster-state"
 import { LANGUAGE_EXTENSIONS } from "@/lsp/language"
@@ -1345,7 +1344,6 @@ export function Session() {
                   <QuestionPrompt request={questions()[0]} />
                 </Show>
                 <Show when={session()?.parentID}>
-                  <SubagentGuidance />
                   <SubagentFooter />
                 </Show>
                 <Show when={visible()}>
