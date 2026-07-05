@@ -17,8 +17,115 @@ const MEMORY_CHAR_LIMIT = 2200
 const USER_CHAR_LIMIT = 1375
 const CAPACITY_WARN_THRESHOLD = 0.8
 
-type Scope = "memory" | "user"
+export type Scope = "memory" | "user"
 type Confidence = "low" | "medium" | "high"
+
+export type Importance = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
+
+export type TaskMemoryEntry = {
+  scope: "memory"
+  importance: Importance
+  date: string
+  keywords: string[]
+  content: string
+  sessionID: SessionID
+}
+
+export type UserMemoryEntry = {
+  scope: "user"
+  importance: Importance
+  keywords: string[]
+  content: string
+}
+
+export type MemoryEntry = TaskMemoryEntry | UserMemoryEntry
+
+const taskEntryPattern =
+  /^- 重要性：(\d+) \+ 日期：([^\r\n]+?) \+ 关键词：([^\r\n]*?) \+ 内容：([^\r\n]+) \+ session：([^\s]+)$/u
+const userEntryPattern = /^- 重要性：(\d+) \+ 关键词：([^\r\n]*?) \+ 内容：([^\r\n]+)$/u
+
+export function normalizeKeywords(keywords: readonly string[]): string[] {
+  const normalized = keywords
+    .map((keyword) => keyword.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase())
+    .filter(Boolean)
+  return [...new Set(normalized)]
+}
+
+export function parseEntry(scope: Scope, line: string): MemoryEntry {
+  const match = scope === "memory" ? taskEntryPattern.exec(line) : userEntryPattern.exec(line)
+  if (!match) throw new Error(`Invalid ${scope} entry format`)
+
+  const importance = parseImportance(match[1])
+  if (scope === "memory") {
+    const date = match[2]!
+    const keywords = parseKeywords(match[3]!)
+    const content = parseContent(match[4]!)
+    const sessionID = match[5]!
+    if (!isCalendarDate(date)) throw new Error(`Invalid memory entry date: ${date}`)
+    if (!sessionID) throw new Error("Invalid memory entry session")
+    return { scope, importance, date, keywords, content, sessionID: SessionID.make(sessionID) }
+  }
+
+  return {
+    scope,
+    importance,
+    keywords: parseKeywords(match[2]!),
+    content: parseContent(match[3]!),
+  }
+}
+
+export function serializeEntry(entry: MemoryEntry): string {
+  const importance = parseImportance(String(entry.importance))
+  const keywords = validateKeywords(entry.keywords)
+  const content = parseContent(entry.content)
+  if (entry.scope === "memory") {
+    if (!isCalendarDate(entry.date)) throw new Error(`Invalid memory entry date: ${entry.date}`)
+    const sessionID = String(entry.sessionID).trim()
+    if (!sessionID || /\s/u.test(sessionID)) throw new Error("Invalid memory entry session")
+    return `- 重要性：${importance} + 日期：${entry.date} + 关键词：${keywords.join("、")} + 内容：${content} + session：${sessionID}`
+  }
+  return `- 重要性：${importance} + 关键词：${keywords.join("、")} + 内容：${content}`
+}
+
+export function entryKey(entry: MemoryEntry): string {
+  if (entry.scope === "memory") return entry.sessionID
+  return [...validateKeywords(entry.keywords)].sort().join("\u001f")
+}
+
+function parseImportance(value: string): Importance {
+  const importance = Number(value)
+  if (!Number.isInteger(importance) || importance < 1 || importance > 10) {
+    throw new Error(`Invalid memory entry importance: ${value}`)
+  }
+  return importance as Importance
+}
+
+function parseKeywords(value: string): string[] {
+  return validateKeywords(value.split("、"))
+}
+
+function validateKeywords(value: readonly string[]): string[] {
+  const keywords = normalizeKeywords(value)
+  if (keywords.length === 0 || keywords.length > 3) {
+    throw new Error("Invalid memory entry keywords: expected 1 to 3 non-empty keywords")
+  }
+  return keywords
+}
+
+function parseContent(value: string): string {
+  const content = value.trim()
+  if (!content || /[\r\n]/u.test(content)) throw new Error("Invalid memory entry content")
+  return content
+}
+
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{8}$/u.test(value)) return false
+  const year = Number(value.slice(0, 4))
+  const month = Number(value.slice(4, 6))
+  const day = Number(value.slice(6, 8))
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
 
 type MemoryWriteInput = {
   sessionID: SessionID
