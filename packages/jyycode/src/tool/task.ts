@@ -3,6 +3,9 @@ import DESCRIPTION from "./task.txt"
 import { ToolJsonSchema } from "./json-schema"
 import { BackgroundJob } from "@/background/job"
 import { AgentCluster } from "@/agent-cluster/cluster"
+import { AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
+import { AgentClusterScheduler } from "@/agent-cluster/scheduler"
+import * as Database from "@/storage/db"
 import { Bus } from "@/bus"
 import { Session } from "@/session/session"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
@@ -13,6 +16,7 @@ import { deriveSubagentSessionPermission } from "../agent/subagent-permissions"
 import type { SessionPrompt } from "../session/prompt"
 import { SessionStatus } from "@/session/status"
 import { Config } from "@/config/config"
+import { ConfigAgentCluster } from "@/config/agent-cluster"
 import { Provider } from "@/provider/provider"
 import { ModelID } from "@/provider/schema"
 import { TuiEvent } from "@/cli/cmd/tui/event"
@@ -737,6 +741,42 @@ export const TaskTool = Tool.define(
         state: "completed" | "error",
         text: string,
       ) {
+        // Bridge background job completion into task lifecycle
+        if (clusterPlanTaskID && clusterRunID) {
+          const taskID = clusterPlanTaskID
+          // Resolve the DB row id from plan_task_id for the transition
+          const rows = yield* Database.query((db) =>
+            db
+              .select({ id: AgentClusterTaskTable.id, status: AgentClusterTaskTable.status })
+              .from(AgentClusterTaskTable)
+              .where(
+                Database.and(
+                  Database.eq(AgentClusterTaskTable.run_id, clusterRunID as import("@/agent-cluster/schema").RunID),
+                  Database.eq(AgentClusterTaskTable.plan_task_id, clusterPlanTaskID),
+                ),
+              )
+              .all(),
+          )
+          const row = rows[0]
+          if (row && (row.status === "running" || row.status === "revising")) {
+            const taskStatus = state === "completed" ? "submitted" : "failed"
+            yield* AgentCluster.transitionTask({
+              runID: clusterRunID as import("@/agent-cluster/schema").RunID,
+              taskID: row.id as import("@/agent-cluster/schema").TaskID,
+              from: ["running", "revising"],
+              to: taskStatus,
+              message:
+                state === "completed"
+                  ? `Background job completed successfully`
+                  : `Background job failed`,
+              patch: {
+                result_text: text.slice(0, 100_000),
+                submitted_at: state === "completed" ? Date.now() : undefined,
+              },
+            }).pipe(Effect.catchAll(() => Effect.void))
+          }
+        }
+
         const currentParent = yield* sessions.get(ctx.sessionID)
         const message = yield* ops.prompt({
           sessionID: ctx.sessionID,
@@ -766,6 +806,32 @@ export const TaskTool = Tool.define(
       }
 
       if (runInBackground) {
+        // Scheduler admission for cluster tasks
+        if (clusterPlanTaskID && clusterRunID) {
+          const clusterCfg = ConfigAgentCluster.resolve(cfg.agent_cluster)
+          const admitted = yield* AgentClusterScheduler.admitDispatch({
+            runID: clusterRunID as import("@/agent-cluster/schema").RunID,
+            planTaskID: clusterPlanTaskID,
+            maxConcurrency: clusterCfg.max_concurrency,
+          })
+          if (!admitted.admitted) {
+            return yield* Effect.fail(
+              new Error(`Scheduler rejected task dispatch: ${admitted.reason}`),
+            )
+          }
+          // Validate model/role consistency with persisted plan
+          if (admitted.taskRow) {
+            const row = admitted.taskRow
+            if (params.subagent_type && params.subagent_type !== row.role) {
+              return yield* Effect.fail(
+                new Error(
+                  `Task role mismatch: tool call specifies ${params.subagent_type}, plan specifies ${row.role}`,
+                ),
+              )
+            }
+          }
+        }
+
         const info = yield* background.start({
           id: nextSession.id,
           type: id,
@@ -781,7 +847,8 @@ export const TaskTool = Tool.define(
             ),
           ),
         })
-        if (clusterPlanTaskID) {
+        if (clusterPlanTaskID && clusterRunID) {
+          // Update child_session_id on the already-admitted task row
           yield* AgentCluster.markTaskRunning({
             runID: clusterRunID,
             planTaskID: clusterPlanTaskID,

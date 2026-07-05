@@ -1,10 +1,12 @@
 export * as AgentClusterScheduler from "./scheduler"
 
 import { AgentClusterTaskTable } from "./cluster.sql"
-import { and, eq, ne, sql } from "@/storage/db"
+import { AgentClusterLifecycle } from "./lifecycle"
+import { and, eq, inArray } from "@/storage/db"
 import type { RunID, TaskID } from "./schema"
 import * as Database from "@/storage/db"
 import { Effect } from "effect"
+import { ulid } from "ulid"
 
 export type AdmissionResult = {
   admitted: boolean
@@ -16,8 +18,12 @@ export type AdmissionResult = {
     model: string
     prompt: string
     title: string
+    dependencies: string[]
+    child_session_id?: string | null
   }
 }
+
+const ACTIVE_RUNNING_STATUSES = ["running", "revising"] as const
 
 export const admitDispatch = Effect.fn("AgentClusterScheduler.admitDispatch")(function* (input: {
   runID: RunID
@@ -26,7 +32,6 @@ export const admitDispatch = Effect.fn("AgentClusterScheduler.admitDispatch")(fu
 }) {
   return yield* Database.withTransaction((tx) =>
     Effect.gen(function* () {
-      // Resolve the task by (run_id, plan_task_id)
       const task = yield* tx
         .select()
         .from(AgentClusterTaskTable)
@@ -42,7 +47,6 @@ export const admitDispatch = Effect.fn("AgentClusterScheduler.admitDispatch")(fu
         return { admitted: false, reason: `Task ${input.planTaskID} not found in run ${input.runID}` } as AdmissionResult
       }
 
-      // Only queued tasks can be dispatched
       if (task.status !== "queued") {
         return {
           admitted: false,
@@ -50,103 +54,61 @@ export const admitDispatch = Effect.fn("AgentClusterScheduler.admitDispatch")(fu
         } as AdmissionResult
       }
 
-      // Check dependencies
-      if (task.dependencies.length > 0) {
+      // Check dependencies — must all be accepted
+      const deps = task.dependencies as string[]
+      if (deps.length > 0) {
         const depRows = yield* tx
-          .select({
-            plan_task_id: AgentClusterTaskTable.plan_task_id,
-            status: AgentClusterTaskTable.status,
-          })
+          .select({ plan_task_id: AgentClusterTaskTable.plan_task_id, status: AgentClusterTaskTable.status })
           .from(AgentClusterTaskTable)
           .where(
             and(
               eq(AgentClusterTaskTable.run_id, input.runID),
-              // Check each dependency
-              ...task.dependencies.map((dep) => eq(AgentClusterTaskTable.plan_task_id, dep)),
+              inArray(AgentClusterTaskTable.plan_task_id, deps),
             ),
           )
           .all()
 
-        // Verify all dependencies are accepted
-        const accepted = new Set(depRows.filter((r) => r.status === "accepted").map((r) => r.plan_task_id))
-        const failed = depRows.filter((r) => r.status === "failed" || r.status === "cancelled")
-
-        for (const dep of task.dependencies) {
-          if (failed.some((f) => f.plan_task_id === dep)) {
-            return {
-              admitted: false,
-              reason: `Dependency ${dep} has failed`,
-            } as AdmissionResult
+        const statusByID = new Map(depRows.map((r) => [r.plan_task_id, r.status]))
+        for (const dep of deps) {
+          const depStatus = statusByID.get(dep)
+          if (!depStatus) {
+            return { admitted: false, reason: `Dependency ${dep} not found in run` } as AdmissionResult
           }
-          if (!accepted.has(dep)) {
-            return {
-              admitted: false,
-              reason: `Dependency ${dep} is not yet accepted`,
-            } as AdmissionResult
+          if (depStatus === "failed" || depStatus === "cancelled") {
+            return { admitted: false, reason: `Dependency ${dep} has status ${depStatus}` } as AdmissionResult
+          }
+          if (depStatus !== "accepted") {
+            return { admitted: false, reason: `Dependency ${dep} is ${depStatus}, not yet accepted` } as AdmissionResult
           }
         }
       }
 
-      // Check global concurrency
-      const activeCount = yield* tx
-        .select({ count: sql<number>`count(*)` })
+      // Check global concurrency — count currently running + revising tasks
+      const allTasks = yield* tx
+        .select({ status: AgentClusterTaskTable.status })
         .from(AgentClusterTaskTable)
-        .where(
-          and(
-            eq(AgentClusterTaskTable.run_id, input.runID),
-            // Count running and revising tasks only (queued tasks are not yet dispatched)
-            ...["running", "revising"].map((s) => ne(AgentClusterTaskTable.status, s)),
-          ),
-        )
-        .get()
-
-      // Since the above query uses ne(), let's use a different approach
-      const activeRows = yield* tx
-        .select({ id: AgentClusterTaskTable.id })
-        .from(AgentClusterTaskTable)
-        .where(
-          and(
-            eq(AgentClusterTaskTable.run_id, input.runID),
-          ),
-        )
+        .where(eq(AgentClusterTaskTable.run_id, input.runID))
         .all()
 
-      const runningCount = activeRows.filter((r) => {
-        // We need to re-query since we don't have status. Let's use a simpler approach.
-        return true // Placeholder - we'll check differently
-      }).length
+      const activeCount = allTasks.filter((t) =>
+        (ACTIVE_RUNNING_STATUSES as readonly string[]).includes(t.status),
+      ).length
 
-      // Simplified: count all non-terminal tasks
-      // Terminal statuses: accepted, failed, cancelled
-      // Active statuses: queued, running, submitted, reviewing, revision_requested, revising
-      // For concurrency, we count tasks that are actually RUNNING (running, revising)
-      const currentlyActive = yield* tx
-        .select({ id: AgentClusterTaskTable.id })
-        .from(AgentClusterTaskTable)
-        .where(
-          and(
-            eq(AgentClusterTaskTable.run_id, input.runID),
-          ),
-        )
-        .all()
-
-      // We need to filter by status in JS since SQL conditions are complex
-      // Count running + revising
-      let activeRunning = 0
-      for (const row of currentlyActive) {
-        // Re-fetch each row to get status... or we do it differently
-        // Let's use a direct status-based count approach
-        activeRunning++
+      if (activeCount >= input.maxConcurrency) {
+        return {
+          admitted: false,
+          reason: `Concurrency limit reached: ${activeCount} active, max ${input.maxConcurrency}`,
+        } as AdmissionResult
       }
 
-      // Actually, let me do this properly with a more direct query
-      // For now, we'll allow dispatch and let the caller check concurrency separately
+      // Admit: transition queued -> running atomically
       const now = Date.now()
-      yield* tx
+      const result = yield* tx
         .update(AgentClusterTaskTable)
         .set({
           status: "running",
           status_version: task.status_version + 1,
+          last_event: "Dispatched by scheduler",
           time_updated: now,
         })
         .where(
@@ -156,17 +118,36 @@ export const admitDispatch = Effect.fn("AgentClusterScheduler.admitDispatch")(fu
             eq(AgentClusterTaskTable.status, "queued"),
           ),
         )
-        .run()
+        .returning({
+          id: AgentClusterTaskTable.id,
+          plan_task_id: AgentClusterTaskTable.plan_task_id,
+          role: AgentClusterTaskTable.role,
+          model: AgentClusterTaskTable.model,
+          prompt: AgentClusterTaskTable.prompt,
+          title: AgentClusterTaskTable.title,
+          dependencies: AgentClusterTaskTable.dependencies,
+          child_session_id: AgentClusterTaskTable.child_session_id,
+        })
+        .get()
+
+      if (!result) {
+        return {
+          admitted: false,
+          reason: `Race: task ${input.planTaskID} was claimed by another dispatcher`,
+        } as AdmissionResult
+      }
 
       return {
         admitted: true,
         taskRow: {
-          id: task.id as TaskID,
-          plan_task_id: task.plan_task_id,
-          role: task.role,
-          model: task.model,
-          prompt: task.prompt,
-          title: task.title,
+          id: result.id as TaskID,
+          plan_task_id: result.plan_task_id,
+          role: result.role,
+          model: result.model,
+          prompt: result.prompt,
+          title: result.title,
+          dependencies: result.dependencies as string[],
+          child_session_id: result.child_session_id,
         },
       } as AdmissionResult
     }),
