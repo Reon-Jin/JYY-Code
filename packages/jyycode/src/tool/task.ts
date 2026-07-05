@@ -775,7 +775,7 @@ export const TaskTool = Tool.define(
         if (clusterPlanTaskID) {
           yield* AgentCluster.markTaskRunning({
             runID: clusterRunID,
-            taskID: clusterPlanTaskID,
+            planTaskID: clusterPlanTaskID,
             childSessionID: nextSession.id,
           })
         }

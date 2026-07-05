@@ -142,43 +142,47 @@ export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (inpu
       .insert(AgentClusterTaskTable)
       .values(
         input.plan.tasks.map((task) => ({
-          id: task.id,
+          id: ulid(),
           run_id: input.runID,
+          plan_task_id: task.id,
+          step: task.step,
+          dependencies: [...task.dependencies],
           role: task.role,
           title: task.title,
           prompt: task.prompt,
           complexity: task.complexity,
           model: task.model,
           status: "planned" as const,
+          status_version: 0,
           acceptance_criteria: [...task.acceptanceCriteria],
           artifact_paths: [...task.expectedArtifacts],
           time_created: now,
           time_updated: now,
         })),
       )
-      .onConflictDoNothing()
       .run(),
   )
 })
 
 export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(function* (input: {
   runID?: string
-  taskID?: string
+  planTaskID?: string
   childSessionID: SessionID
 }) {
-  if (!input.runID || !input.taskID) return
+  if (!input.runID || !input.planTaskID) return
   yield* Database.query((db) =>
     db
       .update(AgentClusterTaskTable)
       .set({
         child_session_id: input.childSessionID,
         status: "running",
+        status_version: Database.sql`${AgentClusterTaskTable.status_version} + 1`,
         time_updated: Date.now(),
       })
       .where(
         and(
           eq(AgentClusterTaskTable.run_id, input.runID as RunID),
-          eq(AgentClusterTaskTable.id, input.taskID as TaskID),
+          eq(AgentClusterTaskTable.plan_task_id, input.planTaskID),
         ),
       )
       .run(),

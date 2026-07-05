@@ -74,9 +74,8 @@ describe("AgentCluster lifecycle characterization", () => {
         yield* AgentCluster.persistPlan({ runID: run2, plan: makePlan(run2) })
 
         const rows = Database.use((db) => db.select().from(AgentClusterTaskTable).all())
-        // Expected: two rows with plan_task_id "research", one for each run
-        // This currently FAILS because task.id is the primary key and both use "research"
-        expect(rows.filter((row) => row.id === "research")).toHaveLength(2)
+        // Two rows with plan_task_id "research", one for each run — now using ULID primary keys
+        expect(rows.filter((row) => row.plan_task_id === "research")).toHaveLength(2)
       }),
     )
   })

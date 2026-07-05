@@ -341,11 +341,11 @@ describe("AgentCluster.persistPlan", () => {
       const rows = Database.use((db) => db.select().from(AgentClusterTaskTable).all())
       expect(
         rows
-          .map((row) => ({ id: row.id, status: row.status, runID: row.run_id }))
-          .sort((a, b) => a.id.localeCompare(b.id)),
+          .map((row) => ({ plan_task_id: row.plan_task_id, status: row.status, runID: row.run_id }))
+          .sort((a, b) => a.plan_task_id.localeCompare(b.plan_task_id)),
       ).toEqual([
-        { id: AgentClusterRuntime.coerceTaskID("build"), status: "planned", runID },
-        { id: AgentClusterRuntime.coerceTaskID("research"), status: "planned", runID },
+        { plan_task_id: "build", status: "planned", runID },
+        { plan_task_id: "research", status: "planned", runID },
       ])
     }),
   )
@@ -385,12 +385,16 @@ describe("AgentCluster.finalizeRunIfTerminal", () => {
           .values({
             id: AgentClusterRuntime.coerceTaskID("running-research"),
             run_id: runID,
+            plan_task_id: "running-research",
+            step: 1,
+            dependencies: [],
             role: "researcher",
             title: "Research",
             prompt: "Research the feature",
             complexity: "simple",
             model: "test/simple",
             status: "running",
+            status_version: 0,
             acceptance_criteria: ["done"],
             artifact_paths: [],
             time_created: now,

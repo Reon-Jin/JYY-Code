@@ -86,6 +86,15 @@ export const ReviewResult = Schema.Struct({
 })
 export type ReviewResult = Schema.Schema.Type<typeof ReviewResult>
 
+export const ReviewDecision = Schema.Struct({
+  decision: Schema.Literals(["accepted", "revision_requested", "failed"]),
+  issues: Schema.Array(Schema.String),
+  revisionPrompt: Schema.optional(Schema.String),
+  verifiedArtifacts: Schema.Array(Schema.String),
+  risks: Schema.Array(Schema.String),
+})
+export type ReviewDecision = Schema.Schema.Type<typeof ReviewDecision>
+
 export const RunRecord = Schema.Struct({
   id: RunID,
   sessionID: SessionID,
