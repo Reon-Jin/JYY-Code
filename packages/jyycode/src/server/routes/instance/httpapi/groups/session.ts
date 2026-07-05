@@ -116,7 +116,7 @@ export const AgentClusterStatePayload = Schema.Struct({
 })
 export const InterventionPayload = Schema.Struct({
   mode: Schema.Literals(["next_checkpoint", "interrupt", "parent_only"]),
-  content: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(10_000)),
+  content: Schema.NonEmptyString,
 })
 export const InterventionResponse = Schema.Struct({
   id: Schema.String,
