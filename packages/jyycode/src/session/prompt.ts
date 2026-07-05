@@ -1737,9 +1737,14 @@ export const layer = Layer.effect(
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
         const result = yield* lastAssistant(sessionID)
         if (memory) {
-          yield* memory
+          const curated = yield* memory
             .updateAfterTurn(sessionID)
-            .pipe(Effect.catchCause((cause) => elog.error("failed to update persistent memory", { cause })))
+            .pipe(
+              Effect.catchCause((cause) =>
+                elog.error("failed to update persistent memory", { cause }).pipe(Effect.as(undefined)),
+              ),
+            )
+          if (curated) yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
         }
         return result
       },

@@ -14,7 +14,6 @@ const log = Log.create({ service: "memory" })
 const MEMORY_FILE = "MEMORY.md"
 const USER_FILE = "USER.md"
 export const DIRECTORY = path.normalize("D:/jyycode/memory")
-const MAX_RECENT_SESSIONS = 30
 const MEMORY_CHAR_LIMIT = 10_000
 const USER_CHAR_LIMIT = 2_000
 const ENTRY_LIMIT = 50
@@ -153,6 +152,52 @@ type MemoryWriteInput = {
 export type TaskMemoryUpsertInput = Omit<TaskMemoryEntry, "scope" | "date">
 export type UserMemoryUpsertInput = Omit<UserMemoryEntry, "scope"> & { sessionID: SessionID }
 
+export type CuratedTurn = {
+  task?: TaskMemoryUpsertInput
+  user: Array<Omit<UserMemoryEntry, "scope">>
+}
+
+export function curateTurn(input: {
+  sessionID: SessionID
+  userText: string
+  assistantText: string
+}): CuratedTurn {
+  const user = extractStableUserCandidates(input.userText)
+  const combined = `${input.userText}\n${input.assistantText}`
+  if (
+    !input.userText.trim() ||
+    !input.assistantText.trim() ||
+    looksSensitive(combined) ||
+    /(?:fixture|fake world|测试夹具|hello llm)/iu.test(combined) ||
+    /(?:^|[，。！？\s])(你好|您好|hello|hi)(?:[，。！？\s]|$)/iu.test(input.userText.trim()) ||
+    /(?:还没好|进度|催一下|到哪了)/u.test(input.userText) ||
+    /(?:这次|本次|当前任务|暂时|单次).{0,20}(?:不要|只|仅)/u.test(input.userText) ||
+    /(?:未完成|尚未完成|没有完成|失败)/u.test(input.assistantText) ||
+    !/(?:已完成|完成了|已实现|已创建|已生成|已修复|交付完成|通过测试|implemented|completed|created|fixed)/iu.test(
+      input.assistantText,
+    )
+  ) {
+    return { user }
+  }
+
+  const content = summarizeText(
+    input.assistantText
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .find((line) => line && !line.startsWith("#")) ?? input.assistantText,
+    120,
+  )
+  return {
+    task: {
+      sessionID: input.sessionID,
+      importance: taskImportance(input.userText, input.assistantText),
+      keywords: extractTaskKeywords(combined),
+      content,
+    },
+    user,
+  }
+}
+
 export type MutationResult = {
   id?: string
   file?: string
@@ -216,7 +261,12 @@ export interface Interface {
   readonly formatWithHeader: (sessionID: SessionID, scope: Scope) => Effect.Effect<string>
   readonly updateAfterTurn: (
     sessionID: SessionID,
-  ) => Effect.Effect<void | { status: "skipped"; reason: "subagent" }>
+  ) => Effect.Effect<
+    | void
+    | { status: "skipped"; reason: "subagent" }
+    | { status: "updated"; taskUpdated: boolean; userUpdated: number },
+    Error
+  >
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/Memory") {}
@@ -638,55 +688,25 @@ export const layerWithDirectory = (directory: string) =>
         (msg) => msg.info.role === "assistant" && msg.info.parentID === latestUser.info.id,
       )
 
-      const now = new Date().toISOString()
       const userText = textContent(latestUser, { synthetic: false })
       const assistantText = latestAssistant ? textContent(latestAssistant, { synthetic: false }) : ""
-      const sessionLine = formatRecentSession({
-        now,
-        sessionID,
-        userText,
-        assistantText,
+      const curated = curateTurn({ sessionID, userText, assistantText })
+      const taskResult = curated.task ? yield* upsertTaskMemory(curated.task) : undefined
+      const userResults = yield* Effect.forEach(curated.user, (candidate) =>
+        upsertUserMemory({ sessionID, ...candidate }),
+      )
+      yield* audit(sessionID, {
+        writerSessionID: sessionID,
+        writerKind: "primary",
+        action: "memory.curated",
+        taskStatus: taskResult?.status ?? "skipped",
+        userStatuses: userResults.map((result) => result.status),
+        reason:
+          curated.task || curated.user.length > 0
+            ? "Accepted durable post-turn candidates."
+            : "No durable post-turn candidates.",
       })
-
-      const memoryText = updateMetadata(yield* readFull(sessionID, "memory"), now, sessionID)
-      yield* writeFull(sessionID, "memory", upsertRecentSession(memoryText, sessionLine))
-
-      let userMemoryText = updateMetadata(yield* readFull(sessionID, "user"), now, sessionID)
-      const preferences = extractUserPreferences(userText)
-      if (preferences.length > 0) {
-        for (const item of preferences.communication) {
-          yield* write({
-            sessionID,
-            scope: "user",
-            section: "Communication Style",
-            content: item,
-            reason: "Post-turn curator extracted an explicit communication preference.",
-            confidence: "high",
-            source: `session:${sessionID}`,
-          }).pipe(Effect.catchCause((cause) => Effect.sync(() => log.error("failed to write user memory", { cause }))))
-        }
-        for (const item of preferences.engineering) {
-          yield* write({
-            sessionID,
-            scope: "user",
-            section: "Engineering Preferences",
-            content: item,
-            reason: "Post-turn curator extracted an explicit engineering preference.",
-            confidence: "high",
-            source: `session:${sessionID}`,
-          }).pipe(Effect.catchCause((cause) => Effect.sync(() => log.error("failed to write user memory", { cause }))))
-        }
-      }
-      userMemoryText = updateMetadata(yield* readFull(sessionID, "user"), now, sessionID)
-      yield* writeFull(sessionID, "user", userMemoryText)
-
-      yield* appendAudit(sessionID, {
-        time: now,
-        sessionID,
-        memoryUpdated: true,
-        userUpdated: preferences.length > 0,
-        userPreferences: preferences.length,
-      }).pipe(Effect.catchCause((cause) => Effect.sync(() => log.error("failed to append memory audit", { cause }))))
+      return { status: "updated" as const, taskUpdated: taskResult !== undefined, userUpdated: userResults.length }
     })
 
     const appendAudit = Effect.fn("Memory.appendAudit")(function* (
@@ -989,46 +1009,6 @@ function updateMetadata(text: string, now: string, sessionID: SessionID) {
   return text.replace(/^# .+$/m, (heading) => [heading, "", "## System Metadata", line].join("\n"))
 }
 
-function upsertRecentSession(text: string, line: string) {
-  return replaceSectionBullets(text, "Recent Sessions", (existing) => {
-    const next = [line, ...existing.filter((item) => item !== line)]
-    return next.slice(0, MAX_RECENT_SESSIONS)
-  })
-}
-
-function upsertBullets(text: string, section: string, bullets: string[]) {
-  if (bullets.length === 0) return text
-  return replaceSectionBullets(text, section, (existing) => {
-    const seen = new Set(existing.map(normalizeBullet))
-    const next = [...existing]
-    for (const bullet of bullets) {
-      const normalized = normalizeBullet(bullet)
-      if (seen.has(normalized)) continue
-      seen.add(normalized)
-      next.push(bullet)
-    }
-    return next
-  })
-}
-
-function replaceSectionBullets(text: string, section: string, update: (existing: string[]) => string[]) {
-  const heading = `## ${section}`
-  const lines = text.split(/\r?\n/)
-  const start = lines.findIndex((item) => item.trim() === heading)
-  if (start === -1) {
-    return [text.trimEnd(), "", heading, ...update([]), ""].join("\n")
-  }
-  const end = lines.findIndex((item, index) => index > start && /^##\s+/.test(item))
-  const sectionEnd = end === -1 ? lines.length : end
-  const existing = lines.slice(start + 1, sectionEnd).map((item) => item.trim()).filter((item) => item.startsWith("- "))
-  const updated = update(existing)
-  return [...lines.slice(0, start + 1), ...updated, "", ...lines.slice(sectionEnd)].join("\n")
-}
-
-function normalizeBullet(input: string) {
-  return input.toLowerCase().replace(/^\-\s+\[[^\]]+\]\s*/, "- ").replace(/\s+/g, " ").trim()
-}
-
 function textContent(message: MessageV2.WithParts, options: { synthetic: boolean }) {
   return message.parts
     .flatMap((part) => {
@@ -1044,21 +1024,6 @@ function summarizeText(input: string, max = 180) {
   const compact = input.replace(/\s+/g, " ").trim()
   if (compact.length <= max) return compact
   return compact.slice(0, max - 3).trimEnd() + "..."
-}
-
-function formatRecentSession(input: {
-  now: string
-  sessionID: SessionID
-  userText: string
-  assistantText: string
-}) {
-  const user = summarizeText(input.userText || "(no user text)")
-  const outcome = summarizeText(input.assistantText || "(no assistant response)", 140)
-  return `- [${input.now}] session:${input.sessionID} user="${escapeInline(user)}" outcome="${escapeInline(outcome)}"`
-}
-
-function escapeInline(input: string) {
-  return input.replaceAll("\\", "\\\\").replaceAll('"', '\\"')
 }
 
 function sanitizeContent(input: string) {
@@ -1167,44 +1132,62 @@ function removeEntryByIndex(markdown: string, entryIndex: number) {
   return [...lines.slice(0, start), ...lines.slice(end)].join("\n")
 }
 
-function extractUserPreferences(input: string) {
-  if (!input.trim()) return preferenceResult([], [])
-  const lines = input
-    .split(/\r?\n|。|；|;/)
-    .map((item) => item.trim())
+function extractStableUserCandidates(input: string): Array<Omit<UserMemoryEntry, "scope">> {
+  const result: Array<Omit<UserMemoryEntry, "scope">> = []
+  const name = input.match(/我(?:叫|的名字是)\s*([\p{Script=Han}]{2,8})/u)?.[1]
+  if (name) result.push({ importance: 10, keywords: ["姓名"], content: `用户姓名为${name}。` })
+
+  const birthday = input.match(/(?:我的)?生日(?:是|为)\s*(\d{4})\s*年?[\/-]?\s*(\d{1,2})\s*月?[\/-]?\s*(\d{1,2})\s*日?/u)
+  if (birthday) {
+    const normalized = `${birthday[1]}${birthday[2]!.padStart(2, "0")}${birthday[3]!.padStart(2, "0")}`
+    if (isCalendarDate(normalized)) {
+      result.push({ importance: 10, keywords: ["生日"], content: `用户生日为${normalized}。` })
+    }
+  }
+
+  const sentences = input
+    .split(/[。；;\r\n]+/u)
+    .map((sentence) => sentence.trim())
     .filter(Boolean)
-  const communication: string[] = []
-  const engineering: string[] = []
-  for (const line of lines) {
-    if (!looksLikePreference(line)) continue
-    if (looksSensitive(line)) continue
-    const memory = summarizeText(line, 220)
-    if (isCommunicationPreference(line)) communication.push(memory)
-    else engineering.push(memory)
+  for (const sentence of sentences) {
+    if (!/(?:以后|今后|长期|总是|始终|默认|偏好|我喜欢|请记住|记住)/u.test(sentence)) continue
+    if (/(?:这次|本次|当前任务|暂时|单次)/u.test(sentence)) continue
+    if (/(?:我叫|我的名字|生日)/u.test(sentence) || looksSensitive(sentence)) continue
+    const communication = /(?:中文|英文|回答|解释|语气|风格|简洁|详细|称呼)/u.test(sentence)
+    result.push({
+      importance: 8,
+      keywords: [communication ? "沟通偏好" : "工程偏好"],
+      content: `用户长期偏好${sentence.replace(/^(?:请记住|记住)[:：]?/u, "")}。`,
+    })
   }
-  return preferenceResult(communication, engineering)
+
+  const seen = new Set<string>()
+  return result.filter((entry) => {
+    const key = entryKey({ scope: "user", ...entry })
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
-function preferenceResult(communication: string[], engineering: string[]) {
-  const all = [...communication, ...engineering] as string[] & {
-    communication: string[]
-    engineering: string[]
-  }
-  all.communication = communication
-  all.engineering = engineering
-  return all
+function taskImportance(userText: string, assistantText: string): Importance {
+  if (/(?:发布|上线|迁移|架构|完整|全部|端到端|生产)/u.test(`${userText}\n${assistantText}`)) return 8
+  if (/(?:优化|修复|通过测试|交付)/u.test(assistantText)) return 7
+  return 6
 }
 
-function looksLikePreference(input: string) {
-  return /(记住|以后|今后|总是|默认|偏好|喜欢|希望|不要|别|必须|先.+再|不改代码|用中文|中文回答|详细设计|性格|个人信息)/.test(
-    input,
+function extractTaskKeywords(input: string): string[] {
+  if (/赛车游戏/u.test(input)) return ["赛车游戏"]
+  const matches = Array.from(
+    input.matchAll(/[\p{Script=Han}A-Za-z0-9+#.-]{0,12}(?:项目|游戏|系统|功能|文档|报告|模型|地图)/gu),
   )
-}
-
-function isCommunicationPreference(input: string) {
-  return /中文|英文|语气|风格|沟通|回答|解释|详细|简洁|称呼/.test(
-    input,
-  )
+    .map((match) =>
+      match[0]
+        .replace(/^(?:请|继续|完成|优化|实现|创建|生成|修复|已完成|已实现|已创建|已生成)+/u, "")
+        .trim(),
+    )
+    .filter((keyword) => keyword.length >= 2)
+  return normalizeKeywords(matches).slice(0, 3).length > 0 ? normalizeKeywords(matches).slice(0, 3) : ["任务成果"]
 }
 
 function looksSensitive(input: string) {
