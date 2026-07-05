@@ -58,7 +58,7 @@ export const layer = Layer.effect(
         Effect.catchCause((cause) =>
           Effect.logWarning("agent-cluster recovery failed", { cause }),
         ),
-        Effect.forkDetached,
+        Effect.forkDetach,
       )
     }).pipe(Effect.withSpan("InstanceBootstrap"))
 
