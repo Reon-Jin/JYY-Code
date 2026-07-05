@@ -86,7 +86,7 @@ function makeModelAdapter(language: unknown): ReviewerModelAdapter {
               model: language as any,
               schema: Schema.toStandardSchemaV1(ReviewDecisionSchema),
               prompt,
-              temperature: 0.1,
+              temperature: 0.05,
             }),
           )
 
@@ -238,14 +238,28 @@ export const reviewTask = Effect.fn("AgentClusterReviewer.reviewTask")(function*
 
 export function buildReviewPrompt(input: ReviewInput): string {
   return [
-    "You are reviewing a subagent task result as part of a Multi-Agent cluster run.",
+    "You are a STRICT quality reviewer for a Multi-Agent cluster run. Your job is to find problems. Default to demanding revisions unless the result is genuinely flawless.",
+    "",
+    "## Review Process (MANDATORY — perform each step, do not skip)",
+    "",
+    "1. ACCEPTANCE CRITERIA AUDIT: Go through EVERY acceptance criterion one by one. For each, determine if the subagent result CONCRETELY satisfies it. Cite specific evidence from the result text. If ANY criterion is not clearly met, you MUST request revision.",
+    "2. ARTIFACT VERIFICATION: Check each expected artifact. If any is MISSING, you MUST request revision (never accept when artifacts are missing). If an artifact exists but its content was not verified, list it as a risk.",
+    "3. QUALITY ASSESSMENT: Is the output thorough? Are claims backed by evidence? Are numbers/facts accurate? Is the writing clear and complete? Shallow, vague, or incomplete work MUST be revised.",
+    "4. CONSTRAINT CHECK: Are there any ignored requirements from the task prompt? Did the subagent follow all explicit instructions?",
+    "",
+    "## Decision Rules",
+    "- **accepted**: ONLY when ALL criteria are clearly met, ALL artifacts present, output is thorough, and YOU can explain why each criterion is satisfied.",
+    "- **revision_requested**: If ANY criterion is not clearly met, ANY artifact missing, output is shallow, or instructions were ignored. You MUST include a specific, actionable revisionPrompt telling the subagent exactly what to fix.",
+    "- **failed**: Only if the task is fundamentally impossible or the subagent completely ignored the task.",
+    "",
+    "CRITICAL: If you are unsure about ANY criterion, request revision. It is always better to ask for improvement than to accept inadequate work.",
     "",
     "## Task",
     `Role: ${input.role}`,
     `Model: ${input.model}`,
     `Prompt: ${input.taskPrompt}`,
     "",
-    "## Acceptance Criteria",
+    "## Acceptance Criteria (audit each one!)",
     ...input.acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`),
     "",
     "## Expected Artifacts",
@@ -262,13 +276,13 @@ export function buildReviewPrompt(input: ReviewInput): string {
     input.resultText.slice(0, 50_000) || "(empty result)",
     "",
     input.priorIssues.length > 0
-      ? ["## Prior Review Issues", ...input.priorIssues.map((i) => `- ${i}`), ""].join("\n")
+      ? ["## Prior Review Issues (must be resolved)", ...input.priorIssues.map((i) => `- ${i}`), ""].join("\n")
       : "",
     `## Review Round: ${input.round + 1}`,
     "",
-    "Return a JSON object:",
-    '{ "decision": "accepted"|"revision_requested"|"failed", "issues": [...], "revisionPrompt": "..." (if revision_requested), "verifiedArtifacts": [...], "risks": [...] }',
+    "## Your Audit (think step by step, then output JSON)",
+    "For EACH acceptance criterion, write one line: 'CRITERION X: [met/not met] because [specific evidence]'. Then output the JSON decision.",
     "",
-    "Do NOT accept missing artifacts, unverified claims, or ignored constraints.",
+    '{ "decision": "accepted"|"revision_requested"|"failed", "issues": ["specific issue 1", "specific issue 2"], "revisionPrompt": "detailed instructions for the subagent" (required if revision_requested), "verifiedArtifacts": ["path/to/verified/file"], "risks": ["any remaining concerns"] }',
   ].join("\n")
 }

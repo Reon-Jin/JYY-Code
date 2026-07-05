@@ -3,6 +3,7 @@ import DESCRIPTION from "./task.txt"
 import { ToolJsonSchema } from "./json-schema"
 import { BackgroundJob } from "@/background/job"
 import { AgentCluster } from "@/agent-cluster/cluster"
+import { AgentClusterRuntime } from "@/agent-cluster/runtime"
 import { AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
 import { AgentClusterScheduler } from "@/agent-cluster/scheduler"
 import * as Database from "@/storage/db"
@@ -809,11 +810,56 @@ export const TaskTool = Tool.define(
         // Scheduler admission for cluster tasks
         if (clusterPlanTaskID && clusterRunID) {
           const clusterCfg = ConfigAgentCluster.resolve(cfg.agent_cluster)
-          const admitted = yield* AgentClusterScheduler.admitDispatch({
+          let admitted = yield* AgentClusterScheduler.admitDispatch({
             runID: clusterRunID as import("@/agent-cluster/schema").RunID,
             planTaskID: clusterPlanTaskID,
             maxConcurrency: clusterCfg.max_concurrency,
           })
+
+          // Auto-persist plan from conversation text if task not found
+          // (planner may emit task tool calls before/when cluster_plan runs)
+          if (!admitted.admitted && admitted.reason?.includes("not found in run")) {
+            const planText = ctx.messages
+              .filter((m) => m.info.role === "assistant")
+              .flatMap((m) => m.parts.filter((p) => p.type === "text").map((p) => p.text))
+              .join("\n")
+            const extracted = AgentClusterRuntime.extractPlanFromText(planText)
+            if (extracted) {
+              const validation = AgentClusterRuntime.validatePlan(extracted, {
+                maxSubagents: clusterCfg.max_subagents,
+                maxConcurrency: clusterCfg.max_concurrency,
+              })
+              if (validation.valid) {
+                // Persist the auto-extracted plan, then mark step-1 tasks queued
+                yield* AgentCluster.persistPlan({
+                  runID: clusterRunID as import("@/agent-cluster/schema").RunID,
+                  plan: extracted,
+                }).pipe(Effect.orDie)
+                // Transition step-1 tasks (dependency-free) to queued
+                const ready = AgentClusterRuntime.nextReadyBatch(extracted, {
+                  completed: [], dispatched: [], failed: [],
+                })
+                const now = Date.now()
+                for (const task of ready.tasks) {
+                  yield* Database.query((db) =>
+                    db.update(AgentClusterTaskTable)
+                      .set({ status: "queued", status_version: 1, time_updated: now })
+                      .where(Database.and(
+                        Database.eq(AgentClusterTaskTable.run_id, clusterRunID as import("@/agent-cluster/schema").RunID),
+                        Database.eq(AgentClusterTaskTable.plan_task_id, task.id),
+                      )).run(),
+                  ).pipe(Effect.orDie)
+                }
+                // Retry admission
+                admitted = yield* AgentClusterScheduler.admitDispatch({
+                  runID: clusterRunID as import("@/agent-cluster/schema").RunID,
+                  planTaskID: clusterPlanTaskID,
+                  maxConcurrency: clusterCfg.max_concurrency,
+                })
+              }
+            }
+          }
+
           if (!admitted.admitted) {
             return yield* Effect.fail(
               new Error(`Scheduler rejected task dispatch: ${admitted.reason}`),

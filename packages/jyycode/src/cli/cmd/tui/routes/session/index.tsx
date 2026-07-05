@@ -207,7 +207,8 @@ export function Session() {
     if (session()?.parentID) return []
     return children().flatMap((x) => sync.data.question[x.id] ?? [])
   })
-  const visible = createMemo(() => !session()?.parentID && permissions().length === 0 && questions().length === 0)
+  // Show prompt for child sessions too — users need to guide subagents
+  const visible = createMemo(() => permissions().length === 0 && questions().length === 0)
   const disabled = createMemo(() => permissions().length > 0 || questions().length > 0)
   const agentClusterDisabled = createMemo(() => {
     const current = session()
