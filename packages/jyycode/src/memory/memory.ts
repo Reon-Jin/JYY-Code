@@ -40,6 +40,14 @@ export type UserMemoryEntry = {
 
 export type MemoryEntry = TaskMemoryEntry | UserMemoryEntry
 
+export class MemoryWriteForbidden extends Schema.TaggedErrorClass<MemoryWriteForbidden>()("MemoryWriteForbidden", {
+  sessionID: SessionID,
+}) {
+  override get message() {
+    return `Subagent session ${this.sessionID} cannot mutate persistent memory`
+  }
+}
+
 const taskEntryPattern =
   /^- 重要性：(\d+) \+ 日期：([^\r\n]+?) \+ 关键词：([^\r\n]*?) \+ 内容：([^\r\n]+) \+ session：([^\s]+)$/u
 const userEntryPattern = /^- 重要性：(\d+) \+ 关键词：([^\r\n]*?) \+ 内容：([^\r\n]+)$/u
@@ -140,7 +148,7 @@ type MemoryWriteInput = {
 export type MutationResult = {
   id?: string
   file?: string
-  status: "written" | "duplicate" | "replaced" | "removed"
+  status: "written" | "duplicate" | "replaced" | "removed" | "compacted"
   message: string
 }
 
@@ -184,9 +192,12 @@ export interface Interface {
     oldText: string
     reason: string
   }) => Effect.Effect<MutationResult, Error>
+  readonly compact: (input: { sessionID: SessionID; scope: Scope }) => Effect.Effect<MutationResult, Error>
   readonly usage: (sessionID: SessionID, scope: Scope) => Effect.Effect<UsageInfo>
   readonly formatWithHeader: (sessionID: SessionID, scope: Scope) => Effect.Effect<string>
-  readonly updateAfterTurn: (sessionID: SessionID) => Effect.Effect<void>
+  readonly updateAfterTurn: (
+    sessionID: SessionID,
+  ) => Effect.Effect<void | { status: "skipped"; reason: "subagent" }>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/Memory") {}
@@ -247,6 +258,11 @@ export const layer = Layer.effect(
 
     const filePath = Effect.fn("Memory.filePath")(function* (sessionID: SessionID, scope: Scope) {
       return path.join(yield* dir(sessionID), filenames[scope])
+    })
+
+    const assertPrimaryWriter = Effect.fn("Memory.assertPrimaryWriter")(function* (sessionID: SessionID) {
+      const info = yield* sessions.get(sessionID)
+      if (info.parentID !== undefined) return yield* Effect.fail(new MemoryWriteForbidden({ sessionID }))
     })
 
     const ensure = Effect.fn("Memory.ensure")(function* (sessionID: SessionID) {
@@ -328,6 +344,7 @@ export const layer = Layer.effect(
     })
 
     const write = Effect.fn("Memory.write")(function* (input: MemoryWriteInput) {
+      yield* assertPrimaryWriter(input.sessionID)
       yield* ensure(input.sessionID)
       const clean = sanitizeContent(input.content)
       if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
@@ -380,6 +397,7 @@ export const layer = Layer.effect(
       newContent: string
       reason: string
     }) {
+      yield* assertPrimaryWriter(input.sessionID)
       yield* ensure(input.sessionID)
       const clean = sanitizeContent(input.newContent)
       if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
@@ -408,6 +426,7 @@ export const layer = Layer.effect(
       oldText: string
       reason: string
     }) {
+      yield* assertPrimaryWriter(input.sessionID)
       yield* ensure(input.sessionID)
       const targetFile = yield* filePath(input.sessionID, input.scope)
       const current = yield* readFull(input.sessionID, input.scope)
@@ -425,6 +444,22 @@ export const layer = Layer.effect(
       return { file: targetFile, status: "removed" as const, message: `Memory removed.\nFile: ${targetFile}` }
     })
 
+    const compact = Effect.fn("Memory.compact")(function* (input: { sessionID: SessionID; scope: Scope }) {
+      yield* assertPrimaryWriter(input.sessionID)
+      yield* ensure(input.sessionID)
+      const targetFile = yield* filePath(input.sessionID, input.scope)
+      yield* audit(input.sessionID, {
+        action: "memory.compact",
+        scope: input.scope,
+        reason: "Manual compaction requested; deterministic compaction is implemented in the capacity phase.",
+      })
+      return {
+        file: targetFile,
+        status: "compacted" as const,
+        message: `Memory compaction authorized.\nFile: ${targetFile}`,
+      }
+    })
+
     const usage = Effect.fn("Memory.usage")(function* (sessionID: SessionID, scope: Scope) {
       yield* ensure(sessionID)
       const text = yield* readFull(sessionID, scope)
@@ -439,6 +474,16 @@ export const layer = Layer.effect(
     })
 
     const updateAfterTurn = Effect.fn("Memory.updateAfterTurn")(function* (sessionID: SessionID) {
+      const info = yield* sessions.get(sessionID).pipe(Effect.orDie)
+      if (info.parentID !== undefined) {
+        yield* audit(sessionID, {
+          writerSessionID: sessionID,
+          writerKind: "subagent",
+          action: "memory.skipped",
+          reason: "subagent",
+        })
+        return { status: "skipped" as const, reason: "subagent" as const }
+      }
       yield* ensure(sessionID)
       const msgs = yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
       const latestUser = msgs.findLast((msg) => msg.info.role === "user")
@@ -515,6 +560,7 @@ export const layer = Layer.effect(
       write,
       replaceBySubstring,
       removeBySubstring,
+      compact,
       usage,
       formatWithHeader,
       updateAfterTurn,

@@ -3,12 +3,13 @@ import * as Tool from "./tool"
 import DESCRIPTION from "./memory.txt"
 import { Memory } from "@/memory/memory"
 
-const Action = Schema.Literals(["add", "replace", "remove"])
+const Action = Schema.Literals(["add", "replace", "remove", "compact"])
 const Target = Schema.Literals(["memory", "user"])
 
 export const Parameters = Schema.Struct({
   action: Action.annotate({
-    description: "add: write a new entry. replace: find by old_text and replace. remove: find by old_text and delete.",
+    description:
+      "add: write a new entry. replace: find by old_text and replace. remove: find by old_text and delete. compact: organize the selected store.",
   }),
   target: Target.annotate({
     description: "memory for project facts/conventions, user for personal preferences.",
@@ -93,6 +94,15 @@ export const MemoryTool = Tool.define(
             })
             return {
               title: "Memory remove",
+              metadata: { file: result.file, status: result.status, truncated: false },
+              output: result.message,
+            }
+          }
+
+          if (params.action === "compact") {
+            const result = yield* memory.compact({ sessionID, scope })
+            return {
+              title: "Memory compact",
               metadata: { file: result.file, status: result.status, truncated: false },
               output: result.message,
             }

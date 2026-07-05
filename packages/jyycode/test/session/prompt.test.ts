@@ -178,6 +178,7 @@ const memorySearchLayer = Layer.succeed(
     write: () => Effect.die("unexpected memory write in retrieval middleware test"),
     replaceBySubstring: () => Effect.die("unexpected memory replace in retrieval middleware test"),
     removeBySubstring: () => Effect.die("unexpected memory remove in retrieval middleware test"),
+    compact: () => Effect.die("unexpected memory compact in retrieval middleware test"),
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
     updateAfterTurn: () => Effect.void,
