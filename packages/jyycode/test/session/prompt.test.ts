@@ -175,6 +175,8 @@ const memorySearchLayer = Layer.succeed(
             ]
           : [],
       ),
+    upsertTaskMemory: () => Effect.die("unexpected task memory upsert in retrieval middleware test"),
+    upsertUserMemory: () => Effect.die("unexpected user memory upsert in retrieval middleware test"),
     write: () => Effect.die("unexpected memory write in retrieval middleware test"),
     replaceBySubstring: () => Effect.die("unexpected memory replace in retrieval middleware test"),
     removeBySubstring: () => Effect.die("unexpected memory remove in retrieval middleware test"),

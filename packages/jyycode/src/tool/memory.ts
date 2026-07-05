@@ -17,6 +17,12 @@ export const Parameters = Schema.Struct({
   content: Schema.optional(Schema.String).annotate({
     description: "The memory content to store. Required for add and replace actions.",
   }),
+  importance: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10 }))).annotate({
+    description: "Importance from 1 (lowest) to 10 (highest). Required for add.",
+  }),
+  keywords: Schema.optional(Schema.Array(Schema.String)).annotate({
+    description: "One to three stable keywords. Required for add; duplicates are normalized automatically.",
+  }),
   old_text: Schema.optional(Schema.String).annotate({
     description: "Substring to identify the entry to replace or remove. Must uniquely match a single entry. Required for replace and remove actions.",
   }),
@@ -53,13 +59,19 @@ export const MemoryTool = Tool.define(
 
           if (params.action === "add") {
             if (!params.content) return yield* Effect.fail(new Error("content is required for add action"))
-            const result = yield* memory.write({
+            if (params.importance === undefined)
+              return yield* Effect.fail(new Error("importance is required for add action"))
+            if (!params.keywords) return yield* Effect.fail(new Error("keywords are required for add action"))
+            const structured = {
               sessionID,
-              scope,
-              section: "General",
+              importance: params.importance as Memory.Importance,
+              keywords: [...params.keywords],
               content: params.content,
-              reason,
-            })
+            }
+            const result =
+              scope === "memory"
+                ? yield* memory.upsertTaskMemory(structured)
+                : yield* memory.upsertUserMemory(structured)
             return {
               title: "Memory add",
               metadata: { file: result.file, status: result.status, truncated: false },

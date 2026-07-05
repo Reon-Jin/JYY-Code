@@ -145,6 +145,9 @@ type MemoryWriteInput = {
   source?: string
 }
 
+export type TaskMemoryUpsertInput = Omit<TaskMemoryEntry, "scope" | "date">
+export type UserMemoryUpsertInput = Omit<UserMemoryEntry, "scope"> & { sessionID: SessionID }
+
 export type MutationResult = {
   id?: string
   file?: string
@@ -178,6 +181,8 @@ export interface Interface {
     scope?: Scope | "all"
     limit?: number
   }) => Effect.Effect<SearchResult[]>
+  readonly upsertTaskMemory: (input: TaskMemoryUpsertInput) => Effect.Effect<MutationResult, Error>
+  readonly upsertUserMemory: (input: UserMemoryUpsertInput) => Effect.Effect<MutationResult, Error>
   readonly write: (input: MemoryWriteInput) => Effect.Effect<MutationResult, Error>
   readonly replaceBySubstring: (input: {
     sessionID: SessionID
@@ -203,42 +208,8 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@jyycode/Memory") {}
 
 const templates: Record<Scope, string> = {
-  memory: [
-    "# JYY-Code Memory",
-    "",
-    "## System Metadata",
-    "- Last reviewed: never",
-    "",
-    "## Project Facts",
-    "",
-    "## Engineering Conventions",
-    "",
-    "## Repeated Workflows",
-    "",
-    "## Environment Quirks",
-    "",
-    "## Past Lessons",
-    "",
-    "## Recent Sessions",
-    "",
-    "## Deprecated / Superseded",
-    "",
-  ].join("\n"),
-  user: [
-    "# User Memory",
-    "",
-    "## System Metadata",
-    "- Last reviewed: never",
-    "",
-    "## Communication Style",
-    "",
-    "## Engineering Preferences",
-    "",
-    "## Personal / Stable Context",
-    "",
-    "## Sensitive Boundaries",
-    "",
-  ].join("\n"),
+  memory: "# JYY-Code Memory\n\n<!-- schema: 2; last_compacted: never -->\n",
+  user: "# User Memory\n\n<!-- schema: 2; last_compacted: never -->\n",
 }
 
 const filenames: Record<Scope, string> = {
@@ -341,6 +312,69 @@ export const layer = Layer.effect(
       yield* appendAudit(sessionID, { time: new Date().toISOString(), ...entry }).pipe(
         Effect.catchCause((cause) => Effect.sync(() => log.error("failed to append memory audit", { cause }))),
       )
+    })
+
+    const upsertStructured = Effect.fn("Memory.upsertStructured")(function* (
+      sessionID: SessionID,
+      candidate: MemoryEntry,
+    ) {
+      yield* assertPrimaryWriter(sessionID)
+      yield* ensure(sessionID)
+      const scope = candidate.scope
+      const targetFile = yield* filePath(sessionID, scope)
+      const current = yield* readFull(sessionID, scope)
+      const entries = parseStructuredEntries(current, scope)
+      const normalized = parseEntry(scope, serializeEntry(candidate))
+      const key = entryKey(normalized)
+      const index = entries.findIndex((entry) => entryKey(entry) === key)
+      const status: MutationResult["status"] =
+        index === -1
+          ? "written"
+          : entriesEquivalent(entries[index]!, normalized)
+            ? "duplicate"
+            : "replaced"
+
+      if (status !== "duplicate") {
+        if (index === -1) entries.push(normalized)
+        else entries[index] = normalized
+        yield* writeFull(sessionID, scope, renderStructuredDocument(current, scope, entries))
+      }
+      yield* audit(sessionID, {
+        writerSessionID: sessionID,
+        writerKind: "primary",
+        action: `memory.${status}`,
+        scope,
+        key,
+        reason: status === "duplicate" ? "Exact structured entry already exists." : "Structured memory upsert.",
+      })
+      return {
+        file: targetFile,
+        status,
+        message:
+          status === "duplicate"
+            ? `Duplicate memory already exists.\nFile: ${targetFile}`
+            : `Memory ${status === "written" ? "written" : "updated"}.\nFile: ${targetFile}`,
+      }
+    })
+
+    const upsertTaskMemory = Effect.fn("Memory.upsertTaskMemory")(function* (input: TaskMemoryUpsertInput) {
+      return yield* upsertStructured(input.sessionID, {
+        scope: "memory",
+        importance: input.importance,
+        date: localDate(new Date()),
+        keywords: input.keywords,
+        content: input.content,
+        sessionID: input.sessionID,
+      })
+    })
+
+    const upsertUserMemory = Effect.fn("Memory.upsertUserMemory")(function* (input: UserMemoryUpsertInput) {
+      return yield* upsertStructured(input.sessionID, {
+        scope: "user",
+        importance: input.importance,
+        keywords: input.keywords,
+        content: input.content,
+      })
     })
 
     const write = Effect.fn("Memory.write")(function* (input: MemoryWriteInput) {
@@ -557,6 +591,8 @@ export const layer = Layer.effect(
       ensure,
       read,
       search,
+      upsertTaskMemory,
+      upsertUserMemory,
       write,
       replaceBySubstring,
       removeBySubstring,
@@ -569,6 +605,50 @@ export const layer = Layer.effect(
 )
 
 export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer), Layer.provide(Session.defaultLayer))
+
+function parseStructuredEntries(text: string, scope: Scope): MemoryEntry[] {
+  const isV2 = /<!--\s*schema:\s*2\s*;/u.test(text)
+  const entries: MemoryEntry[] = []
+  for (const line of text.split(/\r?\n/u)) {
+    if (!line.startsWith("- 重要性：")) continue
+    try {
+      entries.push(parseEntry(scope, line))
+    } catch (error) {
+      if (isV2) throw error
+    }
+  }
+  return entries
+}
+
+function renderStructuredDocument(original: string, scope: Scope, entries: readonly MemoryEntry[]): string {
+  const lines = entries.map(serializeEntry)
+  if (!/<!--\s*schema:\s*2\s*;/u.test(original)) {
+    const legacy = original
+      .split(/\r?\n/u)
+      .filter((line) => !line.startsWith("- 重要性："))
+      .join("\n")
+      .trimEnd()
+    return [legacy, "", "## Structured V2 Entries", "", ...lines, ""].join("\n")
+  }
+  const title = scope === "memory" ? "# JYY-Code Memory" : "# User Memory"
+  const lastCompacted = original.match(/last_compacted:\s*([^\s;]+)\s*-->/u)?.[1] ?? "never"
+  return [title, "", `<!-- schema: 2; last_compacted: ${lastCompacted} -->`, "", ...lines, ""].join("\n")
+}
+
+function entriesEquivalent(left: MemoryEntry, right: MemoryEntry): boolean {
+  if (left.scope !== right.scope) return false
+  if (left.importance !== right.importance || left.content !== right.content) return false
+  if (entryKey(left) !== entryKey(right)) return false
+  if (left.keywords.join("\u001f") !== right.keywords.join("\u001f")) return false
+  return left.scope === "user" || (right.scope === "memory" && left.sessionID === right.sessionID)
+}
+
+function localDate(date: Date): string {
+  const year = String(date.getFullYear()).padStart(4, "0")
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}${month}${day}`
+}
 
 function charLimit(scope: Scope) {
   return scope === "user" ? USER_CHAR_LIMIT : MEMORY_CHAR_LIMIT
