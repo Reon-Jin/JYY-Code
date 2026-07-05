@@ -74,14 +74,17 @@ type AgentClusterRowState = {
   }[]
   tasks: readonly {
     id: string
+    plan_task_id?: string
     run_id?: string
     child_session_id?: string | null
     step?: number
+    dependencies?: readonly string[]
     title: string
     role: string
     complexity?: string
     model?: string
     status: string
+    status_version?: number
     acceptance_criteria?: readonly string[]
     artifact_paths?: readonly string[]
   }[]
@@ -519,7 +522,7 @@ function clusterPlan(cluster: AgentClusterRowState | undefined): AgentClusterPla
       role: task.role,
       complexity: task.complexity,
       model: task.model ?? "-",
-      dependencies: [],
+      dependencies: [...(task.dependencies ?? [])],
       acceptanceCriteria: [...(task.acceptance_criteria ?? [])],
       expectedArtifacts: [...(task.artifact_paths ?? [])],
       status: clusterTaskStatus(task.status),

@@ -14,6 +14,7 @@ import { Config } from "@/config/config"
 import { Service } from "./bootstrap-service"
 import { Reference } from "@/reference/reference"
 import { MailMonitor } from "@/communication/mail-monitor"
+import { AgentClusterRecovery } from "@/agent-cluster/recovery"
 
 export { Service } from "./bootstrap-service"
 export type { Interface } from "./bootstrap-service"
@@ -52,6 +53,13 @@ export const layer = Layer.effect(
         { concurrency: "unbounded", discard: true },
       ).pipe(Effect.withSpan("InstanceBootstrap.init"))
       yield* mail.init().pipe(Effect.catchCause((cause) => Effect.logWarning("mail monitor init failed", { cause })))
+      // Recover interrupted agent-cluster runs after restart
+      yield* AgentClusterRecovery.recoverAllActive().pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("agent-cluster recovery failed", { cause }),
+        ),
+        Effect.forkDetached,
+      )
     }).pipe(Effect.withSpan("InstanceBootstrap"))
 
     return Service.of({ run })

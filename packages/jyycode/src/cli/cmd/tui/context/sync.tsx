@@ -34,25 +34,14 @@ import path from "path"
 import { useKV } from "./kv"
 import { aggregateFailures } from "./aggregate-failures"
 
-export type AgentClusterRun = {
-  id: string
-  session_id: string
-  parent_message_id: string
-  enabled: boolean
-  status: "planning" | "dispatching" | "reviewing" | "synthesizing" | "completed" | "failed" | "cancelled"
-  goal: string
-  planner_model: string
-  reviewer_model: string
-  time_created: number
-  time_updated: number
-  completed_at: number | null
-}
-
 export type AgentClusterTask = {
   id: string
   run_id: string
+  plan_task_id?: string
   parent_task_id: string | null
   child_session_id: string | null
+  step?: number
+  dependencies?: string[]
   role:
     | "researcher"
     | "analyst"
@@ -79,12 +68,28 @@ export type AgentClusterTask = {
     | "revising"
     | "failed"
     | "cancelled"
+  status_version?: number
   review_round: number
   acceptance_criteria: string[]
   artifact_paths: string[]
   last_event: string | null
   time_created: number
   time_updated: number
+}
+
+export type AgentClusterRun = {
+  id: string
+  session_id: string
+  parent_message_id: string
+  enabled: boolean
+  status: "planning" | "dispatching" | "reviewing" | "synthesizing" | "completed" | "failed" | "cancelled"
+  status_version?: number
+  goal: string
+  planner_model: string
+  reviewer_model: string
+  time_created: number
+  time_updated: number
+  completed_at: number | null
 }
 
 export type AgentClusterState = {
@@ -109,11 +114,16 @@ export function applyAgentClusterEvent(state: AgentClusterState, event: Extract<
     tasks: state.tasks.map((task) => ({ ...task })),
   }
   const properties = event.properties
+  const eventVersion = typeof properties.version === "number" ? properties.version : 0
   const updatedAt = typeof properties.createdAt === "number" ? properties.createdAt : Date.now()
+
   if (properties.type === "run" && properties.status) {
     const run = next.runs.find((item) => item.id === properties.runID)
     if (run) {
+      // Version guard: never roll state backward
+      if (eventVersion < (run.status_version ?? 0)) return next
       run.status = properties.status as AgentClusterRun["status"]
+      run.status_version = Math.max(run.status_version ?? 0, eventVersion)
       run.time_updated = updatedAt
       if (["completed", "failed", "cancelled"].includes(properties.status)) run.completed_at = updatedAt
     }
@@ -121,7 +131,10 @@ export function applyAgentClusterEvent(state: AgentClusterState, event: Extract<
   if (properties.taskID && properties.status) {
     const task = next.tasks.find((item) => item.run_id === properties.runID && item.id === properties.taskID)
     if (task) {
+      // Version guard: never roll state backward
+      if (eventVersion < (task.status_version ?? 0)) return next
       task.status = properties.status as AgentClusterTask["status"]
+      task.status_version = Math.max(task.status_version ?? 0, eventVersion)
       task.last_event = properties.message
       task.time_updated = updatedAt
     }
