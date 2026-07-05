@@ -1,5 +1,9 @@
 import { Agent } from "@/agent/agent"
 import { AgentCluster } from "@/agent-cluster/cluster"
+import { AgentClusterRunTable, AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
+import { AgentClusterIntervention } from "@/agent-cluster/intervention"
+import { AgentClusterEvent } from "@/agent-cluster/event"
+import * as Database from "@/storage/db"
 import { Bus } from "@/bus"
 import { Command } from "@/command"
 import { Config } from "@/config/config"
@@ -34,6 +38,8 @@ import {
   ListQuery,
   MessagesQuery,
   PermissionResponsePayload,
+  InterventionPayload,
+  InterventionResponse,
   PromptPayload,
   RevertPayload,
   ShellPayload,
@@ -128,6 +134,78 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       yield* requireSession(ctx.params.sessionID)
       return yield* AgentCluster.getSessionState(ctx.params.sessionID)
+    })
+
+    const agentClusterInterventions = Effect.fn("SessionHttpApi.agentClusterInterventions")(function* (ctx: {
+      params: { sessionID: SessionID; taskID: string }
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      const task = yield* Database.query((db) =>
+        db.select({ child_session_id: AgentClusterTaskTable.child_session_id, status: AgentClusterTaskTable.status })
+          .from(AgentClusterTaskTable)
+          .where(Database.eq(AgentClusterTaskTable.plan_task_id, ctx.params.taskID))
+          .get(),
+      )
+      if (!task?.child_session_id) return []
+      const pending = yield* AgentClusterIntervention.pending(task.child_session_id as import("@/session/schema").SessionID)
+      return pending.map((i) => ({ id: i.id, sequence: i.sequence }))
+    })
+
+    const agentClusterInterventionEnqueue = Effect.fn("SessionHttpApi.agentClusterInterventionEnqueue")(function* (ctx: {
+      params: { sessionID: SessionID; taskID: string }
+      payload: typeof InterventionPayload.Type
+    }) {
+      yield* requireSession(ctx.params.sessionID)
+      const taskRow = yield* Database.query((db) =>
+        db.select({
+          id: AgentClusterTaskTable.id,
+          run_id: AgentClusterTaskTable.run_id,
+          child_session_id: AgentClusterTaskTable.child_session_id,
+          status: AgentClusterTaskTable.status,
+        })
+          .from(AgentClusterTaskTable)
+          .where(Database.eq(AgentClusterTaskTable.plan_task_id, ctx.params.taskID))
+          .get(),
+      )
+      if (!taskRow) return yield* Effect.fail(new HttpApiError.NotFound({}))
+      if (!taskRow.child_session_id) return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      const terminalStatuses = ["accepted", "failed", "cancelled"]
+      if (terminalStatuses.includes(taskRow.status)) {
+        return yield* Effect.fail(new HttpApiError.BadRequest({}))
+      }
+
+      const run = yield* Database.query((db) =>
+        db.select({ session_id: AgentClusterRunTable.session_id })
+          .from(AgentClusterRunTable)
+          .where(Database.eq(AgentClusterRunTable.id, taskRow.run_id))
+          .get(),
+      )
+      if (!run || run.session_id !== ctx.params.sessionID) {
+        return yield* Effect.fail(new HttpApiError.NotFound({}))
+      }
+
+      const intervention = yield* AgentClusterIntervention.enqueue({
+        runID: taskRow.run_id as import("@/agent-cluster/schema").RunID,
+        taskID: taskRow.id as import("@/agent-cluster/schema").TaskID,
+        childSessionID: taskRow.child_session_id as import("@/session/schema").SessionID,
+        source: "user",
+        mode: ctx.payload.mode,
+        content: ctx.payload.content,
+      })
+
+      const createdAt = Date.now()
+      yield* bus.publish(AgentClusterEvent.Event, {
+        sessionID: ctx.params.sessionID,
+        runID: taskRow.run_id as import("@/agent-cluster/schema").RunID,
+        taskID: taskRow.id as import("@/agent-cluster/schema").TaskID,
+        type: "intervention",
+        message: `User guidance enqueued for task ${ctx.params.taskID}`,
+        metadata: { interventionID: intervention.id, mode: ctx.payload.mode },
+        version: 0,
+        createdAt,
+      })
+
+      return { id: intervention.id, sequence: intervention.sequence } as typeof InterventionResponse.Type
     })
 
     const todo = Effect.fn("SessionHttpApi.todo")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -455,6 +533,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("children", children)
       .handle("context", context)
       .handle("agentCluster", agentCluster)
+      .handle("agentClusterInterventions", agentClusterInterventions)
+      .handle("agentClusterInterventionEnqueue", agentClusterInterventionEnqueue)
       .handle("todo", todo)
       .handle("diff", diff)
       .handle("messages", messages)

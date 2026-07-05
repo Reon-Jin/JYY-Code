@@ -114,6 +114,14 @@ export const AgentClusterStatePayload = Schema.Struct({
   runs: Schema.Array(AgentClusterRunRow),
   tasks: Schema.Array(AgentClusterTaskRow),
 })
+export const InterventionPayload = Schema.Struct({
+  mode: Schema.Literals(["next_checkpoint", "interrupt", "parent_only"]),
+  content: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(10_000)),
+})
+export const InterventionResponse = Schema.Struct({
+  id: Schema.String,
+  sequence: Schema.Number,
+})
 export const ContextPayload = Schema.Struct({
   totalTokens: Schema.Finite,
   textTokens: Schema.Finite,
@@ -154,6 +162,7 @@ export const SessionPaths = {
   deleteMessage: `${root}/:sessionID/message/:messageID`,
   deletePart: `${root}/:sessionID/message/:messageID/part/:partID`,
   updatePart: `${root}/:sessionID/message/:messageID/part/:partID`,
+  interventions: `${root}/:sessionID/agent-cluster/task/:taskID/intervention`,
 } as const
 
 export const SessionApi = HttpApi.make("session")
@@ -228,6 +237,31 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.agentCluster",
             summary: "Get session agent cluster state",
             description: "Retrieve persisted agent cluster runs and tasks for a specific session.",
+          }),
+        ),
+        HttpApiEndpoint.get("agentClusterInterventions", SessionPaths.interventions, {
+          params: { sessionID: SessionID, taskID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Array(InterventionResponse), "Pending interventions"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.agentClusterInterventions",
+            summary: "List pending interventions for a cluster task",
+            description: "Retrieve all queued interventions for a specific agent cluster task's child session.",
+          }),
+        ),
+        HttpApiEndpoint.post("agentClusterInterventionEnqueue", SessionPaths.interventions, {
+          params: { sessionID: SessionID, taskID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          payload: InterventionPayload,
+          success: described(InterventionResponse, "Intervention enqueued"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.agentClusterInterventionEnqueue",
+            summary: "Enqueue an intervention for a cluster task",
+            description: "Submit guidance for a running subagent. Modes: next_checkpoint (append before next model iteration), parent_only (coordinator-only, no child prompt change).",
           }),
         ),
         HttpApiEndpoint.get("todo", SessionPaths.todo, {

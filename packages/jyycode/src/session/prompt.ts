@@ -64,6 +64,7 @@ import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@jyycode-ai/llm"
 import { AgentCluster } from "@/agent-cluster/cluster"
+import { AgentClusterIntervention } from "@/agent-cluster/intervention"
 import { AgentClusterRuntime } from "@/agent-cluster/runtime"
 import type { RunID } from "@/agent-cluster/schema"
 import { Memory } from "@/memory/memory"
@@ -1452,6 +1453,46 @@ export const layer = Layer.effect(
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
           yield* slog.info("loop", { step })
+
+          // Child-session intervention checkpoint: deliver pending guidance before model call
+          if (session.parentID) {
+            const pending = yield* AgentClusterIntervention.pending(sessionID).pipe(
+              Effect.catchAll(() => Effect.succeed([])),
+            )
+            if (pending.length > 0) {
+              const initialMsgs = yield* MessageV2.filterCompactedEffect(sessionID)
+              const { user: lastMsg } = MessageV2.latest(initialMsgs)
+              if (lastMsg) {
+                for (const intervention of pending) {
+                  const delivered = yield* AgentClusterIntervention.deliverNext(sessionID).pipe(
+                    Effect.catchAll(() => Effect.succeed(undefined)),
+                  )
+                  if (!delivered) continue
+                  const text = AgentClusterIntervention.interventionText({
+                    source: delivered.source, mode: delivered.mode,
+                    sequence: delivered.sequence, content: delivered.content,
+                    id: delivered.id,
+                  })
+                  const userID = MessageID.ascending()
+                  yield* sessions.updateMessage({
+                    id: userID, sessionID, role: "user",
+                    time: { created: Date.now() },
+                    agent: session.agent ?? lastMsg.agent,
+                    model: lastMsg.model,
+                  })
+                  yield* sessions.updatePart({
+                    id: PartID.ascending(), messageID: userID, sessionID,
+                    type: "text", synthetic: true, text,
+                  } satisfies MessageV2.TextPart)
+                  yield* AgentClusterIntervention.acknowledge(delivered.id).pipe(
+                    Effect.catchAll(() => Effect.void),
+                  )
+                }
+                yield* slog.info("delivered interventions", { count: pending.length })
+                continue
+              }
+            }
+          }
 
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
 
