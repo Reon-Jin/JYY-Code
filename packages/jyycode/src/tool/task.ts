@@ -55,11 +55,20 @@ const BACKGROUND_DESCRIPTION = [
 const FORK_CONTEXT_MAX_CHARS = 20_000
 
 function agentClusterRunID(ctx: Tool.Context) {
+  // Prefer explicit context from the runtime — authoritative for the active run
   if (typeof ctx.extra?.agentClusterRunID === "string") return ctx.extra.agentClusterRunID
-  for (const message of ctx.messages) {
+  // Guarded legacy fallback: scan newest messages first and warn
+  for (let i = ctx.messages.length - 1; i >= 0; i--) {
+    const message = ctx.messages[i]!
     for (const part of message.parts) {
       const metadata = "metadata" in part ? (part.metadata as { kind?: string; runID?: string } | undefined) : undefined
-      if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID
+      if (metadata?.kind === "agent_cluster" && metadata.runID) {
+        console.warn(
+          `[agent-cluster] Run ID resolved from legacy history scan (message ${message.info.id}); ` +
+            `prefer passing agentClusterRunID in Tool.Context.extra`,
+        )
+        return metadata.runID
+      }
     }
   }
   return undefined

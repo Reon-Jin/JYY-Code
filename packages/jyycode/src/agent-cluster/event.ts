@@ -11,10 +11,11 @@ export const Event = BusEvent.define(
     sessionID: SessionID,
     runID: RunID,
     taskID: Schema.optional(TaskID),
-    type: Schema.Literals(["run", "task", "review", "artifact"]),
+    type: Schema.Literals(["run", "task", "review", "artifact", "intervention"]),
     status: Schema.optional(Schema.Union([RunStatus, TaskStatus])),
     message: Schema.String,
     metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+    version: Schema.Number,
     createdAt: Schema.Number,
   }),
 )

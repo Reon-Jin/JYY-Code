@@ -189,6 +189,171 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
   )
 })
 
+export type TaskTransitionPatch = {
+  result_text?: string
+  child_session_id?: string
+  review_issues?: string[]
+  revision_prompt?: string | null
+  artifact_paths?: string[]
+  last_event?: string
+  submitted_at?: number
+  accepted_at?: number
+}
+
+export const transitionTask = Effect.fn("AgentCluster.transitionTask")(function* (input: {
+  runID: RunID
+  taskID: TaskID
+  from: readonly TaskStatus[]
+  to: TaskStatus
+  expectedVersion?: number
+  message: string
+  patch?: Partial<TaskTransitionPatch>
+}) {
+  const now = Date.now()
+  yield* Database.withTransaction((tx) =>
+    Effect.gen(function* () {
+      const row = yield* tx
+        .select()
+        .from(AgentClusterTaskTable)
+        .where(
+          and(
+            eq(AgentClusterTaskTable.run_id, input.runID),
+            eq(AgentClusterTaskTable.id, input.taskID),
+          ),
+        )
+        .get()
+
+      if (!row) {
+        return yield* Effect.fail(
+          new Error(`Task ${input.taskID} not found in run ${input.runID}`),
+        )
+      }
+
+      if (!(input.from as readonly string[]).includes(row.status)) {
+        return yield* Effect.fail(
+          new Error(
+            `Task ${input.taskID} is ${row.status}, expected one of [${input.from.join(", ")}]`,
+          ),
+        )
+      }
+
+      if (input.expectedVersion !== undefined && row.status_version !== input.expectedVersion) {
+        return yield* Effect.fail(
+          new Error(
+            `Version mismatch for task ${input.taskID}: expected ${input.expectedVersion}, got ${row.status_version}`,
+          ),
+        )
+      }
+
+      const newVersion = row.status_version + 1
+      const set: Record<string, unknown> = {
+        status: input.to,
+        status_version: newVersion,
+        last_event: input.message,
+        time_updated: now,
+      }
+      if (input.patch) {
+        for (const [key, value] of Object.entries(input.patch)) {
+          if (value !== undefined) set[key] = value
+        }
+      }
+
+      yield* tx
+        .update(AgentClusterTaskTable)
+        .set(set)
+        .where(
+          and(
+            eq(AgentClusterTaskTable.run_id, input.runID),
+            eq(AgentClusterTaskTable.id, input.taskID),
+            eq(AgentClusterTaskTable.status_version, row.status_version),
+          ),
+        )
+        .run()
+
+      yield* tx
+        .insert(AgentClusterEventTable)
+        .values({
+          id: ulid(),
+          run_id: input.runID,
+          task_id: input.taskID,
+          type: "task",
+          message: input.message,
+          metadata: { from: row.status, to: input.to, version: newVersion },
+        })
+        .run()
+    }),
+  )
+})
+
+export const transitionRun = Effect.fn("AgentCluster.transitionRun")(function* (input: {
+  runID: RunID
+  from: readonly RunStatus[]
+  to: RunStatus
+  expectedVersion?: number
+  message: string
+}) {
+  const now = Date.now()
+  yield* Database.withTransaction((tx) =>
+    Effect.gen(function* () {
+      const row = yield* tx
+        .select()
+        .from(AgentClusterRunTable)
+        .where(eq(AgentClusterRunTable.id, input.runID))
+        .get()
+
+      if (!row) {
+        return yield* Effect.fail(new Error(`Run ${input.runID} not found`))
+      }
+
+      if (!(input.from as readonly string[]).includes(row.status)) {
+        return yield* Effect.fail(
+          new Error(`Run ${input.runID} is ${row.status}, expected one of [${input.from.join(", ")}]`),
+        )
+      }
+
+      if (input.expectedVersion !== undefined && row.status_version !== input.expectedVersion) {
+        return yield* Effect.fail(
+          new Error(
+            `Version mismatch for run ${input.runID}: expected ${input.expectedVersion}, got ${row.status_version}`,
+          ),
+        )
+      }
+
+      const newVersion = row.status_version + 1
+      const set: Record<string, unknown> = {
+        status: input.to,
+        status_version: newVersion,
+        time_updated: now,
+      }
+      if (input.to === "completed" || input.to === "failed" || input.to === "cancelled") {
+        set.completed_at = now
+      }
+
+      yield* tx
+        .update(AgentClusterRunTable)
+        .set(set)
+        .where(
+          and(
+            eq(AgentClusterRunTable.id, input.runID),
+            eq(AgentClusterRunTable.status_version, row.status_version),
+          ),
+        )
+        .run()
+
+      yield* tx
+        .insert(AgentClusterEventTable)
+        .values({
+          id: ulid(),
+          run_id: input.runID,
+          type: "run",
+          message: input.message,
+          metadata: { from: row.status, to: input.to, version: newVersion },
+        })
+        .run()
+    }),
+  )
+})
+
 export const finalizeRunIfTerminal = Effect.fn("AgentCluster.finalizeRunIfTerminal")(function* (runID: RunID) {
   const open = (yield* Database.query((db) =>
     db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.run_id, runID)).all(),
@@ -242,7 +407,7 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
 }) {
   const bus = yield* Bus.Service
   const runID = input.runID as RunID
-  const publish = (status: RunStatus, message: string) =>
+  const publish = (status: RunStatus, message: string, version: number) =>
     Effect.gen(function* () {
       const createdAt = Date.now()
       yield* Database.query((db) =>
@@ -263,11 +428,12 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
         type: "run",
         status,
         message,
+        version,
         createdAt,
       })
     })
 
-  const publishReview = (taskID: string, decision: string, issues: string) =>
+  const publishReview = (taskID: string, decision: string, issues: string, version: number) =>
     Effect.gen(function* () {
       const createdAt = Date.now()
       yield* Database.query((db) =>
@@ -295,6 +461,7 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
         taskID: taskID as any,
         message: `Review for task ${taskID}: ${decision}`,
         metadata: { taskID, decision, issues },
+        version,
         createdAt,
       })
     })
@@ -321,12 +488,12 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
       })
       .run(),
   )
-  yield* publish("planning", "main: planning")
+  yield* publish("planning", "main: planning", 0)
 
   return yield* input.runLoop.pipe(
     Effect.tap(() =>
       finalizeRunIfTerminal(runID).pipe(
-        Effect.andThen((completed) => (completed ? publish("completed", "main: completed") : Effect.void)),
+        Effect.andThen((completed) => (completed ? publish("completed", "main: completed", 1) : Effect.void)),
       ),
     ),
     Effect.catchCause((cause) =>
@@ -336,7 +503,7 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
           .set({ status: "failed", completed_at: Date.now(), time_updated: Date.now() })
           .where(eq(AgentClusterRunTable.id, runID))
           .run(),
-      ).pipe(Effect.andThen(publish("failed", Cause.pretty(cause))), Effect.andThen(Effect.failCause(cause))),
+      ).pipe(Effect.andThen(publish("failed", Cause.pretty(cause), 1)), Effect.andThen(Effect.failCause(cause))),
     ),
   )
 })
