@@ -46,6 +46,7 @@ Press **F9** to turn a large request into a dependency-aware execution plan.
 - Explicit task IDs, dependencies, acceptance criteria, and expected artifacts.
 - Review rounds and completion gates prevent premature “done” responses.
 - Git worktree isolation keeps parallel coding tasks from stepping on each other.
+- Use the `/cluster` command to configure models for different roles.
 
 ### Memory That Survives the Chat
 
