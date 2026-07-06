@@ -1046,6 +1046,7 @@ export type AgentClusterConfig = {
   reviewer_model?: string
   complex_model?: string
   simple_model?: string
+  visual_model?: string
   max_subagents?: number
   max_concurrency?: number
   max_review_rounds?: number
