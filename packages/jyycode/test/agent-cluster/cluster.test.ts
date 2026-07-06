@@ -20,7 +20,8 @@ describe("AgentCluster planner instructions", () => {
     expect(ClusterPrimaryPrompt).toContain("A step is a dispatch wave")
     expect(ClusterPrimaryPrompt).toContain("step i must depend only on results from steps 1 through i-1")
     expect(ClusterPrimaryPrompt).toContain("Step 1 has no prior results")
-    expect(ClusterPrimaryPrompt).toContain("multiple planned steps have no dependency path")
+    expect(ClusterPrimaryPrompt).toContain("Steps are strict gates")
+    expect(ClusterPrimaryPrompt).toContain("agent_cluster_review")
     expect(ClusterPrimaryPrompt).not.toContain("ANTI-PATTERN")
   })
 
@@ -43,7 +44,8 @@ describe("AgentCluster planner instructions", () => {
     expect(text).toContain("tasks in the same step must not depend on each other")
     expect(text).toContain("A single dependency step must not exceed max_concurrency")
     expect(text).toContain('"step":1')
-    expect(text).toContain("treat them as ready together")
+    expect(text).toContain("Dispatch only the smallest unfinished step")
+    expect(text).toContain("agent_cluster_review")
     expect(text).toContain("Do not stop after presenting the plan")
     expect(text).toContain("visual_model: provider/visual")
     expect(text).toContain("PDF/PPT/DOCX layout")
@@ -341,11 +343,35 @@ describe("AgentCluster.persistPlan", () => {
       const rows = Database.use((db) => db.select().from(AgentClusterTaskTable).all())
       expect(
         rows
-          .map((row) => ({ id: row.id, status: row.status, runID: row.run_id }))
+          .map((row) => ({
+            id: row.id,
+            status: row.status,
+            runID: row.run_id,
+            step: row.step,
+            dependencies: row.dependencies,
+            result_summary: row.result_summary,
+            review_issues: row.review_issues,
+          }))
           .sort((a, b) => a.id.localeCompare(b.id)),
       ).toEqual([
-        { id: AgentClusterRuntime.coerceTaskID("build"), status: "planned", runID },
-        { id: AgentClusterRuntime.coerceTaskID("research"), status: "planned", runID },
+        {
+          id: AgentClusterRuntime.coerceTaskID("build"),
+          status: "planned",
+          runID,
+          step: 2,
+          dependencies: ["research"],
+          result_summary: null,
+          review_issues: [],
+        },
+        {
+          id: AgentClusterRuntime.coerceTaskID("research"),
+          status: "planned",
+          runID,
+          step: 1,
+          dependencies: [],
+          result_summary: null,
+          review_issues: [],
+        },
       ])
     }),
   )
@@ -409,6 +435,131 @@ describe("AgentCluster.finalizeRunIfTerminal", () => {
       expect(row?.completed_at).toBeNull()
     }),
   )
+
+  it.instance("submitting a child result does not accept the task or complete the run", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Cluster run" })
+      const user = yield* sessions.updateMessage({
+        id: MessageID.ascending(),
+        role: "user",
+        sessionID: chat.id,
+        agent: "cluster",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+        time: { created: Date.now() },
+      })
+      const runID = AgentCluster.createRunID() as RunID
+      Database.use((db) => {
+        const now = Date.now()
+        db.insert(AgentClusterRunTable)
+          .values({
+            id: runID,
+            session_id: chat.id,
+            parent_message_id: user.id,
+            enabled: true,
+            status: "dispatching",
+            goal: "Build feature",
+            planner_model: "test/planner",
+            reviewer_model: "test/reviewer",
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+        db.insert(AgentClusterTaskTable)
+          .values({
+            id: AgentClusterRuntime.coerceTaskID("submitted-task"),
+            run_id: runID,
+            role: "researcher",
+            title: "Research",
+            prompt: "Research the feature",
+            complexity: "simple",
+            model: "test/simple",
+            status: "running",
+            acceptance_criteria: ["done"],
+            artifact_paths: [],
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+      })
+
+      yield* AgentCluster.submitTaskResult({
+        runID,
+        taskID: "submitted-task",
+        childSessionID: "ses_child" as any,
+        summary: "Evidence collected",
+      })
+      const state = yield* AgentCluster.finishRunFromTaskStates(runID)
+      const task = Database.use((db) =>
+        db.select().from(AgentClusterTaskTable).where(Database.eq(AgentClusterTaskTable.id, "submitted-task" as any)).get(),
+      )
+      const run = Database.use((db) =>
+        db.select().from(AgentClusterRunTable).where(Database.eq(AgentClusterRunTable.id, runID)).get(),
+      )
+
+      expect(task?.status).toBe("submitted")
+      expect(task?.result_summary).toBe("Evidence collected")
+      expect(state).toBe("open")
+      expect(run?.status).toBe("dispatching")
+    }),
+  )
+
+  it.instance("marks a run failed when any task failed", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Cluster run" })
+      const user = yield* sessions.updateMessage({
+        id: MessageID.ascending(),
+        role: "user",
+        sessionID: chat.id,
+        agent: "cluster",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+        time: { created: Date.now() },
+      })
+      const runID = AgentCluster.createRunID() as RunID
+      Database.use((db) => {
+        const now = Date.now()
+        db.insert(AgentClusterRunTable)
+          .values({
+            id: runID,
+            session_id: chat.id,
+            parent_message_id: user.id,
+            enabled: true,
+            status: "reviewing",
+            goal: "Build feature",
+            planner_model: "test/planner",
+            reviewer_model: "test/reviewer",
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+        db.insert(AgentClusterTaskTable)
+          .values({
+            id: AgentClusterRuntime.coerceTaskID("failed-task"),
+            run_id: runID,
+            role: "researcher",
+            title: "Research",
+            prompt: "Research the feature",
+            complexity: "simple",
+            model: "test/simple",
+            status: "failed",
+            acceptance_criteria: ["done"],
+            artifact_paths: [],
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+      })
+
+      const state = yield* AgentCluster.finishRunFromTaskStates(runID)
+      const run = Database.use((db) =>
+        db.select().from(AgentClusterRunTable).where(Database.eq(AgentClusterRunTable.id, runID)).get(),
+      )
+
+      expect(state).toBe("failed")
+      expect(run?.status).toBe("failed")
+    }),
+  )
 })
 
 describe("AgentClusterRuntime.validatePlan", () => {
@@ -430,7 +581,7 @@ describe("AgentClusterRuntime.validatePlan", () => {
     expectedArtifacts: [],
   })
 
-  test("accepts a dependency DAG with parallel ready work", () => {
+  test("returns only the smallest unfinished step as ready work", () => {
     const plan = {
       goal: "ship feature",
       tasks: [
@@ -449,6 +600,49 @@ describe("AgentClusterRuntime.validatePlan", () => {
         completed: [],
       }).tasks.map((item) => String(item.id)),
     ).toEqual(["inspect", "research"])
+
+    expect(
+      AgentClusterRuntime.nextReadyBatch(plan, {
+        completed: [AgentClusterRuntime.coerceTaskID("research")],
+      }),
+    ).toMatchObject({
+      tasks: [{ id: AgentClusterRuntime.coerceTaskID("inspect") }],
+      blocked: [{ reason: "waiting for earlier step 1" }],
+    })
+  })
+
+  test("rejects duplicate expected artifacts within the same step", () => {
+    const plan = {
+      goal: "bad plan",
+      tasks: [
+        { ...task({ id: "api", step: 1 }), expectedArtifacts: ["shared.md"] },
+        { ...task({ id: "ui", step: 1 }), expectedArtifacts: ["shared.md"] },
+      ],
+    }
+
+    const result = AgentClusterRuntime.validatePlan(plan, { maxSubagents: 10, maxConcurrency: 3 })
+    expect(result.valid).toBe(false)
+    expect(result.errors.join("\n")).toContain("duplicate expected artifact shared.md")
+  })
+
+  test("reports step and synthesis gates from persisted task state", () => {
+    const tasks = [
+      { id: "research", step: 1, status: "accepted" as const },
+      { id: "api", step: 1, status: "submitted" as const },
+      { id: "test", step: 2, status: "planned" as const },
+    ]
+
+    expect(AgentClusterRuntime.stepGate(tasks, 2)).toEqual({
+      allowed: false,
+      pending: ["api"],
+      rejected: [],
+    })
+    expect(AgentClusterRuntime.canSynthesize(tasks)).toBe(false)
+    expect(AgentClusterRuntime.stepGate([{ id: "research", step: 1, status: "accepted" }], 2)).toEqual({
+      allowed: true,
+      pending: [],
+      rejected: [],
+    })
   })
 
   test("rejects duplicate ids, same-step dependencies, and over-wide steps", () => {

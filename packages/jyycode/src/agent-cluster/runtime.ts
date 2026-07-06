@@ -1,6 +1,6 @@
 export * as AgentClusterRuntime from "./runtime"
 
-import type { Plan, PlannedTask, TaskID } from "./schema"
+import type { Plan, PlannedTask, TaskID, TaskStatus } from "./schema"
 
 export type Limits = {
   maxSubagents: number
@@ -16,6 +16,20 @@ export type PlanValidation = {
 export type ReadyBatch = {
   tasks: PlannedTask[]
   blocked: { task: PlannedTask; reason: string }[]
+}
+
+export type PersistedTaskState = {
+  id: TaskID | string
+  step: number
+  status: TaskStatus
+  resultSummary?: string | null
+  reviewIssues?: string[] | null
+}
+
+export type StepGateResult = {
+  allowed: boolean
+  pending: string[]
+  rejected: string[]
 }
 
 function taskID(value: string) {
@@ -181,6 +195,23 @@ export function validatePlan(plan: Plan, limits: Pick<Limits, "maxSubagents" | "
     }
   }
 
+  const artifactsByStep = new Map<string, PlannedTask>()
+  for (const task of plan.tasks) {
+    for (const artifact of task.expectedArtifacts) {
+      const normalized = artifact.trim()
+      if (!normalized) continue
+      const key = `${task.step}\0${normalized}`
+      const existing = artifactsByStep.get(key)
+      if (existing) {
+        errors.push(
+          `step ${task.step} has duplicate expected artifact ${normalized}: ${existing.id} and ${task.id}`,
+        )
+        continue
+      }
+      artifactsByStep.set(key, task)
+    }
+  }
+
   return { valid: errors.length === 0, errors }
 }
 
@@ -195,10 +226,18 @@ export function nextReadyBatch(
   const completed = new Set(state.completed)
   const dispatched = new Set(state.dispatched ?? [])
   const failed = new Set(state.failed ?? [])
+  const candidates = plan.tasks
+    .filter((task) => !completed.has(task.id) && !dispatched.has(task.id) && !failed.has(task.id))
+    .toSorted((a, b) => a.step - b.step || a.id.localeCompare(b.id))
+  const targetStep = candidates[0]?.step
   const tasks: PlannedTask[] = []
   const blocked: ReadyBatch["blocked"] = []
 
-  for (const task of plan.tasks.toSorted((a, b) => a.step - b.step || a.id.localeCompare(b.id))) {
+  for (const task of candidates) {
+    if (targetStep !== undefined && task.step > targetStep) {
+      blocked.push({ task, reason: `waiting for earlier step ${targetStep}` })
+      continue
+    }
     if (completed.has(task.id) || dispatched.has(task.id) || failed.has(task.id)) continue
     const failedDependency = task.dependencies.find((dependency) => failed.has(dependency))
     if (failedDependency) {
@@ -214,6 +253,27 @@ export function nextReadyBatch(
   }
 
   return { tasks, blocked }
+}
+
+export function stepGate(tasks: Iterable<PersistedTaskState>, targetStep: number): StepGateResult {
+  const pending: string[] = []
+  const rejected: string[] = []
+  for (const task of tasks) {
+    if (task.step >= targetStep) continue
+    if (task.status === "accepted") continue
+    if (task.status === "failed" || task.status === "cancelled") {
+      rejected.push(String(task.id))
+      continue
+    }
+    pending.push(String(task.id))
+  }
+  pending.sort()
+  rejected.sort()
+  return { allowed: pending.length === 0 && rejected.length === 0, pending, rejected }
+}
+
+export function canSynthesize(tasks: Iterable<PersistedTaskState>) {
+  return [...tasks].every((task) => task.status === "accepted")
 }
 
 export function canRequestRevision(input: { roundsUsed: number; limits: Pick<Limits, "maxReviewRounds"> }) {

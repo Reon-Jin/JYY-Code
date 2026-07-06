@@ -36,6 +36,7 @@ import { ProviderID, ModelID } from "@/provider/schema"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { MessageID, SessionID } from "@/session/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { Permission } from "@/permission"
 
 const node = CrossSpawnSpawner.defaultLayer
 const configLayer = TestConfig.layer({
@@ -322,6 +323,25 @@ describe("tool.registry", () => {
       expect(
         (ToolJsonSchema.fromTool(task).properties as Record<string, unknown> | undefined)?.background,
       ).toBeDefined()
+    }),
+  )
+
+  it.instance("allows agent_cluster_review only for the cluster primary by default", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agent = yield* Agent.Service
+      const cluster = yield* agent.get("cluster")
+      const build = yield* agent.get("build")
+      if (!cluster || !build) throw new Error("expected native agents")
+      const ids = (yield* registry.tools({
+        providerID: ProviderID.jyycode,
+        modelID: ModelID.make("test"),
+        agent: cluster,
+      })).map((tool) => tool.id)
+
+      expect(ids).toContain("agent_cluster_review")
+      expect(Permission.evaluate("agent_cluster_review", "*", cluster.permission).action).toBe("allow")
+      expect(Permission.evaluate("agent_cluster_review", "*", build.permission).action).toBe("deny")
     }),
   )
 

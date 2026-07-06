@@ -175,8 +175,8 @@ describe("tool.task", () => {
           "explore",
           "general",
           "pdf",
+          "picture_searcher",
           "researcher",
-          "reviewer",
           "tester",
           "writer",
           "zebra",
@@ -589,7 +589,7 @@ describe("tool.task", () => {
       const worktreeInfo = {
         name: "inspect-cache",
         branch: "jyycode/inspect-cache",
-        directory: "C:/tmp/jyycode-worktree/inspect-cache",
+        directory: "/tmp/jyycode-worktree/inspect-cache",
       }
       const worktreeOps: TaskWorktreeOps = {
         create: (input) =>
@@ -645,7 +645,7 @@ describe("tool.task", () => {
       const worktreeInfo = {
         name: "merge-cache",
         branch: "jyycode/merge-cache",
-        directory: "C:/tmp/jyycode-worktree/merge-cache",
+        directory: "/tmp/jyycode-worktree/merge-cache",
       }
       const calls: string[] = []
       const worktreeOps: TaskWorktreeOps = {
@@ -707,7 +707,7 @@ describe("tool.task", () => {
       const worktreeInfo = {
         name: "blocked-cache",
         branch: "jyycode/blocked-cache",
-        directory: "C:/tmp/jyycode-worktree/blocked-cache",
+        directory: "/tmp/jyycode-worktree/blocked-cache",
       }
       const calls: string[] = []
       const worktreeOps: TaskWorktreeOps = {
@@ -833,7 +833,7 @@ describe("tool.task", () => {
           {
             description: "inspect bug",
             prompt: "look into the cache key path",
-            subagent_type: "reviewer",
+            subagent_type: "qa_helper",
           },
           {
             sessionID: chat.id,
@@ -875,7 +875,7 @@ describe("tool.task", () => {
     {
       config: {
         agent: {
-          reviewer: {
+          qa_helper: {
             mode: "subagent",
             permission: {
               task: "allow",
@@ -1000,7 +1000,7 @@ describe("tool.task", () => {
       const sessions = yield* Session.Service
       const { chat, assistant } = yield* seed()
       const runID = "run_task_binding"
-      const planTaskID = "research"
+      const planTaskID = "task-binding-research"
       yield* sessions.updatePart({
         id: PartID.ascending(),
         messageID: assistant.parentID!,
@@ -1071,7 +1071,9 @@ describe("tool.task", () => {
         },
       )
 
-      const row = Database.use((db) => db.select().from(AgentClusterTaskTable).get())
+      const row = Database.use((db) =>
+        db.select().from(AgentClusterTaskTable).where(Database.eq(AgentClusterTaskTable.id, planTaskID as any)).get(),
+      )
       expect(row?.child_session_id).toBe(result.metadata.sessionId)
       expect(row?.status).toBe("running")
     }),

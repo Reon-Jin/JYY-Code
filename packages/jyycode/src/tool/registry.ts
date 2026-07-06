@@ -11,6 +11,7 @@ import { KillProcessTool, ProcessOutputTool, ProcessStartTool } from "./process"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { TaskStatusTool } from "./task_status"
+import { AgentClusterReviewTool } from "./agent-cluster-review"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
@@ -76,6 +77,7 @@ export function webSearchEnabled(_providerID: ProviderID, _flags = { exa: false,
 
 type TaskDef = Tool.InferDef<typeof TaskTool>
 type TaskStatusDef = Tool.InferDef<typeof TaskStatusTool>
+type AgentClusterReviewDef = Tool.InferDef<typeof AgentClusterReviewTool>
 type ReadDef = Tool.InferDef<typeof ReadTool>
 
 type State = {
@@ -83,6 +85,7 @@ type State = {
   builtin: Tool.Def[]
   task: TaskDef
   taskStatus: TaskStatusDef
+  agentClusterReview: AgentClusterReviewDef
   read: ReadDef
 }
 
@@ -145,6 +148,7 @@ export const layer: Layer.Layer<
     const invalid = yield* InvalidTool
     const task = yield* TaskTool
     const taskStatus = yield* TaskStatusTool
+    const agentClusterReview = yield* AgentClusterReviewTool
     const read = yield* ReadTool
     const ls = yield* LsTool
     const question = yield* QuestionTool
@@ -281,6 +285,7 @@ export const layer: Layer.Layer<
           write: Tool.init(writetool),
           task: Tool.init(task),
           task_status: Tool.init(taskStatus),
+          agent_cluster_review: Tool.init(agentClusterReview),
           fetch: Tool.init(webfetch),
           todo: Tool.init(todo),
           search: Tool.init(websearch),
@@ -314,6 +319,7 @@ export const layer: Layer.Layer<
             tool.write,
             tool.task,
             ...(flags.experimentalBackgroundSubagents ? [tool.task_status] : []),
+            tool.agent_cluster_review,
             tool.fetch,
             tool.todo,
             tool.search,
@@ -328,6 +334,7 @@ export const layer: Layer.Layer<
           ],
           task: tool.task,
           taskStatus: tool.task_status,
+          agentClusterReview: tool.agent_cluster_review,
           read: tool.read,
         }
       }),
@@ -386,6 +393,9 @@ export const layer: Layer.Layer<
         ...s.builtin,
         ...(input.agent.name === "cluster" && !s.builtin.some((tool) => tool.id === TaskStatusTool.id)
           ? [s.taskStatus]
+          : []),
+        ...(input.agent.name === "cluster" && !s.builtin.some((tool) => tool.id === AgentClusterReviewTool.id)
+          ? [s.agentClusterReview]
           : []),
         ...s.custom,
       ]

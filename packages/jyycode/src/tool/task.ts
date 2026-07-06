@@ -348,10 +348,18 @@ export const TaskTool = Tool.define(
       const cfg = yield* config.get()
       const clusterBackground = ctx.agent === "cluster"
       const runInBackground = params.background === true || clusterBackground
-      const clusterPlanTaskID =
-        clusterBackground && params.task_id && !params.task_id.startsWith("ses") ? params.task_id : undefined
-      const resumeTaskID = clusterPlanTaskID ? undefined : params.task_id
-      const clusterRunID = clusterPlanTaskID ? agentClusterRunID(ctx) : undefined
+      const clusterRunID = clusterBackground ? agentClusterRunID(ctx) : undefined
+      const clusterDispatch =
+        clusterBackground && params.task_id
+          ? yield* AgentCluster.prepareTaskDispatch({
+              runID: clusterRunID,
+              requestedTaskID: params.task_id,
+              prompt: params.prompt,
+            })
+          : undefined
+      const effectivePrompt = clusterDispatch?.prompt ?? params.prompt
+      const clusterPlanTaskID = clusterDispatch?.taskID
+      const resumeTaskID = clusterDispatch?.childSessionID ?? (clusterPlanTaskID ? undefined : params.task_id)
       if (runInBackground && !clusterBackground && !flags.experimentalBackgroundSubagents) {
         return yield* Effect.fail(
           new Error("Background subagents require JYYCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true"),
@@ -498,7 +506,7 @@ export const TaskTool = Tool.define(
       const runCancel = yield* EffectBridge.make()
 
       const runTask = Effect.fn("TaskTool.runTask")(function* () {
-        const resolved = yield* ops.resolvePromptParts(params.prompt)
+        const resolved = yield* ops.resolvePromptParts(effectivePrompt)
         const extraParts = contextPromptParts(params.context, parent.directory)
         const prompt = isolatedWorktree
           ? worktreePrompt({
@@ -510,21 +518,21 @@ export const TaskTool = Tool.define(
                         params.fork === true
                           ? forkPrompt({
                               context: forkContext(ctx.messages),
-                              prompt: params.prompt,
+                              prompt: effectivePrompt,
                             })
-                          : params.prompt,
+                          : effectivePrompt,
                     })
                   : params.fork === true
                     ? forkPrompt({
                         context: forkContext(ctx.messages),
-                        prompt: params.prompt,
+                        prompt: effectivePrompt,
                       })
-                    : params.prompt,
+                    : effectivePrompt,
             })
           : params.fork === true
             ? forkPrompt({
                 context: forkContext(ctx.messages),
-                prompt: params.prompt,
+                prompt: effectivePrompt,
               })
             : undefined
         const parts =
@@ -763,11 +771,24 @@ export const TaskTool = Tool.define(
           title: params.description,
           metadata,
           run: runTaskWithMerge().pipe(
+            Effect.tap((text) =>
+              AgentCluster.submitTaskResult({
+                runID: clusterRunID,
+                taskID: clusterPlanTaskID,
+                childSessionID: nextSession.id,
+                summary: AgentCluster.summarizeTaskResult(text),
+              }),
+            ),
             Effect.tap((text) => inject("completed", text).pipe(Effect.ignore)),
             Effect.catchCause((cause) =>
               (Cause.hasInterruptsOnly(cause)
                 ? Effect.void
-                : inject("error", errorText(Cause.squash(cause))).pipe(Effect.ignore)
+                : AgentCluster.failTaskResult({
+                    runID: clusterRunID,
+                    taskID: clusterPlanTaskID,
+                    childSessionID: nextSession.id,
+                    error: errorText(Cause.squash(cause)),
+                  }).pipe(Effect.andThen(inject("error", errorText(Cause.squash(cause))).pipe(Effect.ignore)))
               ).pipe(Effect.andThen(Effect.failCause(cause))),
             ),
           ),
