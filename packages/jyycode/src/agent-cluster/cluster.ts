@@ -28,7 +28,6 @@ type ModelRef = {
 
 type ClusterModels = {
   planner: ModelRef
-  reviewer: ModelRef
   simple: ModelRef
   complex: ModelRef
   visual: ModelRef
@@ -47,13 +46,14 @@ export function createRunID() {
 }
 
 export function canUseAgentCluster(input: {
-  session: Pick<Session.Info, "title" | "agent" | "path" | "multiAgent">
+  session: Pick<Session.Info, "title" | "agent" | "path" | "multiAgent" | "parentID">
   config: ConfigAgentCluster.Info | undefined
   requested?: boolean
 }) {
   const config = ConfigAgentCluster.resolve(input.config)
   if (config.enabled !== true) return false
   if (isMailSession(input.session)) return false
+  if (input.session.parentID) return false
   return (input.requested ?? input.session.multiAgent ?? config.default_on) === true
 }
 
@@ -81,7 +81,6 @@ export const resolveModels = Effect.fn("AgentCluster.resolveModels")(function* (
   return yield* Effect.all(
     {
       planner: resolveModelRef(resolved.planner_model),
-      reviewer: resolveModelRef(resolved.reviewer_model),
       simple: resolveModelRef(resolved.simple_model),
       complex: resolveModelRef(resolved.complex_model),
       visual: resolveModelRef(resolved.visual_model),
@@ -123,7 +122,6 @@ export function decoratePromptInput(input: {
           simpleModel: formatModel(input.models.simple),
           complexModel: formatModel(input.models.complex),
           visualModel: formatModel(input.models.visual),
-          reviewerModel: formatModel(input.models.reviewer),
           maxSubagents: config.max_subagents,
           maxConcurrency: config.max_concurrency,
           maxReviewRounds: config.max_review_rounds,
@@ -172,12 +170,24 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
   childSessionID: SessionID
 }) {
   if (!input.runID || !input.taskID) return
+  const current = (yield* Database.query((db) =>
+    db
+      .select({ status: AgentClusterTaskTable.status })
+      .from(AgentClusterTaskTable)
+      .where(
+        and(
+          eq(AgentClusterTaskTable.run_id, input.runID as RunID),
+          eq(AgentClusterTaskTable.id, input.taskID as TaskID),
+        ),
+      )
+      .get(),
+  )) as { status: TaskStatus } | undefined
   yield* Database.query((db) =>
     db
       .update(AgentClusterTaskTable)
       .set({
         child_session_id: input.childSessionID,
-        status: "running" as const,
+        status: current?.status === "revising" ? ("revising" as const) : ("running" as const),
         time_updated: Date.now(),
       })
       .where(
@@ -306,7 +316,11 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   prompt: string
 }) {
   if (!input.runID || !input.requestedTaskID) {
-    return { prompt: input.prompt, taskID: undefined as TaskID | undefined, childSessionID: undefined as SessionID | undefined }
+    return {
+      prompt: input.prompt,
+      taskID: undefined as TaskID | undefined,
+      childSessionID: undefined as SessionID | undefined,
+    }
   }
   const runID = input.runID as RunID
   const rows = (yield* Database.query((db) =>
@@ -340,7 +354,9 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   const task = plannedTaskFromRow(target)
   const tasks = rows.map(plannedTaskFromRow)
   const predecessors = rows
-    .filter((row) => row.step < target.step && (target.dependencies.length === 0 || target.dependencies.includes(row.id)))
+    .filter(
+      (row) => row.step < target.step && (target.dependencies.length === 0 || target.dependencies.includes(row.id)),
+    )
     .map((row) => ({
       ...plannedTaskFromRow(row),
       status: row.status as TaskStatus,
@@ -350,9 +366,15 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   const consumers = tasks.filter((item) => item.dependencies.includes(task.id))
   const brief = buildTaskBrief({
     goal:
-      ((yield* Database.query((db) =>
-        db.select({ goal: AgentClusterRunTable.goal }).from(AgentClusterRunTable).where(eq(AgentClusterRunTable.id, runID)).get(),
-      )) as { goal: string } | undefined)?.goal ?? "Multi-Agent cluster run",
+      (
+        (yield* Database.query((db) =>
+          db
+            .select({ goal: AgentClusterRunTable.goal })
+            .from(AgentClusterRunTable)
+            .where(eq(AgentClusterRunTable.id, runID))
+            .get(),
+        )) as { goal: string } | undefined
+      )?.goal ?? "Multi-Agent cluster run",
     task,
     peers,
     predecessors,
@@ -485,7 +507,9 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
             .join("\n")
             .slice(0, 2000) || "Multi-Agent cluster run",
         planner_model: formatModel(input.models.planner),
-        reviewer_model: formatModel(input.models.reviewer),
+        // Legacy storage column retained for database compatibility. Review is
+        // performed by the cluster primary, so no separate model is routed.
+        reviewer_model: formatModel(input.models.planner),
         time_created: now,
         time_updated: now,
       })

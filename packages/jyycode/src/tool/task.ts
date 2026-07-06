@@ -3,6 +3,7 @@ import DESCRIPTION from "./task.txt"
 import { ToolJsonSchema } from "./json-schema"
 import { BackgroundJob } from "@/background/job"
 import { AgentCluster } from "@/agent-cluster/cluster"
+import { AgentClusterRuntime } from "@/agent-cluster/runtime"
 import { Bus } from "@/bus"
 import { Session } from "@/session/session"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
@@ -13,6 +14,7 @@ import { deriveSubagentSessionPermission } from "../agent/subagent-permissions"
 import type { SessionPrompt } from "../session/prompt"
 import { SessionStatus } from "@/session/status"
 import { Config } from "@/config/config"
+import { ConfigAgentCluster } from "@/config/agent-cluster"
 import { Provider } from "@/provider/provider"
 import { ModelID } from "@/provider/schema"
 import { TuiEvent } from "@/cli/cmd/tui/event"
@@ -23,6 +25,7 @@ import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import path from "path"
 import { pathToFileURL } from "url"
+import type { RunID } from "@/agent-cluster/schema"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -349,17 +352,56 @@ export const TaskTool = Tool.define(
       const clusterBackground = ctx.agent === "cluster"
       const runInBackground = params.background === true || clusterBackground
       const clusterRunID = clusterBackground ? agentClusterRunID(ctx) : undefined
-      const clusterDispatch =
+      const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
+      if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
+      const persistCurrentClusterPlan = Effect.fn("TaskTool.persistCurrentClusterPlan")(function* () {
+        if (!clusterRunID) return false
+        const current = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
+        const plan = AgentClusterRuntime.extractPlanFromText(
+          current.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
+        )
+        if (!plan) return false
+        const clusterConfig = ConfigAgentCluster.resolve(cfg.agent_cluster)
+        const validation = AgentClusterRuntime.validatePlan(plan, {
+          maxSubagents: clusterConfig.max_subagents,
+          maxConcurrency: clusterConfig.max_concurrency,
+        })
+        if (!validation.valid) {
+          return yield* Effect.fail(new Error(`Invalid cluster plan: ${validation.errors.join("; ")}`))
+        }
+        yield* AgentCluster.persistPlan({ runID: clusterRunID as RunID, plan })
+        return true
+      })
+      if (clusterBackground && clusterRunID && !params.task_id) {
+        return yield* Effect.fail(new Error("Cluster task_id is required for every task in an active cluster run"))
+      }
+      if (clusterBackground && clusterRunID && params.task_id) yield* persistCurrentClusterPlan()
+      const prepareClusterDispatch = () =>
+        AgentCluster.prepareTaskDispatch({
+          runID: clusterRunID,
+          requestedTaskID: params.task_id,
+          prompt: params.prompt,
+        })
+      let clusterDispatch =
         clusterBackground && params.task_id
-          ? yield* AgentCluster.prepareTaskDispatch({
-              runID: clusterRunID,
-              requestedTaskID: params.task_id,
-              prompt: params.prompt,
-            })
+          ? yield* prepareClusterDispatch().pipe(Effect.exit)
           : undefined
-      const effectivePrompt = clusterDispatch?.prompt ?? params.prompt
-      const clusterPlanTaskID = clusterDispatch?.taskID
-      const resumeTaskID = clusterDispatch?.childSessionID ?? (clusterPlanTaskID ? undefined : params.task_id)
+      if (clusterDispatch && Exit.isFailure(clusterDispatch)) {
+        const error = Cause.squash(clusterDispatch.cause)
+        if (String(error).includes("Unknown cluster task for run")) {
+          for (let attempt = 0; attempt < 30; attempt++) {
+            yield* Effect.sleep("100 millis")
+            if (!(yield* persistCurrentClusterPlan())) continue
+            clusterDispatch = yield* prepareClusterDispatch().pipe(Effect.exit)
+            break
+          }
+        }
+      }
+      if (clusterDispatch && Exit.isFailure(clusterDispatch)) return yield* Effect.failCause(clusterDispatch.cause)
+      const preparedDispatch = clusterDispatch?.value
+      const effectivePrompt = preparedDispatch?.prompt ?? params.prompt
+      const clusterPlanTaskID = preparedDispatch?.taskID
+      const resumeTaskID = preparedDispatch?.childSessionID ?? (clusterPlanTaskID ? undefined : params.task_id)
       if (runInBackground && !clusterBackground && !flags.experimentalBackgroundSubagents) {
         return yield* Effect.fail(
           new Error("Background subagents require JYYCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true"),
@@ -467,9 +509,6 @@ export const TaskTool = Tool.define(
           permission,
         }))
 
-      const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
-      if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
-
       const model = params.model
         ? yield* resolveModel(params.model)
         : (next.model ?? {
@@ -493,7 +532,9 @@ export const TaskTool = Tool.define(
             }
           : {}),
         ...(runInBackground ? { background: true } : {}),
-        ...(clusterRunID && clusterPlanTaskID ? { agentCluster: { runID: clusterRunID, taskID: clusterPlanTaskID } } : {}),
+        ...(clusterRunID && clusterPlanTaskID
+          ? { agentCluster: { runID: clusterRunID, taskID: clusterPlanTaskID } }
+          : {}),
       }
 
       yield* ctx.metadata({
@@ -535,16 +576,15 @@ export const TaskTool = Tool.define(
                 prompt: effectivePrompt,
               })
             : undefined
-        const parts =
-          prompt
-            ? [
-                ...extraParts,
-                {
-                  type: "text" as const,
-                  text: prompt,
-                },
-              ]
-            : [...extraParts, ...resolved]
+        const parts = prompt
+          ? [
+              ...extraParts,
+              {
+                type: "text" as const,
+                text: prompt,
+              },
+            ]
+          : [...extraParts, ...resolved]
         const result = yield* ops.prompt({
           messageID: MessageID.ascending(),
           sessionID: nextSession.id,
@@ -557,7 +597,9 @@ export const TaskTool = Tool.define(
             ...(next.permission.some((rule) => rule.permission === "todowrite" && rule.action === "allow")
               ? {}
               : { todowrite: false }),
-            ...(next.permission.some((rule) => rule.permission === id && rule.action === "allow") ? {} : { task: false }),
+            ...(next.permission.some((rule) => rule.permission === id && rule.action === "allow")
+              ? {}
+              : { task: false }),
             ...Object.fromEntries((cfg.experimental?.primary_tools ?? []).map((item) => [item, false])),
           },
           parts,

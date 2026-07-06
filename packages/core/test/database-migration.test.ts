@@ -8,6 +8,8 @@ import { sql } from "drizzle-orm"
 import { Database } from "../src/database/database"
 import { DatabaseMigration } from "../src/database/migration"
 import { migrations } from "../src/database/migration.gen"
+import pipelineContext from "../src/database/migration/20260706090000_agent_cluster_pipeline_context"
+import taskScope from "../src/database/migration/20260706120000_agent_cluster_task_scope"
 
 async function cleanup(directory: string, attempts = 20): Promise<void> {
   Bun.gc(true)
@@ -151,6 +153,65 @@ describe("database migrations", () => {
         ),
       )
       expect(after).toEqual(before)
+    } finally {
+      await cleanup(dir)
+    }
+  })
+
+  test("upgrades legacy agent cluster tasks and scopes ids by run", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "jyycode-agent-cluster-migration-"))
+    const filename = join(dir, "cluster.db")
+    const native = new BunDatabase(filename)
+    native.exec(`
+      CREATE TABLE agent_cluster_run (id TEXT PRIMARY KEY);
+      CREATE TABLE agent_cluster_task (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES agent_cluster_run(id) ON DELETE CASCADE,
+        parent_task_id TEXT,
+        child_session_id TEXT,
+        role TEXT NOT NULL,
+        title TEXT NOT NULL,
+        prompt TEXT NOT NULL,
+        complexity TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL,
+        review_round INTEGER DEFAULT 0 NOT NULL,
+        acceptance_criteria TEXT NOT NULL,
+        artifact_paths TEXT NOT NULL,
+        last_event TEXT,
+        time_created INTEGER NOT NULL,
+        time_updated INTEGER NOT NULL
+      );
+      CREATE INDEX agent_cluster_task_run_idx ON agent_cluster_task(run_id);
+      CREATE INDEX agent_cluster_task_child_session_idx ON agent_cluster_task(child_session_id);
+      INSERT INTO agent_cluster_run(id) VALUES ('run-1'), ('run-2');
+      INSERT INTO agent_cluster_task(id, run_id, role, title, prompt, complexity, model, status, acceptance_criteria, artifact_paths, time_created, time_updated)
+      VALUES ('task-research', 'run-1', 'researcher', 'Research', 'Research', 'simple', 'test/model', 'planned', '[]', '[]', 1, 1);
+    `)
+    native.close()
+
+    try {
+      const result = await withDatabase(
+        filename,
+        Database.Service.use(({ db }) =>
+          Effect.gen(function* () {
+            yield* DatabaseMigration.applyOnly(db, [pipelineContext, taskScope])
+            yield* pipelineContext.up(db)
+            yield* db.run(sql`
+              INSERT INTO agent_cluster_task(id, run_id, role, title, prompt, complexity, model, status, acceptance_criteria, artifact_paths, time_created, time_updated)
+              VALUES ('task-research', 'run-2', 'researcher', 'Research', 'Research', 'simple', 'test/model', 'planned', '[]', '[]', 1, 1)
+            `)
+            return yield* db.all<{ id: string; run_id: string; step: number; dependencies: string }>(sql`
+              SELECT id, run_id, step, dependencies FROM agent_cluster_task ORDER BY run_id
+            `)
+          }),
+        ),
+        Database.noMigrations,
+      )
+      expect(result).toEqual([
+        { id: "task-research", run_id: "run-1", step: 1, dependencies: "[]" },
+        { id: "task-research", run_id: "run-2", step: 1, dependencies: "[]" },
+      ])
     } finally {
       await cleanup(dir)
     }

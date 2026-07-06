@@ -199,7 +199,6 @@ export const layer = Layer.effect(
                 task_status: "allow",
                 agent_cluster_review: "allow",
                 todowrite: "allow",
-                question: "allow",
               }),
             ),
             mode: "primary",

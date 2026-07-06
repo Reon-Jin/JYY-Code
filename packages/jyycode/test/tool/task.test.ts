@@ -163,10 +163,8 @@ describe("tool.task", () => {
 
         expect(first).toBe(second)
 
-        const schema =
-          (yield* registry.tools({ ...ref, agent: build })).find((tool) => tool.id === TaskTool.id)?.jsonSchema as
-            | { properties?: { subagent_type?: { enum?: string[] } } }
-            | undefined
+        const schema = (yield* registry.tools({ ...ref, agent: build })).find((tool) => tool.id === TaskTool.id)
+          ?.jsonSchema as { properties?: { subagent_type?: { enum?: string[] } } } | undefined
         expect(schema?.properties?.subagent_type?.enum).toEqual([
           "alpha",
           "analyst",
@@ -656,9 +654,7 @@ describe("tool.task", () => {
         patchAll: () => Effect.succeed({ text: "diff --git a/src/cache.ts b/src/cache.ts", truncated: false }),
         status: (cwd) =>
           Effect.succeed(
-            cwd === worktreeInfo.directory
-              ? [{ file: "src/cache.ts", code: " M", status: "modified" as const }]
-              : [],
+            cwd === worktreeInfo.directory ? [{ file: "src/cache.ts", code: " M", status: "modified" as const }] : [],
           ),
         run: (args, opts) =>
           Effect.sync(() => {
@@ -1072,7 +1068,118 @@ describe("tool.task", () => {
       )
 
       const row = Database.use((db) =>
-        db.select().from(AgentClusterTaskTable).where(Database.eq(AgentClusterTaskTable.id, planTaskID as any)).get(),
+        db.select().from(AgentClusterTaskTable).where(
+          Database.and(
+            Database.eq(AgentClusterTaskTable.run_id, runID as any),
+            Database.eq(AgentClusterTaskTable.id, planTaskID as any),
+          ),
+        ).get(),
+      )
+      expect(row?.child_session_id).toBe(result.metadata.sessionId)
+      expect(row?.status).toBe("running")
+    }),
+  )
+
+  it.instance("cluster task persists the streamed plan before its first dispatch", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      const runID = "run_streamed_plan"
+      const planTaskID = "task-research"
+      yield* sessions.updatePart({
+        id: PartID.ascending(),
+        messageID: assistant.parentID!,
+        sessionID: chat.id,
+        type: "text",
+        synthetic: true,
+        metadata: { kind: "agent_cluster", runID },
+        text: "Agent cluster instructions",
+      })
+      yield* sessions
+        .updatePart({
+          id: PartID.ascending(),
+          messageID: assistant.id,
+          sessionID: chat.id,
+          type: "text",
+          text: [
+            "```json",
+            JSON.stringify({
+              goal: "Investigate bug",
+              tasks: [
+                {
+                  id: planTaskID,
+                  step: 1,
+                  title: "Research",
+                  role: "researcher",
+                  complexity: "simple",
+                  model: "test/test-model",
+                  dependencies: [],
+                  prompt: "Find the bug",
+                  acceptanceCriteria: ["root cause documented"],
+                  expectedArtifacts: [],
+                },
+              ],
+            }),
+            "```",
+          ].join("\n"),
+        })
+        .pipe(Effect.delay("2 seconds"), Effect.forkScoped)
+      Database.use((db) => {
+        const now = Date.now()
+        db.insert(AgentClusterRunTable)
+          .values({
+            id: runID as any,
+            session_id: chat.id,
+            parent_message_id: assistant.parentID!,
+            enabled: true,
+            status: "planning",
+            goal: "Investigate bug",
+            planner_model: "test/planner",
+            reviewer_model: "test/reviewer",
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+      })
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+
+      const result = yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "researcher",
+          task_id: planTaskID,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "cluster",
+          abort: new AbortController().signal,
+          extra: {
+            promptOps: {
+              ...stubOps(),
+              prompt: () => Effect.never,
+            } satisfies TaskPromptOps,
+          },
+          messages,
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const row = Database.use((db) =>
+        db
+          .select()
+          .from(AgentClusterTaskTable)
+          .where(
+            Database.and(
+              Database.eq(AgentClusterTaskTable.run_id, runID as any),
+              Database.eq(AgentClusterTaskTable.id, planTaskID as any),
+            ),
+          )
+          .get(),
       )
       expect(row?.child_session_id).toBe(result.metadata.sessionId)
       expect(row?.status).toBe("running")

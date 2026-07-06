@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { MessageTable, SessionTable } from "@/session/session.sql"
 import { Timestamps } from "@/storage/schema.sql"
 import type { MessageID, SessionID } from "@/session/schema"
@@ -33,7 +33,7 @@ export const AgentClusterRunTable = sqliteTable(
 export const AgentClusterTaskTable = sqliteTable(
   "agent_cluster_task",
   {
-    id: text().$type<TaskID>().primaryKey(),
+    id: text().$type<TaskID>().notNull(),
     run_id: text()
       .$type<RunID>()
       .notNull()
@@ -57,6 +57,7 @@ export const AgentClusterTaskTable = sqliteTable(
     ...Timestamps,
   },
   (table) => [
+    primaryKey({ columns: [table.run_id, table.id] }),
     index("agent_cluster_task_run_idx").on(table.run_id),
     index("agent_cluster_task_child_session_idx").on(table.child_session_id),
   ],

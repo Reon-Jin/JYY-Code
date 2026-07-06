@@ -1,6 +1,8 @@
 import * as Tool from "./tool"
 import DESCRIPTION from "./agent-cluster-review.txt"
 import { AgentCluster } from "@/agent-cluster/cluster"
+import { Event as AgentClusterEvent } from "@/agent-cluster/event"
+import { Bus } from "@/bus"
 import { AgentClusterEventTable, AgentClusterRunTable, AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
 import { Config } from "@/config/config"
 import { ConfigAgentCluster } from "@/config/agent-cluster"
@@ -64,6 +66,7 @@ export const AgentClusterReviewTool = Tool.define(
     const config = yield* Config.Service
     const sessions = yield* Session.Service
     const fsys = yield* AppFileSystem.Service
+    const bus = yield* Bus.Service
 
     const run = Effect.fn("AgentClusterReviewTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
@@ -91,12 +94,14 @@ export const AgentClusterReviewTool = Tool.define(
       }
       const task = matches[0]!
       if (task.status !== "submitted" && task.status !== "reviewing") {
-        return yield* Effect.fail(
-          new Error(`Cluster task ${task.id} cannot be reviewed from status ${task.status}`),
-        )
+        return yield* Effect.fail(new Error(`Cluster task ${task.id} cannot be reviewed from status ${task.status}`))
       }
 
       const now = Date.now()
+      const clusterRun = (yield* Database.query((db) =>
+        db.select().from(AgentClusterRunTable).where(eq(AgentClusterRunTable.id, task.run_id)).get(),
+      )) as RunRow | undefined
+      if (!clusterRun) return yield* Effect.fail(new Error(`Cluster run not found: ${task.run_id}`))
       if (task.status === "submitted") {
         yield* Database.query((db) =>
           db
@@ -119,13 +124,10 @@ export const AgentClusterReviewTool = Tool.define(
             new Error(`Cannot accept task ${task.id}; missing passing evidence for: ${missing.join(", ")}`),
           )
         }
-        const run = (yield* Database.query((db) =>
-          db.select().from(AgentClusterRunTable).where(eq(AgentClusterRunTable.id, task.run_id)).get(),
-        )) as RunRow | undefined
-        const session = run ? yield* sessions.get(run.session_id).pipe(Effect.orDie) : undefined
+        const session = yield* sessions.get(clusterRun.session_id).pipe(Effect.orDie)
         const missingArtifacts: string[] = []
         for (const artifact of task.artifact_paths) {
-          const artifactPath = path.isAbsolute(artifact) ? artifact : path.resolve(session?.directory ?? ".", artifact)
+          const artifactPath = path.isAbsolute(artifact) ? artifact : path.resolve(session.directory, artifact)
           if (!(yield* fsys.existsSafe(artifactPath))) missingArtifacts.push(artifact)
         }
         if (missingArtifacts.length > 0) {
@@ -221,6 +223,21 @@ export const AgentClusterReviewTool = Tool.define(
       if (status === "accepted") {
         yield* AgentCluster.finishRunFromTaskStates(task.run_id)
       }
+      yield* bus.publish(AgentClusterEvent, {
+        sessionID: clusterRun.session_id,
+        runID: task.run_id,
+        taskID: task.id,
+        type: "review",
+        status,
+        message: `Review for task ${task.id}: ${status}`,
+        metadata: {
+          decision: params.decision,
+          checks: params.checks,
+          issues,
+          reviewRound,
+        },
+        createdAt: Date.now(),
+      })
 
       return {
         title: "Agent cluster review",

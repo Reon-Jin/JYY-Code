@@ -341,6 +341,7 @@ describe("tool.registry", () => {
 
       expect(ids).toContain("agent_cluster_review")
       expect(Permission.evaluate("agent_cluster_review", "*", cluster.permission).action).toBe("allow")
+      expect(Permission.evaluate("question", "*", cluster.permission).action).toBe("deny")
       expect(Permission.evaluate("agent_cluster_review", "*", build.permission).action).toBe("deny")
     }),
   )

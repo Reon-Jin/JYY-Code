@@ -17,7 +17,7 @@ export const Info = Schema.Struct({
     description: "Model used by the cluster primary agent for planning.",
   }),
   reviewer_model: Schema.optional(Schema.String).annotate({
-    description: "Model used by the cluster primary agent for review.",
+    description: "Deprecated compatibility setting. Review is performed by the cluster primary model.",
   }),
   complex_model: Schema.optional(Schema.String).annotate({
     description: "Default model for complex cluster tasks.",
@@ -49,7 +49,6 @@ export const Default = {
   default_on: false,
   disable_for_routes: ["mail"],
   planner_model: "deepseek-v4-flash",
-  reviewer_model: "deepseek-v4-flash",
   complex_model: "deepseek-v4-flash",
   simple_model: "deepseek-v4-flash",
   visual_model: "deepseek-v4-flash",
@@ -57,12 +56,13 @@ export const Default = {
   max_concurrency: 10,
   max_review_rounds: 2,
   artifact_dir: ".jyycode/agent-cluster",
-} satisfies Required<Info>
+} satisfies Omit<Required<Info>, "reviewer_model">
 
 export function resolve(input: Info | undefined) {
+  const { reviewer_model: _legacyReviewerModel, ...overrides } = input ?? {}
   return {
     ...Default,
-    ...input,
+    ...overrides,
     disable_for_routes: input?.disable_for_routes ?? Default.disable_for_routes,
   }
 }

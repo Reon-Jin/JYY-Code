@@ -32,7 +32,6 @@ describe("AgentCluster planner instructions", () => {
       simpleModel: "provider/simple",
       complexModel: "provider/complex",
       visualModel: "provider/visual",
-      reviewerModel: "provider/reviewer",
       maxSubagents: 100,
       maxConcurrency: 10,
       maxReviewRounds: 2,
@@ -58,7 +57,6 @@ describe("AgentCluster planner instructions", () => {
       simpleModel: "p/m1",
       complexModel: "p/m2",
       visualModel: "p/m3",
-      reviewerModel: "p/m4",
       maxSubagents: 10,
       maxConcurrency: 3,
       maxReviewRounds: 2,
@@ -138,7 +136,8 @@ describe("AgentCluster.canUseAgentCluster", () => {
     agent: "build" as const,
     path: undefined,
     multiAgent: undefined as boolean | undefined,
-  } satisfies Pick<SessionInfo.Info, "title" | "agent" | "path" | "multiAgent">
+    parentID: undefined,
+  } satisfies Pick<SessionInfo.Info, "title" | "agent" | "path" | "multiAgent" | "parentID">
 
   test("returns false when config.enabled is false", () => {
     expect(
@@ -216,6 +215,15 @@ describe("AgentCluster.canUseAgentCluster", () => {
     ).toBe(true)
   })
 
+  test("returns false for subagent sessions even when default_on is true", () => {
+    expect(
+      AgentCluster.canUseAgentCluster({
+        session: { ...baseSession, parentID: "ses_parent" as any },
+        config: { ...baseConfig, default_on: true },
+      }),
+    ).toBe(false)
+  })
+
   test("returns false when default_on is true but session.path is mail", () => {
     expect(
       AgentCluster.canUseAgentCluster({
@@ -278,6 +286,74 @@ describe("AgentCluster.createRunID", () => {
 })
 
 describe("AgentCluster.persistPlan", () => {
+  it.instance("scopes reusable plan task ids to each run", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Repeated cluster runs" })
+      const users = yield* Effect.all(
+        [1, 2].map((index) =>
+          sessions.updateMessage({
+            id: MessageID.ascending(),
+            role: "user" as const,
+            sessionID: chat.id,
+            agent: "cluster",
+            model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+            time: { created: Date.now() + index },
+          }),
+        ),
+      )
+      const runIDs = [AgentCluster.createRunID() as RunID, AgentCluster.createRunID() as RunID]
+      const now = Date.now()
+      Database.use((db) => {
+        for (const [index, runID] of runIDs.entries()) {
+          db.insert(AgentClusterRunTable)
+            .values({
+              id: runID,
+              session_id: chat.id,
+              parent_message_id: users[index]!.id,
+              enabled: true,
+              status: "planning",
+              goal: "Research",
+              planner_model: "test/planner",
+              reviewer_model: "test/planner",
+              time_created: now,
+              time_updated: now,
+            })
+            .run()
+        }
+      })
+      const plan: Plan = {
+        goal: "Research",
+        tasks: [
+          {
+            id: AgentClusterRuntime.coerceTaskID("task-research"),
+            step: 1,
+            title: "Research",
+            role: "researcher",
+            complexity: "simple",
+            model: "test/simple",
+            dependencies: [],
+            prompt: "Research",
+            acceptanceCriteria: ["done"],
+            expectedArtifacts: [],
+          },
+        ],
+      }
+
+      yield* AgentCluster.persistPlan({ runID: runIDs[0]!, plan })
+      yield* AgentCluster.persistPlan({ runID: runIDs[1]!, plan })
+
+      const rows = Database.use((db) =>
+        db
+          .select()
+          .from(AgentClusterTaskTable)
+          .where(Database.eq(AgentClusterTaskTable.id, "task-research" as any))
+          .all(),
+      )
+      expect(rows.map((row) => row.run_id).toSorted()).toEqual(runIDs.toSorted())
+    }),
+  )
+
   it.instance("inserts planned task rows", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service
@@ -340,7 +416,9 @@ describe("AgentCluster.persistPlan", () => {
 
       yield* AgentCluster.persistPlan({ runID, plan })
 
-      const rows = Database.use((db) => db.select().from(AgentClusterTaskTable).all())
+      const rows = Database.use((db) =>
+        db.select().from(AgentClusterTaskTable).where(Database.eq(AgentClusterTaskTable.run_id, runID)).all(),
+      )
       expect(
         rows
           .map((row) => ({
@@ -378,6 +456,71 @@ describe("AgentCluster.persistPlan", () => {
 })
 
 describe("AgentCluster.finalizeRunIfTerminal", () => {
+  it.instance("keeps a resumed revision in revising state while the child runs", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Cluster revision" })
+      const user = yield* sessions.updateMessage({
+        id: MessageID.ascending(),
+        role: "user",
+        sessionID: chat.id,
+        agent: "cluster",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+        time: { created: Date.now() },
+      })
+      const runID = AgentCluster.createRunID() as RunID
+      const now = Date.now()
+      Database.use((db) => {
+        db.insert(AgentClusterRunTable)
+          .values({
+            id: runID,
+            session_id: chat.id,
+            parent_message_id: user.id,
+            enabled: true,
+            status: "reviewing",
+            goal: "Fix feature",
+            planner_model: "test/planner",
+            reviewer_model: "test/reviewer",
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+        db.insert(AgentClusterTaskTable)
+          .values({
+            id: AgentClusterRuntime.coerceTaskID("revise-task"),
+            run_id: runID,
+            role: "coder",
+            title: "Revise",
+            prompt: "Fix the rejected work",
+            complexity: "simple",
+            model: "test/simple",
+            status: "revising",
+            child_session_id: "ses_original" as any,
+            acceptance_criteria: ["fixed"],
+            artifact_paths: [],
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+      })
+
+      yield* AgentCluster.markTaskRunning({
+        runID,
+        taskID: "revise-task",
+        childSessionID: "ses_original" as any,
+      })
+
+      const task = Database.use((db) =>
+        db
+          .select()
+          .from(AgentClusterTaskTable)
+          .where(Database.eq(AgentClusterTaskTable.id, "revise-task" as any))
+          .get(),
+      )
+      expect(task?.status).toBe("revising")
+    }),
+  )
+
   it.instance("does not complete a run while tasks are running", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service
@@ -491,7 +634,11 @@ describe("AgentCluster.finalizeRunIfTerminal", () => {
       })
       const state = yield* AgentCluster.finishRunFromTaskStates(runID)
       const task = Database.use((db) =>
-        db.select().from(AgentClusterTaskTable).where(Database.eq(AgentClusterTaskTable.id, "submitted-task" as any)).get(),
+        db
+          .select()
+          .from(AgentClusterTaskTable)
+          .where(Database.eq(AgentClusterTaskTable.id, "submitted-task" as any))
+          .get(),
       )
       const run = Database.use((db) =>
         db.select().from(AgentClusterRunTable).where(Database.eq(AgentClusterRunTable.id, runID)).get(),
@@ -563,12 +710,7 @@ describe("AgentCluster.finalizeRunIfTerminal", () => {
 })
 
 describe("AgentClusterRuntime.validatePlan", () => {
-  const task = (input: {
-    id: string
-    step: number
-    dependencies?: string[]
-    title?: string
-  }) => ({
+  const task = (input: { id: string; step: number; dependencies?: string[]; title?: string }) => ({
     id: AgentClusterRuntime.coerceTaskID(input.id),
     step: input.step,
     title: input.title ?? input.id,
@@ -665,10 +807,7 @@ describe("AgentClusterRuntime.validatePlan", () => {
   test("blocks ready tasks when dependencies are missing or failed", () => {
     const plan = {
       goal: "ship feature",
-      tasks: [
-        task({ id: "research", step: 1 }),
-        task({ id: "build", step: 2, dependencies: ["research"] }),
-      ],
+      tasks: [task({ id: "research", step: 1 }), task({ id: "build", step: 2, dependencies: ["research"] })],
     }
 
     expect(

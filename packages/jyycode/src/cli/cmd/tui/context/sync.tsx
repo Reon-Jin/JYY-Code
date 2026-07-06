@@ -61,7 +61,6 @@ export type AgentClusterTask = {
     | "pdf"
     | "coder"
     | "tester"
-    | "reviewer"
     | "picture_searcher"
     | "general"
   title: string

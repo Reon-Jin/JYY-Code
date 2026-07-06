@@ -60,7 +60,6 @@ export function runInstructions(input: {
   simpleModel: string
   complexModel: string
   visualModel: string
-  reviewerModel: string
   maxSubagents: number
   maxConcurrency: number
   maxReviewRounds: number
@@ -72,7 +71,6 @@ export function runInstructions(input: {
     `simple_model: ${input.simpleModel}`,
     `complex_model: ${input.complexModel}`,
     `visual_model: ${input.visualModel}`,
-    `reviewer_model: ${input.reviewerModel}`,
     `max_subagents: ${input.maxSubagents}`,
     `max_concurrency: ${input.maxConcurrency}`,
     `max_review_rounds: ${input.maxReviewRounds}`,
