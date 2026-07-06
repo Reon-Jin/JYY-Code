@@ -11,11 +11,28 @@ const multiAgentRootID = SessionID.make("ses_multi_root")
 const childID = SessionID.make("ses_child")
 
 function fixture() {
-  const memoryPath = path.join(Memory.DIRECTORY, "MEMORY.md")
-  const userPath = path.join(Memory.DIRECTORY, "USER.md")
+  const memoryPath = path.join(Memory.DIRECTORY, "MEMORY.json")
+  const userPath = path.join(Memory.DIRECTORY, "USER.json")
   const files = new Map<string, string>([
-    [memoryPath, "# JYY-Code Memory\n\n## General\n\n- existing project fact\n"],
-    [userPath, "# User Memory\n\n## General\n\n- existing user fact\n"],
+    [
+      memoryPath,
+      Memory.serializeStore("memory", [
+        {
+          scope: "memory",
+          sessionID: rootID,
+          importance: 6,
+          date: "20260705",
+          keywords: ["existing", "project"],
+          content: "existing project fact",
+        },
+      ]),
+    ],
+    [
+      userPath,
+      Memory.serializeStore("user", [
+        { scope: "user", importance: 8, keywords: ["existing", "user"], content: "existing user fact" },
+      ]),
+    ],
   ])
   const mtimes = new Map<string, number>([
     [memoryPath, 1],
@@ -84,7 +101,9 @@ describe("memory write authorization", () => {
           }),
         ),
       )
-      expect(result.status).toBe("written")
+      expect(["written", "replaced"]).toContain(result.status)
+      const text = await run(Memory.Service.use((memory) => memory.read({ sessionID, scope: "memory" })))
+      expect(() => Memory.parseStore("memory", text)).not.toThrow()
     }
   })
 

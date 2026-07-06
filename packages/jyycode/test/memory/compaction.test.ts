@@ -27,23 +27,13 @@ async function fixture() {
   )
   const run = <A, E>(effect: Effect.Effect<A, E, Memory.Service>) =>
     Effect.runPromise(effect.pipe(Effect.provide(layer)))
-  const target = (scope: Memory.Scope) => path.join(dir, scope === "memory" ? "MEMORY.md" : "USER.md")
+  const target = (scope: Memory.Scope) => path.join(dir, scope === "memory" ? "MEMORY.json" : "USER.json")
   const seed = async (scope: Memory.Scope, entries: Memory.MemoryEntry[]) => {
-    const title = scope === "memory" ? "# JYY-Code Memory" : "# User Memory"
-    await fs.writeFile(
-      target(scope),
-      [title, "", "<!-- schema: 2; last_compacted: never -->", "", ...entries.map(Memory.serializeEntry), ""].join(
-        "\n",
-      ),
-      "utf8",
-    )
+    await fs.writeFile(target(scope), Memory.serializeStore(scope, entries), "utf8")
   }
   const read = async (scope: Memory.Scope) => {
     const text = await fs.readFile(target(scope), "utf8")
-    const entries = text
-      .split(/\r?\n/u)
-      .filter((line) => line.startsWith("- "))
-      .map((line) => Memory.parseEntry(scope, line))
+    const entries = Memory.parseStore(scope, text).entries
     return { text, entries }
   }
   return { run, seed, read }
@@ -71,15 +61,14 @@ function user(index: number, importance: Memory.Importance, content = `用户稳
 }
 
 describe("bounded deterministic memory compaction", () => {
-  test("deduplicates, merges the same session, and merges similar keywords", async () => {
+  test("merges entries with similar keywords", async () => {
     const { run, seed, read } = await fixture()
     const entries = [
-      task({ id: "ses_same", date: "20260701", content: "完成赛车游戏基础建模。", keywords: ["赛车", "地图"] }),
-      task({ id: "ses_same", date: "20260705", content: "完成赛车游戏地图优化。", keywords: ["赛车", "地图"] }),
+      task({ id: "ses_racing_a", date: "20260701", content: "完成赛车游戏基础建模。", keywords: ["赛车", "地图"] }),
+      task({ id: "ses_racing_b", date: "20260705", content: "完成赛车游戏地图优化。", keywords: ["赛车", "地图"] }),
       task({ id: "ses_similar_a", content: "完成代码质量检查。", keywords: ["typescript", "代码"] }),
       task({ id: "ses_similar_b", content: "完成代码性能优化。", keywords: ["typescript", "代码", "优化"] }),
-      task({ id: "ses_duplicate", content: "完成独立文档。", keywords: ["文档"] }),
-      task({ id: "ses_duplicate", content: "完成独立文档。", keywords: ["文档"] }),
+      task({ id: "ses_document", content: "完成独立文档。", keywords: ["文档"] }),
     ]
     await seed("memory", entries)
 
@@ -87,9 +76,8 @@ describe("bounded deterministic memory compaction", () => {
     const stored = await read("memory")
 
     expect(result.merged).toBeGreaterThanOrEqual(2)
-    expect(result.removed).toBeGreaterThanOrEqual(1)
     expect(result.retained).toBe(stored.entries.length)
-    expect((stored.entries as Memory.TaskMemoryEntry[]).filter((entry) => entry.sessionID === "ses_same")).toHaveLength(1)
+    expect((stored.entries as Memory.TaskMemoryEntry[]).filter((entry) => entry.keywords.includes("赛车"))).toHaveLength(1)
   })
 
   test("evicts low-value entries, protects high-value user facts, and returns below 70 percent", async () => {
@@ -130,7 +118,7 @@ describe("bounded deterministic memory compaction", () => {
 
   test("rejects a low-value candidate when protected entries leave no capacity", async () => {
     const { run, seed, read } = await fixture()
-    const protectedEntries = Array.from({ length: 28 }, (_, i) => user(i, 10, `用户关键身份事实 ${i}：${"甲".repeat(22)}。`))
+    const protectedEntries = Array.from({ length: 10 }, (_, i) => user(i, 10, `用户关键身份事实 ${i}。`))
     await seed("user", protectedEntries)
     const before = await read("user")
 

@@ -10,11 +10,11 @@ const firstSession = SessionID.make("ses_first")
 const secondSession = SessionID.make("ses_second")
 
 function fixture() {
-  const memoryPath = path.join(Memory.DIRECTORY, "MEMORY.md")
-  const userPath = path.join(Memory.DIRECTORY, "USER.md")
+  const memoryPath = path.join(Memory.DIRECTORY, "MEMORY.json")
+  const userPath = path.join(Memory.DIRECTORY, "USER.json")
   const files = new Map<string, string>([
-    [memoryPath, "# JYY-Code Memory\n\n<!-- schema: 2; last_compacted: never -->\n"],
-    [userPath, "# User Memory\n\n<!-- schema: 2; last_compacted: never -->\n"],
+    [memoryPath, Memory.serializeStore("memory", [])],
+    [userPath, Memory.serializeStore("user", [])],
   ])
   const fsLayer = Layer.effect(
     AppFileSystem.Service,
@@ -47,10 +47,7 @@ function fixture() {
   const run = <A, E>(effect: Effect.Effect<A, E, Memory.Service>) =>
     Effect.runPromise(effect.pipe(Effect.provide(layer)))
   const entries = (scope: Memory.Scope) =>
-    (files.get(scope === "memory" ? memoryPath : userPath) ?? "")
-      .split(/\r?\n/u)
-      .filter((line) => line.startsWith("- "))
-      .map((line) => Memory.parseEntry(scope, line))
+    Memory.parseStore(scope, files.get(scope === "memory" ? memoryPath : userPath) ?? "").entries
 
   return { run, entries }
 }

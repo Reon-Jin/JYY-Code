@@ -4,98 +4,133 @@ import type { SessionID } from "@/session/schema"
 
 const sessionID = "ses_01JZFCG3S4N6C5M7V8B9X0Y1Z2" as SessionID
 
-describe("memory v2 entry format", () => {
-  test("parses valid task and user entries", () => {
+describe("memory v3 JSON format", () => {
+  test("parses valid task and user stores", () => {
     expect(
-      Memory.parseEntry(
+      Memory.parseStore(
         "memory",
-        `- 重要性：3 + 日期：20260705 + 关键词：赛车游戏、TypeScript + 内容：完成赛车建模和地图绘制。 + session：${sessionID}`,
+        JSON.stringify({
+          schemaVersion: 3,
+          lastCompactedAt: null,
+          entries: [
+            {
+              sessionID,
+              importance: 3,
+              date: "20260705",
+              keywords: ["赛车游戏", "TypeScript"],
+              content: "完成赛车建模和地图绘制。",
+            },
+          ],
+        }),
       ),
     ).toEqual({
-      scope: "memory",
-      importance: 3,
-      date: "20260705",
-      keywords: ["赛车游戏", "typescript"],
-      content: "完成赛车建模和地图绘制。",
-      sessionID,
+      schemaVersion: 3,
+      lastCompactedAt: null,
+      entries: [
+        {
+          scope: "memory",
+          sessionID,
+          importance: 3,
+          date: "20260705",
+          keywords: ["赛车游戏", "typescript"],
+          content: "完成赛车建模和地图绘制。",
+        },
+      ],
     })
 
-    expect(Memory.parseEntry("user", "- 重要性：10 + 关键词：生日 + 内容：用户生日为20050218。")).toEqual({
-      scope: "user",
-      importance: 10,
-      keywords: ["生日"],
-      content: "用户生日为20050218。",
-    })
-  })
-
-  test("rejects fields in the wrong order", () => {
-    expect(() =>
-      Memory.parseEntry(
-        "memory",
-        `- 日期：20260705 + 重要性：3 + 关键词：赛车游戏 + 内容：完成赛车游戏。 + session：${sessionID}`,
+    expect(
+      Memory.parseStore(
+        "user",
+        JSON.stringify({
+          schemaVersion: 3,
+          lastCompactedAt: null,
+          entries: [{ importance: 10, keywords: ["生日"], content: "用户生日为20050218。" }],
+        }),
       ),
-    ).toThrow("Invalid memory entry format")
+    ).toEqual({
+      schemaVersion: 3,
+      lastCompactedAt: null,
+      entries: [{ scope: "user", importance: 10, keywords: ["生日"], content: "用户生日为20050218。" }],
+    })
   })
 
-  test("rejects importance outside 1 through 10", () => {
-    expect(() => Memory.parseEntry("user", "- 重要性：11 + 关键词：姓名 + 内容：用户姓名为金毅阳。")).toThrow(
+  test("serializes deterministically with two spaces and a trailing newline", () => {
+    const text = Memory.serializeStore("user", [
+      {
+        scope: "user",
+        importance: 9,
+        keywords: [" TypeScript ", "代码风格", "typescript"],
+        content: " 用户长期偏好 TypeScript。 ",
+      },
+    ])
+
+    expect(text).toBe(
+      '{\n  "schemaVersion": 3,\n  "lastCompactedAt": null,\n  "entries": [\n    {\n      "importance": 9,\n      "keywords": [\n        "typescript",\n        "代码风格"\n      ],\n      "content": "用户长期偏好 TypeScript。"\n    }\n  ]\n}\n',
+    )
+    expect(Memory.serializeStore("user", Memory.parseStore("user", text).entries)).toBe(text)
+  })
+
+  test.each([
+    [{ schemaVersion: 2, lastCompactedAt: null, entries: [] }, "schemaVersion"],
+    [{ schemaVersion: 3, lastCompactedAt: null, entries: [], extra: true }, "unknown field"],
+    [
+      {
+        schemaVersion: 3,
+        lastCompactedAt: null,
+        entries: [
+          { sessionID, importance: 11, date: "20260705", keywords: ["项目"], content: "完成项目。" },
+        ],
+      },
       "importance",
-    )
+    ],
+    [
+      {
+        schemaVersion: 3,
+        lastCompactedAt: null,
+        entries: [
+          { sessionID, importance: 3, date: "20260230", keywords: ["赛车"], content: "完成赛车游戏。" },
+        ],
+      },
+      "date",
+    ],
+  ])("rejects invalid stores", (value, message) => {
+    expect(() => Memory.parseStore("memory", JSON.stringify(value))).toThrow(message as string)
   })
 
-  test("rejects invalid calendar dates", () => {
+  test("rejects duplicate stable keys", () => {
     expect(() =>
-      Memory.parseEntry(
-        "memory",
-        `- 重要性：3 + 日期：20260230 + 关键词：赛车游戏 + 内容：完成赛车游戏。 + session：${sessionID}`,
+      Memory.parseStore(
+        "user",
+        JSON.stringify({
+          schemaVersion: 3,
+          lastCompactedAt: null,
+          entries: [
+            { importance: 7, keywords: [" TypeScript "], content: "偏好 TypeScript。" },
+            { importance: 8, keywords: ["typescript"], content: "长期偏好 TypeScript。" },
+          ],
+        }),
       ),
-    ).toThrow("date")
-  })
-
-  test("rejects empty keywords", () => {
-    expect(() => Memory.parseEntry("user", "- 重要性：8 + 关键词：　 + 内容：偏好简洁回答。")).toThrow(
-      "keywords",
-    )
-  })
-
-  test("preserves plus signs in content", () => {
-    const entry = Memory.parseEntry(
-      "memory",
-      `- 重要性：7 + 日期：20260705 + 关键词：C++ + 内容：完成 C++ 与 A + B 解析支持。 + session：${sessionID}`,
-    )
-    expect(entry.content).toBe("完成 C++ 与 A + B 解析支持。")
-  })
-
-  test("serializes deterministically and round trips", () => {
-    const entry: Memory.UserMemoryEntry = {
-      scope: "user",
-      importance: 9,
-      keywords: [" TypeScript ", "代码风格", "typescript"],
-      content: " 用户长期偏好 TypeScript。 ",
-    }
-    const serialized = Memory.serializeEntry(entry)
-
-    expect(serialized).toBe("- 重要性：9 + 关键词：typescript、代码风格 + 内容：用户长期偏好 TypeScript。")
-    expect(Memory.serializeEntry(Memory.parseEntry("user", serialized))).toBe(serialized)
+    ).toThrow("duplicate key")
   })
 
   test("uses session IDs and normalized keywords as stable keys", () => {
-    const task: Memory.TaskMemoryEntry = {
-      scope: "memory",
-      importance: 4,
-      date: "20260705",
-      keywords: ["项目"],
-      content: "完成项目基础设施。",
-      sessionID,
-    }
-    const user: Memory.UserMemoryEntry = {
-      scope: "user",
-      importance: 8,
-      keywords: [" TypeScript ", "代码风格"],
-      content: "用户偏好 TypeScript。",
-    }
-
-    expect(Memory.entryKey(task)).toBe(sessionID)
-    expect(Memory.entryKey(user)).toBe("typescript\u001f代码风格")
+    expect(
+      Memory.entryKey({
+        scope: "memory",
+        importance: 4,
+        date: "20260705",
+        keywords: ["项目"],
+        content: "完成项目基础设施。",
+        sessionID,
+      }),
+    ).toBe(sessionID)
+    expect(
+      Memory.entryKey({
+        scope: "user",
+        importance: 8,
+        keywords: [" TypeScript ", "代码风格"],
+        content: "用户偏好 TypeScript。",
+      }),
+    ).toBe("typescript\u001f代码风格")
   })
 })

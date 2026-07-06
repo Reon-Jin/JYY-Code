@@ -60,11 +60,8 @@ describe("memory mutation concurrency", () => {
       ),
     )
 
-    const text = await fs.readFile(path.join(dir, "MEMORY.md"), "utf8")
-    const entries = text
-      .split(/\r?\n/u)
-      .filter((line) => line.startsWith("- "))
-      .map((line) => Memory.parseEntry("memory", line)) as Memory.TaskMemoryEntry[]
+    const text = await fs.readFile(path.join(dir, "MEMORY.json"), "utf8")
+    const entries = Memory.parseStore("memory", text).entries as Memory.TaskMemoryEntry[]
     expect(entries).toHaveLength(sessionIDs.length)
     expect(new Set(entries.map((entry) => entry.sessionID))).toEqual(new Set(sessionIDs))
     expect((await fs.readdir(dir)).filter((name) => name.includes(".tmp"))).toEqual([])
@@ -94,14 +91,14 @@ describe("memory mutation concurrency", () => {
       ),
     )
 
-    expect(await fs.readFile(path.join(dir, "MEMORY.md"), "utf8")).toContain("更新后的内容。")
+    expect(await fs.readFile(path.join(dir, "MEMORY.json"), "utf8")).toContain("更新后的内容。")
     expect((await fs.readdir(dir)).filter((name) => name.includes(".tmp"))).toEqual([])
   })
 
   test("preserves the original when the atomic commit fails", async () => {
     const { dir, run } = await fixture({ failRename: true })
-    const target = path.join(dir, "MEMORY.md")
-    await fs.writeFile(target, "# JYY-Code Memory\n\n<!-- schema: 2; last_compacted: never -->\n", "utf8")
+    const target = path.join(dir, "MEMORY.json")
+    await fs.writeFile(target, Memory.serializeStore("memory", []), "utf8")
     const before = await fs.readFile(target, "utf8")
 
     const exit = await run(
@@ -120,5 +117,28 @@ describe("memory mutation concurrency", () => {
     expect(Exit.isFailure(exit)).toBe(true)
     expect(await fs.readFile(target, "utf8")).toBe(before)
     expect((await fs.readdir(dir)).filter((name) => name.includes(".tmp"))).toEqual([])
+  })
+
+  test("does not overwrite an invalid JSON store", async () => {
+    const { dir, run } = await fixture()
+    const target = path.join(dir, "MEMORY.json")
+    await fs.writeFile(target, '{"schemaVersion":3,"lastCompactedAt":null,"entries":', "utf8")
+    const before = await fs.readFile(target, "utf8")
+
+    const exit = await run(
+      Effect.exit(
+        Memory.Service.use((memory) =>
+          memory.upsertTaskMemory({
+            sessionID: SessionID.make("ses_invalid_store"),
+            importance: 6,
+            keywords: ["无效文件"],
+            content: "该内容不应覆盖无效文件。",
+          }),
+        ),
+      ),
+    )
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(await fs.readFile(target, "utf8")).toBe(before)
   })
 })

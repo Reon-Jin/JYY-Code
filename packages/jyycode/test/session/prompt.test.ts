@@ -166,8 +166,8 @@ const memorySearchLayer = Layer.succeed(
         input.query.includes("用户")
           ? [
               {
-                file: path.join(Memory.DIRECTORY, "USER.md"),
-                section: "Personal / Stable Context",
+                file: path.join(Memory.DIRECTORY, "USER.json"),
+                section: "user",
                 line: 18,
                 score: 3,
                 text: "content: 用户是金毅阳。",
@@ -543,6 +543,7 @@ withMemory.instance("loop injects automatic memory retrieval results into model 
     const payload = JSON.stringify(inputs.at(-1)?.messages)
     expect(payload).toContain("Relevant persistent memory was automatically retrieved from D:/jyycode/memory")
     expect(payload).toContain("content: 用户是金毅阳。")
+    expect(payload).not.toContain("score=3")
   }),
 )
 

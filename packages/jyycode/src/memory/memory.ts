@@ -11,8 +11,8 @@ import { MessageV2 } from "@/session/message-v2"
 import * as Log from "@jyycode-ai/core/util/log"
 const log = Log.create({ service: "memory" })
 
-const MEMORY_FILE = "MEMORY.md"
-const USER_FILE = "USER.md"
+const MEMORY_FILE = "MEMORY.json"
+const USER_FILE = "USER.json"
 export const DIRECTORY = path.normalize("D:/jyycode/memory")
 const MEMORY_CHAR_LIMIT = 10_000
 const USER_CHAR_LIMIT = 2_000
@@ -44,6 +44,12 @@ export type UserMemoryEntry = {
 
 export type MemoryEntry = TaskMemoryEntry | UserMemoryEntry
 
+export type MemoryStore = {
+  schemaVersion: 3
+  lastCompactedAt: string | null
+  entries: MemoryEntry[]
+}
+
 export class MemoryWriteForbidden extends Schema.TaggedErrorClass<MemoryWriteForbidden>()("MemoryWriteForbidden", {
   sessionID: SessionID,
 }) {
@@ -52,10 +58,6 @@ export class MemoryWriteForbidden extends Schema.TaggedErrorClass<MemoryWriteFor
   }
 }
 
-const taskEntryPattern =
-  /^- 重要性：(\d+) \+ 日期：([^\r\n]+?) \+ 关键词：([^\r\n]*?) \+ 内容：([^\r\n]+) \+ session：([^\s]+)$/u
-const userEntryPattern = /^- 重要性：(\d+) \+ 关键词：([^\r\n]*?) \+ 内容：([^\r\n]+)$/u
-
 export function normalizeKeywords(keywords: readonly string[]): string[] {
   const normalized = keywords
     .map((keyword) => keyword.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase())
@@ -63,40 +65,119 @@ export function normalizeKeywords(keywords: readonly string[]): string[] {
   return [...new Set(normalized)]
 }
 
-export function parseEntry(scope: Scope, line: string): MemoryEntry {
-  const match = scope === "memory" ? taskEntryPattern.exec(line) : userEntryPattern.exec(line)
-  if (!match) throw new Error(`Invalid ${scope} entry format`)
-
-  const importance = parseImportance(match[1])
-  if (scope === "memory") {
-    const date = match[2]!
-    const keywords = parseKeywords(match[3]!)
-    const content = parseContent(match[4]!)
-    const sessionID = match[5]!
-    if (!isCalendarDate(date)) throw new Error(`Invalid memory entry date: ${date}`)
-    if (!sessionID) throw new Error("Invalid memory entry session")
-    return { scope, importance, date, keywords, content, sessionID: SessionID.make(sessionID) }
+export function parseStore(scope: Scope, text: string): MemoryStore {
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch (error) {
+    throw new Error(`Invalid ${scope} JSON: ${error instanceof Error ? error.message : String(error)}`)
   }
-
-  return {
-    scope,
-    importance,
-    keywords: parseKeywords(match[2]!),
-    content: parseContent(match[3]!),
+  const root = expectRecord(value, `${scope} store`)
+  assertExactFields(root, ["schemaVersion", "lastCompactedAt", "entries"], `${scope} store`)
+  if (root.schemaVersion !== 3) throw new Error(`Invalid ${scope} schemaVersion: expected 3`)
+  if (root.lastCompactedAt !== null && (typeof root.lastCompactedAt !== "string" || !isCalendarDate(root.lastCompactedAt))) {
+    throw new Error(`Invalid ${scope} lastCompactedAt`)
   }
+  if (!Array.isArray(root.entries)) throw new Error(`Invalid ${scope} entries: expected an array`)
+
+  const entries = root.entries.map((entry, index) => parseEntryObject(scope, entry, index))
+  const keys = new Set<string>()
+  for (const entry of entries) {
+    const key = entryKey(entry)
+    if (keys.has(key)) throw new Error(`Invalid ${scope} store: duplicate key ${key}`)
+    keys.add(key)
+  }
+  return { schemaVersion: 3, lastCompactedAt: root.lastCompactedAt as string | null, entries }
 }
 
-export function serializeEntry(entry: MemoryEntry): string {
-  const importance = parseImportance(String(entry.importance))
+export function serializeStore(
+  scope: Scope,
+  entries: readonly MemoryEntry[],
+  lastCompactedAt: string | null = null,
+): string {
+  if (lastCompactedAt !== null && !isCalendarDate(lastCompactedAt)) throw new Error(`Invalid ${scope} lastCompactedAt`)
+  const normalized = entries.map((entry, index) => {
+    if (entry.scope !== scope) throw new Error(`Invalid ${scope} entry scope at index ${index}`)
+    return normalizeEntry(entry)
+  })
+  const keys = new Set<string>()
+  for (const entry of normalized) {
+    const key = entryKey(entry)
+    if (keys.has(key)) throw new Error(`Invalid ${scope} store: duplicate key ${key}`)
+    keys.add(key)
+  }
+  const stored = normalized.map((entry) =>
+    entry.scope === "memory"
+      ? {
+          sessionID: entry.sessionID,
+          importance: entry.importance,
+          date: entry.date,
+          keywords: entry.keywords,
+          content: entry.content,
+        }
+      : { importance: entry.importance, keywords: entry.keywords, content: entry.content },
+  )
+  return JSON.stringify({ schemaVersion: 3, lastCompactedAt, entries: stored }, null, 2) + "\n"
+}
+
+function parseEntryObject(scope: Scope, value: unknown, index: number): MemoryEntry {
+  const entry = expectRecord(value, `${scope} entry ${index}`)
+  if (scope === "memory") {
+    assertExactFields(entry, ["sessionID", "importance", "date", "keywords", "content"], `memory entry ${index}`)
+    return normalizeEntry({
+      scope,
+      sessionID: SessionID.make(expectString(entry.sessionID, "memory entry sessionID")),
+      importance: parseImportance(entry.importance),
+      date: expectString(entry.date, "memory entry date"),
+      keywords: expectStringArray(entry.keywords, "memory entry keywords"),
+      content: expectString(entry.content, "memory entry content"),
+    })
+  }
+  assertExactFields(entry, ["importance", "keywords", "content"], `user entry ${index}`)
+  return normalizeEntry({
+    scope,
+    importance: parseImportance(entry.importance),
+    keywords: expectStringArray(entry.keywords, "user entry keywords"),
+    content: expectString(entry.content, "user entry content"),
+  })
+}
+
+function normalizeEntry(entry: MemoryEntry): MemoryEntry {
+  const importance = parseImportance(entry.importance)
   const keywords = validateKeywords(entry.keywords)
   const content = parseContent(entry.content)
   if (entry.scope === "memory") {
     if (!isCalendarDate(entry.date)) throw new Error(`Invalid memory entry date: ${entry.date}`)
     const sessionID = String(entry.sessionID).trim()
-    if (!sessionID || /\s/u.test(sessionID)) throw new Error("Invalid memory entry session")
-    return `- 重要性：${importance} + 日期：${entry.date} + 关键词：${keywords.join("、")} + 内容：${content} + session：${sessionID}`
+    if (!sessionID || /\s/u.test(sessionID)) throw new Error("Invalid memory entry sessionID")
+    return { scope: "memory", sessionID: SessionID.make(sessionID), importance, date: entry.date, keywords, content }
   }
-  return `- 重要性：${importance} + 关键词：${keywords.join("、")} + 内容：${content}`
+  return { scope: "user", importance, keywords, content }
+}
+
+function expectRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Invalid ${label}: expected object`)
+  return value as Record<string, unknown>
+}
+
+function assertExactFields(value: Record<string, unknown>, expected: readonly string[], label: string) {
+  const allowed = new Set(expected)
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key))
+  const missing = expected.filter((key) => !(key in value))
+  if (unknown.length > 0) throw new Error(`Invalid ${label}: unknown field ${unknown[0]}`)
+  if (missing.length > 0) throw new Error(`Invalid ${label}: missing field ${missing[0]}`)
+}
+
+function expectString(value: unknown, label: string) {
+  if (typeof value !== "string") throw new Error(`Invalid ${label}: expected string`)
+  return value
+}
+
+function expectStringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`Invalid ${label}: expected string array`)
+  }
+  return value
 }
 
 export function entryKey(entry: MemoryEntry): string {
@@ -104,16 +185,12 @@ export function entryKey(entry: MemoryEntry): string {
   return [...validateKeywords(entry.keywords)].sort().join("\u001f")
 }
 
-function parseImportance(value: string): Importance {
+function parseImportance(value: unknown): Importance {
   const importance = Number(value)
   if (!Number.isInteger(importance) || importance < 1 || importance > 10) {
     throw new Error(`Invalid memory entry importance: ${value}`)
   }
   return importance as Importance
-}
-
-function parseKeywords(value: string): string[] {
-  return validateKeywords(value.split("、"))
 }
 
 function validateKeywords(value: readonly string[]): string[] {
@@ -152,51 +229,51 @@ type MemoryWriteInput = {
 export type TaskMemoryUpsertInput = Omit<TaskMemoryEntry, "scope" | "date">
 export type UserMemoryUpsertInput = Omit<UserMemoryEntry, "scope"> & { sessionID: SessionID }
 
-export type CuratedTurn = {
-  task?: TaskMemoryUpsertInput
-  user: Array<Omit<UserMemoryEntry, "scope">>
+export type MemoryCandidate = {
+  importance: Importance
+  keywords: string[]
+  content: string
 }
 
-export function curateTurn(input: {
+export type MemoryDecision = {
+  shouldUpdate: boolean
+  reason: string
+  task?: MemoryCandidate
+  user: MemoryCandidate[]
+}
+
+export type DecisionInput = {
   sessionID: SessionID
+  firstTurn: boolean
   userText: string
   assistantText: string
-}): CuratedTurn {
-  const user = extractStableUserCandidates(input.userText)
-  const combined = `${input.userText}\n${input.assistantText}`
-  if (
-    !input.userText.trim() ||
-    !input.assistantText.trim() ||
-    looksSensitive(combined) ||
-    /(?:fixture|fake world|测试夹具|hello llm)/iu.test(combined) ||
-    /(?:^|[，。！？\s])(你好|您好|hello|hi)(?:[，。！？\s]|$)/iu.test(input.userText.trim()) ||
-    /(?:还没好|进度|催一下|到哪了)/u.test(input.userText) ||
-    /(?:这次|本次|当前任务|暂时|单次).{0,20}(?:不要|只|仅)/u.test(input.userText) ||
-    /(?:未完成|尚未完成|没有完成|失败)/u.test(input.assistantText) ||
-    !/(?:已完成|完成了|已实现|已创建|已生成|已修复|交付完成|通过测试|implemented|completed|created|fixed)/iu.test(
-      input.assistantText,
-    )
-  ) {
-    return { user }
-  }
-
-  const content = summarizeText(
-    input.assistantText
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .find((line) => line && !line.startsWith("#")) ?? input.assistantText,
-    120,
-  )
-  return {
-    task: {
-      sessionID: input.sessionID,
-      importance: taskImportance(input.userText, input.assistantText),
-      keywords: extractTaskKeywords(combined),
-      content,
-    },
-    user,
-  }
 }
+
+export type DecisionEvaluator = (input: DecisionInput) => Effect.Effect<unknown, unknown>
+
+export const MemoryDecisionJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["shouldUpdate", "reason", "user"],
+  properties: {
+    shouldUpdate: { type: "boolean" },
+    reason: { type: "string", minLength: 1 },
+    task: { $ref: "#/$defs/candidate" },
+    user: { type: "array", items: { $ref: "#/$defs/candidate" } },
+  },
+  $defs: {
+    candidate: {
+      type: "object",
+      additionalProperties: false,
+      required: ["importance", "keywords", "content"],
+      properties: {
+        importance: { type: "integer", minimum: 1, maximum: 10 },
+        keywords: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", minLength: 1 } },
+        content: { type: "string", minLength: 1 },
+      },
+    },
+  },
+} as const
 
 export type MutationResult = {
   id?: string
@@ -233,13 +310,13 @@ export type UsageInfo = {
 export interface Interface {
   readonly dir: (sessionID: SessionID) => Effect.Effect<string>
   readonly ensure: (sessionID: SessionID) => Effect.Effect<void>
-  readonly read: (input: { sessionID: SessionID; scope: Scope; section?: string }) => Effect.Effect<string>
+  readonly read: (input: { sessionID: SessionID; scope: Scope; section?: string }) => Effect.Effect<string, Error>
   readonly search: (input: {
     sessionID: SessionID
     query: string
     scope?: Scope | "all"
     limit?: number
-  }) => Effect.Effect<SearchResult[]>
+  }) => Effect.Effect<SearchResult[], Error>
   readonly upsertTaskMemory: (input: TaskMemoryUpsertInput) => Effect.Effect<MutationResult, Error>
   readonly upsertUserMemory: (input: UserMemoryUpsertInput) => Effect.Effect<MutationResult, Error>
   readonly write: (input: MemoryWriteInput) => Effect.Effect<MutationResult, Error>
@@ -257,13 +334,15 @@ export interface Interface {
     reason: string
   }) => Effect.Effect<MutationResult, Error>
   readonly compact: (input: { sessionID: SessionID; scope: Scope }) => Effect.Effect<CompactionResult, Error>
-  readonly usage: (sessionID: SessionID, scope: Scope) => Effect.Effect<UsageInfo>
-  readonly formatWithHeader: (sessionID: SessionID, scope: Scope) => Effect.Effect<string>
+  readonly usage: (sessionID: SessionID, scope: Scope) => Effect.Effect<UsageInfo, Error>
+  readonly formatWithHeader: (sessionID: SessionID, scope: Scope) => Effect.Effect<string, Error>
   readonly updateAfterTurn: (
     sessionID: SessionID,
+    evaluator?: DecisionEvaluator,
   ) => Effect.Effect<
     | void
     | { status: "skipped"; reason: "subagent" }
+    | { status: "skipped"; reason: "llm_skip" | "llm_invalid" }
     | { status: "updated"; taskUpdated: boolean; userUpdated: number },
     Error
   >
@@ -272,8 +351,8 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@jyycode/Memory") {}
 
 const templates: Record<Scope, string> = {
-  memory: "# JYY-Code Memory\n\n<!-- schema: 2; last_compacted: never -->\n",
-  user: "# User Memory\n\n<!-- schema: 2; last_compacted: never -->\n",
+  memory: serializeStore("memory", []),
+  user: serializeStore("user", []),
 }
 
 const filenames: Record<Scope, string> = {
@@ -317,6 +396,11 @@ export const layerWithDirectory = (directory: string) =>
       return (yield* fs.readFileStringSafe(yield* filePath(sessionID, scope)).pipe(Effect.orDie)) ?? templates[scope]
     })
 
+    const readStore = Effect.fn("Memory.readStore")(function* (sessionID: SessionID, scope: Scope) {
+      const text = yield* readFull(sessionID, scope)
+      return yield* Effect.try({ try: () => parseStore(scope, text), catch: (error) => asError(error) })
+    })
+
     const writeFileAtomic = Effect.fn("Memory.writeFileAtomic")(function* (target: string, content: string) {
       const temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomUUID()}.tmp`)
       yield* fs.writeFileString(temp, content).pipe(
@@ -331,14 +415,25 @@ export const layerWithDirectory = (directory: string) =>
       yield* writeFileAtomic(target, text.endsWith("\n") ? text : text + "\n")
     })
 
+    const writeStore = Effect.fn("Memory.writeStore")(function* (
+      sessionID: SessionID,
+      scope: Scope,
+      store: MemoryStore,
+    ) {
+      const text = yield* Effect.try({
+        try: () => serializeStore(scope, store.entries, store.lastCompactedAt),
+        catch: (error) => asError(error),
+      })
+      yield* writeFull(sessionID, scope, text)
+    })
+
     const read = Effect.fn("Memory.read")(function* (input: {
       sessionID: SessionID
       scope: Scope
       section?: string
     }) {
-      const text = yield* readFull(input.sessionID, input.scope)
-      if (!input.section) return text
-      return extractSection(text, input.section) ?? ""
+      const store = yield* readStore(input.sessionID, input.scope)
+      return serializeStore(input.scope, store.entries, store.lastCompactedAt)
     })
 
     const search = Effect.fn("Memory.search")(function* (input: {
@@ -356,23 +451,15 @@ export const layerWithDirectory = (directory: string) =>
 
       for (const scope of scopes) {
         const sourceFile = yield* filePath(input.sessionID, scope)
-        const text = yield* readFull(input.sessionID, scope)
-        let currentSection = "Document"
-        const lines = text.split(/\r?\n/)
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i] ?? ""
-          const heading = line.match(/^##\s+(.+)$/)
-          if (heading?.[1]) {
-            currentSection = heading[1].trim()
-            continue
-          }
-          const body = line.trim()
-          if (!body || body.startsWith("#")) continue
-          const score = scoreLine(tokens, body)
+        const store = yield* readStore(input.sessionID, scope)
+        for (let i = 0; i < store.entries.length; i++) {
+          const entry = store.entries[i]!
+          const body = formatEntry(entry)
+          const score = scoreEntry(tokens, entry)
           if (score <= 0) continue
           results.push({
             file: sourceFile,
-            section: currentSection,
+            section: scope,
             line: i + 1,
             score,
             text: body,
@@ -399,9 +486,12 @@ export const layerWithDirectory = (directory: string) =>
       const targetFile = yield* filePath(sessionID, scope)
       return yield* flock.withLock(
         Effect.gen(function* () {
-          const current = yield* readFull(sessionID, scope)
-          const entries = parseStructuredEntries(current, scope)
-          const normalized = parseEntry(scope, serializeEntry(candidate))
+          const store = yield* readStore(sessionID, scope)
+          const entries = [...store.entries]
+          const normalized = normalizeEntry(candidate)
+          if (looksSensitive(normalized.content)) {
+            return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
+          }
           const key = entryKey(normalized)
           const index = entries.findIndex((entry) => entryKey(entry) === key)
           const status: "written" | "duplicate" | "replaced" =
@@ -414,11 +504,11 @@ export const layerWithDirectory = (directory: string) =>
           if (status !== "duplicate") {
             if (index === -1) entries.push(normalized)
             else entries[index] = normalized
-            const projected = renderStructuredDocument(current, scope, entries)
+            const projected = serializeStore(scope, entries, store.lastCompactedAt)
             const shouldCompact =
               projected.length >= charLimit(scope) * CAPACITY_WARN_THRESHOLD || entries.length > ENTRY_LIMIT
             if (shouldCompact) {
-              const outcome = compactEntrySet(current, scope, entries)
+              const outcome = compactEntrySet(store, scope, entries)
               const retained = containsCandidate(outcome.entries, normalized)
               if (!retained || outcome.after.used > outcome.after.limit || outcome.after.entries > ENTRY_LIMIT) {
                 yield* audit(sessionID, {
@@ -496,54 +586,24 @@ export const layerWithDirectory = (directory: string) =>
 
     const write = Effect.fn("Memory.write")(function* (input: MemoryWriteInput) {
       yield* assertPrimaryWriter(input.sessionID)
-      yield* ensure(input.sessionID)
       const clean = sanitizeContent(input.content)
       if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
       if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
-
-      const targetFile = yield* filePath(input.sessionID, input.scope)
-      return yield* flock.withLock(
-        Effect.gen(function* () {
-          const current = yield* readFull(input.sessionID, input.scope)
-          if (findDuplicate(current, clean)) {
-            yield* audit(input.sessionID, {
-              action: "memory.duplicate",
-              scope: input.scope,
-              section: input.section,
-              content: clean,
-              reason: input.reason,
-            })
-            return {
-              file: targetFile,
-              status: "duplicate" as const,
-              message: `Duplicate memory already exists.\nFile: ${targetFile}`,
-            }
-          }
-
-          const usage = computeUsage(current, input.scope)
-          if (usage.used + clean.length + 4 > usage.limit) {
-            return yield* Effect.fail(new Error(capacityError(current, clean, input.scope)))
-          }
-
-          const now = new Date().toISOString()
-          const next = updateMetadata(appendEntry(current, input.section, clean), now, input.sessionID)
-          yield* writeFull(input.sessionID, input.scope, next)
-          yield* audit(input.sessionID, {
-            action: "memory.write",
-            scope: input.scope,
-            section: input.section,
-            content: clean,
-            reason: input.reason,
-          })
-          const newUsage = computeUsage(next, input.scope)
-          let message = `Memory written.\nFile: ${targetFile}`
-          if (newUsage.percentage >= CAPACITY_WARN_THRESHOLD * 100) {
-            message += `\nWarning: memory at ${newUsage.percentage}% capacity (${newUsage.used}/${newUsage.limit} chars). Consider consolidating entries.`
-          }
-          return { file: targetFile, status: "written" as const, message }
-        }),
-        targetFile,
-      )
+      const importance = confidenceImportance(input.confidence)
+      const keywords = validateKeywords([input.section || (input.scope === "memory" ? "任务成果" : "用户事实")])
+      const result =
+        input.scope === "memory"
+          ? yield* upsertTaskMemory({ sessionID: input.sessionID, importance, keywords, content: clean })
+          : yield* upsertUserMemory({ sessionID: input.sessionID, importance, keywords, content: clean })
+      yield* audit(input.sessionID, {
+        action: "memory.write",
+        scope: input.scope,
+        section: input.section,
+        content: clean,
+        reason: input.reason,
+        result: result.status,
+      })
+      return result
     })
 
     const replaceBySubstring = Effect.fn("Memory.replaceBySubstring")(function* (input: {
@@ -562,16 +622,16 @@ export const layerWithDirectory = (directory: string) =>
       const targetFile = yield* filePath(input.sessionID, input.scope)
       return yield* flock.withLock(
         Effect.gen(function* () {
-          const current = yield* readFull(input.sessionID, input.scope)
-          const { match, error } = findEntryBySubstring(current, input.oldText)
+          const store = yield* readStore(input.sessionID, input.scope)
+          const { match, error } = findEntryBySubstring(store.entries, input.oldText)
           if (error) return yield* Effect.fail(new Error(error))
-
-          const updated = replaceEntryByIndex(current, match!.index, clean)
-          yield* writeFull(
-            input.sessionID,
-            input.scope,
-            updateMetadata(updated, new Date().toISOString(), input.sessionID),
-          )
+          const entries = [...store.entries]
+          entries[match!.index] = normalizeEntry({ ...entries[match!.index]!, content: clean })
+          const projected = serializeStore(input.scope, entries, store.lastCompactedAt)
+          if (projected.length > charLimit(input.scope)) {
+            return yield* Effect.fail(new Error(`Memory replacement exceeds the ${charLimit(input.scope)} char limit`))
+          }
+          yield* writeFull(input.sessionID, input.scope, projected)
           yield* audit(input.sessionID, {
             action: "memory.replace",
             scope: input.scope,
@@ -596,16 +656,11 @@ export const layerWithDirectory = (directory: string) =>
       const targetFile = yield* filePath(input.sessionID, input.scope)
       return yield* flock.withLock(
         Effect.gen(function* () {
-          const current = yield* readFull(input.sessionID, input.scope)
-          const { match, error } = findEntryBySubstring(current, input.oldText)
+          const store = yield* readStore(input.sessionID, input.scope)
+          const { match, error } = findEntryBySubstring(store.entries, input.oldText)
           if (error) return yield* Effect.fail(new Error(error))
-
-          const updated = removeEntryByIndex(current, match!.index)
-          yield* writeFull(
-            input.sessionID,
-            input.scope,
-            updateMetadata(updated, new Date().toISOString(), input.sessionID),
-          )
+          const entries = store.entries.filter((_, index) => index !== match!.index)
+          yield* writeStore(input.sessionID, input.scope, { ...store, entries })
           yield* audit(input.sessionID, {
             action: "memory.remove",
             scope: input.scope,
@@ -624,8 +679,8 @@ export const layerWithDirectory = (directory: string) =>
       const targetFile = yield* filePath(input.sessionID, input.scope)
       return yield* flock.withLock(
         Effect.gen(function* () {
-          const current = yield* readFull(input.sessionID, input.scope)
-          const outcome = compactEntrySet(current, input.scope, parseStructuredEntries(current, input.scope))
+          const store = yield* readStore(input.sessionID, input.scope)
+          const outcome = compactEntrySet(store, input.scope, store.entries)
           if (outcome.after.used > outcome.after.limit || outcome.after.entries > ENTRY_LIMIT) {
             return yield* Effect.fail(new Error(`Memory cannot be compacted within hard limits for ${input.scope}`))
           }
@@ -658,18 +713,22 @@ export const layerWithDirectory = (directory: string) =>
 
     const usage = Effect.fn("Memory.usage")(function* (sessionID: SessionID, scope: Scope) {
       yield* ensure(sessionID)
-      const text = yield* readFull(sessionID, scope)
-      return computeUsage(text, scope)
+      const store = yield* readStore(sessionID, scope)
+      return computeUsage(serializeStore(scope, store.entries, store.lastCompactedAt), scope)
     })
 
     const formatWithHeader = Effect.fn("Memory.formatWithHeader")(function* (sessionID: SessionID, scope: Scope) {
       yield* ensure(sessionID)
-      const text = yield* readFull(sessionID, scope)
-      const header = formatMemoryHeader(scope, text)
-      return header + text
+      const store = yield* readStore(sessionID, scope)
+      const text = formatEntries(store.entries.slice().sort(compareSnapshotEntries).slice(0, 20))
+      const serialized = serializeStore(scope, store.entries, store.lastCompactedAt)
+      return formatMemoryHeader(scope, serialized) + text
     })
 
-    const updateAfterTurn = Effect.fn("Memory.updateAfterTurn")(function* (sessionID: SessionID) {
+    const updateAfterTurn = Effect.fn("Memory.updateAfterTurn")(function* (
+      sessionID: SessionID,
+      evaluator?: DecisionEvaluator,
+    ) {
       const info = yield* sessions.get(sessionID).pipe(Effect.orDie)
       if (info.parentID !== undefined) {
         yield* audit(sessionID, {
@@ -690,22 +749,70 @@ export const layerWithDirectory = (directory: string) =>
 
       const userText = textContent(latestUser, { synthetic: false })
       const assistantText = latestAssistant ? textContent(latestAssistant, { synthetic: false }) : ""
-      const curated = curateTurn({ sessionID, userText, assistantText })
-      const taskResult = curated.task ? yield* upsertTaskMemory(curated.task) : undefined
-      const userResults = yield* Effect.forEach(curated.user, (candidate) =>
+      if (!userText || !assistantText) return
+
+      const memoryStore = yield* readStore(sessionID, "memory")
+      const firstTurn = !memoryStore.entries.some(
+        (entry) => entry.scope === "memory" && entry.sessionID === sessionID,
+      )
+      const evaluated = evaluator
+        ? yield* evaluator({ sessionID, firstTurn, userText, assistantText }).pipe(
+            Effect.map((value) => ({ ok: true as const, value })),
+            Effect.catchCause(() => Effect.succeed({ ok: false as const })),
+          )
+        : ({ ok: false as const } as const)
+      const parsed = evaluated.ok ? parseDecisionSafe(evaluated.value) : undefined
+
+      if (!firstTurn && !parsed) {
+        yield* audit(sessionID, {
+          writerSessionID: sessionID,
+          writerKind: "primary",
+          action: "memory.llm_invalid",
+          reason: "Decision evaluator failed or returned invalid output.",
+        })
+        return { status: "skipped" as const, reason: "llm_invalid" as const }
+      }
+      if (!firstTurn && parsed && !parsed.shouldUpdate) {
+        yield* audit(sessionID, {
+          writerSessionID: sessionID,
+          writerKind: "primary",
+          action: "memory.llm_skip",
+          reason: parsed.reason,
+        })
+        return { status: "skipped" as const, reason: "llm_skip" as const }
+      }
+
+      const fallback = firstTurn && (!parsed?.task || !parsed.shouldUpdate)
+      const decision: MemoryDecision = fallback
+        ? {
+            shouldUpdate: true,
+            reason: "First valid turn fallback.",
+            task: fallbackTaskCandidate(userText, assistantText),
+            user: parsed?.user ?? [],
+          }
+        : parsed!
+      const taskResult = decision.task
+        ? yield* upsertTaskMemory({ sessionID, ...decision.task })
+        : undefined
+      const userResults = yield* Effect.forEach(decision.user, (candidate) =>
         upsertUserMemory({ sessionID, ...candidate }),
       )
       yield* audit(sessionID, {
         writerSessionID: sessionID,
         writerKind: "primary",
-        action: "memory.curated",
+        action: firstTurn ? "memory.first_turn_forced" : "memory.llm_update",
         taskStatus: taskResult?.status ?? "skipped",
         userStatuses: userResults.map((result) => result.status),
-        reason:
-          curated.task || curated.user.length > 0
-            ? "Accepted durable post-turn candidates."
-            : "No durable post-turn candidates.",
+        reason: decision.reason,
       })
+      if (fallback) {
+        yield* audit(sessionID, {
+          writerSessionID: sessionID,
+          writerKind: "primary",
+          action: "memory.fallback_update",
+          reason: evaluated.ok ? "Evaluator omitted a usable first-turn task." : "Decision evaluator failed.",
+        })
+      }
       return { status: "updated" as const, taskUpdated: taskResult !== undefined, userUpdated: userResults.length }
     })
 
@@ -746,41 +853,6 @@ export const layer = layerWithDirectory(DIRECTORY)
 
 export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer), Layer.provide(Session.defaultLayer))
 
-function parseStructuredEntries(text: string, scope: Scope): MemoryEntry[] {
-  const isV2 = /<!--\s*schema:\s*2\s*;/u.test(text)
-  const entries: MemoryEntry[] = []
-  for (const line of text.split(/\r?\n/u)) {
-    if (!line.startsWith("- 重要性：")) continue
-    try {
-      entries.push(parseEntry(scope, line))
-    } catch (error) {
-      if (isV2) throw error
-    }
-  }
-  return entries
-}
-
-function renderStructuredDocument(
-  original: string,
-  scope: Scope,
-  entries: readonly MemoryEntry[],
-  lastCompactedOverride?: string,
-): string {
-  const lines = entries.map(serializeEntry)
-  if (!/<!--\s*schema:\s*2\s*;/u.test(original)) {
-    const legacy = original
-      .split(/\r?\n/u)
-      .filter((line) => !line.startsWith("- 重要性："))
-      .join("\n")
-      .trimEnd()
-    return [legacy, "", "## Structured V2 Entries", "", ...lines, ""].join("\n")
-  }
-  const title = scope === "memory" ? "# JYY-Code Memory" : "# User Memory"
-  const lastCompacted =
-    lastCompactedOverride ?? original.match(/last_compacted:\s*([^\s;]+)\s*-->/u)?.[1] ?? "never"
-  return [title, "", `<!-- schema: 2; last_compacted: ${lastCompacted} -->`, "", ...lines, ""].join("\n")
-}
-
 type CompactOutcome = {
   entries: MemoryEntry[]
   text: string
@@ -790,15 +862,15 @@ type CompactOutcome = {
   after: UsageInfo & { entries: number }
 }
 
-function compactEntrySet(original: string, scope: Scope, source: readonly MemoryEntry[]): CompactOutcome {
-  const beforeText = renderStructuredDocument(original, scope, source)
+function compactEntrySet(store: MemoryStore, scope: Scope, source: readonly MemoryEntry[]): CompactOutcome {
+  const beforeText = serializeStore(scope, source, store.lastCompactedAt)
   const before = usageWithEntries(beforeText, scope, source.length)
   const entries: MemoryEntry[] = []
   let removed = 0
   let merged = 0
 
   for (const entry of source) {
-    const exact = entries.findIndex((item) => serializeEntry(item) === serializeEntry(entry))
+    const exact = entries.findIndex((item) => JSON.stringify(normalizeEntry(item)) === JSON.stringify(normalizeEntry(entry)))
     if (exact !== -1) {
       removed++
       continue
@@ -837,7 +909,7 @@ function compactEntrySet(original: string, scope: Scope, source: readonly Memory
   }
 
   while (entries.length > 0) {
-    const text = renderStructuredDocument(original, scope, entries, localDate(new Date()))
+    const text = serializeStore(scope, entries, localDate(new Date()))
     if (text.length <= targetChars && entries.length <= COMPACTION_ENTRY_TARGET) break
     const candidates = entries
       .map((entry, index) => ({ entry, index, score: retention(entry, index) }))
@@ -849,7 +921,7 @@ function compactEntrySet(original: string, scope: Scope, source: readonly Memory
     removed++
   }
 
-  const text = renderStructuredDocument(original, scope, entries, localDate(new Date()))
+  const text = serializeStore(scope, entries, localDate(new Date()))
   return {
     entries,
     text,
@@ -956,20 +1028,6 @@ function formatMemoryHeader(scope: Scope, text: string) {
   return `\n${line}\n`
 }
 
-function capacityError(current: string, newContent: string, scope: Scope) {
-  const info = computeUsage(current, scope)
-  const newEntrySize = newContent.trim().length + 4
-  const entries = parseEntries(current)
-  const lines = entries.map((e) => `  - "${e.text.slice(0, 80)}${e.text.length > 80 ? "..." : ""}"`)
-  return [
-    `Memory at ${info.used}/${info.limit} chars (${info.percentage}%).`,
-    `Adding this entry (${newEntrySize} chars) would exceed the ${info.limit} char limit.`,
-    `Replace or remove existing entries first.`,
-    `Current entries:`,
-    ...lines,
-  ].join("\n")
-}
-
 function tokenize(input: string) {
   const ascii = input
     .toLowerCase()
@@ -979,34 +1037,32 @@ function tokenize(input: string) {
   return [...new Set([...ascii, ...cjk])]
 }
 
-function scoreLine(tokens: string[], line: string) {
-  const lower = line.toLowerCase()
+function scoreEntry(tokens: string[], entry: MemoryEntry) {
+  const lower = `${entry.keywords.join(" ")} ${entry.content}`.toLowerCase()
   let score = 0
   for (const token of tokens) {
     if (lower.includes(token.toLowerCase())) score += token.length > 3 ? 2 : 1
   }
-  return score
+  return score + Math.max(0, entry.importance - 5) / 10
 }
 
-function extractSection(text: string, section: string) {
-  const lines = text.split(/\r?\n/)
-  const start = lines.findIndex((line) => line.trim().toLowerCase() === `## ${section}`.toLowerCase())
-  if (start === -1) return undefined
-  const end = lines.findIndex((line, index) => index > start && /^##\s+/.test(line))
-  return lines.slice(start, end === -1 ? undefined : end).join("\n").trim()
+function formatEntry(entry: MemoryEntry) {
+  const fields = [`importance=${entry.importance}`, `keywords=${entry.keywords.join(", ")}`, `content=${entry.content}`]
+  if (entry.scope === "memory") fields.splice(1, 0, `date=${entry.date}`, `sessionID=${entry.sessionID}`)
+  return fields.join(" | ")
 }
 
-function updateMetadata(text: string, now: string, sessionID: SessionID) {
-  const line = `- Last reviewed: ${now} (session: ${sessionID})`
-  if (text.includes("## System Metadata")) {
-    const lines = text.split(/\r?\n/)
-    const start = lines.findIndex((item) => item.trim() === "## System Metadata")
-    const end = lines.findIndex((item, index) => index > start && /^##\s+/.test(item))
-    const before = lines.slice(0, start + 1)
-    const after = lines.slice(end === -1 ? lines.length : end)
-    return [...before, line, "", ...after].join("\n")
+function formatEntries(entries: readonly MemoryEntry[]) {
+  if (entries.length === 0) return "(no persistent memory entries)\n"
+  return entries.map((entry) => `- ${formatEntry(entry)}`).join("\n") + "\n"
+}
+
+function compareSnapshotEntries(left: MemoryEntry, right: MemoryEntry) {
+  if (left.importance !== right.importance) return right.importance - left.importance
+  if (left.scope === "memory" && right.scope === "memory" && left.date !== right.date) {
+    return right.date.localeCompare(left.date)
   }
-  return text.replace(/^# .+$/m, (heading) => [heading, "", "## System Metadata", line].join("\n"))
+  return entryKey(left).localeCompare(entryKey(right))
 }
 
 function textContent(message: MessageV2.WithParts, options: { synthetic: boolean }) {
@@ -1034,55 +1090,13 @@ function normalizedContent(input: string) {
   return sanitizeContent(input).toLowerCase()
 }
 
-// §-delimited entries. Each entry is the raw text between § markers.
-// Entries are stored inside markdown sections; § delimiters separate entries.
-function appendEntry(markdown: string, section: string, content: string) {
-  return replaceSectionBody(markdown, section, (body) => {
-    const trimmed = body.trimEnd()
-    return trimmed ? `${trimmed}\n${content}\n§` : `${content}\n§`
-  })
-}
-
-function replaceSectionBody(markdown: string, section: string, update: (body: string) => string) {
-  const heading = `## ${section}`
-  const lines = markdown.split(/\r?\n/)
-  const start = lines.findIndex((line) => line.trim() === heading)
-  if (start === -1) {
-    return [markdown.trimEnd(), "", heading, update("").trimEnd(), ""].join("\n")
-  }
-  const end = lines.findIndex((line, index) => index > start && /^##\s+/.test(line))
-  const sectionEnd = end === -1 ? lines.length : end
-  const before = lines.slice(0, start + 1)
-  const body = lines.slice(start + 1, sectionEnd).join("\n")
-  const after = lines.slice(sectionEnd)
-  return [...before, update(body).trimEnd(), "", ...after].join("\n")
-}
-
 type EntryInfo = { index: number; text: string }
 
-function parseEntries(markdown: string): EntryInfo[] {
-  const blocks: EntryInfo[] = []
-  let index = 0
-  const parts = markdown.split(/(?:^|\n)§(?:\n|$)/)
-  for (const part of parts) {
-    const trimmed = part.trim()
-    if (trimmed && !trimmed.startsWith("#")) {
-      blocks.push({ index, text: trimmed })
-    }
-    index++
-  }
-  return blocks
-}
-
-function findDuplicate(markdown: string, content: string) {
-  const target = normalizedContent(content)
-  return parseEntries(markdown).some((entry) => normalizedContent(entry.text) === target)
-}
-
-function findEntryBySubstring(markdown: string, substring: string) {
+function findEntryBySubstring(entries: readonly MemoryEntry[], substring: string) {
   const normalized = normalizedContent(substring)
-  const entries = parseEntries(markdown)
-  const matches = entries.filter((entry) => normalizedContent(entry.text).includes(normalized))
+  const matches: EntryInfo[] = entries.flatMap((entry, index) =>
+    normalizedContent(entry.content).includes(normalized) ? [{ index, text: entry.content }] : [],
+  )
   if (matches.length === 0) return { match: null as null, error: `No entry found matching: "${substring}"` }
   if (matches.length > 1) {
     const snippets = matches.map((e) => `  - "${e.text.slice(0, 60)}..."`).join("\n")
@@ -1091,83 +1105,59 @@ function findEntryBySubstring(markdown: string, substring: string) {
   return { match: matches[0]!, error: null as null }
 }
 
-function replaceEntryByIndex(markdown: string, entryIndex: number, newContent: string) {
-  const lines = markdown.split(/\r?\n/)
-  let currentEntry = 0
-  let start = -1
-  let end = -1
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!.trim()
-    if (line === "§") {
-      if (currentEntry === entryIndex) { end = i; break }
-      currentEntry++
-      start = -1
-      continue
-    }
-    if (!line || line.startsWith("#")) continue
-    if (currentEntry === entryIndex && start === -1) start = i
-  }
-  if (start === -1 || end === -1) return markdown
-  return [...lines.slice(0, start), newContent, ...lines.slice(end)].join("\n")
+function confidenceImportance(confidence: Confidence | undefined): Importance {
+  if (confidence === "high") return 8
+  if (confidence === "low") return 4
+  return 6
 }
 
-function removeEntryByIndex(markdown: string, entryIndex: number) {
-  const lines = markdown.split(/\r?\n/)
-  let currentEntry = 0
-  let start = -1
-  let end = -1
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!.trim()
-    if (line === "§") {
-      if (currentEntry === entryIndex) { end = i + 1; break }
-      currentEntry++
-      start = -1
-      continue
-    }
-    if (!line || line.startsWith("#")) continue
-    if (currentEntry === entryIndex && start === -1) start = i
-  }
-  if (start === -1) return markdown
-  if (end === -1) return [...lines.slice(0, start), ...lines.slice(start + 1)].join("\n")
-  return [...lines.slice(0, start), ...lines.slice(end)].join("\n")
+function asError(error: unknown) {
+  return error instanceof Error ? error : new Error(String(error))
 }
 
-function extractStableUserCandidates(input: string): Array<Omit<UserMemoryEntry, "scope">> {
-  const result: Array<Omit<UserMemoryEntry, "scope">> = []
-  const name = input.match(/我(?:叫|的名字是)\s*([\p{Script=Han}]{2,8})/u)?.[1]
-  if (name) result.push({ importance: 10, keywords: ["姓名"], content: `用户姓名为${name}。` })
-
-  const birthday = input.match(/(?:我的)?生日(?:是|为)\s*(\d{4})\s*年?[\/-]?\s*(\d{1,2})\s*月?[\/-]?\s*(\d{1,2})\s*日?/u)
-  if (birthday) {
-    const normalized = `${birthday[1]}${birthday[2]!.padStart(2, "0")}${birthday[3]!.padStart(2, "0")}`
-    if (isCalendarDate(normalized)) {
-      result.push({ importance: 10, keywords: ["生日"], content: `用户生日为${normalized}。` })
+function parseDecisionSafe(value: unknown): MemoryDecision | undefined {
+  try {
+    const decision = expectRecord(value, "memory decision")
+    const allowed = new Set(["shouldUpdate", "reason", "task", "user"])
+    const unknown = Object.keys(decision).find((key) => !allowed.has(key))
+    if (unknown) throw new Error(`Invalid memory decision: unknown field ${unknown}`)
+    if (typeof decision.shouldUpdate !== "boolean") throw new Error("Invalid memory decision shouldUpdate")
+    const reason = expectString(decision.reason, "memory decision reason").trim()
+    if (!reason) throw new Error("Invalid memory decision reason")
+    if (!Array.isArray(decision.user)) throw new Error("Invalid memory decision user")
+    const task = decision.task === undefined ? undefined : parseCandidate(decision.task, "task")
+    const user = decision.user.map((candidate, index) => parseCandidate(candidate, `user ${index}`))
+    const keys = new Set<string>()
+    for (const candidate of user) {
+      const key = entryKey({ scope: "user", ...candidate })
+      if (keys.has(key)) throw new Error(`Invalid memory decision: duplicate user key ${key}`)
+      keys.add(key)
     }
+    return { shouldUpdate: decision.shouldUpdate, reason, ...(task ? { task } : {}), user }
+  } catch {
+    return undefined
   }
+}
 
-  const sentences = input
-    .split(/[。；;\r\n]+/u)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean)
-  for (const sentence of sentences) {
-    if (!/(?:以后|今后|长期|总是|始终|默认|偏好|我喜欢|请记住|记住)/u.test(sentence)) continue
-    if (/(?:这次|本次|当前任务|暂时|单次)/u.test(sentence)) continue
-    if (/(?:我叫|我的名字|生日)/u.test(sentence) || looksSensitive(sentence)) continue
-    const communication = /(?:中文|英文|回答|解释|语气|风格|简洁|详细|称呼)/u.test(sentence)
-    result.push({
-      importance: 8,
-      keywords: [communication ? "沟通偏好" : "工程偏好"],
-      content: `用户长期偏好${sentence.replace(/^(?:请记住|记住)[:：]?/u, "")}。`,
-    })
+function parseCandidate(value: unknown, label: string): MemoryCandidate {
+  const candidate = expectRecord(value, `memory decision ${label}`)
+  assertExactFields(candidate, ["importance", "keywords", "content"], `memory decision ${label}`)
+  const normalized: MemoryCandidate = {
+    importance: parseImportance(candidate.importance),
+    keywords: validateKeywords(expectStringArray(candidate.keywords, `memory decision ${label} keywords`)),
+    content: parseContent(expectString(candidate.content, `memory decision ${label} content`)),
   }
+  if (looksSensitive(normalized.content)) throw new Error(`Invalid memory decision ${label}: sensitive content`)
+  return normalized
+}
 
-  const seen = new Set<string>()
-  return result.filter((entry) => {
-    const key = entryKey({ scope: "user", ...entry })
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+function fallbackTaskCandidate(userText: string, assistantText: string): MemoryCandidate {
+  const source = assistantText.trim() || userText.trim()
+  return {
+    importance: taskImportance(userText, assistantText),
+    keywords: extractTaskKeywords(`${userText}\n${assistantText}`),
+    content: summarizeText(source, 120),
+  }
 }
 
 function taskImportance(userText: string, assistantText: string): Importance {

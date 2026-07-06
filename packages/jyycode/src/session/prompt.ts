@@ -8,7 +8,7 @@ import * as Session from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
-import { type Tool as AITool, tool, jsonSchema } from "ai"
+import { type Tool as AITool, tool, jsonSchema, generateText, Output } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
@@ -134,6 +134,44 @@ export const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
+    const evaluateMemoryDecision: Memory.DecisionEvaluator = (input) =>
+      Effect.gen(function* () {
+        const history = yield* sessions.messages({ sessionID: input.sessionID })
+        const latestUser = history.findLast((message) => message.info.role === "user")
+        if (!latestUser || latestUser.info.role !== "user") {
+          return yield* Effect.fail(new Error("Cannot evaluate memory without a user message"))
+        }
+        const model = yield* provider.getModel(latestUser.info.model.providerID, latestUser.info.model.modelID)
+        const language = yield* provider.getLanguage(model)
+        const prompt = [
+          "Decide whether this completed conversation turn contains durable memory worth retaining.",
+          "Retain only task outcomes, key decisions, project conventions, reusable lessons, and explicit stable user facts or long-term preferences.",
+          "Do not retain greetings, progress checks, temporary constraints, failed retries, or facts immediately recoverable from the codebase.",
+          `This is ${input.firstTurn ? "the first valid turn, so provide a task candidate" : "a later turn"}.`,
+          "The service supplies sessionID and date. Do not include them.",
+          "",
+          "User:",
+          input.userText,
+          "",
+          "Assistant:",
+          input.assistantText,
+        ].join("\n")
+        const result = yield* Effect.tryPromise({
+          try: () =>
+            generateText({
+              model: language,
+              output: Output.object({
+                schema: jsonSchema<Memory.MemoryDecision>(Memory.MemoryDecisionJsonSchema as unknown as JSONSchema7),
+              }),
+              prompt,
+              maxOutputTokens: 800,
+              temperature: 0,
+              maxRetries: 0,
+            }),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        })
+        return result.output
+      })
     const toolDisclosureOverrides = new Map<SessionID, { readonly deferredTools?: boolean }>()
     const runtimeFlagsForSession = (sessionID: SessionID) => {
       const override = toolDisclosureOverrides.get(sessionID)
@@ -1738,7 +1776,7 @@ export const layer = Layer.effect(
         const result = yield* lastAssistant(sessionID)
         if (memory) {
           const curated = yield* memory
-            .updateAfterTurn(sessionID)
+            .updateAfterTurn(sessionID, evaluateMemoryDecision)
             .pipe(
               Effect.catchCause((cause) =>
                 elog.error("failed to update persistent memory", { cause }).pipe(Effect.as(undefined)),
@@ -1968,7 +2006,7 @@ function memoryRetrievalQuery(input: string) {
 function formatMemoryRetrieval(query: string, results: Memory.SearchResult[]) {
   const body = results
     .map((item, index) =>
-      [`${index + 1}. ${item.file}:${item.line} [${item.section}] score=${item.score}`, item.text].join("\n"),
+      [`${index + 1}. ${item.file}:${item.line} [${item.section}]`, item.text].join("\n"),
     )
     .join("\n\n")
   const text = [
