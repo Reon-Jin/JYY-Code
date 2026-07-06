@@ -20,6 +20,7 @@ const ENTRY_LIMIT = 50
 const CAPACITY_WARN_THRESHOLD = 0.8
 const COMPACTION_TARGET = 0.7
 const COMPACTION_ENTRY_TARGET = 45
+const SNAPSHOT_ENTRY_LIMIT = 10
 
 export type Scope = "memory" | "user"
 type Confidence = "low" | "medium" | "high"
@@ -720,7 +721,7 @@ export const layerWithDirectory = (directory: string) =>
     const formatWithHeader = Effect.fn("Memory.formatWithHeader")(function* (sessionID: SessionID, scope: Scope) {
       yield* ensure(sessionID)
       const store = yield* readStore(sessionID, scope)
-      const text = formatEntries(store.entries.slice().sort(compareSnapshotEntries).slice(0, 20))
+      const text = formatEntries(store.entries.slice().sort(compareSnapshotEntries).slice(0, SNAPSHOT_ENTRY_LIMIT))
       const serialized = serializeStore(scope, store.entries, store.lastCompactedAt)
       return formatMemoryHeader(scope, serialized) + text
     })

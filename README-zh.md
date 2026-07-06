@@ -6,169 +6,111 @@
 
 [中文文档](README-zh.md) · [English](README.md)
 
-> **面向复杂、长任务的可观察、可恢复多 Agent 编程 CLI，基于 OpenCode 深度扩展。**
+> **会记忆、会协作、能把复杂任务真正做完的编程 Agent。**
 >
-> 规划 → 委派 → 监控 → 恢复 → 审查。
+> 一句话交代目标，剩下的交给一支可观察、可恢复的 AI 工程团队。
 
 <p align="center">
-  <img
-    src="./logo/logo.gif"
-    alt="JYY-Code 动态标志"
-    width="500"
-  />
+  <img src="./logo/logo.gif" alt="JYY-Code 动态标志" width="500" />
 </p>
 
-JYY-Code 面向复杂、长耗时的软件工程任务：它不把运行状态寄托在模型文本里，而是将计划、任务依赖和执行状态写入 SQLite。这样后台工作可以被看见、审查，并在会话刷新后恢复。
+JYY-Code 是一个面向真实软件工程的终端 Agent 系统。它能拆解复杂任务、调度专业子 Agent、追踪后台执行、记住长期上下文，并从持久化状态继续工作，而不是每次都从头开始。
 
-**为什么选择 JYY-Code**
-
-- **持久化执行**：集群运行、任务与事件写入 SQLite，作为权威状态源，而非仅从模型输出文本推断。
-- **可观察协作**：终端 UI 分开展示计划、queued/running/done/failed 结构化任务和普通 Todo。
-- **可恢复工作流**：后台子会话与结构化任务 ID 持续绑定，执行过程中和会话刷新后都能可靠追踪。
+```text
+规划 → 委派 → 并行执行 → 审查 → 恢复 → 交付
+```
 
 **安装：** `npm install -g jyycode-ai` · **启动：** `jyy`
 
-## 核心特性
+如果你希望编程 Agent 像一支工程团队，而不是一个不断滚动的聊天窗口，JYY-Code 就是为此而生。觉得方向不错，欢迎点一个 ⭐。
 
-### 多 Agent 集群(按 F9 启动)
+## 为什么是 JYY-Code
 
-JYY-Code 内置编排器、规划器、审查器架构，可以把复杂任务拆成结构化计划，并分派给专业子 Agent 并行执行。
+| 常见编程 Agent | JYY-Code |
+| --- | --- |
+| 会话一换，上下文就丢 | 用结构化项目记忆和用户记忆持续积累上下文 |
+| 所有过程挤在文本流里 | 在 TUI 中直接展示计划、任务、Agent 和状态 |
+| 后台任务容易失联 | 用 SQLite 持久化会话、集群运行、任务和事件 |
+| 一个 Agent 包打天下 | 按依赖关系委派专业 Agent，并经过审查再完成 |
+| 每轮塞入庞大的工具列表 | 用 BM25 工具搜索按需找到正确工具 |
 
-能力包括：
+## 核心亮点
 
-- 支持 researcher、analyst、coder、tester、reviewer、chart、pdf、visual 等专业角色。
-- 支持最大子 Agent 数、并发数、审查轮数和模型路由配置。
-- 计划中包含任务 ID、依赖关系、验收标准和预期产物。
-- Cluster 模式下 `task` 工具默认以后台子 Agent 执行，`task_status` 用于轮询或等待结果。
-- 子 Agent 返回结果要求带结构化状态和摘要，便于主 Agent 审查与汇总。
-- 增加完成门控，避免主 Agent 在后台子任务仍在执行时提前把集群任务视为完成。
+### 真正的多 Agent 工程协作
 
-### 持久化 Agent 集群状态
+按 **F9**，把一个复杂目标变成带依赖关系的执行计划。
 
-新的多 Agent 状态不再只依赖解析模型输出文本，而是写入 SQLite，作为 UI 和 API 的权威状态源。
+- 规划器、编排器、专业 Agent 和审查器各司其职。
+- 内置 researcher、coder、tester、analyst、visual、chart、PDF 等角色。
+- 支持后台并行执行、并发控制和模型路由。
+- 每项任务都有明确 ID、依赖关系、验收标准和预期产物。
+- 审查轮次与完成门控，避免子任务没结束就提前宣布“完成”。
+- Git worktree 隔离并行编码任务，减少互相覆盖。
 
-- `agent_cluster_run` 记录运行级状态、目标、规划模型、审查模型和完成时间。
-- `agent_cluster_task` 记录计划任务、子会话绑定、任务状态、审查轮次、验收标准和产物路径。
-- `agent_cluster.event` 用于向 TUI 推送运行和任务状态变化。
-- `GET /session/:sessionID/agent-cluster` 暴露某个会话下的集群运行和任务状态。
-- 子任务会话会绑定回计划任务 ID，后台执行、会话刷新和 UI 同步时状态更可靠。
+### 不会随聊天消失的记忆
 
-### 更清晰的 TUI 右侧栏
+JYY-Code 使用两份严格校验的 JSON 记忆库，不依赖不透明的向量数据库：
 
-终端 UI 现在把计划摘要、结构化任务和普通 Todo 分开显示：
+- `MEMORY.json`：每个 session 维护一条持续更新的任务记忆。
+- `USER.json`：保存稳定的用户事实和偏好，以规范化关键词作为唯一键。
+- 每轮首次模型调用注入两库各 Top 10，合计最多 20 条。
+- 对话中自动搜索并注入相关记忆。
+- 每轮结束后由模型判断是否值得长期保存；首次有效对话带安全兜底。
+- Schema 校验、敏感信息检查、去重、容量限制、文件锁和原子替换共同保护数据。
+- 只有主 session 可以写入；子 Agent 可读取，但不能污染记忆库。
 
-- **Multi-Agent Plan**：展示集群运行摘要，包括状态、步骤进度、Agent 数量和目标预览。
-- **Tasks**：展示结构化多 Agent 任务，区分 queued、running、done、failed。
-- **Todo**：只展示普通 `todowrite` 项；当存在结构化集群任务时自动隐藏，避免重复或冲突的进度提示。
+你不必反复解释项目背景、工程约定和个人偏好。Agent 会逐步理解你的项目，并在后续任务中保持一致。
 
-这个设计让长时间运行的 multi-agent 会话更容易扫读，也修复了右侧 Todo 状态和真实执行状态不一致的问题。
+### 长任务也不会失联
 
-### 上下文与 PDF 附件
+长时间运行的工作，不应该因为终端刷新而消失。
 
-JYY-Code 会按消息文本、工具输出和媒体解码后的大小估算活跃上下文。PDF 和图片附件不会按 base64 data URL 字符串长度计入 token。TUI 会把 provider 返回的 token 和本地估算的活跃上下文分开显示，因为不同 provider 对文件计量方式不同。
+- 会话、消息、Todo、集群运行、集群任务和事件全部写入 SQLite。
+- 子会话始终绑定到对应的计划任务 ID。
+- 通过 `task` 和 `task_status` 观察后台执行。
+- `/sessions` 可直接恢复持久化根会话。
+- 不同发布渠道使用隔离数据库，避免开发版 Schema 意外影响稳定数据。
 
-### 邮件与通信能力
+### 为 Agent 工作流设计的 TUI
 
-内置 SMTP/IMAP 通信适配器，Agent 可以直接在会话中收发邮件。
+右侧栏清晰区分三类进度：
 
-- 支持 SMTP STARTTLS 和 SMTPS。
-- 支持 OAuth2，包括 Microsoft device-code 授权流程。
-- 支持 MIME 附件和自动 content-type 检测。
-- 支持 IMAP 邮箱轮询和邮件会话识别。
+- **Multi-Agent Plan**：目标、运行状态、步骤和 Agent 数量。
+- **Tasks**：queued、running、done、failed 等结构化任务状态。
+- **Todo**：普通 `todowrite` 项，不与集群任务重复展示。
 
-### 类 Hermes 持久记忆系统
+无需翻完整聊天记录，就能知道谁在做什么、哪里被阻塞、哪些任务已经完成。
 
-JYY-Code 使用结构化文件记忆保存项目事实、工程约定、用户偏好和经验教训。
+### 在正确的时间找到正确的工具
 
-- 项目记忆和用户记忆双作用域。
-- 每条记忆带置信度和来源信息。
-- 每轮对话后自动提取关键记忆。
-- 支持搜索、补丁更新、废弃和建议操作。
+按 **F10** 使用智能工具搜索。
 
-### 技能学习
+- 字段加权 BM25 检索工具 ID、类别、参数、描述和示例。
+- 精确匹配与意图加权，让具体工具排在泛化结果前面。
+- 渐进式工具披露保留核心工具，其余工具按需加载。
+- 内置工具、插件工具和 MCP 工具共享统一的检索、权限和遥测链路。
 
-基于 Markdown 的技能系统可以加载领域知识、工作流和工具集成。
-
-- 从 `.jyycode/skills/` 自动发现本地技能。
-- 支持通过 HTTP index 发现远程技能。
-- 使用 frontmatter 元数据做相关性匹配。
-- 运行中可通过 skill 工具加载特定技能说明。
-
-### 智能工具搜索（按 F10 启动）
-
-当 Agent 不确定该调用哪个工具时，可以通过字段加权 BM25 检索快速定位工具，同时避免每轮都把完整工具目录暴露给模型。
-
-- 基于当前会话真实可用的 prompt 工具目录检索，而不是静态全局列表。
-- 分字段检索工具 ID、标签、类别、参数名、描述和示例，并为不同字段设置不同权重。
-- 使用 BM25 的词频和逆文档频率评分，让稀有、具体的关键词优先于泛化高频词。
-- 保留工具 ID 精确匹配和完整查询命中工具 ID 的强加分。
-- 支持类别过滤，并对写入类意图、通信类意图做额外加权。
-- 返回工具参数摘要，帮助 Agent 更快完成工具选择。
-- 通过固定 top-k fixture 和真实工具注册表测试验证，覆盖读取、目录列出、编辑、多段编辑、写入、项目搜索、进程控制、网页抓取和子 Agent 委派等常见意图。
-
-启用 `JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS` 后，JYY-Code 会进入实验性的渐进式工具披露模式：读取、目录列出、搜索、终端、编辑、多段编辑、任务和 Todo 等核心工具仍然直接暴露给模型；MCP、插件、通信和高级低频工具则通过 `tool_search` 按需发现，再由 `tool_exec` 代理执行。MCP 工具会被规范化到和内置、插件工具一致的 catalog metadata 路径中，因此搜索排序、权限检查和 telemetry 都会使用被代理的底层工具身份。`JYYCODE_DEFERRED_TOOL_THRESHOLD` 可控制工具目录超过多少个时才进行拆分；关闭实验开关即可恢复默认行为。
-
-### 核心工具扩展
-
-内置工具集补充了更适合常见 Agent 工作流的文件系统、编辑和进程控制能力：
-
-- `ls` 用于列出目录内容和浅层目录树，不读取文件正文，适合更低成本、更安全地探索项目结构。
-- `multi_edit` 可以对同一个文件按顺序原子应用多段编辑，复用 `edit` 的替换引擎，并保留 BOM 和原有换行风格。
-- `process_start`、`process_output` 和 `kill_process` 用于按 ID 管理长时间运行的后台 shell 进程，启动前执行权限扫描，启动后可增量读取输出或停止进程。
-
-### 架构优化
-
-- **工作流状态**：会话、消息、Todo、集群运行、集群任务和事件投影均由 SQLite/Drizzle 管理。
-- **Worktree 管理**：支持 Git worktree 创建、删除、重置和隔离子任务执行。
-- **工具调用规范化**：统一 schema 校验、参数解析、输出截断、权限门控和 metadata 传递。
-- **安全约束**：支持按工具、Agent、会话维度配置 ask/allow/deny 权限规则。
-
-### 其他能力
-
-- 支持 20+ LLM 提供商：Anthropic、OpenAI、Google Gemini、AWS Bedrock、Azure、GitHub Copilot、OpenRouter、xAI、Groq、Mistral 等。
-- 完整支持 MCP 工具服务器。
-- 支持 npm 插件和内部插件，包含 hook 与 TUI 扩展点。
-- 基于 SolidJS 和 OpenTUI 的终端界面。
-- 支持跨机器会话同步与恢复。
-- 支持 LSP 集成。
+核心工具覆盖目录探索、代码搜索、原子多段编辑、Shell、后台进程、子 Agent 任务和输出截断。
 
 ## 快速开始
 
-### 环境要求
+### 安装
 
-- 普通用户需要 Node.js 20+ 和 npm。
-- 只有从源码开发时才需要 [Bun](https://bun.sh/) >= 1.3.14。
-
-### 安装运行
+普通用户只需要 Node.js 20+ 和 npm；从源码开发时才需要 Bun。
 
 ```bash
-# 安装已发布的 CLI 包装器
 npm install -g jyycode-ai
-
-# 在当前终端目录启动 JYY-Code
+cd /path/to/your/project
 jyy
 ```
 
-`jyy` 和 `jyycode` 指向同一个 CLI。进程会继承终端当前工作目录，所以在 `/path/to/project` 里运行 `jyy`，JYY-Code 的工作目录就是 `/path/to/project`。
+进入 JYY-Code 后运行 `/connect` 配置模型 Provider。
 
-### 配置大模型 Provider
+`jyy` 和 `jyycode` 是同一个 CLI。启动时所在的终端目录，就是 Agent 的工作区。
 
-推荐使用内置凭证命令：
+### 使用配置文件
 
-```bash
-jyycode auth login --provider openai
-jyycode models openai
-jyy
-```
-
-也可以使用所选 Provider 支持的环境变量，例如：
-
-```bash
-export OPENAI_API_KEY="sk-..."
-jyycode models openai
-```
-
-或者写入全局配置文件 `~/.config/jyycode/jyycode.jsonc`：
+全局配置：`~/.config/jyycode/jyycode.jsonc`
 
 ```jsonc
 {
@@ -177,129 +119,87 @@ jyycode models openai
   "provider": {
     "openai": {
       "options": {
-        "apiKey": "sk-...",
-      },
-    },
-  },
+        "apiKey": "sk-..."
+      }
+    }
+  }
 }
 ```
 
-规范配置键是 `provider`、`permission`、`plugin`。加载器也兼容常见的复数别名 `providers`、`permissions`、`plugins`，避免按旧文档填写后配置不生效。
+项目配置位于 `.jyycode/jyycode.jsonc`。主要配置项包括 `provider`、`permission`、`agent_cluster`、`mcp`、`skills` 和 `plugin`。
 
-### 从源码开发
+## 工作流程
+
+```text
+用户目标
+  → 恢复会话与长期记忆
+  → 构建提示词（指令 + 技能 + 记忆 + 工具）
+  → 规划并委派任务
+  → Agent 与工具在权限控制下执行
+  → 持久化任务、事件、消息和结果
+  → 审查输出并检查是否真正完成
+  → 对话结束后评估长期记忆
+```
+
+集群模式：
+
+```text
+目标
+  → 规划器
+  → 持久化任务依赖图
+  → 专业子 Agent 并行执行
+  → 审查器
+  → 最终汇总
+```
+
+## 更多内置能力
+
+- **20+ 模型 Provider**：Anthropic、OpenAI、Gemini、Bedrock、Azure、GitHub Copilot、OpenRouter、xAI、Groq、Mistral 等。
+- **MCP 与插件**：连接外部工具、Hook 和 TUI 扩展。
+- **技能系统**：从本地或远程加载可复用的领域知识和工作流。
+- **LSP 集成**：让 Agent 获得超越文本搜索的代码理解能力。
+- **邮件能力**：SMTP、IMAP、OAuth2 和 MIME 附件。
+- **上下文感知**：估算活跃上下文，不把 PDF 和图片 data URL 当作普通文本计算。
+- **会话同步**：跨环境恢复和同步工作状态。
+- **权限控制**：按工具、Agent 和会话配置 ask、allow、deny。
+
+## 会话安全与恢复
+
+JYY-Code 会隔离已发布版本和源码开发版本的数据库。运行：
+
+```bash
+jyycode db status
+```
+
+可以查看当前数据库、发布渠道、迁移状态和会话数量，不会修改其他数据库。更改渠道策略前，请先停止 JYY-Code，并同时备份数据库及其 `-wal`、`-shm` 文件。
+
+如果会话看起来“丢失”，先用 `jyycode db status` 确认当前数据库，再从同一项目或 worktree 打开 `/sessions`。
+
+## 从源码开发
 
 ```bash
 git clone https://github.com/Reon-Jin/JYY-Code.git
-cd jyycode
+cd JYY-Code
 bun install
 bun run dev
 ```
 
-## 会话数据库与恢复
-
-会话、消息、消息片段、项目元数据、Todo 和事件日志均存储在 SQLite 中。数据库由单个作用域运行时连接管理，迁移和事件投影在事务中执行；正常关闭只会安全释放连接，不会删除会话记录。
-
-`/sessions` 对话框会直接读取当前数据库中的持久化根会话。默认浏览最多加载 100 个根会话，文本搜索最多加载 30 个；子会话会在 SQL 限制生效前被过滤，已同步缓存则作为查询失败时的回退数据。
-
-JYY-Code 会隔离不同发布渠道的数据库，避免开发版本的 schema 在不知情的情况下修改稳定版数据库：
-
-- 已打包的 `latest`、`beta` 和 `prod` 版本使用 `jyycode.db`。
-- 源码运行通常使用 `jyycode-local.db`；其他自定义渠道使用独立的 `jyycode-<channel>.db`。
-- `jyycode db status` 会显示当前数据库路径、选择来源、行数、迁移数量，以及其他渠道数据库中的会话数量。该命令不会迁移或修改数据库。
-- `JYYCODE_DISABLE_CHANNEL_DB=1` 是显式的专家级覆盖选项，会改用共享的 `jyycode.db`。存在 schema 不兼容的二进制版本时，不要让它们共同访问该文件。
-
-更改渠道策略前，请先停止 JYY-Code，并备份数据库及其 `-wal`、`-shm` 配套文件。
-
-如果会话看起来“丢失”了：
-
-1. 运行 `jyycode db status`，确认当前数据库路径和发布渠道。
-2. 从同一项目或 worktree 打开 `/sessions`；项目范围和规范化路径过滤仍然有效。
-3. 如果会话位于其他渠道数据库中，请先停止 JYY-Code，并备份两份数据库后再更改渠道策略。JYY-Code 不会自动合并不同渠道的数据库。
-
-## 项目结构
-
 ```text
-jyycode/
-|-- packages/
-|   |-- jyycode/          # 主应用：CLI、Agent、会话、工具、记忆、技能、TUI
-|   |-- core/             # 核心库：文件系统、Provider 辅助、通用工具
-|   |-- llm/              # LLM 抽象层与协议适配器
-|   |-- plugin/           # 插件 SDK 与 TUI/插件接口
-|   |-- sdk/              # JYYCode API 客户端 SDK
-|   |-- http-recorder/    # 测试用 HTTP 录制/回放
-|   |-- script/           # 共享脚本
-|   `-- identity/         # 身份提供商资源
-|-- .jyycode/             # 项目级配置、技能、Agent、命令、主题
-|-- memory/               # 持久记忆存储
-|-- specs/                # 设计规格文档
-|-- script/               # 构建和 CI 脚本
-`-- patches/              # 依赖补丁
+packages/jyycode/   主 CLI、Agent、会话、记忆、工具和 TUI
+packages/core/      文件系统、Provider 和共享工具
+packages/llm/       LLM 协议与运行时适配
+packages/plugin/    插件 SDK 与扩展接口
+packages/sdk/       JYY-Code API 客户端
+.jyycode/           项目 Agent、技能、命令、主题和配置
+memory/             结构化持久记忆
 ```
 
-## 架构概览
+## 给项目一个 Star
 
-```text
-CLI 输入
-  -> 配置加载
-  -> 会话恢复
-  -> 系统提示词构建（技能 + 记忆 + 工具）
-  -> LLM 调用（Provider 选择 + 流式输出）
-  -> 工具执行（权限检查 + Schema 校验 + 执行 + 输出截断）
-  -> 对话后处理（记忆提取 + 状态持久化 + 事件发布）
+JYY-Code 面向那些真正需要 Agent 具备记忆、协作、可见性和执行力的开发者。
 
-Multi-Agent 模式：
-  用户请求
-  -> 集群规划器
-  -> 持久化计划任务
-  -> 后台子 Agent 执行
-  -> task_status / 审查
-  -> 最终汇总
-  -> TUI 从持久化集群状态渲染
-```
-
-## 主要模块
-
-| 模块 | 说明 |
-| --- | --- |
-| `agent/` | Agent 定义与提示词管理 |
-| `agent-cluster/` | 多 Agent 集群：规划、状态持久化、调度、审查 |
-| `communication/` | 邮件收发：SMTP、IMAP、OAuth2 |
-| `config/` | 配置加载、合并与 schema 定义 |
-| `memory/` | 类 Hermes 记忆系统 |
-| `skill/` | 技能发现、加载与激活 |
-| `tool/` | 工具注册、定义、校验、截断 |
-| `session/` | 会话管理、提示词构建、LLM 调用 |
-| `provider/` | LLM 提供商生命周期与模型发现 |
-| `plugin/` | 插件加载与 hook 系统 |
-| `worktree/` | Git worktree 管理 |
-| `permission/` | ask/allow/deny 权限系统 |
-| `server/` | HTTP API 服务 |
-| `storage/` | SQLite 数据库层 |
-| `mcp/` | Model Context Protocol 支持 |
-| `bus/` | 事件总线 |
-| `sync/` | 会话同步与状态投影 |
-
-## 配置
-
-项目级配置位于 `.jyycode/jyycode.jsonc`，全局用户配置位于 `~/.config/jyycode/jyycode.jsonc`。
-
-主要配置项：
-
-- **provider**：LLM 提供商凭证与模型偏好。
-- **permission**：工具访问规则，支持按工具和 Agent 配置 ask/allow/deny。
-- **agent_cluster**：多 Agent 集群参数，包括模型选择、并发数和审查轮次。
-- **mcp**：MCP 服务连接配置。
-- **skills**：技能发现路径。
-- **plugin**：TUI 和运行时插件来源。
-
-## 重要 API
-
-```http
-GET /session/:sessionID/agent-cluster
-```
-
-返回指定会话的持久化 Agent 集群运行和任务状态。TUI 在会话同步时读取该接口，并通过 `agent_cluster.event` 持续更新状态。
+如果这也是你期待的编程 Agent 形态，欢迎在 [GitHub 上 Star JYY-Code](https://github.com/Reon-Jin/JYY-Code) ⭐
 
 ## License
 
-MIT (c) [JYYCode](https://github.com/Reon-Jin/JYY-Code)
+MIT © [JYYCode](https://github.com/Reon-Jin/JYY-Code)

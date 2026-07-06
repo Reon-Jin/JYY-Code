@@ -6,163 +6,111 @@
 
 [中文文档](README-zh.md) · [English](README.md)
 
-> **Durable multi-agent coding CLI, built on OpenCode.**
+> **Coding agents that remember, delegate, and finish.**
 >
-> Plan → delegate → monitor → resume → review.
+> Turn one prompt into a persistent, observable engineering run.
 
 <p align="center">
-  <img
-    src="./logo/logo.gif"
-    alt="JYY-Code animated logo"
-    width="500"
-  />
+  <img src="./logo/logo.gif" alt="JYY-Code animated logo" width="500" />
 </p>
 
-JYY-Code is built for complex, long-running software tasks where a stream of agent text is not enough. It turns work into structured, observable runs and persists plans, task dependencies, and execution state in SQLite so background work can be monitored, reviewed, and recovered across session refreshes.
+JYY-Code is a terminal-first agent system for real software work. It plans complex tasks, delegates them to specialized agents, tracks every background job, remembers durable context, and resumes from persisted state instead of starting over.
 
-**Why JYY-Code**
-
-- **Durable execution** — Cluster runs, tasks, and events are stored in SQLite as the source of truth instead of being inferred only from assistant text.
-- **Observable collaboration** — The terminal UI separates plans, queued/running/done/failed tasks, and ordinary todos.
-- **Recoverable workflows** — Background child sessions stay bound to structured task IDs across execution and session refreshes.
+```text
+Plan → Delegate → Execute in parallel → Review → Resume → Ship
+```
 
 **Install:** `npm install -g jyycode-ai` · **Launch:** `jyy`
 
-## Features
+If you want coding agents to behave like an engineering team—not a scrolling chat window—JYY-Code is built for you. If that sounds useful, give the project a ⭐.
 
-### Multi-Agent Cluster(Press F9 to Use)
+## Why JYY-Code
 
-JYY-Code includes an orchestrator-planner-reviewer architecture that decomposes complex tasks, dispatches them to specialized sub-agents, reviews their output, and synthesizes the final result.
+| Typical coding agent | JYY-Code |
+| --- | --- |
+| Forgets context between sessions | Keeps structured project and user memory |
+| Hides work inside a text stream | Shows plans, tasks, agents, and status in the TUI |
+| Loses background-task state | Persists sessions, cluster runs, tasks, and events in SQLite |
+| Runs one general-purpose agent | Delegates to specialized agents with dependencies and review |
+| Exposes an oversized tool catalog | Finds the right tool with BM25-powered tool search |
 
-Highlights:
+## Highlights
 
-- Specialized sub-agents such as researcher, analyst, coder, tester, reviewer, chart, PDF, and visual roles.
-- Configurable limits for maximum sub-agents, concurrency, review rounds, and model routing.
-- Dependency-aware plans with structured task IDs, acceptance criteria, and expected artifacts.
-- Background sub-agent execution through the `task` and `task_status` tools.
-- Structured sub-agent return format with explicit status and summary fields.
-- Completion gating so the primary agent does not treat a cluster as complete while tracked child tasks are still active.
+### Multi-Agent Engineering, Not Agent Theater
 
-### Persistent Agent Cluster State
+Press **F9** to turn a large request into a dependency-aware execution plan.
 
-Multi-agent execution state is persisted in SQLite instead of being inferred only from assistant text.
+- Planner, orchestrator, specialist, and reviewer roles.
+- Researcher, coder, tester, analyst, visual, chart, PDF, and other focused agents.
+- Parallel background execution with configurable concurrency and model routing.
+- Explicit task IDs, dependencies, acceptance criteria, and expected artifacts.
+- Review rounds and completion gates prevent premature “done” responses.
+- Git worktree isolation keeps parallel coding tasks from stepping on each other.
 
-- `agent_cluster_run` stores run-level status, goal, planner model, reviewer model, and completion time.
-- `agent_cluster_task` stores planned tasks, child session bindings, task status, review rounds, acceptance criteria, and artifacts.
-- `agent_cluster.event` updates the TUI as run and task state changes.
-- `GET /session/:sessionID/agent-cluster` exposes persisted runs and tasks for UI and integrations.
-- Child task sessions are bound back to their plan task IDs, making status tracking reliable across background execution and session refreshes.
+### Memory That Survives the Chat
 
-### Task-Focused TUI Sidebar
+JYY-Code uses two strict JSON stores instead of an opaque vector database:
 
-The terminal UI now separates planning, execution, and classic TodoWrite items:
+- `MEMORY.json` keeps one evolving task memory per session.
+- `USER.json` keeps stable user facts and preferences, keyed by normalized keywords.
+- The first model step receives the top 10 entries from each store—20 entries maximum.
+- Relevant entries are searched and injected automatically during a conversation.
+- Post-turn evaluation decides whether durable results should update memory; the first valid turn has a safe fallback.
+- Schema validation, sensitive-data checks, deduplication, capacity limits, file locks, and atomic replacement protect the stores.
+- Only primary sessions can write. Sub-agents can read memory without corrupting it.
 
-- **Multi-Agent Plan** shows compact run-level progress: status, step count, agent counts, and goal preview.
-- **Tasks** shows structured multi-agent tasks with queued, running, done, and failed states.
-- **Todo** is reserved for normal `todowrite` items and hides when structured cluster tasks are present.
+The result: less repeated setup, more consistent decisions, and agents that improve their understanding of your project over time.
 
-This avoids duplicate or conflicting progress signals and makes long-running multi-agent sessions easier to scan.
+### Durable Runs You Can Trust
 
-### Context and PDF Attachments
+Long-running work should not disappear when a terminal refreshes.
 
-JYY-Code estimates active context using message text, tool output, and decoded media size. PDF and image attachments are not counted by their base64 data URL length. The TUI shows provider-reported tokens separately from estimated active context because providers account for files differently.
+- Sessions, messages, Todos, cluster runs, cluster tasks, and events are stored in SQLite.
+- Child sessions stay bound to their plan task IDs.
+- Background work remains observable through `task` and `task_status`.
+- The `/sessions` dialog restores persisted root sessions.
+- Release channels use isolated databases to prevent accidental schema crossover.
 
-### Email & Communication
+### A TUI Built for Agent Work
 
-Built-in SMTP/IMAP adapters allow agents to send and receive email directly within sessions.
+The sidebar separates three different kinds of progress:
 
-- SMTP with STARTTLS and SMTPS.
-- OAuth2, including Microsoft device-code flow.
-- MIME attachments with automatic content-type detection.
-- IMAP mailbox polling and mail-session detection.
+- **Multi-Agent Plan** — goal, run status, steps, and agent counts.
+- **Tasks** — queued, running, done, and failed cluster tasks.
+- **Todo** — ordinary `todowrite` items without duplicating structured task state.
 
-### Hermes-Inspired Memory System
+You can see what is happening, what is blocked, and what finished—without reading the entire transcript.
 
-A structured file-based memory system captures durable project facts, conventions, user preferences, and lessons learned across sessions.
+### Find the Right Tool at the Right Time
 
-- Dual-scope storage for project and user memory.
-- Confidence-rated entries with source tracking.
-- Automatic post-turn memory extraction.
-- Search, patch, supersede, and suggest operations.
+Press **F10** for intelligent tool search.
 
-### Skill Learning
+- Field-weighted BM25 ranks tool IDs, categories, parameters, descriptions, and examples.
+- Exact-match and intent boosts keep specific tools above generic results.
+- Progressive disclosure can keep core tools visible while loading long-tail tools on demand.
+- Built-in, plugin, and MCP tools share the same catalog, permission, and telemetry path.
 
-Markdown-based skills load domain knowledge, workflows, and tool integrations from local or remote sources.
-
-- Local discovery from `.jyycode/skills/`.
-- Remote skill discovery through HTTP indexes.
-- Frontmatter metadata for relevance matching.
-- Runtime skill loading through the skill tool.
-
-### Intelligent Tool Search(Press F10 to Use)
-
-Field-weighted BM25 retrieval helps the agent find the right tool without exposing the full catalog every turn.
-
-- Searches the currently available prompt tool catalog instead of a static global list.
-- Scores tool IDs, tags, categories, parameter names, descriptions, and examples with separate field weights.
-- Uses BM25 term-frequency and inverse-document-frequency scoring so rare, specific terms outrank generic repeated words.
-- Preserves strong exact-match boosts for tool IDs and full-query ID matches.
-- Supports category filtering and intent bonuses for write-oriented and communication-oriented requests.
-- Returns parameter summaries for fast tool selection.
-- Covered by deterministic top-k fixtures and real registry tests that verify common intents such as read, list, edit, multi-edit, write, grep, process control, web fetch, and sub-agent delegation rank the expected tool in the top results.
-
-Experimental progressive tool disclosure can be enabled with `JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS`. In this mode, JYY-Code keeps core tools such as read, ls, grep, shell, edit, multi_edit, task, and todo directly visible, while long-tail MCP, plugin, communication, and advanced tools are discoverable through `tool_search` and executed through `tool_exec`. MCP tools are normalized into the same catalog metadata path as built-in and plugin tools, so search ranking, permission checks, and telemetry use the delegated underlying tool identity. `JYYCODE_DEFERRED_TOOL_THRESHOLD` controls when the catalog is partitioned, and disabling the flag restores the default behavior.
-
-### Expanded Core Tools
-
-The built-in toolset includes focused filesystem, editing, and process-control helpers for common agent workflows:
-
-- `ls` lists directory contents and shallow trees without reading file contents, making exploration cheaper and safer than broad reads.
-- `multi_edit` applies ordered edits to one file atomically, reusing the same replacement engine as `edit` while preserving BOM and line endings.
-- `process_start`, `process_output`, and `kill_process` manage long-running background shell processes by ID, with permission scanning before launch and incremental output retrieval afterward.
-
-### Architecture Optimizations
-
-- **Workflow state** - SQLite-backed sessions, message parts, todos, cluster runs, cluster tasks, and event projection.
-- **Worktree management** - Git worktree creation, removal, reset, and isolated sub-agent execution.
-- **Tool calling normalization** - schema validation, parameter parsing, output truncation, permission gating, and metadata propagation.
-- **Security constraints** - configurable ask/allow/deny permissions per tool, agent, and session.
-
-### Additional Capabilities
-
-- 20+ LLM providers: Anthropic, OpenAI, Google Gemini, AWS Bedrock, Azure, GitHub Copilot, OpenRouter, xAI, Groq, Mistral, and more.
-- MCP support for external tool servers.
-- npm and internal plugin system with hooks and TUI extension points.
-- SolidJS/OpenTUI terminal interface.
-- Cross-machine session sync and restore.
-- LSP integration.
+Core tools cover file discovery, search, atomic multi-editing, shell execution, long-running processes, sub-agent tasks, and output truncation.
 
 ## Quick Start
 
-### Prerequisites
-
-- Node.js 20+ and npm for normal users.
-- [Bun](https://bun.sh/) >= 1.3.14 only if you are developing from source.
-
 ### Install
 
-```bash
-# Install the published CLI wrapper.
-npm install -g jyycode-ai
+Requirements: Node.js 20+ and npm. Bun is only required for source development.
 
-# Start JYY-Code in the current terminal directory.
+```bash
+npm install -g jyycode-ai
+cd /path/to/your/project
 jyy
 ```
 
-`jyy` and `jyycode` point to the same CLI. The process inherits the terminal's current working directory, so running `jyy` from `/path/to/project` starts JYY-Code against `/path/to/project`.
+Inside JYY-Code, run `/connect` to configure a model provider.
 
-### Configure A Model Provider
+`jyy` and `jyycode` are the same CLI. The current terminal directory becomes the agent workspace.
 
-Use the /connect command to select a model provider and enter your API key.
+### Configure by File
 
-You can also use environment variables supported by the selected provider, for example:
-
-```bash
-export OPENAI_API_KEY="sk-..."
-jyycode models openai
-```
-
-Or write the global config file at `~/.config/jyycode/jyycode.jsonc`:
+Global config: `~/.config/jyycode/jyycode.jsonc`
 
 ```jsonc
 {
@@ -171,107 +119,87 @@ Or write the global config file at `~/.config/jyycode/jyycode.jsonc`:
   "provider": {
     "openai": {
       "options": {
-        "apiKey": "sk-...",
-      },
-    },
-  },
+        "apiKey": "sk-..."
+      }
+    }
+  }
 }
 ```
 
-Use `provider`, `permission`, and `plugin` as the canonical config keys. The loader also accepts the common plural aliases `providers`, `permissions`, and `plugins` for compatibility.
+Project config lives in `.jyycode/jyycode.jsonc`. Main areas are `provider`, `permission`, `agent_cluster`, `mcp`, `skills`, and `plugin`.
 
-### Develop From Source
+## How It Works
+
+```text
+User request
+  → Restore session + memory
+  → Build system prompt (instructions + skills + memory + tools)
+  → Plan and delegate work
+  → Run agents and tools with permission checks
+  → Persist tasks, events, messages, and results
+  → Review output and gate completion
+  → Evaluate durable memory after the turn
+```
+
+In cluster mode:
+
+```text
+Goal
+  → Planner
+  → Persisted dependency graph
+  → Parallel sub-agents
+  → Reviewer
+  → Final synthesis
+```
+
+## More Built In
+
+- **20+ model providers** — Anthropic, OpenAI, Gemini, Bedrock, Azure, GitHub Copilot, OpenRouter, xAI, Groq, Mistral, and more.
+- **MCP and plugins** — connect external tools, hooks, and TUI extensions.
+- **Skills** — load reusable domain knowledge and workflows from local or remote sources.
+- **LSP integration** — give agents code intelligence beyond text search.
+- **Email adapters** — SMTP, IMAP, OAuth2, and MIME attachments.
+- **Context awareness** — estimate active context without counting PDF and image data URLs as raw text.
+- **Session sync** — restore and synchronize work across environments.
+- **Permission controls** — configure ask, allow, or deny rules by tool, agent, and session.
+
+## Session Safety and Recovery
+
+JYY-Code keeps packaged and source-development databases separate. Use:
+
+```bash
+jyycode db status
+```
+
+This shows the active database, release channel, migrations, and session counts without modifying other databases. Stop JYY-Code and back up the database together with its `-wal` and `-shm` files before changing channel policy.
+
+If a session appears missing, confirm the active database with `jyycode db status`, then open `/sessions` from the same project or worktree.
+
+## Develop From Source
 
 ```bash
 git clone https://github.com/Reon-Jin/JYY-Code.git
-cd jyycode
+cd JYY-Code
 bun install
 bun run dev
 ```
 
-## Session Database and Recovery
-
-Sessions, messages, parts, project metadata, Todos, and event journals are stored in SQLite. The database is owned by one scoped runtime connection, migrations and projectors are transactional, and a clean shutdown closes the connection without deleting session rows.
-
-The `/sessions` dialog reads persisted root sessions directly from the active database. Default browsing loads up to 100 roots; text search loads up to 30. Child sessions are filtered before the SQL limit is applied, and synchronized cache data remains available as a fallback.
-
-JYY-Code keeps release channels isolated so development schemas cannot silently mutate a stable database:
-
-- Packaged `latest`, `beta`, and `prod` builds use `jyycode.db`.
-- Source runs normally use `jyycode-local.db`; other custom channels use their own `jyycode-<channel>.db` file.
-- `jyycode db status` shows the active path, selection source, row counts, migrations, and session counts in other discovered channel databases. It never migrates or modifies those databases.
-- `JYYCODE_DISABLE_CHANNEL_DB=1` is an expert override that selects the shared `jyycode.db`. Do not use it while binaries with incompatible schemas may run against the same file.
-
-Back up the database, including any `-wal` and `-shm` companions, before changing channel policy. Stop JYY-Code before copying these files.
-
-If a session appears missing:
-
-1. Run `jyycode db status` and confirm the active path and channel.
-2. Open `/sessions` from the same project or worktree; project and normalized path filters still apply.
-3. If another channel database contains the session, stop JYY-Code and back up both databases before changing channel policy. Databases are never merged automatically.
-
-## Project Structure
-
 ```text
-jyycode/
-|-- packages/
-|   |-- jyycode/          # Main app: CLI, agent, session, tools, memory, skills, TUI
-|   |-- core/             # Core libraries, filesystem, provider helpers, utilities
-|   |-- llm/              # LLM abstraction layer and protocol adapters
-|   |-- plugin/           # Plugin SDK and TUI/plugin interfaces
-|   |-- sdk/              # Client SDK for the JYYCode API
-|   |-- http-recorder/    # HTTP recording/replay test utilities
-|   |-- script/           # Shared scripts
-|   `-- identity/         # Identity provider assets
-|-- .jyycode/             # Project-level config, skills, agents, commands, themes
-|-- memory/               # Persistent memory storage
-|-- specs/                # Design specs
-|-- script/               # Build and CI scripts
-`-- patches/              # Patched dependencies
+packages/jyycode/   Main CLI, agents, sessions, memory, tools, and TUI
+packages/core/      Filesystem, providers, and shared utilities
+packages/llm/       LLM protocol and runtime adapters
+packages/plugin/    Plugin SDK and extension interfaces
+packages/sdk/       JYY-Code API client
+.jyycode/           Project agents, skills, commands, themes, and config
+memory/             Structured persistent memory
 ```
 
-## Architecture
+## Star the Project
 
-```text
-CLI Input
-  -> Config Loading
-  -> Session Restore
-  -> System Prompt (skills + memory + tools)
-  -> LLM Call (provider selection + streaming)
-  -> Tool Execution (permission check + schema validation + execution + truncation)
-  -> Post-Turn (memory extraction + persistence + event emission)
+JYY-Code is for developers who want agents with memory, coordination, visibility, and follow-through.
 
-Multi-Agent Mode:
-  User Request
-  -> Cluster Planner
-  -> Persisted Plan Tasks
-  -> Background Sub-agents
-  -> task_status / Review
-  -> Final Synthesis
-  -> TUI state from persisted cluster rows
-```
-
-## Configuration
-
-Project-level configuration lives in `.jyycode/jyycode.jsonc`. Global user config is at `~/.config/jyycode/jyycode.jsonc`.
-
-Key configuration areas:
-
-- **provider** - LLM provider credentials and model preferences.
-- **permission** - tool access rules with ask/allow/deny per tool and agent.
-- **agent_cluster** - multi-agent orchestration settings, model routing, concurrency, and review rounds.
-- **mcp** - MCP server connections.
-- **skills** - skill discovery paths.
-- **plugin** - TUI and runtime plugin origins.
-
-## Notable API
-
-```http
-GET /session/:sessionID/agent-cluster
-```
-
-Returns persisted agent cluster runs and tasks for a session. The TUI uses this endpoint during session sync and then keeps state fresh through `agent_cluster.event`.
+If that is the direction you want coding agents to take, [star JYY-Code on GitHub](https://github.com/Reon-Jin/JYY-Code) ⭐
 
 ## License
 
-MIT (c) [JYYCode](https://github.com/Reon-Jin/JYY-Code)
+MIT © [JYYCode](https://github.com/Reon-Jin/JYY-Code)

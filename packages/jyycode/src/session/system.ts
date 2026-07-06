@@ -60,7 +60,7 @@ export const layer = Layer.effect(
             `  Today's date: ${new Date().toDateString()}`,
             `</env>`,
             ``,
-            `Persistent memory is stored as structured JSON entries in D:/jyycode/memory/: MEMORY.json contains one durable task entry per session (limit 10,000 chars), and USER.json contains stable user facts keyed by normalized keywords (limit 2,000 chars). A formatted top-20 snapshot is injected at session start; raw JSON files are not injected. Use the memory tool to add, replace, remove, or compact entries. old_text matches entry content only and must identify exactly one entry. When usage exceeds 80%, consolidate entries before adding new ones. Never store secrets, credentials, or unsupported guesses.`,
+            `Persistent memory is stored as structured JSON entries in D:/jyycode/memory/: MEMORY.json contains one durable task entry per session (limit 10,000 chars), and USER.json contains stable user facts keyed by normalized keywords (limit 2,000 chars). A formatted top-10 snapshot from each store (20 entries maximum) is injected at session start; raw JSON files are not injected. Use the memory tool to add, replace, remove, or compact entries. old_text matches entry content only and must identify exactly one entry. When usage exceeds 80%, consolidate entries before adding new ones. Never store secrets, credentials, or unsupported guesses.`,
           ].join("\n"),
         ]
       }),

@@ -116,7 +116,7 @@ You have a persistent memory system stored in D:/jyycode/memory/ with two struct
 [MEMORY.json] — Durable task outcomes, project conventions, workflows, and lessons. Each entry is keyed by sessionID (limit 10,000 chars).
 [USER.json] — Stable user identity facts and reusable preferences. Each entry is keyed by normalized keywords (limit 2,000 chars).
 
-A formatted top-20 snapshot is injected at session start; raw JSON is not injected. Use the `memory` tool to make changes. Changes persist immediately but won't appear in the snapshot until the next session.
+A formatted top-10 snapshot from each store (20 entries maximum) is injected at session start; raw JSON is not injected. Use the `memory` tool to make changes. Changes persist immediately but won't appear in the snapshot until the next session.
 
 Use the `memory` tool with these actions:
 - add — write a new entry. If at capacity limit, consolidate or replace existing entries first.
