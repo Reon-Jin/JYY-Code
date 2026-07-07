@@ -100,21 +100,71 @@ function balancedJsonObjects(value: string) {
   return candidates
 }
 
+function resolveRole(raw: string): PlannedTask["role"] {
+  const lower = raw.toLowerCase()
+  if (lower.includes("research") || lower.includes("调研")) return "researcher"
+  if (lower.includes("search") || lower.includes("图片") || lower.includes("image") || lower.includes("picture"))
+    return "picture_searcher"
+  if (lower.includes("analyst") || lower.includes("analysis") || lower.includes("分析")) return "analyst"
+  if (lower.includes("write") || lower.includes("writer") || lower.includes("写")) return "writer"
+  if (lower.includes("chart") || lower.includes("图表")) return "chart"
+  if (lower.includes("pdf") || lower.includes("文档") || lower.includes("doc")) return "pdf"
+  if (lower.includes("test") || lower.includes("测试") || lower.includes("验证")) return "tester"
+  if (lower.includes("code") || lower.includes("coder") || lower.includes("开发") || lower.includes("代码") || lower.includes("前端") || lower.includes("html") || lower.includes("css") || lower.includes("js") || lower.includes("javascript")) return "coder"
+  return "general"
+}
+
 export function normalizePlan(value: unknown): Plan | undefined {
   const obj = record(value)
-  const goal = text(obj?.goal)
-  const rawTasks = obj?.tasks
-  if (!goal || !Array.isArray(rawTasks)) return
+  // Allow project, description as fallback goal field names
+  const goal = text(obj?.goal) ?? text(obj?.project) ?? text(obj?.description) ?? ""
+  // Support both top-level tasks and nested steps[].tasks[]
+  let rawTasks = obj?.tasks
+  if (!Array.isArray(rawTasks)) {
+    const steps = obj?.steps
+    if (Array.isArray(steps)) {
+      rawTasks = steps.flatMap((step: unknown) => {
+        const s = record(step)
+        const tasks = Array.isArray(s?.tasks) ? (s!.tasks as unknown[]) : []
+        // Propagate parent step number to child tasks that lack their own step
+        const parentStep = Math.trunc(number(s?.step) ?? 1)
+        return tasks.map((t: unknown) => {
+          const task = record(t)
+          if (task && task.step === undefined) {
+            return { ...task, step: parentStep }
+          }
+          return t
+        })
+      })
+    }
+  }
+  if (!Array.isArray(rawTasks) || rawTasks.length === 0) return
   const tasks = rawTasks.flatMap((item): PlannedTask[] => {
     const task = record(item)
     if (!task) return []
     const title = text(task.title) ?? text(task.description)
     const id = text(task.id) ?? title
-    const prompt = text(task.prompt)
-    const role = text(task.role) ?? "general"
+    // Support common alternative field names for prompt
+    const prompt = text(task.prompt) ?? text(task.detailed_prompt) ?? text(task.instruction)
+    const role = resolveRole(text(task.role) ?? "general")
     const complexity = text(task.complexity) === "complex" ? "complex" : "simple"
     const model = text(task.model) ?? "-"
     if (!id || !title || !prompt) return []
+    // Support both camelCase and snake_case field names
+    const acceptanceCriteria =
+      stringList(task.acceptanceCriteria).length > 0
+        ? stringList(task.acceptanceCriteria)
+        : stringList(task.acceptance_criteria)
+    const expectedArtifacts =
+      stringList(task.expectedArtifacts).length > 0
+        ? stringList(task.expectedArtifacts)
+        : stringList(task.expected_artifacts).length > 0
+          ? stringList(task.expected_artifacts)
+          : stringList(task.expected_artifact_paths).length > 0
+            ? stringList(task.expected_artifact_paths)
+            : typeof task.expected_artifact === "string" && task.expected_artifact.trim()
+              ? [task.expected_artifact.trim()]
+              : []
     return [
       {
         id: taskID(id),
@@ -125,13 +175,13 @@ export function normalizePlan(value: unknown): Plan | undefined {
         model,
         dependencies: stringList(task.dependencies).map(taskID),
         prompt,
-        acceptanceCriteria: stringList(task.acceptanceCriteria),
-        expectedArtifacts: stringList(task.expectedArtifacts),
+        acceptanceCriteria,
+        expectedArtifacts,
       },
     ]
   })
   if (tasks.length === 0) return
-  return { goal, tasks }
+  return { goal: goal || "Multi-Agent cluster run", tasks }
 }
 
 export function extractPlanFromText(value: string): Plan | undefined {

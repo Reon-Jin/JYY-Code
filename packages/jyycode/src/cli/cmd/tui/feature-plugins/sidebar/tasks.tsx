@@ -47,12 +47,16 @@ function taskRows(api: TuiPluginApi, sessionID: string): TaskRow[] {
 function View(props: { api: TuiPluginApi; session_id: string }) {
   const [showAllDone, setShowAllDone] = createSignal(false)
   const theme = () => props.api.theme.current
+  const session = createMemo(() => props.api.state.session.get(props.session_id))
+  const multiAgentEnabled = createMemo(
+    () => (session()?.multiAgent ?? props.api.state.config.agent_cluster?.default_on) === true,
+  )
   const rows = createMemo(() => taskRows(props.api, props.session_id))
   const visible = createMemo(() => visibleTaskRows(rows(), doneLimit, showAllDone()))
   const moreDone = createMemo(() => hiddenDoneCount(rows(), visible()))
 
   return (
-    <Show when={rows().length > 0}>
+    <Show when={rows().length > 0 && !multiAgentEnabled()}>
       <box>
         <text fg={theme().text}>
           <b>Tasks</b>

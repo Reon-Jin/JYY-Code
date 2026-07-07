@@ -28,6 +28,7 @@ import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
 import { ConfigAgentCluster } from "@/config/agent-cluster"
+import { AgentClusterRunTable } from "@/agent-cluster/cluster.sql"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@jyycode-ai/core/util/error"
@@ -1704,6 +1705,36 @@ export const layer = Layer.effect(
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
             const promptOps = yield* ops()
 
+            // Resolve the cluster run ID for the current session if in cluster mode.
+            let clusterRunID: string | undefined
+            // 1. Try to find it in the message parts (synthetic planner prompt)
+            for (const m of [...msgs].reverse()) {
+              for (const part of m.parts) {
+                const meta =
+                  "metadata" in part
+                    ? (part.metadata as { kind?: string; runID?: string } | undefined)
+                    : undefined
+                if (meta?.kind === "agent_cluster" && meta.runID) {
+                  clusterRunID = meta.runID as string
+                  break
+                }
+              }
+              if (clusterRunID) break
+            }
+            // 2. Fall back to querying the database for the most recent open run
+            if (!clusterRunID) {
+              const rows = yield* Database.query((db) =>
+                db
+                  .select({ id: AgentClusterRunTable.id, time: AgentClusterRunTable.time_created })
+                  .from(AgentClusterRunTable)
+                  .where(Database.eq(AgentClusterRunTable.session_id, sessionID))
+                  .all(),
+              )
+              clusterRunID = rows.toSorted((a, b) => b.time - a.time)[0]?.id
+            }
+            // Make the runID available to tool handlers via promptOps
+            if (clusterRunID) (promptOps as { agentClusterRunID?: string }).agentClusterRunID = clusterRunID
+
             const tools = yield* SessionTools.resolve({
               agent,
               session,
@@ -1712,6 +1743,7 @@ export const layer = Layer.effect(
               bypassAgentCheck,
               messages: msgs,
               promptOps,
+              agentClusterRunID: clusterRunID,
             }).pipe(
               Effect.provideService(Plugin.Service, plugin),
               Effect.provideService(Permission.Service, permission),

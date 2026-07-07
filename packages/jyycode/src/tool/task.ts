@@ -32,6 +32,8 @@ export interface TaskPromptOps {
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
   loop(input: SessionPrompt.LoopInput): Effect.Effect<MessageV2.WithParts>
+  /** Set when running in Agent Cluster mode; the active run id. */
+  agentClusterRunID?: string
 }
 
 export interface TaskWorktreeOps {
@@ -57,12 +59,30 @@ const BACKGROUND_DESCRIPTION = [
 ].join("\n")
 const FORK_CONTEXT_MAX_CHARS = 20_000
 
-function agentClusterRunID(ctx: Tool.Context) {
-  if (typeof ctx.extra?.agentClusterRunID === "string") return ctx.extra.agentClusterRunID
-  for (const message of ctx.messages) {
+// Note: duplicated in tool/agent-cluster-review.ts — keep in sync.
+function agentClusterRunID(ctx: Tool.Context): string | undefined {
+  // Check extra.agentClusterRunID (set by session/tools.ts in cluster mode)
+  // and promptOps.agentClusterRunID (set by session/prompt.ts)
+  const extraRunID =
+    typeof ctx.extra?.agentClusterRunID === "string"
+      ? (ctx.extra.agentClusterRunID as string)
+      : (ctx.extra?.promptOps as TaskPromptOps | undefined)?.agentClusterRunID
+  return agentClusterRunIDFromMessages(extraRunID, ctx.messages)
+}
+
+// Exported so agent-cluster-review.ts can reuse the same logic.
+export function agentClusterRunIDFromMessages(
+  extraRunID: unknown,
+  messages: readonly MessageV2.WithParts[],
+): string | undefined {
+  if (typeof extraRunID === "string") return extraRunID as string
+  for (const message of messages) {
     for (const part of message.parts) {
       const metadata = "metadata" in part ? (part.metadata as { kind?: string; runID?: string } | undefined) : undefined
-      if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID
+      if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID as string
+      // Some providers flatten metadata onto the part object directly
+      const direct = part as { kind?: string; runID?: string } | undefined
+      if (direct?.kind === "agent_cluster" && direct.runID) return direct.runID as string
     }
   }
   return undefined
@@ -356,10 +376,30 @@ export const TaskTool = Tool.define(
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
       const persistCurrentClusterPlan = Effect.fn("TaskTool.persistCurrentClusterPlan")(function* () {
         if (!clusterRunID) return false
+        // Search all messages in the conversation for the plan JSON, not just
+        // the current message. The plan may have been emitted in an earlier
+        // assistant message before the task tool calls.
+        // First collect text from all prior messages (ctx.messages).
+        const texts: string[] = []
+        for (const message of ctx.messages) {
+          if (message.info.role !== "assistant") continue
+          for (const part of message.parts) {
+            if (part.type === "text") {
+              texts.push(part.text)
+            }
+          }
+        }
+        // Also include the current message. Use MessageV2.get to fetch the
+        // most up-to-date version, which should include text parts that were
+        // committed just before the tool call is processed.
         const current = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
-        const plan = AgentClusterRuntime.extractPlanFromText(
-          current.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
-        )
+        for (const part of current.parts) {
+          if (part.type === "text") {
+            texts.push(part.text)
+          }
+        }
+        const combined = texts.join("\n")
+        const plan = AgentClusterRuntime.extractPlanFromText(combined)
         if (!plan) return false
         const clusterConfig = ConfigAgentCluster.resolve(cfg.agent_cluster)
         const validation = AgentClusterRuntime.validatePlan(plan, {

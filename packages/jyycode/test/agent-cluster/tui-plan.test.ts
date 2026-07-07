@@ -90,9 +90,13 @@ describe("agent cluster TUI plan parsing", () => {
           complexity: "simple",
           model: "test/simple",
           status: "planned",
+          step: 1,
+          dependencies: [],
           review_round: 0,
           acceptance_criteria: [],
           artifact_paths: [],
+          result_summary: null,
+          review_issues: [],
           last_event: null,
           time_created: 1,
           time_updated: 1,
@@ -558,5 +562,312 @@ describe("agent cluster TUI plan parsing", () => {
     expect(snapshot.totalSteps).toBe(1)
     expect(snapshot.currentStep).toBe(1)
     expect(snapshot.totalAgents).toBe(1)
+  })
+
+  describe("Bug fixes", () => {
+    test("merges live tool-call statuses INTO authoritative cluster plan (Bug 2&3 fix)", () => {
+      const parent = "ses_parent"
+      const assistant = "msg_assistant"
+      const cluster = {
+        runs: [{ id: "run_1", status: "dispatching", goal: "Build report" }],
+        tasks: [
+          {
+            id: "research",
+            run_id: "run_1",
+            title: "Research sources",
+            role: "researcher" as const,
+            step: 1,
+            status: "submitted",
+            dependencies: [],
+            acceptance_criteria: [],
+            artifact_paths: [],
+          },
+          {
+            id: "write",
+            run_id: "run_1",
+            title: "Write report",
+            role: "writer" as const,
+            step: 2,
+            status: "planned",
+            dependencies: ["research"],
+            acceptance_criteria: [],
+            artifact_paths: [],
+          },
+        ],
+      }
+      const messagesBySession: Record<string, Message[]> = {
+        [parent]: [
+          {
+            id: assistant,
+            parentID: "msg_user",
+            sessionID: parent,
+            role: "assistant",
+            mode: "cluster",
+            agent: "cluster",
+            path: { cwd: ".", root: "." },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: "deepseek-v4-pro",
+            providerID: "deepseek",
+            time: { created: 1 },
+          },
+        ],
+        ses_child: [
+          {
+            id: "child_assistant",
+            parentID: "child_user",
+            sessionID: "ses_child",
+            role: "assistant",
+            mode: "researcher",
+            agent: "researcher",
+            path: { cwd: ".", root: "." },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: "deepseek-v4-pro",
+            providerID: "deepseek",
+            finish: "stop",
+            time: { created: 2, completed: 3 },
+          },
+        ],
+      }
+      const partsByMessage: Record<string, Part[]> = {
+        [assistant]: [
+          {
+            id: "part_task",
+            sessionID: parent,
+            messageID: assistant,
+            type: "tool",
+            callID: "call_task",
+            tool: "task",
+            state: {
+              status: "completed",
+              title: "Research sources",
+              input: {
+                description: "Research sources",
+                prompt: "Research the topic",
+                subagent_type: "researcher",
+                task_id: "research",
+                model: "deepseek/deepseek-v4-pro",
+              },
+              metadata: {
+                sessionId: "ses_child",
+                background: true,
+                model: { providerID: "deepseek", modelID: "deepseek-v4-pro" },
+              },
+              output: "task_id: ses_child\nstate: running",
+              time: { start: 1, end: 2 },
+            },
+          },
+        ],
+      }
+
+      const snapshot = agentClusterSnapshot({
+        sessionID: parent,
+        enabled: true,
+        disabled: false,
+        cluster,
+        messages: (sessionID) => messagesBySession[sessionID] ?? [],
+        parts: (messageID) => partsByMessage[messageID] ?? [],
+        sessionStatus: () => ({ type: "idle" }),
+      })
+
+      // The authoritative plan says "submitted" and "planned", but the
+      // live tool call for the child says it's done (child has completed).
+      // The merged status should show step 1 as done, step 2 as queued.
+      expect(snapshot.totalSteps).toBe(2)
+      expect(snapshot.steps[0]?.status).toBe("done")
+      expect(snapshot.steps[1]?.status).toBe("queued")
+      expect(snapshot.completedSteps).toBe(1)
+      expect(snapshot.doneAgents).toBe(1)
+      expect(snapshot.currentStep).toBe(2)
+      // Verify that each step has the correct tasks
+      expect(snapshot.steps[0]?.tasks.map((t) => t.id)).toEqual(["research"])
+      expect(snapshot.steps[1]?.tasks.map((t) => t.id)).toEqual(["write"])
+    })
+
+    test("multi-step plan tasks remain in correct steps after status merge (Bug 3 fix)", () => {
+      const cluster = {
+        runs: [{ id: "run_1", status: "dispatching", goal: "Multi-step plan" }],
+        tasks: [
+          {
+            id: "t1",
+            run_id: "run_1",
+            title: "Step 1 task A",
+            role: "researcher" as const,
+            step: 1,
+            status: "accepted",
+            dependencies: [] as string[],
+            acceptance_criteria: [],
+            artifact_paths: [],
+          },
+          {
+            id: "t2",
+            run_id: "run_1",
+            title: "Step 1 task B",
+            role: "coder" as const,
+            step: 1,
+            status: "accepted",
+            dependencies: [] as string[],
+            acceptance_criteria: [],
+            artifact_paths: [],
+          },
+          {
+            id: "t3",
+            run_id: "run_1",
+            title: "Step 2 task C",
+            role: "writer" as const,
+            step: 2,
+            status: "running",
+            dependencies: ["t1"],
+            acceptance_criteria: [],
+            artifact_paths: [],
+          },
+          {
+            id: "t4",
+            run_id: "run_1",
+            title: "Step 3 task D",
+            role: "tester" as const,
+            step: 3,
+            status: "planned",
+            dependencies: ["t3"],
+            acceptance_criteria: [],
+            artifact_paths: [],
+          },
+        ],
+      }
+
+      const snapshot = agentClusterSnapshot({
+        sessionID: "ses_parent",
+        enabled: true,
+        disabled: false,
+        cluster,
+        messages: () => [],
+        parts: () => [],
+      })
+
+      // Each task must stay in its own step
+      expect(snapshot.totalSteps).toBe(3)
+      expect(snapshot.steps[0]?.tasks.map((t) => t.id)).toEqual(["t1", "t2"])
+      expect(snapshot.steps[0]?.status).toBe("done")
+      expect(snapshot.steps[1]?.tasks.map((t) => t.id)).toEqual(["t3"])
+      expect(snapshot.steps[1]?.status).toBe("running")
+      expect(snapshot.steps[2]?.tasks.map((t) => t.id)).toEqual(["t4"])
+      expect(snapshot.steps[2]?.status).toBe("queued")
+      expect(snapshot.currentStep).toBe(2)
+      expect(snapshot.completedSteps).toBe(1)
+      expect(snapshot.runningAgents).toBe(1)
+    })
+
+    test("authoritative cluster plan preserves dependencies from DB (Bug 3 fix)", () => {
+      const cluster = {
+        runs: [{ id: "run_1", status: "dispatching", goal: "Plan with deps" }],
+        tasks: [
+          {
+            id: "base",
+            run_id: "run_1",
+            title: "Base research",
+            role: "researcher" as const,
+            step: 1,
+            status: "accepted",
+            dependencies: [] as string[],
+            acceptance_criteria: [],
+            artifact_paths: [],
+          },
+          {
+            id: "build",
+            run_id: "run_1",
+            title: "Build on research",
+            role: "coder" as const,
+            step: 2,
+            status: "planned",
+            dependencies: ["base"],
+            acceptance_criteria: [],
+            artifact_paths: [],
+          },
+        ],
+      }
+
+      const snapshot = agentClusterSnapshot({
+        sessionID: "ses_parent",
+        enabled: true,
+        disabled: false,
+        cluster,
+        messages: () => [],
+        parts: () => [],
+      })
+
+      // Verify dependencies are preserved from DB
+      expect(snapshot.plan?.tasks.find((t) => t.id === "build")?.dependencies).toEqual(["base"])
+      expect(snapshot.plan?.tasks.find((t) => t.id === "base")?.dependencies).toEqual([])
+      // Verify steps are correct
+      expect(snapshot.steps[0]?.tasks[0]?.id).toBe("base")
+      expect(snapshot.steps[1]?.tasks[0]?.id).toBe("build")
+    })
+
+    test("revision_requested task shows as running in snapshot", () => {
+      const cluster = {
+        runs: [{ id: "run_1", status: "reviewing", goal: "Revision test" }],
+        tasks: [
+          {
+            id: "revise-me",
+            run_id: "run_1",
+            title: "Needs revision",
+            role: "coder" as const,
+            step: 1,
+            status: "revision_requested",
+            child_session_id: "ses_child",
+            dependencies: [] as string[],
+            acceptance_criteria: [],
+            artifact_paths: [],
+          },
+        ],
+      }
+
+      const snapshot = agentClusterSnapshot({
+        sessionID: "ses_parent",
+        enabled: true,
+        disabled: false,
+        cluster,
+        messages: () => [],
+        parts: () => [],
+      })
+
+      // revision_requested status should map to "running"
+      expect(snapshot.steps[0]?.tasks[0]?.status).toBe("running")
+      expect(snapshot.runningAgents).toBe(1)
+      expect(snapshot.status).toBe("dispatching")
+    })
+
+    test("revising task shows as running in snapshot", () => {
+      const cluster = {
+        runs: [{ id: "run_1", status: "reviewing", goal: "Revising test" }],
+        tasks: [
+          {
+            id: "in-revision",
+            run_id: "run_1",
+            title: "Currently revising",
+            role: "coder" as const,
+            step: 1,
+            status: "revising",
+            child_session_id: "ses_child",
+            dependencies: [] as string[],
+            acceptance_criteria: [],
+            artifact_paths: [],
+          },
+        ],
+      }
+
+      const snapshot = agentClusterSnapshot({
+        sessionID: "ses_parent",
+        enabled: true,
+        disabled: false,
+        cluster,
+        messages: () => [],
+        parts: () => [],
+      })
+
+      expect(snapshot.steps[0]?.tasks[0]?.status).toBe("running")
+      expect(snapshot.runningAgents).toBe(1)
+    })
   })
 })

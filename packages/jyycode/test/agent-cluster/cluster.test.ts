@@ -826,3 +826,143 @@ describe("AgentClusterRuntime.validatePlan", () => {
     expect(AgentClusterRuntime.canRequestRevision({ roundsUsed: 2, limits: { maxReviewRounds: 2 } })).toBe(false)
   })
 })
+
+describe("AgentClusterRuntime.normalizePlan nested steps", () => {
+  test("parses nested steps[].tasks[] format", () => {
+    const json = {
+      project: "Build website",
+      steps: [
+        {
+          step: 1,
+          tasks: [
+            {
+              id: "task-1",
+              title: "Create HTML",
+              role: "前端HTML开发",
+              prompt: "Create index.html",
+              acceptance_criteria: ["has DOCTYPE", "has h1"],
+              expected_artifact: "index.html",
+            },
+            {
+              id: "task-2",
+              title: "Create CSS",
+              role: "Coder Agent",
+              prompt: "Create style.css",
+              acceptanceCriteria: ["has body style"],
+              expected_artifacts: ["style.css"],
+            },
+          ],
+        },
+        {
+          step: 2,
+          tasks: [
+            {
+              id: "task-3",
+              title: "Test everything",
+              role: "tester",
+              prompt: "Run tests",
+              acceptanceCriteria: ["all pass"],
+              expectedArtifacts: [],
+              dependencies: ["task-1", "task-2"],
+            },
+          ],
+        },
+      ],
+    }
+
+    const plan = AgentClusterRuntime.normalizePlan(json)
+    expect(plan?.goal).toBe("Build website")
+    expect(plan?.tasks.length).toBe(3)
+    expect(plan?.tasks[0]?.id).toBe(AgentClusterRuntime.coerceTaskID("task-1"))
+    expect(plan?.tasks[0]?.step).toBe(1)
+    expect(plan?.tasks[0]?.role).toBe("coder") // "前端HTML开发" maps to coder
+    expect(plan?.tasks[0]?.expectedArtifacts).toEqual(["index.html"])
+    expect(plan?.tasks[0]?.acceptanceCriteria).toEqual(["has DOCTYPE", "has h1"])
+    expect(plan?.tasks[1]?.role).toBe("coder") // "Coder Agent" maps to coder
+    expect(plan?.tasks[1]?.expectedArtifacts).toEqual(["style.css"])
+    expect(plan?.tasks[2]?.step).toBe(2)
+    expect(plan?.tasks[2]?.role).toBe("tester")
+    expect(plan?.tasks[2]?.dependencies).toEqual(["task-1", "task-2"].map(AgentClusterRuntime.coerceTaskID))
+  })
+
+  test("parses standard flat {goal, tasks} format unchanged", () => {
+    const json = {
+      goal: "Build report",
+      tasks: [
+        {
+          id: "r1",
+          step: 1,
+          title: "Research",
+          role: "researcher",
+          prompt: "Do research",
+          acceptanceCriteria: ["done"],
+          expectedArtifacts: ["notes.md"],
+        },
+      ],
+    }
+
+    const plan = AgentClusterRuntime.normalizePlan(json)
+    expect(plan?.goal).toBe("Build report")
+    expect(plan?.tasks.length).toBe(1)
+    expect(plan?.tasks[0]?.id).toBe(AgentClusterRuntime.coerceTaskID("r1"))
+  })
+
+  test("uses description as goal fallback", () => {
+    const json = {
+      description: "Create a simple tool",
+      tasks: [
+        {
+          id: "t1",
+          title: "Build",
+          role: "coder",
+          prompt: "Write code",
+          acceptanceCriteria: ["works"],
+        },
+      ],
+    }
+
+    const plan = AgentClusterRuntime.normalizePlan(json)
+    expect(plan?.goal).toBe("Create a simple tool")
+    expect(plan?.tasks.length).toBe(1)
+  })
+
+  test("parses alternative field names: detailed_prompt, acceptance_criteria, expected_artifact_paths", () => {
+    const json = {
+      goal: "Build feature",
+      tasks: [
+        {
+          id: "task-a",
+          title: "Task A",
+          role: "前端HTML开发",
+          detailed_prompt: "Create HTML file",
+          acceptance_criteria: ["file exists"],
+          expected_artifact_paths: ["build/index.html"],
+        },
+      ],
+    }
+
+    const plan = AgentClusterRuntime.normalizePlan(json)
+    expect(plan?.tasks[0]?.prompt).toBe("Create HTML file")
+    expect(plan?.tasks[0]?.acceptanceCriteria).toEqual(["file exists"])
+    expect(plan?.tasks[0]?.expectedArtifacts).toEqual(["build/index.html"])
+    expect(plan?.tasks[0]?.role).toBe("coder") // 前端HTML开发 maps to coder
+  })
+
+  test("handles instruction as prompt fallback", () => {
+    const json = {
+      goal: "Test",
+      tasks: [
+        {
+          id: "t1",
+          title: "Do it",
+          role: "general",
+          instruction: "Write a test",
+          acceptanceCriteria: ["works"],
+        },
+      ],
+    }
+
+    const plan = AgentClusterRuntime.normalizePlan(json)
+    expect(plan?.tasks[0]?.prompt).toBe("Write a test")
+  })
+})
