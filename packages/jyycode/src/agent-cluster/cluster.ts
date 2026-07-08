@@ -107,10 +107,13 @@ export function decoratePromptInput(input: {
   models: ClusterModels
 }): PromptInput {
   const config = ConfigAgentCluster.resolve(input.config)
+  // When the user explicitly passes --model, use it as the planner model instead
+  // of the configured default (e.g. deepseek-v4-flash).
+  const plannerModel = input.prompt.model ?? input.models.planner
   return {
     ...input.prompt,
     agent: "cluster",
-    model: input.models.planner,
+    model: plannerModel,
     parts: [
       ...input.prompt.parts,
       {
@@ -170,30 +173,41 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
   childSessionID: SessionID
 }) {
   if (!input.runID || !input.taskID) return
-  const current = (yield* Database.query((db) =>
-    db
-      .select({ status: AgentClusterTaskTable.status })
-      .from(AgentClusterTaskTable)
-      .where(
-        and(
-          eq(AgentClusterTaskTable.run_id, input.runID as RunID),
-          eq(AgentClusterTaskTable.id, input.taskID as TaskID),
-        ),
-      )
-      .get(),
-  )) as { status: TaskStatus } | undefined
+  const now = Date.now()
+  // Transition from "revision_requested" → "revising"
   yield* Database.query((db) =>
     db
       .update(AgentClusterTaskTable)
       .set({
         child_session_id: input.childSessionID,
-        status: current?.status === "revising" ? ("revising" as const) : ("running" as const),
-        time_updated: Date.now(),
+        status: "revising" as const,
+        time_updated: now,
       })
       .where(
         and(
           eq(AgentClusterTaskTable.run_id, input.runID as RunID),
           eq(AgentClusterTaskTable.id, input.taskID as TaskID),
+          eq(AgentClusterTaskTable.status, "revision_requested"),
+        ),
+      )
+      .run(),
+  )
+  // Transition from "planned" / "queued" → "running"; never overwrite
+  // terminal states (submitted, failed, accepted, etc.) that may have been
+  // set by a faster background job path.
+  yield* Database.query((db) =>
+    db
+      .update(AgentClusterTaskTable)
+      .set({
+        child_session_id: input.childSessionID,
+        status: "running" as const,
+        time_updated: now,
+      })
+      .where(
+        and(
+          eq(AgentClusterTaskTable.run_id, input.runID as RunID),
+          eq(AgentClusterTaskTable.id, input.taskID as TaskID),
+          inArray(AgentClusterTaskTable.status, ["planned", "queued"]),
         ),
       )
       .run(),
@@ -328,7 +342,14 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   )) as TaskRow[]
   const target = rows.find((row) => row.id === input.requestedTaskID || row.child_session_id === input.requestedTaskID)
   if (!target) {
-    return yield* Effect.fail(new Error(`Unknown cluster task for run ${runID}: ${input.requestedTaskID}`))
+    const knownIDs = rows.map((r) => `${r.id}(step=${r.step},status=${r.status})`).join(", ")
+    return yield* Effect.fail(
+      new Error(
+        `Unknown cluster task for run ${runID}: ${input.requestedTaskID}. ` +
+          `Known tasks in this run: [${knownIDs || "(none — plan may not have been persisted yet)"}]. ` +
+          `Hint: make sure the plan JSON was output before dispatching tasks, and that task_id matches exactly.`,
+      ),
+    )
   }
   if (target.status === "failed" || target.status === "cancelled" || target.status === "accepted") {
     return yield* Effect.fail(new Error(`Cluster task ${target.id} cannot be dispatched from status ${target.status}`))
@@ -337,15 +358,19 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   if (!isRevision) {
     const gate = stepGate(rows, target.step)
     if (!gate.allowed) {
+      const instructions: string[] = []
+      if (gate.pending.length) instructions.push(`call agent_cluster_review for each pending task to accept or reject them`)
+      if (gate.rejected.length) instructions.push(`rejected tasks must be replaced with new tasks or the run must be failed`)
       return yield* Effect.fail(
         new Error(
           [
-            "Step gate blocked: all tasks in earlier steps must be accepted",
-            gate.pending.length ? `pending: ${gate.pending.join(", ")}` : undefined,
-            gate.rejected.length ? `rejected: ${gate.rejected.join(", ")}` : undefined,
+            `Step gate blocked: step ${target.step} cannot start until all earlier steps are accepted.`,
+            gate.pending.length ? `Pending review: ${gate.pending.join(", ")}.` : undefined,
+            gate.rejected.length ? `Rejected: ${gate.rejected.join(", ")}.` : undefined,
+            instructions.length ? `Next action: ${instructions.join("; ")}.` : undefined,
           ]
             .filter(Boolean)
-            .join("; "),
+            .join(" "),
         ),
       )
     }

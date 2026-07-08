@@ -67,7 +67,17 @@ function agentClusterRunID(ctx: Tool.Context): string | undefined {
     typeof ctx.extra?.agentClusterRunID === "string"
       ? (ctx.extra.agentClusterRunID as string)
       : (ctx.extra?.promptOps as TaskPromptOps | undefined)?.agentClusterRunID
-  return agentClusterRunIDFromMessages(extraRunID, ctx.messages)
+  if (typeof extraRunID === "string") return extraRunID
+  // Search message parts for the run ID (embedded in synthetic <agent-cluster-run>)
+  return agentClusterRunIDFromMessages(undefined, ctx.messages)
+}
+
+// Regex to extract run_id from <agent-cluster-run> text injected into prompts
+const RUN_ID_RE = /\brun_id:\s*(\w{20,})\b/
+
+function extractRunIDFromText(text: string): string | undefined {
+  const match = RUN_ID_RE.exec(text)
+  return match?.[1]
 }
 
 // Exported so agent-cluster-review.ts can reuse the same logic.
@@ -78,11 +88,17 @@ export function agentClusterRunIDFromMessages(
   if (typeof extraRunID === "string") return extraRunID as string
   for (const message of messages) {
     for (const part of message.parts) {
+      // Check explicit metadata first
       const metadata = "metadata" in part ? (part.metadata as { kind?: string; runID?: string } | undefined) : undefined
       if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID as string
       // Some providers flatten metadata onto the part object directly
       const direct = part as { kind?: string; runID?: string } | undefined
       if (direct?.kind === "agent_cluster" && direct.runID) return direct.runID as string
+      // Search text content for run_id: XXXX (embedded in synthetic prompt)
+      if ("text" in part && typeof part.text === "string") {
+        const id = extractRunIDFromText(part.text)
+        if (id) return id
+      }
     }
   }
   return undefined
@@ -376,31 +392,52 @@ export const TaskTool = Tool.define(
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
       const persistCurrentClusterPlan = Effect.fn("TaskTool.persistCurrentClusterPlan")(function* () {
         if (!clusterRunID) return false
-        // Search all messages in the conversation for the plan JSON, not just
-        // the current message. The plan may have been emitted in an earlier
-        // assistant message before the task tool calls.
-        // First collect text from all prior messages (ctx.messages).
         const texts: string[] = []
+        // 1. PRIMARY SOURCE: read text parts from the current assistant message
+        //    using the ASYNC DB connection (MessageV2.partsAsync).  The legacy
+        //    parts() function uses Database.legacyQuery which is a separate
+        //    synchronous better-sqlite3 connection that may not see parts that
+        //    were just committed via the async drizzle-orm connection during
+        //    streaming.  partsAsync uses the same async connection — guaranteed
+        //    to see the plan JSON text that the LLM just output.
+        const asyncParts = yield* MessageV2.partsAsync(ctx.messageID).pipe(
+          Effect.catchCause(() => Effect.succeed([] as MessageV2.Part[])),
+        )
+        for (const part of asyncParts) {
+          if (part.type === "text") texts.push(part.text)
+        }
+        // 2. Read from session messages (also uses legacyQuery for parts, but
+        //    kept as a best-effort fallback).
+        const dbMessages = yield* sessions.messages({ sessionID: ctx.sessionID, limit: 10 })
+        for (const m of dbMessages) {
+          if (m.info.role !== "assistant") continue
+          for (const part of m.parts) {
+            if (part.type === "text" && !texts.includes(part.text)) texts.push(part.text)
+          }
+        }
+        // 3. ctx.messages (in-memory snapshot from tool-resolution time, before
+        //    the current assistant message was created).
         for (const message of ctx.messages) {
           if (message.info.role !== "assistant") continue
           for (const part of message.parts) {
-            if (part.type === "text") {
-              texts.push(part.text)
-            }
-          }
-        }
-        // Also include the current message. Use MessageV2.get to fetch the
-        // most up-to-date version, which should include text parts that were
-        // committed just before the tool call is processed.
-        const current = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
-        for (const part of current.parts) {
-          if (part.type === "text") {
-            texts.push(part.text)
+            if (part.type === "text" && !texts.includes(part.text)) texts.push(part.text)
           }
         }
         const combined = texts.join("\n")
         const plan = AgentClusterRuntime.extractPlanFromText(combined)
-        if (!plan) return false
+        if (!plan) {
+          const preview = combined.slice(-500) || "(empty)"
+          return yield* Effect.fail(
+            new Error(
+              `Cluster plan not found. ` +
+                `Output the JSON plan as a \`\`\`json code block ` +
+                `with "goal" and "tasks" BEFORE calling the task tool. ` +
+                `Scanned ${texts.length} text parts (${asyncParts.length} from current msg partsAsync, ` +
+                `${dbMessages.length} db msgs, ${ctx.messages.length} ctx msgs). ` +
+                `Last 500 chars: ${preview}`,
+            ),
+          )
+        }
         const clusterConfig = ConfigAgentCluster.resolve(cfg.agent_cluster)
         const validation = AgentClusterRuntime.validatePlan(plan, {
           maxSubagents: clusterConfig.max_subagents,
@@ -415,29 +452,64 @@ export const TaskTool = Tool.define(
       if (clusterBackground && clusterRunID && !params.task_id) {
         return yield* Effect.fail(new Error("Cluster task_id is required for every task in an active cluster run"))
       }
-      if (clusterBackground && clusterRunID && params.task_id) yield* persistCurrentClusterPlan()
       const prepareClusterDispatch = () =>
         AgentCluster.prepareTaskDispatch({
           runID: clusterRunID,
           requestedTaskID: params.task_id,
           prompt: params.prompt,
         })
-      let clusterDispatch =
-        clusterBackground && params.task_id
-          ? yield* prepareClusterDispatch().pipe(Effect.exit)
-          : undefined
-      if (clusterDispatch && Exit.isFailure(clusterDispatch)) {
-        const error = Cause.squash(clusterDispatch.cause)
-        if (String(error).includes("Unknown cluster task for run")) {
-          for (let attempt = 0; attempt < 30; attempt++) {
+      // Captured after .pipe(Effect.exit); undefined when no dispatch was attempted.
+      let clusterDispatch: Exit.Exit<any, any> | undefined = undefined
+      if (clusterBackground && params.task_id) {
+        // Unified retry loop: persist the plan then dispatch, retrying
+        // when the plan text hasn't reached the DB yet (race condition
+        // between the assistant message commit and the first tool call).
+        for (let attempt = 0; attempt < 30; attempt++) {
+          if (attempt > 0) {
             yield* Effect.sleep("100 millis")
-            if (!(yield* persistCurrentClusterPlan())) continue
-            clusterDispatch = yield* prepareClusterDispatch().pipe(Effect.exit)
+          }
+          // Ensure the plan rows exist (idempotent after first success).
+          // If the plan text cannot be extracted from recent messages we
+          // still try to dispatch — the rows may have been pre-seeded by
+          // a direct DB insert (tests) or an earlier run.
+          if (clusterRunID) {
+            const persistResult = yield* persistCurrentClusterPlan().pipe(Effect.exit)
+            if (Exit.isFailure(persistResult)) {
+              const err = Cause.squash(persistResult.cause)
+              if (String(err).includes("Cluster plan not found")) {
+                // Retry the first few attempts in case the assistant message
+                // hasn't been committed yet; after that, try dispatch anyway.
+                if (attempt < 5) continue
+              } else {
+                // Hard errors (invalid JSON, validation failures) — fail fast.
+                return yield* Effect.failCause(persistResult.cause)
+              }
+            }
+          }
+          const dispatched = yield* prepareClusterDispatch().pipe(Effect.exit)
+          if (Exit.isSuccess(dispatched)) {
+            clusterDispatch = dispatched
             break
           }
+          const dispatchErr = Cause.squash(dispatched.cause)
+          // Retry when the persisted rows aren't visible yet (DB timing).
+          if (String(dispatchErr).includes("Unknown cluster task for run")) continue
+          // Step-gate blocked, invalid status, etc. — don't retry.
+          clusterDispatch = dispatched
+          break
+        }
+        if (!clusterDispatch) {
+          return yield* Effect.fail(
+            new Error(
+              `Cluster dispatch failed after 30 attempts for task ${params.task_id}. ` +
+                `The plan may not have been persisted. Ensure a valid JSON plan is output before dispatching tasks.`,
+            ),
+          )
+        }
+        if (Exit.isFailure(clusterDispatch)) {
+          return yield* Effect.failCause(clusterDispatch.cause)
         }
       }
-      if (clusterDispatch && Exit.isFailure(clusterDispatch)) return yield* Effect.failCause(clusterDispatch.cause)
       const preparedDispatch = clusterDispatch?.value
       const effectivePrompt = preparedDispatch?.prompt ?? params.prompt
       const clusterPlanTaskID = preparedDispatch?.taskID

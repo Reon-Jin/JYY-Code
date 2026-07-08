@@ -184,14 +184,30 @@ export function normalizePlan(value: unknown): Plan | undefined {
   return { goal: goal || "Multi-Agent cluster run", tasks }
 }
 
+// JSON.parse is strict; LLMs often produce trailing commas.
+function stripTrailingCommas(json: string): string {
+  return json.replace(/,(\s*[}\]])/g, "$1")
+}
+
+function tryJsonParse(text: string): unknown | undefined {
+  try {
+    return JSON.parse(text)
+  } catch {
+    try {
+      return JSON.parse(stripTrailingCommas(text))
+    } catch {
+      return undefined
+    }
+  }
+}
+
 export function extractPlanFromText(value: string): Plan | undefined {
   const fenced = [...value.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map((match) => match[1] ?? "")
   for (const candidate of [...fenced, ...balancedJsonObjects(value)]) {
-    try {
-      const plan = normalizePlan(JSON.parse(candidate))
+    const parsed = tryJsonParse(candidate)
+    if (parsed) {
+      const plan = normalizePlan(parsed)
       if (plan) return plan
-    } catch {
-      // Keep scanning; model output often contains non-plan JSON nearby.
     }
   }
   return

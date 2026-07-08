@@ -15,6 +15,8 @@ import path from "path"
 import { ulid } from "ulid"
 import { Effect, Schema } from "effect"
 import type { RunID, TaskStatus } from "@/agent-cluster/schema"
+// Use the shared runID-search function from task.ts (kept in sync)
+import { agentClusterRunIDFromMessages } from "./task"
 
 type TaskRow = typeof AgentClusterTaskTable.$inferSelect
 type RunRow = typeof AgentClusterRunTable.$inferSelect
@@ -31,7 +33,10 @@ const Parameters = Schema.Struct({
   }),
   decision: Schema.Literals(["accepted", "revision_requested", "failed"]),
   checks: Schema.Array(Check).annotate({
-    description: "One check per acceptance criterion, each with concrete evidence",
+    description:
+      "One check per acceptance criterion, each with passed=true and concrete evidence. " +
+      "There must be at least as many checks as there are acceptance criteria. " +
+      "Text matching is NOT required — just ensure every criterion is covered and passes.",
   }),
   issues: Schema.Array(Schema.String).annotate({
     description: "Specific unresolved issues. Required for revision_requested and failed.",
@@ -41,15 +46,14 @@ const Parameters = Schema.Struct({
   }),
 })
 
-function agentClusterRunID(ctx: Tool.Context) {
-  if (typeof ctx.extra?.agentClusterRunID === "string") return ctx.extra.agentClusterRunID
-  for (const message of ctx.messages) {
-    for (const part of message.parts) {
-      const metadata = "metadata" in part ? (part.metadata as { kind?: string; runID?: string } | undefined) : undefined
-      if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID
-    }
-  }
-  return undefined
+function agentClusterRunID(ctx: Tool.Context): string | undefined {
+  // 1. Check ctx.extra (set by tools.ts in cluster mode)
+  if (typeof ctx.extra?.agentClusterRunID === "string") return ctx.extra.agentClusterRunID as string
+  // 2. Check promptOps (set by prompt.ts as a fallback)
+  const promptOps = ctx.extra?.promptOps as { agentClusterRunID?: string } | undefined
+  if (typeof promptOps?.agentClusterRunID === "string") return promptOps.agentClusterRunID
+  // 3. Search all messages (metadata + text content) for the run ID
+  return agentClusterRunIDFromMessages(undefined, ctx.messages)
 }
 
 function nonEmpty(value: string | undefined) {
@@ -77,18 +81,25 @@ export const AgentClusterReviewTool = Tool.define(
       }
 
       const runID = agentClusterRunID(ctx) as RunID | undefined
+      if (!runID) {
+        return yield* Effect.fail(
+          new Error(
+            "Agent cluster run ID not found. The review tool must be called within an active cluster session. " +
+              "If you are reviewing tasks from a plan, make sure the plan was persisted by dispatching tasks with valid task_id values first.",
+          ),
+        )
+      }
       const rows = (yield* Database.query((db) =>
-        runID
-          ? db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.run_id, runID)).all()
-          : db.select().from(AgentClusterTaskTable).all(),
+        db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.run_id, runID)).all(),
       )) as TaskRow[]
       const matches = rows.filter((row) => row.id === params.task_id || row.child_session_id === params.task_id)
       if (matches.length !== 1) {
+        const knownIDs = rows.map((r) => `${r.id}(status=${r.status})`).join(", ")
         return yield* Effect.fail(
           new Error(
             matches.length === 0
-              ? `Cluster task not found: ${params.task_id}`
-              : `Cluster task id is ambiguous without a run id: ${params.task_id}`,
+              ? `Cluster task not found in run ${runID}: ${params.task_id}. Known task IDs in this run: [${knownIDs || "(none)"}]. Use the exact plan task id.`
+              : `Cluster task id is ambiguous: ${params.task_id} matches ${matches.length} tasks in run ${runID}.`,
           ),
         )
       }
@@ -115,13 +126,32 @@ export const AgentClusterReviewTool = Tool.define(
       const cfg = ConfigAgentCluster.resolve((yield* config.get()).agent_cluster)
       const issues = params.issues.filter((issue) => issue.trim())
       if (params.decision === "accepted") {
-        const missing = task.acceptance_criteria.filter((criterion: string) => {
-          const check = params.checks.find((item) => item.criterion === criterion)
-          return !check || check.passed !== true || !nonEmpty(check.evidence)
-        })
-        if (missing.length > 0) {
+        // Count-based acceptance: every plan criterion must have at least one
+        // corresponding check with passed=true and concrete evidence.  Text
+        // matching is inherently fragile — LLMs rephrase criteria in minor
+        // ways (function vs physics, counts vs inequalities).  Instead we
+        // simply require that all checks pass, that every check has evidence,
+        // and that there are not fewer checks than plan criteria.
+        const allPassed = params.checks.every((c) => c.passed === true && nonEmpty(c.evidence))
+        if (!allPassed) {
+          const failing = params.checks
+            .filter((c) => !c.passed || !nonEmpty(c.evidence))
+            .map((c) => c.criterion)
+            .join(", ")
           return yield* Effect.fail(
-            new Error(`Cannot accept task ${task.id}; missing passing evidence for: ${missing.join(", ")}`),
+            new Error(
+              `Cannot accept task ${task.id}; some checks failed or have no evidence: [${failing}]. ` +
+                `All ${params.checks.length} checks must pass with concrete evidence.`,
+            ),
+          )
+        }
+        if (params.checks.length < task.acceptance_criteria.length) {
+          return yield* Effect.fail(
+            new Error(
+              `Cannot accept task ${task.id}; ` +
+                `got ${params.checks.length} checks but need at least ${task.acceptance_criteria.length} ` +
+                `(one per acceptance criterion). Criteria: [${task.acceptance_criteria.join(" | ")}].`,
+            ),
           )
         }
         const session = yield* sessions.get(clusterRun.session_id).pipe(Effect.orDie)

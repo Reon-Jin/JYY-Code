@@ -752,4 +752,208 @@ describe("Multi-agent E2E lifecycle", () => {
       expect(run?.completed_at).toBeTruthy()
     }),
   )
+
+  it.instance("Full multi-step lifecycle: dispatch → review → next step → complete", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "E2E full multi-step lifecycle" })
+      const user = yield* sessions.updateMessage({
+        id: MessageID.ascending(),
+        role: "user",
+        sessionID: chat.id,
+        agent: "cluster",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+        time: { created: Date.now() },
+      })
+      const runID = AgentCluster.createRunID() as RunID
+      const now = Date.now()
+      Database.use((db) =>
+        db
+          .insert(AgentClusterRunTable)
+          .values({
+            id: runID,
+            session_id: chat.id,
+            parent_message_id: user.id,
+            enabled: true,
+            status: "dispatching",
+            goal: "Multi-step research and writing project",
+            planner_model: "test/planner",
+            reviewer_model: "test/reviewer",
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+
+      // Create a 2-step plan: step 1 has two parallel research tasks,
+      // step 2 has a writer task that depends on both research tasks.
+      const plan = {
+        goal: "Multi-step research and writing project",
+        tasks: [
+          {
+            id: AgentClusterRuntime.coerceTaskID("research-market"),
+            step: 1,
+            title: "Research market trends",
+            role: "researcher" as const,
+            complexity: "simple" as const,
+            model: "test/simple",
+            dependencies: [],
+            prompt: "Research current market trends",
+            acceptanceCriteria: ["Market data collected with citations"],
+            expectedArtifacts: ["market.md"],
+          },
+          {
+            id: AgentClusterRuntime.coerceTaskID("research-competitors"),
+            step: 1,
+            title: "Research competitor landscape",
+            role: "researcher" as const,
+            complexity: "simple" as const,
+            model: "test/simple",
+            dependencies: [],
+            prompt: "Research competitor landscape",
+            acceptanceCriteria: ["Competitor analysis complete"],
+            expectedArtifacts: ["competitors.md"],
+          },
+          {
+            id: AgentClusterRuntime.coerceTaskID("write-report"),
+            step: 2,
+            title: "Write final report",
+            role: "writer" as const,
+            complexity: "complex" as const,
+            model: "test/complex",
+            dependencies: ["research-market", "research-competitors"],
+            prompt: "Synthesize research into a final report",
+            acceptanceCriteria: ["Report synthesizes both research inputs", "Report is well-structured"],
+            expectedArtifacts: ["report.md"],
+          },
+        ],
+      }
+
+      yield* AgentCluster.persistPlan({ runID, plan: plan as any })
+
+      // === STEP 1: Dispatch both research tasks ===
+      const childMarketID = SessionID.make("ses_child_market")
+      const childCompetitorsID = SessionID.make("ses_child_competitors")
+      yield* AgentCluster.markTaskRunning({ runID, taskID: "research-market", childSessionID: childMarketID })
+      yield* AgentCluster.markTaskRunning({ runID, taskID: "research-competitors", childSessionID: childCompetitorsID })
+
+      // Verify step 1 tasks are running, step 2 is still planned
+      let state = yield* AgentCluster.getSessionState(chat.id)
+      const market = state.tasks.find((t) => t.id === "research-market")
+      const competitors = state.tasks.find((t) => t.id === "research-competitors")
+      const write = state.tasks.find((t) => t.id === "write-report")
+      expect(market?.status).toBe("running")
+      expect(competitors?.status).toBe("running")
+      expect(write?.status).toBe("planned")
+
+      // Step gate must block step 2 while step 1 tasks are not yet accepted
+      const gateBlocked = AgentClusterRuntime.stepGate(
+        state.tasks.map((t) => ({ id: t.id, step: t.step ?? 1, status: t.status })),
+        2,
+      )
+      expect(gateBlocked.allowed).toBe(false)
+      expect(gateBlocked.pending).toContain("research-market")
+      expect(gateBlocked.pending).toContain("research-competitors")
+
+      // === Submit step 1 results ===
+      yield* AgentCluster.submitTaskResult({
+        runID,
+        taskID: "research-market",
+        childSessionID: childMarketID,
+        summary: "Market trends research complete",
+      })
+      yield* AgentCluster.submitTaskResult({
+        runID,
+        taskID: "research-competitors",
+        childSessionID: childCompetitorsID,
+        summary: "Competitor analysis complete",
+      })
+
+      // Step gate STILL blocks (tasks are submitted, not accepted)
+      state = yield* AgentCluster.getSessionState(chat.id)
+      const gateStillBlocked = AgentClusterRuntime.stepGate(
+        state.tasks.map((t) => ({ id: t.id, step: t.step ?? 1, status: t.status })),
+        2,
+      )
+      expect(gateStillBlocked.allowed).toBe(false)
+
+      // === Review and accept step 1 tasks ===
+      Database.use((db) => {
+        db.update(AgentClusterTaskTable)
+          .set({ status: "accepted", time_updated: Date.now() })
+          .where(Database.and(
+            Database.eq(AgentClusterTaskTable.run_id, runID),
+            Database.eq(AgentClusterTaskTable.id, "research-market" as any),
+          ))
+          .run()
+        db.update(AgentClusterTaskTable)
+          .set({ status: "accepted", time_updated: Date.now() })
+          .where(Database.and(
+            Database.eq(AgentClusterTaskTable.run_id, runID),
+            Database.eq(AgentClusterTaskTable.id, "research-competitors" as any),
+          ))
+          .run()
+      })
+
+      // Step gate now ALLOWS step 2
+      state = yield* AgentCluster.getSessionState(chat.id)
+      const gateAllowed = AgentClusterRuntime.stepGate(
+        state.tasks.map((t) => ({ id: t.id, step: t.step ?? 1, status: t.status })),
+        2,
+      )
+      expect(gateAllowed.allowed).toBe(true)
+      expect(gateAllowed.pending).toEqual([])
+
+      // Run should NOT be completed yet (step 2 task is still planned)
+      const notDone = yield* AgentCluster.finalizeRunIfTerminal(runID)
+      expect(notDone).toBe(false)
+
+      // === STEP 2: Dispatch writer task ===
+      const childWriteID = SessionID.make("ses_child_write")
+      yield* AgentCluster.markTaskRunning({ runID, taskID: "write-report", childSessionID: childWriteID })
+
+      // Run still not done (writer is running)
+      const stillNotDone = yield* AgentCluster.finalizeRunIfTerminal(runID)
+      expect(stillNotDone).toBe(false)
+
+      // Submit step 2 result
+      yield* AgentCluster.submitTaskResult({
+        runID,
+        taskID: "write-report",
+        childSessionID: childWriteID,
+        summary: "Final report written",
+      })
+
+      // Still not done until accepted
+      const notDoneYet = yield* AgentCluster.finalizeRunIfTerminal(runID)
+      expect(notDoneYet).toBe(false)
+
+      // Accept writer task
+      Database.use((db) =>
+        db.update(AgentClusterTaskTable)
+          .set({ status: "accepted", time_updated: Date.now() })
+          .where(Database.and(
+            Database.eq(AgentClusterTaskTable.run_id, runID),
+            Database.eq(AgentClusterTaskTable.id, "write-report" as any),
+          ))
+          .run(),
+      )
+
+      // === VERIFY: Run should now be completed ===
+      const done = yield* AgentCluster.finalizeRunIfTerminal(runID)
+      expect(done).toBe(true)
+
+      const run = Database.use((db) =>
+        db.select().from(AgentClusterRunTable).where(Database.eq(AgentClusterRunTable.id, runID)).get(),
+      )
+      expect(run?.status).toBe("completed")
+      expect(run?.completed_at).toBeTruthy()
+
+      // All tasks should be accepted
+      const finalState = yield* AgentCluster.getSessionState(chat.id)
+      for (const task of finalState.tasks) {
+        expect(task.status).toBe("accepted")
+      }
+    }),
+  )
 })

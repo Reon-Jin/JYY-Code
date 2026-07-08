@@ -199,6 +199,13 @@ export const layer = Layer.effect(
                 task_status: "allow",
                 agent_cluster_review: "allow",
                 todowrite: "allow",
+                // Read-only verification tools — the primary MUST directly
+                // verify subagent outputs before calling agent_cluster_review.
+                read: "allow",
+                glob: "allow",
+                grep: "allow",
+                bash: "allow",
+                ls: "allow",
               }),
             ),
             mode: "primary",
