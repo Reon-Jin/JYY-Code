@@ -45,7 +45,7 @@ describe("AgentCluster planner instructions", () => {
     expect(text).toContain('"step":1')
     expect(text).toContain("Dispatch only the smallest unfinished step")
     expect(text).toContain("agent_cluster_review")
-    expect(text).toContain("Do not stop after presenting the plan")
+    expect(text).toContain("Do not stop after presenting the JSON plan")
     expect(text).toContain("visual_model: provider/visual")
     expect(text).toContain("PDF/PPT/DOCX layout")
   })

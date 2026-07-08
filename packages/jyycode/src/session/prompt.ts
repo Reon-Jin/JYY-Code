@@ -75,15 +75,15 @@ globalThis.AI_SDK_LOG_WARNINGS = false
 const decodeMessageInfo = Schema.decodeUnknownExit(MessageV2.Info)
 const decodeMessagePart = Schema.decodeUnknownExit(MessageV2.Part)
 
-const STRUCTURED_OUTPUT_DESCRIPTION = `Use this tool to return your final response in the requested structured format.
+const STRUCTURED_OUTPUT_DESCRIPTION = `Use this tool to return your final JSON response in the requested structured format.
 
 IMPORTANT:
 - You MUST call this tool exactly once at the end of your response
-- The input must be valid JSON matching the required schema
+- The input must be a valid JSON object matching the required JSON schema
 - Complete all necessary research and tool calls BEFORE calling this tool
-- This tool provides your final answer - no further actions are taken after calling it`
+- This tool provides your final JSON answer - no further actions are taken after calling it`
 
-const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
+const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured JSON output. You MUST use the StructuredOutput tool to provide your final response as a JSON object. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the JSON schema.`
 const MEMORY_RETRIEVAL_LIMIT = 5
 const MEMORY_RETRIEVAL_QUERY_MAX = 240
 const MEMORY_RETRIEVAL_TEXT_MAX = 1800
@@ -145,12 +145,30 @@ export const layer = Layer.effect(
         const model = yield* provider.getModel(latestUser.info.model.providerID, latestUser.info.model.modelID)
         const language = yield* provider.getLanguage(model)
         const prompt = [
-          "Decide whether this completed conversation turn contains durable memory worth retaining.",
+          "You are a memory curator. Decide whether this completed conversation turn contains durable memory worth retaining, and output your decision as a JSON object.",
           "Retain only task outcomes, key decisions, project conventions, reusable lessons, and explicit stable user facts or long-term preferences.",
           "Do not retain greetings, progress checks, temporary constraints, failed retries, or facts immediately recoverable from the codebase.",
           `This is ${input.firstTurn ? "the first valid turn, so provide a task candidate" : "a later turn"}.`,
           "The service supplies sessionID and date. Do not include them.",
           "For task content, use format: 用户要求：<user request summary>；我完成了：<what was accomplished>",
+          "",
+          "EXPECTED JSON OUTPUT FORMAT (output a valid JSON object matching this shape):",
+          "{",
+          '  "shouldUpdate": true,',
+          '  "reason": "brief justification for the decision",',
+          '  "task": {',
+          '    "importance": 7,',
+          '    "keywords": ["编程"],',
+          '    "content": "用户要求：fix auth bug；我完成了：patched middleware"',
+          "  },",
+          '  "user": [',
+          "    {",
+          '      "importance": 5,',
+          '      "keywords": ["偏好"],',
+          '      "content": "User prefers concise answers in Chinese"',
+          "    }",
+          "  ]",
+          "}",
           "",
           "User:",
           input.userText,
@@ -1835,6 +1853,44 @@ export const layer = Layer.effect(
               model,
               toolChoice: format.type === "json_schema" ? "required" : undefined,
             })
+
+            // Pre-persist the cluster plan so concurrent task dispatch
+            // tool calls can find their rows in the database. Without this,
+            // every task tool independently extracts the plan text from the
+            // message, and a race condition with part commits can cause every
+            // concurrent task dispatch to miss the plan. The retry loop in
+            // task.ts handles transient DB visibility gaps, but persisting
+            // early from here eliminates the race entirely.
+            if (lastUser.agent === "cluster" && clusterRunID) {
+              yield* Effect.gen(function* () {
+                const parts = yield* MessageV2.partsAsync(handle.message.id).pipe(
+                  Effect.catchCause(() => Effect.succeed([] as MessageV2.Part[])),
+                )
+                const combined = parts
+                  .filter((p): p is MessageV2.TextPart => p.type === "text")
+                  .map((p) => p.text)
+                  .join("\n")
+                const plan = AgentClusterRuntime.extractPlanFromText(combined)
+                if (plan) {
+                  const clusterCfg = ConfigAgentCluster.resolve((yield* config.get()).agent_cluster)
+                  const validation = AgentClusterRuntime.validatePlan(plan, {
+                    maxSubagents: clusterCfg.max_subagents,
+                    maxConcurrency: clusterCfg.max_concurrency,
+                  })
+                  if (validation.valid) {
+                    yield* AgentCluster.persistPlan({ runID: clusterRunID as RunID, plan })
+                    yield* slog.info("cluster plan pre-persisted after LLM response", {
+                      runID: clusterRunID,
+                      taskCount: plan.tasks.length,
+                    })
+                  }
+                }
+              }).pipe(
+                Effect.catchCause((cause) =>
+                  elog.warn("failed to pre-persist cluster plan", { error: Cause.squash(cause) }),
+                ),
+              )
+            }
 
             if (structured !== undefined) {
               handle.message.structured = structured

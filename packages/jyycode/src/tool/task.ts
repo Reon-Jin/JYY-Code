@@ -406,6 +406,19 @@ export const TaskTool = Tool.define(
         for (const part of asyncParts) {
           if (part.type === "text") texts.push(part.text)
         }
+        // 1b. LEGACY FALLBACK: read the current message's parts via the
+        //     synchronous legacy connection.  The projectors write via
+        //     legacyQuery, so this connection may see committed text parts
+        //     before the async connection does — a useful complement to
+        //     partsAsync when the two connections are not synchronized.
+        try {
+          const legacyParts = MessageV2.parts(ctx.messageID)
+          for (const part of legacyParts) {
+            if (part.type === "text" && !texts.includes(part.text)) texts.push(part.text)
+          }
+        } catch {
+          // legacyQuery may throw if the DB isn't ready; ignore.
+        }
         // 2. Read from session messages (also uses legacyQuery for parts, but
         //    kept as a best-effort fallback).
         const dbMessages = yield* sessions.messages({ sessionID: ctx.sessionID, limit: 10 })
@@ -464,22 +477,39 @@ export const TaskTool = Tool.define(
         // Unified retry loop: persist the plan then dispatch, retrying
         // when the plan text hasn't reached the DB yet (race condition
         // between the assistant message commit and the first tool call).
+        //
+        // Error classification:
+        // - "Cluster plan not found" — plan text not yet visible; retry with backoff.
+        // - "Unknown cluster task ... (none ... plan may not have been persisted)"
+        //   — rows not in DB yet (plan not persisted); retry.
+        // - "Unknown cluster task ..." with known tasks listed — task_id mismatch
+        //   between the plan and the tool call; do NOT retry (will never succeed).
+        // - "Step gate blocked" — legitimate scheduling block; do NOT retry.
+        // - Validation errors — plan is malformed; do NOT retry.
+        let lastError: string | undefined
         for (let attempt = 0; attempt < 30; attempt++) {
           if (attempt > 0) {
-            yield* Effect.sleep("100 millis")
+            // Exponential backoff capped at 1s: 100ms, 200ms, 400ms, 800ms, 1s, 1s, ...
+            const delay = Math.min(100 * Math.pow(2, Math.min(attempt - 1, 3)), 1000)
+            yield* Effect.sleep(`${delay} millis` as any)
           }
           // Ensure the plan rows exist (idempotent after first success).
           // If the plan text cannot be extracted from recent messages we
           // still try to dispatch — the rows may have been pre-seeded by
-          // a direct DB insert (tests) or an earlier run.
+          // the runLoop (pre-persist in prompt.ts), a direct DB insert
+          // (tests), or an earlier run.
           if (clusterRunID) {
             const persistResult = yield* persistCurrentClusterPlan().pipe(Effect.exit)
             if (Exit.isFailure(persistResult)) {
               const err = Cause.squash(persistResult.cause)
-              if (String(err).includes("Cluster plan not found")) {
-                // Retry the first few attempts in case the assistant message
-                // hasn't been committed yet; after that, try dispatch anyway.
-                if (attempt < 5) continue
+              const msg = String(err)
+              if (msg.includes("Cluster plan not found")) {
+                // Retry the first several attempts in case the assistant
+                // message parts haven't been committed yet; after that,
+                // try dispatch anyway (the plan may have been pre-persisted
+                // by the runLoop or a concurrent task call).
+                lastError = msg
+                if (attempt < 10) continue
               } else {
                 // Hard errors (invalid JSON, validation failures) — fail fast.
                 return yield* Effect.failCause(persistResult.cause)
@@ -492,9 +522,16 @@ export const TaskTool = Tool.define(
             break
           }
           const dispatchErr = Cause.squash(dispatched.cause)
-          // Retry when the persisted rows aren't visible yet (DB timing).
-          if (String(dispatchErr).includes("Unknown cluster task for run")) continue
-          // Step-gate blocked, invalid status, etc. — don't retry.
+          const msg = String(dispatchErr)
+          // Retry only when the error indicates the plan hasn't been
+          // persisted yet (no known task IDs at all).  If tasks exist
+          // but the requested ID doesn't match, retrying is futile.
+          if (msg.includes("Unknown cluster task for run") && msg.includes("(none")) {
+            lastError = msg
+            continue
+          }
+          // Step-gate blocked, invalid status, task_id mismatch, etc.
+          // — don't retry; let the caller handle these.
           clusterDispatch = dispatched
           break
         }
@@ -502,7 +539,8 @@ export const TaskTool = Tool.define(
           return yield* Effect.fail(
             new Error(
               `Cluster dispatch failed after 30 attempts for task ${params.task_id}. ` +
-                `The plan may not have been persisted. Ensure a valid JSON plan is output before dispatching tasks.`,
+                `The plan may not have been persisted. Ensure a valid JSON plan is ` +
+                `output before dispatching tasks. Last error: ${lastError || "unknown"}`,
             ),
           )
         }
