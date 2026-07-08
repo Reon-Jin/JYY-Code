@@ -234,22 +234,71 @@ export function validatePlan(plan: Plan, limits: Pick<Limits, "maxSubagents" | "
     }
   }
 
-  const stepCounts = new Map<number, number>()
+  // Collect all validation errors.  Fundamental errors (duplicates, unknown
+  // dependencies, self-references) prevent auto-fix from running, but we
+  // still report them all.
+  let hasFundamentalError = errors.length > 0
   for (const task of plan.tasks) {
-    stepCounts.set(task.step, (stepCounts.get(task.step) ?? 0) + 1)
     for (const dependency of task.dependencies) {
       const dep = byID.get(dependency)
       if (!dep) {
         errors.push(`task ${taskLabel(task)} depends on unknown task ${dependency}`)
+        hasFundamentalError = true
         continue
       }
       if (dep.id === task.id) {
         errors.push(`task ${taskLabel(task)} cannot depend on itself`)
+        hasFundamentalError = true
         continue
       }
-      if (dep.step >= task.step) {
+      // Same-step dependency — this is auto-fixable, but if there are also
+      // fundamental errors we'll report it right here.
+      if (hasFundamentalError && dep.step >= task.step) {
         errors.push(
           `task ${taskLabel(task)} depends on ${taskLabel(dep)}, but dependencies must be in earlier steps`,
+        )
+      }
+    }
+  }
+
+  // Auto-fix: compute each task's minimum required step from the dependency
+  // DAG.  LLMs often put dependent tasks in the same step by accident.  Skip
+  // auto-fix when fundamental errors exist.
+  const override = new Map<string, number>()
+  if (!hasFundamentalError) {
+    let rerun = true
+    while (rerun) {
+      rerun = false
+      for (const task of plan.tasks) {
+        for (const depID of task.dependencies) {
+          const dep = byID.get(depID)
+          if (!dep || dep.id === task.id) continue
+          const curStep = override.get(task.id) ?? task.step
+          const depStep = override.get(dep.id) ?? dep.step
+          const minStep = depStep + 1
+          if (curStep < minStep) {
+            override.set(task.id, minStep)
+            rerun = true
+          }
+        }
+      }
+    }
+  }
+
+  // Phase 3: full validation using corrected steps.
+  const stepCounts = new Map<number, number>()
+  for (const task of plan.tasks) {
+    const step = Math.max(override.get(task.id) ?? task.step, 1)
+    stepCounts.set(step, (stepCounts.get(step) ?? 0) + 1)
+    for (const dependency of task.dependencies) {
+      const dep = byID.get(dependency)
+      if (!dep || dep.id === task.id) continue
+      const depStep = override.get(dep.id) ?? dep.step
+      if (depStep >= step) {
+        errors.push(
+          `task ${taskLabel(task)} depends on ${taskLabel(dep)} (step ${depStep}), ` +
+          `but ${taskLabel(task)} is at step ${step} which must be > ${depStep}. ` +
+          `Move ${task.id} to step ${depStep + 1} or later.`,
         )
       }
     }
@@ -266,16 +315,24 @@ export function validatePlan(plan: Plan, limits: Pick<Limits, "maxSubagents" | "
     for (const artifact of task.expectedArtifacts) {
       const normalized = artifact.trim()
       if (!normalized) continue
-      const key = `${task.step}\0${normalized}`
+      const step = override.get(task.id) ?? task.step
+      const key = `${step}\0${normalized}`
       const existing = artifactsByStep.get(key)
       if (existing) {
         errors.push(
-          `step ${task.step} has duplicate expected artifact ${normalized}: ${existing.id} and ${task.id}`,
+          `step ${step} has duplicate expected artifact ${normalized}: ${existing.id} and ${task.id}`,
         )
         continue
       }
       artifactsByStep.set(key, task)
     }
+  }
+
+  // Apply overrides back so downstream code (persistPlan, stepGate) sees the
+  // corrected steps.
+  for (const [id, step] of override) {
+    const task = byID.get(id)
+    if (task) (task as { step: number }).step = step
   }
 
   return { valid: errors.length === 0, errors }

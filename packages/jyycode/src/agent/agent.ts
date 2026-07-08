@@ -206,6 +206,11 @@ export const layer = Layer.effect(
                 grep: "allow",
                 bash: "allow",
                 ls: "allow",
+                // Write/edit tools — the primary may need to fix integration
+                // issues between subagent outputs (e.g. mismatched exports).
+                write: "allow",
+                edit: "allow",
+                multi_edit: "allow",
               }),
             ),
             mode: "primary",
