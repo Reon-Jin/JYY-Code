@@ -1560,6 +1560,10 @@ export const layer = Layer.effect(
           options["includeUsage"] = true
         }
 
+        if (model.api.npm.includes("@ai-sdk/openai-compatible") && options["supportsStructuredOutputs"] !== false) {
+          options["supportsStructuredOutputs"] = true
+        }
+
         const baseURL = iife(() => {
           let url =
             typeof options["baseURL"] === "string" && options["baseURL"] !== "" ? options["baseURL"] : model.api.url
