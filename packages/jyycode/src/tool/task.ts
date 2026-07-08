@@ -3,6 +3,7 @@ import DESCRIPTION from "./task.txt"
 import { ToolJsonSchema } from "./json-schema"
 import { BackgroundJob } from "@/background/job"
 import { AgentCluster } from "@/agent-cluster/cluster"
+import { getClusterPlanText } from "@/agent-cluster/plan-cache"
 import { AgentClusterRuntime } from "@/agent-cluster/runtime"
 import { Bus } from "@/bus"
 import { Session } from "@/session/session"
@@ -393,13 +394,16 @@ export const TaskTool = Tool.define(
       const persistCurrentClusterPlan = Effect.fn("TaskTool.persistCurrentClusterPlan")(function* () {
         if (!clusterRunID) return false
         const texts: string[] = []
-        // 1. PRIMARY SOURCE: read text parts from the current assistant message
-        //    using the ASYNC DB connection (MessageV2.partsAsync).  The legacy
-        //    parts() function uses Database.legacyQuery which is a separate
-        //    synchronous better-sqlite3 connection that may not see parts that
-        //    were just committed via the async drizzle-orm connection during
-        //    streaming.  partsAsync uses the same async connection — guaranteed
-        //    to see the plan JSON text that the LLM just output.
+        // 0. PRIMARY SOURCE: the in-memory cache populated by the runLoop
+        //    pre-persistence code as soon as the LLM streams the plan text.
+        //    This is the ONLY guaranteed source — no DB read needed, works
+        //    identically in CLI and TUI, zero race window.
+        const cached = getClusterPlanText(clusterRunID)
+        if (cached) texts.push(cached)
+        // 1. Read text parts from the current assistant message using the
+        //    ASYNC DB connection.  The legacy parts() function uses a
+        //    separate better-sqlite3 connection that may not see parts
+        //    just committed via the async drizzle-orm connection.
         const asyncParts = yield* MessageV2.partsAsync(ctx.messageID).pipe(
           Effect.catchCause(() => Effect.succeed([] as MessageV2.Part[])),
         )
@@ -407,10 +411,7 @@ export const TaskTool = Tool.define(
           if (part.type === "text") texts.push(part.text)
         }
         // 1b. LEGACY FALLBACK: read the current message's parts via the
-        //     synchronous legacy connection.  The projectors write via
-        //     legacyQuery, so this connection may see committed text parts
-        //     before the async connection does — a useful complement to
-        //     partsAsync when the two connections are not synchronized.
+        //     synchronous legacy connection.
         try {
           const legacyParts = MessageV2.parts(ctx.messageID)
           for (const part of legacyParts) {
@@ -419,8 +420,7 @@ export const TaskTool = Tool.define(
         } catch {
           // legacyQuery may throw if the DB isn't ready; ignore.
         }
-        // 2. Read from session messages (also uses legacyQuery for parts, but
-        //    kept as a best-effort fallback).
+        // 2. Read from session messages (best-effort DB fallback).
         const dbMessages = yield* sessions.messages({ sessionID: ctx.sessionID, limit: 10 })
         for (const m of dbMessages) {
           if (m.info.role !== "assistant") continue
@@ -428,8 +428,7 @@ export const TaskTool = Tool.define(
             if (part.type === "text" && !texts.includes(part.text)) texts.push(part.text)
           }
         }
-        // 3. ctx.messages (in-memory snapshot from tool-resolution time, before
-        //    the current assistant message was created).
+        // 3. ctx.messages (in-memory snapshot, pre-stream).
         for (const message of ctx.messages) {
           if (message.info.role !== "assistant") continue
           for (const part of message.parts) {
@@ -445,6 +444,7 @@ export const TaskTool = Tool.define(
               `Cluster plan not found. ` +
                 `Output the JSON plan as a \`\`\`json code block ` +
                 `with "goal" and "tasks" BEFORE calling the task tool. ` +
+                `Cache hit: ${cached ? "yes" : "no"}. ` +
                 `Scanned ${texts.length} text parts (${asyncParts.length} from current msg partsAsync, ` +
                 `${dbMessages.length} db msgs, ${ctx.messages.length} ctx msgs). ` +
                 `Last 500 chars: ${preview}`,
