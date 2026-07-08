@@ -68,6 +68,7 @@ import { AgentCluster } from "@/agent-cluster/cluster"
 import { AgentClusterRuntime } from "@/agent-cluster/runtime"
 import type { RunID } from "@/agent-cluster/schema"
 import { Memory } from "@/memory/memory"
+import { storeClusterPlanText } from "@/agent-cluster/plan-cache"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1865,6 +1866,11 @@ export const layer = Layer.effect(
             if (lastUser.agent === "cluster" && clusterRunID) {
               yield* Effect.gen(function* () {
                 const combined = handle.allText()
+                // ALWAYS store in the in-memory cache so persistCurrentClusterPlan()
+                // in task.ts can read the plan text without any DB round-trip.
+                // This eliminates the race between SyncEvent projector commits and
+                // concurrent tool execution in both CLI and TUI modes.
+                storeClusterPlanText(clusterRunID, combined)
                 const plan = AgentClusterRuntime.extractPlanFromText(combined)
                 if (plan) {
                   const clusterCfg = ConfigAgentCluster.resolve((yield* config.get()).agent_cluster)
