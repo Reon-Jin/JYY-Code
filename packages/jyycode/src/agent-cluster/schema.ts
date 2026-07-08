@@ -17,7 +17,6 @@ export const TaskRole = Schema.Literals([
   "pdf",
   "coder",
   "tester",
-  "reviewer",
   "picture_searcher",
   "general",
 ])

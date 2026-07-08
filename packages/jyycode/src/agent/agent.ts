@@ -116,6 +116,7 @@ export const layer = Layer.effect(
           question: "deny",
           plan_enter: "deny",
           plan_exit: "deny",
+          agent_cluster_review: "deny",
           repo_clone: "deny",
           repo_overview: "deny",
           // mirrors github.com/github/gitignore Node.gitignore pattern for .env files
@@ -196,8 +197,15 @@ export const layer = Layer.effect(
                 "*": "deny",
                 task: "allow",
                 task_status: "allow",
+                agent_cluster_review: "allow",
                 todowrite: "allow",
-                question: "allow",
+                // Read-only verification tools — the primary MUST directly
+                // verify subagent outputs before calling agent_cluster_review.
+                read: "allow",
+                glob: "allow",
+                grep: "allow",
+                bash: "allow",
+                ls: "allow",
               }),
             ),
             mode: "primary",
@@ -225,7 +233,7 @@ export const layer = Layer.effect(
           pdf: clusterSubagent("pdf"),
           coder: clusterSubagent("coder"),
           tester: clusterSubagent("tester"),
-          reviewer: clusterSubagent("reviewer"),
+          picture_searcher: clusterSubagent("picture_searcher"),
           explore: {
             name: "explore",
             permission: Permission.merge(

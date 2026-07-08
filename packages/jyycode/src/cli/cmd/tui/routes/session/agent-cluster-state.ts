@@ -82,6 +82,7 @@ type AgentClusterRowState = {
     complexity?: string
     model?: string
     status: string
+    dependencies?: readonly string[]
     acceptance_criteria?: readonly string[]
     artifact_paths?: readonly string[]
   }[]
@@ -181,6 +182,22 @@ function normalizePlanTask(item: unknown): AgentClusterPlanTask[] {
   const id = text(task.id) ?? title
   if (!title || !id) return []
 
+  // Support both camelCase and snake_case field names
+  const acceptanceCriteria =
+    stringList(task.acceptanceCriteria).length > 0
+      ? stringList(task.acceptanceCriteria)
+      : stringList(task.acceptance_criteria)
+  const expectedArtifacts =
+    stringList(task.expectedArtifacts).length > 0
+      ? stringList(task.expectedArtifacts)
+      : stringList(task.expected_artifacts).length > 0
+        ? stringList(task.expected_artifacts)
+        : stringList(task.expected_artifact_paths).length > 0
+          ? stringList(task.expected_artifact_paths)
+          : typeof task.expected_artifact === "string" && task.expected_artifact.trim()
+            ? [task.expected_artifact.trim()]
+            : []
+
   return [
     {
       id,
@@ -190,8 +207,8 @@ function normalizePlanTask(item: unknown): AgentClusterPlanTask[] {
       complexity: text(task.complexity),
       model: text(task.model) ?? "-",
       dependencies: stringList(task.dependencies),
-      acceptanceCriteria: stringList(task.acceptanceCriteria),
-      expectedArtifacts: stringList(task.expectedArtifacts),
+      acceptanceCriteria,
+      expectedArtifacts,
       status: "queued",
     },
   ]
@@ -199,14 +216,34 @@ function normalizePlanTask(item: unknown): AgentClusterPlanTask[] {
 
 function normalizePlan(value: unknown): AgentClusterPlan | undefined {
   const obj = record(value)
-  const goal = text(obj?.goal)
-  const rawTasks = obj?.tasks
-  if (!goal || !Array.isArray(rawTasks)) return
+  // Allow project, description as fallback goal field names
+  const goal = text(obj?.goal) ?? text(obj?.project) ?? text(obj?.description) ?? ""
+  // Support both top-level tasks and nested steps[].tasks[]
+  let rawTasks = obj?.tasks
+  if (!Array.isArray(rawTasks)) {
+    const steps = obj?.steps
+    if (Array.isArray(steps)) {
+      rawTasks = steps.flatMap((step: unknown) => {
+        const s = record(step)
+        const tasks = Array.isArray(s?.tasks) ? (s!.tasks as unknown[]) : []
+        // Propagate parent step number to child tasks that lack their own step
+        const parentStep = Math.trunc(number(s?.step) ?? 1)
+        return tasks.map((t: unknown) => {
+          const task = record(t)
+          if (task && task.step === undefined) {
+            return { ...task, step: parentStep }
+          }
+          return t
+        })
+      })
+    }
+  }
+  if (!Array.isArray(rawTasks) || rawTasks.length === 0) return
 
   const tasks = rawTasks.flatMap(normalizePlanTask)
 
   if (tasks.length === 0) return
-  return { goal, tasks }
+  return { goal: goal || "Multi-Agent cluster run", tasks }
 }
 
 function parsePlanJson(json: string): AgentClusterPlan | undefined {
@@ -519,7 +556,7 @@ function clusterPlan(cluster: AgentClusterRowState | undefined): AgentClusterPla
       role: task.role,
       complexity: task.complexity,
       model: task.model ?? "-",
-      dependencies: [],
+      dependencies: [...(task.dependencies ?? [])],
       acceptanceCriteria: [...(task.acceptance_criteria ?? [])],
       expectedArtifacts: [...(task.artifact_paths ?? [])],
       status: clusterTaskStatus(task.status),
@@ -676,9 +713,16 @@ function buildSteps(plan: AgentClusterPlan | undefined): AgentClusterStep[] {
 export function agentClusterSnapshot(input: SnapshotInput): AgentClusterSnapshot {
   const authoritativePlan = clusterPlan(input.cluster)
   const statuses = explicitTaskStatus(input)
-  const rows = authoritativePlan ? clusterTaskRuns(input.cluster) : taskRuns(input, statuses)
+  const liveRows = taskRuns(input, statuses)
+  const clusterRows = clusterTaskRuns(input.cluster)
+  const rows = authoritativePlan ? clusterRows : liveRows
   const plan = authoritativePlan ?? latestPlan(input)
-  const planWithStatus = authoritativePlan ?? (plan ? mergePlanStatus(plan, rows, statuses) : undefined)
+  // Always merge live statuses from both live tool calls and cluster DB rows
+  // into the plan, so that running/submitted tasks are reflected immediately
+  // even when authoritative cluster data is available.
+  // Cluster rows are placed first so that live row statuses (from tool calls)
+  // overwrite stale DB statuses in the merge maps below.
+  const planWithStatus = plan ? mergePlanStatus(plan, [...clusterRows, ...liveRows], statuses) : undefined
   const steps = buildSteps(planWithStatus)
   const taskSource = planWithStatus?.tasks ?? rows
   const runningAgents = taskSource.filter((task) => task.status === "running").length

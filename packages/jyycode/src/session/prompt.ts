@@ -28,6 +28,7 @@ import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
 import { ConfigAgentCluster } from "@/config/agent-cluster"
+import { AgentClusterRunTable } from "@/agent-cluster/cluster.sql"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@jyycode-ai/core/util/error"
@@ -1395,6 +1396,7 @@ export const layer = Layer.effect(
         let step = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
         const clusterDispatchReminderKind = "agent_cluster_dispatch_reminder"
+        const clusterSynthesisReminderKind = "agent_cluster_synthesis_gate"
 
         function hasTaskTool(messages: MessageV2.WithParts[]) {
           return messages.some((message) => message.parts.some((part) => part.type === "tool" && part.tool === "task"))
@@ -1425,6 +1427,13 @@ export const layer = Layer.effect(
           if (!message || message.info.role !== "user") return false
           return message.parts.some(
             (part) => part.type === "text" && part.synthetic && part.metadata?.kind === clusterDispatchReminderKind,
+          )
+        }
+
+        function isClusterSynthesisReminder(message: MessageV2.WithParts | undefined) {
+          if (!message || message.info.role !== "user") return false
+          return message.parts.some(
+            (part) => part.type === "text" && part.synthetic && part.metadata?.kind === clusterSynthesisReminderKind,
           )
         }
 
@@ -1487,6 +1496,44 @@ export const layer = Layer.effect(
           },
         )
 
+        const createClusterSynthesisReminder = Effect.fn("SessionPrompt.createClusterSynthesisReminder")(
+          function* (input: { lastUser: MessageV2.User; runID: RunID }) {
+            const state = yield* AgentCluster.getSessionState(sessionID)
+            const tasks = state.tasks.filter((task) => task.run_id === input.runID)
+            const notAccepted = tasks.filter((task) => task.status !== "accepted")
+            const failed = notAccepted.filter((task) => task.status === "failed" || task.status === "cancelled")
+            const userMsg: MessageV2.User = {
+              id: MessageID.ascending(),
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: input.lastUser.agent,
+              model: input.lastUser.model,
+            }
+            yield* sessions.updateMessage(userMsg)
+            yield* sessions.updatePart({
+              id: PartID.ascending(),
+              messageID: userMsg.id,
+              sessionID,
+              type: "text",
+              synthetic: true,
+              metadata: { kind: clusterSynthesisReminderKind },
+              text: [
+                "<system-reminder>",
+                failed.length
+                  ? "The Multi-Agent run has failed or cancelled tasks. Do not present a successful final synthesis."
+                  : "Final synthesis is blocked. Every planned task must be accepted with agent_cluster_review before final delivery.",
+                "Non-accepted tasks:",
+                ...notAccepted.map((task) => `- ${task.id}: ${task.status}`),
+                failed.length
+                  ? "Report the failure and unresolved issues."
+                  : "Continue the fixed loop: poll submitted work, review each task with agent_cluster_review, revise if needed, and only then synthesize.",
+                "</system-reminder>",
+              ].join("\n"),
+            } satisfies MessageV2.TextPart)
+          },
+        )
+
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
           yield* slog.info("loop", { step })
@@ -1527,6 +1574,19 @@ export const layer = Layer.effect(
               if (!hasTaskTool(msgs) && !isClusterDispatchReminder(msgs.find((msg) => msg.info.id === lastUser.id))) {
                 yield* slog.info("cluster plan produced without task dispatch; requesting dispatch")
                 yield* createClusterDispatchReminder({ lastUser, plan })
+                continue
+              }
+            }
+            const persistedRunID = lastUser.agent === "cluster" ? clusterRunID(msgs) : undefined
+            if (
+              persistedRunID &&
+              !isClusterSynthesisReminder(msgs.find((msg) => msg.info.id === lastUser.id))
+            ) {
+              const state = yield* AgentCluster.getSessionState(sessionID)
+              const tasks = state.tasks.filter((task) => task.run_id === persistedRunID)
+              if (tasks.length > 0 && tasks.some((task) => task.status !== "accepted")) {
+                yield* slog.info("cluster attempted final response before all tasks were accepted; requesting continuation")
+                yield* createClusterSynthesisReminder({ lastUser, runID: persistedRunID })
                 continue
               }
             }
@@ -1645,6 +1705,36 @@ export const layer = Layer.effect(
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
             const promptOps = yield* ops()
 
+            // Resolve the cluster run ID for the current session if in cluster mode.
+            let clusterRunID: string | undefined
+            // 1. Try to find it in the message parts (synthetic planner prompt)
+            for (const m of [...msgs].reverse()) {
+              for (const part of m.parts) {
+                const meta =
+                  "metadata" in part
+                    ? (part.metadata as { kind?: string; runID?: string } | undefined)
+                    : undefined
+                if (meta?.kind === "agent_cluster" && meta.runID) {
+                  clusterRunID = meta.runID as string
+                  break
+                }
+              }
+              if (clusterRunID) break
+            }
+            // 2. Fall back to querying the database for the most recent open run
+            if (!clusterRunID) {
+              const rows = yield* Database.query((db) =>
+                db
+                  .select({ id: AgentClusterRunTable.id, time: AgentClusterRunTable.time_created })
+                  .from(AgentClusterRunTable)
+                  .where(Database.eq(AgentClusterRunTable.session_id, sessionID))
+                  .all(),
+              )
+              clusterRunID = rows.toSorted((a, b) => b.time - a.time)[0]?.id
+            }
+            // Make the runID available to tool handlers via promptOps
+            if (clusterRunID) (promptOps as { agentClusterRunID?: string }).agentClusterRunID = clusterRunID
+
             const tools = yield* SessionTools.resolve({
               agent,
               session,
@@ -1653,6 +1743,7 @@ export const layer = Layer.effect(
               bypassAgentCheck,
               messages: msgs,
               promptOps,
+              agentClusterRunID: clusterRunID,
             }).pipe(
               Effect.provideService(Plugin.Service, plugin),
               Effect.provideService(Permission.Service, permission),

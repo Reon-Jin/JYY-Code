@@ -218,6 +218,10 @@ export const RunCommand = effectCmd({
         type: "boolean",
         describe: "show thinking blocks",
       })
+      .option("multi-agent", {
+        type: "boolean",
+        describe: "enable Multi-Agent cluster mode",
+      })
       .option("replay", {
         type: "boolean",
         default: false,
@@ -795,6 +799,7 @@ export const RunCommand = effectCmd({
             model,
             variant: args.variant,
             parts: [...files, { type: "text", text: message }],
+            ...(args["multi-agent"] ? { agentCluster: { enabled: true } } : {}),
           })
           if (result.error) {
             if (!emit("error", { error: result.error })) UI.error(formatRunError(result.error))

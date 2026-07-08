@@ -61,7 +61,6 @@ export type AgentClusterTask = {
     | "pdf"
     | "coder"
     | "tester"
-    | "reviewer"
     | "picture_searcher"
     | "general"
   title: string
@@ -79,9 +78,13 @@ export type AgentClusterTask = {
     | "revising"
     | "failed"
     | "cancelled"
+  step: number
+  dependencies: string[]
   review_round: number
   acceptance_criteria: string[]
   artifact_paths: string[]
+  result_summary: string | null
+  review_issues: string[]
   last_event: string | null
   time_created: number
   time_updated: number

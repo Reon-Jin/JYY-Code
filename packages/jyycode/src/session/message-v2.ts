@@ -996,6 +996,29 @@ export function parts(message_id: MessageID) {
   )
 }
 
+/** Like {@link parts} but uses the async DB connection ({@link Database.query})
+ *  so it can see parts that were just committed by the streaming processor.
+ *  {@link parts} uses the legacy sync connection which may lag behind. */
+export const partsAsync = Effect.fn("MessageV2.partsAsync")(function* (messageID: MessageID) {
+  const rows = yield* Database.query((db) =>
+    db
+      .select()
+      .from(PartTable)
+      .where(eq(PartTable.message_id, messageID))
+      .orderBy(PartTable.id)
+      .all(),
+  )
+  return rows.map(
+    (row) =>
+      ({
+        ...row.data,
+        id: row.id,
+        sessionID: row.session_id,
+        messageID: row.message_id,
+      }) as Part,
+  )
+})
+
 export const get = Effect.fn("MessageV2.get")(function* (input: { sessionID: SessionID; messageID: MessageID }) {
   const row = yield* Database.query((db) =>
     db

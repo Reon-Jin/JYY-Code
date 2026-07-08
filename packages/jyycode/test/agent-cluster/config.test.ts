@@ -18,10 +18,6 @@ describe("ConfigAgentCluster.Default", () => {
     expect(ConfigAgentCluster.Default.planner_model).toBe("deepseek-v4-flash")
   })
 
-  test("reviewer_model defaults to deepseek-v4-flash", () => {
-    expect(ConfigAgentCluster.Default.reviewer_model).toBe("deepseek-v4-flash")
-  })
-
   test("complex_model defaults to deepseek-v4-flash", () => {
     expect(ConfigAgentCluster.Default.complex_model).toBe("deepseek-v4-flash")
   })
@@ -48,6 +44,10 @@ describe("ConfigAgentCluster.Default", () => {
 })
 
 describe("ConfigAgentCluster.resolve", () => {
+  test("ignores the deprecated reviewer model override", () => {
+    expect(ConfigAgentCluster.resolve({ reviewer_model: "test/reviewer" })).not.toHaveProperty("reviewer_model")
+  })
+
   test("returns defaults when input is undefined", () => {
     const result = ConfigAgentCluster.resolve(undefined)
     expect(result).toEqual(ConfigAgentCluster.Default)

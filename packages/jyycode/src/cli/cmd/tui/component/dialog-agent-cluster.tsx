@@ -8,7 +8,6 @@ import { pipe, entries, filter, map, sortBy } from "remeda"
 
 const ROLE_LABELS: Record<string, string> = {
   planner_model: "Planner",
-  reviewer_model: "Reviewer",
   complex_model: "Complex Tasks",
   simple_model: "Simple Tasks",
   visual_model: "Visual / Documents",
@@ -16,13 +15,12 @@ const ROLE_LABELS: Record<string, string> = {
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
   planner_model: "Model used by the cluster primary agent for planning",
-  reviewer_model: "Model used by the cluster primary agent for review",
   complex_model: "Default model for complex cluster tasks",
   simple_model: "Default model for simple cluster tasks",
   visual_model: "Model used for visual, layout, chart, and document production tasks",
 }
 
-const ROLES = ["planner_model", "reviewer_model", "complex_model", "simple_model", "visual_model"] as const
+const ROLES = ["planner_model", "complex_model", "simple_model", "visual_model"] as const
 
 export function DialogAgentCluster() {
   const sync = useSync()

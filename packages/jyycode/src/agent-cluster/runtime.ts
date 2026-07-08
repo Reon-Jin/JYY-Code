@@ -1,6 +1,6 @@
 export * as AgentClusterRuntime from "./runtime"
 
-import type { Plan, PlannedTask, TaskID } from "./schema"
+import type { Plan, PlannedTask, TaskID, TaskStatus } from "./schema"
 
 export type Limits = {
   maxSubagents: number
@@ -16,6 +16,20 @@ export type PlanValidation = {
 export type ReadyBatch = {
   tasks: PlannedTask[]
   blocked: { task: PlannedTask; reason: string }[]
+}
+
+export type PersistedTaskState = {
+  id: TaskID | string
+  step: number
+  status: TaskStatus
+  resultSummary?: string | null
+  reviewIssues?: string[] | null
+}
+
+export type StepGateResult = {
+  allowed: boolean
+  pending: string[]
+  rejected: string[]
 }
 
 function taskID(value: string) {
@@ -86,21 +100,71 @@ function balancedJsonObjects(value: string) {
   return candidates
 }
 
+function resolveRole(raw: string): PlannedTask["role"] {
+  const lower = raw.toLowerCase()
+  if (lower.includes("research") || lower.includes("调研")) return "researcher"
+  if (lower.includes("search") || lower.includes("图片") || lower.includes("image") || lower.includes("picture"))
+    return "picture_searcher"
+  if (lower.includes("analyst") || lower.includes("analysis") || lower.includes("分析")) return "analyst"
+  if (lower.includes("write") || lower.includes("writer") || lower.includes("写")) return "writer"
+  if (lower.includes("chart") || lower.includes("图表")) return "chart"
+  if (lower.includes("pdf") || lower.includes("文档") || lower.includes("doc")) return "pdf"
+  if (lower.includes("test") || lower.includes("测试") || lower.includes("验证")) return "tester"
+  if (lower.includes("code") || lower.includes("coder") || lower.includes("开发") || lower.includes("代码") || lower.includes("前端") || lower.includes("html") || lower.includes("css") || lower.includes("js") || lower.includes("javascript")) return "coder"
+  return "general"
+}
+
 export function normalizePlan(value: unknown): Plan | undefined {
   const obj = record(value)
-  const goal = text(obj?.goal)
-  const rawTasks = obj?.tasks
-  if (!goal || !Array.isArray(rawTasks)) return
+  // Allow project, description as fallback goal field names
+  const goal = text(obj?.goal) ?? text(obj?.project) ?? text(obj?.description) ?? ""
+  // Support both top-level tasks and nested steps[].tasks[]
+  let rawTasks = obj?.tasks
+  if (!Array.isArray(rawTasks)) {
+    const steps = obj?.steps
+    if (Array.isArray(steps)) {
+      rawTasks = steps.flatMap((step: unknown) => {
+        const s = record(step)
+        const tasks = Array.isArray(s?.tasks) ? (s!.tasks as unknown[]) : []
+        // Propagate parent step number to child tasks that lack their own step
+        const parentStep = Math.trunc(number(s?.step) ?? 1)
+        return tasks.map((t: unknown) => {
+          const task = record(t)
+          if (task && task.step === undefined) {
+            return { ...task, step: parentStep }
+          }
+          return t
+        })
+      })
+    }
+  }
+  if (!Array.isArray(rawTasks) || rawTasks.length === 0) return
   const tasks = rawTasks.flatMap((item): PlannedTask[] => {
     const task = record(item)
     if (!task) return []
     const title = text(task.title) ?? text(task.description)
     const id = text(task.id) ?? title
-    const prompt = text(task.prompt)
-    const role = text(task.role) ?? "general"
+    // Support common alternative field names for prompt
+    const prompt = text(task.prompt) ?? text(task.detailed_prompt) ?? text(task.instruction)
+    const role = resolveRole(text(task.role) ?? "general")
     const complexity = text(task.complexity) === "complex" ? "complex" : "simple"
     const model = text(task.model) ?? "-"
     if (!id || !title || !prompt) return []
+    // Support both camelCase and snake_case field names
+    const acceptanceCriteria =
+      stringList(task.acceptanceCriteria).length > 0
+        ? stringList(task.acceptanceCriteria)
+        : stringList(task.acceptance_criteria)
+    const expectedArtifacts =
+      stringList(task.expectedArtifacts).length > 0
+        ? stringList(task.expectedArtifacts)
+        : stringList(task.expected_artifacts).length > 0
+          ? stringList(task.expected_artifacts)
+          : stringList(task.expected_artifact_paths).length > 0
+            ? stringList(task.expected_artifact_paths)
+            : typeof task.expected_artifact === "string" && task.expected_artifact.trim()
+              ? [task.expected_artifact.trim()]
+              : []
     return [
       {
         id: taskID(id),
@@ -111,23 +175,39 @@ export function normalizePlan(value: unknown): Plan | undefined {
         model,
         dependencies: stringList(task.dependencies).map(taskID),
         prompt,
-        acceptanceCriteria: stringList(task.acceptanceCriteria),
-        expectedArtifacts: stringList(task.expectedArtifacts),
+        acceptanceCriteria,
+        expectedArtifacts,
       },
     ]
   })
   if (tasks.length === 0) return
-  return { goal, tasks }
+  return { goal: goal || "Multi-Agent cluster run", tasks }
+}
+
+// JSON.parse is strict; LLMs often produce trailing commas.
+function stripTrailingCommas(json: string): string {
+  return json.replace(/,(\s*[}\]])/g, "$1")
+}
+
+function tryJsonParse(text: string): unknown | undefined {
+  try {
+    return JSON.parse(text)
+  } catch {
+    try {
+      return JSON.parse(stripTrailingCommas(text))
+    } catch {
+      return undefined
+    }
+  }
 }
 
 export function extractPlanFromText(value: string): Plan | undefined {
   const fenced = [...value.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map((match) => match[1] ?? "")
   for (const candidate of [...fenced, ...balancedJsonObjects(value)]) {
-    try {
-      const plan = normalizePlan(JSON.parse(candidate))
+    const parsed = tryJsonParse(candidate)
+    if (parsed) {
+      const plan = normalizePlan(parsed)
       if (plan) return plan
-    } catch {
-      // Keep scanning; model output often contains non-plan JSON nearby.
     }
   }
   return
@@ -181,6 +261,23 @@ export function validatePlan(plan: Plan, limits: Pick<Limits, "maxSubagents" | "
     }
   }
 
+  const artifactsByStep = new Map<string, PlannedTask>()
+  for (const task of plan.tasks) {
+    for (const artifact of task.expectedArtifacts) {
+      const normalized = artifact.trim()
+      if (!normalized) continue
+      const key = `${task.step}\0${normalized}`
+      const existing = artifactsByStep.get(key)
+      if (existing) {
+        errors.push(
+          `step ${task.step} has duplicate expected artifact ${normalized}: ${existing.id} and ${task.id}`,
+        )
+        continue
+      }
+      artifactsByStep.set(key, task)
+    }
+  }
+
   return { valid: errors.length === 0, errors }
 }
 
@@ -195,10 +292,18 @@ export function nextReadyBatch(
   const completed = new Set(state.completed)
   const dispatched = new Set(state.dispatched ?? [])
   const failed = new Set(state.failed ?? [])
+  const candidates = plan.tasks
+    .filter((task) => !completed.has(task.id) && !dispatched.has(task.id) && !failed.has(task.id))
+    .toSorted((a, b) => a.step - b.step || a.id.localeCompare(b.id))
+  const targetStep = candidates[0]?.step
   const tasks: PlannedTask[] = []
   const blocked: ReadyBatch["blocked"] = []
 
-  for (const task of plan.tasks.toSorted((a, b) => a.step - b.step || a.id.localeCompare(b.id))) {
+  for (const task of candidates) {
+    if (targetStep !== undefined && task.step > targetStep) {
+      blocked.push({ task, reason: `waiting for earlier step ${targetStep}` })
+      continue
+    }
     if (completed.has(task.id) || dispatched.has(task.id) || failed.has(task.id)) continue
     const failedDependency = task.dependencies.find((dependency) => failed.has(dependency))
     if (failedDependency) {
@@ -214,6 +319,27 @@ export function nextReadyBatch(
   }
 
   return { tasks, blocked }
+}
+
+export function stepGate(tasks: Iterable<PersistedTaskState>, targetStep: number): StepGateResult {
+  const pending: string[] = []
+  const rejected: string[] = []
+  for (const task of tasks) {
+    if (task.step >= targetStep) continue
+    if (task.status === "accepted") continue
+    if (task.status === "failed" || task.status === "cancelled") {
+      rejected.push(String(task.id))
+      continue
+    }
+    pending.push(String(task.id))
+  }
+  pending.sort()
+  rejected.sort()
+  return { allowed: pending.length === 0 && rejected.length === 0, pending, rejected }
+}
+
+export function canSynthesize(tasks: Iterable<PersistedTaskState>) {
+  return [...tasks].every((task) => task.status === "accepted")
 }
 
 export function canRequestRevision(input: { roundsUsed: number; limits: Pick<Limits, "maxReviewRounds"> }) {

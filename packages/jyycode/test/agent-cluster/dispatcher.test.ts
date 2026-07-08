@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { modelForComplexity, SubagentDescriptions, subagentPrompt } from "../../src/agent-cluster/dispatcher"
+import { buildTaskBrief, modelForComplexity, SubagentDescriptions, subagentPrompt } from "../../src/agent-cluster/dispatcher"
+import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 
 describe("modelForComplexity", () => {
   const models = {
@@ -30,10 +31,63 @@ describe("modelForComplexity", () => {
 
 describe("SubagentDescriptions", () => {
   test("has description for all 9 roles", () => {
-    const roles = ["researcher", "analyst", "writer", "chart", "pdf", "coder", "tester", "reviewer", "general"]
+    const roles = ["researcher", "analyst", "writer", "chart", "pdf", "coder", "tester", "picture_searcher", "general"]
     for (const role of roles) {
       expect(SubagentDescriptions[role as keyof typeof SubagentDescriptions]).toBeTruthy()
     }
+  })
+})
+
+describe("buildTaskBrief", () => {
+  const task = (input: {
+    id: string
+    step: number
+    prompt: string
+    dependencies?: string[]
+    expectedArtifacts?: string[]
+  }) => ({
+    id: AgentClusterRuntime.coerceTaskID(input.id),
+    step: input.step,
+    title: input.id,
+    role: "coder" as const,
+    complexity: "simple" as const,
+    model: "provider/model",
+    dependencies: (input.dependencies ?? []).map(AgentClusterRuntime.coerceTaskID),
+    prompt: input.prompt,
+    acceptanceCriteria: ["tests pass"],
+    expectedArtifacts: input.expectedArtifacts ?? [],
+  })
+
+  test("includes goal, predecessor handoff, peers, consumers, and acceptance criteria", () => {
+    const research = task({ id: "research", step: 1, prompt: "只负责调研", expectedArtifacts: ["notes.md"] })
+    const api = task({
+      id: "api",
+      step: 2,
+      prompt: "只负责 API",
+      dependencies: ["research"],
+      expectedArtifacts: ["api.patch"],
+    })
+    const ui = task({ id: "ui", step: 2, prompt: "只负责界面" })
+    const test = task({ id: "test", step: 3, prompt: "只负责测试", dependencies: ["api"] })
+
+    const brief = buildTaskBrief({
+      goal: "ship feature",
+      task: api,
+      peers: [ui],
+      predecessors: [{ ...research, status: "accepted", resultSummary: "调研完成" }],
+      consumers: [test],
+      reviewIssues: ["补充错误处理"],
+    })
+
+    expect(brief).toContain("最终目标: ship feature")
+    expect(brief).toContain("前序已完成:")
+    expect(brief).toContain("research: 调研完成")
+    expect(brief).toContain("同一步协作者:")
+    expect(brief).toContain("ui — 只负责界面")
+    expect(brief).toContain("后续交接:")
+    expect(brief).toContain("test")
+    expect(brief).toContain("tests pass")
+    expect(brief).toContain("补充错误处理")
   })
 })
 
