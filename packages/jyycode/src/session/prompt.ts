@@ -1855,21 +1855,16 @@ export const layer = Layer.effect(
             })
 
             // Pre-persist the cluster plan so concurrent task dispatch
-            // tool calls can find their rows in the database. Without this,
-            // every task tool independently extracts the plan text from the
-            // message, and a race condition with part commits can cause every
-            // concurrent task dispatch to miss the plan. The retry loop in
-            // task.ts handles transient DB visibility gaps, but persisting
-            // early from here eliminates the race entirely.
+            // tool calls can find their rows in the database. We use the
+            // in-memory text accumulator built during the stream — not a
+            // DB read — because the SyncEvent projectors may not have
+            // committed the text parts yet when concurrent tools execute.
+            // Without this early persist, every task tool independently
+            // tries to extract the plan from DB sources that may be empty,
+            // exhausting retries and failing silently.
             if (lastUser.agent === "cluster" && clusterRunID) {
               yield* Effect.gen(function* () {
-                const parts = yield* MessageV2.partsAsync(handle.message.id).pipe(
-                  Effect.catchCause(() => Effect.succeed([] as MessageV2.Part[])),
-                )
-                const combined = parts
-                  .filter((p): p is MessageV2.TextPart => p.type === "text")
-                  .map((p) => p.text)
-                  .join("\n")
+                const combined = handle.allText()
                 const plan = AgentClusterRuntime.extractPlanFromText(combined)
                 if (plan) {
                   const clusterCfg = ConfigAgentCluster.resolve((yield* config.get()).agent_cluster)
@@ -1879,11 +1874,20 @@ export const layer = Layer.effect(
                   })
                   if (validation.valid) {
                     yield* AgentCluster.persistPlan({ runID: clusterRunID as RunID, plan })
-                    yield* slog.info("cluster plan pre-persisted after LLM response", {
+                    yield* slog.info("cluster plan pre-persisted from in-memory text accumulator", {
                       runID: clusterRunID,
                       taskCount: plan.tasks.length,
+                      textLen: combined.length,
                     })
+                  } else {
+                    yield* slog.warn("cluster plan validation failed", { errors: validation.errors.join("; ") })
                   }
+                } else {
+                  yield* slog.warn("cluster plan not found in in-memory text accumulator", {
+                    runID: clusterRunID,
+                    textLen: combined.length,
+                    preview: combined.slice(0, 200),
+                  })
                 }
               }).pipe(
                 Effect.catchCause((cause) =>
