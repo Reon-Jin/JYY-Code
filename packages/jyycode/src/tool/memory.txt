@@ -1,10 +1,10 @@
-Manage persistent structured memory with add, replace, remove, or compact actions.
+Manage persistent structured memory with add, replace, remove, or compact actions. Only use MEMORY.json / USER.json — never create .md files in the memory directory.
 
 MEMORY.json (target="memory"): store durable project outcomes, conventions, environment facts, workflows, and lessons. One JSON entry is maintained per session, within a 10,000-character store limit.
 USER.json (target="user"): store explicit, stable user identity facts and reusable preferences. JSON entries are upserted by normalized keywords, within a 2,000-character store limit.
 
 Actions:
-- add: upsert a structured entry. Provide importance (1-10), one to three keywords, and concise content. The current session ID is injected automatically and must not be placed in content.
+- add: upsert a structured entry. Provide importance (1-10), one to three keywords (each 2-4 characters), and concise content. The current session ID is injected automatically and must not be placed in content.
 - replace: find an entry by old_text substring match and replace it with new content. old_text must uniquely identify a single entry. Use this to update or consolidate entries.
 - remove: delete an entry found by old_text substring match. old_text must uniquely identify a single entry.
 - compact: organize the selected store. Capacity compaction is deterministic and never permits a subagent write.

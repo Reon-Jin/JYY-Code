@@ -17,7 +17,7 @@ describe("memory v3 JSON format", () => {
               sessionID,
               importance: 3,
               date: "20260705",
-              keywords: ["赛车游戏", "TypeScript"],
+              keywords: ["赛车游戏", "ts"],
               content: "完成赛车建模和地图绘制。",
             },
           ],
@@ -32,7 +32,7 @@ describe("memory v3 JSON format", () => {
           sessionID,
           importance: 3,
           date: "20260705",
-          keywords: ["赛车游戏", "typescript"],
+          keywords: ["赛车游戏", "ts"],
           content: "完成赛车建模和地图绘制。",
         },
       ],
@@ -59,13 +59,13 @@ describe("memory v3 JSON format", () => {
       {
         scope: "user",
         importance: 9,
-        keywords: [" TypeScript ", "代码风格", "typescript"],
+        keywords: [" ts ", "代码风格", "ts"],
         content: " 用户长期偏好 TypeScript。 ",
       },
     ])
 
     expect(text).toBe(
-      '{\n  "schemaVersion": 3,\n  "lastCompactedAt": null,\n  "entries": [\n    {\n      "importance": 9,\n      "keywords": [\n        "typescript",\n        "代码风格"\n      ],\n      "content": "用户长期偏好 TypeScript。"\n    }\n  ]\n}\n',
+      '{\n  "schemaVersion": 3,\n  "lastCompactedAt": null,\n  "entries": [\n    {\n      "importance": 9,\n      "keywords": [\n        "ts",\n        "代码风格"\n      ],\n      "content": "用户长期偏好 TypeScript。"\n    }\n  ]\n}\n',
     )
     expect(Memory.serializeStore("user", Memory.parseStore("user", text).entries)).toBe(text)
   })
@@ -105,8 +105,8 @@ describe("memory v3 JSON format", () => {
           schemaVersion: 3,
           lastCompactedAt: null,
           entries: [
-            { importance: 7, keywords: [" TypeScript "], content: "偏好 TypeScript。" },
-            { importance: 8, keywords: ["typescript"], content: "长期偏好 TypeScript。" },
+            { importance: 7, keywords: [" ts "], content: "偏好 TypeScript。" },
+            { importance: 8, keywords: ["ts"], content: "长期偏好 TypeScript。" },
           ],
         }),
       ),
@@ -128,9 +128,9 @@ describe("memory v3 JSON format", () => {
       Memory.entryKey({
         scope: "user",
         importance: 8,
-        keywords: [" TypeScript ", "代码风格"],
+        keywords: [" ts ", "代码风格"],
         content: "用户偏好 TypeScript。",
       }),
-    ).toBe("typescript\u001f代码风格")
+    ).toBe("ts代码风格")
   })
 })

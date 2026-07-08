@@ -103,13 +103,13 @@ describe("structured memory upserts", () => {
           const created = yield* memory.upsertUserMemory({
             sessionID: firstSession,
             importance: 7,
-            keywords: [" TypeScript "],
+            keywords: [" ts "],
             content: "用户偏好 TypeScript。",
           })
           const updated = yield* memory.upsertUserMemory({
             sessionID: secondSession,
             importance: 9,
-            keywords: ["typescript"],
+            keywords: ["ts"],
             content: "用户长期偏好使用 TypeScript。",
           })
           const second = yield* memory.upsertUserMemory({
@@ -135,7 +135,7 @@ describe("structured memory upserts", () => {
     expect(results.duplicate.status).toBe("duplicate")
     const stored = entries("user") as Memory.UserMemoryEntry[]
     expect(stored).toHaveLength(2)
-    expect(stored.find((entry) => entry.keywords[0] === "typescript")).toMatchObject({
+    expect(stored.find((entry) => entry.keywords[0] === "ts")).toMatchObject({
       importance: 9,
       content: "用户长期偏好使用 TypeScript。",
     })
