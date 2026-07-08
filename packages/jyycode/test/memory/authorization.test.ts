@@ -22,7 +22,7 @@ function fixture() {
           sessionID: rootID,
           importance: 6,
           date: "20260705",
-          keywords: ["existing", "project"],
+          keywords: ["ext", "项目"],
           content: "existing project fact",
         },
       ]),
@@ -30,7 +30,7 @@ function fixture() {
     [
       userPath,
       Memory.serializeStore("user", [
-        { scope: "user", importance: 8, keywords: ["existing", "user"], content: "existing user fact" },
+        { scope: "user", importance: 8, keywords: ["ext", "user"], content: "existing user fact" },
       ]),
     ],
   ])
@@ -179,7 +179,7 @@ describe("memory write authorization", () => {
       Memory.Service.use((memory) =>
         Effect.all([
           memory.read({ sessionID: childID, scope: "memory" }),
-          memory.search({ sessionID: childID, scope: "all", query: "existing" }),
+          memory.search({ sessionID: childID, scope: "all", query: "existing project" }),
         ]),
       ),
     )

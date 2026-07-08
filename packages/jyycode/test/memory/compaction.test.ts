@@ -50,7 +50,7 @@ function task(input: {
     scope: "memory",
     importance: input.importance ?? 5,
     date: input.date ?? "20260705",
-    keywords: input.keywords ?? [`项目${input.id}`],
+    keywords: input.keywords ?? ["项目"],
     content: input.content ?? `完成项目 ${input.id}。`,
     sessionID: SessionID.make(input.id),
   }
@@ -66,8 +66,8 @@ describe("bounded deterministic memory compaction", () => {
     const entries = [
       task({ id: "ses_racing_a", date: "20260701", content: "完成赛车游戏基础建模。", keywords: ["赛车", "地图"] }),
       task({ id: "ses_racing_b", date: "20260705", content: "完成赛车游戏地图优化。", keywords: ["赛车", "地图"] }),
-      task({ id: "ses_similar_a", content: "完成代码质量检查。", keywords: ["typescript", "代码"] }),
-      task({ id: "ses_similar_b", content: "完成代码性能优化。", keywords: ["typescript", "代码", "优化"] }),
+      task({ id: "ses_similar_a", content: "完成代码质量检查。", keywords: ["ts", "代码"] }),
+      task({ id: "ses_similar_b", content: "完成代码性能优化。", keywords: ["ts", "代码", "优化"] }),
       task({ id: "ses_document", content: "完成独立文档。", keywords: ["文档"] }),
     ]
     await seed("memory", entries)
@@ -127,7 +127,7 @@ describe("bounded deterministic memory compaction", () => {
         memory.upsertUserMemory({
           sessionID: writer,
           importance: 2,
-          keywords: ["低价值候选"],
+          keywords: ["低价值"],
           content: `一次性候选：${"乙".repeat(800)}。`,
         }),
       ),

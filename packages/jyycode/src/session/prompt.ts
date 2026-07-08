@@ -150,6 +150,7 @@ export const layer = Layer.effect(
           "Do not retain greetings, progress checks, temporary constraints, failed retries, or facts immediately recoverable from the codebase.",
           `This is ${input.firstTurn ? "the first valid turn, so provide a task candidate" : "a later turn"}.`,
           "The service supplies sessionID and date. Do not include them.",
+          "For task content, use format: 用户要求：<user request summary>；我完成了：<what was accomplished>",
           "",
           "User:",
           input.userText,
@@ -1763,8 +1764,19 @@ export const layer = Layer.effect(
               })
             }
 
-            if (step === 1)
+            if (step === 1) {
               yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
+              if (memory) {
+                yield* memory
+                  .updateStepBegin(sessionID)
+                  .pipe(
+                    Effect.catchCause((cause) =>
+                      elog.error("failed to update step-begin memory", { cause }).pipe(Effect.as(undefined)),
+                    ),
+                    Effect.forkIn(scope),
+                  )
+              }
+            }
 
             if (step > 1 && lastFinished) {
               for (const m of msgs) {

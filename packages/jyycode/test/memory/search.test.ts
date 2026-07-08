@@ -26,7 +26,7 @@ async function fixture() {
         sessionID,
         importance: 7,
         date: "20260705",
-        keywords: ["typescript", "架构"],
+        keywords: ["ts", "架构"],
         content: "项目采用 TypeScript 分层架构。",
       },
       {

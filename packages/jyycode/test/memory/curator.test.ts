@@ -134,7 +134,7 @@ describe("post-turn memory curator", () => {
     expect(entries[0]?.content).toBe("完成碰撞性能优化。")
   })
 
-  test("does not write either store for a later false decision", async () => {
+  test("always writes task memory for every turn even when LLM says skip", async () => {
     const ctx = fixture()
     ctx.setMessages(messages("请完成赛车游戏", "已完成基础建模。", "1"))
     await ctx.run(
@@ -150,12 +150,14 @@ describe("post-turn memory curator", () => {
       ),
     )
 
-    expect(result).toEqual({ status: "skipped", reason: "llm_skip" })
-    expect(ctx.files.get(ctx.memoryPath)).toBe(before.memory)
-    expect(ctx.files.get(ctx.userPath)).toBe(before.user)
+    // Every turn triggers a write via fallback, even when LLM says shouldUpdate=false.
+    expect(result.status).toBe("updated")
+    expect(result.taskUpdated).toBe(true)
+    // Store is overwritten by fallback content.
+    expect(ctx.files.get(ctx.memoryPath)).not.toBe(before.memory)
   })
 
-  test("does not overwrite existing stores for an invalid later decision", async () => {
+  test("falls back to deterministic write when LLM returns an invalid decision", async () => {
     const ctx = fixture()
     ctx.setMessages(messages("请完成赛车游戏", "已完成基础建模。", "1"))
     await ctx.run(
@@ -171,9 +173,11 @@ describe("post-turn memory curator", () => {
       ),
     )
 
-    expect(result).toEqual({ status: "skipped", reason: "llm_invalid" })
-    expect(ctx.files.get(ctx.memoryPath)).toBe(before.memory)
-    expect(ctx.files.get(ctx.userPath)).toBe(before.user)
+    // Invalid LLM output now triggers fallback write instead of skipping.
+    expect(result.status).toBe("updated")
+    expect(result.taskUpdated).toBe(true)
+    // Store was overwritten by fallback content (not left untouched).
+    expect(ctx.files.get(ctx.memoryPath)).not.toBe(before.memory)
   })
 
   test("writes stable user facts returned by the evaluator", async () => {

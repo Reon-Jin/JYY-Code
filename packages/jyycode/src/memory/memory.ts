@@ -199,6 +199,10 @@ function validateKeywords(value: readonly string[]): string[] {
   if (keywords.length === 0 || keywords.length > 3) {
     throw new Error("Invalid memory entry keywords: expected 1 to 3 non-empty keywords")
   }
+  for (const keyword of keywords) {
+    if (keyword.length < 2) throw new Error(`Invalid memory entry keyword "${keyword}": must be at least 2 characters`)
+    if (keyword.length > 4) throw new Error(`Invalid memory entry keyword "${keyword}": must be at most 4 characters`)
+  }
   return keywords
 }
 
@@ -269,7 +273,7 @@ export const MemoryDecisionJsonSchema = {
       required: ["importance", "keywords", "content"],
       properties: {
         importance: { type: "integer", minimum: 1, maximum: 10 },
-        keywords: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", minLength: 1 } },
+        keywords: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", minLength: 2, maxLength: 4 } },
         content: { type: "string", minLength: 1 },
       },
     },
@@ -343,8 +347,15 @@ export interface Interface {
   ) => Effect.Effect<
     | void
     | { status: "skipped"; reason: "subagent" }
-    | { status: "skipped"; reason: "llm_skip" | "llm_invalid" }
     | { status: "updated"; taskUpdated: boolean; userUpdated: number },
+    Error
+  >
+  readonly updateStepBegin: (
+    sessionID: SessionID,
+  ) => Effect.Effect<
+    | void
+    | { status: "skipped"; reason: "subagent" }
+    | { status: "updated"; taskWritten: boolean },
     Error
   >
 }
@@ -383,13 +394,22 @@ export const layerWithDirectory = (directory: string) =>
       if (info.parentID !== undefined) return yield* Effect.fail(new MemoryWriteForbidden({ sessionID }))
     })
 
+    const cleanupLegacyMdFiles = (memoryDir: string) =>
+      Effect.forEach(legacyMdFiles, (filename) =>
+        fs.remove(path.join(memoryDir, filename), { force: true }).pipe(Effect.ignore),
+        { discard: true },
+      )
+
     const ensure = Effect.fn("Memory.ensure")(function* (sessionID: SessionID) {
-      yield* fs.ensureDir(yield* dir(sessionID)).pipe(Effect.orDie)
+      const memoryDir = yield* dir(sessionID)
+      yield* fs.ensureDir(memoryDir).pipe(Effect.orDie)
       for (const scope of ["memory", "user"] as const) {
         const target = yield* filePath(sessionID, scope)
         const exists = yield* fs.existsSafe(target).pipe(Effect.orDie)
         if (!exists) yield* fs.writeWithDirs(target, templates[scope]).pipe(Effect.orDie)
       }
+      // Clean up legacy .md files from the old memory system.
+      yield* cleanupLegacyMdFiles(memoryDir)
     })
 
     const readFull = Effect.fn("Memory.readFull")(function* (sessionID: SessionID, scope: Scope) {
@@ -591,7 +611,8 @@ export const layerWithDirectory = (directory: string) =>
       if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
       if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
       const importance = confidenceImportance(input.confidence)
-      const keywords = validateKeywords([input.section || (input.scope === "memory" ? "任务成果" : "用户事实")])
+      const sectionKeyword = (input.section || (input.scope === "memory" ? "任务成果" : "用户事实")).slice(0, 4)
+      const keywords = validateKeywords([sectionKeyword])
       const result =
         input.scope === "memory"
           ? yield* upsertTaskMemory({ sessionID: input.sessionID, importance, keywords, content: clean })
@@ -742,52 +763,48 @@ export const layerWithDirectory = (directory: string) =>
       }
       yield* ensure(sessionID)
       const msgs = yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
-      const latestUser = msgs.findLast((msg) => msg.info.role === "user")
-      if (!latestUser) return
+      // Find the last user message with real (non-synthetic) text content.
+      // In cluster mode, synthetic reminders become the last user message,
+      // but memory decisions should be based on the real user request.
+      let latestUser = msgs.findLast((msg) => msg.info.role === "user")
+      let userText = latestUser ? textContent(latestUser, { synthetic: false }) : ""
+      if (!userText) {
+        const userMsgs = msgs.filter((msg) => msg.info.role === "user").reverse()
+        for (const msg of userMsgs) {
+          const text = textContent(msg, { synthetic: false })
+          if (text) {
+            latestUser = msg
+            userText = text
+            break
+          }
+        }
+      }
+      if (!latestUser || !userText) return
+      // Find the last assistant message with non-synthetic text content.
+      // In cluster mode the immediate child of the original user message is the
+      // planning response — we want the final synthesis, which is always the
+      // chronologically last assistant with real text.
       const latestAssistant = msgs.findLast(
-        (msg) => msg.info.role === "assistant" && msg.info.parentID === latestUser.info.id,
+        (msg) => msg.info.role === "assistant" && textContent(msg, { synthetic: false }) !== "",
       )
 
-      const userText = textContent(latestUser, { synthetic: false })
       const assistantText = latestAssistant ? textContent(latestAssistant, { synthetic: false }) : ""
-      if (!userText || !assistantText) return
+      if (!assistantText) return
 
-      const memoryStore = yield* readStore(sessionID, "memory")
-      const firstTurn = !memoryStore.entries.some(
-        (entry) => entry.scope === "memory" && entry.sessionID === sessionID,
-      )
+      // Try LLM evaluator; fall back to deterministic extraction on any failure.
       const evaluated = evaluator
-        ? yield* evaluator({ sessionID, firstTurn, userText, assistantText }).pipe(
+        ? yield* evaluator({ sessionID, firstTurn: false, userText, assistantText }).pipe(
             Effect.map((value) => ({ ok: true as const, value })),
             Effect.catchCause(() => Effect.succeed({ ok: false as const })),
           )
         : ({ ok: false as const } as const)
       const parsed = evaluated.ok ? parseDecisionSafe(evaluated.value) : undefined
+      const usedFallback = !parsed?.shouldUpdate || !parsed?.task
 
-      if (!firstTurn && !parsed) {
-        yield* audit(sessionID, {
-          writerSessionID: sessionID,
-          writerKind: "primary",
-          action: "memory.llm_invalid",
-          reason: "Decision evaluator failed or returned invalid output.",
-        })
-        return { status: "skipped" as const, reason: "llm_invalid" as const }
-      }
-      if (!firstTurn && parsed && !parsed.shouldUpdate) {
-        yield* audit(sessionID, {
-          writerSessionID: sessionID,
-          writerKind: "primary",
-          action: "memory.llm_skip",
-          reason: parsed.reason,
-        })
-        return { status: "skipped" as const, reason: "llm_skip" as const }
-      }
-
-      const fallback = firstTurn && (!parsed?.task || !parsed.shouldUpdate)
-      const decision: MemoryDecision = fallback
+      const decision: MemoryDecision = usedFallback
         ? {
             shouldUpdate: true,
-            reason: "First valid turn fallback.",
+            reason: parsed?.reason ?? "Deterministic fallback after LLM evaluator failure.",
             task: fallbackTaskCandidate(userText, assistantText),
             user: parsed?.user ?? [],
           }
@@ -801,20 +818,58 @@ export const layerWithDirectory = (directory: string) =>
       yield* audit(sessionID, {
         writerSessionID: sessionID,
         writerKind: "primary",
-        action: firstTurn ? "memory.first_turn_forced" : "memory.llm_update",
+        action: usedFallback ? "memory.completion_fallback" : "memory.llm_update",
         taskStatus: taskResult?.status ?? "skipped",
         userStatuses: userResults.map((result) => result.status),
         reason: decision.reason,
       })
-      if (fallback) {
+      return { status: "updated" as const, taskUpdated: taskResult !== undefined, userUpdated: userResults.length }
+    })
+
+    const updateStepBegin = Effect.fn("Memory.updateStepBegin")(function* (sessionID: SessionID) {
+      const info = yield* sessions.get(sessionID).pipe(Effect.orDie)
+      if (info.parentID !== undefined) {
         yield* audit(sessionID, {
           writerSessionID: sessionID,
-          writerKind: "primary",
-          action: "memory.fallback_update",
-          reason: evaluated.ok ? "Evaluator omitted a usable first-turn task." : "Decision evaluator failed.",
+          writerKind: "subagent",
+          action: "memory.step_begin_skipped",
+          reason: "subagent",
         })
+        return { status: "skipped" as const, reason: "subagent" as const }
       }
-      return { status: "updated" as const, taskUpdated: taskResult !== undefined, userUpdated: userResults.length }
+      yield* ensure(sessionID)
+      const msgs = yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
+      // Find the last user message with real (non-synthetic) text content.
+      let latestUser = msgs.findLast((msg) => msg.info.role === "user")
+      let userText = latestUser ? textContent(latestUser, { synthetic: false }) : ""
+      if (!userText) {
+        const userMsgs = msgs.filter((msg) => msg.info.role === "user").reverse()
+        for (const msg of userMsgs) {
+          const text = textContent(msg, { synthetic: false })
+          if (text) {
+            latestUser = msg
+            userText = text
+            break
+          }
+        }
+      }
+      if (!userText) return
+
+      const content = `用户要求：${summarizeText(userText, 80)}`
+      const result = yield* upsertTaskMemory({
+        sessionID,
+        importance: 6,
+        keywords: extractTaskKeywords(userText),
+        content,
+      })
+      yield* audit(sessionID, {
+        writerSessionID: sessionID,
+        writerKind: "primary",
+        action: "memory.step_begin_write",
+        taskStatus: result.status,
+        reason: "Step-1 user request recording.",
+      })
+      return { status: "updated" as const, taskWritten: true }
     })
 
     const appendAudit = Effect.fn("Memory.appendAudit")(function* (
@@ -846,6 +901,7 @@ export const layerWithDirectory = (directory: string) =>
       usage,
       formatWithHeader,
       updateAfterTurn,
+      updateStepBegin,
     })
   }),
 ).pipe(Layer.provide(EffectFlock.defaultLayer))
@@ -1000,6 +1056,8 @@ function containsCandidate(entries: readonly MemoryEntry[], candidate: MemoryEnt
     (entry) => entry.scope === "user" && candidate.keywords.every((keyword) => entry.keywords.includes(keyword)),
   )
 }
+
+const legacyMdFiles = ["MEMORY.md", "USER.md"]
 
 function localDate(date: Date): string {
   const year = String(date.getFullYear()).padStart(4, "0")
@@ -1157,7 +1215,7 @@ function fallbackTaskCandidate(userText: string, assistantText: string): MemoryC
   return {
     importance: taskImportance(userText, assistantText),
     keywords: extractTaskKeywords(`${userText}\n${assistantText}`),
-    content: summarizeText(source, 120),
+    content: formatCompletionContent(userText, source),
   }
 }
 
@@ -1168,17 +1226,54 @@ function taskImportance(userText: string, assistantText: string): Importance {
 }
 
 function extractTaskKeywords(input: string): string[] {
-  if (/赛车游戏/u.test(input)) return ["赛车游戏"]
-  const matches = Array.from(
-    input.matchAll(/[\p{Script=Han}A-Za-z0-9+#.-]{0,12}(?:项目|游戏|系统|功能|文档|报告|模型|地图)/gu),
-  )
-    .map((match) =>
-      match[0]
-        .replace(/^(?:请|继续|完成|优化|实现|创建|生成|修复|已完成|已实现|已创建|已生成)+/u, "")
-        .trim(),
-    )
-    .filter((keyword) => keyword.length >= 2)
-  return normalizeKeywords(matches).slice(0, 3).length > 0 ? normalizeKeywords(matches).slice(0, 3) : ["任务成果"]
+  const cleaned = input.replace(/\s+/gu, "").toLowerCase()
+
+  // Content-aware extraction: check what the user is talking about.
+  if (/(?:我叫|我是|我的名字|姓名|称呼|自我介绍)/u.test(cleaned)) return ["用户信息"]
+  if (/(?:记住|记忆|保存|存储|记录|备忘录)/u.test(cleaned)) return ["记忆"]
+  if (/(?:代码|编程|写代码|开发|修复|bug|调试|重构)/u.test(cleaned)) return ["编程"]
+  if (/(?:测试|test|验证|检查)/u.test(cleaned)) return ["测试"]
+  if (/(?:文档|报告|笔记|wiki|readme|写文)/u.test(cleaned)) return ["文档"]
+  if (/(?:配置|安装|设置|部署|环境|依赖)/u.test(cleaned)) return ["配置"]
+  if (/(?:搜索|查找|寻找|检索)/u.test(cleaned)) return ["搜索"]
+  if (/(?:游戏|赛车|地图|关卡)/u.test(cleaned)) return ["游戏"]
+  if (/(?:架构|设计|重构|结构)/u.test(cleaned)) return ["架构"]
+  if (/(?:日期|时间|今天|明天|星期|几号|几点)/u.test(cleaned)) return ["时间日期"]
+  if (/(?:翻译|中文|英文|语言|翻译成)/u.test(cleaned)) return ["翻译"]
+  if (/(?:文件|目录|路径|读取|写入)/u.test(cleaned)) return ["文件操作"]
+  if (/(?:hello|hi|你好|say|greet)/i.test(cleaned)) return ["对话"]
+
+  // Domain patterns: extract short CJK phrases ending with common topic words.
+  const topicWords = ["项目", "游戏", "系统", "功能", "文档", "报告", "模型", "地图", "接口", "工具"]
+  for (const topic of topicWords) {
+    const re = new RegExp(`[\\p{Script=Han}A-Za-z0-9]{1,4}${topic}`, "gu")
+    const matches = Array.from(input.matchAll(re))
+      .map((m) => m[0].replace(/^(?:请|继续|完成|优化|实现|创建|生成|修复|已完成|已实现|已创建|已生成)+/u, "").trim())
+      .filter((k) => k.length >= 2 && k.length <= 4)
+    if (matches.length > 0) return normalizeKeywords(matches).slice(0, 3)
+  }
+
+  // Fallback: extract the first meaningful CJK 2-4 char word from the content,
+  // skipping verbs, particles, greetings, stop words, and command prefixes.
+  const commandPrefix = /^(?:请|帮我|帮忙|帮我用|能不能|可以|可不|可否|麻烦)/u
+  const stopSet = new Set(["你好", "哈喽", "嗨", "谢谢", "再见", "请问", "好的", "是的", "嗯", "哦", "啊", "呢", "吧", "吗", "了", "的", "我", "你", "他", "她", "它", "们", "这", "那", "什么", "怎么", "为什么", "哪里", "回复", "回答", "告诉", "解释"])
+  const cjkWords = Array.from(cleaned.matchAll(/[\p{Script=Han}]{2,4}/gu))
+    .map((m) => m[0])
+    .filter((w) => !stopSet.has(w) && !commandPrefix.test(w))
+  if (cjkWords.length > 0) {
+    const first = cjkWords[0]!
+    return normalizeKeywords([first.length > 4 ? first.slice(0, 4) : first]).slice(0, 3)
+  }
+
+  return ["对话记录"]
+}
+
+function fallbackTaskCandidate(userText: string, assistantText: string): MemoryCandidate {
+  return {
+    importance: taskImportance(userText, assistantText),
+    keywords: extractTaskKeywords(`${userText}\n${assistantText}`),
+    content: `用户要求：${summarizeText(userText, 60)}；我完成了：${summarizeText(assistantText.trim(), 80)}`,
+  }
 }
 
 function looksSensitive(input: string) {
