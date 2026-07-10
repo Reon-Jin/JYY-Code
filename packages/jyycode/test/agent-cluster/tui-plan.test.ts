@@ -618,6 +618,98 @@ describe("agent cluster TUI plan parsing", () => {
   })
 
   describe("Bug fixes", () => {
+    test("does not reuse an exact step-1 task for a later role fallback", () => {
+      const parent = "ses_parent"
+      const assistant = "msg_assistant"
+      const task = (id: string, step: number, title: string) => ({
+        id,
+        step,
+        title,
+        role: "coder",
+        complexity: "simple",
+        model: "test/simple",
+        dependencies: [],
+        prompt: title,
+        acceptanceCriteria: [],
+        expectedArtifacts: [],
+      })
+      const livePlan = JSON.stringify({
+        goal: "Build a game",
+        tasks: [
+          task("setup", 1, "Initialize project"),
+          task("terrain", 2, "Build terrain"),
+          task("player", 2, "Build player"),
+          task("weather", 3, "Build weather"),
+        ],
+      })
+      const messagesBySession: Record<string, Message[]> = {
+        [parent]: [
+          {
+            id: assistant,
+            parentID: "msg_user",
+            sessionID: parent,
+            role: "assistant",
+            mode: "cluster",
+            agent: "cluster",
+            path: { cwd: ".", root: "." },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: "test",
+            providerID: "test",
+            time: { created: 1 },
+          },
+        ],
+      }
+      const partsByMessage: Record<string, Part[]> = {
+        [assistant]: [
+          {
+            id: "part_plan",
+            sessionID: parent,
+            messageID: assistant,
+            type: "text",
+            text: livePlan,
+          },
+          {
+            id: "part_task",
+            sessionID: parent,
+            messageID: assistant,
+            type: "tool",
+            callID: "call_task",
+            tool: "task",
+            state: {
+              status: "completed",
+              title: "Initialize project",
+              input: {
+                description: "Initialize project",
+                prompt: "Initialize project",
+                subagent_type: "coder",
+                task_id: "setup",
+              },
+              metadata: {
+                sessionId: "ses_child",
+                background: true,
+              },
+              output: "task_id: ses_child\nstate: running",
+              time: { start: 1, end: 2 },
+            },
+          },
+        ],
+      }
+
+      const snapshot = agentClusterSnapshot({
+        sessionID: parent,
+        enabled: true,
+        disabled: false,
+        messages: (sessionID) => messagesBySession[sessionID] ?? [],
+        parts: (messageID) => partsByMessage[messageID] ?? [],
+      })
+
+      expect(snapshot.runningAgents).toBe(1)
+      expect(snapshot.steps.find((step) => step.index === 1)?.status).toBe("running")
+      expect(snapshot.steps.find((step) => step.index === 3)?.status).toBe("queued")
+      expect(snapshot.steps.find((step) => step.index === 3)?.tasks[0]?.status).toBe("queued")
+    })
+
     test("merges live tool-call statuses INTO authoritative cluster plan (Bug 2&3 fix)", () => {
       const parent = "ses_parent"
       const assistant = "msg_assistant"
