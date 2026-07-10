@@ -1352,11 +1352,16 @@ export const layer = Layer.effect(
         if (hasToolDisclosureOverride) toolDisclosureOverrides.set(input.sessionID, input.toolDisclosure!)
         const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
         const cfg = yield* config.get()
-        const useCluster = AgentCluster.canUseAgentCluster({
-          session,
-          config: cfg.agent_cluster,
-          requested: input.agentCluster?.enabled,
-        })
+        // noReply messages are synthetic injections (for example, background
+        // subagent completion). They continue an existing run and must never
+        // decorate the message with a fresh, unpersisted cluster run ID.
+        const useCluster =
+          input.noReply !== true &&
+          AgentCluster.canUseAgentCluster({
+            session,
+            config: cfg.agent_cluster,
+            requested: input.agentCluster?.enabled,
+          })
         const clusterModels = useCluster
           ? yield* AgentCluster.resolveModels(cfg.agent_cluster ?? {}).pipe(Effect.orDie)
           : undefined
@@ -1598,14 +1603,13 @@ export const layer = Layer.effect(
               }
             }
             const persistedRunID = lastUser.agent === "cluster" ? clusterRunID(msgs) : undefined
-            if (
-              persistedRunID &&
-              !isClusterSynthesisReminder(msgs.find((msg) => msg.info.id === lastUser.id))
-            ) {
+            if (persistedRunID && !isClusterSynthesisReminder(msgs.find((msg) => msg.info.id === lastUser.id))) {
               const state = yield* AgentCluster.getSessionState(sessionID)
               const tasks = state.tasks.filter((task) => task.run_id === persistedRunID)
               if (tasks.length > 0 && tasks.some((task) => task.status !== "accepted")) {
-                yield* slog.info("cluster attempted final response before all tasks were accepted; requesting continuation")
+                yield* slog.info(
+                  "cluster attempted final response before all tasks were accepted; requesting continuation",
+                )
                 yield* createClusterSynthesisReminder({ lastUser, runID: persistedRunID })
                 continue
               }
@@ -1723,7 +1727,7 @@ export const layer = Layer.effect(
           const outcome: "break" | "continue" = yield* Effect.gen(function* () {
             const lastUserMsg = msgs.findLast((m) => m.info.role === "user")
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
-            const promptOps = yield* ops()
+            const promptOps: TaskPromptOps = yield* ops()
 
             // Resolve the cluster run ID for the current session if in cluster mode.
             let clusterRunID: string | undefined
@@ -1731,9 +1735,7 @@ export const layer = Layer.effect(
             for (const m of [...msgs].reverse()) {
               for (const part of m.parts) {
                 const meta =
-                  "metadata" in part
-                    ? (part.metadata as { kind?: string; runID?: string } | undefined)
-                    : undefined
+                  "metadata" in part ? (part.metadata as { kind?: string; runID?: string } | undefined) : undefined
                 if (meta?.kind === "agent_cluster" && meta.runID) {
                   clusterRunID = meta.runID as string
                   break
@@ -1752,8 +1754,12 @@ export const layer = Layer.effect(
               )
               clusterRunID = rows.toSorted((a, b) => b.time - a.time)[0]?.id
             }
-            // Make the runID available to tool handlers via promptOps
-            if (clusterRunID) (promptOps as { agentClusterRunID?: string }).agentClusterRunID = clusterRunID
+            // Tools execute inside handle.process(), so wire the live text
+            // accessor before SessionTools.resolve() creates AI SDK callbacks.
+            if (clusterRunID) {
+              promptOps.agentClusterRunID = clusterRunID
+              promptOps.currentAssistantText = handle.allText
+            }
 
             const tools = yield* SessionTools.resolve({
               agent,
@@ -1786,14 +1792,12 @@ export const layer = Layer.effect(
             if (step === 1) {
               yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
               if (memory) {
-                yield* memory
-                  .updateStepBegin(sessionID)
-                  .pipe(
-                    Effect.catchCause((cause) =>
-                      elog.error("failed to update step-begin memory", { cause }).pipe(Effect.as(undefined)),
-                    ),
-                    Effect.forkIn(scope),
-                  )
+                yield* memory.updateStepBegin(sessionID).pipe(
+                  Effect.catchCause((cause) =>
+                    elog.error("failed to update step-begin memory", { cause }).pipe(Effect.as(undefined)),
+                  ),
+                  Effect.forkIn(scope),
+                )
               }
             }
 
@@ -2174,9 +2178,7 @@ function memoryRetrievalQuery(input: string) {
 
 function formatMemoryRetrieval(query: string, results: Memory.SearchResult[]) {
   const body = results
-    .map((item, index) =>
-      [`${index + 1}. ${item.file}:${item.line} [${item.section}]`, item.text].join("\n"),
-    )
+    .map((item, index) => [`${index + 1}. ${item.file}:${item.line} [${item.section}]`, item.text].join("\n"))
     .join("\n\n")
   const text = [
     "<system-reminder>",

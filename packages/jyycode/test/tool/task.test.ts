@@ -1068,12 +1068,16 @@ describe("tool.task", () => {
       )
 
       const row = Database.use((db) =>
-        db.select().from(AgentClusterTaskTable).where(
-          Database.and(
-            Database.eq(AgentClusterTaskTable.run_id, runID as any),
-            Database.eq(AgentClusterTaskTable.id, planTaskID as any),
-          ),
-        ).get(),
+        db
+          .select()
+          .from(AgentClusterTaskTable)
+          .where(
+            Database.and(
+              Database.eq(AgentClusterTaskTable.run_id, runID as any),
+              Database.eq(AgentClusterTaskTable.id, planTaskID as any),
+            ),
+          )
+          .get(),
       )
       expect(row?.child_session_id).toBe(result.metadata.sessionId)
       expect(row?.status).toBe("running")
@@ -1183,6 +1187,160 @@ describe("tool.task", () => {
       )
       expect(row?.child_session_id).toBe(result.metadata.sessionId)
       expect(row?.status).toBe("running")
+    }),
+  )
+
+  it.instance("cluster task prefers the live assistant plan before TUI message projection catches up", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      const runID = "run_live_tui_plan"
+      const planTaskID = "create-1"
+      const livePlanText = [
+        "```json",
+        JSON.stringify({
+          goal: "Create and combine text files",
+          tasks: [
+            {
+              id: planTaskID,
+              step: 1,
+              title: "Create 1.txt",
+              role: "coder",
+              complexity: "simple",
+              model: "test/test-model",
+              dependencies: [],
+              prompt: "Create 1.txt containing 123",
+              acceptanceCriteria: ["1.txt contains 123"],
+              expectedArtifacts: ["1.txt"],
+            },
+            {
+              id: "create-2",
+              step: 2,
+              title: "Create 2.txt",
+              role: "coder",
+              complexity: "simple",
+              model: "test/test-model",
+              dependencies: [planTaskID],
+              prompt: "Copy 1.txt into 2.txt",
+              acceptanceCriteria: ["2.txt matches 1.txt"],
+              expectedArtifacts: ["2.txt"],
+            },
+            {
+              id: "create-3",
+              step: 2,
+              title: "Create 3.txt",
+              role: "coder",
+              complexity: "simple",
+              model: "test/test-model",
+              dependencies: [planTaskID],
+              prompt: "Copy 1.txt into 3.txt",
+              acceptanceCriteria: ["3.txt matches 1.txt"],
+              expectedArtifacts: ["3.txt"],
+            },
+            {
+              id: "create-ans",
+              step: 3,
+              title: "Create ans.txt",
+              role: "coder",
+              complexity: "simple",
+              model: "test/test-model",
+              dependencies: ["create-2", "create-3"],
+              prompt: "Combine 1.txt, 2.txt, and 3.txt into ans.txt",
+              acceptanceCriteria: ["ans.txt contains all three inputs"],
+              expectedArtifacts: ["ans.txt"],
+            },
+          ],
+        }),
+        "```",
+      ].join("\n")
+
+      // Simulate the TUI projector lagging behind the current stream: DB-backed
+      // message reads still expose an older plan while the processor accumulator
+      // already contains the authoritative plan immediately before the tool call.
+      yield* sessions.updatePart({
+        id: PartID.ascending(),
+        messageID: assistant.id,
+        sessionID: chat.id,
+        type: "text",
+        text: [
+          "```json",
+          JSON.stringify({
+            goal: "Stale projected plan",
+            tasks: [
+              {
+                id: "stale-task",
+                step: 1,
+                title: "Stale task",
+                role: "researcher",
+                complexity: "simple",
+                model: "test/test-model",
+                dependencies: [],
+                prompt: "This task should not be dispatched",
+                acceptanceCriteria: ["not used"],
+                expectedArtifacts: [],
+              },
+            ],
+          }),
+          "```",
+        ].join("\n"),
+      })
+      Database.use((db) => {
+        const now = Date.now()
+        db.insert(AgentClusterRunTable)
+          .values({
+            id: runID as any,
+            session_id: chat.id,
+            parent_message_id: assistant.parentID!,
+            enabled: true,
+            status: "planning",
+            goal: "Create and combine text files",
+            planner_model: "test/planner",
+            reviewer_model: "test/reviewer",
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+      })
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+
+      const result = yield* def.execute(
+        {
+          description: "create first file",
+          prompt: "Create 1.txt containing 123",
+          subagent_type: "general",
+          task_id: planTaskID,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "cluster",
+          abort: new AbortController().signal,
+          extra: {
+            agentClusterRunID: runID,
+            promptOps: {
+              ...stubOps(),
+              prompt: () => Effect.never,
+              currentAssistantText: () => livePlanText,
+            } as TaskPromptOps,
+          },
+          messages,
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const rows = Database.use((db) =>
+        db
+          .select()
+          .from(AgentClusterTaskTable)
+          .where(Database.eq(AgentClusterTaskTable.run_id, runID as any))
+          .all(),
+      )
+      expect(rows.map((row) => String(row.id)).sort()).toEqual(["create-1", "create-2", "create-3", "create-ans"])
+      expect(rows.find((row) => row.id === planTaskID)?.child_session_id).toBe(result.metadata.sessionId)
+      expect(rows.find((row) => row.id === planTaskID)?.status).toBe("running")
     }),
   )
 

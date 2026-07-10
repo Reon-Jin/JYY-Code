@@ -57,6 +57,7 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { AgentClusterRunTable } from "@/agent-cluster/cluster.sql"
 
 void Log.init({ print: false })
 
@@ -517,6 +518,49 @@ it.instance("loop calls LLM and returns assistant message", () =>
     const parts = result.parts.filter((p) => p.type === "text")
     expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
     expect(yield* llm.hits).toHaveLength(1)
+  }),
+)
+
+it.instance("noReply injection in a Multi-Agent session does not create a ghost cluster run", () =>
+  Effect.gen(function* () {
+    yield* useServerConfig((url) => ({
+      ...providerCfg(url),
+      agent_cluster: {
+        planner_model: "test/test-model",
+        simple_model: "test/test-model",
+        complex_model: "test/test-model",
+        visual_model: "test/test-model",
+      },
+    }))
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Multi-Agent background injection",
+      agent: "build",
+      multiAgent: true,
+      model: { providerID: ref.providerID, id: ref.modelID },
+    })
+
+    const message = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      model: ref,
+      noReply: true,
+      parts: [{ type: "text", synthetic: true, text: "Background task completed" }],
+    })
+
+    expect(message.info.role).toBe("user")
+    if (message.info.role !== "user") return
+    expect(message.info.agent).toBe("build")
+    expect(
+      message.parts.some(
+        (part) => part.type === "text" && part.metadata?.kind === "agent_cluster" && Boolean(part.metadata.runID),
+      ),
+    ).toBe(false)
+    const runs = Database.use((db) =>
+      db.select().from(AgentClusterRunTable).where(Database.eq(AgentClusterRunTable.session_id, chat.id)).all(),
+    )
+    expect(runs).toHaveLength(0)
   }),
 )
 

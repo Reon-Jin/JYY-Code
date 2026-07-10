@@ -35,6 +35,8 @@ export interface TaskPromptOps {
   loop(input: SessionPrompt.LoopInput): Effect.Effect<MessageV2.WithParts>
   /** Set when running in Agent Cluster mode; the active run id. */
   agentClusterRunID?: string
+  /** Live text accumulated for the current assistant step before tool execution. */
+  currentAssistantText?: () => string
 }
 
 export interface TaskWorktreeOps {
@@ -394,12 +396,15 @@ export const TaskTool = Tool.define(
       const persistCurrentClusterPlan = Effect.fn("TaskTool.persistCurrentClusterPlan")(function* () {
         if (!clusterRunID) return false
         const texts: string[] = []
-        // 0. PRIMARY SOURCE: the in-memory cache populated by the runLoop
-        //    pre-persistence code as soon as the LLM streams the plan text.
-        //    This is the ONLY guaranteed source — no DB read needed, works
-        //    identically in CLI and TUI, zero race window.
+        // AI SDK executes tools inside handle.process(), before prompt.ts can
+        // perform its post-process cache write. The processor accumulator is
+        // therefore the only race-free source for the first TUI dispatch.
+        const live = (ctx.extra?.promptOps as TaskPromptOps | undefined)?.currentAssistantText?.()
+        if (live) texts.push(live)
+        // Run-level cache populated after prior LLM steps. This keeps the
+        // original plan available to later dispatch waves.
         const cached = getClusterPlanText(clusterRunID)
-        if (cached) texts.push(cached)
+        if (cached && !texts.includes(cached)) texts.push(cached)
         // 1. Read text parts from the current assistant message using the
         //    ASYNC DB connection.  The legacy parts() function uses a
         //    separate better-sqlite3 connection that may not see parts
@@ -444,6 +449,7 @@ export const TaskTool = Tool.define(
               `Cluster plan not found. ` +
                 `Output the JSON plan as a \`\`\`json code block ` +
                 `with "goal" and "tasks" BEFORE calling the task tool. ` +
+                `Live text: ${live ? "yes" : "no"}. ` +
                 `Cache hit: ${cached ? "yes" : "no"}. ` +
                 `Scanned ${texts.length} text parts (${asyncParts.length} from current msg partsAsync, ` +
                 `${dbMessages.length} db msgs, ${ctx.messages.length} ctx msgs). ` +
@@ -932,7 +938,10 @@ export const TaskTool = Tool.define(
         const message = yield* ops.prompt({
           sessionID: ctx.sessionID,
           noReply: true,
-          agent: currentParent.agent ?? ctx.agent,
+          // A cluster background result must resume the cluster primary. The
+          // persisted parent session normally keeps its pre-cluster agent.
+          agent: clusterBackground ? ctx.agent : (currentParent.agent ?? ctx.agent),
+          ...(clusterBackground ? { agentCluster: { enabled: false } } : {}),
           parts: [
             {
               type: "text",
