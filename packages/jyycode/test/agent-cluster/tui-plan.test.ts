@@ -12,6 +12,8 @@ import {
 import { taskStatusRank } from "../../src/cli/cmd/tui/component/task-item"
 import { visibleTaskRows } from "../../src/cli/cmd/tui/feature-plugins/sidebar/tasks"
 import { shouldShowTodoPanel } from "../../src/cli/cmd/tui/feature-plugins/sidebar/todo"
+import { AgentClusterStatePayload } from "../../src/server/routes/instance/httpapi/groups/session"
+import { Schema } from "effect"
 
 const planJson = JSON.stringify({
   goal: "Build a detailed report",
@@ -44,6 +46,57 @@ const planJson = JSON.stringify({
 })
 
 describe("agent cluster TUI plan parsing", () => {
+  test("agent cluster HTTP payload preserves persisted step topology", () => {
+    const encoded = Schema.encodeUnknownSync(AgentClusterStatePayload)({
+      runs: [
+        {
+          id: "run_1",
+          session_id: "ses_parent",
+          parent_message_id: "msg_user",
+          enabled: true,
+          status: "dispatching",
+          goal: "Three-step plan",
+          planner_model: "test/planner",
+          reviewer_model: "test/reviewer",
+          time_created: 1,
+          time_updated: 1,
+          completed_at: null,
+        },
+      ],
+      tasks: [
+        {
+          id: "copy-2",
+          run_id: "run_1",
+          parent_task_id: null,
+          child_session_id: null,
+          role: "coder",
+          title: "Copy 2.txt",
+          prompt: "Copy 1.txt into 2.txt",
+          complexity: "simple",
+          model: "test/simple",
+          status: "planned",
+          step: 2,
+          dependencies: ["create-1"],
+          review_round: 0,
+          acceptance_criteria: ["2.txt matches 1.txt"],
+          artifact_paths: ["2.txt"],
+          result_summary: null,
+          review_issues: [],
+          last_event: null,
+          time_created: 1,
+          time_updated: 1,
+        },
+      ],
+    } as any)
+
+    expect(encoded.tasks[0]).toMatchObject({
+      step: 2,
+      dependencies: ["create-1"],
+      result_summary: null,
+      review_issues: [],
+    })
+  })
+
   test("task status order puts running before queued", () => {
     expect(taskStatusRank("running")).toBeLessThan(taskStatusRank("queued"))
   })
