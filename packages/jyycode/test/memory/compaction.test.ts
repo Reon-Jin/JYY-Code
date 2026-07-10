@@ -56,7 +56,11 @@ function task(input: {
   }
 }
 
-function user(index: number, importance: Memory.Importance, content = `用户稳定事实 ${index}。`): Memory.UserMemoryEntry {
+function user(
+  index: number,
+  importance: Memory.Importance,
+  content = `用户稳定事实 ${index}。`,
+): Memory.UserMemoryEntry {
   return { scope: "user", importance, keywords: [`事实${index}`], content }
 }
 
@@ -77,13 +81,18 @@ describe("bounded deterministic memory compaction", () => {
 
     expect(result.merged).toBeGreaterThanOrEqual(2)
     expect(result.retained).toBe(stored.entries.length)
-    expect((stored.entries as Memory.TaskMemoryEntry[]).filter((entry) => entry.keywords.includes("赛车"))).toHaveLength(1)
+    expect(
+      (stored.entries as Memory.TaskMemoryEntry[]).filter((entry) => entry.keywords.includes("赛车")),
+    ).toHaveLength(1)
   })
 
   test("evicts low-value entries, protects high-value user facts, and returns below 70 percent", async () => {
     const { run, seed, read } = await fixture()
     const long = "长期稳定信息".repeat(30)
-    await seed("user", [user(0, 10, `用户姓名为金毅阳。${long}`), ...Array.from({ length: 24 }, (_, i) => user(i + 1, 2, long))])
+    await seed("user", [
+      user(0, 10, `用户姓名为金毅阳。${long}`),
+      ...Array.from({ length: 24 }, (_, i) => user(i + 1, 2, long)),
+    ])
 
     const result = await run(Memory.Service.use((memory) => memory.compact({ sessionID: writer, scope: "user" })))
     const stored = await read("user")
@@ -97,7 +106,10 @@ describe("bounded deterministic memory compaction", () => {
 
   test("automatically compacts when the projected entry count reaches 51", async () => {
     const { run, seed, read } = await fixture()
-    await seed("memory", Array.from({ length: 50 }, (_, i) => task({ id: `ses_${i}`, importance: 3 })))
+    await seed(
+      "memory",
+      Array.from({ length: 50 }, (_, i) => task({ id: `ses_${i}`, importance: 3 })),
+    )
 
     await run(
       Memory.Service.use((memory) =>
@@ -105,7 +117,7 @@ describe("bounded deterministic memory compaction", () => {
           sessionID: SessionID.make("ses_50"),
           importance: 8,
           keywords: ["最新项目"],
-          content: "完成最新项目交付。",
+          content: "用户要求交付最新项目，我完成了最新项目交付。",
         }),
       ),
     )
