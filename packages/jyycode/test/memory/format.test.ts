@@ -77,9 +77,7 @@ describe("memory v3 JSON format", () => {
       {
         schemaVersion: 3,
         lastCompactedAt: null,
-        entries: [
-          { sessionID, importance: 11, date: "20260705", keywords: ["项目"], content: "完成项目。" },
-        ],
+        entries: [{ sessionID, importance: 11, date: "20260705", keywords: ["项目"], content: "完成项目。" }],
       },
       "importance",
     ],
@@ -87,9 +85,7 @@ describe("memory v3 JSON format", () => {
       {
         schemaVersion: 3,
         lastCompactedAt: null,
-        entries: [
-          { sessionID, importance: 3, date: "20260230", keywords: ["赛车"], content: "完成赛车游戏。" },
-        ],
+        entries: [{ sessionID, importance: 3, date: "20260230", keywords: ["赛车"], content: "完成赛车游戏。" }],
       },
       "date",
     ],
@@ -132,5 +128,19 @@ describe("memory v3 JSON format", () => {
         content: "用户偏好 TypeScript。",
       }),
     ).toBe("ts代码风格")
+  })
+
+  test("accepts only keywords containing 2 to 4 characters", () => {
+    for (const keyword of ["编程", "代码风格", "ts"]) {
+      expect(() =>
+        Memory.serializeStore("user", [{ scope: "user", importance: 5, keywords: [keyword], content: "用户偏好。" }]),
+      ).not.toThrow()
+    }
+
+    for (const keyword of ["a", "abcde", "五个字符啊"]) {
+      expect(() =>
+        Memory.serializeStore("user", [{ scope: "user", importance: 5, keywords: [keyword], content: "用户偏好。" }]),
+      ).toThrow(/must be (?:at least 2|at most 4) characters/u)
+    }
   })
 })

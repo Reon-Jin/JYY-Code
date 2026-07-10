@@ -146,12 +146,13 @@ export const layer = Layer.effect(
         const model = yield* provider.getModel(latestUser.info.model.providerID, latestUser.info.model.modelID)
         const language = yield* provider.getLanguage(model)
         const prompt = [
-          "You are a memory curator. Decide whether this completed conversation turn contains durable memory worth retaining, and output your decision as a JSON object.",
+          "You are a memory curator. Decide how this completed conversation turn should update persistent memory, and output your decision as a JSON object.",
           "Retain only task outcomes, key decisions, project conventions, reusable lessons, and explicit stable user facts or long-term preferences.",
           "Do not retain greetings, progress checks, temporary constraints, failed retries, or facts immediately recoverable from the codebase.",
-          `This is ${input.firstTurn ? "the first valid turn, so provide a task candidate" : "a later turn"}.`,
+          "Task outcomes and user information are mutually exclusive: when stable user information is present, put it in user and omit task.",
+          "Every keyword must contain 2 to 4 characters. Return one to three keywords per candidate.",
           "The service supplies sessionID and date. Do not include them.",
-          "For task content, use format: 用户要求：<user request summary>；我完成了：<what was accomplished>",
+          "For task content, use the exact format: 用户要求<user request summary>，我完成了<what was accomplished>",
           "",
           "EXPECTED JSON OUTPUT FORMAT (output a valid JSON object matching this shape):",
           "{",
@@ -160,7 +161,7 @@ export const layer = Layer.effect(
           '  "task": {',
           '    "importance": 7,',
           '    "keywords": ["编程"],',
-          '    "content": "用户要求：fix auth bug；我完成了：patched middleware"',
+          '    "content": "用户要求修复认证缺陷，我完成了中间件修复"',
           "  },",
           '  "user": [',
           "    {",
@@ -1380,6 +1381,18 @@ export const layer = Layer.effect(
         const message = yield* createUserMessage(promptInput)
         yield* sessions.touch(input.sessionID)
 
+        if (promptInput.noReply !== true && memory) {
+          const updated = yield* memory
+            .updateStepBegin(input.sessionID, { userText: memoryUserText([message]) })
+            .pipe(
+              Effect.catchCause((cause) =>
+                elog.error("failed to update memory after user message", { cause }).pipe(Effect.as(undefined)),
+              ),
+            )
+          if (updated)
+            yield* elog.info("persistent memory updated after user message", { sessionID: input.sessionID, ...updated })
+        }
+
         const permissions: Permission.Rule[] = []
         for (const [t, enabled] of Object.entries(promptInput.tools ?? {})) {
           permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
@@ -1418,6 +1431,7 @@ export const layer = Layer.effect(
         const ctx = yield* InstanceState.context
         const slog = elog.with({ sessionID })
         let structured: unknown
+        let latestMemoryUserText = ""
         let step = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
         const clusterDispatchReminderKind = "agent_cluster_dispatch_reminder"
@@ -1564,6 +1578,7 @@ export const layer = Layer.effect(
           yield* slog.info("loop", { step })
 
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
+          latestMemoryUserText = memoryUserText(msgs) || latestMemoryUserText
 
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
@@ -1791,14 +1806,6 @@ export const layer = Layer.effect(
 
             if (step === 1) {
               yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
-              if (memory) {
-                yield* memory.updateStepBegin(sessionID).pipe(
-                  Effect.catchCause((cause) =>
-                    elog.error("failed to update step-begin memory", { cause }).pipe(Effect.as(undefined)),
-                  ),
-                  Effect.forkIn(scope),
-                )
-              }
             }
 
             if (step > 1 && lastFinished) {
@@ -1949,7 +1956,10 @@ export const layer = Layer.effect(
         const result = yield* lastAssistant(sessionID)
         if (memory) {
           const curated = yield* memory
-            .updateAfterTurn(sessionID, evaluateMemoryDecision)
+            .updateAfterTurn(sessionID, evaluateMemoryDecision, {
+              userText: latestMemoryUserText,
+              assistantText: latestRealAssistantText(result),
+            })
             .pipe(
               Effect.catchCause((cause) =>
                 elog.error("failed to update persistent memory", { cause }).pipe(Effect.as(undefined)),
@@ -2158,6 +2168,42 @@ function latestRealUserText(messages: MessageV2.WithParts[]) {
     .map((part) => part.text.trim())
     .filter(Boolean)
     .join("\n")
+}
+
+function memoryUserText(messages: MessageV2.WithParts[]) {
+  let selected: MessageV2.WithParts | undefined
+  for (const message of messages) {
+    if (message.info.role !== "user") continue
+    const hasRealPart = message.parts.some((part) => !(part.type === "text" && part.synthetic))
+    if (!hasRealPart) continue
+    if (!selected || message.info.id > selected.info.id) selected = message
+  }
+  if (!selected) return ""
+  const text = latestRealUserText([selected])
+  if (text) return text
+  const attachments = selected.parts.flatMap((part) => {
+    if (part.type === "file") return [`文件 ${part.filename ?? part.url}`]
+    if (part.type === "agent") return [`Agent ${part.name}`]
+    if (part.type === "subtask") return [`子任务 ${part.description || part.prompt}`]
+    return []
+  })
+  return attachments.length > 0 ? `提交了${attachments.join("、")}` : "提交了一条非文本消息"
+}
+
+function latestRealAssistantText(message: MessageV2.WithParts) {
+  if (message.info.role !== "assistant") return ""
+  const text = message.parts
+    .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic && !part.ignored)
+    .map((part) => part.text.trim())
+    .filter(Boolean)
+    .join("\n")
+  if (text) return text
+  if (message.info.structured === undefined) return ""
+  try {
+    return JSON.stringify(message.info.structured)
+  } catch {
+    return String(message.info.structured)
+  }
 }
 
 function memoryRetrievalQuery(input: string) {

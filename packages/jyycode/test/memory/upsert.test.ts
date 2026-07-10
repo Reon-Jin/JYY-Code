@@ -35,7 +35,9 @@ function fixture() {
           }),
         remove: (target) => Effect.sync(() => void files.delete(target)),
         writeWithDirs: (target, content) =>
-          Effect.sync(() => files.set(target, typeof content === "string" ? content : new TextDecoder().decode(content))),
+          Effect.sync(() =>
+            files.set(target, typeof content === "string" ? content : new TextDecoder().decode(content)),
+          ),
       })
     }),
   ).pipe(Layer.provide(AppFileSystem.defaultLayer))
@@ -62,19 +64,19 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["赛车游戏"],
-            content: "完成赛车游戏基础建模。",
+            content: "用户要求完成赛车游戏，我完成了赛车游戏基础建模。",
           })
           const updated = yield* memory.upsertTaskMemory({
             sessionID: firstSession,
             importance: 8,
             keywords: ["赛车游戏", "地图"],
-            content: "完成赛车建模并加入地图绘制。",
+            content: "用户要求完善赛车游戏，我完成了赛车建模并加入地图绘制。",
           })
           const second = yield* memory.upsertTaskMemory({
             sessionID: secondSession,
             importance: 4,
             keywords: ["文档"],
-            content: "完成部署文档。",
+            content: "用户要求编写部署文档，我完成了部署文档。",
           })
           return { created, updated, second }
         }),
@@ -90,7 +92,7 @@ describe("structured memory upserts", () => {
     expect(stored.find((entry) => entry.sessionID === firstSession)).toMatchObject({
       importance: 8,
       keywords: ["赛车游戏", "地图"],
-      content: "完成赛车建模并加入地图绘制。",
+      content: "用户要求完善赛车游戏，我完成了赛车建模并加入地图绘制。",
     })
     expect(stored[0]!.date).toMatch(/^\d{8}$/u)
   })
@@ -139,5 +141,22 @@ describe("structured memory upserts", () => {
       importance: 9,
       content: "用户长期偏好使用 TypeScript。",
     })
+  })
+
+  test("rejects task upserts that do not use the required content format", async () => {
+    const { run } = fixture()
+
+    await expect(
+      run(
+        Memory.Service.use((memory) =>
+          memory.upsertTaskMemory({
+            sessionID: firstSession,
+            importance: 5,
+            keywords: ["格式"],
+            content: "完成但没有记录用户要求。",
+          }),
+        ),
+      ),
+    ).rejects.toThrow('expected "用户要求...，我完成了..."')
   })
 })

@@ -184,7 +184,37 @@ const memorySearchLayer = Layer.succeed(
     compact: () => Effect.die("unexpected memory compact in retrieval middleware test"),
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
-    updateAfterTurn: () => Effect.void,
+    updateAfterTurn: () => Effect.succeed({ status: "updated", taskUpdated: true, userUpdated: 0 }),
+    updateStepBegin: () => Effect.succeed({ status: "updated", taskUpdated: true, userUpdated: 0 }),
+  }),
+)
+
+const memoryLifecycleUpdates: Array<{ sessionID: SessionID; phase: "received" | "before_final" }> = []
+const memoryLifecycleLayer = Layer.succeed(
+  Memory.Service,
+  Memory.Service.of({
+    dir: () => Effect.succeed(Memory.DIRECTORY),
+    ensure: () => Effect.void,
+    read: () => Effect.succeed(""),
+    search: () => Effect.succeed([]),
+    upsertTaskMemory: () => Effect.die("unexpected direct task memory upsert"),
+    upsertUserMemory: () => Effect.die("unexpected direct user memory upsert"),
+    write: () => Effect.die("unexpected direct memory write"),
+    replaceBySubstring: () => Effect.die("unexpected direct memory replace"),
+    removeBySubstring: () => Effect.die("unexpected direct memory remove"),
+    compact: () => Effect.die("unexpected direct memory compact"),
+    usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
+    formatWithHeader: () => Effect.succeed(""),
+    updateStepBegin: (sessionID) =>
+      Effect.sync(() => {
+        memoryLifecycleUpdates.push({ sessionID, phase: "received" })
+        return { status: "updated" as const, taskUpdated: true, userUpdated: 0 }
+      }),
+    updateAfterTurn: (sessionID) =>
+      Effect.sync(() => {
+        memoryLifecycleUpdates.push({ sessionID, phase: "before_final" })
+        return { status: "updated" as const, taskUpdated: true, userUpdated: 0 }
+      }),
   }),
 )
 
@@ -281,6 +311,7 @@ function makeHttpNoLLMServer(input?: { processor?: "blocking"; memory?: Layer.La
 
 const it = testEffect(makeHttp())
 const withMemory = testEffect(makeHttp({ memory: memorySearchLayer }))
+const withMemoryLifecycle = testEffect(makeHttp({ memory: memoryLifecycleLayer }))
 const noLLMServer = testEffect(makeHttpNoLLMServer())
 const raceNoLLMServer = testEffect(makeHttpNoLLMServer({ processor: "blocking" }))
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
@@ -588,6 +619,28 @@ withMemory.instance("loop injects automatic memory retrieval results into model 
     expect(payload).toContain("Relevant persistent memory was automatically retrieved from D:/jyycode/memory")
     expect(payload).toContain("content: 用户是金毅阳。")
     expect(payload).not.toContain("score=3")
+  }),
+)
+
+withMemoryLifecycle.instance("updates memory exactly after the user prompt and before returning the final answer", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Memory lifecycle" })
+    yield* llm.text("done")
+
+    const result = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "fix the memory lifecycle" }],
+    })
+
+    expect(result.info.role).toBe("assistant")
+    expect(memoryLifecycleUpdates.filter((entry) => entry.sessionID === chat.id).map((entry) => entry.phase)).toEqual([
+      "received",
+      "before_final",
+    ])
   }),
 )
 
