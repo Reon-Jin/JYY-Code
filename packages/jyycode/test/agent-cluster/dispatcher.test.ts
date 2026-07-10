@@ -27,6 +27,18 @@ describe("modelForComplexity", () => {
       }),
     ).toBe("deepseek-v4-pro")
   })
+
+  test("routes image-search tasks to the visual model", () => {
+    expect(
+      modelForComplexity({
+        complexity: "simple",
+        simpleModel: models.simpleModel,
+        complexModel: models.complexModel,
+        visualModel: "gemini/visual",
+        role: "picture_searcher",
+      }),
+    ).toBe("gemini/visual")
+  })
 })
 
 describe("SubagentDescriptions", () => {

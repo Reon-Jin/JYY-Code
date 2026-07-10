@@ -17,7 +17,7 @@ import { ulid } from "ulid"
 import { AgentClusterRunTable, AgentClusterEventTable, AgentClusterTaskTable } from "./cluster.sql"
 import { Event } from "./event"
 import { runInstructions } from "./planner"
-import { buildTaskBrief } from "./dispatcher"
+import { buildTaskBrief, modelForComplexity } from "./dispatcher"
 import { stepGate } from "./runtime"
 import type { Plan, PlannedTask, RunID, RunStatus, TaskID, TaskStatus } from "./schema"
 
@@ -328,12 +328,14 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   runID?: string
   requestedTaskID?: string
   prompt: string
+  config: ConfigAgentCluster.Info
 }) {
   if (!input.runID || !input.requestedTaskID) {
     return {
       prompt: input.prompt,
       taskID: undefined as TaskID | undefined,
       childSessionID: undefined as SessionID | undefined,
+      model: undefined as string | undefined,
     }
   }
   const runID = input.runID as RunID
@@ -377,6 +379,17 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   }
 
   const task = plannedTaskFromRow(target)
+  const config = ConfigAgentCluster.resolve(input.config)
+  const model =
+    task.model === "-"
+      ? modelForComplexity({
+          complexity: task.complexity,
+          role: task.role,
+          simpleModel: config.simple_model,
+          complexModel: config.complex_model,
+          visualModel: config.visual_model,
+        })
+      : task.model
   const tasks = rows.map(plannedTaskFromRow)
   const predecessors = rows
     .filter(
@@ -420,6 +433,7 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
     prompt,
     taskID: target.id,
     childSessionID: target.child_session_id ?? undefined,
+    model,
   }
 })
 

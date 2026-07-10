@@ -11,6 +11,11 @@ import { testEffect } from "../lib/effect"
 import type { RunID, TaskID } from "@/agent-cluster/schema"
 
 const it = testEffect(Session.defaultLayer)
+const dispatchConfig = {
+  simple_model: "test/simple",
+  complex_model: "test/complex",
+  visual_model: "test/visual",
+}
 
 /**
  * End-to-end tests exercising the full multi-agent cluster lifecycle
@@ -433,6 +438,7 @@ describe("Multi-agent E2E lifecycle", () => {
         runID,
         requestedTaskID: String(childID), // use the ses_... ID to resume
         prompt: "Add error handling as requested",
+        config: dispatchConfig,
       })
 
       // Should find the task via child_session_id match
@@ -535,7 +541,7 @@ describe("Multi-agent E2E lifecycle", () => {
             title: "Research",
             prompt: "Do research",
             complexity: "simple",
-            model: "test/simple",
+            model: "-",
             status: "planned",
             child_session_id: childID,
             acceptance_criteria: ["done"],
@@ -551,23 +557,58 @@ describe("Multi-agent E2E lifecycle", () => {
         runID,
         requestedTaskID: "my-task",
         prompt: "Do the research",
+        config: dispatchConfig,
       })
       expect(byPlanID.taskID).toBe("my-task" as TaskID)
       expect(byPlanID.prompt).toContain("Do the research")
+      expect(byPlanID.model).toBe("test/simple")
 
       // Lookup by child session ID (what the planner does for revisions)
       const byChildID = yield* AgentCluster.prepareTaskDispatch({
         runID,
         requestedTaskID: String(childID),
         prompt: "Do the research",
+        config: dispatchConfig,
       })
       expect(byChildID.taskID).toBe("my-task" as TaskID)
+      expect(byChildID.model).toBe("test/simple")
+
+      Database.use((db) =>
+        db
+          .update(AgentClusterTaskTable)
+          .set({ model: "test/explicit" })
+          .where(Database.eq(AgentClusterTaskTable.id, "my-task" as any))
+          .run(),
+      )
+      const explicitModel = yield* AgentCluster.prepareTaskDispatch({
+        runID,
+        requestedTaskID: "my-task",
+        prompt: "Do the research",
+        config: dispatchConfig,
+      })
+      expect(explicitModel.model).toBe("test/explicit")
+
+      Database.use((db) =>
+        db
+          .update(AgentClusterTaskTable)
+          .set({ model: "-", role: "picture_searcher" })
+          .where(Database.eq(AgentClusterTaskTable.id, "my-task" as any))
+          .run(),
+      )
+      const visualModel = yield* AgentCluster.prepareTaskDispatch({
+        runID,
+        requestedTaskID: "my-task",
+        prompt: "Find reference images",
+        config: dispatchConfig,
+      })
+      expect(visualModel.model).toBe("test/visual")
 
       // Unknown task ID should fail
       const unknownResult = yield* AgentCluster.prepareTaskDispatch({
         runID,
         requestedTaskID: "unknown-task",
         prompt: "Do something",
+        config: dispatchConfig,
       }).pipe(
         Effect.match({
           onSuccess: () => "success",
@@ -677,6 +718,7 @@ describe("Multi-agent E2E lifecycle", () => {
         runID,
         requestedTaskID: "depends-on-bad",
         prompt: "Analyze",
+        config: dispatchConfig,
       }).pipe(
         Effect.match({
           onSuccess: () => "success",
@@ -882,15 +924,15 @@ describe("Multi-agent E2E lifecycle", () => {
         db.update(AgentClusterTaskTable)
           .set({ status: "accepted", time_updated: Date.now() })
           .where(Database.and(
-            Database.eq(AgentClusterTaskTable.run_id, runID),
-            Database.eq(AgentClusterTaskTable.id, "research-market" as any),
+              Database.eq(AgentClusterTaskTable.run_id, runID),
+              Database.eq(AgentClusterTaskTable.id, "research-market" as any),
           ))
           .run()
         db.update(AgentClusterTaskTable)
           .set({ status: "accepted", time_updated: Date.now() })
           .where(Database.and(
-            Database.eq(AgentClusterTaskTable.run_id, runID),
-            Database.eq(AgentClusterTaskTable.id, "research-competitors" as any),
+              Database.eq(AgentClusterTaskTable.run_id, runID),
+              Database.eq(AgentClusterTaskTable.id, "research-competitors" as any),
           ))
           .run()
       })
@@ -933,8 +975,8 @@ describe("Multi-agent E2E lifecycle", () => {
         db.update(AgentClusterTaskTable)
           .set({ status: "accepted", time_updated: Date.now() })
           .where(Database.and(
-            Database.eq(AgentClusterTaskTable.run_id, runID),
-            Database.eq(AgentClusterTaskTable.id, "write-report" as any),
+              Database.eq(AgentClusterTaskTable.run_id, runID),
+              Database.eq(AgentClusterTaskTable.id, "write-report" as any),
           ))
           .run(),
       )

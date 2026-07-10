@@ -1031,7 +1031,7 @@ describe("tool.task", () => {
             title: "Research",
             prompt: "Find the bug",
             complexity: "simple",
-            model: "test/simple",
+            model: "test/test-model",
             status: "planned",
             acceptance_criteria: ["done"],
             artifact_paths: [],
@@ -1049,6 +1049,7 @@ describe("tool.task", () => {
           prompt: "look into the cache key path",
           subagent_type: "general",
           task_id: planTaskID,
+          model: "test/does-not-exist",
         },
         {
           sessionID: chat.id,
@@ -1081,6 +1082,7 @@ describe("tool.task", () => {
       )
       expect(row?.child_session_id).toBe(result.metadata.sessionId)
       expect(row?.status).toBe("running")
+      expect(result.metadata.model).toEqual(ref)
     }),
   )
 

@@ -48,6 +48,10 @@ describe("AgentCluster planner instructions", () => {
     expect(text).toContain("Do not stop after presenting the JSON plan")
     expect(text).toContain("visual_model: provider/visual")
     expect(text).toContain("PDF/PPT/DOCX layout")
+    expect(text).toContain("use provider/simple for simple tasks")
+    expect(text).toContain("use provider/complex for complex tasks")
+    expect(text).not.toContain("including simple and complex work")
+    expect(text).toContain('set "model" to "-" so the runtime applies this routing')
   })
 
   test("planner instructions require terminal task_status before final synthesis", () => {

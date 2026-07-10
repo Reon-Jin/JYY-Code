@@ -476,6 +476,7 @@ export const TaskTool = Tool.define(
           runID: clusterRunID,
           requestedTaskID: params.task_id,
           prompt: params.prompt,
+          config: cfg.agent_cluster ?? {},
         })
       // Captured after .pipe(Effect.exit); undefined when no dispatch was attempted.
       let clusterDispatch: Exit.Exit<any, any> | undefined = undefined
@@ -665,8 +666,9 @@ export const TaskTool = Tool.define(
           permission,
         }))
 
-      const model = params.model
-        ? yield* resolveModel(params.model)
+      const modelOverride = preparedDispatch?.model ?? params.model
+      const model = modelOverride
+        ? yield* resolveModel(modelOverride)
         : (next.model ?? {
             modelID: msg.info.modelID,
             providerID: msg.info.providerID,

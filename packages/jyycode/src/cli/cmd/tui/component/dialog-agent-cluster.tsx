@@ -44,14 +44,13 @@ export function DialogAgentCluster() {
   }
 
   function applyUpdate(role: string, providerID: string, modelID: string) {
-    const current = { ...clusterConfig() }
     const modelStr = `${providerID}/${modelID}`
-    const updated = { ...current, [role]: modelStr }
-    sdk.client.config
+    const updated = { [role]: modelStr }
+    sdk.client.global.config
       .update({ config: { agent_cluster: updated } })
       .then(() => {
         toast.show({
-          message: `${ROLE_LABELS[role]} → ${modelDisplay(modelStr)}`,
+          message: `${ROLE_LABELS[role]} → ${modelDisplay(modelStr)} (saved globally)`,
           variant: "success",
           duration: 3000,
         })

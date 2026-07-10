@@ -7,7 +7,9 @@ export function modelForComplexity(input: {
   visualModel?: string
   role?: TaskRole
 }) {
-  if (input.visualModel && (input.role === "chart" || input.role === "pdf")) return input.visualModel
+  if (input.visualModel && (input.role === "picture_searcher" || input.role === "chart" || input.role === "pdf")) {
+    return input.visualModel
+  }
   return input.complexity === "simple" ? input.simpleModel : input.complexModel
 }
 
