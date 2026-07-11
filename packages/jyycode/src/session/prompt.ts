@@ -8,7 +8,7 @@ import * as Session from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
-import { type Tool as AITool, tool, jsonSchema, generateText } from "ai"
+import { type Tool as AITool, tool, jsonSchema, generateText, Output } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
@@ -90,20 +90,25 @@ const MEMORY_RETRIEVAL_QUERY_MAX = 240
 const MEMORY_RETRIEVAL_TEXT_MAX = 1800
 const MEMORY_RETRIEVAL_KIND = "memory-retrieval"
 
-export function parseMemoryDecisionText(input: string): unknown {
-  const text = input.trim()
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/iu)?.[1]?.trim()
-  const start = text.indexOf("{")
-  const end = text.lastIndexOf("}")
-  const candidate = fenced || (start >= 0 && end > start ? text.slice(start, end + 1) : "")
-  if (!candidate) throw new Error("Semantic memory evaluator did not return a valid JSON object")
-  try {
-    const value: unknown = JSON.parse(candidate)
-    if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("not an object")
-    return value
-  } catch {
-    throw new Error("Semantic memory evaluator did not return a valid JSON object")
+export async function retryMemoryJsonOutput(
+  generate: (prompt: string) => Promise<unknown>,
+  prompt: string,
+): Promise<unknown> {
+  let lastError: unknown = new Error("DeepSeek JSON mode returned empty content")
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const attemptPrompt =
+      attempt === 0
+        ? prompt
+        : `${prompt}\n\nRETRY: The previous JSON-mode response was empty or invalid. Output exactly one complete JSON object and no other text.`
+    try {
+      const output = await generate(attemptPrompt)
+      if (output !== null && typeof output === "object" && !Array.isArray(output)) return output
+      lastError = new Error("DeepSeek JSON mode did not return a JSON object")
+    } catch (error) {
+      lastError = error
+    }
   }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
 const log = Log.create({ service: "session.prompt" })
@@ -212,18 +217,26 @@ export const layer = Layer.effect(
           "Current assistant output:",
           input.assistantText || "(not available in the user phase)",
         ].join("\n")
-        const result = yield* Effect.tryPromise({
+        return yield* Effect.tryPromise({
           try: () =>
-            generateText({
-              model: language,
+            retryMemoryJsonOutput(
+              async (attemptPrompt) =>
+                (
+                  await generateText({
+                    model: language,
+                    output: Output.json(),
+                    prompt: attemptPrompt,
+                    maxOutputTokens: 4096,
+                    temperature: 0,
+                    maxRetries: 0,
+                    providerOptions:
+                      model.providerID === "deepseek" ? { deepseek: { thinking: { type: "disabled" } } } : undefined,
+                  })
+                ).output,
               prompt,
-              maxOutputTokens: 800,
-              temperature: 0,
-              maxRetries: 0,
-            }),
+            ),
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         })
-        return parseMemoryDecisionText(result.text)
       })
     const toolDisclosureOverrides = new Map<SessionID, { readonly deferredTools?: boolean }>()
     const runtimeFlagsForSession = (sessionID: SessionID) => {

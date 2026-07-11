@@ -319,13 +319,18 @@ const raceNoLLMServer = testEffect(makeHttpNoLLMServer({ processor: "blocking" }
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
 const unixNoLLMServer = process.platform !== "win32" ? noLLMServer.instance : noLLMServer.instance.skip
 
-test("parses semantic memory JSON from plain and fenced model text", () => {
+test("retries an empty DeepSeek JSON-mode response with a corrected prompt", async () => {
   const expected = { shouldUpdate: true, reason: "ok", task: {}, user: [] }
-  expect(SessionPrompt.parseMemoryDecisionText(JSON.stringify(expected))).toEqual(expected)
-  expect(
-    SessionPrompt.parseMemoryDecisionText(`Here is the result:\n\`\`\`json\n${JSON.stringify(expected)}\n\`\`\``),
-  ).toEqual(expected)
-  expect(() => SessionPrompt.parseMemoryDecisionText("not json")).toThrow("valid JSON object")
+  const prompts: string[] = []
+  const result = await SessionPrompt.retryMemoryJsonOutput(async (prompt) => {
+    prompts.push(prompt)
+    if (prompts.length === 1) throw new Error("empty content")
+    return expected
+  }, "Return JSON")
+
+  expect(result).toEqual(expected)
+  expect(prompts).toHaveLength(2)
+  expect(prompts[1]).toContain("previous JSON-mode response was empty or invalid")
 })
 
 // Config that registers a custom "test" provider with a "test-model" model

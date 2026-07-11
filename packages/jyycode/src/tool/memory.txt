@@ -1,4 +1,4 @@
-Manage persistent structured memory with add, replace, remove, or compact actions. Only use MEMORY.json / USER.json — never create .md files in the memory directory.
+Manage persistent structured memory with add, replace, remove, or compact actions when the user explicitly requests memory management. Routine per-turn task memory is updated automatically; do not duplicate it with this tool. Only use MEMORY.json / USER.json — never create .md files in the memory directory.
 
 MEMORY.json (target="memory"): store durable project outcomes, conventions, environment facts, workflows, and lessons. One JSON entry is maintained per session, within a 10,000-character store limit.
 USER.json (target="user"): store explicit, stable user identity facts and reusable preferences. JSON entries are upserted by normalized keywords, within a 2,000-character store limit.
