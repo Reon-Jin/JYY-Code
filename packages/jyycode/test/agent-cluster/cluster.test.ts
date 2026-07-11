@@ -970,3 +970,33 @@ describe("AgentClusterRuntime.normalizePlan nested steps", () => {
     expect(plan?.tasks[0]?.prompt).toBe("Write a test")
   })
 })
+
+describe("AgentClusterRuntime.extractPlanFromText", () => {
+  test("repairs unescaped quotes inside an LLM-generated task prompt", () => {
+    const plan = AgentClusterRuntime.extractPlanFromText(`
+\`\`\`json
+{
+  "goal": "Build an FPS HUD",
+  "tasks": [
+    {
+      "id": "task-hud",
+      "step": 1,
+      "title": "Implement HUD",
+      "role": "coder",
+      "complexity": "simple",
+      "model": "-",
+      "dependencies": [],
+      "prompt": "Show a "+100" floating label and a "WAVE 3" banner",
+      "acceptanceCriteria": ["Both labels are visible"],
+      "expectedArtifacts": ["js/ui.js"]
+    }
+  ]
+}
+\`\`\`
+`)
+
+    expect(plan?.tasks).toHaveLength(1)
+    expect(plan?.tasks[0]?.id).toBe(AgentClusterRuntime.coerceTaskID("task-hud"))
+    expect(plan?.tasks[0]?.prompt).toBe('Show a "+100" floating label and a "WAVE 3" banner')
+  })
+})

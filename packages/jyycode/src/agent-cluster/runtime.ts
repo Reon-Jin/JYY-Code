@@ -189,14 +189,64 @@ function stripTrailingCommas(json: string): string {
   return json.replace(/,(\s*[}\]])/g, "$1")
 }
 
+// LLM-generated plans occasionally contain quoted UI copy inside a JSON
+// string without escaping it, for example: `"prompt": "show "+100""`.
+// A quote can close a JSON string only when the next non-whitespace character
+// is a structural delimiter. Escape other quotes so the complete plan can
+// still pass through the normal schema validation below.
+function repairUnescapedStringQuotes(json: string): string {
+  let result = ""
+  let inString = false
+  let escaped = false
+
+  for (let index = 0; index < json.length; index++) {
+    const char = json[index]!
+    if (!inString) {
+      result += char
+      if (char === '"') inString = true
+      continue
+    }
+    if (escaped) {
+      result += char
+      escaped = false
+      continue
+    }
+    if (char === "\\") {
+      result += char
+      escaped = true
+      continue
+    }
+    if (char !== '"') {
+      result += char
+      continue
+    }
+
+    let next = index + 1
+    while (next < json.length && /\s/.test(json[next]!)) next++
+    if (next >= json.length || [":", ",", "}", "]"].includes(json[next]!)) {
+      result += char
+      inString = false
+      continue
+    }
+    result += '\\"'
+  }
+
+  return result
+}
+
 function tryJsonParse(text: string): unknown | undefined {
   try {
     return JSON.parse(text)
   } catch {
+    const withoutTrailingCommas = stripTrailingCommas(text)
     try {
-      return JSON.parse(stripTrailingCommas(text))
+      return JSON.parse(withoutTrailingCommas)
     } catch {
-      return undefined
+      try {
+        return JSON.parse(repairUnescapedStringQuotes(withoutTrailingCommas))
+      } catch {
+        return undefined
+      }
     }
   }
 }
