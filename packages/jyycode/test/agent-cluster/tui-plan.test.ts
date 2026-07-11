@@ -618,6 +618,89 @@ describe("agent cluster TUI plan parsing", () => {
   })
 
   describe("Bug fixes", () => {
+    test("keeps task rows in sync with live running status", () => {
+      const parent = "ses_parent"
+      const assistant = "msg_assistant"
+      const messagesBySession: Record<string, Message[]> = {
+        [parent]: [
+          {
+            id: assistant,
+            parentID: "msg_user",
+            sessionID: parent,
+            role: "assistant",
+            mode: "cluster",
+            agent: "cluster",
+            path: { cwd: ".", root: "." },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: "test",
+            providerID: "test",
+            time: { created: 1 },
+          },
+        ],
+      }
+      const partsByMessage: Record<string, Part[]> = {
+        [assistant]: [
+          {
+            id: "part_task",
+            sessionID: parent,
+            messageID: assistant,
+            type: "tool",
+            callID: "call_task",
+            tool: "task",
+            state: {
+              status: "completed",
+              title: "Create report",
+              input: {
+                task_id: "write",
+                description: "Create report",
+                prompt: "Create report",
+                subagent_type: "writer",
+              },
+              metadata: {
+                sessionId: "ses_child",
+                background: true,
+              },
+              output: "task_id: ses_child\nstate: running",
+              time: { start: 1, end: 2 },
+            },
+          },
+        ],
+      }
+
+      const snapshot = agentClusterSnapshot({
+        sessionID: parent,
+        enabled: true,
+        disabled: false,
+        cluster: {
+          runs: [{ id: "run_1", status: "dispatching", goal: "Build report" }],
+          tasks: [
+            {
+              id: "write",
+              run_id: "run_1",
+              child_session_id: null,
+              title: "Create report",
+              role: "writer",
+              model: "test",
+              step: 2,
+              status: "planned",
+              dependencies: [],
+              acceptance_criteria: [],
+              artifact_paths: [],
+            },
+          ],
+        },
+        messages: (sessionID) => messagesBySession[sessionID] ?? [],
+        parts: (messageID) => partsByMessage[messageID] ?? [],
+        sessionStatus: () => ({ type: "busy" }),
+      })
+
+      expect(snapshot.runningAgents).toBe(1)
+      expect(snapshot.steps[0]?.status).toBe("running")
+      expect(snapshot.rows[0]?.status).toBe("running")
+      expect(snapshot.rows[0]?.sessionID).toBe("ses_child")
+    })
+
     test("does not reuse an exact step-1 task for a later role fallback", () => {
       const parent = "ses_parent"
       const assistant = "msg_assistant"
