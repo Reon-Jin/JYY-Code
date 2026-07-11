@@ -8,7 +8,7 @@ import * as Session from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
-import { type Tool as AITool, tool, jsonSchema, generateText, Output } from "ai"
+import { type Tool as AITool, tool, jsonSchema, generateText } from "ai"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import { SessionCompaction } from "./compaction"
 import { Bus } from "../bus"
@@ -89,6 +89,22 @@ const MEMORY_RETRIEVAL_LIMIT = 5
 const MEMORY_RETRIEVAL_QUERY_MAX = 240
 const MEMORY_RETRIEVAL_TEXT_MAX = 1800
 const MEMORY_RETRIEVAL_KIND = "memory-retrieval"
+
+export function parseMemoryDecisionText(input: string): unknown {
+  const text = input.trim()
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/iu)?.[1]?.trim()
+  const start = text.indexOf("{")
+  const end = text.lastIndexOf("}")
+  const candidate = fenced || (start >= 0 && end > start ? text.slice(start, end + 1) : "")
+  if (!candidate) throw new Error("Semantic memory evaluator did not return a valid JSON object")
+  try {
+    const value: unknown = JSON.parse(candidate)
+    if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("not an object")
+    return value
+  } catch {
+    throw new Error("Semantic memory evaluator did not return a valid JSON object")
+  }
+}
 
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
@@ -199,9 +215,6 @@ export const layer = Layer.effect(
           try: () =>
             generateText({
               model: language,
-              output: Output.object({
-                schema: jsonSchema<Memory.MemoryDecision>(Memory.MemoryDecisionJsonSchema as unknown as JSONSchema7),
-              }),
               prompt,
               maxOutputTokens: 800,
               temperature: 0,
@@ -209,7 +222,7 @@ export const layer = Layer.effect(
             }),
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         })
-        return result.output
+        return parseMemoryDecisionText(result.text)
       })
     const toolDisclosureOverrides = new Map<SessionID, { readonly deferredTools?: boolean }>()
     const runtimeFlagsForSession = (sessionID: SessionID) => {
@@ -1398,13 +1411,6 @@ export const layer = Layer.effect(
         const message = yield* createUserMessage(promptInput)
         yield* sessions.touch(input.sessionID)
 
-        if (promptInput.noReply !== true && memory) {
-          const updated = yield* memory
-            .updateStepBegin(input.sessionID, evaluateMemoryDecision, { userText: memoryUserText([message]) })
-            .pipe(Effect.orDie)
-          yield* elog.info("persistent memory updated after user message", { sessionID: input.sessionID, ...updated })
-        }
-
         const permissions: Permission.Rule[] = []
         for (const [t, enabled] of Object.entries(promptInput.tools ?? {})) {
           permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
@@ -1595,6 +1601,13 @@ export const layer = Layer.effect(
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+
+          if (step === 0 && memory && (!lastAssistant || lastUser.id > lastAssistant.id)) {
+            const updated = yield* memory
+              .updateStepBegin(sessionID, evaluateMemoryDecision, { userText: latestMemoryUserText })
+              .pipe(Effect.orDie)
+            yield* slog.info("persistent memory updated after user message", { ...updated })
+          }
 
           const lastAssistantMsg = msgs.findLast(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,

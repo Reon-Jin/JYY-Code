@@ -1,6 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { FetchHttpClient } from "effect/unstable/http"
-import { expect } from "bun:test"
+import { expect, test } from "bun:test"
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
 import path from "path"
 import { fileURLToPath, pathToFileURL } from "url"
@@ -190,6 +190,7 @@ const memorySearchLayer = Layer.succeed(
 )
 
 const memoryLifecycleUpdates: Array<{ sessionID: SessionID; phase: "received" | "before_final" }> = []
+let memoryStepBeginGate: Deferred.Deferred<void> | undefined
 const memoryLifecycleLayer = Layer.succeed(
   Memory.Service,
   Memory.Service.of({
@@ -206,8 +207,9 @@ const memoryLifecycleLayer = Layer.succeed(
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
     updateStepBegin: (sessionID) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         memoryLifecycleUpdates.push({ sessionID, phase: "received" })
+        if (memoryStepBeginGate) yield* Deferred.await(memoryStepBeginGate)
         return { status: "updated" as const, taskUpdated: true, userUpdated: 0 }
       }),
     updateAfterTurn: (sessionID) =>
@@ -316,6 +318,15 @@ const noLLMServer = testEffect(makeHttpNoLLMServer())
 const raceNoLLMServer = testEffect(makeHttpNoLLMServer({ processor: "blocking" }))
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
 const unixNoLLMServer = process.platform !== "win32" ? noLLMServer.instance : noLLMServer.instance.skip
+
+test("parses semantic memory JSON from plain and fenced model text", () => {
+  const expected = { shouldUpdate: true, reason: "ok", task: {}, user: [] }
+  expect(SessionPrompt.parseMemoryDecisionText(JSON.stringify(expected))).toEqual(expected)
+  expect(
+    SessionPrompt.parseMemoryDecisionText(`Here is the result:\n\`\`\`json\n${JSON.stringify(expected)}\n\`\`\``),
+  ).toEqual(expected)
+  expect(() => SessionPrompt.parseMemoryDecisionText("not json")).toThrow("valid JSON object")
+})
 
 // Config that registers a custom "test" provider with a "test-model" model
 // so provider model lookup succeeds inside the loop.
@@ -622,26 +633,46 @@ withMemory.instance("loop injects automatic memory retrieval results into model 
   }),
 )
 
-withMemoryLifecycle.instance("updates memory exactly after the user prompt and before returning the final answer", () =>
+withMemoryLifecycle.instance("updates memory while busy and before returning the final answer", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
+    const status = yield* SessionStatus.Service
     const chat = yield* sessions.create({ title: "Memory lifecycle" })
+    memoryLifecycleUpdates.splice(0)
+    const gate = yield* Deferred.make<void>()
+    memoryStepBeginGate = gate
     yield* llm.text("done")
 
-    const result = yield* prompt.prompt({
-      sessionID: chat.id,
-      agent: "build",
-      parts: [{ type: "text", text: "fix the memory lifecycle" }],
-    })
+    const fiber = yield* prompt
+      .prompt({
+        sessionID: chat.id,
+        agent: "build",
+        parts: [{ type: "text", text: "fix the memory lifecycle" }],
+      })
+      .pipe(Effect.forkChild)
+    yield* pollWithTimeout(
+      Effect.sync(() =>
+        memoryLifecycleUpdates.some((entry) => entry.sessionID === chat.id && entry.phase === "received")
+          ? true
+          : undefined,
+      ),
+      "memory input-phase update did not start",
+    )
+    expect((yield* status.get(chat.id)).type).toBe("busy")
+    yield* Deferred.succeed(gate, void 0)
+    const exit = yield* Fiber.await(fiber)
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (!Exit.isSuccess(exit)) return
+    const result = exit.value
 
     expect(result.info.role).toBe("assistant")
     expect(memoryLifecycleUpdates.filter((entry) => entry.sessionID === chat.id).map((entry) => entry.phase)).toEqual([
       "received",
       "before_final",
     ])
-  }),
+  }).pipe(Effect.ensuring(Effect.sync(() => void (memoryStepBeginGate = undefined)))),
 )
 
 noLLMServer.instance(
