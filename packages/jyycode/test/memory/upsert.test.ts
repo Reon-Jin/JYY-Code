@@ -157,6 +157,58 @@ describe("structured memory upserts", () => {
           }),
         ),
       ),
-    ).rejects.toThrow('expected "用户要求...，我完成了..."')
+    ).rejects.toThrow('expected "用户要求..." or "用户要求...，我完成了..."')
+  })
+
+  test("limits both semantic task sections to 30 characters", async () => {
+    const { run } = fixture()
+    const thirty = "甲".repeat(30)
+    const thirtyOne = "甲".repeat(31)
+
+    const accepted = await run(
+      Memory.Service.use((memory) =>
+        Effect.all([
+          memory.upsertTaskMemory({
+            sessionID: firstSession,
+            importance: 5,
+            keywords: ["边界"],
+            content: `用户要求${thirty}`,
+          }),
+          memory.upsertTaskMemory({
+            sessionID: secondSession,
+            importance: 5,
+            keywords: ["边界"],
+            content: `用户要求${thirty}，我完成了${thirty}`,
+          }),
+        ]),
+      ),
+    )
+    expect(accepted.map((result) => result.status)).toEqual(["written", "written"])
+
+    await expect(
+      run(
+        Memory.Service.use((memory) =>
+          memory.upsertTaskMemory({
+            sessionID: firstSession,
+            importance: 5,
+            keywords: ["边界"],
+            content: `用户要求${thirtyOne}`,
+          }),
+        ),
+      ),
+    ).rejects.toThrow("用户要求 must not exceed 30 characters")
+
+    await expect(
+      run(
+        Memory.Service.use((memory) =>
+          memory.upsertTaskMemory({
+            sessionID: secondSession,
+            importance: 5,
+            keywords: ["边界"],
+            content: `用户要求${thirty}，我完成了${thirtyOne}`,
+          }),
+        ),
+      ),
+    ).rejects.toThrow("我完成了 must not exceed 30 characters")
   })
 })

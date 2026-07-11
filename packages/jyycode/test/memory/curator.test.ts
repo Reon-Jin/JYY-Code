@@ -37,7 +37,7 @@ function messages(userText: string, assistantText: string, suffix = "1", id = se
 function decision(content: string, user: Memory.MemoryDecision["user"] = []): Memory.MemoryDecision {
   return {
     shouldUpdate: true,
-    reason: "durable result",
+    reason: "semantic compression",
     task: { importance: 7, keywords: ["赛车游戏"], content },
     user,
   }
@@ -94,197 +94,255 @@ function fixture(input?: { parentID?: SessionID; multiAgent?: boolean }) {
   }
 }
 
-describe("post-turn memory curator", () => {
-  test("writes a provisional task memory immediately after receiving a user prompt", async () => {
+describe("two-phase semantic memory curator", () => {
+  test("uses the LLM to store a semantic user summary immediately after a prompt", async () => {
     const ctx = fixture()
-    ctx.setMessages(messages("请完成赛车游戏", "已完成赛车游戏基础建模。"))
+    const longPrompt = `${"背景信息。".repeat(80)}最终要求是完成赛车游戏的碰撞系统。`
+    ctx.setMessages(messages(longPrompt, ""))
+    let received: Memory.DecisionInput | undefined
 
-    const result = await ctx.run(Memory.Service.use((memory) => memory.updateStepBegin(sessionID)))
-
-    expect(result).toEqual({ status: "updated", taskUpdated: true, userUpdated: 0 })
-    const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries as Memory.TaskMemoryEntry[]
-    expect(entries).toHaveLength(1)
-    expect(entries[0]?.sessionID).toBe(sessionID)
-    expect(entries[0]?.content).toMatch(/^用户要求.+，我完成了.+$/u)
-  })
-
-  test("replaces the provisional entry before the final answer and keeps one entry per session", async () => {
-    const ctx = fixture()
-    ctx.setMessages(messages("请完成赛车游戏", "已完成赛车游戏基础建模。"))
-    await ctx.run(Memory.Service.use((memory) => memory.updateStepBegin(sessionID)))
     const result = await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("完成基础建模。"))),
+        memory.updateStepBegin(sessionID, (input) => {
+          received = input
+          return Effect.succeed(decision("用户要求完成赛车游戏的碰撞系统"))
+        }),
+      ),
+    )
+
+    expect(result).toEqual({ status: "updated", taskUpdated: true, userUpdated: 0 })
+    expect(received).toMatchObject({
+      phase: "user",
+      previousTaskContent: undefined,
+      userText: longPrompt,
+      assistantText: "",
+    })
+    const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries as Memory.TaskMemoryEntry[]
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({ sessionID, content: "用户要求完成赛车游戏的碰撞系统" })
+    expect(entries[0]?.content).not.toContain("...")
+  })
+
+  test("asks the LLM to correct a business-validation error before blocking the turn", async () => {
+    const ctx = fixture()
+    ctx.setMessages(messages("创建三步子Agent任务", ""))
+    const corrections: Array<string | undefined> = []
+
+    const result = await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateStepBegin(sessionID, (input) => {
+          corrections.push(input.correction)
+          if (corrections.length === 1) {
+            return Effect.succeed({
+              ...decision("用户要求创建三步子Agent任务"),
+              task: { importance: 7, keywords: ["子agent"], content: "用户要求创建三步子Agent任务" },
+            })
+          }
+          return Effect.succeed(decision("用户要求创建三步子Agent任务"))
+        }),
       ),
     )
 
     expect(result).toMatchObject({ status: "updated", taskUpdated: true })
-    const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries as Memory.TaskMemoryEntry[]
-    expect(entries).toHaveLength(1)
-    expect(entries[0]).toMatchObject({ sessionID })
-    expect(entries[0]?.content).toBe("用户要求请完成赛车游戏，我完成了基础建模。")
+    expect(corrections).toHaveLength(2)
+    expect(corrections[0]).toBeUndefined()
+    expect(corrections[1]).toContain('keyword "子agent"')
+    const [entry] = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
+    expect(entry?.content).toBe("用户要求创建三步子Agent任务")
   })
 
-  test("uses turn text supplied by the prompt boundary without waiting for message projections", async () => {
+  test("adds the semantic completion before returning the final answer and keeps one session entry", async () => {
+    const ctx = fixture()
+    ctx.setMessages(messages("请完成赛车游戏", "已完成赛车游戏基础建模。"))
+    await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求完成赛车游戏"))),
+      ),
+    )
+    let received: Memory.DecisionInput | undefined
+    const result = await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateAfterTurn(sessionID, (input) => {
+          received = input
+          return Effect.succeed(decision("用户要求完成赛车游戏，我完成了基础建模"))
+        }),
+      ),
+    )
+
+    expect(result).toMatchObject({ status: "updated", taskUpdated: true })
+    expect(received).toMatchObject({
+      phase: "assistant",
+      previousTaskContent: "用户要求完成赛车游戏",
+      userText: "请完成赛车游戏",
+      assistantText: "已完成赛车游戏基础建模。",
+    })
+    const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries as Memory.TaskMemoryEntry[]
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.content).toBe("用户要求完成赛车游戏，我完成了基础建模")
+  })
+
+  test("cumulatively recompresses prompt1 and prompt2 into the same entry", async () => {
+    const ctx = fixture()
+    ctx.setMessages(messages("请完成赛车游戏", "已完成基础建模。", "1"))
+    await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求完成赛车游戏"))),
+      ),
+    )
+    await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("用户要求完成赛车游戏，我完成了基础建模"))),
+      ),
+    )
+
+    ctx.setMessages(messages("继续优化碰撞性能", "已完成碰撞性能优化。", "2"))
+    let secondPromptInput: Memory.DecisionInput | undefined
+    await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateStepBegin(sessionID, (input) => {
+          secondPromptInput = input
+          return Effect.succeed(decision("用户要求完成赛车游戏并继续优化碰撞性能"))
+        }),
+      ),
+    )
+    expect(secondPromptInput).toMatchObject({
+      phase: "user",
+      previousTaskContent: "用户要求完成赛车游戏，我完成了基础建模",
+      userText: "继续优化碰撞性能",
+    })
+    let secondAnswerInput: Memory.DecisionInput | undefined
+    await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateAfterTurn(sessionID, (input) => {
+          secondAnswerInput = input
+          return Effect.succeed(decision("用户要求完成赛车游戏并继续优化碰撞性能，我完成了基础建模和碰撞性能优化"))
+        }),
+      ),
+    )
+
+    expect(secondAnswerInput).toMatchObject({
+      phase: "assistant",
+      previousTaskContent: "用户要求完成赛车游戏并继续优化碰撞性能",
+      userText: "继续优化碰撞性能",
+      assistantText: "已完成碰撞性能优化。",
+    })
+    const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.content).toBe("用户要求完成赛车游戏并继续优化碰撞性能，我完成了基础建模和碰撞性能优化")
+  })
+
+  test("uses supplied turn text before message projections are available", async () => {
     const ctx = fixture()
     ctx.setMessages([])
 
-    const received = await ctx.run(
-      Memory.Service.use((memory) => memory.updateStepBegin(sessionID, { userText: "修复记忆写入" })),
-    )
-    const completed = await ctx.run(
+    await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("修复并验证写入。")), {
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求修复记忆写入")), {
           userText: "修复记忆写入",
-          assistantText: "已修复并通过测试。",
         }),
       ),
     )
+    await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateAfterTurn(
+          sessionID,
+          () => Effect.succeed(decision("用户要求修复记忆写入，我完成了修复并验证写入")),
+          { userText: "修复记忆写入", assistantText: "已修复并通过测试。" },
+        ),
+      ),
+    )
 
-    expect(received).toMatchObject({ status: "updated", taskUpdated: true })
-    expect(completed).toMatchObject({ status: "updated", taskUpdated: true })
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
     expect(entries).toHaveLength(1)
-    expect(entries[0]?.content).toBe("用户要求修复记忆写入，我完成了修复并验证写入。")
+    expect(entries[0]?.content).toBe("用户要求修复记忆写入，我完成了修复并验证写入")
   })
 
-  test("uses a minimal fallback when the first evaluator call fails", async () => {
+  test("fails mandatory writes when the evaluator fails or returns invalid content", async () => {
     const ctx = fixture()
     ctx.setMessages(messages("请生成部署报告", "已生成部署报告并通过检查。"))
-    const result = await ctx.run(
+
+    await expect(
+      ctx.run(
+        Memory.Service.use((memory) =>
+          memory.updateStepBegin(sessionID, () => Effect.fail(new Error("model unavailable"))),
+        ),
+      ),
+    ).rejects.toThrow("model unavailable")
+    expect(Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries).toEqual([])
+
+    await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateAfterTurn(sessionID, () => Effect.fail(new Error("model unavailable"))),
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求生成部署报告"))),
       ),
     )
-
-    expect(result).toMatchObject({ status: "updated", taskUpdated: true })
+    await expect(
+      ctx.run(
+        Memory.Service.use((memory) =>
+          memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("用户要求生成部署报告"))),
+        ),
+      ),
+    ).rejects.toThrow('expected "用户要求...，我完成了..."')
     const [entry] = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
-    expect(entry?.content).toContain("部署报告")
+    expect(entry?.content).toBe("用户要求生成部署报告")
   })
 
-  test("applies a later true decision as a session upsert", async () => {
-    const ctx = fixture()
-    ctx.setMessages(messages("请完成赛车游戏", "已完成基础建模。", "1"))
-    await ctx.run(
-      Memory.Service.use((memory) =>
-        memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("完成基础建模。"))),
-      ),
-    )
-    ctx.setMessages(messages("继续优化", "已完成碰撞性能优化。", "2"))
-    await ctx.run(
-      Memory.Service.use((memory) =>
-        memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("完成碰撞性能优化。"))),
-      ),
-    )
-
-    const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
-    expect(entries).toHaveLength(1)
-    expect(entries[0]?.content).toBe("用户要求继续优化，我完成了碰撞性能优化。")
-  })
-
-  test("always writes task memory for every turn even when LLM says skip", async () => {
-    const ctx = fixture()
-    ctx.setMessages(messages("请完成赛车游戏", "已完成基础建模。", "1"))
-    await ctx.run(
-      Memory.Service.use((memory) =>
-        memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("完成基础建模。"))),
-      ),
-    )
-    const before = { memory: ctx.files.get(ctx.memoryPath), user: ctx.files.get(ctx.userPath) }
-    ctx.setMessages(messages("你好", "你好。", "2"))
-    const result = await ctx.run(
-      Memory.Service.use((memory) =>
-        memory.updateAfterTurn(sessionID, () =>
-          Effect.succeed({ shouldUpdate: false, reason: "greeting", user: [] } satisfies Memory.MemoryDecision),
-        ),
-      ),
-    )
-
-    // Every turn triggers a write via fallback, even when LLM says shouldUpdate=false.
-    expect(result).toMatchObject({ status: "updated", taskUpdated: true })
-    // Store is overwritten by fallback content.
-    expect(ctx.files.get(ctx.memoryPath)).not.toBe(before.memory)
-  })
-
-  test("falls back to deterministic write when LLM returns an invalid decision", async () => {
-    const ctx = fixture()
-    ctx.setMessages(messages("请完成赛车游戏", "已完成基础建模。", "1"))
-    await ctx.run(
-      Memory.Service.use((memory) =>
-        memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("完成基础建模。"))),
-      ),
-    )
-    const before = { memory: ctx.files.get(ctx.memoryPath), user: ctx.files.get(ctx.userPath) }
-    ctx.setMessages(messages("继续", "已继续。", "2"))
-    const result = await ctx.run(
-      Memory.Service.use((memory) =>
-        memory.updateAfterTurn(sessionID, () =>
-          Effect.succeed({ shouldUpdate: true, reason: "invalid", task: { importance: 99 }, user: [] }),
-        ),
-      ),
-    )
-
-    // Invalid LLM output now triggers fallback write instead of skipping.
-    expect(result).toMatchObject({ status: "updated", taskUpdated: true })
-    // Store was overwritten by fallback content (not left untouched).
-    expect(ctx.files.get(ctx.memoryPath)).not.toBe(before.memory)
-  })
-
-  test("routes user information to USER only in both update phases", async () => {
+  test("stores stable user facts without omitting the required task entry", async () => {
     const ctx = fixture()
     ctx.setMessages(messages("我叫金毅阳", "已记录。"))
-    const received = await ctx.run(Memory.Service.use((memory) => memory.updateStepBegin(sessionID)))
-
-    expect(received).toEqual({ status: "updated", taskUpdated: false, userUpdated: 1 })
-    expect(Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries).toEqual([])
-    const userAfterReceived = ctx.files.get(ctx.userPath)
+    const userFact = { importance: 10 as const, keywords: ["姓名"], content: "用户姓名为金毅阳。" }
 
     await ctx.run(
       Memory.Service.use((memory) =>
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求记住其姓名为金毅阳", [userFact]))),
+      ),
+    )
+    await ctx.run(
+      Memory.Service.use((memory) =>
         memory.updateAfterTurn(sessionID, () =>
-          Effect.succeed(
-            decision("记录用户身份偏好。", [{ importance: 10, keywords: ["姓名"], content: "用户姓名为金毅阳。" }]),
-          ),
+          Effect.succeed(decision("用户要求记住其姓名为金毅阳，我完成了记录", [userFact])),
         ),
       ),
     )
 
-    expect(Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries).toEqual([])
-    expect(ctx.files.get(ctx.userPath)).not.toBe(userAfterReceived)
-    expect(Memory.parseStore("user", ctx.files.get(ctx.userPath)!).entries).toEqual([
-      { scope: "user", importance: 10, keywords: ["姓名"], content: "用户姓名为金毅阳。" },
-    ])
+    expect(Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries).toHaveLength(1)
+    expect(Memory.parseStore("user", ctx.files.get(ctx.userPath)!).entries).toEqual([{ scope: "user", ...userFact }])
   })
 
-  test("skips subagent sessions without invoking the evaluator", async () => {
+  test("skips subagent sessions without invoking either evaluator", async () => {
     const childID = SessionID.make("ses_curator_child")
     const ctx = fixture({ parentID: sessionID })
     ctx.setMessages(messages("完成报告", "已完成报告章节。", "child", childID))
-    let called = false
+    let calls = 0
+    const evaluator: Memory.DecisionEvaluator = () => {
+      calls++
+      return Effect.succeed(decision("用户要求不应写入，我完成了不应写入"))
+    }
     const before = { memory: ctx.files.get(ctx.memoryPath), user: ctx.files.get(ctx.userPath) }
-    const result = await ctx.run(
-      Memory.Service.use((memory) =>
-        memory.updateAfterTurn(childID, () => {
-          called = true
-          return Effect.succeed(decision("不应写入。"))
-        }),
-      ),
-    )
 
-    expect(result).toEqual({ status: "skipped", reason: "subagent" })
-    expect(called).toBe(false)
+    const received = await ctx.run(Memory.Service.use((memory) => memory.updateStepBegin(childID, evaluator)))
+    const completed = await ctx.run(Memory.Service.use((memory) => memory.updateAfterTurn(childID, evaluator)))
+
+    expect(received).toEqual({ status: "skipped", reason: "subagent" })
+    expect(completed).toEqual({ status: "skipped", reason: "subagent" })
+    expect(calls).toBe(0)
     expect(ctx.files.get(ctx.memoryPath)).toBe(before.memory)
     expect(ctx.files.get(ctx.userPath)).toBe(before.user)
   })
 
-  test("allows a multi-agent root session to perform both automatic updates", async () => {
+  test("allows the multi-agent Planner root to perform both mandatory updates", async () => {
     const ctx = fixture({ multiAgent: true })
     ctx.setMessages(messages("修复记忆系统", "已修复并通过测试。", "multi-root"))
 
-    const received = await ctx.run(Memory.Service.use((memory) => memory.updateStepBegin(sessionID)))
+    const received = await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求修复记忆系统"))),
+      ),
+    )
     const completed = await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("修复并验证记忆系统。"))),
+        memory.updateAfterTurn(sessionID, () =>
+          Effect.succeed(decision("用户要求修复记忆系统，我完成了修复并验证记忆系统")),
+        ),
       ),
     )
 
@@ -292,19 +350,6 @@ describe("post-turn memory curator", () => {
     expect(completed).toMatchObject({ status: "updated", taskUpdated: true })
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
     expect(entries).toHaveLength(1)
-    expect(entries[0]?.content).toBe("用户要求修复记忆系统，我完成了修复并验证记忆系统。")
-  })
-
-  test("skips subagent input-phase updates without mutating either store", async () => {
-    const childID = SessionID.make("ses_curator_child_input")
-    const ctx = fixture({ parentID: sessionID })
-    ctx.setMessages(messages("完成报告", "", "child-input", childID))
-    const before = { memory: ctx.files.get(ctx.memoryPath), user: ctx.files.get(ctx.userPath) }
-
-    const result = await ctx.run(Memory.Service.use((memory) => memory.updateStepBegin(childID)))
-
-    expect(result).toEqual({ status: "skipped", reason: "subagent" })
-    expect(ctx.files.get(ctx.memoryPath)).toBe(before.memory)
-    expect(ctx.files.get(ctx.userPath)).toBe(before.user)
+    expect(entries[0]?.content).toBe("用户要求修复记忆系统，我完成了修复并验证记忆系统")
   })
 })

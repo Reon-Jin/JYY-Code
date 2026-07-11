@@ -577,6 +577,25 @@ function clusterTaskRuns(cluster: AgentClusterRowState | undefined): AgentCluste
   }))
 }
 
+function reconcileTaskRuns(
+  rows: AgentClusterTaskRun[],
+  plan: AgentClusterPlan | undefined,
+  liveRows: AgentClusterTaskRun[],
+) {
+  const statusByID = new Map(plan?.tasks.map((task) => [task.id, task.status]))
+  const liveByID = new Map(liveRows.flatMap((row) => (row.id ? [[row.id, row] as const] : [])))
+  const liveByTitle = new Map(liveRows.map((row) => [normalizeKey(row.task), row]))
+
+  return rows.map((row) => {
+    const live = (row.id ? liveByID.get(row.id) : undefined) ?? liveByTitle.get(normalizeKey(row.task))
+    return {
+      ...row,
+      status: (row.id ? statusByID.get(row.id) : undefined) ?? row.status,
+      sessionID: live?.sessionID ?? row.sessionID,
+    }
+  })
+}
+
 function explicitTaskStatus(input: SnapshotInput) {
   const out = new Map<string, AgentClusterTaskStatus>()
   const setStatus = (taskID: string, status: AgentClusterTaskStatus) => {
@@ -739,7 +758,6 @@ export function agentClusterSnapshot(input: SnapshotInput): AgentClusterSnapshot
   const statuses = explicitTaskStatus(input)
   const liveRows = taskRuns(input, statuses)
   const clusterRows = clusterTaskRuns(input.cluster)
-  const rows = authoritativePlan ? clusterRows : liveRows
   const plan = authoritativePlan ?? latestPlan(input)
   // Always merge live statuses from both live tool calls and cluster DB rows
   // into the plan, so that running/submitted tasks are reflected immediately
@@ -747,6 +765,7 @@ export function agentClusterSnapshot(input: SnapshotInput): AgentClusterSnapshot
   // Cluster rows are placed first so that live row statuses (from tool calls)
   // overwrite stale DB statuses in the merge maps below.
   const planWithStatus = plan ? mergePlanStatus(plan, [...clusterRows, ...liveRows], statuses) : undefined
+  const rows = authoritativePlan ? reconcileTaskRuns(clusterRows, planWithStatus, liveRows) : liveRows
   const steps = buildSteps(planWithStatus)
   const taskSource = planWithStatus?.tasks ?? rows
   const runningAgents = taskSource.filter((task) => task.status === "running").length

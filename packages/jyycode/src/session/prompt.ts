@@ -90,6 +90,27 @@ const MEMORY_RETRIEVAL_QUERY_MAX = 240
 const MEMORY_RETRIEVAL_TEXT_MAX = 1800
 const MEMORY_RETRIEVAL_KIND = "memory-retrieval"
 
+export async function retryMemoryJsonOutput(
+  generate: (prompt: string) => Promise<unknown>,
+  prompt: string,
+): Promise<unknown> {
+  let lastError: unknown = new Error("DeepSeek JSON mode returned empty content")
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const attemptPrompt =
+      attempt === 0
+        ? prompt
+        : `${prompt}\n\nRETRY: The previous JSON-mode response was empty or invalid. Output exactly one complete JSON object and no other text.`
+    try {
+      const output = await generate(attemptPrompt)
+      if (output !== null && typeof output === "object" && !Array.isArray(output)) return output
+      lastError = new Error("DeepSeek JSON mode did not return a JSON object")
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
 
@@ -145,14 +166,26 @@ export const layer = Layer.effect(
         }
         const model = yield* provider.getModel(latestUser.info.model.providerID, latestUser.info.model.modelID)
         const language = yield* provider.getLanguage(model)
+        const historyText = history
+          .flatMap((message) => {
+            if (message.info.role !== "user" && message.info.role !== "assistant") return []
+            const text = memoryMessageText(message)
+            return text ? [`${message.info.role === "user" ? "User" : "Assistant"}: ${text}`] : []
+          })
+          .join("\n")
+        const isUserPhase = input.phase === "user"
         const prompt = [
-          "You are a memory curator. Decide how this completed conversation turn should update persistent memory, and output your decision as a JSON object.",
-          "Retain only task outcomes, key decisions, project conventions, reusable lessons, and explicit stable user facts or long-term preferences.",
-          "Do not retain greetings, progress checks, temporary constraints, failed retries, or facts immediately recoverable from the codebase.",
-          "Task outcomes and user information are mutually exclusive: when stable user information is present, put it in user and omit task.",
+          "You are a semantic memory compressor. Rewrite the single task-memory entry for this session and output a JSON object.",
+          "This is semantic compression: preserve intent, constraints, decisions, and outcomes in concise natural language. Never shorten by slicing text and never use ellipses as a truncation marker.",
+          "Merge the previous task memory, the full conversation history, and the current turn. The returned task is a complete replacement, not a delta.",
+          isUserPhase
+            ? 'This update runs immediately after a user prompt. task.content must have exactly the form "用户要求<累积语义概括>" and must not contain "我完成了".'
+            : 'This update runs immediately before the assistant answer is returned. task.content must have exactly the form "用户要求<累积语义概括>，我完成了<累积完成结果>".',
+          'The semantic text after "用户要求" and the semantic text after "我完成了" must each be at most 30 Unicode characters. Prefixes and punctuation do not count. Rephrase semantically to fit; never truncate or add ellipses.',
+          "A task entry is mandatory on every phase, including greetings and prompts containing stable user facts. Always set shouldUpdate to true and always return task.",
+          "Put explicit stable user identity facts or long-term preferences in user as well; this never replaces the mandatory task entry.",
           "Every keyword must contain 2 to 4 characters. Return one to three keywords per candidate.",
           "The service supplies sessionID and date. Do not include them.",
-          "For task content, use the exact format: 用户要求<user request summary>，我完成了<what was accomplished>",
           "",
           "EXPECTED JSON OUTPUT FORMAT (output a valid JSON object matching this shape):",
           "{",
@@ -161,7 +194,7 @@ export const layer = Layer.effect(
           '  "task": {',
           '    "importance": 7,',
           '    "keywords": ["编程"],',
-          '    "content": "用户要求修复认证缺陷，我完成了中间件修复"',
+          `    "content": "${isUserPhase ? "用户要求修复认证缺陷" : "用户要求修复认证缺陷，我完成了中间件修复"}"`,
           "  },",
           '  "user": [',
           "    {",
@@ -172,27 +205,46 @@ export const layer = Layer.effect(
           "  ]",
           "}",
           "",
-          "User:",
+          "Previous task memory:",
+          input.previousTaskContent ?? "(none)",
+          "",
+          "Conversation history:",
+          historyText || "(none)",
+          "",
+          "Current user input:",
           input.userText,
           "",
-          "Assistant:",
-          input.assistantText,
+          "Current assistant output:",
+          input.assistantText || "(not available in the user phase)",
+          ...(input.correction
+            ? [
+                "",
+                "CORRECTION REQUIRED:",
+                input.correction,
+                "Return a new complete JSON object that fixes this validation error.",
+              ]
+            : []),
         ].join("\n")
-        const result = yield* Effect.tryPromise({
+        return yield* Effect.tryPromise({
           try: () =>
-            generateText({
-              model: language,
-              output: Output.object({
-                schema: jsonSchema<Memory.MemoryDecision>(Memory.MemoryDecisionJsonSchema as unknown as JSONSchema7),
-              }),
+            retryMemoryJsonOutput(
+              async (attemptPrompt) =>
+                (
+                  await generateText({
+                    model: language,
+                    output: Output.json(),
+                    prompt: attemptPrompt,
+                    maxOutputTokens: 4096,
+                    temperature: 0,
+                    maxRetries: 0,
+                    providerOptions:
+                      model.providerID === "deepseek" ? { deepseek: { thinking: { type: "disabled" } } } : undefined,
+                  })
+                ).output,
               prompt,
-              maxOutputTokens: 800,
-              temperature: 0,
-              maxRetries: 0,
-            }),
+            ),
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         })
-        return result.output
       })
     const toolDisclosureOverrides = new Map<SessionID, { readonly deferredTools?: boolean }>()
     const runtimeFlagsForSession = (sessionID: SessionID) => {
@@ -1381,18 +1433,6 @@ export const layer = Layer.effect(
         const message = yield* createUserMessage(promptInput)
         yield* sessions.touch(input.sessionID)
 
-        if (promptInput.noReply !== true && memory) {
-          const updated = yield* memory
-            .updateStepBegin(input.sessionID, { userText: memoryUserText([message]) })
-            .pipe(
-              Effect.catchCause((cause) =>
-                elog.error("failed to update memory after user message", { cause }).pipe(Effect.as(undefined)),
-              ),
-            )
-          if (updated)
-            yield* elog.info("persistent memory updated after user message", { sessionID: input.sessionID, ...updated })
-        }
-
         const permissions: Permission.Rule[] = []
         for (const [t, enabled] of Object.entries(promptInput.tools ?? {})) {
           permissions.push({ permission: t, action: enabled ? "allow" : "deny", pattern: "*" })
@@ -1583,6 +1623,13 @@ export const layer = Layer.effect(
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+
+          if (step === 0 && memory && (!lastAssistant || lastUser.id > lastAssistant.id)) {
+            const updated = yield* memory
+              .updateStepBegin(sessionID, evaluateMemoryDecision, { userText: latestMemoryUserText })
+              .pipe(Effect.orDie)
+            yield* slog.info("persistent memory updated after user message", { ...updated })
+          }
 
           const lastAssistantMsg = msgs.findLast(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
@@ -1960,12 +2007,8 @@ export const layer = Layer.effect(
               userText: latestMemoryUserText,
               assistantText: latestRealAssistantText(result),
             })
-            .pipe(
-              Effect.catchCause((cause) =>
-                elog.error("failed to update persistent memory", { cause }).pipe(Effect.as(undefined)),
-              ),
-            )
-          if (curated) yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
+            .pipe(Effect.orDie)
+          yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
         }
         return result
       },
@@ -2188,6 +2231,12 @@ function memoryUserText(messages: MessageV2.WithParts[]) {
     return []
   })
   return attachments.length > 0 ? `提交了${attachments.join("、")}` : "提交了一条非文本消息"
+}
+
+function memoryMessageText(message: MessageV2.WithParts) {
+  if (message.info.role === "user") return memoryUserText([message])
+  if (message.info.role === "assistant") return latestRealAssistantText(message)
+  return ""
 }
 
 function latestRealAssistantText(message: MessageV2.WithParts) {
