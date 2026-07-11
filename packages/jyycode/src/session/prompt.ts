@@ -145,14 +145,25 @@ export const layer = Layer.effect(
         }
         const model = yield* provider.getModel(latestUser.info.model.providerID, latestUser.info.model.modelID)
         const language = yield* provider.getLanguage(model)
+        const historyText = history
+          .flatMap((message) => {
+            if (message.info.role !== "user" && message.info.role !== "assistant") return []
+            const text = memoryMessageText(message)
+            return text ? [`${message.info.role === "user" ? "User" : "Assistant"}: ${text}`] : []
+          })
+          .join("\n")
+        const isUserPhase = input.phase === "user"
         const prompt = [
-          "You are a memory curator. Decide how this completed conversation turn should update persistent memory, and output your decision as a JSON object.",
-          "Retain only task outcomes, key decisions, project conventions, reusable lessons, and explicit stable user facts or long-term preferences.",
-          "Do not retain greetings, progress checks, temporary constraints, failed retries, or facts immediately recoverable from the codebase.",
-          "Task outcomes and user information are mutually exclusive: when stable user information is present, put it in user and omit task.",
+          "You are a semantic memory compressor. Rewrite the single task-memory entry for this session and output a JSON object.",
+          "This is semantic compression: preserve intent, constraints, decisions, and outcomes in concise natural language. Never shorten by slicing text and never use ellipses as a truncation marker.",
+          "Merge the previous task memory, the full conversation history, and the current turn. The returned task is a complete replacement, not a delta.",
+          isUserPhase
+            ? 'This update runs immediately after a user prompt. task.content must have exactly the form "用户要求<累积语义概括>" and must not contain "我完成了".'
+            : 'This update runs immediately before the assistant answer is returned. task.content must have exactly the form "用户要求<累积语义概括>，我完成了<累积完成结果>".',
+          "A task entry is mandatory on every phase, including greetings and prompts containing stable user facts. Always set shouldUpdate to true and always return task.",
+          "Put explicit stable user identity facts or long-term preferences in user as well; this never replaces the mandatory task entry.",
           "Every keyword must contain 2 to 4 characters. Return one to three keywords per candidate.",
           "The service supplies sessionID and date. Do not include them.",
-          "For task content, use the exact format: 用户要求<user request summary>，我完成了<what was accomplished>",
           "",
           "EXPECTED JSON OUTPUT FORMAT (output a valid JSON object matching this shape):",
           "{",
@@ -161,7 +172,7 @@ export const layer = Layer.effect(
           '  "task": {',
           '    "importance": 7,',
           '    "keywords": ["编程"],',
-          '    "content": "用户要求修复认证缺陷，我完成了中间件修复"',
+          `    "content": "${isUserPhase ? "用户要求修复认证缺陷" : "用户要求修复认证缺陷，我完成了中间件修复"}"`,
           "  },",
           '  "user": [',
           "    {",
@@ -172,11 +183,17 @@ export const layer = Layer.effect(
           "  ]",
           "}",
           "",
-          "User:",
+          "Previous task memory:",
+          input.previousTaskContent ?? "(none)",
+          "",
+          "Conversation history:",
+          historyText || "(none)",
+          "",
+          "Current user input:",
           input.userText,
           "",
-          "Assistant:",
-          input.assistantText,
+          "Current assistant output:",
+          input.assistantText || "(not available in the user phase)",
         ].join("\n")
         const result = yield* Effect.tryPromise({
           try: () =>
@@ -1383,14 +1400,9 @@ export const layer = Layer.effect(
 
         if (promptInput.noReply !== true && memory) {
           const updated = yield* memory
-            .updateStepBegin(input.sessionID, { userText: memoryUserText([message]) })
-            .pipe(
-              Effect.catchCause((cause) =>
-                elog.error("failed to update memory after user message", { cause }).pipe(Effect.as(undefined)),
-              ),
-            )
-          if (updated)
-            yield* elog.info("persistent memory updated after user message", { sessionID: input.sessionID, ...updated })
+            .updateStepBegin(input.sessionID, evaluateMemoryDecision, { userText: memoryUserText([message]) })
+            .pipe(Effect.orDie)
+          yield* elog.info("persistent memory updated after user message", { sessionID: input.sessionID, ...updated })
         }
 
         const permissions: Permission.Rule[] = []
@@ -1960,12 +1972,8 @@ export const layer = Layer.effect(
               userText: latestMemoryUserText,
               assistantText: latestRealAssistantText(result),
             })
-            .pipe(
-              Effect.catchCause((cause) =>
-                elog.error("failed to update persistent memory", { cause }).pipe(Effect.as(undefined)),
-              ),
-            )
-          if (curated) yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
+            .pipe(Effect.orDie)
+          yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
         }
         return result
       },
@@ -2188,6 +2196,12 @@ function memoryUserText(messages: MessageV2.WithParts[]) {
     return []
   })
   return attachments.length > 0 ? `提交了${attachments.join("、")}` : "提交了一条非文本消息"
+}
+
+function memoryMessageText(message: MessageV2.WithParts) {
+  if (message.info.role === "user") return memoryUserText([message])
+  if (message.info.role === "assistant") return latestRealAssistantText(message)
+  return ""
 }
 
 function latestRealAssistantText(message: MessageV2.WithParts) {

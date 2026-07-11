@@ -76,7 +76,10 @@ export function parseStore(scope: Scope, text: string): MemoryStore {
   const root = expectRecord(value, `${scope} store`)
   assertExactFields(root, ["schemaVersion", "lastCompactedAt", "entries"], `${scope} store`)
   if (root.schemaVersion !== 3) throw new Error(`Invalid ${scope} schemaVersion: expected 3`)
-  if (root.lastCompactedAt !== null && (typeof root.lastCompactedAt !== "string" || !isCalendarDate(root.lastCompactedAt))) {
+  if (
+    root.lastCompactedAt !== null &&
+    (typeof root.lastCompactedAt !== "string" || !isCalendarDate(root.lastCompactedAt))
+  ) {
     throw new Error(`Invalid ${scope} lastCompactedAt`)
   }
   if (!Array.isArray(root.entries)) throw new Error(`Invalid ${scope} entries: expected an array`)
@@ -243,12 +246,16 @@ export type MemoryCandidate = {
 export type MemoryDecision = {
   shouldUpdate: boolean
   reason: string
-  task?: MemoryCandidate
+  task: MemoryCandidate
   user: MemoryCandidate[]
 }
 
+export type MemoryUpdatePhase = "user" | "assistant"
+
 export type DecisionInput = {
   sessionID: SessionID
+  phase: MemoryUpdatePhase
+  previousTaskContent?: string
   userText: string
   assistantText: string
 }
@@ -267,9 +274,9 @@ export type AutomaticUpdateResult =
 export const MemoryDecisionJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["shouldUpdate", "reason", "user"],
+  required: ["shouldUpdate", "reason", "task", "user"],
   properties: {
-    shouldUpdate: { type: "boolean" },
+    shouldUpdate: { const: true },
     reason: { type: "string", minLength: 1 },
     task: { $ref: "#/$defs/candidate" },
     user: { type: "array", items: { $ref: "#/$defs/candidate" } },
@@ -354,7 +361,11 @@ export interface Interface {
     evaluator?: DecisionEvaluator,
     turn?: TurnText,
   ) => Effect.Effect<AutomaticUpdateResult, Error>
-  readonly updateStepBegin: (sessionID: SessionID, turn?: TurnText) => Effect.Effect<AutomaticUpdateResult, Error>
+  readonly updateStepBegin: (
+    sessionID: SessionID,
+    evaluatorOrTurn?: DecisionEvaluator | TurnText,
+    turn?: TurnText,
+  ) => Effect.Effect<AutomaticUpdateResult, Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/Memory") {}
@@ -371,542 +382,546 @@ const filenames: Record<Scope, string> = {
 
 export const layerWithDirectory = (directory: string) =>
   Layer.effect(
-  Service,
-  Effect.gen(function* () {
-    const fs = yield* AppFileSystem.Service
-    const sessions = yield* Session.Service
-    const flock = yield* EffectFlock.Service
-    const memoryDirectory = path.normalize(directory)
+    Service,
+    Effect.gen(function* () {
+      const fs = yield* AppFileSystem.Service
+      const sessions = yield* Session.Service
+      const flock = yield* EffectFlock.Service
+      const memoryDirectory = path.normalize(directory)
 
-    const dir = Effect.fn("Memory.dir")(function* (_sessionID: SessionID) {
-      return memoryDirectory
-    })
-
-    const filePath = Effect.fn("Memory.filePath")(function* (sessionID: SessionID, scope: Scope) {
-      return path.join(yield* dir(sessionID), filenames[scope])
-    })
-
-    const assertPrimaryWriter = Effect.fn("Memory.assertPrimaryWriter")(function* (sessionID: SessionID) {
-      const info = yield* sessions.get(sessionID)
-      if (info.parentID !== undefined) return yield* Effect.fail(new MemoryWriteForbidden({ sessionID }))
-    })
-
-    const cleanupLegacyMdFiles = (memoryDir: string) =>
-      Effect.forEach(legacyMdFiles, (filename) =>
-        fs.remove(path.join(memoryDir, filename), { force: true }).pipe(Effect.ignore),
-        { discard: true },
-      )
-
-    const ensure = Effect.fn("Memory.ensure")(function* (sessionID: SessionID) {
-      const memoryDir = yield* dir(sessionID)
-      yield* fs.ensureDir(memoryDir).pipe(Effect.orDie)
-      for (const scope of ["memory", "user"] as const) {
-        const target = yield* filePath(sessionID, scope)
-        const exists = yield* fs.existsSafe(target).pipe(Effect.orDie)
-        if (!exists) yield* fs.writeWithDirs(target, templates[scope]).pipe(Effect.orDie)
-      }
-      // Clean up legacy .md files from the old memory system.
-      yield* cleanupLegacyMdFiles(memoryDir)
-    })
-
-    const readFull = Effect.fn("Memory.readFull")(function* (sessionID: SessionID, scope: Scope) {
-      yield* ensure(sessionID)
-      return (yield* fs.readFileStringSafe(yield* filePath(sessionID, scope)).pipe(Effect.orDie)) ?? templates[scope]
-    })
-
-    const readStore = Effect.fn("Memory.readStore")(function* (sessionID: SessionID, scope: Scope) {
-      const text = yield* readFull(sessionID, scope)
-      return yield* Effect.try({ try: () => parseStore(scope, text), catch: (error) => asError(error) })
-    })
-
-    const writeFileAtomic = Effect.fn("Memory.writeFileAtomic")(function* (target: string, content: string) {
-      const temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomUUID()}.tmp`)
-      yield* fs.writeFileString(temp, content).pipe(
-        Effect.flatMap(() => fs.rename(temp, target)),
-        Effect.ensuring(fs.remove(temp, { force: true }).pipe(Effect.ignore)),
-        Effect.orDie,
-      )
-    })
-
-    const writeFull = Effect.fn("Memory.writeFull")(function* (sessionID: SessionID, scope: Scope, text: string) {
-      const target = yield* filePath(sessionID, scope)
-      yield* writeFileAtomic(target, text.endsWith("\n") ? text : text + "\n")
-    })
-
-    const writeStore = Effect.fn("Memory.writeStore")(function* (
-      sessionID: SessionID,
-      scope: Scope,
-      store: MemoryStore,
-    ) {
-      const text = yield* Effect.try({
-        try: () => serializeStore(scope, store.entries, store.lastCompactedAt),
-        catch: (error) => asError(error),
+      const dir = Effect.fn("Memory.dir")(function* (_sessionID: SessionID) {
+        return memoryDirectory
       })
-      yield* writeFull(sessionID, scope, text)
-    })
 
-    const read = Effect.fn("Memory.read")(function* (input: {
-      sessionID: SessionID
-      scope: Scope
-      section?: string
-    }) {
-      const store = yield* readStore(input.sessionID, input.scope)
-      return serializeStore(input.scope, store.entries, store.lastCompactedAt)
-    })
+      const filePath = Effect.fn("Memory.filePath")(function* (sessionID: SessionID, scope: Scope) {
+        return path.join(yield* dir(sessionID), filenames[scope])
+      })
 
-    const search = Effect.fn("Memory.search")(function* (input: {
-      sessionID: SessionID
-      query: string
-      scope?: Scope | "all"
-      limit?: number
-    }) {
-      yield* ensure(input.sessionID)
-      const query = input.query.trim()
-      if (!query) return []
-      const scopes: Scope[] = input.scope && input.scope !== "all" ? [input.scope] : ["memory", "user"]
-      const tokens = tokenize(query)
-      const results: SearchResult[] = []
+      const assertPrimaryWriter = Effect.fn("Memory.assertPrimaryWriter")(function* (sessionID: SessionID) {
+        const info = yield* sessions.get(sessionID)
+        if (info.parentID !== undefined) return yield* Effect.fail(new MemoryWriteForbidden({ sessionID }))
+      })
 
-      for (const scope of scopes) {
-        const sourceFile = yield* filePath(input.sessionID, scope)
-        const store = yield* readStore(input.sessionID, scope)
-        for (let i = 0; i < store.entries.length; i++) {
-          const entry = store.entries[i]!
-          const body = formatEntry(entry)
-          const score = scoreEntry(tokens, entry)
-          if (score <= 0) continue
-          results.push({
-            file: sourceFile,
-            section: scope,
-            line: i + 1,
-            score,
-            text: body,
-          })
+      const cleanupLegacyMdFiles = (memoryDir: string) =>
+        Effect.forEach(
+          legacyMdFiles,
+          (filename) => fs.remove(path.join(memoryDir, filename), { force: true }).pipe(Effect.ignore),
+          { discard: true },
+        )
+
+      const ensure = Effect.fn("Memory.ensure")(function* (sessionID: SessionID) {
+        const memoryDir = yield* dir(sessionID)
+        yield* fs.ensureDir(memoryDir).pipe(Effect.orDie)
+        for (const scope of ["memory", "user"] as const) {
+          const target = yield* filePath(sessionID, scope)
+          const exists = yield* fs.existsSafe(target).pipe(Effect.orDie)
+          if (!exists) yield* fs.writeWithDirs(target, templates[scope]).pipe(Effect.orDie)
         }
-      }
+        // Clean up legacy .md files from the old memory system.
+        yield* cleanupLegacyMdFiles(memoryDir)
+      })
 
-      return results.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file)).slice(0, input.limit ?? 8)
-    })
+      const readFull = Effect.fn("Memory.readFull")(function* (sessionID: SessionID, scope: Scope) {
+        yield* ensure(sessionID)
+        return (yield* fs.readFileStringSafe(yield* filePath(sessionID, scope)).pipe(Effect.orDie)) ?? templates[scope]
+      })
 
-    const audit = Effect.fn("Memory.audit")(function* (sessionID: SessionID, entry: Record<string, unknown>) {
-      yield* appendAudit(sessionID, { time: new Date().toISOString(), ...entry }).pipe(
-        Effect.catchCause((cause) => Effect.sync(() => log.error("failed to append memory audit", { cause }))),
-      )
-    })
+      const readStore = Effect.fn("Memory.readStore")(function* (sessionID: SessionID, scope: Scope) {
+        const text = yield* readFull(sessionID, scope)
+        return yield* Effect.try({ try: () => parseStore(scope, text), catch: (error) => asError(error) })
+      })
 
-    const upsertStructured = Effect.fn("Memory.upsertStructured")(function* (
-      sessionID: SessionID,
-      candidate: MemoryEntry,
-    ) {
-      yield* assertPrimaryWriter(sessionID)
-      yield* ensure(sessionID)
-      const scope = candidate.scope
-      const targetFile = yield* filePath(sessionID, scope)
-      return yield* flock.withLock(
-        Effect.gen(function* () {
-          const store = yield* readStore(sessionID, scope)
-          const entries = [...store.entries]
-          const normalized = normalizeEntry(candidate)
-          if (looksSensitive(normalized.content)) {
-            return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
+      const writeFileAtomic = Effect.fn("Memory.writeFileAtomic")(function* (target: string, content: string) {
+        const temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomUUID()}.tmp`)
+        yield* fs.writeFileString(temp, content).pipe(
+          Effect.flatMap(() => fs.rename(temp, target)),
+          Effect.ensuring(fs.remove(temp, { force: true }).pipe(Effect.ignore)),
+          Effect.orDie,
+        )
+      })
+
+      const writeFull = Effect.fn("Memory.writeFull")(function* (sessionID: SessionID, scope: Scope, text: string) {
+        const target = yield* filePath(sessionID, scope)
+        yield* writeFileAtomic(target, text.endsWith("\n") ? text : text + "\n")
+      })
+
+      const writeStore = Effect.fn("Memory.writeStore")(function* (
+        sessionID: SessionID,
+        scope: Scope,
+        store: MemoryStore,
+      ) {
+        const text = yield* Effect.try({
+          try: () => serializeStore(scope, store.entries, store.lastCompactedAt),
+          catch: (error) => asError(error),
+        })
+        yield* writeFull(sessionID, scope, text)
+      })
+
+      const read = Effect.fn("Memory.read")(function* (input: {
+        sessionID: SessionID
+        scope: Scope
+        section?: string
+      }) {
+        const store = yield* readStore(input.sessionID, input.scope)
+        return serializeStore(input.scope, store.entries, store.lastCompactedAt)
+      })
+
+      const search = Effect.fn("Memory.search")(function* (input: {
+        sessionID: SessionID
+        query: string
+        scope?: Scope | "all"
+        limit?: number
+      }) {
+        yield* ensure(input.sessionID)
+        const query = input.query.trim()
+        if (!query) return []
+        const scopes: Scope[] = input.scope && input.scope !== "all" ? [input.scope] : ["memory", "user"]
+        const tokens = tokenize(query)
+        const results: SearchResult[] = []
+
+        for (const scope of scopes) {
+          const sourceFile = yield* filePath(input.sessionID, scope)
+          const store = yield* readStore(input.sessionID, scope)
+          for (let i = 0; i < store.entries.length; i++) {
+            const entry = store.entries[i]!
+            const body = formatEntry(entry)
+            const score = scoreEntry(tokens, entry)
+            if (score <= 0) continue
+            results.push({
+              file: sourceFile,
+              section: scope,
+              line: i + 1,
+              score,
+              text: body,
+            })
           }
-          const key = entryKey(normalized)
-          const index = entries.findIndex((entry) => entryKey(entry) === key)
-          const status: "written" | "duplicate" | "replaced" =
-            index === -1
-              ? "written"
-              : entriesEquivalent(entries[index]!, normalized)
-                ? "duplicate"
-                : "replaced"
+        }
 
-          if (status !== "duplicate") {
-            if (index === -1) entries.push(normalized)
-            else entries[index] = normalized
-            const projected = serializeStore(scope, entries, store.lastCompactedAt)
-            const shouldCompact =
-              projected.length >= charLimit(scope) * CAPACITY_WARN_THRESHOLD || entries.length > ENTRY_LIMIT
-            if (shouldCompact) {
-              const outcome = compactEntrySet(store, scope, entries)
-              const retained = containsCandidate(outcome.entries, normalized)
-              if (!retained || outcome.after.used > outcome.after.limit || outcome.after.entries > ENTRY_LIMIT) {
+        return results.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file)).slice(0, input.limit ?? 8)
+      })
+
+      const audit = Effect.fn("Memory.audit")(function* (sessionID: SessionID, entry: Record<string, unknown>) {
+        yield* appendAudit(sessionID, { time: new Date().toISOString(), ...entry }).pipe(
+          Effect.catchCause((cause) => Effect.sync(() => log.error("failed to append memory audit", { cause }))),
+        )
+      })
+
+      const upsertStructured = Effect.fn("Memory.upsertStructured")(function* (
+        sessionID: SessionID,
+        candidate: MemoryEntry,
+      ) {
+        yield* assertPrimaryWriter(sessionID)
+        yield* ensure(sessionID)
+        const scope = candidate.scope
+        const targetFile = yield* filePath(sessionID, scope)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(sessionID, scope)
+            const entries = [...store.entries]
+            const normalized = normalizeEntry(candidate)
+            if (looksSensitive(normalized.content)) {
+              return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
+            }
+            const key = entryKey(normalized)
+            const index = entries.findIndex((entry) => entryKey(entry) === key)
+            const status: "written" | "duplicate" | "replaced" =
+              index === -1 ? "written" : entriesEquivalent(entries[index]!, normalized) ? "duplicate" : "replaced"
+
+            if (status !== "duplicate") {
+              if (index === -1) entries.push(normalized)
+              else entries[index] = normalized
+              const projected = serializeStore(scope, entries, store.lastCompactedAt)
+              const shouldCompact =
+                projected.length >= charLimit(scope) * CAPACITY_WARN_THRESHOLD || entries.length > ENTRY_LIMIT
+              if (shouldCompact) {
+                const outcome = compactEntrySet(store, scope, entries)
+                const retained = containsCandidate(outcome.entries, normalized)
+                if (!retained || outcome.after.used > outcome.after.limit || outcome.after.entries > ENTRY_LIMIT) {
+                  yield* audit(sessionID, {
+                    writerSessionID: sessionID,
+                    writerKind: "primary",
+                    action: "memory.capacity_rejected",
+                    scope,
+                    key,
+                    before: outcome.before,
+                    after: outcome.after,
+                    reason: "Candidate could not be retained within hard capacity limits.",
+                  })
+                  return {
+                    file: targetFile,
+                    status: "capacity_rejected" as const,
+                    message: `Memory candidate rejected at capacity.\nFile: ${targetFile}`,
+                  }
+                }
+                yield* writeFull(sessionID, scope, outcome.text)
                 yield* audit(sessionID, {
                   writerSessionID: sessionID,
                   writerKind: "primary",
-                  action: "memory.capacity_rejected",
+                  action: "memory.compact",
                   scope,
-                  key,
+                  removed: outcome.removed,
+                  merged: outcome.merged,
                   before: outcome.before,
                   after: outcome.after,
-                  reason: "Candidate could not be retained within hard capacity limits.",
+                  reason: "Automatic threshold compaction before upsert.",
                 })
-                return {
-                  file: targetFile,
-                  status: "capacity_rejected" as const,
-                  message: `Memory candidate rejected at capacity.\nFile: ${targetFile}`,
-                }
+              } else {
+                yield* writeFull(sessionID, scope, projected)
               }
-              yield* writeFull(sessionID, scope, outcome.text)
-              yield* audit(sessionID, {
-                writerSessionID: sessionID,
-                writerKind: "primary",
-                action: "memory.compact",
-                scope,
-                removed: outcome.removed,
-                merged: outcome.merged,
-                before: outcome.before,
-                after: outcome.after,
-                reason: "Automatic threshold compaction before upsert.",
-              })
-            } else {
-              yield* writeFull(sessionID, scope, projected)
             }
-          }
+            yield* audit(sessionID, {
+              writerSessionID: sessionID,
+              writerKind: "primary",
+              action: `memory.${status}`,
+              scope,
+              key,
+              reason: status === "duplicate" ? "Exact structured entry already exists." : "Structured memory upsert.",
+            })
+            return {
+              file: targetFile,
+              status,
+              message:
+                status === "duplicate"
+                  ? `Duplicate memory already exists.\nFile: ${targetFile}`
+                  : `Memory ${status === "written" ? "written" : "updated"}.\nFile: ${targetFile}`,
+            }
+          }),
+          targetFile,
+        )
+      })
+
+      const upsertTaskMemory = Effect.fn("Memory.upsertTaskMemory")(function* (input: TaskMemoryUpsertInput) {
+        const content = yield* Effect.try({
+          try: () => validateTaskContent(input.content),
+          catch: (error) => asError(error),
+        })
+        return yield* upsertStructured(input.sessionID, {
+          scope: "memory",
+          importance: input.importance,
+          date: localDate(new Date()),
+          keywords: input.keywords,
+          content,
+          sessionID: input.sessionID,
+        })
+      })
+
+      const upsertUserMemory = Effect.fn("Memory.upsertUserMemory")(function* (input: UserMemoryUpsertInput) {
+        return yield* upsertStructured(input.sessionID, {
+          scope: "user",
+          importance: input.importance,
+          keywords: input.keywords,
+          content: input.content,
+        })
+      })
+
+      const write = Effect.fn("Memory.write")(function* (input: MemoryWriteInput) {
+        yield* assertPrimaryWriter(input.sessionID)
+        const clean = sanitizeContent(input.content)
+        if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
+        if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
+        const importance = confidenceImportance(input.confidence)
+        const sectionKeyword = (input.section || (input.scope === "memory" ? "任务成果" : "用户事实")).slice(0, 4)
+        const keywords = validateKeywords([sectionKeyword])
+        const result =
+          input.scope === "memory"
+            ? yield* upsertTaskMemory({ sessionID: input.sessionID, importance, keywords, content: clean })
+            : yield* upsertUserMemory({ sessionID: input.sessionID, importance, keywords, content: clean })
+        yield* audit(input.sessionID, {
+          action: "memory.write",
+          scope: input.scope,
+          section: input.section,
+          content: clean,
+          reason: input.reason,
+          result: result.status,
+        })
+        return result
+      })
+
+      const replaceBySubstring = Effect.fn("Memory.replaceBySubstring")(function* (input: {
+        sessionID: SessionID
+        scope: Scope
+        oldText: string
+        newContent: string
+        reason: string
+      }) {
+        yield* assertPrimaryWriter(input.sessionID)
+        yield* ensure(input.sessionID)
+        const clean = sanitizeContent(input.newContent)
+        if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
+        if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
+        if (input.scope === "memory") {
+          yield* Effect.try({ try: () => validateTaskContent(clean), catch: (error) => asError(error) })
+        }
+
+        const targetFile = yield* filePath(input.sessionID, input.scope)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(input.sessionID, input.scope)
+            const { match, error } = findEntryBySubstring(store.entries, input.oldText)
+            if (error) return yield* Effect.fail(new Error(error))
+            const entries = [...store.entries]
+            entries[match!.index] = normalizeEntry({ ...entries[match!.index]!, content: clean })
+            const projected = serializeStore(input.scope, entries, store.lastCompactedAt)
+            if (projected.length > charLimit(input.scope)) {
+              return yield* Effect.fail(
+                new Error(`Memory replacement exceeds the ${charLimit(input.scope)} char limit`),
+              )
+            }
+            yield* writeFull(input.sessionID, input.scope, projected)
+            yield* audit(input.sessionID, {
+              action: "memory.replace",
+              scope: input.scope,
+              oldText: input.oldText,
+              newContent: clean,
+              reason: input.reason,
+            })
+            return { file: targetFile, status: "replaced" as const, message: `Memory replaced.\nFile: ${targetFile}` }
+          }),
+          targetFile,
+        )
+      })
+
+      const removeBySubstring = Effect.fn("Memory.removeBySubstring")(function* (input: {
+        sessionID: SessionID
+        scope: Scope
+        oldText: string
+        reason: string
+      }) {
+        yield* assertPrimaryWriter(input.sessionID)
+        yield* ensure(input.sessionID)
+        const targetFile = yield* filePath(input.sessionID, input.scope)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(input.sessionID, input.scope)
+            const { match, error } = findEntryBySubstring(store.entries, input.oldText)
+            if (error) return yield* Effect.fail(new Error(error))
+            const entries = store.entries.filter((_, index) => index !== match!.index)
+            yield* writeStore(input.sessionID, input.scope, { ...store, entries })
+            yield* audit(input.sessionID, {
+              action: "memory.remove",
+              scope: input.scope,
+              oldText: input.oldText,
+              reason: input.reason,
+            })
+            return { file: targetFile, status: "removed" as const, message: `Memory removed.\nFile: ${targetFile}` }
+          }),
+          targetFile,
+        )
+      })
+
+      const compact = Effect.fn("Memory.compact")(function* (input: { sessionID: SessionID; scope: Scope }) {
+        yield* assertPrimaryWriter(input.sessionID)
+        yield* ensure(input.sessionID)
+        const targetFile = yield* filePath(input.sessionID, input.scope)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(input.sessionID, input.scope)
+            const outcome = compactEntrySet(store, input.scope, store.entries)
+            if (outcome.after.used > outcome.after.limit || outcome.after.entries > ENTRY_LIMIT) {
+              return yield* Effect.fail(new Error(`Memory cannot be compacted within hard limits for ${input.scope}`))
+            }
+            yield* writeFull(input.sessionID, input.scope, outcome.text)
+            yield* audit(input.sessionID, {
+              writerSessionID: input.sessionID,
+              writerKind: "primary",
+              action: "memory.compact",
+              scope: input.scope,
+              removed: outcome.removed,
+              merged: outcome.merged,
+              before: outcome.before,
+              after: outcome.after,
+              reason: "Manual deterministic compaction.",
+            })
+            return {
+              file: targetFile,
+              status: "compacted" as const,
+              message: `Memory compacted.\nFile: ${targetFile}`,
+              removed: outcome.removed,
+              merged: outcome.merged,
+              retained: outcome.entries.length,
+              before: outcome.before,
+              after: outcome.after,
+            }
+          }),
+          targetFile,
+        )
+      })
+
+      const usage = Effect.fn("Memory.usage")(function* (sessionID: SessionID, scope: Scope) {
+        yield* ensure(sessionID)
+        const store = yield* readStore(sessionID, scope)
+        return computeUsage(serializeStore(scope, store.entries, store.lastCompactedAt), scope)
+      })
+
+      const formatWithHeader = Effect.fn("Memory.formatWithHeader")(function* (sessionID: SessionID, scope: Scope) {
+        yield* ensure(sessionID)
+        const store = yield* readStore(sessionID, scope)
+        const text = formatEntries(store.entries.slice().sort(compareSnapshotEntries).slice(0, SNAPSHOT_ENTRY_LIMIT))
+        const serialized = serializeStore(scope, store.entries, store.lastCompactedAt)
+        return formatMemoryHeader(scope, serialized) + text
+      })
+
+      const currentTaskContent = Effect.fn("Memory.currentTaskContent")(function* (sessionID: SessionID) {
+        const store = yield* readStore(sessionID, "memory")
+        const entry = store.entries.find(
+          (candidate): candidate is TaskMemoryEntry =>
+            candidate.scope === "memory" && candidate.sessionID === sessionID,
+        )
+        return entry?.content
+      })
+
+      const evaluateSemanticUpdate = Effect.fn("Memory.evaluateSemanticUpdate")(function* (
+        evaluator: DecisionEvaluator | undefined,
+        input: DecisionInput,
+      ) {
+        if (!evaluator) return yield* Effect.fail(new Error("Semantic memory evaluator is required"))
+        const value = yield* evaluator(input).pipe(Effect.mapError(asError))
+        const decision = yield* Effect.try({
+          try: () => parseDecision(value),
+          catch: (error) => asError(error),
+        })
+        const content = yield* Effect.try({
+          try: () => validateTaskContentForPhase(decision.task.content, input.phase),
+          catch: (error) => asError(error),
+        })
+        return { ...decision, task: { ...decision.task, content } }
+      })
+
+      const updateAfterTurn = Effect.fn("Memory.updateAfterTurn")(function* (
+        sessionID: SessionID,
+        evaluator?: DecisionEvaluator,
+        turn?: TurnText,
+      ) {
+        const info = yield* sessions.get(sessionID).pipe(Effect.orDie)
+        if (info.parentID !== undefined) {
           yield* audit(sessionID, {
             writerSessionID: sessionID,
-            writerKind: "primary",
-            action: `memory.${status}`,
-            scope,
-            key,
-            reason: status === "duplicate" ? "Exact structured entry already exists." : "Structured memory upsert.",
+            writerKind: "subagent",
+            action: "memory.skipped",
+            reason: "subagent",
           })
-          return {
-            file: targetFile,
-            status,
-            message:
-              status === "duplicate"
-                ? `Duplicate memory already exists.\nFile: ${targetFile}`
-                : `Memory ${status === "written" ? "written" : "updated"}.\nFile: ${targetFile}`,
-          }
-        }),
-        targetFile,
-      )
-    })
+          return { status: "skipped" as const, reason: "subagent" as const }
+        }
+        yield* ensure(sessionID)
+        const suppliedUserText = sanitizeContent(turn?.userText ?? "")
+        const suppliedAssistantText = sanitizeContent(turn?.assistantText ?? "")
+        const msgs =
+          suppliedUserText && suppliedAssistantText ? [] : yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
+        const userText = suppliedUserText || latestRealMessageText(msgs, "user")
+        if (!userText) return { status: "skipped" as const, reason: "no_user" as const }
+        // Find the last assistant message with non-synthetic text content.
+        // In cluster mode the immediate child of the original user message is the
+        // planning response — we want the final synthesis, which is always the
+        // chronologically last assistant with real text.
+        const assistantText = suppliedAssistantText || latestRealMessageText(msgs, "assistant")
+        if (!assistantText) return { status: "skipped" as const, reason: "no_assistant" as const }
 
-    const upsertTaskMemory = Effect.fn("Memory.upsertTaskMemory")(function* (input: TaskMemoryUpsertInput) {
-      const content = yield* Effect.try({
-        try: () => validateTaskContent(input.content),
-        catch: (error) => asError(error),
-      })
-      return yield* upsertStructured(input.sessionID, {
-        scope: "memory",
-        importance: input.importance,
-        date: localDate(new Date()),
-        keywords: input.keywords,
-        content,
-        sessionID: input.sessionID,
-      })
-    })
-
-    const upsertUserMemory = Effect.fn("Memory.upsertUserMemory")(function* (input: UserMemoryUpsertInput) {
-      return yield* upsertStructured(input.sessionID, {
-        scope: "user",
-        importance: input.importance,
-        keywords: input.keywords,
-        content: input.content,
-      })
-    })
-
-    const removeTaskEntryForSession = Effect.fn("Memory.removeTaskEntryForSession")(function* (sessionID: SessionID) {
-      yield* assertPrimaryWriter(sessionID)
-      yield* ensure(sessionID)
-      const targetFile = yield* filePath(sessionID, "memory")
-      return yield* flock.withLock(
-        Effect.gen(function* () {
-          const store = yield* readStore(sessionID, "memory")
-          const entries = store.entries.filter((entry) => entry.scope !== "memory" || entry.sessionID !== sessionID)
-          if (entries.length === store.entries.length) return false
-          yield* writeStore(sessionID, "memory", { ...store, entries })
-          return true
-        }),
-        targetFile,
-      )
-    })
-
-    const write = Effect.fn("Memory.write")(function* (input: MemoryWriteInput) {
-      yield* assertPrimaryWriter(input.sessionID)
-      const clean = sanitizeContent(input.content)
-      if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
-      if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
-      const importance = confidenceImportance(input.confidence)
-      const sectionKeyword = (input.section || (input.scope === "memory" ? "任务成果" : "用户事实")).slice(0, 4)
-      const keywords = validateKeywords([sectionKeyword])
-      const result =
-        input.scope === "memory"
-          ? yield* upsertTaskMemory({ sessionID: input.sessionID, importance, keywords, content: clean })
-          : yield* upsertUserMemory({ sessionID: input.sessionID, importance, keywords, content: clean })
-      yield* audit(input.sessionID, {
-        action: "memory.write",
-        scope: input.scope,
-        section: input.section,
-        content: clean,
-        reason: input.reason,
-        result: result.status,
-      })
-      return result
-    })
-
-    const replaceBySubstring = Effect.fn("Memory.replaceBySubstring")(function* (input: {
-      sessionID: SessionID
-      scope: Scope
-      oldText: string
-      newContent: string
-      reason: string
-    }) {
-      yield* assertPrimaryWriter(input.sessionID)
-      yield* ensure(input.sessionID)
-      const clean = sanitizeContent(input.newContent)
-      if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
-      if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
-      if (input.scope === "memory") {
-        yield* Effect.try({ try: () => validateTaskContent(clean), catch: (error) => asError(error) })
-      }
-
-      const targetFile = yield* filePath(input.sessionID, input.scope)
-      return yield* flock.withLock(
-        Effect.gen(function* () {
-          const store = yield* readStore(input.sessionID, input.scope)
-          const { match, error } = findEntryBySubstring(store.entries, input.oldText)
-          if (error) return yield* Effect.fail(new Error(error))
-          const entries = [...store.entries]
-          entries[match!.index] = normalizeEntry({ ...entries[match!.index]!, content: clean })
-          const projected = serializeStore(input.scope, entries, store.lastCompactedAt)
-          if (projected.length > charLimit(input.scope)) {
-            return yield* Effect.fail(new Error(`Memory replacement exceeds the ${charLimit(input.scope)} char limit`))
-          }
-          yield* writeFull(input.sessionID, input.scope, projected)
-          yield* audit(input.sessionID, {
-            action: "memory.replace",
-            scope: input.scope,
-            oldText: input.oldText,
-            newContent: clean,
-            reason: input.reason,
-          })
-          return { file: targetFile, status: "replaced" as const, message: `Memory replaced.\nFile: ${targetFile}` }
-        }),
-        targetFile,
-      )
-    })
-
-    const removeBySubstring = Effect.fn("Memory.removeBySubstring")(function* (input: {
-      sessionID: SessionID
-      scope: Scope
-      oldText: string
-      reason: string
-    }) {
-      yield* assertPrimaryWriter(input.sessionID)
-      yield* ensure(input.sessionID)
-      const targetFile = yield* filePath(input.sessionID, input.scope)
-      return yield* flock.withLock(
-        Effect.gen(function* () {
-          const store = yield* readStore(input.sessionID, input.scope)
-          const { match, error } = findEntryBySubstring(store.entries, input.oldText)
-          if (error) return yield* Effect.fail(new Error(error))
-          const entries = store.entries.filter((_, index) => index !== match!.index)
-          yield* writeStore(input.sessionID, input.scope, { ...store, entries })
-          yield* audit(input.sessionID, {
-            action: "memory.remove",
-            scope: input.scope,
-            oldText: input.oldText,
-            reason: input.reason,
-          })
-          return { file: targetFile, status: "removed" as const, message: `Memory removed.\nFile: ${targetFile}` }
-        }),
-        targetFile,
-      )
-    })
-
-    const compact = Effect.fn("Memory.compact")(function* (input: { sessionID: SessionID; scope: Scope }) {
-      yield* assertPrimaryWriter(input.sessionID)
-      yield* ensure(input.sessionID)
-      const targetFile = yield* filePath(input.sessionID, input.scope)
-      return yield* flock.withLock(
-        Effect.gen(function* () {
-          const store = yield* readStore(input.sessionID, input.scope)
-          const outcome = compactEntrySet(store, input.scope, store.entries)
-          if (outcome.after.used > outcome.after.limit || outcome.after.entries > ENTRY_LIMIT) {
-            return yield* Effect.fail(new Error(`Memory cannot be compacted within hard limits for ${input.scope}`))
-          }
-          yield* writeFull(input.sessionID, input.scope, outcome.text)
-          yield* audit(input.sessionID, {
-            writerSessionID: input.sessionID,
-            writerKind: "primary",
-            action: "memory.compact",
-            scope: input.scope,
-            removed: outcome.removed,
-            merged: outcome.merged,
-            before: outcome.before,
-            after: outcome.after,
-            reason: "Manual deterministic compaction.",
-          })
-          return {
-            file: targetFile,
-            status: "compacted" as const,
-            message: `Memory compacted.\nFile: ${targetFile}`,
-            removed: outcome.removed,
-            merged: outcome.merged,
-            retained: outcome.entries.length,
-            before: outcome.before,
-            after: outcome.after,
-          }
-        }),
-        targetFile,
-      )
-    })
-
-    const usage = Effect.fn("Memory.usage")(function* (sessionID: SessionID, scope: Scope) {
-      yield* ensure(sessionID)
-      const store = yield* readStore(sessionID, scope)
-      return computeUsage(serializeStore(scope, store.entries, store.lastCompactedAt), scope)
-    })
-
-    const formatWithHeader = Effect.fn("Memory.formatWithHeader")(function* (sessionID: SessionID, scope: Scope) {
-      yield* ensure(sessionID)
-      const store = yield* readStore(sessionID, scope)
-      const text = formatEntries(store.entries.slice().sort(compareSnapshotEntries).slice(0, SNAPSHOT_ENTRY_LIMIT))
-      const serialized = serializeStore(scope, store.entries, store.lastCompactedAt)
-      return formatMemoryHeader(scope, serialized) + text
-    })
-
-    const updateAfterTurn = Effect.fn("Memory.updateAfterTurn")(function* (
-      sessionID: SessionID,
-      evaluator?: DecisionEvaluator,
-      turn?: TurnText,
-    ) {
-      const info = yield* sessions.get(sessionID).pipe(Effect.orDie)
-      if (info.parentID !== undefined) {
+        const decision = yield* evaluateSemanticUpdate(evaluator, {
+          sessionID,
+          phase: "assistant",
+          previousTaskContent: yield* currentTaskContent(sessionID),
+          userText,
+          assistantText,
+        })
+        const taskResult = yield* upsertTaskMemory({ sessionID, ...decision.task })
+        if (taskResult.status === "capacity_rejected") {
+          return yield* Effect.fail(new Error("Mandatory semantic task memory update was rejected at capacity"))
+        }
+        const userResults = yield* Effect.forEach(decision.user, (candidate) =>
+          upsertUserMemory({ sessionID, ...candidate }),
+        )
         yield* audit(sessionID, {
           writerSessionID: sessionID,
-          writerKind: "subagent",
-          action: "memory.skipped",
-          reason: "subagent",
+          writerKind: info.multiAgent ? "planner" : "primary",
+          action: "memory.semantic_completion_update",
+          taskStatus: taskResult.status,
+          userStatuses: userResults.map((result) => result.status),
+          reason: decision.reason,
         })
-        return { status: "skipped" as const, reason: "subagent" as const }
-      }
-      yield* ensure(sessionID)
-      const suppliedUserText = sanitizeContent(turn?.userText ?? "")
-      const suppliedAssistantText = sanitizeContent(turn?.assistantText ?? "")
-      const msgs =
-        suppliedUserText && suppliedAssistantText ? [] : yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
-      const userText = suppliedUserText || latestRealMessageText(msgs, "user")
-      if (!userText) return { status: "skipped" as const, reason: "no_user" as const }
-      // Find the last assistant message with non-synthetic text content.
-      // In cluster mode the immediate child of the original user message is the
-      // planning response — we want the final synthesis, which is always the
-      // chronologically last assistant with real text.
-      const assistantText = suppliedAssistantText || latestRealMessageText(msgs, "assistant")
-      if (!assistantText) return { status: "skipped" as const, reason: "no_assistant" as const }
-
-      // Try LLM evaluator; fall back to deterministic extraction on any failure.
-      const evaluated = evaluator
-        ? yield* evaluator({ sessionID, userText, assistantText }).pipe(
-            Effect.map((value) => ({ ok: true as const, value })),
-            Effect.catchCause(() => Effect.succeed({ ok: false as const })),
-          )
-        : ({ ok: false as const } as const)
-      const parsed = evaluated.ok ? parseDecisionSafe(evaluated.value) : undefined
-      const fallbackUsers = extractUserMemoryCandidates(userText)
-      const userCandidates = parsed?.shouldUpdate && parsed.user.length > 0 ? parsed.user : fallbackUsers
-      const userOnly = userCandidates.length > 0
-      const proposedTask =
-        parsed?.shouldUpdate && parsed.task ? parsed.task : fallbackTaskCandidate(userText, assistantText)
-      const taskCandidate = userOnly ? undefined : normalizeTaskCandidate(proposedTask, userText, assistantText)
-      const usedFallback = !parsed?.shouldUpdate || (userOnly ? parsed.user.length === 0 : !parsed.task)
-
-      const removedProvisional =
-        userOnly && fallbackUsers.length === 0 ? yield* removeTaskEntryForSession(sessionID) : false
-
-      const taskResult = taskCandidate ? yield* upsertTaskMemory({ sessionID, ...taskCandidate }) : undefined
-      const userResults = yield* Effect.forEach(userCandidates, (candidate) =>
-        upsertUserMemory({ sessionID, ...candidate }),
-      )
-      yield* audit(sessionID, {
-        writerSessionID: sessionID,
-        writerKind: "primary",
-        action: usedFallback ? "memory.completion_fallback" : "memory.llm_update",
-        taskStatus: taskResult?.status ?? "skipped",
-        userStatuses: userResults.map((result) => result.status),
-        removedProvisional,
-        reason: parsed?.reason ?? "Deterministic fallback after memory evaluator failure.",
+        return { status: "updated" as const, taskUpdated: true, userUpdated: userResults.length }
       })
-      return { status: "updated" as const, taskUpdated: taskResult !== undefined, userUpdated: userResults.length }
-    })
 
-    const updateStepBegin = Effect.fn("Memory.updateStepBegin")(function* (sessionID: SessionID, turn?: TurnText) {
-      const info = yield* sessions.get(sessionID).pipe(Effect.orDie)
-      if (info.parentID !== undefined) {
+      const updateStepBegin = Effect.fn("Memory.updateStepBegin")(function* (
+        sessionID: SessionID,
+        evaluatorOrTurn?: DecisionEvaluator | TurnText,
+        turn?: TurnText,
+      ) {
+        const info = yield* sessions.get(sessionID).pipe(Effect.orDie)
+        if (info.parentID !== undefined) {
+          yield* audit(sessionID, {
+            writerSessionID: sessionID,
+            writerKind: "subagent",
+            action: "memory.step_begin_skipped",
+            reason: "subagent",
+          })
+          return { status: "skipped" as const, reason: "subagent" as const }
+        }
+        yield* ensure(sessionID)
+        const evaluator = typeof evaluatorOrTurn === "function" ? evaluatorOrTurn : undefined
+        const suppliedTurn = typeof evaluatorOrTurn === "function" ? turn : evaluatorOrTurn
+        const suppliedUserText = sanitizeContent(suppliedTurn?.userText ?? "")
+        const msgs = suppliedUserText ? [] : yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
+        const userText = suppliedUserText || latestRealMessageText(msgs, "user")
+        if (!userText) return { status: "skipped" as const, reason: "no_user" as const }
+
+        const decision = yield* evaluateSemanticUpdate(evaluator, {
+          sessionID,
+          phase: "user",
+          previousTaskContent: yield* currentTaskContent(sessionID),
+          userText,
+          assistantText: "",
+        })
+        const taskResult = yield* upsertTaskMemory({ sessionID, ...decision.task })
+        if (taskResult.status === "capacity_rejected") {
+          return yield* Effect.fail(new Error("Mandatory semantic task memory update was rejected at capacity"))
+        }
+        const userResults = yield* Effect.forEach(decision.user, (candidate) =>
+          upsertUserMemory({ sessionID, ...candidate }),
+        )
         yield* audit(sessionID, {
           writerSessionID: sessionID,
-          writerKind: "subagent",
-          action: "memory.step_begin_skipped",
-          reason: "subagent",
+          writerKind: info.multiAgent ? "planner" : "primary",
+          action: "memory.semantic_user_update",
+          taskStatus: taskResult.status,
+          userStatuses: userResults.map((result) => result.status),
+          reason: decision.reason,
         })
-        return { status: "skipped" as const, reason: "subagent" as const }
-      }
-      yield* ensure(sessionID)
-      const suppliedUserText = sanitizeContent(turn?.userText ?? "")
-      const msgs = suppliedUserText ? [] : yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
-      const userText = suppliedUserText || latestRealMessageText(msgs, "user")
-      if (!userText) return { status: "skipped" as const, reason: "no_user" as const }
-
-      const userCandidates = extractUserMemoryCandidates(userText).map((candidate) => ({
-        ...candidate,
-        importance: provisionalUserImportance(candidate.importance),
-      }))
-      const userResults = yield* Effect.forEach(userCandidates, (candidate) =>
-        upsertUserMemory({ sessionID, ...candidate }),
-      )
-      const taskResult =
-        userCandidates.length === 0
-          ? yield* upsertTaskMemory({
-              sessionID,
-              ...fallbackTaskCandidate(userText, "已接收要求并开始处理"),
-            })
-          : undefined
-      yield* audit(sessionID, {
-        writerSessionID: sessionID,
-        writerKind: "primary",
-        action: "memory.step_begin_write",
-        taskStatus: taskResult?.status ?? "skipped",
-        userStatuses: userResults.map((result) => result.status),
-        reason:
-          userCandidates.length > 0 ? "User information routed exclusively to USER.json." : "User request recorded.",
+        return { status: "updated" as const, taskUpdated: true, userUpdated: userResults.length }
       })
-      return { status: "updated" as const, taskUpdated: taskResult !== undefined, userUpdated: userResults.length }
-    })
 
-    const appendAudit = Effect.fn("Memory.appendAudit")(function* (
-      sessionID: SessionID,
-      entry: Record<string, unknown>,
-    ) {
-      const target = path.join(yield* dir(sessionID), "audit.jsonl")
-      yield* fs.ensureDir(path.dirname(target)).pipe(Effect.orDie)
-      yield* flock.withLock(
-        Effect.gen(function* () {
-          const current = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
-          yield* writeFileAtomic(target, current + JSON.stringify(entry) + "\n")
-        }),
-        target,
-      )
-    })
+      const appendAudit = Effect.fn("Memory.appendAudit")(function* (
+        sessionID: SessionID,
+        entry: Record<string, unknown>,
+      ) {
+        const target = path.join(yield* dir(sessionID), "audit.jsonl")
+        yield* fs.ensureDir(path.dirname(target)).pipe(Effect.orDie)
+        yield* flock.withLock(
+          Effect.gen(function* () {
+            const current = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
+            yield* writeFileAtomic(target, current + JSON.stringify(entry) + "\n")
+          }),
+          target,
+        )
+      })
 
-    return Service.of({
-      dir,
-      ensure,
-      read,
-      search,
-      upsertTaskMemory,
-      upsertUserMemory,
-      write,
-      replaceBySubstring,
-      removeBySubstring,
-      compact,
-      usage,
-      formatWithHeader,
-      updateAfterTurn,
-      updateStepBegin,
-    })
-  }),
-).pipe(Layer.provide(EffectFlock.defaultLayer))
+      return Service.of({
+        dir,
+        ensure,
+        read,
+        search,
+        upsertTaskMemory,
+        upsertUserMemory,
+        write,
+        replaceBySubstring,
+        removeBySubstring,
+        compact,
+        usage,
+        formatWithHeader,
+        updateAfterTurn,
+        updateStepBegin,
+      })
+    }),
+  ).pipe(Layer.provide(EffectFlock.defaultLayer))
 
 export const layer = layerWithDirectory(DIRECTORY)
 
@@ -929,7 +944,9 @@ function compactEntrySet(store: MemoryStore, scope: Scope, source: readonly Memo
   let merged = 0
 
   for (const entry of source) {
-    const exact = entries.findIndex((item) => JSON.stringify(normalizeEntry(item)) === JSON.stringify(normalizeEntry(entry)))
+    const exact = entries.findIndex(
+      (item) => JSON.stringify(normalizeEntry(item)) === JSON.stringify(normalizeEntry(entry)),
+    )
     if (exact !== -1) {
       removed++
       continue
@@ -1147,12 +1164,6 @@ function latestRealMessageText(messages: readonly MessageV2.WithParts[], role: "
   return ""
 }
 
-function summarizeText(input: string, max = 180) {
-  const compact = input.replace(/\s+/g, " ").trim()
-  if (compact.length <= max) return compact
-  return compact.slice(0, max - 3).trimEnd() + "..."
-}
-
 function sanitizeContent(input: string) {
   return input.replace(/\s+/g, " ").trim()
 }
@@ -1171,7 +1182,10 @@ function findEntryBySubstring(entries: readonly MemoryEntry[], substring: string
   if (matches.length === 0) return { match: null as null, error: `No entry found matching: "${substring}"` }
   if (matches.length > 1) {
     const snippets = matches.map((e) => `  - "${e.text.slice(0, 60)}..."`).join("\n")
-    return { match: null as null, error: `Multiple entries match "${substring}":\n${snippets}\nUse a more specific substring.` }
+    return {
+      match: null as null,
+      error: `Multiple entries match "${substring}":\n${snippets}\nUse a more specific substring.`,
+    }
   }
   return { match: matches[0]!, error: null as null }
 }
@@ -1186,28 +1200,24 @@ function asError(error: unknown) {
   return error instanceof Error ? error : new Error(String(error))
 }
 
-function parseDecisionSafe(value: unknown): MemoryDecision | undefined {
-  try {
-    const decision = expectRecord(value, "memory decision")
-    const allowed = new Set(["shouldUpdate", "reason", "task", "user"])
-    const unknown = Object.keys(decision).find((key) => !allowed.has(key))
-    if (unknown) throw new Error(`Invalid memory decision: unknown field ${unknown}`)
-    if (typeof decision.shouldUpdate !== "boolean") throw new Error("Invalid memory decision shouldUpdate")
-    const reason = expectString(decision.reason, "memory decision reason").trim()
-    if (!reason) throw new Error("Invalid memory decision reason")
-    if (!Array.isArray(decision.user)) throw new Error("Invalid memory decision user")
-    const task = decision.task === undefined ? undefined : parseCandidate(decision.task, "task")
-    const user = decision.user.map((candidate, index) => parseCandidate(candidate, `user ${index}`))
-    const keys = new Set<string>()
-    for (const candidate of user) {
-      const key = entryKey({ scope: "user", ...candidate })
-      if (keys.has(key)) throw new Error(`Invalid memory decision: duplicate user key ${key}`)
-      keys.add(key)
-    }
-    return { shouldUpdate: decision.shouldUpdate, reason, ...(task ? { task } : {}), user }
-  } catch {
-    return undefined
+function parseDecision(value: unknown): MemoryDecision {
+  const decision = expectRecord(value, "memory decision")
+  assertExactFields(decision, ["shouldUpdate", "reason", "task", "user"], "memory decision")
+  if (decision.shouldUpdate !== true) {
+    throw new Error("Invalid memory decision shouldUpdate: mandatory semantic updates must be true")
   }
+  const reason = expectString(decision.reason, "memory decision reason").trim()
+  if (!reason) throw new Error("Invalid memory decision reason")
+  if (!Array.isArray(decision.user)) throw new Error("Invalid memory decision user")
+  const task = parseCandidate(decision.task, "task")
+  const user = decision.user.map((candidate, index) => parseCandidate(candidate, `user ${index}`))
+  const keys = new Set<string>()
+  for (const candidate of user) {
+    const key = entryKey({ scope: "user", ...candidate })
+    if (keys.has(key)) throw new Error(`Invalid memory decision: duplicate user key ${key}`)
+    keys.add(key)
+  }
+  return { shouldUpdate: true, reason, task, user }
 }
 
 function parseCandidate(value: unknown, label: string): MemoryCandidate {
@@ -1222,130 +1232,23 @@ function parseCandidate(value: unknown, label: string): MemoryCandidate {
   return normalized
 }
 
-function fallbackTaskCandidate(userText: string, assistantText: string): MemoryCandidate {
-  return {
-    importance: taskImportance(userText, assistantText),
-    keywords: extractTaskKeywords(`${userText}\n${assistantText}`),
-    content: formatTaskContent(userText, assistantText.trim() || userText.trim()),
-  }
-}
-
-function normalizeTaskCandidate(candidate: MemoryCandidate, userText: string, assistantText: string): MemoryCandidate {
-  return {
-    ...candidate,
-    content: formatTaskContent(userText, candidate.content || assistantText),
-  }
-}
-
 function validateTaskContent(input: string) {
   const content = parseContent(input)
-  if (!/^用户要求.+，我完成了.+$/u.test(content)) {
-    throw new Error('Invalid task memory content: expected "用户要求...，我完成了..."')
+  if (!/^用户要求.+(?:，我完成了.+)?$/u.test(content)) {
+    throw new Error('Invalid task memory content: expected "用户要求..." or "用户要求...，我完成了..."')
   }
   return content
 }
 
-function formatTaskContent(userText: string, completionText: string) {
-  const request = summarizeText(userText, 60)
-  const completion = summarizeText(completionSummary(completionText), 80)
-  return validateTaskContent(`用户要求${request}，我完成了${completion}`)
-}
-
-function completionSummary(input: string) {
-  const compact = sanitizeContent(input)
-  const formatted = compact.match(/我完成了[:：]?(.+)$/u)?.[1]?.trim()
-  const source = formatted || compact
-  const stripped = source.replace(/^(?:我)?(?:已经|已)?完成(?:了)?[:：]?/u, "").trim()
-  return stripped || "记录了本次处理结果"
-}
-
-function extractUserMemoryCandidates(input: string): MemoryCandidate[] {
-  const text = sanitizeContent(input)
-  const candidates: MemoryCandidate[] = []
-  const push = (candidate: MemoryCandidate) => {
-    const key = [...candidate.keywords].sort().join("\u001f")
-    if (!candidates.some((item) => [...item.keywords].sort().join("\u001f") === key)) candidates.push(candidate)
+function validateTaskContentForPhase(input: string, phase: MemoryUpdatePhase) {
+  const content = validateTaskContent(input)
+  if (phase === "user" && /，我完成了/u.test(content)) {
+    throw new Error('Invalid user-phase task memory content: expected "用户要求..." without a completion')
   }
-
-  const name = text.match(
-    /(?:我叫|我的名字(?:是|叫)|请(?:叫我|称呼我(?:为)?))\s*([\p{Script=Han}A-Za-z0-9_.-]{1,24})/u,
-  )?.[1]
-  if (name) push({ importance: 10, keywords: ["姓名"], content: `用户姓名为${name}。` })
-
-  const birthday = text.match(/(?:我的)?(?:生日|出生日期)(?:是|为|[:：])?\s*([^，。；;!！?？]{3,24})/u)?.[1]
-  if (birthday) push({ importance: 9, keywords: ["生日"], content: `用户生日为${birthday}。` })
-
-  const preference = text.match(
-    /(?:我|本人)(?:长期)?(?:偏好|喜欢|习惯(?:使用)?|常用|不喜欢|讨厌)\s*([^，。；;!！?？]{1,80})/iu,
-  )?.[1]
-  const futurePreference = text.match(/(?:请)?(?:以后|始终|一直)(?:用|使用|以)\s*([^，。；;!！?？]{1,80})/u)?.[1]
-  const rememberedFact = text.match(/记住我(?:的)?\s*([^，。；;!！?？]{1,80})/u)?.[1]
-  const preferenceText = preference || futurePreference || rememberedFact
-  if (preferenceText) {
-    push({ importance: 9, keywords: ["偏好"], content: `用户偏好${preferenceText}。` })
+  if (phase === "assistant" && !/^用户要求.+，我完成了.+$/u.test(content)) {
+    throw new Error('Invalid assistant-phase task memory content: expected "用户要求...，我完成了..."')
   }
-
-  const profile = text.match(/我(?:住在|来自|在)([^，。；;!！?？]{1,60})(?:工作|学习)?/u)?.[0]
-  if (profile && candidates.length === 0 && !/(?:需要|想让|希望你|请你)/u.test(profile)) {
-    push({ importance: 8, keywords: ["资料"], content: `用户信息：${profile}。` })
-  }
-
-  return candidates
-}
-
-function provisionalUserImportance(importance: Importance): Importance {
-  if (importance === 10) return 9
-  if (importance === 9) return 8
-  return 7
-}
-
-function taskImportance(userText: string, assistantText: string): Importance {
-  if (/(?:发布|上线|迁移|架构|完整|全部|端到端|生产)/u.test(`${userText}\n${assistantText}`)) return 8
-  if (/(?:优化|修复|通过测试|交付)/u.test(assistantText)) return 7
-  return 6
-}
-
-function extractTaskKeywords(input: string): string[] {
-  const cleaned = input.replace(/\s+/gu, "").toLowerCase()
-
-  // Content-aware extraction: check what the user is talking about.
-  if (/(?:我叫|我是|我的名字|姓名|称呼|自我介绍)/u.test(cleaned)) return ["用户信息"]
-  if (/(?:记住|记忆|保存|存储|记录|备忘录)/u.test(cleaned)) return ["记忆"]
-  if (/(?:代码|编程|写代码|开发|修复|bug|调试|重构)/u.test(cleaned)) return ["编程"]
-  if (/(?:测试|test|验证|检查)/u.test(cleaned)) return ["测试"]
-  if (/(?:文档|报告|笔记|wiki|readme|写文)/u.test(cleaned)) return ["文档"]
-  if (/(?:配置|安装|设置|部署|环境|依赖)/u.test(cleaned)) return ["配置"]
-  if (/(?:搜索|查找|寻找|检索)/u.test(cleaned)) return ["搜索"]
-  if (/(?:游戏|赛车|地图|关卡)/u.test(cleaned)) return ["游戏"]
-  if (/(?:架构|设计|重构|结构)/u.test(cleaned)) return ["架构"]
-  if (/(?:日期|时间|今天|明天|星期|几号|几点)/u.test(cleaned)) return ["时间日期"]
-  if (/(?:翻译|中文|英文|语言|翻译成)/u.test(cleaned)) return ["翻译"]
-  if (/(?:文件|目录|路径|读取|写入)/u.test(cleaned)) return ["文件操作"]
-  if (/(?:hello|hi|你好|say|greet)/i.test(cleaned)) return ["对话"]
-
-  // Domain patterns: extract short CJK phrases ending with common topic words.
-  const topicWords = ["项目", "游戏", "系统", "功能", "文档", "报告", "模型", "地图", "接口", "工具"]
-  for (const topic of topicWords) {
-    const re = new RegExp(`[\\p{Script=Han}A-Za-z0-9]{1,4}${topic}`, "gu")
-    const matches = Array.from(input.matchAll(re))
-      .map((m) => m[0].replace(/^(?:请|继续|完成|优化|实现|创建|生成|修复|已完成|已实现|已创建|已生成)+/u, "").trim())
-      .filter((k) => k.length >= 2 && k.length <= 4)
-    if (matches.length > 0) return normalizeKeywords(matches).slice(0, 3)
-  }
-
-  // Fallback: extract the first meaningful CJK 2-4 char word from the content,
-  // skipping verbs, particles, greetings, stop words, and command prefixes.
-  const commandPrefix = /^(?:请|帮我|帮忙|帮我用|能不能|可以|可不|可否|麻烦)/u
-  const stopSet = new Set(["你好", "哈喽", "嗨", "谢谢", "再见", "请问", "好的", "是的", "嗯", "哦", "啊", "呢", "吧", "吗", "了", "的", "我", "你", "他", "她", "它", "们", "这", "那", "什么", "怎么", "为什么", "哪里", "回复", "回答", "告诉", "解释"])
-  const cjkWords = Array.from(cleaned.matchAll(/[\p{Script=Han}]{2,4}/gu))
-    .map((m) => m[0])
-    .filter((w) => !stopSet.has(w) && !commandPrefix.test(w))
-  if (cjkWords.length > 0) {
-    const first = cjkWords[0]!
-    return normalizeKeywords([first.length > 4 ? first.slice(0, 4) : first]).slice(0, 3)
-  }
-
-  return ["对话记录"]
+  return content
 }
 
 function looksSensitive(input: string) {

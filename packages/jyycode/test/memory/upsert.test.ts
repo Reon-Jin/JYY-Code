@@ -157,6 +157,6 @@ describe("structured memory upserts", () => {
           }),
         ),
       ),
-    ).rejects.toThrow('expected "用户要求...，我完成了..."')
+    ).rejects.toThrow('expected "用户要求..." or "用户要求...，我完成了..."')
   })
 })
