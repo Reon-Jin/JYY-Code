@@ -6,7 +6,7 @@ USER.json (target="user"): store explicit, stable user identity facts and reusab
 Actions:
 - add: upsert a structured entry. Provide importance (1-10), one to three keywords (each 2-4 characters), and concise content. The current session ID is injected automatically and must not be placed in content.
 - replace: find an entry by old_text substring match and replace it with new content. old_text must uniquely identify a single entry. Use this to update or consolidate entries.
-- For add and replace, MEMORY content must use `用户要求...` during the user-input phase or `用户要求...，我完成了...` during the assistant-completion phase. Automatic updates semantically recompress and replace the session entry; never truncate by slicing or use ellipses as a truncation marker.
+- For add and replace, MEMORY content must use `用户要求...` during the user-input phase or `用户要求...，我完成了...` during the assistant-completion phase. The semantic text after each prefix is limited to 30 Unicode characters; prefixes and separator punctuation do not count. Automatic updates semantically recompress and replace the session entry; never truncate by slicing or use ellipses as a truncation marker.
 - remove: delete an entry found by old_text substring match. old_text must uniquely identify a single entry.
 - compact: organize the selected store. Capacity compaction is deterministic and never permits a subagent write.
 

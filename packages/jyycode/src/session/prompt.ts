@@ -176,6 +176,7 @@ export const layer = Layer.effect(
           isUserPhase
             ? 'This update runs immediately after a user prompt. task.content must have exactly the form "用户要求<累积语义概括>" and must not contain "我完成了".'
             : 'This update runs immediately before the assistant answer is returned. task.content must have exactly the form "用户要求<累积语义概括>，我完成了<累积完成结果>".',
+          'The semantic text after "用户要求" and the semantic text after "我完成了" must each be at most 30 Unicode characters. Prefixes and punctuation do not count. Rephrase semantically to fit; never truncate or add ellipses.',
           "A task entry is mandatory on every phase, including greetings and prompts containing stable user facts. Always set shouldUpdate to true and always return task.",
           "Put explicit stable user identity facts or long-term preferences in user as well; this never replaces the mandatory task entry.",
           "Every keyword must contain 2 to 4 characters. Return one to three keywords per candidate.",

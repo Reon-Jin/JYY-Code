@@ -21,6 +21,7 @@ const CAPACITY_WARN_THRESHOLD = 0.8
 const COMPACTION_TARGET = 0.7
 const COMPACTION_ENTRY_TARGET = 45
 const SNAPSHOT_ENTRY_LIMIT = 10
+const TASK_SECTION_CHAR_LIMIT = 30
 
 export type Scope = "memory" | "user"
 type Confidence = "low" | "medium" | "high"
@@ -1234,8 +1235,26 @@ function parseCandidate(value: unknown, label: string): MemoryCandidate {
 
 function validateTaskContent(input: string) {
   const content = parseContent(input)
-  if (!/^用户要求.+(?:，我完成了.+)?$/u.test(content)) {
+  const prefix = "用户要求"
+  const completionMarker = "，我完成了"
+  if (!content.startsWith(prefix)) {
     throw new Error('Invalid task memory content: expected "用户要求..." or "用户要求...，我完成了..."')
+  }
+  const body = content.slice(prefix.length)
+  const markerIndex = body.indexOf(completionMarker)
+  if ((markerIndex === -1 && body.includes("我完成了")) || body.indexOf(completionMarker, markerIndex + 1) !== -1) {
+    throw new Error('Invalid task memory content: expected "用户要求..." or "用户要求...，我完成了..."')
+  }
+  const request = markerIndex === -1 ? body : body.slice(0, markerIndex)
+  const completion = markerIndex === -1 ? undefined : body.slice(markerIndex + completionMarker.length)
+  if (!request || completion === "") {
+    throw new Error('Invalid task memory content: expected "用户要求..." or "用户要求...，我完成了..."')
+  }
+  if ([...request].length > TASK_SECTION_CHAR_LIMIT) {
+    throw new Error(`Task memory 用户要求 must not exceed ${TASK_SECTION_CHAR_LIMIT} characters`)
+  }
+  if (completion !== undefined && [...completion].length > TASK_SECTION_CHAR_LIMIT) {
+    throw new Error(`Task memory 我完成了 must not exceed ${TASK_SECTION_CHAR_LIMIT} characters`)
   }
   return content
 }
