@@ -216,6 +216,14 @@ export const layer = Layer.effect(
           "",
           "Current assistant output:",
           input.assistantText || "(not available in the user phase)",
+          ...(input.correction
+            ? [
+                "",
+                "CORRECTION REQUIRED:",
+                input.correction,
+                "Return a new complete JSON object that fixes this validation error.",
+              ]
+            : []),
         ].join("\n")
         return yield* Effect.tryPromise({
           try: () =>

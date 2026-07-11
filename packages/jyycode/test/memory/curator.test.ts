@@ -123,6 +123,34 @@ describe("two-phase semantic memory curator", () => {
     expect(entries[0]?.content).not.toContain("...")
   })
 
+  test("asks the LLM to correct a business-validation error before blocking the turn", async () => {
+    const ctx = fixture()
+    ctx.setMessages(messages("创建三步子Agent任务", ""))
+    const corrections: Array<string | undefined> = []
+
+    const result = await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateStepBegin(sessionID, (input) => {
+          corrections.push(input.correction)
+          if (corrections.length === 1) {
+            return Effect.succeed({
+              ...decision("用户要求创建三步子Agent任务"),
+              task: { importance: 7, keywords: ["子agent"], content: "用户要求创建三步子Agent任务" },
+            })
+          }
+          return Effect.succeed(decision("用户要求创建三步子Agent任务"))
+        }),
+      ),
+    )
+
+    expect(result).toMatchObject({ status: "updated", taskUpdated: true })
+    expect(corrections).toHaveLength(2)
+    expect(corrections[0]).toBeUndefined()
+    expect(corrections[1]).toContain('keyword "子agent"')
+    const [entry] = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
+    expect(entry?.content).toBe("用户要求创建三步子Agent任务")
+  })
+
   test("adds the semantic completion before returning the final answer and keeps one session entry", async () => {
     const ctx = fixture()
     ctx.setMessages(messages("请完成赛车游戏", "已完成赛车游戏基础建模。"))

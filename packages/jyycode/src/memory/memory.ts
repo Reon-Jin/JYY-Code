@@ -257,6 +257,7 @@ export type DecisionInput = {
   sessionID: SessionID
   phase: MemoryUpdatePhase
   previousTaskContent?: string
+  correction?: string
   userText: string
   assistantText: string
 }
@@ -776,16 +777,28 @@ export const layerWithDirectory = (directory: string) =>
         input: DecisionInput,
       ) {
         if (!evaluator) return yield* Effect.fail(new Error("Semantic memory evaluator is required"))
-        const value = yield* evaluator(input).pipe(Effect.mapError(asError))
-        const decision = yield* Effect.try({
-          try: () => parseDecision(value),
-          catch: (error) => asError(error),
-        })
-        const content = yield* Effect.try({
-          try: () => validateTaskContentForPhase(decision.task.content, input.phase),
-          catch: (error) => asError(error),
-        })
-        return { ...decision, task: { ...decision.task, content } }
+        let correction = input.correction
+        let lastError = new Error("Semantic memory decision validation failed")
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const evaluated = yield* evaluator({ ...input, ...(correction ? { correction } : {}) }).pipe(
+            Effect.map((value) => ({ ok: true as const, value })),
+            Effect.catch((error) => Effect.succeed({ ok: false as const, error: asError(error) })),
+          )
+          if (!evaluated.ok) {
+            lastError = evaluated.error
+            correction = lastError.message
+            continue
+          }
+          try {
+            const decision = parseDecision(evaluated.value)
+            const content = validateTaskContentForPhase(decision.task.content, input.phase)
+            return { ...decision, task: { ...decision.task, content } }
+          } catch (error) {
+            lastError = asError(error)
+            correction = lastError.message
+          }
+        }
+        return yield* Effect.fail(lastError)
       })
 
       const updateAfterTurn = Effect.fn("Memory.updateAfterTurn")(function* (
