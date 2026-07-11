@@ -496,7 +496,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
         category: "Session",
         suggested: sync.data.session.length > 0,
         slashName: "sessions",
-        slashAliases: ["resume", "continue"],
+        slashAliases: ["session", "resume", "continue"],
         run: () => {
           dialog.replace(() => <DialogSessionList />)
         },
