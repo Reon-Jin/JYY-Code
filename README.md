@@ -6,7 +6,7 @@
 
 [中文文档](README-zh.md) · [English](README.md)
 
-> **Coding agents that remember, delegate, and finish.**
+> **A Multi-Agent engineering workflow that plans, delegates, reviews, revises, and delivers.**
 >
 > Turn one prompt into a persistent, observable engineering run.
 
@@ -14,15 +14,15 @@
   <img src="./logo/logo.gif" alt="JYY-Code animated logo" width="500" />
 </p>
 
-JYY-Code is a terminal-first agent system for real software work. It plans complex tasks, delegates them to specialized agents, tracks every background job, remembers durable context, and resumes from persisted state instead of starting over.
+JYY-Code is a terminal-first Multi-Agent system for real software and documentation work. Instead of asking one general-purpose agent to carry the entire context and judge its own output, JYY-Code turns a goal into a managed engineering workflow: a primary agent plans the work, delegates it to specialists, reviews every result, sends rejected work back for revision, and synthesizes only accepted results into the final delivery.
 
 ```text
-Plan → Delegate → Execute in parallel → Review → Resume → Ship
+Plan → Delegate → Execute in parallel → Review → Revise → Synthesize
 ```
 
 **Install:** `npm install -g jyycode-ai` · **Launch:** `jyy`
 
-If you want coding agents to behave like an engineering team—not a scrolling chat window—JYY-Code is built for you. If that sounds useful, give the project a ⭐.
+Press **F9** to enable the Multi-Agent workflow. Run **`/cluster`** to choose models for the planner, complex tasks, simple tasks, and visual tasks.
 
 ## Why JYY-Code
 
@@ -31,36 +31,38 @@ If you want coding agents to behave like an engineering team—not a scrolling c
 | Forgets context between sessions | Keeps structured project and user memory |
 | Hides work inside a text stream | Shows plans, tasks, agents, and status in the TUI |
 | Loses background-task state | Persists sessions, cluster runs, tasks, and events in SQLite |
-| Runs one general-purpose agent | Delegates to specialized agents with dependencies and review |
+| One agent writes and judges its own result | Specialists produce code and documents; the primary agent reviews, rejects, and synthesizes |
 | Exposes an oversized tool catalog | Finds the right tool with BM25-powered tool search |
 
 ## Highlights
 
-### Multi-Agent Engineering, Not Agent Theater
+### A Closed-Loop Multi-Agent Workflow
 
-Press **F9** to turn a large request into a dependency-aware execution plan.
+Press **F9** to enable Multi-Agent mode and turn a large request into a dependency-aware execution plan. Use **`/cluster`** to route different models to the planner, complex, simple, and visual roles, so each stage can use the model best suited to it.
 
-- Planner, orchestrator, specialist, and reviewer roles.
-- Researcher, coder, tester, analyst, visual, chart, PDF, and other focused agents.
-- Parallel background execution with configurable concurrency and model routing.
-- Explicit task IDs, dependencies, acceptance criteria, and expected artifacts.
-- Review rounds and completion gates prevent premature “done” responses.
+- **Plan:** the cluster primary converts the goal into explicit tasks, dependencies, acceptance criteria, and expected artifacts.
+- **Delegate:** researcher, coder, tester, analyst, visual, chart, PDF, and other specialists receive focused context and can run in parallel.
+- **Review:** every submitted result is checked against its acceptance criteria; unfinished tasks cannot pass the completion gate.
+- **Revise:** rejected work is returned to the same specialist session with concrete issues, preserving context across review rounds.
+- **Synthesize:** the primary waits for terminal task states and combines only accepted outputs into one coherent code or document delivery.
+- Configurable concurrency and per-role model routing balance quality, speed, and cost.
 - Git worktree isolation keeps parallel coding tasks from stepping on each other.
-- Use the `/cluster` command to configure models for different roles.
 
-### Memory That Survives the Chat
+This separation of planning, production, and quality control gives JYY-Code stronger code and document delivery than a single agent that must research, implement, verify, and self-review inside one context window.
 
-JYY-Code uses two strict JSON stores instead of an opaque vector database:
+### Structured Memory That Tracks Work Before and After Execution
 
-- `MEMORY.json` keeps one evolving task memory per session.
-- `USER.json` keeps stable user facts and preferences, keyed by normalized keywords.
-- The first model step receives the top 10 entries from each store—20 entries maximum.
-- Relevant entries are searched and injected automatically during a conversation.
-- Post-turn evaluation decides whether durable results should update memory; the first valid turn has a safe fallback.
-- Schema validation, sensitive-data checks, deduplication, capacity limits, file locks, and atomic replacement protect the stores.
-- Only primary sessions can write. Sub-agents can read memory without corrupting it.
+JYY-Code uses transparent, schema-validated JSON memory instead of an opaque vector database:
 
-The result: less repeated setup, more consistent decisions, and agents that improve their understanding of your project over time.
+- `MEMORY.json` stores the evolving task state and final outcome for each primary session; `USER.json` stores durable user facts and preferences.
+- A semantic update runs at the start of a user step, so the active request is captured before execution, then runs again after the assistant finishes to replace it with the verified completion state.
+- In Multi-Agent runs, memory ignores the intermediate planning response and learns from the final synthesis, preventing plans from being mistaken for delivered results.
+- Each entry has an importance score, normalized keywords, concise content, and—for task memory—date and session provenance. The most important and relevant entries are injected into the prompt, while on-demand search ranks matches by keywords, content, and importance.
+- Deterministic upserts replace entries with the same normalized keyword key instead of endlessly appending near-duplicates.
+- At capacity thresholds, automatic compaction merges overlapping entries and retains information using importance, recency, and keyword reuse; hard limits prevent uncontrolled prompt growth.
+- Strict schema validation, sensitive-data rejection, primary-session-only writes, file locks, atomic replacement, and an append-only audit trail protect integrity and make every mutation traceable.
+
+The result is memory that is selective rather than noisy, inspectable rather than opaque, and safe to share across a Multi-Agent run without letting sub-agents pollute the durable record.
 
 ### Durable Runs You Can Trust
 
@@ -194,12 +196,6 @@ packages/sdk/       JYY-Code API client
 .jyycode/           Project agents, skills, commands, themes, and config
 memory/             Structured persistent memory
 ```
-
-## Star the Project
-
-JYY-Code is for developers who want agents with memory, coordination, visibility, and follow-through.
-
-If that is the direction you want coding agents to take, [star JYY-Code on GitHub](https://github.com/Reon-Jin/JYY-Code) ⭐
 
 ## License
 
