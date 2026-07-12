@@ -1,8 +1,11 @@
 # JYYCode Windows 桌面 GUI 第一阶段设计
 
-**状态：** 已确认  
-**日期：** 2026-07-12  
-**目标平台：** Windows 10/11 x64  
+**状态：** 已确认
+
+**日期：** 2026-07-12
+
+**目标平台：** Windows 10/11 x64
+
 **技术路线：** Tauri 2 + SolidJS + JYYCode sidecar
 
 ## 1. 目标
@@ -308,4 +311,3 @@ UI 字体使用 Inter，并提供 `Segoe UI, system-ui, sans-serif` 本地回退
 - [Tauri：Windows installer 与 WebView2](https://v2.tauri.app/distribute/windows-installer/)
 - [SolidJS：官方测试指南](https://docs.solidjs.com/guides/testing)
 - [TanStack Solid Query：Quick Start](https://tanstack.com/query/latest/docs/framework/solid/quick-start)
-
