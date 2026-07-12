@@ -43,7 +43,6 @@ export const Flag = {
 
   JYYCODE_WORKSPACE_ID: process.env["JYYCODE_WORKSPACE_ID"],
   JYYCODE_EXPERIMENTAL_WORKSPACES: JYYCODE_EXPERIMENTAL || truthy("JYYCODE_EXPERIMENTAL_WORKSPACES"),
-  JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS: JYYCODE_EXPERIMENTAL || truthy("JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS"),
 
   // Evaluated at access time (not module load) because tests, the CLI, and
   // external tooling set these env vars at runtime.

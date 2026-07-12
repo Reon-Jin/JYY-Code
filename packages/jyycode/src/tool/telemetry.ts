@@ -34,19 +34,6 @@ export const Event = {
       resultIDs: Schema.Array(Schema.String),
     }),
   ),
-  DeferredExecuted: BusEvent.define(
-    "tool.deferred.executed",
-    Schema.Struct({
-      sessionID: OptionalString,
-      messageID: OptionalString,
-      callID: OptionalString,
-      tool: Schema.String,
-      delegatedTool: Schema.String,
-      delegatedCategory: OptionalString,
-      delegatedRisk: OptionalString,
-      success: Schema.Boolean,
-    }),
-  ),
   ExecutionCompleted: BusEvent.define(
     "tool.execution.completed",
     Schema.Struct({
@@ -111,22 +98,6 @@ export function searchExecuted(
       matches: input.resultIDs.length,
     })
     .pipe(Effect.ignore)
-}
-
-export function deferredExecuted(
-  bus: Bus.Interface,
-  input: {
-    sessionID?: string
-    messageID?: string
-    callID?: string
-    tool: string
-    delegatedTool: string
-    delegatedCategory?: Tool.CatalogMetadata["category"]
-    delegatedRisk?: Tool.CatalogMetadata["risk"]
-    success: boolean
-  },
-) {
-  return bus.publish(Event.DeferredExecuted, input).pipe(Effect.ignore)
 }
 
 export function executionCompleted(

@@ -138,13 +138,12 @@ describe("experimental HttpApi", () => {
       Effect.gen(function* () {
         const tmp = yield* TestInstance
         const directory = tmp.directory
-        const [consoleState, consoleOrgs, toolList, toolIDs, toolDisclosure, worktrees, resources] = yield* Effect.all(
+        const [consoleState, consoleOrgs, toolList, toolIDs, worktrees, resources] = yield* Effect.all(
           [
             request(ExperimentalPaths.console, directory),
             request(ExperimentalPaths.consoleOrgs, directory),
             request(`${ExperimentalPaths.tool}?provider=jyycode&model=gpt-5`, directory),
             request(ExperimentalPaths.toolIDs, directory),
-            request(ExperimentalPaths.toolDisclosure, directory),
             request(ExperimentalPaths.worktree, directory),
             request(ExperimentalPaths.resource, directory),
           ],
@@ -171,23 +170,6 @@ describe("experimental HttpApi", () => {
 
         expect(toolIDs.status).toBe(200)
         expect(yield* json(toolIDs)).toContain("bash")
-
-        expect(toolDisclosure.status).toBe(200)
-        const disclosure = yield* json<Array<{ id: string; category?: string; mode: string }>>(toolDisclosure)
-        expect(disclosure).toContainEqual(
-          expect.objectContaining({ id: "websearch", category: "web", mode: "deferred" }),
-        )
-        expect(disclosure).toContainEqual(
-          expect.objectContaining({ id: "webfetch", category: "web", mode: "deferred" }),
-        )
-        expect(disclosure).toContainEqual(
-          expect.objectContaining({ id: "tool_search", source: "system", mode: "direct", configurable: false }),
-        )
-        expect(disclosure).toContainEqual(
-          expect.objectContaining({ id: "tool_exec", source: "system", mode: "direct", configurable: false }),
-        )
-        const memory = disclosure.find((tool) => tool.id === "memory")
-        if (memory) expect(memory.mode).toBe("direct")
 
         expect(worktrees.status).toBe(200)
         expect(yield* json(worktrees)).toEqual([])

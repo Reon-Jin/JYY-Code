@@ -218,8 +218,6 @@ import type {
   TextPartInput,
   ToolIdsErrors,
   ToolIdsResponses,
-  ToolDisclosureErrors,
-  ToolDisclosureResponses,
   ToolListErrors,
   ToolListResponses,
   TuiAppendPromptErrors,
@@ -1284,35 +1282,6 @@ export class Tool extends HeyApiClient {
     })
   }
 
-  /**
-   * List tool disclosure modes
-   *
-   * List all currently available registry and MCP tools with their configured and effective deferred-tool disclosure modes.
-   */
-  public disclosure<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<ToolDisclosureResponses, ToolDisclosureErrors, ThrowOnError>({
-      url: "/experimental/tool/disclosure",
-      ...options,
-      ...params,
-    })
-  }
 }
 
 export class Worktree extends HeyApiClient {
@@ -3465,9 +3434,6 @@ export class Session2 extends HeyApiClient {
       agentCluster?: {
         enabled?: boolean
       }
-      toolDisclosure?: {
-        deferredTools?: boolean
-      }
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -3489,7 +3455,6 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
             { in: "body", key: "agentCluster" },
-            { in: "body", key: "toolDisclosure" },
             { in: "body", key: "parts" },
           ],
         },
@@ -3880,9 +3845,6 @@ export class Session2 extends HeyApiClient {
       arguments?: string
       command?: string
       variant?: string
-      toolDisclosure?: {
-        deferredTools?: boolean
-      }
       parts?: Array<{
         id?: string
         type: "file"
@@ -3908,7 +3870,6 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "arguments" },
             { in: "body", key: "command" },
             { in: "body", key: "variant" },
-            { in: "body", key: "toolDisclosure" },
             { in: "body", key: "parts" },
           ],
         },

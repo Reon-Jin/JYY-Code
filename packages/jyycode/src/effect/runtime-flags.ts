@@ -48,8 +48,6 @@ export class Service extends ConfigService.Service<Service>()("@jyycode/RuntimeF
   experimentalEventSystem: enabledByExperimental("JYYCODE_EXPERIMENTAL_EVENT_SYSTEM"),
   experimentalWorkspaces: enabledByExperimental("JYYCODE_EXPERIMENTAL_WORKSPACES"),
   experimentalIconDiscovery: enabledByExperimental("JYYCODE_EXPERIMENTAL_ICON_DISCOVERY"),
-  experimentalDeferredTools: enabledByExperimental("JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS"),
-  deferredToolThreshold: positiveInteger("JYYCODE_DEFERRED_TOOL_THRESHOLD"),
   outputTokenMax: positiveInteger("JYYCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"),
   bashDefaultTimeoutMs: positiveInteger("JYYCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS"),
   experimentalNativeLlm: enabledByExperimental("JYYCODE_EXPERIMENTAL_NATIVE_LLM"),

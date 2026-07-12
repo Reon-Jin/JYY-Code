@@ -37,7 +37,6 @@ import { LocalProvider, useLocal } from "@tui/context/local"
 import { DialogModel } from "@tui/component/dialog-model"
 import { useConnected } from "@tui/component/use-connected"
 import { DialogMcp } from "@tui/component/dialog-mcp"
-import { DialogTools } from "@tui/component/dialog-tools"
 import { DialogStatus } from "@tui/component/dialog-status"
 import { DialogThemeList } from "@tui/component/dialog-theme-list"
 import { DialogHelp } from "./ui/dialog-help"
@@ -106,7 +105,6 @@ const appBindingCommands = [
   "agent.list",
   "agent.cluster",
   "mcp.list",
-  "tool.list",
   "agent.cycle",
   "agent.cycle.reverse",
   "variant.cycle",
@@ -658,15 +656,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
         slashName: "mcps",
         run: () => {
           dialog.replace(() => <DialogMcp />)
-        },
-      },
-      {
-        name: "tool.list",
-        title: "Configure tool disclosure",
-        category: "Agent",
-        slashName: "tools",
-        run: () => {
-          dialog.replace(() => <DialogTools />)
         },
       },
       {

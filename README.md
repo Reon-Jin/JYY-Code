@@ -32,7 +32,6 @@ Press **F9** to enable the Multi-Agent workflow. Run **`/cluster`** to choose mo
 | Hides work inside a text stream | Shows plans, tasks, agents, and status in the TUI |
 | Loses background-task state | Persists sessions, cluster runs, tasks, and events in SQLite |
 | One agent writes and judges its own result | Specialists produce code and documents; the primary agent reviews, rejects, and synthesizes |
-| Exposes an oversized tool catalog | Finds the right tool with BM25-powered tool search |
 
 ## Highlights
 
@@ -83,15 +82,6 @@ The sidebar separates three different kinds of progress:
 - **Todo** — ordinary `todowrite` items without duplicating structured task state.
 
 You can see what is happening, what is blocked, and what finished—without reading the entire transcript.
-
-### Find the Right Tool at the Right Time
-
-Press **F10** for intelligent tool search.
-
-- Field-weighted BM25 ranks tool IDs, categories, parameters, descriptions, and examples.
-- Exact-match and intent boosts keep specific tools above generic results.
-- Progressive disclosure can keep core tools visible while loading long-tail tools on demand.
-- Built-in, plugin, and MCP tools share the same catalog, permission, and telemetry path.
 
 Core tools cover file discovery, search, atomic multi-editing, shell execution, long-running processes, sub-agent tasks, and output truncation.
 

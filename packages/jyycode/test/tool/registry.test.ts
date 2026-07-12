@@ -105,16 +105,6 @@ const scout = testEffect(
 const background = testEffect(
   Layer.mergeAll(registryLayer({ flags: { experimentalBackgroundSubagents: true } }), node, Agent.defaultLayer),
 )
-const deferredDisabled = testEffect(
-  Layer.mergeAll(registryLayer({ flags: { experimentalDeferredTools: false } }), node, Agent.defaultLayer),
-)
-const deferredEnabled = testEffect(
-  Layer.mergeAll(
-    registryLayer({ flags: { experimentalDeferredTools: true, deferredToolThreshold: 1 } }),
-    node,
-    Agent.defaultLayer,
-  ),
-)
 const withBrokenPlugin = testEffect(
   Layer.mergeAll(registryLayer({ plugin: brokenPluginLayer }), node, Agent.defaultLayer),
 )
@@ -215,54 +205,6 @@ describe("tool.registry", () => {
     }),
   )
 
-  deferredDisabled.instance("keeps direct catalog unchanged when deferred tools are disabled", () =>
-    Effect.gen(function* () {
-      const registry = yield* ToolRegistry.Service
-      const agents = yield* Agent.Service
-      const tools = yield* registry.tools({
-        providerID: ProviderID.jyycode,
-        modelID: ModelID.make("test"),
-        agent: yield* agents.defaultInfo(),
-      })
-      const ids = tools.map((tool) => tool.id)
-
-      expect(ids).toContain("send_message")
-      expect(ids).not.toContain("tool_exec")
-    }),
-  )
-
-  deferredEnabled.instance("adds tool_exec and hides communication tools when deferred tools are enabled over threshold", () =>
-    Effect.gen(function* () {
-      const registry = yield* ToolRegistry.Service
-      const agents = yield* Agent.Service
-      const tools = yield* registry.tools({
-        providerID: ProviderID.jyycode,
-        modelID: ModelID.make("test"),
-        agent: yield* agents.defaultInfo(),
-      })
-
-      const ids = tools.map((tool) => tool.id)
-      expect(ids).toContain("tool_search")
-      expect(ids).toContain("tool_exec")
-      expect(ids).toContain("read")
-      expect(ids).not.toContain("send_message")
-      expect(ids).not.toContain("websearch")
-      expect(ids).not.toContain("webfetch")
-    }),
-  )
-
-  deferredEnabled.instance("keeps filesystem and process helper tools direct in deferred mode", () =>
-    Effect.gen(function* () {
-      const registry = yield* ToolRegistry.Service
-      const agents = yield* Agent.Service
-      const tools = yield* registry.tools({
-        providerID: ProviderID.jyycode,
-        modelID: ModelID.make("test"),
-        agent: yield* agents.defaultInfo(),
-      })
-
-      const ids = tools.map((tool) => tool.id)
-      expect(ids).toContain("ls")
       expect(ids).toContain("multi_edit")
       expect(ids).toContain("process_start")
       expect(ids).toContain("process_output")

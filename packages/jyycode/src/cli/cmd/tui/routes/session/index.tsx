@@ -135,7 +135,6 @@ const sessionBindingCommands = [
   "session.toggle.conceal",
   "session.toggle.timestamps",
   "session.toggle.multi_agent",
-  "session.toggle.deferred_tools",
   "session.toggle.thinking",
   "session.toggle.actions",
   "session.toggle.scrollbar",
@@ -244,10 +243,6 @@ export function Session() {
   const [diffWrapMode] = kv.signal<"word" | "none">("diff_wrap_mode", "word")
   const [_animationsEnabled, _setAnimationsEnabled] = kv.signal("animations_enabled", true)
   const [showGenericToolOutput, setShowGenericToolOutput] = kv.signal("generic_tool_output_visibility", false)
-  const [deferredTools, setDeferredTools] = kv.signal(
-    "deferred_tools_enabled",
-    Flag.JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS,
-  )
 
   const wide = createMemo(() => dimensions().width > 120)
   const sidebarVisible = createMemo(() => {
@@ -752,25 +747,6 @@ export function Session() {
               duration: 5000,
             })
           })
-        dialog.clear()
-      },
-    },
-    {
-      title: deferredTools() ? "Disable Deferred Tools" : "Enable Deferred Tools",
-      value: "session.toggle.deferred_tools",
-      category: "Session",
-      run: () => {
-        const next = !deferredTools()
-        setDeferredTools(() => next)
-        const status = sync.data.session_status[route.sessionID]
-        toast.show({
-          message:
-            status?.type === "idle"
-              ? `Deferred Tools ${next ? "enabled" : "disabled"}`
-              : `Deferred Tools ${next ? "enabled" : "disabled"} for the next prompt`,
-          variant: "info",
-          duration: 2500,
-        })
         dialog.clear()
       },
     },
@@ -1363,10 +1339,6 @@ export function Session() {
                       onSubmit={() => {
                         toBottom()
                       }}
-                      deferredTools={{
-                        enabled: deferredTools,
-                        toggle: () => setDeferredTools((value) => !value),
-                      }}
                       sessionID={route.sessionID}
                       right={
                         <box flexDirection="row" gap={1}>
@@ -1380,9 +1352,6 @@ export function Session() {
                             }
                           >
                             Multi-Agent {agentClusterDisabled() ? "disabled" : agentClusterEnabled() ? "●" : "○"}
-                          </text>
-                          <text fg={deferredTools() ? theme.success : theme.textMuted}>
-                            Deferred Tools {deferredTools() ? "●" : "○"}
                           </text>
                           <TuiPluginRuntime.Slot name="session_prompt_right" session_id={route.sessionID} />
                         </box>

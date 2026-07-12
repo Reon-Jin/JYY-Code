@@ -67,7 +67,6 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Memory } from "@/memory/memory"
 import { CatalogSearch } from "./catalog-search"
 import { ToolTelemetry } from "./telemetry"
-import { ToolDisclosure } from "./disclosure"
 
 const log = Log.create({ service: "tool.registry" })
 
@@ -467,25 +466,7 @@ export const layer: Layer.Layer<
         }),
         { concurrency: "unbounded" },
       )
-      const searchable = [toolSearchDef(resolved, bus), ...resolved]
-      const cfg = yield* config.get()
-      const disclosure = ToolDisclosure.partition({
-        tools: searchable,
-        enabled: flags.experimentalDeferredTools,
-        threshold: flags.deferredToolThreshold ?? 40,
-        policy: cfg.tool_disclosure,
-      })
-      if (disclosure.hidden.length === 0) return searchable
-
-      const toolSearch = toolSearchDef(searchable, bus)
-      const directWithoutSearch = disclosure.direct.filter((tool) => tool.id !== "tool_search")
-      const directIDs = new Set(disclosure.direct.map((tool) => tool.id))
-      const toolExec = ToolDisclosure.toolExecDef({
-        hidden: disclosure.hidden,
-        directIDs,
-        bus,
-      })
-      return [toolSearch, ...directWithoutSearch, toolExec]
+      return [toolSearchDef(resolved, bus), ...resolved]
     })
 
     const named: Interface["named"] = Effect.fn("ToolRegistry.named")(function* () {

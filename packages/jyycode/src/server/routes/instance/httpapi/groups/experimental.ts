@@ -21,16 +21,6 @@ const ToolListItem = Schema.Struct({
   parameters: Schema.Unknown,
 }).annotate({ identifier: "ToolListItem" })
 const ToolList = Schema.Array(ToolListItem).annotate({ identifier: "ToolList" })
-export const ToolDisclosureItem = Schema.Struct({
-  id: Schema.String,
-  description: Schema.String,
-  category: Schema.optional(Schema.String),
-  source: Schema.Literals(["registry", "mcp", "system"]),
-  configurable: Schema.Boolean,
-  configured: Schema.optional(Schema.Literals(["direct", "deferred"])),
-  mode: Schema.Literals(["direct", "deferred"]),
-}).annotate({ identifier: "ToolDisclosureItem" })
-export const ToolDisclosureList = Schema.Array(ToolDisclosureItem).annotate({ identifier: "ToolDisclosureList" })
 export const ConsoleState = Schema.Struct({
   consoleManagedProviders: Schema.Array(Schema.String),
   switchableOrgCount: Schema.Number,
@@ -82,7 +72,6 @@ export const ExperimentalPaths = {
   consoleSwitch: "/experimental/console/switch",
   tool: "/experimental/tool",
   toolIDs: "/experimental/tool/ids",
-  toolDisclosure: "/experimental/tool/disclosure",
   worktree: "/experimental/worktree",
   worktreeReset: "/experimental/worktree/reset",
   session: "/experimental/session",
@@ -143,18 +132,6 @@ export const ExperimentalApi = HttpApi.make("experimental")
             summary: "List tool IDs",
             description:
               "Get a list of all available tool IDs, including both built-in tools and dynamically registered tools.",
-          }),
-        ),
-        HttpApiEndpoint.get("toolDisclosure", ExperimentalPaths.toolDisclosure, {
-          query: WorkspaceRoutingQuery,
-          success: described(ToolDisclosureList, "Effective tool disclosure inventory"),
-          error: HttpApiError.BadRequest,
-        }).annotateMerge(
-          OpenApi.annotations({
-            identifier: "tool.disclosure",
-            summary: "List tool disclosure modes",
-            description:
-              "List all currently available registry and MCP tools with their configured and effective deferred-tool disclosure modes.",
           }),
         ),
         HttpApiEndpoint.get("worktree", ExperimentalPaths.worktree, {

@@ -11,8 +11,6 @@ import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
 import { useEditorContext } from "@tui/context/editor"
 import { useTheme } from "../context/theme"
 import { useKV } from "../context/kv"
-import { Flag } from "@jyycode-ai/core/flag/flag"
-
 let once = false
 const placeholder = {
   normal: ["Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"],
@@ -32,10 +30,6 @@ export function Home() {
   const defaultMultiAgent = createMemo(() => sync.data.config.agent_cluster?.default_on === true)
   const [multiAgentTouched, setMultiAgentTouched] = createSignal(false)
   const [multiAgent, setMultiAgent] = createSignal(defaultMultiAgent())
-  const [deferredTools, setDeferredTools] = kv.signal(
-    "deferred_tools_enabled",
-    Flag.JYYCODE_EXPERIMENTAL_DEFERRED_TOOLS,
-  )
   let sent = false
 
   onMount(() => {
@@ -95,17 +89,10 @@ export function Home() {
                   setMultiAgent((value) => !value)
                 },
               }}
-              deferredTools={{
-                enabled: deferredTools,
-                toggle: () => setDeferredTools((value) => !value),
-              }}
               right={
                 <box flexDirection="row" gap={1}>
                   <text fg={multiAgent() ? theme.success : theme.textMuted}>
                     Multi-Agent {multiAgent() ? "●" : "○"}
-                  </text>
-                  <text fg={deferredTools() ? theme.success : theme.textMuted}>
-                    Deferred Tools {deferredTools() ? "●" : "○"}
                   </text>
                   <TuiPluginRuntime.Slot name="home_prompt_right" />
                 </box>

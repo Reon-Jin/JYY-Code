@@ -21,8 +21,6 @@ import { Bus } from "@/bus"
 import { ToolTelemetry } from "@/tool/telemetry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Config } from "@/config/config"
-import { ToolDisclosure } from "@/tool/disclosure"
-import { CatalogSearch } from "@/tool/catalog-search"
 
 const log = Log.create({ service: "session.tools" })
 
@@ -158,17 +156,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     agent: input.agent,
   })
   const mcpDefs = yield* mcp.toolDefs()
-  const cfg = yield* config.get()
-  const promptDefs = composeDeferredMcpTools({
-    registryDefs,
-    mcpDefs,
-    enabled: flags.experimentalDeferredTools,
-    threshold: flags.deferredToolThreshold ?? 40,
-    policy: cfg.tool_disclosure,
-    bus,
-  })
-
-  for (const item of promptDefs) {
+  for (const item of [...registryDefs, ...mcpDefs]) {
     addToolDef(item)
   }
 
@@ -184,97 +172,5 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
 
   return tools
 })
-
-function composeDeferredMcpTools(input: {
-  registryDefs: Tool.Def[]
-  mcpDefs: Tool.Def[]
-  enabled: boolean
-  threshold: number
-  policy?: Readonly<Record<string, ToolDisclosure.DisclosureMode>>
-  bus: Bus.Interface
-}) {
-  if (!input.enabled || input.mcpDefs.length === 0) {
-    return [...input.registryDefs, ...input.mcpDefs]
-  }
-
-  const disclosure = ToolDisclosure.partition({
-    tools: input.mcpDefs,
-    enabled: true,
-    threshold: input.threshold,
-    catalogSize: input.registryDefs.length + input.mcpDefs.length,
-    policy: input.policy,
-  })
-  if (disclosure.hidden.length === 0) return [...input.registryDefs, ...disclosure.direct]
-
-  const existingSearch = input.registryDefs.find((item) => item.id === "tool_search")
-  const existingExec = input.registryDefs.find((item) => item.id === "tool_exec")
-  const directRegistry = input.registryDefs.filter((item) => item.id !== "tool_search" && item.id !== "tool_exec")
-  const directIDs = new Set([
-    ...input.registryDefs.filter((item) => item.id !== "tool_exec").map((item) => item.id),
-    ...disclosure.direct.map((item) => item.id),
-  ])
-  const mcpExec = ToolDisclosure.toolExecDef({
-    hidden: disclosure.hidden,
-    directIDs,
-    bus: input.bus,
-  })
-  const toolExec = existingExec ? composeToolExec(existingExec, mcpExec) : mcpExec
-  const toolSearch = existingSearch ? composeToolSearch(existingSearch, disclosure.hidden, input.bus) : undefined
-
-  return [...(toolSearch ? [toolSearch] : []), ...directRegistry, ...disclosure.direct, toolExec]
-}
-
-function composeToolExec(primary: Tool.Def, fallback: Tool.Def): Tool.Def {
-  return {
-    ...primary,
-    execute: (params, ctx) =>
-      fallback.execute(params, ctx).pipe(
-        Effect.catch((error) =>
-          String(error).includes("Unknown hidden tool") ? primary.execute(params, ctx) : Effect.fail(error),
-        ),
-      ),
-  }
-}
-
-function composeToolSearch(existing: Tool.Def, hidden: Tool.Def[], bus: Bus.Interface): Tool.Def {
-  return {
-    ...existing,
-    execute: (params: any, ctx) =>
-      existing.execute(params, ctx).pipe(
-        Effect.flatMap((base) => {
-          const detail = params.detail ?? "summary"
-          const scored = CatalogSearch.search({
-            tools: hidden,
-            query: params.query,
-            limit: params.limit,
-            detail,
-            category: params.category,
-          })
-          if (scored.length === 0) return Effect.succeed(base)
-
-          const resultIDs = scored.map((item) => item.tool.id)
-          const output = CatalogSearch.formatResults(scored, { detail })
-          return ToolTelemetry.searchExecuted(bus, {
-            sessionID: ctx.sessionID,
-            messageID: ctx.messageID,
-            callID: ctx.callID,
-            query: params.query,
-            detail,
-            category: params.category,
-            resultIDs,
-          }).pipe(
-            Effect.as({
-              ...base,
-              output: [base.output, "Hidden MCP tools:", output].filter(Boolean).join("\n\n"),
-              metadata: {
-                ...base.metadata,
-                hiddenMcpResultIDs: resultIDs,
-              },
-            }),
-          )
-        }),
-      ),
-  }
-}
 
 export * as SessionTools from "./tools"

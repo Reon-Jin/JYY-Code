@@ -217,35 +217,4 @@ describe("ToolTelemetry", () => {
       })
     }),
   )
-
-  it.instance("publishes deferred execution events", () =>
-    Effect.gen(function* () {
-      const events: Array<{ type: string; properties: any }> = []
-      const bus = yield* Bus.Service
-      const off = yield* bus.subscribeAllCallback((event) => events.push(event))
-
-      yield* ToolTelemetry.deferredExecuted(bus, {
-        sessionID: session.id,
-        messageID: message.id,
-        callID: "call_exec",
-        tool: "tool_exec",
-        delegatedTool: "send_message",
-        delegatedCategory: "communication",
-        delegatedRisk: "medium",
-        success: true,
-      })
-
-      const event = yield* pollWithTimeout(
-        Effect.sync(() => events.find((item) => item.type === ToolTelemetry.Event.DeferredExecuted.type)),
-        "deferred execution telemetry event not published",
-      )
-      off()
-
-      expect(event.properties).toMatchObject({
-        tool: "tool_exec",
-        delegatedTool: "send_message",
-        success: true,
-      })
-    }),
-  )
 })

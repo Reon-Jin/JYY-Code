@@ -81,10 +81,6 @@ export type PromptProps = {
     disabled?: () => boolean
     toggle: () => void | Promise<void>
   }
-  deferredTools?: {
-    enabled: () => boolean
-    toggle: () => void | Promise<void>
-  }
 }
 
 export type PromptRef = {
@@ -212,8 +208,6 @@ export function Prompt(props: PromptProps) {
   const hasRightContent = createMemo(() => Boolean(props.right))
   const multiAgentDisabled = createMemo(() => props.multiAgent?.disabled?.() === true)
   const multiAgentEnabled = createMemo(() => props.multiAgent?.enabled() === true && !multiAgentDisabled())
-  const deferredToolsEnabled = createMemo(() => props.deferredTools?.enabled() === true)
-
   function selectWorkspace(selection: WorkspaceSelection | undefined) {
     setWorkspaceSelection(selection)
   }
@@ -463,24 +457,6 @@ export function Prompt(props: PromptProps) {
             },
           ]
         : []),
-      ...(!props.sessionID && props.deferredTools
-        ? [
-            {
-              title: deferredToolsEnabled() ? "Disable Deferred Tools" : "Enable Deferred Tools",
-              name: "session.toggle.deferred_tools",
-              category: "Session",
-              run: async () => {
-                await props.deferredTools?.toggle()
-                toast.show({
-                  message: `Deferred Tools ${deferredToolsEnabled() ? "enabled" : "disabled"} for the next prompt`,
-                  variant: "info",
-                  duration: 2500,
-                })
-                dialog.clear()
-              },
-            },
-          ]
-        : []),
       {
         title: "Remove editor context",
         name: "prompt.editor_context.clear",
@@ -689,7 +665,6 @@ export function Prompt(props: PromptProps) {
       "prompt.stash.list",
       "session.interrupt",
       "session.toggle.multi_agent",
-      "session.toggle.deferred_tools",
       "workspace.set",
     ]),
   }))
@@ -1223,11 +1198,6 @@ export function Prompt(props: PromptProps) {
         model: `${selectedModel.providerID}/${selectedModel.modelID}`,
         messageID,
         variant,
-        toolDisclosure: props.deferredTools
-          ? {
-              deferredTools: deferredToolsEnabled(),
-            }
-          : undefined,
         parts: nonTextParts
           .filter((x) => x.type === "file")
           .map((x) => ({
@@ -1249,11 +1219,6 @@ export function Prompt(props: PromptProps) {
               ? (workspaceSession?.multiAgent ?? sync.data.config.agent_cluster?.default_on) === true
               : multiAgentEnabled(),
           },
-          toolDisclosure: props.deferredTools
-            ? {
-                deferredTools: deferredToolsEnabled(),
-              }
-            : undefined,
           parts: [
             ...editorParts,
             {

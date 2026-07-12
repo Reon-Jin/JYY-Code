@@ -39,7 +39,6 @@ import { ConfigProvider } from "./provider"
 import { ConfigReference } from "./reference"
 import { ConfigServer } from "./server"
 import { ConfigSkills } from "./skills"
-import { ConfigToolDisclosure } from "./tool-disclosure"
 import { ConfigVariable } from "./variable"
 import { Npm } from "@jyycode-ai/core/npm"
 import { withTransientReadRetry } from "@/util/effect-http-client"
@@ -268,9 +267,6 @@ export const Info = Schema.Struct({
   layout: Schema.optional(ConfigLayout.Layout).annotate({ description: "@deprecated Always uses stretch layout." }),
   permission: Schema.optional(ConfigPermission.Info),
   tools: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
-  tool_disclosure: Schema.optional(ConfigToolDisclosure.Info).annotate({
-    description: "Per-tool direct or deferred prompt disclosure overrides",
-  }),
   attachment: Schema.optional(ConfigAttachment.Info).annotate({
     description: "Attachment processing configuration, including image size limits and resizing behavior",
   }),
