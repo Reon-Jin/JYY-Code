@@ -5,6 +5,9 @@ import { Project } from "@/project/project"
 import { Session } from "@/session/session"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
+import { ToolDisclosure } from "@/tool/disclosure"
+import { Config } from "@/config/config"
+import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Worktree } from "@/worktree"
 import { Effect } from "effect"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
@@ -13,6 +16,7 @@ import { InstanceHttpApi } from "../api"
 import {
   ConsoleSwitchPayload,
   SessionListQuery,
+  ToolDisclosureItem,
   ToolListQuery,
   WorktreeApiError,
 } from "../groups/experimental"
@@ -29,6 +33,8 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const mcp = yield* MCP.Service
     const project = yield* Project.Service
     const registry = yield* ToolRegistry.Service
+    const config = yield* Config.Service
+    const flags = yield* RuntimeFlags.Service
     const worktreeSvc = yield* Worktree.Service
 
     const console = Effect.fn("ExperimentalHttpApi.console")(function* () {
@@ -62,7 +68,53 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     })
 
     const toolIDs = Effect.fn("ExperimentalHttpApi.toolIDs")(function* () {
-      return yield* registry.ids()
+      const mcpDefs = yield* mcp.toolDefs()
+      return [...(yield* registry.ids()), ...mcpDefs.map((tool) => tool.id)].toSorted()
+    })
+
+    const toolDisclosure = Effect.fn("ExperimentalHttpApi.toolDisclosure")(function* () {
+      const registryDefs = yield* registry.all()
+      const mcpDefs = yield* mcp.toolDefs()
+      const cfg = yield* config.get()
+      const tools = [...registryDefs, ...mcpDefs]
+      const partitioned = ToolDisclosure.partition({
+        tools,
+        enabled: true,
+        threshold: flags.deferredToolThreshold ?? 40,
+        policy: cfg.tool_disclosure,
+      })
+      const hidden = new Set(partitioned.hidden.map((tool) => tool.id))
+      const mcpIDs = new Set(mcpDefs.map((tool) => tool.id))
+      const inventory: Array<typeof ToolDisclosureItem.Type> = tools.map((tool) => ({
+        id: tool.id,
+        description: tool.description,
+        category: tool.catalog?.category,
+        source: mcpIDs.has(tool.id) ? ("mcp" as const) : ("registry" as const),
+        configurable: true,
+        configured: cfg.tool_disclosure?.[tool.id],
+        mode: hidden.has(tool.id) ? ("deferred" as const) : ("direct" as const),
+      }))
+      inventory.push({
+        id: "tool_search",
+        description: "Search direct and deferred tools by catalog metadata.",
+        category: "other",
+        source: "system",
+        configurable: false,
+        configured: undefined,
+        mode: "direct",
+      })
+      if (partitioned.hidden.length > 0) {
+        inventory.push({
+          id: "tool_exec",
+          description: "Execute a deferred tool returned by tool_search.",
+          category: "other",
+          source: "system",
+          configurable: false,
+          configured: undefined,
+          mode: "direct",
+        })
+      }
+      return inventory.toSorted((a, b) => a.id.localeCompare(b.id))
     })
 
     const worktree = Effect.fn("ExperimentalHttpApi.worktree")(function* () {
@@ -124,6 +176,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       .handle("consoleSwitch", consoleSwitch)
       .handle("tool", tool)
       .handle("toolIDs", toolIDs)
+      .handle("toolDisclosure", toolDisclosure)
       .handle("worktree", worktree)
       .handle("worktreeCreate", worktreeCreate)
       .handle("worktreeRemove", worktreeRemove)

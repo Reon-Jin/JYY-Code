@@ -95,7 +95,21 @@ const ToolSearchParameters = Schema.Struct({
   detail: Schema.optional(Schema.Literals(["summary", "schema", "full"])).annotate({
     description: "How much information to return for each match (default: summary)",
   }),
-  category: Schema.optional(Schema.String).annotate({ description: "Optional catalog category filter" }),
+  category: Schema.optional(
+    Schema.Literals([
+      "filesystem",
+      "code-search",
+      "execution",
+      "web",
+      "mcp",
+      "subagent",
+      "communication",
+      "memory",
+      "other",
+    ]),
+  ).annotate({
+    description: "Optional catalog category filter. Disclosure states such as 'hidden' are not categories.",
+  }),
 })
 
 export interface Interface {
@@ -454,10 +468,12 @@ export const layer: Layer.Layer<
         { concurrency: "unbounded" },
       )
       const searchable = [toolSearchDef(resolved, bus), ...resolved]
+      const cfg = yield* config.get()
       const disclosure = ToolDisclosure.partition({
         tools: searchable,
         enabled: flags.experimentalDeferredTools,
         threshold: flags.deferredToolThreshold ?? 40,
+        policy: cfg.tool_disclosure,
       })
       if (disclosure.hidden.length === 0) return searchable
 

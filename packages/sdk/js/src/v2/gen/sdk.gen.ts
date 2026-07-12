@@ -218,6 +218,8 @@ import type {
   TextPartInput,
   ToolIdsErrors,
   ToolIdsResponses,
+  ToolDisclosureErrors,
+  ToolDisclosureResponses,
   ToolListErrors,
   ToolListResponses,
   TuiAppendPromptErrors,
@@ -1277,6 +1279,36 @@ export class Tool extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<ToolIdsResponses, ToolIdsErrors, ThrowOnError>({
       url: "/experimental/tool/ids",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List tool disclosure modes
+   *
+   * List all currently available registry and MCP tools with their configured and effective deferred-tool disclosure modes.
+   */
+  public disclosure<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ToolDisclosureResponses, ToolDisclosureErrors, ThrowOnError>({
+      url: "/experimental/tool/disclosure",
       ...options,
       ...params,
     })

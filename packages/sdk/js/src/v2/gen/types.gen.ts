@@ -1309,6 +1309,7 @@ export type Config = {
   tools?: {
     [key: string]: boolean
   }
+  tool_disclosure?: ToolDisclosureConfig
   attachment?: AttachmentConfig
   enterprise?: {
     url?: string
@@ -1476,6 +1477,22 @@ export type ToolListItem = {
 export type ToolList = Array<ToolListItem>
 
 export type ToolIds = Array<string>
+
+export type ToolDisclosureConfig = {
+  [key: string]: "direct" | "deferred"
+}
+
+export type ToolDisclosureItem = {
+  id: string
+  description: string
+  category?: string
+  source: "registry" | "mcp" | "system"
+  configurable: boolean
+  configured?: "direct" | "deferred"
+  mode: "direct" | "deferred"
+}
+
+export type ToolDisclosureList = Array<ToolDisclosureItem>
 
 export type WorktreeError = {
   name:
@@ -4457,6 +4474,34 @@ export type ToolIdsResponses = {
 }
 
 export type ToolIdsResponse = ToolIdsResponses[keyof ToolIdsResponses]
+
+export type ToolDisclosureData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/tool/disclosure"
+}
+
+export type ToolDisclosureErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type ToolDisclosureError = ToolDisclosureErrors[keyof ToolDisclosureErrors]
+
+export type ToolDisclosureResponses = {
+  /**
+   * Effective tool disclosure inventory
+   */
+  200: ToolDisclosureList
+}
+
+export type ToolDisclosureResponse = ToolDisclosureResponses[keyof ToolDisclosureResponses]
 
 export type WorktreeRemoveData = {
   body?: WorktreeRemoveInput

@@ -7,7 +7,11 @@ export type PartitionInput = {
   tools: Tool.Def[]
   enabled: boolean
   threshold: number
+  catalogSize?: number
+  policy?: Readonly<Record<string, DisclosureMode>>
 }
+
+export type DisclosureMode = "direct" | "deferred"
 
 export type PartitionResult = {
   direct: Tool.Def[]
@@ -47,12 +51,18 @@ const CORE_DIRECT_TOOL_IDS = new Set([
   "todo",
 ])
 
-function shouldHide(tool: Tool.Def) {
-  if (CORE_DIRECT_TOOL_IDS.has(tool.id)) return false
-  if (tool.catalog?.category === "mcp") return true
-  if (tool.catalog?.category === "communication") return true
-  if (tool.catalog?.detail === "advanced") return true
-  return false
+export function mode(tool: Tool.Def, input: Pick<PartitionInput, "policy"> & { automatic: boolean }): DisclosureMode {
+  if (tool.id === "tool_search") return "direct"
+  const configured = input.policy?.[tool.id]
+  if (configured) return configured
+  if (tool.catalog?.category === "memory") return "direct"
+  if (tool.catalog?.category === "web") return "deferred"
+  if (!input.automatic) return "direct"
+  if (CORE_DIRECT_TOOL_IDS.has(tool.id)) return "direct"
+  if (tool.catalog?.category === "mcp") return "deferred"
+  if (tool.catalog?.category === "communication") return "deferred"
+  if (tool.catalog?.detail === "advanced") return "deferred"
+  return "direct"
 }
 
 function toolExecFailure(message: string) {
@@ -60,15 +70,16 @@ function toolExecFailure(message: string) {
 }
 
 export function partition(input: PartitionInput): PartitionResult {
-  if (!input.enabled || input.tools.length <= input.threshold) {
+  if (!input.enabled) {
     return { direct: input.tools, hidden: [] }
   }
 
   const direct: Tool.Def[] = []
   const hidden: Tool.Def[] = []
+  const automatic = (input.catalogSize ?? input.tools.length) > input.threshold
 
   for (const tool of input.tools) {
-    if (shouldHide(tool)) hidden.push(tool)
+    if (mode(tool, { policy: input.policy, automatic }) === "deferred") hidden.push(tool)
     else direct.push(tool)
   }
 

@@ -12,6 +12,7 @@ import { ToolDisclosure } from "@/tool/disclosure"
 import { ToolRegistry } from "@/tool/registry"
 import { Tool } from "@/tool/tool"
 import { ProviderTest } from "../fake/provider"
+import { TestConfig } from "../fixture/config"
 import { testEffect } from "../lib/effect"
 
 const Params = Schema.Struct({ value: Schema.String })
@@ -105,6 +106,7 @@ function sessionLayer() {
 
   return Layer.mergeAll(
     Bus.layer,
+    TestConfig.layer(),
     RuntimeFlags.layer({ experimentalDeferredTools: true, deferredToolThreshold: 1 }),
     Layer.succeed(
       ToolRegistry.Service,

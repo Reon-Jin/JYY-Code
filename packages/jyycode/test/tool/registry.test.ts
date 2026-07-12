@@ -246,6 +246,8 @@ describe("tool.registry", () => {
       expect(ids).toContain("tool_exec")
       expect(ids).toContain("read")
       expect(ids).not.toContain("send_message")
+      expect(ids).not.toContain("websearch")
+      expect(ids).not.toContain("webfetch")
     }),
   )
 

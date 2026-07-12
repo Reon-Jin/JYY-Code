@@ -14,6 +14,7 @@ import { Agent } from "@/agent/agent"
 import { testEffect, pollWithTimeout } from "../lib/effect"
 import { ProviderTest } from "../fake/provider"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { TestConfig } from "../fixture/config"
 
 const Parameters = Schema.Struct({ query: Schema.String })
 const provider = ProviderTest.fake()
@@ -106,6 +107,7 @@ const baseLayer = Layer.mergeAll(
   mcpLayer,
   Truncate.defaultLayer,
   RuntimeFlags.layer(),
+  TestConfig.layer(),
 )
 const it = testEffect(baseLayer)
 

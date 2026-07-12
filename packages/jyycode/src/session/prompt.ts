@@ -1840,6 +1840,7 @@ export const layer = Layer.effect(
               Effect.provideService(Truncate.Service, truncate),
               Effect.provideService(Bus.Service, bus),
               Effect.provideService(RuntimeFlags.Service, runtimeFlagsForSession(sessionID)),
+              Effect.provideService(Config.Service, config),
             )
 
             if (lastUser.format?.type === "json_schema") {

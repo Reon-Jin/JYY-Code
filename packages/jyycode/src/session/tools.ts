@@ -20,6 +20,7 @@ import { EffectBridge } from "@/effect/bridge"
 import { Bus } from "@/bus"
 import { ToolTelemetry } from "@/tool/telemetry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { Config } from "@/config/config"
 import { ToolDisclosure } from "@/tool/disclosure"
 import { CatalogSearch } from "@/tool/catalog-search"
 
@@ -44,6 +45,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const mcp = yield* MCP.Service
   const bus = yield* Bus.Service
   const flags = yield* RuntimeFlags.Service
+  const config = yield* Config.Service
   let schemaBytes = 0
 
   const context = (args: Record<string, unknown>, options: ToolExecutionOptions): Tool.Context => ({
@@ -156,11 +158,13 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     agent: input.agent,
   })
   const mcpDefs = yield* mcp.toolDefs()
+  const cfg = yield* config.get()
   const promptDefs = composeDeferredMcpTools({
     registryDefs,
     mcpDefs,
     enabled: flags.experimentalDeferredTools,
     threshold: flags.deferredToolThreshold ?? 40,
+    policy: cfg.tool_disclosure,
     bus,
   })
 
@@ -186,25 +190,38 @@ function composeDeferredMcpTools(input: {
   mcpDefs: Tool.Def[]
   enabled: boolean
   threshold: number
+  policy?: Readonly<Record<string, ToolDisclosure.DisclosureMode>>
   bus: Bus.Interface
 }) {
-  if (!input.enabled || input.mcpDefs.length === 0 || input.registryDefs.length + input.mcpDefs.length <= input.threshold) {
+  if (!input.enabled || input.mcpDefs.length === 0) {
     return [...input.registryDefs, ...input.mcpDefs]
   }
+
+  const disclosure = ToolDisclosure.partition({
+    tools: input.mcpDefs,
+    enabled: true,
+    threshold: input.threshold,
+    catalogSize: input.registryDefs.length + input.mcpDefs.length,
+    policy: input.policy,
+  })
+  if (disclosure.hidden.length === 0) return [...input.registryDefs, ...disclosure.direct]
 
   const existingSearch = input.registryDefs.find((item) => item.id === "tool_search")
   const existingExec = input.registryDefs.find((item) => item.id === "tool_exec")
   const directRegistry = input.registryDefs.filter((item) => item.id !== "tool_search" && item.id !== "tool_exec")
-  const directIDs = new Set(input.registryDefs.filter((item) => item.id !== "tool_exec").map((item) => item.id))
+  const directIDs = new Set([
+    ...input.registryDefs.filter((item) => item.id !== "tool_exec").map((item) => item.id),
+    ...disclosure.direct.map((item) => item.id),
+  ])
   const mcpExec = ToolDisclosure.toolExecDef({
-    hidden: input.mcpDefs,
+    hidden: disclosure.hidden,
     directIDs,
     bus: input.bus,
   })
   const toolExec = existingExec ? composeToolExec(existingExec, mcpExec) : mcpExec
-  const toolSearch = existingSearch ? composeToolSearch(existingSearch, input.mcpDefs, input.bus) : undefined
+  const toolSearch = existingSearch ? composeToolSearch(existingSearch, disclosure.hidden, input.bus) : undefined
 
-  return [...(toolSearch ? [toolSearch] : []), ...directRegistry, toolExec]
+  return [...(toolSearch ? [toolSearch] : []), ...directRegistry, ...disclosure.direct, toolExec]
 }
 
 function composeToolExec(primary: Tool.Def, fallback: Tool.Def): Tool.Def {
