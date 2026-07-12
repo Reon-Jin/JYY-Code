@@ -33,6 +33,21 @@ describe("jyycode serve (subprocess)", () => {
     60_000,
   )
 
+  cliIt.live(
+    "prints a machine-readable ready event",
+    ({ jyycode }) =>
+      Effect.gen(function* () {
+        const server = yield* jyycode.serve({ json: true })
+        expect(server.ready).toEqual({
+          type: "server.ready",
+          hostname: server.hostname,
+          port: server.port,
+        })
+        expect(server.url).toBe(`http://${server.hostname}:${server.port}`)
+      }),
+    60_000,
+  )
+
   // The scope-close finalizer must actually terminate the child. Without this
   // test a regression in the kill path (e.g. a future refactor that forgets
   // to wire the finalizer) would leak processes on every test run.
