@@ -16,19 +16,6 @@ import fs from "fs/promises"
 const node = CrossSpawnSpawner.defaultLayer
 
 const it = testEffect(Layer.mergeAll(Skill.defaultLayer, node))
-const itWithoutClaudeCodeSkills = testEffect(
-  Layer.mergeAll(
-    Skill.layer.pipe(
-      Layer.provide(Discovery.defaultLayer),
-      Layer.provide(Config.defaultLayer),
-      Layer.provide(Bus.layer),
-      Layer.provide(AppFileSystem.defaultLayer),
-      Layer.provide(Global.layer),
-      Layer.provide(RuntimeFlags.layer({ disableClaudeCodeSkills: true })),
-    ),
-    node,
-  ),
-)
 const itWithoutExternalSkills = testEffect(
   Layer.mergeAll(
     Skill.layer.pipe(
@@ -44,13 +31,13 @@ const itWithoutExternalSkills = testEffect(
 )
 
 async function createGlobalSkill(homeDir: string) {
-  const skillDir = path.join(homeDir, ".claude", "skills", "global-test-skill")
+  const skillDir = path.join(homeDir, ".jyycode", "skills", "global-test-skill")
   await fs.mkdir(skillDir, { recursive: true })
   await Bun.write(
     path.join(skillDir, "SKILL.md"),
     `---
 name: global-test-skill
-description: A global skill from ~/.claude/skills for testing.
+description: A global skill from ~/.jyycode/skills for testing.
 ---
 
 # Global Test Skill
@@ -226,19 +213,19 @@ Instructions here.
     ),
   )
 
-  it.live("discovers skills from .claude/skills/ directory", () =>
+  it.live("discovers skills from .jyycode/skills/ directory", () =>
     provideTmpdirInstance(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
             Bun.write(
-              path.join(dir, ".claude", "skills", "claude-skill", "SKILL.md"),
+              path.join(dir, ".jyycode", "skills", "jyycode-skill", "SKILL.md"),
               `---
-name: claude-skill
-description: A skill in the .claude/skills directory.
+name: jyycode-skill
+description: A skill in the .jyycode/skills directory.
 ---
 
-# Claude Skill
+# JYYCode Skill
 `,
             ),
           )
@@ -246,15 +233,15 @@ description: A skill in the .claude/skills directory.
           const skill = yield* Skill.Service
           const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
           expect(list.length).toBe(1)
-          const item = list.find((x) => x.name === "claude-skill")
+          const item = list.find((x) => x.name === "jyycode-skill")
           expect(item).toBeDefined()
-          expect(item!.location).toContain(path.join(".claude", "skills", "claude-skill", "SKILL.md"))
+          expect(item!.location).toContain(path.join(".jyycode", "skills", "jyycode-skill", "SKILL.md"))
         }),
       { git: true },
     ),
   )
 
-  it.live("discovers global skills from ~/.claude/skills/ directory", () =>
+  it.live("discovers global skills from ~/.jyycode/skills/ directory", () =>
     Effect.gen(function* () {
       const tmp = yield* Effect.acquireRelease(
         Effect.promise(() => tmpdir({ git: true })),
@@ -270,8 +257,8 @@ description: A skill in the .claude/skills directory.
             const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
             expect(list.length).toBe(1)
             expect(list[0].name).toBe("global-test-skill")
-            expect(list[0].description).toBe("A global skill from ~/.claude/skills for testing.")
-            expect(list[0].location).toContain(path.join(".claude", "skills", "global-test-skill", "SKILL.md"))
+            expect(list[0].description).toBe("A global skill from ~/.jyycode/skills for testing.")
+            expect(list[0].location).toContain(path.join(".jyycode", "skills", "global-test-skill", "SKILL.md"))
           }).pipe(provideInstance(tmp.path))
         }),
       )
@@ -320,98 +307,30 @@ description: A skill in the .claude/skills directory.
     }),
   )
 
-  it.live("discovers skills from .agents/skills/ directory", () =>
-    provideTmpdirInstance(
-      (dir) =>
-        Effect.gen(function* () {
-          yield* Effect.promise(() =>
-            Bun.write(
-              path.join(dir, ".agents", "skills", "agent-skill", "SKILL.md"),
-              `---
-name: agent-skill
-description: A skill in the .agents/skills directory.
----
-
-# Agent Skill
-`,
-            ),
-          )
-
-          const skill = yield* Skill.Service
-          const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
-          expect(list.length).toBe(1)
-          const item = list.find((x) => x.name === "agent-skill")
-          expect(item).toBeDefined()
-          expect(item!.location).toContain(path.join(".agents", "skills", "agent-skill", "SKILL.md"))
-        }),
-      { git: true },
-    ),
-  )
-
-  it.live("discovers global skills from ~/.agents/skills/ directory", () =>
-    Effect.gen(function* () {
-      const tmp = yield* Effect.acquireRelease(
-        Effect.promise(() => tmpdir({ git: true })),
-        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
-      )
-
-      yield* withHome(
-        tmp.path,
-        Effect.gen(function* () {
-          const skillDir = path.join(tmp.path, ".agents", "skills", "global-agent-skill")
-          yield* Effect.promise(() => fs.mkdir(skillDir, { recursive: true }))
-          yield* Effect.promise(() =>
-            Bun.write(
-              path.join(skillDir, "SKILL.md"),
-              `---
-name: global-agent-skill
-description: A global skill from ~/.agents/skills for testing.
----
-
-# Global Agent Skill
-
-This skill is loaded from the global home directory.
-`,
-            ),
-          )
-
-          yield* Effect.gen(function* () {
-            const skill = yield* Skill.Service
-            const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
-            expect(list.length).toBe(1)
-            expect(list[0].name).toBe("global-agent-skill")
-            expect(list[0].description).toBe("A global skill from ~/.agents/skills for testing.")
-            expect(list[0].location).toContain(path.join(".agents", "skills", "global-agent-skill", "SKILL.md"))
-          }).pipe(provideInstance(tmp.path))
-        }),
-      )
-    }),
-  )
-
-  it.live("discovers skills from both .claude/skills/ and .agents/skills/", () =>
+  it.live("discovers multiple skills from .jyycode/skills/ directory", () =>
     provideTmpdirInstance(
       (dir) =>
         Effect.gen(function* () {
           yield* Effect.promise(() =>
             Promise.all([
               Bun.write(
-                path.join(dir, ".claude", "skills", "claude-skill", "SKILL.md"),
+                path.join(dir, ".jyycode", "skills", "jyycode-skill-a", "SKILL.md"),
                 `---
-name: claude-skill
-description: A skill in the .claude/skills directory.
+name: jyycode-skill-a
+description: First skill in .jyycode/skills directory.
 ---
 
-# Claude Skill
+# JYYCode Skill A
 `,
               ),
               Bun.write(
-                path.join(dir, ".agents", "skills", "agent-skill", "SKILL.md"),
+                path.join(dir, ".jyycode", "skills", "jyycode-skill-b", "SKILL.md"),
                 `---
-name: agent-skill
-description: A skill in the .agents/skills directory.
+name: jyycode-skill-b
+description: Second skill in .jyycode/skills directory.
 ---
 
-# Agent Skill
+# JYYCode Skill B
 `,
               ),
             ]),
@@ -420,45 +339,8 @@ description: A skill in the .agents/skills directory.
           const skill = yield* Skill.Service
           const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
           expect(list.length).toBe(2)
-          expect(list.find((x) => x.name === "claude-skill")).toBeDefined()
-          expect(list.find((x) => x.name === "agent-skill")).toBeDefined()
-        }),
-      { git: true },
-    ),
-  )
-
-  itWithoutClaudeCodeSkills.live("skips Claude Code skills when disabled", () =>
-    provideTmpdirInstance(
-      (dir) =>
-        Effect.gen(function* () {
-          yield* Effect.promise(() =>
-            Promise.all([
-              Bun.write(
-                path.join(dir, ".claude", "skills", "claude-skill", "SKILL.md"),
-                `---
-name: claude-skill
-description: A skill in the .claude/skills directory.
----
-
-# Claude Skill
-`,
-              ),
-              Bun.write(
-                path.join(dir, ".agents", "skills", "agent-skill", "SKILL.md"),
-                `---
-name: agent-skill
-description: A skill in the .agents/skills directory.
----
-
-# Agent Skill
-`,
-              ),
-            ]),
-          )
-
-          const skill = yield* Skill.Service
-          const list = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
-          expect(list.map((s) => s.name)).toEqual(["agent-skill"])
+          expect(list.find((x) => x.name === "jyycode-skill-a")).toBeDefined()
+          expect(list.find((x) => x.name === "jyycode-skill-b")).toBeDefined()
         }),
       { git: true },
     ),
@@ -471,23 +353,13 @@ description: A skill in the .agents/skills directory.
           yield* Effect.promise(() =>
             Promise.all([
               Bun.write(
-                path.join(dir, ".claude", "skills", "claude-skill", "SKILL.md"),
+                path.join(dir, ".jyycode", "skills", "external-skill", "SKILL.md"),
                 `---
-name: claude-skill
-description: A skill in the .claude/skills directory.
+name: external-skill
+description: A skill in the .jyycode/skills directory (external).
 ---
 
-# Claude Skill
-`,
-              ),
-              Bun.write(
-                path.join(dir, ".agents", "skills", "agent-skill", "SKILL.md"),
-                `---
-name: agent-skill
-description: A skill in the .agents/skills directory.
----
-
-# Agent Skill
+# External Skill
 `,
               ),
               Bun.write(
@@ -518,50 +390,30 @@ description: A skill in the .jyycode/skill directory.
           yield* Effect.promise(() =>
             Promise.all([
               Bun.write(
-                path.join(dir, ".claude", "skills", "claude-skill", "SKILL.md"),
+                path.join(dir, ".jyycode", "skills", "jyycode-skills-dir", "SKILL.md"),
                 `---
-name: claude-skill
-description: A skill in the .claude/skills directory.
----
-
-# Claude Skill
-`,
-              ),
-              Bun.write(
-                path.join(dir, ".agents", "skills", "agent-skill", "SKILL.md"),
-                `---
-name: agent-skill
-description: A skill in the .agents/skills directory.
----
-
-# Agent Skill
-`,
-              ),
-              Bun.write(
-                path.join(dir, ".jyycode", "skill", "agent-skill", "SKILL.md"),
-                `---
-name: jyycode-skill
-description: A skill in the .jyycode/skill directory.
----
-
-# JYYCode Skill
-`,
-              ),
-              Bun.write(
-                path.join(dir, ".jyycode", "skills", "agent-skill", "SKILL.md"),
-                `---
-name: jyycode-skill
+name: jyycode-skills-dir
 description: A skill in the .jyycode/skills directory.
 ---
 
-# JYYCode Skill
+# JYYCode Skills Dir
+`,
+              ),
+              Bun.write(
+                path.join(dir, ".jyycode", "skill", "jyycode-skill-dir", "SKILL.md"),
+                `---
+name: jyycode-skill-dir
+description: A skill in the .jyycode/skill directory.
+---
+
+# JYYCode Skill Dir
 `,
               ),
             ]),
           )
 
           const skill = yield* Skill.Service
-          expect((yield* skill.dirs()).length).toBe(4)
+          expect((yield* skill.dirs()).length).toBe(2)
         }),
       { git: true },
     ),

@@ -45,7 +45,7 @@ already-loaded config until then.
 | Global agents                 | `~/.config/jyycode/agent(s)/<name>.md`                                                                                   |
 | Project skills                | `.jyycode/skill(s)/<name>/SKILL.md`                                                                                      |
 | Global skills                 | `~/.config/jyycode/skill(s)/<name>/SKILL.md`                                                                             |
-| External skills (auto-loaded) | `~/.claude/skills/<name>/SKILL.md`, `~/.agents/skills/<name>/SKILL.md`                                                    |
+| External skills (auto-loaded) | `~/.jyycode/skills/<name>/SKILL.md`                                                    |
 
 Configs from each scope are deep-merged. Project overrides global. Unknown
 top-level keys in `jyycode.json` are rejected with `ConfigInvalidError`.
@@ -358,9 +358,8 @@ When a user's config is broken and JYYCode won't start, these env vars help:
   inject inline JSON as a final local-scope merge.
 - `JYYCODE_DISABLE_DEFAULT_PLUGINS=1`: skip default plugins.
 - `JYYCODE_PURE=1`: skip external plugins entirely.
-- `JYYCODE_DISABLE_EXTERNAL_SKILLS=1`,
-  `JYYCODE_DISABLE_CLAUDE_CODE_SKILLS=1`: skip the external skill scans under
-  `~/.claude/` and `~/.agents/`.
+- `JYYCODE_DISABLE_EXTERNAL_SKILLS=1`: skip the external skill scan under
+  `~/.jyycode/`.
 
 ## When proposing edits
 

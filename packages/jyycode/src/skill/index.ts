@@ -18,8 +18,7 @@ import CUSTOMIZE_JYYCODE_SKILL_BODY from "./prompt/customize-jyycode.md" with { 
 import { isRecord } from "@/util/record"
 
 const log = Log.create({ service: "skill" })
-const CLAUDE_EXTERNAL_DIR = ".claude"
-const AGENTS_EXTERNAL_DIR = ".agents"
+const JYYCODE_EXTERNAL_DIR = ".jyycode"
 const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
 const JYYCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
 const SKILL_PATTERN = "**/SKILL.md"
@@ -176,16 +175,13 @@ const discoverSkills = Effect.fnUntraced(function* (
   fsys: AppFileSystem.Interface,
   global: Global.Interface,
   disableExternalSkills: boolean,
-  disableClaudeCodeSkills: boolean,
   directory: string,
   worktree: string,
 ) {
   const state: ScanState = { matches: new Set(), dirs: new Set() }
 
-  const externalDirs: string[] = []
   if (!disableExternalSkills) {
-    if (!disableClaudeCodeSkills) externalDirs.push(CLAUDE_EXTERNAL_DIR)
-    externalDirs.push(AGENTS_EXTERNAL_DIR)
+    const externalDirs = [JYYCODE_EXTERNAL_DIR]
 
     for (const dir of externalDirs) {
       const root = path.join(global.home, dir)
@@ -260,7 +256,6 @@ export const layer = Layer.effect(
           fsys,
           global,
           flags.disableExternalSkills,
-          flags.disableClaudeCodeSkills,
           ctx.directory,
           ctx.worktree,
         )
