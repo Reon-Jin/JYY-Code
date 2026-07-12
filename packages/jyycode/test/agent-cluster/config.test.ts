@@ -38,8 +38,8 @@ describe("ConfigAgentCluster.Default", () => {
     expect(ConfigAgentCluster.Default.max_review_rounds).toBe(2)
   })
 
-  test("artifact_dir defaults to .jyycode/agent-cluster", () => {
-    expect(ConfigAgentCluster.Default.artifact_dir).toBe(".jyycode/agent-cluster")
+  test("artifact_dir defaults to .", () => {
+    expect(ConfigAgentCluster.Default.artifact_dir).toBe(".")
   })
 })
 

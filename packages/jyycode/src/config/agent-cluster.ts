@@ -55,7 +55,7 @@ export const Default = {
   max_subagents: 100,
   max_concurrency: 10,
   max_review_rounds: 2,
-  artifact_dir: ".jyycode/agent-cluster",
+  artifact_dir: ".",
 } satisfies Omit<Required<Info>, "reviewer_model">
 
 export function resolve(input: Info | undefined) {
