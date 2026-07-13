@@ -2,7 +2,7 @@ import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { useNavigate } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { FolderOpen, PanelLeftClose, PanelLeftOpen, Plus, Radio } from "lucide-solid"
-import { createMemo, createSignal, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, on, Show, type JSX } from "solid-js"
 import { Button, IconButton } from "../components/ui/button"
 import { InlineError } from "../components/ui/inline-error"
 import { useData } from "../data/context"
@@ -13,6 +13,14 @@ import { useProjects } from "../features/projects/project-context"
 import { conversationQueryOptions } from "../features/conversation/conversation-query"
 import type { ConversationSnapshot } from "../features/conversation/conversation-state"
 import { MessageTimeline } from "../features/conversation/message-timeline"
+import { Composer } from "../features/composer/composer"
+import {
+  loadComposerPreference,
+  loadModelCatalog,
+  saveComposerPreference,
+  type ModelSelection,
+} from "../features/composer/model-catalog"
+import { ProviderEmpty } from "../features/composer/provider-empty"
 import { createSessionApi } from "../features/sessions/session-api"
 import { SessionEmpty } from "../features/sessions/session-empty"
 import { SessionList } from "../features/sessions/session-list"
@@ -36,6 +44,7 @@ export type WorkspaceLayoutViewProps = {
   archivedError?: string
   conversationError?: string
   operationError?: string
+  composer?: JSX.Element
   busy?: boolean
   onRetryActive?: () => void
   onRetryArchived?: () => void
@@ -173,6 +182,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
               error={props.conversationError}
               onRetry={props.onRetryConversation}
             />
+            {props.composer}
           </section>
         </Show>
       </main>
@@ -186,6 +196,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const navigate = useNavigate()
   const [operationError, setOperationError] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)
+  const [selectedAgent, setSelectedAgent] = createSignal<string>()
+  const [selectedModel, setSelectedModel] = createSignal<ModelSelection>()
   const api = createMemo(() =>
     createSessionApi({ client: data.client(), directory: data.directory(), queryClient: data.queryClient() }),
   )
@@ -212,6 +224,29 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       enabled: Boolean(props.activeSessionID),
     }),
     data.queryClient,
+  )
+  const catalogQuery = createQuery(
+    () => ({
+      queryKey: [...keys.project(data.directory()), "composer-catalog"] as const,
+      queryFn: () =>
+        loadModelCatalog({
+          client: data.client(),
+          directory: data.directory(),
+          preference: loadComposerPreference(),
+        }),
+    }),
+    data.queryClient,
+  )
+
+  createEffect(
+    on(
+      () => catalogQuery.data,
+      (catalog) => {
+        if (!catalog) return
+        setSelectedAgent(catalog.selectedAgent)
+        setSelectedModel(catalog.selectedModel)
+      },
+    ),
   )
 
   const projectName = createMemo(() => {
@@ -267,6 +302,25 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     if (props.activeSessionID === sessionID) navigate(next ? `/session/${encodeURIComponent(next.id)}` : "/")
   }
 
+  function changeAgent(agent: string) {
+    setSelectedAgent(agent)
+    saveComposerPreference({ agent, model: selectedModel() })
+  }
+
+  function changeModel(model: ModelSelection) {
+    setSelectedModel(model)
+    saveComposerPreference({ agent: selectedAgent(), model })
+  }
+
+  const lastMessageError = createMemo(() => {
+    const messages = conversationQuery.data?.messages ?? []
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const info = messages[index]!.info
+      if (info.role === "assistant" && info.error) return info.error
+    }
+    return undefined
+  })
+
   return (
     <WorkspaceLayoutView
       projectName={projectName()}
@@ -286,6 +340,40 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         conversationQuery.error ? errorMessage(conversationQuery.error, "无法加载 Session 消息") : undefined
       }
       operationError={operationError()}
+      composer={
+        <Show when={props.activeSessionID} keyed>
+          {(sessionID) => (
+            <Show
+              when={!catalogQuery.isPending}
+              fallback={<p class="composer__status" role="status">正在加载 Agent 和模型</p>}
+            >
+              <Show
+                when={!catalogQuery.error}
+                fallback={<InlineError message={errorMessage(catalogQuery.error, "无法加载 Agent 和模型")} />}
+              >
+                <Show
+                  when={catalogQuery.data?.selectedModel && selectedModel()}
+                  fallback={<ProviderEmpty configPath={catalogQuery.data?.configPath ?? "jyycode.jsonc"} />}
+                >
+                  <Composer
+                    client={data.client()}
+                    directory={data.directory()}
+                    sessionID={sessionID}
+                    agents={catalogQuery.data?.agents ?? []}
+                    models={catalogQuery.data?.models ?? []}
+                    selectedAgent={selectedAgent() ?? catalogQuery.data?.selectedAgent ?? "build"}
+                    selectedModel={selectedModel()!}
+                    status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
+                    lastMessageError={lastMessageError()}
+                    onAgentChange={changeAgent}
+                    onModelChange={changeModel}
+                  />
+                </Show>
+              </Show>
+            </Show>
+          )}
+        </Show>
+      }
       busy={busy()}
       onRetryActive={() => void activeQuery.refetch()}
       onRetryArchived={() => void archivedQuery.refetch()}
