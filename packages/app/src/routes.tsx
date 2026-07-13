@@ -4,19 +4,16 @@ import { DataProvider } from "./data/context"
 import type { DesktopBootstrap } from "./platform/types"
 import { useProjects } from "./features/projects/project-context"
 import { WelcomePage } from "./features/projects/welcome-page"
+import { WorkspaceLayout } from "./layout/workspace-layout"
 
-function ProjectHome() {
+function ProjectHome(props: { bootstrap: DesktopBootstrap }) {
   const projects = useProjects()
   return (
     <Show when={projects.activeProject()} fallback={<WelcomePage />}>
       {(project) => (
-        <main class="project-ready">
-          <div class="project-ready__content">
-            <h1>项目已打开</h1>
-            <p>后端连接成功。下一步将在这里加载和管理 Session。</p>
-            <p class="project-ready__path">{project().directory}</p>
-          </div>
-        </main>
+        <DataProvider bootstrap={props.bootstrap} generation={0} directory={project().directory}>
+          <WorkspaceLayout />
+        </DataProvider>
       )}
     </Show>
   )
@@ -35,13 +32,7 @@ function SessionRoute(props: { bootstrap: DesktopBootstrap }) {
           directory={project().directory}
           activeSessionID={() => params.sessionID}
         >
-          <main class="session-placeholder">
-            <div class="session-placeholder__content">
-              <h1>Session 已创建</h1>
-              <p>正在准备单 Agent 对话工作区。</p>
-              <p class="project-ready__path">{params.sessionID}</p>
-            </div>
-          </main>
+          <WorkspaceLayout activeSessionID={params.sessionID} />
         </DataProvider>
       )}
     </Show>
@@ -51,7 +42,7 @@ function SessionRoute(props: { bootstrap: DesktopBootstrap }) {
 export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
   return (
     <HashRouter>
-      <Route path="/" component={ProjectHome} />
+      <Route path="/" component={() => <ProjectHome bootstrap={props.bootstrap} />} />
       <Route path="/session/:sessionID" component={() => <SessionRoute bootstrap={props.bootstrap} />} />
     </HashRouter>
   )

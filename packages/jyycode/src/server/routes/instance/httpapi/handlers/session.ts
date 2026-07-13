@@ -28,6 +28,7 @@ import { InstanceHttpApi } from "../api"
 import {
   CommandPayload,
   ContextPayload,
+  CreatePayload,
   DiffQuery,
   ForkPayload,
   InitPayload,
@@ -73,6 +74,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         scope: ctx.query.scope,
         path: ctx.query.path,
         roots: ctx.query.roots,
+        archived: ctx.query.archived,
         start: ctx.query.start,
         search: ctx.query.search,
         limit: ctx.query.limit,
@@ -191,7 +193,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       )
     })
 
-    const create = Effect.fn("SessionHttpApi.create")(function* (ctx: { payload?: Session.CreateInput }) {
+    const create = Effect.fn("SessionHttpApi.create")(function* (ctx: { payload?: typeof CreatePayload.Type }) {
       return yield* shareSvc.create(ctx.payload)
     })
 
@@ -202,7 +204,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       if (body.trim().length === 0) return yield* create({})
 
       const json = yield* tryParseJson(body)
-      const decoded = yield* Schema.decodeUnknownEffect(Session.CreateInput)(json).pipe(
+      const decoded = yield* Schema.decodeUnknownEffect(CreatePayload)(json).pipe(
         Effect.mapError(() => new HttpApiError.BadRequest({})),
       )
       const payload = decoded

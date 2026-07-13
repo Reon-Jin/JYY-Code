@@ -6,7 +6,10 @@ const project = (directory: string) => ["project", normalizeDirectory(directory)
 
 export const keys = {
   project,
-  sessions: (directory: string) => [...project(directory), "sessions"] as const,
+  sessions: (directory: string, archived = false) =>
+    archived
+      ? ([...project(directory), "sessions", "archived"] as const)
+      : ([...project(directory), "sessions"] as const),
   session: (directory: string, sessionID: string) => [...project(directory), "session", sessionID] as const,
   messages: (directory: string, sessionID: string) =>
     [...project(directory), "session", sessionID, "messages"] as const,

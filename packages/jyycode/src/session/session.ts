@@ -14,6 +14,7 @@ import { eq } from "drizzle-orm"
 import { and } from "drizzle-orm"
 import { gte } from "drizzle-orm"
 import { isNull } from "drizzle-orm"
+import { isNotNull } from "drizzle-orm"
 import { desc } from "drizzle-orm"
 import { like } from "drizzle-orm"
 import { inArray } from "drizzle-orm"
@@ -289,6 +290,7 @@ export type ListInput = {
   path?: string
   workspaceID?: WorkspaceID
   roots?: boolean
+  archived?: boolean
   start?: number
   search?: string
   limit?: number
@@ -959,6 +961,7 @@ function* listByProject(
   if (input.roots) {
     conditions.push(isNull(SessionTable.parent_id))
   }
+  conditions.push(input.archived ? isNotNull(SessionTable.time_archived) : isNull(SessionTable.time_archived))
   if (input.start) {
     conditions.push(gte(SessionTable.time_updated, input.start))
   }

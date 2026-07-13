@@ -440,6 +440,28 @@ describe("session HttpApi", () => {
   )
 
   it.instance(
+    "filters active and archived root sessions",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const headers = { "x-jyycode-directory": test.directory }
+        const active = yield* createSession({ title: "active" })
+        const archived = yield* createSession({ title: "archived" })
+        yield* Session.use.setArchived({ sessionID: archived.id, time: 1 })
+
+        const activeRoots = yield* requestJson<Session.Info[]>(`${SessionPaths.list}?roots=true`, { headers })
+        expect(activeRoots.map((item) => item.id)).toEqual([active.id])
+
+        const archivedRoots = yield* requestJson<Session.Info[]>(
+          `${SessionPaths.list}?roots=true&archived=true`,
+          { headers },
+        )
+        expect(archivedRoots.map((item) => item.id)).toEqual([archived.id])
+      }),
+    { git: true, config: { formatter: false, lsp: false } },
+  )
+
+  it.instance(
     "returns v2 public request errors for cursor and workspace query failures",
     () =>
       Effect.gen(function* () {
