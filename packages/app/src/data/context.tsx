@@ -1,4 +1,4 @@
-import type { JyycodeClient } from "@jyycode-ai/sdk/v2"
+import type { JyycodeClient } from "@jyycode-ai/sdk/v2/client"
 import { QueryClientProvider, type QueryClient } from "@tanstack/solid-query"
 import {
   createContext,

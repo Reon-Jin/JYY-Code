@@ -40,4 +40,12 @@ describe("App", () => {
     expect(actions).toHaveLength(2)
     for (const action of actions) expect(action).toHaveAttribute("data-variant", "primary")
   })
+
+  it("shows a recoverable error when desktop bootstrap fails", async () => {
+    const bridge = bridgeWith(vi.fn(async () => Promise.reject(new Error("sidecar failed"))))
+    render(() => <App bridge={bridge} />)
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("JYYCode 本地后端启动失败")
+    expect(screen.getByRole("button", { name: "重试启动" })).toBeVisible()
+  })
 })

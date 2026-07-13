@@ -1,4 +1,4 @@
-import type { GlobalEvent, Message, Session, TextPart } from "@jyycode-ai/sdk/v2"
+import type { GlobalEvent, Message, Session, TextPart } from "@jyycode-ai/sdk/v2/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { EventBridge, patchConversation, retryDelay, routeEvent } from "./event-bridge"
 import { createDesktopQueryClient } from "./query-client"

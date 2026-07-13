@@ -9,13 +9,13 @@ name = "jyycode_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = "=2.6.3"
+tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
 rand = "=0.10.2"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
-tauri = "=2.11.5"
+tauri = { version = "=2.11.5", features = [] }
 tauri-plugin-dialog = "=2.7.1"
 tauri-plugin-shell = "=2.3.5"
 tauri-plugin-store = "=2.4.3"

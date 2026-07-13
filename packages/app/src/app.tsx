@@ -1,4 +1,4 @@
-import { createResource, Show } from "solid-js"
+import { createSignal, ErrorBoundary, onCleanup, onMount, Show } from "solid-js"
 import { Button } from "./components/ui/button"
 import { InlineError } from "./components/ui/inline-error"
 import { createProjectController } from "./features/projects/project-controller"
@@ -30,24 +30,49 @@ function ProjectApplication(props: { bootstrap: DesktopBootstrap; bridge: Deskto
 
 function DesktopApplication() {
   const bridge = useDesktopBridge()
-  const [bootstrap, { refetch }] = createResource(() => bridge.bootstrap())
+  const [bootstrap, setBootstrap] = createSignal<DesktopBootstrap>()
+  const [startupError, setStartupError] = createSignal<string>()
+  const [starting, setStarting] = createSignal(true)
+  let disposed = false
+
+  async function start(restart = false) {
+    setStarting(true)
+    setStartupError(undefined)
+    try {
+      if (restart) await bridge.restartBackend()
+      const value = await bridge.bootstrap()
+      if (!disposed) setBootstrap(value)
+    } catch (error) {
+      if (!disposed) {
+        setBootstrap(undefined)
+        setStartupError(error instanceof Error && error.message ? error.message : "本地后端没有响应")
+      }
+    } finally {
+      if (!disposed) setStarting(false)
+    }
+  }
+
+  onMount(() => void start())
+  onCleanup(() => {
+    disposed = true
+  })
 
   return (
     <Show
       when={bootstrap()}
       fallback={
         <Show
-          when={bootstrap.error}
+          when={startupError()}
           fallback={<StartupScreen />}
         >
-          <main class="startup-screen">
+          {(message) => <main class="startup-screen">
             <div class="startup-error">
-              <InlineError message="JYYCode 本地后端启动失败" />
-              <Button variant="secondary" onClick={() => void refetch()}>
+              <InlineError message={`JYYCode 本地后端启动失败：${message()}`} />
+              <Button variant="secondary" loading={starting()} onClick={() => void start(true)}>
                 重试启动
               </Button>
             </div>
-          </main>
+          </main>}
         </Show>
       }
     >
@@ -58,8 +83,23 @@ function DesktopApplication() {
 
 export function App(props: AppProps) {
   return (
-    <DesktopBridgeProvider bridge={props.bridge}>
-      <DesktopApplication />
-    </DesktopBridgeProvider>
+    <ErrorBoundary
+      fallback={(error, reset) => (
+        <main class="startup-screen">
+          <div class="startup-error">
+            <InlineError
+              message={`JYYCode 界面运行失败：${error instanceof Error ? error.message : "未知错误"}`}
+            />
+            <Button variant="secondary" onClick={reset}>
+              重新加载界面
+            </Button>
+          </div>
+        </main>
+      )}
+    >
+      <DesktopBridgeProvider bridge={props.bridge}>
+        <DesktopApplication />
+      </DesktopBridgeProvider>
+    </ErrorBoundary>
   )
 }

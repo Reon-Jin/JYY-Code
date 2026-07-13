@@ -1,4 +1,4 @@
-import type { Project, Session } from "@jyycode-ai/sdk/v2"
+import type { Project, Session } from "@jyycode-ai/sdk/v2/client"
 import { createSignal } from "solid-js"
 import { createDesktopClient, type DesktopClient } from "../../data/sdk"
 import { normalizeRecentProjects, touchRecentProject } from "../../platform/recent-projects"

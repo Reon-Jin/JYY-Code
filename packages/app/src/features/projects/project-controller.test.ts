@@ -1,4 +1,4 @@
-import type { Project, Session } from "@jyycode-ai/sdk/v2"
+import type { Project, Session } from "@jyycode-ai/sdk/v2/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { DesktopClient } from "../../data/sdk"
 import type { DesktopBridge } from "../../platform/types"

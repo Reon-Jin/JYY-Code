@@ -1,4 +1,4 @@
-import type { Project, Session } from "@jyycode-ai/sdk/v2"
+import type { Project, Session } from "@jyycode-ai/sdk/v2/client"
 import { MemoryRouter, Route, useParams } from "@solidjs/router"
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"

@@ -6,7 +6,7 @@ import type {
   QuestionRequest,
   Session,
   SessionStatus,
-} from "@jyycode-ai/sdk/v2"
+} from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import type { DesktopClient } from "./sdk"
 import { keys, normalizeDirectory } from "./query-keys"

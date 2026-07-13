@@ -1,4 +1,4 @@
-import { createJyycodeClient } from "@jyycode-ai/sdk/v2"
+import { createJyycodeClient } from "@jyycode-ai/sdk/v2/client"
 import type { DesktopBootstrap } from "../platform/types"
 
 export function authorizationHeader(username: string, password: string) {
