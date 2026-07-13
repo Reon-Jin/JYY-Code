@@ -6,6 +6,8 @@ import type {
   QuestionRequest,
   Session,
   SessionStatus,
+  Todo,
+  VcsInfo,
 } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import type { DesktopClient } from "./sdk"
@@ -43,6 +45,9 @@ export type CacheAction =
   | { kind: "permission.remove"; eventID: string; requestID: string }
   | { kind: "question.upsert"; eventID: string; request: QuestionRequest }
   | { kind: "question.remove"; eventID: string; requestID: string }
+  | { kind: "todos.set"; eventID: string; directory: string; sessionID: string; todos: Todo[] }
+  | { kind: "vcs.invalidate"; eventID: string; directory: string }
+  | { kind: "vcs.branch.set"; eventID: string; directory: string; branch?: string }
   | ConversationAction
 
 function sameDirectory(left: string | undefined, right: string) {
@@ -149,6 +154,23 @@ export function routeEvent(directory: string, event: GlobalEvent): CacheAction[]
           eventID: payload.id,
           requestID: payload.properties.requestID,
         },
+      ]
+    case "todo.updated":
+      return [
+        {
+          kind: "todos.set",
+          eventID: payload.id,
+          directory,
+          sessionID: payload.properties.sessionID,
+          todos: payload.properties.todos,
+        },
+      ]
+    case "file.watcher.updated":
+      return [{ kind: "vcs.invalidate", eventID: payload.id, directory }]
+    case "vcs.branch.updated":
+      return [
+        { kind: "vcs.branch.set", eventID: payload.id, directory, branch: payload.properties.branch },
+        { kind: "vcs.invalidate", eventID: payload.id, directory },
       ]
     default:
       return []
@@ -305,6 +327,7 @@ export class EventBridge {
     if (this.#queue.length === 0 || this.#abort.signal.aborted) return
     const events = this.#queue.splice(0)
     const conversations = new Map<string, GlobalEvent[]>()
+    const invalidatedVcs = new Set<string>()
 
     for (const event of events) {
       for (const action of routeEvent(this.#options.directory, event)) {
@@ -317,6 +340,11 @@ export class EventBridge {
           current.push(event)
           conversations.set(action.sessionID, current)
           continue
+        }
+        if (action.kind === "vcs.invalidate") {
+          const key = normalizeDirectory(action.directory)
+          if (invalidatedVcs.has(key)) continue
+          invalidatedVcs.add(key)
         }
         this.#apply(action)
       }
@@ -385,6 +413,23 @@ export class EventBridge {
       case "question.remove":
         this.#removeRequest(keys.questions(directory), action.requestID)
         break
+      case "todos.set":
+        this.#options.queryClient.setQueryData(keys.todos(action.directory, action.sessionID), action.todos)
+        break
+      case "vcs.branch.set": {
+        const queryKey = keys.vcsInfo(action.directory)
+        const info = this.#options.queryClient.getQueryData<VcsInfo>(queryKey)
+        this.#options.queryClient.setQueryData(queryKey, { ...info, branch: action.branch })
+        break
+      }
+      case "vcs.invalidate":
+        this.#invalidate(keys.vcsBranches(action.directory))
+        this.#invalidate(keys.vcsDiff(action.directory))
+        void this.#options.queryClient.invalidateQueries({
+          queryKey: keys.pullRequestsScope(action.directory),
+          exact: false,
+        })
+        break
     }
   }
 
@@ -414,9 +459,14 @@ export class EventBridge {
         keys.status(directory),
         keys.permissions(directory),
         keys.questions(directory),
+        keys.vcsInfo(directory),
+        keys.vcsBranches(directory),
+        keys.vcsDiff(directory),
+        keys.githubStatus(directory),
+        keys.pullRequestsScope(directory),
       ]
       const sessionID = this.#options.activeSessionID?.()
-      if (sessionID) queryKeys.push(keys.messages(directory, sessionID))
+      if (sessionID) queryKeys.push(keys.messages(directory, sessionID), keys.todos(directory, sessionID))
       await Promise.all(
         queryKeys.map((queryKey) => this.#options.queryClient.invalidateQueries({ queryKey, exact: true })),
       )
