@@ -1,12 +1,25 @@
 import DOMPurify from "dompurify"
-import { marked } from "marked"
+import "katex/dist/katex.min.css"
+import { Marked } from "marked"
+import markedKatex from "marked-katex-extension"
+
+const markdown = new Marked(
+  markedKatex({ throwOnError: false, nonStandard: true, strict: "ignore", trust: false }),
+  {
+    renderer: {
+      // Raw HTML is intentionally unsupported. This keeps user-authored styles
+      // out while allowing the trusted KaTeX renderer to retain layout styles.
+      html: () => "",
+    },
+  },
+)
 
 export function renderMarkdown(source: string) {
-  const html = marked.parse(source, { async: false }) as string
+  const html = markdown.parse(source, { async: false }) as string
   const sanitized = DOMPurify.sanitize(html, {
-    USE_PROFILES: { html: true },
+    USE_PROFILES: { html: true, mathMl: true },
     FORBID_TAGS: ["style", "iframe", "object", "embed", "form"],
-    FORBID_ATTR: ["style", "srcset"],
+    FORBID_ATTR: ["srcset"],
   })
   const template = document.createElement("template")
   template.innerHTML = sanitized

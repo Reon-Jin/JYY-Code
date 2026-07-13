@@ -11,6 +11,7 @@ import type { QueryClient } from "@tanstack/solid-query"
 import type { DesktopClient } from "./sdk"
 import {
   applyConversationEvents,
+  emptyConversationSnapshot,
   isConversationSnapshot,
   type ConversationSnapshot,
 } from "../features/conversation/conversation-state"
@@ -323,10 +324,10 @@ export class EventBridge {
 
     for (const [sessionID, conversationEvents] of conversations) {
       const queryKey = keys.messages(this.#options.directory, sessionID)
-      const current = this.#options.queryClient.getQueryData<ConversationSnapshot>(queryKey)
+      let current = this.#options.queryClient.getQueryData<ConversationSnapshot>(queryKey)
       if (!isConversationSnapshot(current)) {
-        this.#invalidate(queryKey)
-        continue
+        void this.#options.queryClient.cancelQueries({ queryKey, exact: true })
+        current = emptyConversationSnapshot(sessionID)
       }
       const patched = applyConversationEvents(current, conversationEvents)
       this.#options.queryClient.setQueryData(queryKey, patched)

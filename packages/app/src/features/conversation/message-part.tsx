@@ -15,6 +15,7 @@ export function MessagePartView(props: { part: Part }) {
         ) : null
       }
     >
+      <Match when={props.part.type === "step-start" || props.part.type === "step-finish"}>{null}</Match>
       <Match when={props.part.type === "text" ? props.part : undefined}>
         {(part) => <TextPartView part={part()} />}
       </Match>

@@ -216,6 +216,74 @@ describe("event routing", () => {
     releaseStream()
   })
 
+  it("creates a live snapshot when SSE events beat the initial message query", async () => {
+    const queryClient = createDesktopQueryClient()
+    const cancelQueries = vi.spyOn(queryClient, "cancelQueries")
+    const livePart = { ...part, text: "" }
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    const stream = (async function* () {
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_live_message",
+          type: "message.updated",
+          properties: { sessionID: session.id, info: message },
+        },
+      } as GlobalEvent
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_live_part",
+          type: "message.part.updated",
+          properties: { sessionID: session.id, part: livePart, time: 1 },
+        },
+      } as GlobalEvent
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_live_delta",
+          type: "message.part.delta",
+          properties: {
+            sessionID: session.id,
+            messageID: message.id,
+            partID: livePart.id,
+            field: "text",
+            delta: "streaming",
+          },
+        },
+      } as GlobalEvent
+      await streamWait
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+    scheduled?.(0)
+    await Promise.resolve()
+
+    await vi.waitFor(() => {
+      const snapshot = queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", session.id))
+      expect(snapshot?.messages[0]?.parts[0]).toMatchObject({ text: "streaming" })
+    })
+    expect(cancelQueries).toHaveBeenCalledWith({ queryKey: keys.messages("C:\\a", session.id), exact: true })
+
+    bridge.abort()
+    releaseStream()
+  })
+
   it("caps reconnect backoff and clears its timer on abort", async () => {
     vi.useFakeTimers()
     expect([1, 2, 3, 4, 5, 6].map(retryDelay)).toEqual([1_000, 2_000, 4_000, 8_000, 30_000, 30_000])

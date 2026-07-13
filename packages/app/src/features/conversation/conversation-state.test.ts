@@ -6,7 +6,7 @@ import {
   emptyConversationSnapshot,
   snapshotFromMessages,
 } from "./conversation-state"
-import { loadConversation } from "./conversation-query"
+import { conversationQueryOptions, loadConversation } from "./conversation-query"
 import { createDesktopQueryClient } from "../../data/query-client"
 import { keys } from "../../data/query-keys"
 
@@ -118,6 +118,25 @@ describe("conversation state", () => {
       { throwOnError: true },
     )
     expect(snapshot.messages).toEqual(messages)
+  })
+
+  it("forwards the query abort signal to the SDK request", async () => {
+    const client = {
+      session: { messages: vi.fn(async () => ({ data: [] })) },
+    }
+    const signal = new AbortController().signal
+    const options = conversationQueryOptions({
+      client: client as never,
+      directory: "C:\\work\\demo",
+      sessionID,
+    })
+
+    await options.queryFn({ signal })
+
+    expect(client.session.messages).toHaveBeenCalledWith(
+      { directory: "C:\\work\\demo", sessionID, limit: 100 },
+      { throwOnError: true, signal },
+    )
   })
 
   it("preserves processed event IDs when a snapshot refetch completes", async () => {

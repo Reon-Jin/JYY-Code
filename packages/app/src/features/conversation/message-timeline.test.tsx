@@ -23,6 +23,19 @@ function conversation(parts: Part[], message = info): ConversationMessage {
 afterEach(cleanup)
 
 describe("MessageTimeline", () => {
+  it("renders text updates as streaming deltas arrive", async () => {
+    const initial = conversation([{ id: "part_stream", sessionID, messageID: info.id, type: "text", text: "Hel" }])
+    const [messages, setMessages] = createSignal([initial])
+    render(() => <MessageTimeline messages={messages()} />)
+
+    expect(screen.getByText("Hel")).toBeVisible()
+    setMessages([
+      conversation([{ id: "part_stream", sessionID, messageID: info.id, type: "text", text: "Hello" }]),
+    ])
+    await waitFor(() => expect(screen.getByText("Hello")).toBeVisible())
+    expect(screen.queryByText("Hel")).not.toBeInTheDocument()
+  })
+
   it("keeps reasoning collapsed until explicitly expanded", async () => {
     const user = userEvent.setup()
     render(() => (

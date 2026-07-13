@@ -8,12 +8,13 @@ export type ConversationQueryInput = {
   directory: string
   sessionID: string
   queryClient?: QueryClient
+  signal?: AbortSignal
 }
 
 export async function loadConversation(input: ConversationQueryInput) {
   const result = await input.client.session.messages(
     { directory: input.directory, sessionID: input.sessionID, limit: 100 },
-    { throwOnError: true },
+    input.signal ? { throwOnError: true, signal: input.signal } : { throwOnError: true },
   )
   const snapshot = snapshotFromMessages(input.sessionID, result.data ?? [])
   const previous = input.queryClient?.getQueryData(keys.messages(input.directory, input.sessionID))
@@ -23,6 +24,6 @@ export async function loadConversation(input: ConversationQueryInput) {
 export function conversationQueryOptions(input: ConversationQueryInput) {
   return {
     queryKey: keys.messages(input.directory, input.sessionID),
-    queryFn: () => loadConversation(input),
+    queryFn: ({ signal }: { signal: AbortSignal }) => loadConversation({ ...input, signal }),
   } as const
 }

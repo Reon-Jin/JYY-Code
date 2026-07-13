@@ -29,4 +29,19 @@ describe("renderMarkdown", () => {
     expect(link?.getAttribute("data-external-href")).toBe("https://openai.com")
     expect(link?.hasAttribute("href")).toBe(false)
   })
+
+  it("renders inline and display TeX formulas", () => {
+    const html = renderMarkdown(String.raw`Inline $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$
+
+$$
+\Delta = b^2 - 4ac
+$$`)
+    const template = document.createElement("template")
+    template.innerHTML = html
+
+    expect(template.content.querySelectorAll(".katex")).toHaveLength(2)
+    expect(template.content.querySelector(".katex-display")).not.toBeNull()
+    expect(template.content.querySelector(".katex math")).not.toBeNull()
+    expect(template.content.querySelector(".katex [style]")).not.toBeNull()
+  })
 })
