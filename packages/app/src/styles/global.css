@@ -76,6 +76,12 @@ button:disabled {
   content: "";
 }
 
+.startup-error {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-4);
+}
+
 .ui-button {
   display: inline-flex;
   min-height: 36px;
