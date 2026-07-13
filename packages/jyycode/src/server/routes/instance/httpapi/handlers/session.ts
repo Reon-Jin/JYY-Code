@@ -194,7 +194,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     })
 
     const create = Effect.fn("SessionHttpApi.create")(function* (ctx: { payload?: typeof CreatePayload.Type }) {
-      return yield* shareSvc.create(ctx.payload)
+      const payload = ctx.payload
+        ? {
+            ...ctx.payload,
+            permission: ctx.payload.permission ? [...ctx.payload.permission] : undefined,
+          }
+        : undefined
+      return yield* shareSvc.create(payload)
     })
 
     const createRaw = Effect.fn("SessionHttpApi.createRaw")(function* (ctx: {

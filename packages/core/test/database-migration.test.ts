@@ -196,7 +196,7 @@ describe("database migrations", () => {
         Database.Service.use(({ db }) =>
           Effect.gen(function* () {
             yield* DatabaseMigration.applyOnly(db, [pipelineContext, taskScope])
-            yield* pipelineContext.up(db)
+            yield* db.transaction((tx) => pipelineContext.up(tx))
             yield* db.run(sql`
               INSERT INTO agent_cluster_task(id, run_id, role, title, prompt, complexity, model, status, acceptance_criteria, artifact_paths, time_created, time_updated)
               VALUES ('task-research', 'run-2', 'researcher', 'Research', 'Research', 'simple', 'test/model', 'planned', '[]', '[]', 1, 1)
