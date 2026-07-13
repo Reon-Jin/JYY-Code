@@ -101,13 +101,22 @@ export function MessageTimeline(props: MessageTimelineProps) {
             >
               <div class="message-timeline__content">
                 <For each={props.messages}>
-                  {(message) => (
+                  {(message, index) => (
                     <article
                       class="conversation-message"
                       data-role={message.info.role}
                       aria-label={message.info.role === "user" ? "我的消息" : "Agent 回复"}
                     >
-                      <header>{message.info.role === "user" ? "我" : message.info.agent}</header>
+                      <Show
+                        when={
+                          message.info.role === "assistant" &&
+                          (index() === 0 ||
+                            props.messages[index() - 1]?.info.role !== "assistant" ||
+                            props.messages[index() - 1]?.info.agent !== message.info.agent)
+                        }
+                      >
+                        <header>{message.info.agent}</header>
+                      </Show>
                       <div class="conversation-message__parts">
                         <For each={message.parts}>{(part) => <MessagePartView part={part} />}</For>
                       </div>

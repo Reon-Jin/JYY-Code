@@ -30,6 +30,9 @@ describe("conversation layout CSS", () => {
       /\.conversation-message\[data-role="user"\]\s*\{[^}]*justify-self:\s*end;[^}]*text-align:\s*right;/s,
     )
     expect(conversationCSS).toMatch(
+      /\.conversation-message\[data-role="user"\]\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*50%;/s,
+    )
+    expect(conversationCSS).toMatch(
       /\.conversation-message\[data-role="user"\]\s*\{[^}]*background:\s*var\(--color-surface\);/s,
     )
     expect(conversationCSS).toMatch(
@@ -38,6 +41,11 @@ describe("conversation layout CSS", () => {
     expect(conversationCSS).toMatch(
       /\.tool-call\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*18px minmax\(0, 1fr\) auto;/s,
     )
+    expect(conversationCSS).toMatch(
+      /\.conversation-message\[data-role="assistant"\]\s*\+\s*\.conversation-message\[data-role="assistant"\]\s*\{[^}]*margin-top:\s*calc\(-1 \* var\(--space-6\)\);/s,
+    )
+    expect(conversationCSS).toMatch(/\.reasoning-part__toggle\s*\{[^}]*padding:\s*0;/s)
+    expect(conversationCSS).toMatch(/\.tool-call\s*\{[^}]*padding:\s*0;/s)
     expect(conversationCSS).not.toContain(".tool-call__details")
   })
 })

@@ -54,7 +54,7 @@
 .conversation-message {
   display: grid;
   min-width: 0;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 .conversation-message > header {
@@ -64,7 +64,8 @@
 }
 
 .conversation-message[data-role="user"] {
-  width: min(720px, 88%);
+  width: fit-content;
+  max-width: 50%;
   justify-self: end;
   border: 0;
   border-radius: 18px;
@@ -73,14 +74,8 @@
   text-align: right;
 }
 
-.conversation-message[data-role="user"] > header {
-  color: var(--color-text-muted);
-}
 .conversation-message[data-role="user"] .conversation-message__parts {
   justify-items: end;
-}
-.conversation-message[data-role="user"] .conversation-markdown {
-  width: 100%;
 }
 .conversation-message[data-role="user"] .conversation-markdown pre,
 .conversation-message[data-role="user"] .conversation-markdown ul,
@@ -91,10 +86,13 @@
   width: 100%;
   justify-self: start;
 }
+.conversation-message[data-role="assistant"] + .conversation-message[data-role="assistant"] {
+  margin-top: calc(-1 * var(--space-6));
+}
 .conversation-message__parts {
   display: grid;
   min-width: 0;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
 .conversation-markdown {
@@ -175,7 +173,7 @@
 
 .reasoning-part {
   border-left: 1px solid var(--color-border-strong);
-  padding-left: var(--space-3);
+  padding-left: var(--space-2);
 }
 
 .reasoning-part__toggle {
@@ -183,7 +181,7 @@
   align-items: center;
   gap: var(--space-2);
   border: 0;
-  padding: var(--space-1) 0;
+  padding: 0;
   background: transparent;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
@@ -214,7 +212,7 @@
   grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) 0;
+  padding: 0;
 }
 
 .tool-call[data-status="error"] {
@@ -285,10 +283,6 @@
 
 @media (max-width: 640px) {
   .message-timeline__content {
-    padding-inline: var(--space-4);
-  }
-  .conversation-message[data-role="user"] {
-    width: 100%;
     padding-inline: var(--space-4);
   }
   .conversation-message[data-role="assistant"] {

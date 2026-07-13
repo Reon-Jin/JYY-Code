@@ -39,7 +39,7 @@ function conversation(parts: Part[], message = info): ConversationMessage {
 afterEach(cleanup)
 
 describe("MessageTimeline", () => {
-  it("labels the user as me and renders distinct user/Agent alignment", () => {
+  it("omits the visible user label and renders distinct user/Agent alignment", () => {
     render(() => (
       <MessageTimeline
         messages={[
@@ -55,9 +55,34 @@ describe("MessageTimeline", () => {
     const userMessage = screen.getByLabelText("我的消息")
     const assistantMessage = screen.getByLabelText("Agent 回复")
     expect(userMessage).toHaveAttribute("data-role", "user")
-    expect(within(userMessage).getByText("我")).toBeVisible()
+    expect(within(userMessage).queryByText("我")).not.toBeInTheDocument()
+    expect(userMessage.querySelector("header")).toBeNull()
+    expect(within(userMessage).getByText("用户消息")).toBeVisible()
     expect(assistantMessage).toHaveAttribute("data-role", "assistant")
     expect(within(assistantMessage).getByText("build")).toBeVisible()
+  })
+
+  it("shows an unchanged Agent label only once across consecutive assistant steps", () => {
+    const nextAssistantInfo = { ...assistantInfo, id: "msg_assistant_2", time: { created: 4, completed: 5 } }
+
+    render(() => (
+      <MessageTimeline
+        messages={[
+          conversation([{ id: "part_user", sessionID, messageID: info.id, type: "text", text: "用户消息" }]),
+          conversation(
+            [{ id: "part_assistant_1", sessionID, messageID: assistantInfo.id, type: "text", text: "第一步" }],
+            assistantInfo,
+          ),
+          conversation(
+            [{ id: "part_assistant_2", sessionID, messageID: nextAssistantInfo.id, type: "text", text: "第二步" }],
+            nextAssistantInfo,
+          ),
+        ]}
+      />
+    ))
+
+    expect(screen.getAllByLabelText("Agent 回复")).toHaveLength(2)
+    expect(screen.getAllByText("build")).toHaveLength(1)
   })
 
   it("renders text updates as streaming deltas arrive", async () => {
