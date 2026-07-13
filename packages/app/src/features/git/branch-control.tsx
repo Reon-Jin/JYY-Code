@@ -4,6 +4,7 @@ import { GitBranch } from "lucide-solid"
 import { createMemo, createSignal } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { useData } from "../../data/context"
+import { PullRequestDialog } from "../github/pull-request-dialog"
 import { createGitApi, vcsBranchesQueryOptions, vcsInfoQueryOptions } from "./git-query"
 import { BranchDialog } from "./branch-dialog"
 import "./git.css"
@@ -136,7 +137,14 @@ export function BranchControlView(props: BranchControlViewProps) {
         onCreate={createBranch}
         onFetch={() => void run("fetch", props.actions.fetch, "Fetch 完成")}
         onPush={() => void run("push", () => props.actions.push(remote() ? { remote: remote() } : {}), "Push 完成")}
-        onPullRequests={props.onPullRequests}
+        onPullRequests={
+          props.onPullRequests
+            ? () => {
+                setOpen(false)
+                props.onPullRequests?.()
+              }
+            : undefined
+        }
       />
     </div>
   )
@@ -158,14 +166,22 @@ export function BranchControl(props: { directory: string; onPullRequests?: () =>
   const actions = createMemo(() =>
     createGitApi({ client: data.client(), directory: props.directory, queryClient: data.queryClient() }),
   )
+  const [pullRequestsOpen, setPullRequestsOpen] = createSignal(false)
 
   return (
-    <BranchControlView
-      current={branches.data?.current ?? info.data?.branch}
-      branches={branches.data ?? { branches: [], remotes: [] }}
-      loading={info.isPending || (Boolean(info.data?.branch) && branches.isPending)}
-      actions={actions()}
-      onPullRequests={props.onPullRequests}
-    />
+    <>
+      <BranchControlView
+        current={branches.data?.current ?? info.data?.branch}
+        branches={branches.data ?? { branches: [], remotes: [] }}
+        loading={info.isPending || (Boolean(info.data?.branch) && branches.isPending)}
+        actions={actions()}
+        onPullRequests={props.onPullRequests ?? (() => setPullRequestsOpen(true))}
+      />
+      <PullRequestDialog
+        directory={props.directory}
+        open={pullRequestsOpen()}
+        onClose={() => setPullRequestsOpen(false)}
+      />
+    </>
   )
 }

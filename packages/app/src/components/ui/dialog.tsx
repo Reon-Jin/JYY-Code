@@ -2,6 +2,7 @@ import { createEffect, createUniqueId, onCleanup, Show, type JSX, type ParentPro
 
 export type DialogProps = ParentProps<{
   open: boolean
+  class?: string
   title: string
   description?: string
   footer?: JSX.Element
@@ -41,7 +42,7 @@ export function Dialog(props: DialogProps) {
   return (
     <dialog
       ref={dialog}
-      class="ui-dialog"
+      class={["ui-dialog", props.class].filter(Boolean).join(" ")}
       aria-labelledby={titleID}
       aria-describedby={props.description ? descriptionID : undefined}
       onCancel={(event) => {
