@@ -39,6 +39,27 @@ jyy
 
 The `jyy` command runs in the terminal's current working directory.
 
+## Windows desktop preview
+
+The `desktop-windows` workflow builds the x64 NSIS installer, MSI installer, and portable executable/sidecar pair on
+`windows-2022`. It stages the backend sidecar first, runs the UI and Rust tests, launches the raw desktop executable,
+verifies that it owns exactly one sidecar, verifies sidecar cleanup on exit, and publishes `SHA256SUMS.txt` with the
+artifacts.
+
+Before promoting a desktop preview build:
+
+1. Require the `desktop-windows` workflow to pass from a clean checkout.
+2. Verify every file against `SHA256SUMS.txt`.
+3. Complete the clean Windows 10/11 VM checklist in `packages/desktop/README.md`, including Session lifecycle,
+   permission/question handling, stop/retry, restart restoration, TUI interoperability, DPI coverage, and process
+   cleanup.
+4. Confirm WebView2 installation succeeds when the runtime is absent; network is needed only for that bootstrap.
+
+Phase 1 deliberately leaves auto-update disabled and contains no signing placeholders. Public stable Windows
+distribution is blocked until repository secrets contain production code-signing credentials, certificate access is
+restricted and audited, CI signs both installers and the portable executable, and signature verification is added to
+the release gate.
+
 ## Database rollback
 
 Do not run an older binary against a database already migrated by an unverified release candidate. If migration,

@@ -168,6 +168,14 @@ This shows the active database, release channel, migrations, and session counts 
 
 If a session appears missing, confirm the active database with `jyycode db status`, then open `/sessions` from the same project or worktree.
 
+## Windows Desktop Preview
+
+The phase-1 Windows desktop app provides a single-Agent GUI over the same authenticated local backend used by the TUI.
+Projects, Sessions, messages, Provider configuration, permission requests, and Agent questions remain shared, so the
+same directory can be opened in either interface. Windows x64 builds produce NSIS, MSI, and portable artifacts; see
+[`packages/desktop/README.md`](packages/desktop/README.md) for prerequisites, development commands, output paths, and
+WebView2 behavior. Multi-Agent/Agent Cluster controls remain TUI-only in this preview.
+
 ## Develop From Source
 
 ```bash
@@ -183,6 +191,8 @@ packages/core/      Filesystem, providers, and shared utilities
 packages/llm/       LLM protocol and runtime adapters
 packages/plugin/    Plugin SDK and extension interfaces
 packages/sdk/       JYY-Code API client
+packages/app/       Desktop web UI
+packages/desktop/   Tauri Windows shell and sidecar packaging
 .jyycode/           Project agents, skills, commands, themes, and config
 memory/             Structured persistent memory
 ```
