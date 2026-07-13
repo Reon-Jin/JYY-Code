@@ -52,6 +52,7 @@ import { SyncEvent } from "@/sync"
 import { ToolRegistry } from "@/tool/registry"
 import { lazy } from "@/util/lazy"
 import { Vcs } from "@/project/vcs"
+import { GitHub } from "@/project/github"
 import { Worktree } from "@/worktree"
 import { Workspace } from "@/control-plane/workspace"
 import { CorsConfig, isAllowedCorsOrigin, type CorsOptions } from "@/server/cors"
@@ -67,6 +68,7 @@ import { controlHandlers } from "./handlers/control"
 import { experimentalHandlers } from "./handlers/experimental"
 import { fileHandlers } from "./handlers/file"
 import { globalHandlers } from "./handlers/global"
+import { githubHandlers } from "./handlers/github"
 import { instanceHandlers } from "./handlers/instance"
 import { mcpHandlers } from "./handlers/mcp"
 import { permissionHandlers } from "./handlers/permission"
@@ -126,6 +128,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     configHandlers,
     experimentalHandlers,
     fileHandlers,
+    githubHandlers,
     instanceHandlers,
     mcpHandlers,
     projectHandlers,
@@ -198,6 +201,7 @@ export function createRoutes(
       File.defaultLayer,
       FileWatcher.defaultLayer,
       Format.defaultLayer,
+      GitHub.defaultLayer,
       LSP.defaultLayer,
       Installation.defaultLayer,
       MCP.defaultLayer,
