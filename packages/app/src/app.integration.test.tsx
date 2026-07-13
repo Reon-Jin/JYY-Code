@@ -94,5 +94,9 @@ describe("desktop GUI journey", () => {
     expect(await screen.findByText("流式回复已完成")).toBeVisible()
     expect(screen.getByText("检查当前工作区")).toBeVisible()
     expect(screen.queryByText(/Multi-Agent/i)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "返回项目首页" }))
+    expect(await screen.findByRole("heading", { name: /让代码保持流动/ })).toBeVisible()
+    expect(desktop.lastLocation()).toEqual({})
   })
 })

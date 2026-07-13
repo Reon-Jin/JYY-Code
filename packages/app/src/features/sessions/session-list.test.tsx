@@ -29,7 +29,6 @@ function renderList(overrides?: Partial<Parameters<typeof SessionList>[0]>) {
     statuses: {} as Record<string, SessionStatus>,
     activeSessionID: newer.id,
     archived: false,
-    onCreate: vi.fn(async () => undefined),
     onRename: vi.fn(async () => undefined),
     onArchive: vi.fn(async () => undefined),
     onDelete: vi.fn(async () => undefined),
@@ -78,6 +77,13 @@ describe("SessionList", () => {
       expect.stringContaining("Older session"),
     ])
     expect(screen.getByRole("link", { name: /Newer session/ })).toHaveAttribute("aria-current", "page")
+  })
+
+  it("renders no empty-state panel inside an empty Session list", () => {
+    renderList({ sessions: [], archived: true })
+
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "新建 Session" })).not.toBeInTheDocument()
   })
 
   it("validates an inline rename without closing the editor", async () => {
@@ -134,6 +140,7 @@ describe("SessionList", () => {
   it("starts collapsed on a narrow window and exposes a labeled toggle", async () => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })))
     const user = userEvent.setup()
+    const onReturnHome = vi.fn(async () => undefined)
     render(() => (
       <MemoryRouter>
         <Route
@@ -146,7 +153,7 @@ describe("SessionList", () => {
               activeSessions={[newer]}
               archivedSessions={[]}
               statuses={{}}
-              onSwitchProject={vi.fn(async () => undefined)}
+              onReturnHome={onReturnHome}
               onCreate={vi.fn(async () => undefined)}
               onRename={vi.fn(async () => undefined)}
               onArchive={vi.fn(async () => undefined)}
@@ -162,6 +169,36 @@ describe("SessionList", () => {
     await user.click(toggle)
     expect(screen.getByRole("button", { name: "收起 Session 导航" })).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByRole("complementary")).toHaveAttribute("aria-hidden", "false")
+    await user.click(screen.getByRole("button", { name: "返回项目首页" }))
+    expect(onReturnHome).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the empty-state action in the main workspace only", () => {
+    render(() => (
+      <MemoryRouter>
+        <Route
+          path="*"
+          component={() => (
+            <WorkspaceLayoutView
+              projectName="demo"
+              projectDirectory={directory}
+              connection="connected"
+              activeSessions={[]}
+              archivedSessions={[]}
+              statuses={{}}
+              onReturnHome={vi.fn(async () => undefined)}
+              onCreate={vi.fn(async () => undefined)}
+              onRename={vi.fn(async () => undefined)}
+              onArchive={vi.fn(async () => undefined)}
+              onDelete={vi.fn(async () => undefined)}
+            />
+          )}
+        />
+      </MemoryRouter>
+    ))
+
+    expect(within(screen.getByRole("main")).getByRole("heading", { name: "开始一次新的对话" })).toBeVisible()
+    expect(within(screen.getByRole("navigation", { name: "活动 Session" })).queryByRole("heading")).toBeNull()
   })
 
   it("keeps the active request immediately above the Composer outside the message scroller", () => {
@@ -180,7 +217,7 @@ describe("SessionList", () => {
               activeSessionID={newer.id}
               requestArea={<div data-testid="request-area">request</div>}
               composer={<div data-testid="composer">composer</div>}
-              onSwitchProject={vi.fn(async () => undefined)}
+              onReturnHome={vi.fn(async () => undefined)}
               onCreate={vi.fn(async () => undefined)}
               onRename={vi.fn(async () => undefined)}
               onArchive={vi.fn(async () => undefined)}

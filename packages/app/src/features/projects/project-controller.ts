@@ -150,6 +150,11 @@ export function createProjectController(input: ProjectControllerInput) {
     return openProject(directory)
   }
 
+  async function returnToProjectSelection() {
+    await input.bridge.saveLastLocation({})
+    setActiveProject(undefined)
+  }
+
   async function removeRecentProject(directory: string) {
     const current = await loadRecentProjects()
     const key = pathKey(directory)
@@ -167,6 +172,7 @@ export function createProjectController(input: ProjectControllerInput) {
     loadRecentProjects,
     chooseDirectory: () => input.bridge.chooseDirectory(),
     chooseAndOpenProject,
+    returnToProjectSelection,
     openProject,
     createProject,
     continueAfterGitFailure,

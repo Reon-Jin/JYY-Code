@@ -30,7 +30,7 @@
 
 .composer-select--model {
   min-width: 0;
-  flex: 1;
+  flex: 0 1 220px;
 }
 
 .composer-select > span {

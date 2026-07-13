@@ -97,6 +97,16 @@ describe("project controller", () => {
     expect(bridge.saveRecentProjects).not.toHaveBeenCalled()
   })
 
+  it("returns to project selection and clears the restored location", async () => {
+    const { bridge, controller } = createHarness()
+    await controller.openProject(project.worktree)
+
+    await controller.returnToProjectSelection()
+
+    expect(controller.activeProject()).toBeUndefined()
+    expect(bridge.saveLastLocation).toHaveBeenCalledWith({})
+  })
+
   it("keeps an opened project when Git initialization fails and resumes without recreating the directory", async () => {
     const { bridge, calls, controller, sdk } = createHarness()
     sdk.project.initGit.mockImplementationOnce(async () => {

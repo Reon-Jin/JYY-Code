@@ -1,7 +1,7 @@
 import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { useNavigate } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
-import { FolderOpen, PanelLeftClose, PanelLeftOpen, Plus, Radio } from "lucide-solid"
+import { House, PanelLeftClose, PanelLeftOpen, Plus, Radio } from "lucide-solid"
 import { createEffect, createMemo, createSignal, on, Show, type JSX } from "solid-js"
 import { Button, IconButton } from "../components/ui/button"
 import { InlineError } from "../components/ui/inline-error"
@@ -59,7 +59,7 @@ export type WorkspaceLayoutViewProps = {
   onRetryActive?: () => void
   onRetryArchived?: () => void
   onRetryConversation?: () => void
-  onSwitchProject: () => Promise<void>
+  onReturnHome: () => Promise<void>
   onCreate: () => Promise<void>
   onRename: (sessionID: string, title: string) => Promise<void>
   onArchive: AsyncSessionAction
@@ -114,12 +114,12 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
             <small>{props.projectDirectory}</small>
           </span>
           <IconButton
-            label="切换项目"
-            variant="ghost"
+            label="返回项目首页"
+            variant="secondary"
             disabled={props.busy}
-            onClick={() => void props.onSwitchProject()}
+            onClick={() => void props.onReturnHome()}
           >
-            <FolderOpen aria-hidden="true" />
+            <House aria-hidden="true" />
           </IconButton>
         </header>
 
@@ -148,7 +148,6 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
           disabled={props.busy}
           onRetry={retry()}
           onNavigate={closeNarrowRail}
-          onCreate={() => void props.onCreate()}
           onRename={props.onRename}
           onArchive={props.onArchive}
           onDelete={props.onDelete}
@@ -304,14 +303,14 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }
   }
 
-  async function switchProject() {
+  async function returnHome() {
     setBusy(true)
     setOperationError(undefined)
     try {
-      const project = await projects.chooseAndOpenProject()
-      if (project) navigate("/")
+      await projects.returnToProjectSelection()
+      navigate("/")
     } catch (cause) {
-      setOperationError(errorMessage(cause, "无法切换项目"))
+      setOperationError(errorMessage(cause, "无法返回项目首页"))
     } finally {
       setBusy(false)
     }
@@ -460,7 +459,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       onRetryActive={() => void activeQuery.refetch()}
       onRetryArchived={() => void archivedQuery.refetch()}
       onRetryConversation={() => void conversationQuery.refetch()}
-      onSwitchProject={switchProject}
+      onReturnHome={returnHome}
       onCreate={createNewSession}
       onRename={rename}
       onArchive={archive}

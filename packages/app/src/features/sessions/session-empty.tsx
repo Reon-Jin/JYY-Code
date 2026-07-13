@@ -1,5 +1,5 @@
 import { MessageSquarePlus, Plus } from "lucide-solid"
-import { createUniqueId } from "solid-js"
+import { createUniqueId, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 
 export function SessionEmpty(props: { archived?: boolean; onCreate: () => void; disabled?: boolean }) {
@@ -15,10 +15,12 @@ export function SessionEmpty(props: { archived?: boolean; onCreate: () => void; 
           ? "归档的 Session 会出现在这里，便于稍后查阅。"
           : "创建一个单 Agent Session，继续处理当前项目。"}
       </p>
-      <Button disabled={props.disabled} onClick={props.onCreate}>
-        <Plus aria-hidden="true" />
-        新建 Session
-      </Button>
+      <Show when={!props.archived}>
+        <Button disabled={props.disabled} onClick={props.onCreate}>
+          <Plus aria-hidden="true" />
+          新建 Session
+        </Button>
+      </Show>
     </section>
   )
 }

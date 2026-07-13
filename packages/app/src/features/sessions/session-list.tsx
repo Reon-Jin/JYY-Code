@@ -3,7 +3,6 @@ import { For, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
-import { SessionEmpty } from "./session-empty"
 import { SessionListItem } from "./session-list-item"
 
 export type SessionListProps = {
@@ -16,7 +15,6 @@ export type SessionListProps = {
   disabled?: boolean
   onRetry?: () => void
   onNavigate?: () => void
-  onCreate: () => void
   onRename: (sessionID: string, title: string) => Promise<void>
   onArchive: (sessionID: string) => Promise<void>
   onDelete: (sessionID: string) => Promise<void>
@@ -45,10 +43,7 @@ export function SessionList(props: SessionListProps) {
         }
       >
         <Show when={!props.error} fallback={<SessionListError message={props.error!} onRetry={props.onRetry} />}>
-          <Show
-            when={sorted().length > 0}
-            fallback={<SessionEmpty archived={props.archived} disabled={props.disabled} onCreate={props.onCreate} />}
-          >
+          <Show when={sorted().length > 0}>
             <ul>
               <For each={sorted()}>
                 {(session) => (
