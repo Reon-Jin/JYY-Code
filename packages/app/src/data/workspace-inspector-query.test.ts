@@ -79,11 +79,17 @@ describe("workspace inspector queries", () => {
 
     await github.edit({ number: 1, title: "Updated", body: "Updated body" })
     await github.comment({ number: 1, body: "Looks good" })
+    await github.checkout({ number: 1, branch: "feature/inspector" })
+    expect(queryClient.getQueryData(keys.vcsInfo(directory))).toMatchObject({ branch: "feature/inspector" })
+    await github.close({ number: 1 })
+    await github.reopen({ number: 1 })
     await github.merge({ number: 1, method: "squash", deleteBranch: true })
 
     expect(backend.pullRequestDetails.get(1)).toMatchObject({ title: "Updated", state: "MERGED" })
     expect(backend.pullRequestDetails.get(1)?.comments[0]?.body).toBe("Looks good")
     expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.pullRequest(directory, 1), exact: true })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.pullRequestsScope(directory), exact: false })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.vcsBranches(directory), exact: true })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.vcsDiff(directory), exact: true })
   })
 })

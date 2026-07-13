@@ -123,6 +123,28 @@ describe("PullRequestActions", () => {
     expect(screen.getByRole("button", { name: "Merge" })).toBeDisabled()
     expect(screen.getByText("Draft PR 不能合并")).toBeVisible()
   })
+
+  it.each(["required checks failed", "permission denied", "branch protection", "network error"])(
+    "keeps merge confirmation state after %s",
+    async (message) => {
+      const user = userEvent.setup()
+      const action = handlers({
+        merge: vi.fn(async () => {
+          throw new Error(message)
+        }),
+      })
+      render(() => <PullRequestActions detail={detail} handlers={action} />)
+      await user.click(screen.getByRole("button", { name: "Merge" }))
+      const dialog = screen.getByRole("dialog", { name: "合并 #12" })
+      await user.click(within(dialog).getByLabelText("Rebase"))
+      await user.click(within(dialog).getByLabelText("合并后删除远程分支"))
+      await user.click(within(dialog).getByRole("button", { name: "确认合并" }))
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(message)
+      expect(dialog).toHaveAttribute("open")
+      expect(within(dialog).getByLabelText("Rebase")).toBeChecked()
+      expect(within(dialog).getByLabelText("合并后删除远程分支")).toBeChecked()
+    },
+  )
 })
 
 describe("PullRequestDiff", () => {
