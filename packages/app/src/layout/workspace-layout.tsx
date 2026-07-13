@@ -15,6 +15,7 @@ import { conversationQueryOptions } from "../features/conversation/conversation-
 import type { ConversationSnapshot } from "../features/conversation/conversation-state"
 import { MessageTimeline } from "../features/conversation/message-timeline"
 import { Composer } from "../features/composer/composer"
+import { BranchControl } from "../features/git/branch-control"
 import {
   loadComposerPreference,
   loadModelCatalog,
@@ -471,6 +472,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
                     lastMessageError={lastMessageError()}
                     disabled={data.connection() !== "connected"}
+                    branchControl={<BranchControl directory={data.directory()} />}
                     onAgentChange={changeAgent}
                     onModelChange={changeModel}
                   />

@@ -1,6 +1,7 @@
 import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
+import type { JSX } from "solid-js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Composer } from "./composer"
 import type { CatalogModel } from "./model-catalog"
@@ -8,9 +9,7 @@ import type { CatalogModel } from "./model-catalog"
 const directory = "C:\\work\\demo"
 const sessionID = "ses_1"
 const agents: Agent[] = [{ name: "build", mode: "primary", permission: [], options: {} }]
-const models: CatalogModel[] = [
-  { providerID: "openai", providerName: "OpenAI", modelID: "gpt-5", modelName: "GPT-5" },
-]
+const models: CatalogModel[] = [{ providerID: "openai", providerName: "OpenAI", modelID: "gpt-5", modelName: "GPT-5" }]
 
 function deferred() {
   let resolve!: () => void
@@ -20,7 +19,12 @@ function deferred() {
   return { promise, resolve }
 }
 
-function renderComposer(input?: { status?: SessionStatus; lastMessageError?: { name: string }; disabled?: boolean }) {
+function renderComposer(input?: {
+  status?: SessionStatus
+  lastMessageError?: { name: string }
+  disabled?: boolean
+  branchControl?: JSX.Element
+}) {
   const client = {
     session: {
       promptAsync: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
@@ -39,6 +43,7 @@ function renderComposer(input?: { status?: SessionStatus; lastMessageError?: { n
       status={input?.status ?? { type: "idle" }}
       lastMessageError={input?.lastMessageError}
       disabled={input?.disabled}
+      branchControl={input?.branchControl}
       onAgentChange={vi.fn()}
       onModelChange={vi.fn()}
     />
@@ -96,6 +101,15 @@ describe("Composer", () => {
 
     await user.keyboard("{Enter}")
     await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledTimes(1))
+  })
+
+  it("renders Agent, Model, then Branch in the selector row", () => {
+    renderComposer({ branchControl: <button aria-label="Branch">main</button> })
+    const selectors = screen.getByLabelText("Agent").parentElement?.parentElement
+    expect(selectors?.children).toHaveLength(3)
+    expect(selectors?.children[0]).toContainElement(screen.getByLabelText("Agent"))
+    expect(selectors?.children[1]).toContainElement(screen.getByLabelText("模型"))
+    expect(selectors?.children[2]).toContainElement(screen.getByRole("button", { name: "Branch" }))
   })
 
   it("does not submit during IME composition", () => {
