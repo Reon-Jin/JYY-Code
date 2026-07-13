@@ -16,6 +16,7 @@ use tokio::sync::oneshot;
 
 const BACKEND_USERNAME: &str = "jyycode";
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
+const BOOTSTRAP_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const STDERR_LINE_LIMIT: usize = 200;
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -332,13 +333,29 @@ impl BackendSupervisor {
         }
     }
 
-    fn bootstrap(&self) -> Result<DesktopBootstrap, String> {
-        match &*self.phase()? {
-            BackendPhase::Ready(bootstrap) => Ok(bootstrap.clone()),
-            BackendPhase::Starting => Err("JYYCode backend is starting".into()),
-            BackendPhase::Failed(message) => Err(message.clone()),
-            BackendPhase::Stopped => Err("JYYCode backend is stopped".into()),
-        }
+    async fn wait_for_bootstrap(&self) -> Result<DesktopBootstrap, String> {
+        let wait = async {
+            loop {
+                let phase = { self.phase()?.clone() };
+                match phase {
+                    BackendPhase::Ready(bootstrap) => return Ok(bootstrap),
+                    BackendPhase::Failed(message) => return Err(message),
+                    BackendPhase::Stopped => return Err("JYYCode backend is stopped".into()),
+                    BackendPhase::Starting => {
+                        tokio::time::sleep(BOOTSTRAP_POLL_INTERVAL).await;
+                    }
+                }
+            }
+        };
+
+        tokio::time::timeout(READY_TIMEOUT, wait)
+            .await
+            .map_err(|_| "JYYCode backend did not become ready within 20 seconds".to_owned())?
+    }
+
+    async fn ensure_ready(&self, app: AppHandle) -> Result<DesktopBootstrap, String> {
+        self.start(app).await?;
+        self.wait_for_bootstrap().await
     }
 
     pub fn stop(&self) {
@@ -375,9 +392,10 @@ fn parse_ready(line: &str) -> Result<ReadyLine, String> {
 
 #[tauri::command]
 pub async fn desktop_bootstrap(
+    app: AppHandle,
     state: tauri::State<'_, BackendSupervisor>,
 ) -> Result<DesktopBootstrap, String> {
-    state.bootstrap()
+    state.inner().ensure_ready(app).await
 }
 
 #[tauri::command]

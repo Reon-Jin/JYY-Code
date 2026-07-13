@@ -1,6 +1,6 @@
 .message-timeline {
   position: relative;
-  width: min(820px, 100%);
+  width: 100%;
   min-height: 0;
   height: 100%;
 }
@@ -14,7 +14,9 @@
 
 .message-timeline__content {
   display: grid;
+  width: var(--conversation-content-width);
   gap: var(--space-8);
+  margin: 0 auto;
   padding: var(--space-8) clamp(20px, 5vw, 48px) 120px;
 }
 
