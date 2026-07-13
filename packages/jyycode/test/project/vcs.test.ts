@@ -1,4 +1,4 @@
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { parsePatch } from "diff"
 import { Deferred, Effect, Layer } from "effect"
@@ -10,7 +10,7 @@ import { Bus } from "../../src/bus"
 import { FileWatcher } from "../../src/file/watcher"
 import { Git } from "../../src/git"
 import { Vcs } from "@/project/vcs"
-import { testEffect } from "../lib/effect"
+import { pollWithTimeout, testEffect } from "../lib/effect"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,9 +25,19 @@ const layer = Layer.mergeAll(
 )
 const it = testEffect(layer)
 
+const gitResult = Effect.fn("VcsTest.gitResult")(function* (cwd: string, args: string[]) {
+  return yield* Git.Service.use((git) => git.run(args, { cwd }))
+})
+
 const git = Effect.fn("VcsTest.git")(function* (cwd: string, args: string[]) {
-  const result = yield* Git.Service.use((git) => git.run(args, { cwd }))
+  const result = yield* gitResult(cwd, args)
   if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString("utf8")}`)
+})
+
+const gitText = Effect.fn("VcsTest.gitText")(function* (cwd: string, args: string[]) {
+  const result = yield* gitResult(cwd, args)
+  if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString("utf8")}`)
+  return result.text().trim()
 })
 
 const write = Effect.fn("VcsTest.write")(function* (file: string, content: string) {
@@ -44,6 +54,14 @@ const init = Effect.fn("VcsTest.init")(function* () {
   const vcs = yield* Vcs.Service
   yield* vcs.init()
   return vcs
+})
+
+const addFeatureRemote = Effect.fn("VcsTest.addFeatureRemote")(function* (directory: string, remote: string) {
+  yield* git(remote, ["init", "--bare"])
+  yield* git(directory, ["remote", "add", "origin", remote])
+  yield* git(directory, ["push", "origin", "HEAD:refs/heads/feature/remote"])
+  yield* git(directory, ["fetch", "origin"])
+  yield* git(directory, ["remote", "set-head", "origin", "feature/remote"])
 })
 
 const nextBranchUpdate = Effect.fn("VcsTest.nextBranchUpdate")(function* () {
@@ -102,6 +120,229 @@ describe("Vcs", () => {
   )
 
   it.instance(
+    "branches() lists local branches, remote branches, and remotes",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const remote = yield* tmpdirScoped()
+        yield* git(test.directory, ["branch", "-M", "main"])
+        yield* git(test.directory, ["branch", "feature/local"])
+        yield* addFeatureRemote(test.directory, remote)
+
+        const vcs = yield* init()
+        const result = yield* vcs.branches()
+
+        expect(result).toEqual({
+          current: "main",
+          branches: [
+            { name: "feature/local", kind: "local", current: false },
+            { name: "main", kind: "local", current: true },
+            { name: "origin/feature/remote", kind: "remote", remote: "origin", current: false },
+          ],
+          remotes: [{ name: "origin", fetchUrl: expect.any(String), pushUrl: expect.any(String) }],
+        })
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "creates and switches local and tracking branches with one event per operation",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const remote = yield* tmpdirScoped()
+        yield* git(test.directory, ["branch", "-M", "main"])
+        yield* addFeatureRemote(test.directory, remote)
+
+        const vcs = yield* init()
+        const bus = yield* Bus.Service
+        let updates = 0
+        const off = yield* bus.subscribeCallback(Vcs.Event.BranchUpdated, () => updates++)
+        yield* Effect.addFinalizer(() => Effect.sync(off))
+
+        const created = yield* vcs.createBranch({ name: "feature/gui", checkout: true })
+        expect(created.current).toBe("feature/gui")
+
+        const local = yield* vcs.switchBranch({ name: "main" })
+        expect(local.current).toBe("main")
+
+        const tracking = yield* vcs.switchBranch({ name: "origin/feature/remote", createLocal: true })
+        expect(tracking.current).toBe("feature/remote")
+        expect(tracking.branches).toContainEqual(
+          expect.objectContaining({
+            name: "feature/remote",
+            kind: "local",
+            current: true,
+            upstream: "origin/feature/remote",
+          }),
+        )
+
+        yield* pollWithTimeout(
+          Effect.sync(() => (updates === 3 ? updates : undefined)),
+          "branch update events were not published",
+        )
+        expect(updates).toBe(3)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "rejects invalid branch names",
+    () =>
+      Effect.gen(function* () {
+        const vcs = yield* init()
+        const error = yield* Effect.flip(vcs.createBranch({ name: "bad branch", checkout: true }))
+
+        expect(error.reason).toBe("invalid-name")
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "keeps local changes when switching branches would overwrite them",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const file = path.join(test.directory, "conflict.txt")
+        yield* git(test.directory, ["branch", "-M", "main"])
+        yield* write(file, "main\n")
+        yield* git(test.directory, ["add", "conflict.txt"])
+        yield* git(test.directory, ["commit", "--no-gpg-sign", "-m", "add conflict fixture"])
+        yield* git(test.directory, ["switch", "-c", "conflict-target"])
+        yield* write(file, "target\n")
+        yield* git(test.directory, ["add", "conflict.txt"])
+        yield* git(test.directory, ["commit", "--no-gpg-sign", "-m", "change conflict fixture"])
+        yield* git(test.directory, ["switch", "main"])
+        yield* write(file, "local\n")
+
+        const vcs = yield* init()
+        const error = yield* Effect.flip(vcs.switchBranch({ name: "conflict-target" }))
+
+        expect(error.reason).toBe("conflict")
+        expect(yield* Effect.promise(() => fs.readFile(file, "utf8"))).toBe("local\n")
+        expect(yield* vcs.branch()).toBe("main")
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "fetches all remotes and prunes stale remote branches",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const remote = yield* tmpdirScoped()
+        yield* git(test.directory, ["branch", "-M", "main"])
+        yield* git(remote, ["init", "--bare"])
+        yield* git(test.directory, ["remote", "add", "origin", remote])
+        yield* git(test.directory, ["update-ref", "refs/remotes/origin/stale", "HEAD"])
+
+        const vcs = yield* init()
+        yield* vcs.fetch()
+
+        const stale = yield* gitResult(test.directory, ["show-ref", "--verify", "refs/remotes/origin/stale"])
+        expect(stale.exitCode).not.toBe(0)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "pushes to the configured upstream remote before origin",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const origin = yield* tmpdirScoped()
+        const upstream = yield* tmpdirScoped()
+        yield* git(test.directory, ["branch", "-M", "main"])
+        yield* git(origin, ["init", "--bare"])
+        yield* git(upstream, ["init", "--bare"])
+        yield* git(test.directory, ["remote", "add", "origin", origin])
+        yield* git(test.directory, ["remote", "add", "upstream", upstream])
+        yield* git(test.directory, ["push", "--set-upstream", "upstream", "main"])
+        yield* write(path.join(test.directory, "upstream.txt"), "upstream\n")
+        yield* git(test.directory, ["add", "upstream.txt"])
+        yield* git(test.directory, ["commit", "--no-gpg-sign", "-m", "update upstream"])
+
+        const vcs = yield* init()
+        yield* vcs.push()
+
+        expect(yield* gitText(upstream, ["rev-parse", "refs/heads/main"])).toBe(
+          yield* gitText(test.directory, ["rev-parse", "HEAD"]),
+        )
+        expect((yield* gitResult(origin, ["show-ref", "--verify", "refs/heads/main"])).exitCode).not.toBe(0)
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "uses origin and sets upstream for the first push",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const remote = yield* tmpdirScoped()
+        yield* git(test.directory, ["branch", "-M", "main"])
+        yield* git(remote, ["init", "--bare"])
+        yield* git(test.directory, ["remote", "add", "origin", remote])
+
+        const vcs = yield* init()
+        yield* vcs.push()
+
+        expect(yield* gitText(test.directory, ["rev-parse", "--abbrev-ref", "@{upstream}"])).toBe("origin/main")
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "uses the only remote when origin is absent",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const remote = yield* tmpdirScoped()
+        yield* git(test.directory, ["branch", "-M", "main"])
+        yield* git(remote, ["init", "--bare"])
+        yield* git(test.directory, ["remote", "add", "backup", remote])
+
+        const vcs = yield* init()
+        yield* vcs.push()
+
+        expect(yield* gitText(test.directory, ["rev-parse", "--abbrev-ref", "@{upstream}"])).toBe("backup/main")
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "reports ambiguous non-origin remotes",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const alpha = yield* tmpdirScoped()
+        const beta = yield* tmpdirScoped()
+        yield* git(alpha, ["init", "--bare"])
+        yield* git(beta, ["init", "--bare"])
+        yield* git(test.directory, ["remote", "add", "alpha", alpha])
+        yield* git(test.directory, ["remote", "add", "beta", beta])
+
+        const vcs = yield* init()
+        const error = yield* Effect.flip(vcs.push())
+
+        expect(error.reason).toBe("ambiguous-remote")
+        expect(error.candidates).toEqual(["alpha", "beta"])
+      }),
+    { git: true },
+  )
+
+  it.instance(
+    "reports a missing remote",
+    () =>
+      Effect.gen(function* () {
+        const vcs = yield* init()
+        const error = yield* Effect.flip(vcs.push())
+
+        expect(error.reason).toBe("missing-remote")
+      }),
+    { git: true },
+  )
+
+  it.instance(
     "publishes BranchUpdated when .git/HEAD changes",
     () =>
       Effect.gen(function* () {
@@ -145,6 +386,29 @@ describe("Vcs", () => {
       }),
     { git: true },
   )
+})
+
+describe("Vcs push remote selection", () => {
+  test("prefers upstream, then origin, then a sole remote", () => {
+    const remotes = [{ name: "origin" }, { name: "upstream" }]
+    expect(Vcs.selectPushRemote({ remotes, upstream: "upstream/main" })).toEqual({
+      remote: "upstream",
+      setUpstream: false,
+    })
+    expect(Vcs.selectPushRemote({ remotes })).toEqual({ remote: "origin", setUpstream: true })
+    expect(Vcs.selectPushRemote({ remotes: [{ name: "backup" }] })).toEqual({
+      remote: "backup",
+      setUpstream: true,
+    })
+  })
+
+  test("only asks for a remote when multiple non-origin remotes are available", () => {
+    expect(Vcs.selectPushRemote({ remotes: [] })).toEqual({ reason: "missing-remote" })
+    expect(Vcs.selectPushRemote({ remotes: [{ name: "beta" }, { name: "alpha" }] })).toEqual({
+      reason: "ambiguous-remote",
+      candidates: ["alpha", "beta"],
+    })
+  })
 })
 
 describe("Vcs diff", () => {
