@@ -1,0 +1,86 @@
+.workspace-inspector {
+  --inspector-width: clamp(320px, 28vw, 520px);
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: var(--inspector-width);
+  min-width: var(--inspector-width);
+  min-height: 0;
+  grid-template-rows: minmax(0, var(--todo-ratio, 0.42fr)) 8px minmax(0, var(--changes-ratio, 0.58fr));
+  border-left: 1px solid var(--color-border);
+  overflow: hidden;
+  background: var(--color-panel);
+  transition: transform var(--motion-normal) ease-out;
+}
+
+.workspace-inspector__region {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace-inspector__region > section {
+  height: 100%;
+}
+
+.workspace-inspector__separator {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  height: 8px;
+  place-items: center;
+  border-block: 1px solid transparent;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.workspace-inspector__separator::before {
+  position: absolute;
+  inset: -4px 0;
+  content: "";
+}
+.workspace-inspector__separator svg {
+  width: 16px;
+  height: 16px;
+}
+.workspace-inspector__separator:hover,
+.workspace-inspector__separator:focus-visible {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+  outline: none;
+}
+
+.workspace-inspector-toggle {
+  position: absolute;
+  z-index: 6;
+  top: var(--space-4);
+  right: calc(clamp(320px, 28vw, 520px) + var(--space-4));
+  transition: right var(--motion-normal) ease-out;
+}
+
+.workspace-shell[data-inspector-open="false"] .workspace-inspector {
+  transform: translateX(100%);
+}
+.workspace-shell[data-inspector-open="false"] .workspace-inspector-toggle {
+  right: var(--space-4);
+}
+
+@media (max-width: 960px) {
+  .workspace-inspector {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: min(420px, calc(100vw - 56px));
+    min-width: min(420px, calc(100vw - 56px));
+    box-shadow: -12px 0 32px rgb(0 0 0 / 20%);
+  }
+
+  .workspace-inspector-toggle,
+  .workspace-shell[data-inspector-open="false"] .workspace-inspector-toggle {
+    right: var(--space-4);
+  }
+
+  .workspace-shell[data-inspector-open="true"] .workspace-inspector-toggle {
+    right: min(436px, calc(100vw - 40px));
+  }
+}

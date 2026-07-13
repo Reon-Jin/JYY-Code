@@ -67,6 +67,11 @@ describe("desktop GUI journey", () => {
     expect(createSession?.body).not.toHaveProperty("title")
 
     const composer = screen.getByRole("textbox", { name: "消息" })
+    await user.type(composer, "保留这段草稿")
+    await user.click(screen.getByRole("button", { name: "收起工作栏" }))
+    await user.click(screen.getByRole("button", { name: "展开工作栏" }))
+    expect(composer).toHaveValue("保留这段草稿")
+    await user.clear(composer)
     await user.type(composer, "检查当前工作区")
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter" })
 
