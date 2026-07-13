@@ -2,7 +2,13 @@ import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
 import { Store } from "@tauri-apps/plugin-store"
 import { normalizeRecentProjects } from "./recent-projects"
-import { parseLastLocation, type DesktopBridge, type LastLocation, type RecentProject } from "./types"
+import {
+  parseLastLocation,
+  type DesktopBootstrap,
+  type DesktopBridge,
+  type LastLocation,
+  type RecentProject,
+} from "./types"
 
 const STORE_PATH = "desktop.json"
 const RECENT_PROJECTS_KEY = "recentProjects"
@@ -17,7 +23,7 @@ function desktopStore() {
 
 export const tauriBridge: DesktopBridge = {
   bootstrap() {
-    return invoke("desktop_bootstrap")
+    return invoke<DesktopBootstrap>("desktop_bootstrap")
   },
   restartBackend() {
     return invoke("restart_backend")

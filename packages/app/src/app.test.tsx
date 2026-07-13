@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@solidjs/testing-library"
+import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { DesktopBridge } from "./platform/types"
 import { App } from "./app"
@@ -46,6 +47,22 @@ describe("App", () => {
     render(() => <App bridge={bridge} />)
 
     expect(await screen.findByRole("alert")).toHaveTextContent("JYYCode 本地后端启动失败")
-    expect(screen.getByRole("button", { name: "重试启动" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "重新启动后端" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "返回项目选择" })).toBeVisible()
+  })
+
+  it("recovers once by restarting the backend and returns to project selection", async () => {
+    const user = userEvent.setup()
+    const bootstrap = vi
+      .fn<DesktopBridge["bootstrap"]>()
+      .mockRejectedValueOnce(new Error("sidecar failed"))
+      .mockResolvedValueOnce({ baseUrl: "http://127.0.0.1:4096", username: "jyycode", password: "secret" })
+    const bridge = bridgeWith(bootstrap)
+    render(() => <App bridge={bridge} />)
+
+    await user.click(await screen.findByRole("button", { name: "重新启动后端" }))
+
+    expect(bridge.restartBackend).toHaveBeenCalledOnce()
+    expect(await screen.findByRole("heading", { name: /让代码保持流动/ })).toBeVisible()
   })
 })

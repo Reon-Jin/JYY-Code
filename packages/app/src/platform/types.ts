@@ -2,6 +2,7 @@ export type DesktopBootstrap = {
   baseUrl: string
   username: string
   password: string
+  logPath?: string
 }
 
 export type RecentProject = {

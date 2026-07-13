@@ -20,7 +20,7 @@ function deferred() {
   return { promise, resolve }
 }
 
-function renderComposer(input?: { status?: SessionStatus; lastMessageError?: { name: string } }) {
+function renderComposer(input?: { status?: SessionStatus; lastMessageError?: { name: string }; disabled?: boolean }) {
   const client = {
     session: {
       promptAsync: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
@@ -38,6 +38,7 @@ function renderComposer(input?: { status?: SessionStatus; lastMessageError?: { n
       selectedModel={{ providerID: "openai", modelID: "gpt-5" }}
       status={input?.status ?? { type: "idle" }}
       lastMessageError={input?.lastMessageError}
+      disabled={input?.disabled}
       onAgentChange={vi.fn()}
       onModelChange={vi.fn()}
     />
@@ -119,5 +120,19 @@ describe("Composer", () => {
     renderComposer({ lastMessageError: { name: "MessageAbortedError" } })
     expect(screen.getByRole("status")).toHaveTextContent("已停止生成")
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
+  it("keeps the draft editable but prevents a new Prompt while disconnected", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer({ disabled: true })
+    const textbox = screen.getByRole("textbox", { name: "消息" })
+
+    await user.type(textbox, "wait for reconnect")
+    await user.keyboard("{Enter}")
+
+    expect(textbox).toHaveValue("wait for reconnect")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "发送" })).toBeDisabled()
+    expect(screen.getByRole("status")).toHaveTextContent("消息已暂存")
   })
 })

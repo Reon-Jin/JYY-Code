@@ -14,16 +14,28 @@ export type ComposerControllerInput = {
   sessionID: Value<string>
   agent: Value<string>
   model: Value<ModelSelection>
+  draftStore?: Map<string, string>
 }
 
+const processDrafts = new Map<string, string>()
+
 export function createComposerController(input: ComposerControllerInput) {
-  const [draft, setDraft] = createSignal("")
+  const draftStore = input.draftStore ?? processDrafts
+  const draftKey = `${resolve(input.directory)}\u0000${resolve(input.sessionID)}`
+  const [draft, setDraftSignal] = createSignal(draftStore.get(draftKey) ?? "")
   const [sending, setSending] = createSignal(false)
   const [stopping, setStopping] = createSignal(false)
   const [failure, setFailure] = createSignal<unknown>()
   const [lastFailedDraft, setLastFailedDraft] = createSignal<string>()
   let inFlight: Promise<void> | undefined
   let stopInFlight: Promise<void> | undefined
+
+  function setDraft(value: string) {
+    setDraftSignal(value)
+    if (value) draftStore.set(draftKey, value)
+    else draftStore.delete(draftKey)
+    return value
+  }
 
   function send(text = draft()): Promise<void> {
     if (inFlight) return inFlight

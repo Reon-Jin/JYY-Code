@@ -9,6 +9,7 @@ import { useData } from "../data/context"
 import type { ConnectionState } from "../data/event-bridge"
 import { keys } from "../data/query-keys"
 import { errorMessage } from "../features/projects/project-controller"
+import { ReconnectBanner } from "../features/lifecycle/reconnect-banner"
 import { useProjects } from "../features/projects/project-context"
 import { conversationQueryOptions } from "../features/conversation/conversation-query"
 import type { ConversationSnapshot } from "../features/conversation/conversation-state"
@@ -31,6 +32,7 @@ import {
 import { createSessionApi } from "../features/sessions/session-api"
 import { SessionEmpty } from "../features/sessions/session-empty"
 import { SessionList } from "../features/sessions/session-list"
+import { useDesktopBridge } from "../platform/context"
 import "../features/sessions/sessions.css"
 
 type AsyncSessionAction = (sessionID: string) => Promise<void>
@@ -184,6 +186,9 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
               <span>Single Agent</span>
               <h1 id="workspace-session-title">{selected()?.title ?? "Session"}</h1>
             </header>
+            <Show when={props.connection === "connected" ? undefined : props.connection} keyed>
+              {(state) => <ReconnectBanner state={state} />}
+            </Show>
             <MessageTimeline
               messages={props.conversation?.messages ?? []}
               loading={props.conversationLoading}
@@ -203,6 +208,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
 
 export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const data = useData()
+  const desktop = useDesktopBridge()
   const projects = useProjects()
   const navigate = useNavigate()
   const [operationError, setOperationError] = createSignal<string>()
@@ -357,6 +363,24 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     if (questionsQuery.error) return errorMessage(questionsQuery.error, "无法加载 Agent 问题")
     return undefined
   })
+  let persistedLocation = ""
+  createEffect(() => {
+    if (activeQuery.isPending || archivedQuery.isPending || activeQuery.error || archivedQuery.error) return
+    const sessionID = props.activeSessionID
+    if (
+      sessionID &&
+      ![...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])].some((session) => session.id === sessionID)
+    ) {
+      return
+    }
+    const location = { project: data.directory(), ...(sessionID ? { sessionID } : {}) }
+    const signature = JSON.stringify(location)
+    if (signature === persistedLocation) return
+    persistedLocation = signature
+    void desktop.saveLastLocation(location).catch(() => {
+      persistedLocation = ""
+    })
+  })
 
   return (
     <WorkspaceLayoutView
@@ -422,6 +446,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     selectedModel={selectedModel()!}
                     status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
                     lastMessageError={lastMessageError()}
+                    disabled={data.connection() !== "connected"}
                     onAgentChange={changeAgent}
                     onModelChange={changeModel}
                   />

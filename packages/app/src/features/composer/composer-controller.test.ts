@@ -13,7 +13,7 @@ function deferred() {
   return { promise, resolve }
 }
 
-function setup() {
+function setup(draftStore = new Map<string, string>()) {
   const client = {
     session: {
       promptAsync: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
@@ -26,6 +26,7 @@ function setup() {
     sessionID: () => sessionID,
     agent: () => "build",
     model: () => model,
+    draftStore,
   })
   return { client, controller }
 }
@@ -87,5 +88,14 @@ describe("createComposerController", () => {
     const { client, controller } = setup()
     await controller.stop()
     expect(client.session.abort).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
+  })
+
+  it("keeps an unsent draft in process memory across controller recreation", () => {
+    const draftStore = new Map<string, string>()
+    const first = setup(draftStore).controller
+    first.setDraft("continue after restart")
+
+    const restored = setup(draftStore).controller
+    expect(restored.draft()).toBe("continue after restart")
   })
 })

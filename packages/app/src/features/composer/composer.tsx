@@ -21,6 +21,7 @@ export type ComposerProps = {
   selectedModel: ModelSelection
   status: SessionStatus
   lastMessageError?: { name: string }
+  disabled?: boolean
   onAgentChange: (name: string) => void
   onModelChange: (model: ModelSelection) => void
 }
@@ -41,10 +42,12 @@ export function Composer(props: ComposerProps) {
     if (props.status.type === "retry") return `Agent 正在重试（第 ${props.status.attempt} 次）`
     if (props.status.type === "busy") return "Agent 正在生成回复"
     if (props.lastMessageError?.name === "MessageAbortedError") return "已停止生成"
+    if (props.disabled) return "后端连接中断，消息已暂存，恢复连接后可发送"
     return ""
   })
 
   function submit() {
+    if (props.disabled) return
     void controller.send().catch(() => {})
   }
 
@@ -99,7 +102,7 @@ export function Composer(props: ComposerProps) {
             fallback={
               <Button
                 size="small"
-                disabled={!controller.draft().trim()}
+                disabled={props.disabled || !controller.draft().trim()}
                 loading={controller.sending()}
                 loadingLabel="正在发送"
                 onClick={submit}

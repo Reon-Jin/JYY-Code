@@ -1,8 +1,11 @@
-import { createSignal, ErrorBoundary, onCleanup, onMount, Show } from "solid-js"
+import { ErrorBoundary, Match, onMount, Show, Switch } from "solid-js"
 import { Button } from "./components/ui/button"
 import { InlineError } from "./components/ui/inline-error"
-import { createProjectController } from "./features/projects/project-controller"
 import { ProjectProvider } from "./features/projects/project-context"
+import type { ProjectController } from "./features/projects/project-controller"
+import { BackendUnavailable } from "./features/lifecycle/backend-unavailable"
+import { createLifecycleController } from "./features/lifecycle/lifecycle-controller"
+import { StartupLoading } from "./features/lifecycle/startup-loading"
 import { DesktopBridgeProvider, useDesktopBridge } from "./platform/context"
 import type { DesktopBootstrap, DesktopBridge } from "./platform/types"
 import { AppRoutes } from "./routes"
@@ -11,18 +14,13 @@ export type AppProps = {
   bridge?: DesktopBridge
 }
 
-function StartupScreen(props: { message?: string }) {
+function ProjectApplication(props: { bootstrap: DesktopBootstrap; controller: ProjectController; route: string }) {
+  const target = `#${props.route}`
+  if (window.location.hash !== target) {
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${target}`)
+  }
   return (
-    <main class="startup-screen" role="status" aria-live="polite">
-      {props.message ?? "正在启动 JYYCode…"}
-    </main>
-  )
-}
-
-function ProjectApplication(props: { bootstrap: DesktopBootstrap; bridge: DesktopBridge }) {
-  const controller = createProjectController({ bridge: props.bridge, bootstrap: props.bootstrap })
-  return (
-    <ProjectProvider controller={controller}>
+    <ProjectProvider controller={props.controller}>
       <AppRoutes bootstrap={props.bootstrap} />
     </ProjectProvider>
   )
@@ -30,54 +28,38 @@ function ProjectApplication(props: { bootstrap: DesktopBootstrap; bridge: Deskto
 
 function DesktopApplication() {
   const bridge = useDesktopBridge()
-  const [bootstrap, setBootstrap] = createSignal<DesktopBootstrap>()
-  const [startupError, setStartupError] = createSignal<string>()
-  const [starting, setStarting] = createSignal(true)
-  let disposed = false
+  const lifecycle = createLifecycleController({ bridge })
+  onMount(() => void lifecycle.start())
 
-  async function start(restart = false) {
-    setStarting(true)
-    setStartupError(undefined)
-    try {
-      if (restart) await bridge.restartBackend()
-      const value = await bridge.bootstrap()
-      if (!disposed) setBootstrap(value)
-    } catch (error) {
-      if (!disposed) {
-        setBootstrap(undefined)
-        setStartupError(error instanceof Error && error.message ? error.message : "本地后端没有响应")
-      }
-    } finally {
-      if (!disposed) setStarting(false)
-    }
+  const loadingPhase = () => {
+    const phase = lifecycle.phase()
+    return phase === "backendReady" || phase === "projectLoading" ? phase : "booting"
   }
 
-  onMount(() => void start())
-  onCleanup(() => {
-    disposed = true
-  })
-
   return (
-    <Show
-      when={bootstrap()}
-      fallback={
-        <Show
-          when={startupError()}
-          fallback={<StartupScreen />}
-        >
-          {(message) => <main class="startup-screen">
-            <div class="startup-error">
-              <InlineError message={`JYYCode 本地后端启动失败：${message()}`} />
-              <Button variant="secondary" loading={starting()} onClick={() => void start(true)}>
-                重试启动
-              </Button>
-            </div>
-          </main>}
+    <Switch fallback={<StartupLoading phase={loadingPhase()} />}>
+      <Match when={lifecycle.phase() === "failed"}>
+        <BackendUnavailable
+          reason={`JYYCode 本地后端启动失败：${lifecycle.failure() ?? "本地后端没有响应"}`}
+          logPath={lifecycle.bootstrap()?.logPath}
+          recovering={lifecycle.recovering()}
+          recoveryAvailable={lifecycle.recoveryAvailable()}
+          onRestart={() => void lifecycle.recover()}
+          onBack={() => void lifecycle.returnToProjectSelection()}
+        />
+      </Match>
+      <Match when={lifecycle.phase() === "ready"}>
+        <Show when={lifecycle.bootstrap()} keyed fallback={<StartupLoading phase="booting" />}>
+          {(bootstrap) => (
+            <Show when={lifecycle.projects()} keyed fallback={<StartupLoading phase="booting" />}>
+              {(projects) => (
+                <ProjectApplication bootstrap={bootstrap} controller={projects} route={lifecycle.route()} />
+              )}
+            </Show>
+          )}
         </Show>
-      }
-    >
-      {(value) => <ProjectApplication bootstrap={value()} bridge={bridge} />}
-    </Show>
+      </Match>
+    </Switch>
   )
 }
 
