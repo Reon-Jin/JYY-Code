@@ -32,13 +32,16 @@ export type Event =
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
   | EventProjectUpdated
+  | EventToolCatalogResolved1
+  | EventToolSearchExecuted1
+  | EventToolExecutionCompleted1
   | EventSessionCompacted
+  | EventWorktreeReady
+  | EventWorktreeFailed
   | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
   | EventWorkspaceStatus
-  | EventWorktreeReady
-  | EventWorktreeFailed
   | EventPtyCreated
   | EventPtyUpdated
   | EventPtyExited
@@ -80,9 +83,6 @@ export type Event =
   | EventSessionNextCompactionEnded
   | EventCatalogModelUpdated
   | EventModelsDevRefreshed
-  | EventAccountAdded
-  | EventAccountRemoved
-  | EventAccountSwitched
 
 export type OAuth = {
   type: "oauth"
@@ -835,13 +835,16 @@ export type GlobalEvent = {
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
     | EventProjectUpdated
+    | EventToolCatalogResolved
+    | EventToolSearchExecuted
+    | EventToolExecutionCompleted
     | EventSessionCompacted
+    | EventWorktreeReady
+    | EventWorktreeFailed
     | EventVcsBranchUpdated
     | EventWorkspaceReady
     | EventWorkspaceFailed
     | EventWorkspaceStatus
-    | EventWorktreeReady
-    | EventWorktreeFailed
     | EventPtyCreated
     | EventPtyUpdated
     | EventPtyExited
@@ -883,9 +886,6 @@ export type GlobalEvent = {
     | EventSessionNextCompactionEnded
     | EventCatalogModelUpdated
     | EventModelsDevRefreshed
-    | EventAccountAdded
-    | EventAccountRemoved
-    | EventAccountSwitched
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
     | SyncEventMessagePartUpdated
@@ -1323,6 +1323,10 @@ export type Config = {
     tail_turns?: number
     preserve_recent_tokens?: number
     reserved?: number
+    trigger_ratio?: number
+    micro_compact?: boolean
+    micro_compact_max_chars?: number
+    reactive_compact?: boolean
   }
   experimental?: {
     disable_paste_summary?: boolean
@@ -1459,13 +1463,19 @@ export type Provider = {
 
 export type ConsoleState = {
   consoleManagedProviders: Array<string>
-  activeOrgName?: string
-  switchableOrgCount: number
+  switchableOrgCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
 }
 
-export type EffectHttpApiErrorInternalServerError = {
-  _tag: "InternalServerError"
+export type ConsoleOrgList = {
+  orgs: Array<unknown>
 }
+
+export type ConsoleSwitchPayload = {
+  accountID: string
+  orgID: string
+}
+
+export type ConsoleSwitchResult = boolean
 
 export type ToolListItem = {
   id: string
@@ -1834,6 +1844,10 @@ export type NotFoundError = {
   data: {
     message: string
   }
+}
+
+export type EffectHttpApiErrorInternalServerError = {
+  _tag: "InternalServerError"
 }
 
 export type TextPartInput = {
@@ -2766,11 +2780,74 @@ export type EventProjectUpdated = {
   properties: Project
 }
 
+export type EventToolCatalogResolved = {
+  id: string
+  type: "tool.catalog.resolved"
+  properties: {
+    sessionID?: string
+    messageID?: string
+    providerID: string
+    modelID: string
+    agent: string
+    toolCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    schemaBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    toolIDs: Array<string>
+  }
+}
+
+export type EventToolSearchExecuted = {
+  id: string
+  type: "tool.search.executed"
+  properties: {
+    sessionID?: string
+    messageID?: string
+    callID?: string
+    query: string
+    detail: string
+    category?: string
+    matches: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    resultIDs: Array<string>
+  }
+}
+
+export type EventToolExecutionCompleted = {
+  id: string
+  type: "tool.execution.completed"
+  properties: {
+    sessionID?: string
+    messageID?: string
+    callID?: string
+    tool: string
+    success: boolean
+    status: "success" | "error" | "permission_rejected"
+    durationMs?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    error?: string
+    delegatedTool?: string
+  }
+}
+
 export type EventSessionCompacted = {
   id: string
   type: "session.compacted"
   properties: {
     sessionID: string
+  }
+}
+
+export type EventWorktreeReady = {
+  id: string
+  type: "worktree.ready"
+  properties: {
+    name: string
+    branch?: string
+  }
+}
+
+export type EventWorktreeFailed = {
+  id: string
+  type: "worktree.failed"
+  properties: {
+    message: string
   }
 }
 
@@ -2804,23 +2881,6 @@ export type EventWorkspaceStatus = {
   properties: {
     workspaceID: string
     status: "connected" | "connecting" | "disconnected" | "error"
-  }
-}
-
-export type EventWorktreeReady = {
-  id: string
-  type: "worktree.ready"
-  properties: {
-    name: string
-    branch?: string
-  }
-}
-
-export type EventWorktreeFailed = {
-  id: string
-  type: "worktree.failed"
-  properties: {
-    message: string
   }
 }
 
@@ -3433,56 +3493,6 @@ export type EventModelsDevRefreshed = {
   }
 }
 
-export type AccountV2oAuthCredential = {
-  type: "oauth"
-  refresh: string
-  access: string
-  expires: number
-}
-
-export type AccountV2ApiKeyCredential = {
-  type: "api"
-  key: string
-  metadata?: {
-    [key: string]: string
-  }
-}
-
-export type AccountV2Credential = AccountV2oAuthCredential | AccountV2ApiKeyCredential
-
-export type AccountV2Info = {
-  id: string
-  serviceID: string
-  description: string
-  credential: AccountV2Credential
-}
-
-export type EventAccountAdded = {
-  id: string
-  type: "account.added"
-  properties: {
-    account: AccountV2Info
-  }
-}
-
-export type EventAccountRemoved = {
-  id: string
-  type: "account.removed"
-  properties: {
-    account: AccountV2Info
-  }
-}
-
-export type EventAccountSwitched = {
-  id: string
-  type: "account.switched"
-  properties: {
-    serviceID: string
-    from?: string
-    to?: string
-  }
-}
-
 export type SessionInfo = {
   id: string
   parentID?: string
@@ -3824,6 +3834,52 @@ export type EventAgentClusterEvent1 = {
       [key: string]: unknown
     }
     createdAt: number | "NaN" | "Infinity" | "-Infinity"
+  }
+}
+
+export type EventToolCatalogResolved1 = {
+  id: string
+  type: "tool.catalog.resolved"
+  properties: {
+    sessionID?: string
+    messageID?: string
+    providerID: string
+    modelID: string
+    agent: string
+    toolCount: number | "NaN" | "Infinity" | "-Infinity"
+    schemaBytes: number | "NaN" | "Infinity" | "-Infinity"
+    toolIDs: Array<string>
+  }
+}
+
+export type EventToolSearchExecuted1 = {
+  id: string
+  type: "tool.search.executed"
+  properties: {
+    sessionID?: string
+    messageID?: string
+    callID?: string
+    query: string
+    detail: string
+    category?: string
+    matches: number | "NaN" | "Infinity" | "-Infinity"
+    resultIDs: Array<string>
+  }
+}
+
+export type EventToolExecutionCompleted1 = {
+  id: string
+  type: "tool.execution.completed"
+  properties: {
+    sessionID?: string
+    messageID?: string
+    callID?: string
+    tool: string
+    success: boolean
+    status: "success" | "error" | "permission_rejected"
+    durationMs?: number | "NaN" | "Infinity" | "-Infinity"
+    error?: string
+    delegatedTool?: string
   }
 }
 
@@ -4305,10 +4361,7 @@ export type ConfigProvidersResponse = ConfigProvidersResponses[keyof ConfigProvi
 export type ExperimentalConsoleGetData = {
   body?: never
   path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
+  query?: never
   url: "/experimental/console"
 }
 
@@ -4317,17 +4370,13 @@ export type ExperimentalConsoleGetErrors = {
    * Bad request
    */
   400: BadRequestError
-  /**
-   * InternalServerError
-   */
-  500: EffectHttpApiErrorInternalServerError
 }
 
 export type ExperimentalConsoleGetError = ExperimentalConsoleGetErrors[keyof ExperimentalConsoleGetErrors]
 
 export type ExperimentalConsoleGetResponses = {
   /**
-   * Active Console provider metadata
+   * Console state
    */
   200: ConsoleState
 }
@@ -4337,10 +4386,7 @@ export type ExperimentalConsoleGetResponse = ExperimentalConsoleGetResponses[key
 export type ExperimentalConsoleListOrgsData = {
   body?: never
   path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
+  query?: never
   url: "/experimental/console/orgs"
 }
 
@@ -4349,10 +4395,6 @@ export type ExperimentalConsoleListOrgsErrors = {
    * Bad request
    */
   400: BadRequestError
-  /**
-   * InternalServerError
-   */
-  500: EffectHttpApiErrorInternalServerError
 }
 
 export type ExperimentalConsoleListOrgsError =
@@ -4360,41 +4402,26 @@ export type ExperimentalConsoleListOrgsError =
 
 export type ExperimentalConsoleListOrgsResponses = {
   /**
-   * Switchable Console orgs
+   * Console organizations
    */
-  200: {
-    orgs: Array<{
-      accountID: string
-      accountEmail: string
-      accountUrl: string
-      orgID: string
-      orgName: string
-      active: boolean
-    }>
-  }
+  200: ConsoleOrgList
 }
 
 export type ExperimentalConsoleListOrgsResponse =
   ExperimentalConsoleListOrgsResponses[keyof ExperimentalConsoleListOrgsResponses]
 
 export type ExperimentalConsoleSwitchOrgData = {
-  body?: {
-    accountID: string
-    orgID: string
-  }
+  body?: ConsoleSwitchPayload
   path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
+  query?: never
   url: "/experimental/console/switch"
 }
 
 export type ExperimentalConsoleSwitchOrgResponses = {
   /**
-   * Switch success
+   * Console organization switched
    */
-  200: boolean
+  200: ConsoleSwitchResult
 }
 
 export type ExperimentalConsoleSwitchOrgResponse =
@@ -6137,6 +6164,7 @@ export type SessionListData = {
     scope?: "project"
     path?: string
     roots?: boolean | "true" | "false"
+    archived?: boolean | "true" | "false"
     start?: number
     search?: string
     limit?: number
@@ -6374,6 +6402,129 @@ export type SessionChildrenResponses = {
 }
 
 export type SessionChildrenResponse = SessionChildrenResponses[keyof SessionChildrenResponses]
+
+export type SessionContextData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/context"
+}
+
+export type SessionContextErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionContextError = SessionContextErrors[keyof SessionContextErrors]
+
+export type SessionContextResponses = {
+  /**
+   * Media-aware active context estimate
+   */
+  200: {
+    totalTokens: number
+    textTokens: number
+    toolTokens: number
+    mediaTokens: number
+    mediaBytes: number
+    overheadTokens: number
+    thresholdTokens?: number
+    shouldCompact?: boolean
+  }
+}
+
+export type SessionContextResponse = SessionContextResponses[keyof SessionContextResponses]
+
+export type SessionAgentClusterData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/agent-cluster"
+}
+
+export type SessionAgentClusterErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionAgentClusterError = SessionAgentClusterErrors[keyof SessionAgentClusterErrors]
+
+export type SessionAgentClusterResponses = {
+  /**
+   * Agent cluster state
+   */
+  200: {
+    runs: Array<{
+      id: string
+      session_id: string
+      parent_message_id: string
+      enabled: boolean
+      status: "planning" | "dispatching" | "reviewing" | "synthesizing" | "completed" | "failed" | "cancelled"
+      goal: string
+      planner_model: string
+      reviewer_model: string
+      time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      time_updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      completed_at: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+    tasks: Array<{
+      id: string
+      run_id: string
+      parent_task_id: string
+      child_session_id: string
+      role: "researcher" | "analyst" | "writer" | "chart" | "pdf" | "coder" | "tester" | "picture_searcher" | "general"
+      title: string
+      prompt: string
+      complexity: "simple" | "complex"
+      model: string
+      status:
+        | "planned"
+        | "queued"
+        | "running"
+        | "submitted"
+        | "reviewing"
+        | "accepted"
+        | "revision_requested"
+        | "revising"
+        | "failed"
+        | "cancelled"
+      step: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      dependencies: Array<string>
+      review_round: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      acceptance_criteria: Array<string>
+      artifact_paths: Array<string>
+      result_summary: string
+      review_issues: Array<string>
+      last_event: string
+      time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      time_updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }>
+  }
+}
+
+export type SessionAgentClusterResponse = SessionAgentClusterResponses[keyof SessionAgentClusterResponses]
 
 export type SessionTodoData = {
   body?: never

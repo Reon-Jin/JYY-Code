@@ -54,9 +54,9 @@ Add these exact versions to the root workspace catalog unless the repository upg
   "@tauri-apps/plugin-store": "2.4.3",
   "@testing-library/jest-dom": "6.9.1",
   "@testing-library/user-event": "14.6.1",
-  "dompurify": "3.4.12",
+  "dompurify": "3.4.11",
   "jsdom": "29.1.1",
-  "lucide-solid": "1.24.0",
+  "lucide-solid": "1.23.0",
   "vite": "8.1.4",
   "vite-plugin-solid": "2.11.12",
   "vitest": "4.1.10"

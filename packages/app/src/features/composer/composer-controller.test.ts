@@ -1,0 +1,101 @@
+import { describe, expect, it, vi } from "vitest"
+import { createComposerController } from "./composer-controller"
+
+const directory = "C:\\work\\demo"
+const sessionID = "ses_1"
+const model = { providerID: "openai", modelID: "gpt-5" }
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function setup(draftStore = new Map<string, string>()) {
+  const client = {
+    session: {
+      promptAsync: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
+      abort: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: true })),
+    },
+  }
+  const controller = createComposerController({
+    client: client as never,
+    directory: () => directory,
+    sessionID: () => sessionID,
+    agent: () => "build",
+    model: () => model,
+    draftStore,
+  })
+  return { client, controller }
+}
+
+describe("createComposerController", () => {
+  it("submits exactly one async single-Agent prompt", async () => {
+    const { client, controller } = setup()
+    const pending = deferred()
+    client.session.promptAsync.mockImplementationOnce(() => pending.promise.then(() => ({ data: undefined })))
+
+    const promise = controller.send("hello")
+    const duplicate = controller.send("hello")
+    expect(duplicate).toBe(promise)
+    pending.resolve()
+    await promise
+
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(1)
+    expect(client.session.promptAsync).toHaveBeenCalledWith(
+      {
+        directory,
+        sessionID,
+        agent: "build",
+        model,
+        agentCluster: { enabled: false },
+        parts: [{ type: "text", text: "hello" }],
+      },
+      { throwOnError: true },
+    )
+    expect(controller.draft()).toBe("")
+  })
+
+  it("keeps the draft when submission fails and retries through send", async () => {
+    const { client, controller } = setup()
+    client.session.promptAsync.mockRejectedValueOnce(new Error("offline"))
+
+    await expect(controller.send("keep me")).rejects.toThrow("offline")
+    expect(controller.draft()).toBe("keep me")
+    expect(controller.lastFailedDraft()).toBe("keep me")
+
+    await controller.retry()
+    expect(client.session.promptAsync).toHaveBeenCalledTimes(2)
+    expect((client.session.promptAsync.mock.calls[1]?.[0] as { parts: unknown }).parts).toEqual([
+      { type: "text", text: "keep me" },
+    ])
+  })
+
+  it("checks trimmed emptiness but sends original text", async () => {
+    const { client, controller } = setup()
+    await controller.send("   ")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+
+    await controller.send("  hello  ")
+    expect((client.session.promptAsync.mock.calls[0]?.[0] as { parts: unknown }).parts).toEqual([
+      { type: "text", text: "  hello  " },
+    ])
+  })
+
+  it("stops a running session through abort", async () => {
+    const { client, controller } = setup()
+    await controller.stop()
+    expect(client.session.abort).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
+  })
+
+  it("keeps an unsent draft in process memory across controller recreation", () => {
+    const draftStore = new Map<string, string>()
+    const first = setup(draftStore).controller
+    first.setDraft("continue after restart")
+
+    const restored = setup(draftStore).controller
+    expect(restored.draft()).toBe("continue after restart")
+  })
+})

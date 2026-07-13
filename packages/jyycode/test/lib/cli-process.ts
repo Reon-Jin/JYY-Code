@@ -30,6 +30,7 @@ import { it } from "./effect"
 
 const jyycodeRoot = path.resolve(import.meta.dir, "../../")
 const cliEntry = path.join(jyycodeRoot, "src/index.ts")
+const bunExecutable = process.execPath
 
 export const testModelID = "test/test-model"
 
@@ -103,10 +104,17 @@ export type ServeOpts = SpawnOpts & {
   readonly port?: number
   readonly hostname?: string
   readonly extraArgs?: string[]
+  readonly json?: boolean
   // How long to wait for the "listening on http://..." line before failing.
   // Default 15s — startup is dominated by bun's transpile + plugin init, not
   // the actual listen() call.
   readonly readyTimeoutMs?: number
+}
+
+export type ServeReady = {
+  readonly type: "server.ready"
+  readonly hostname: string
+  readonly port: number
 }
 
 export type ServeHandle = {
@@ -115,11 +123,31 @@ export type ServeHandle = {
   readonly url: string
   readonly hostname: string
   readonly port: number
+  readonly ready: ServeReady
   // Sends SIGTERM. The scope finalizer also calls this, so tests rarely need
   // to invoke it directly — useful for tests that assert exit behavior.
   readonly kill: () => void
   // Resolves with the exit code once the process exits. Bun returns a number.
   readonly exited: Promise<number>
+}
+
+function parseServeReady(line: string): ServeReady | undefined {
+  try {
+    const value = JSON.parse(line) as Partial<ServeReady>
+    if (
+      value.type === "server.ready" &&
+      typeof value.hostname === "string" &&
+      typeof value.port === "number" &&
+      Number.isInteger(value.port) &&
+      value.port > 0
+    ) {
+      return { type: "server.ready", hostname: value.hostname, port: value.port }
+    }
+  } catch {}
+
+  const match = line.match(/listening on http:\/\/([^\s:]+):(\d+)/)
+  if (!match) return
+  return { type: "server.ready", hostname: match[1], port: Number(match[2]) }
 }
 
 // `jyycode acp` speaks newline-delimited JSON-RPC over stdin/stdout. It is
@@ -199,7 +227,7 @@ export function withCliFixture<A, E>(
       // on `Bun.stdin.text()` (see src/cli/cmd/run.ts — non-TTY stdin is
       // consumed as the prompt). The old Process.run wrapper defaulted to
       // ignore; ChildProcess.make defaults to pipe, so we set it explicitly.
-      const command = ChildProcess.make("bun", ["run", "--conditions=browser", cliEntry, ...args], {
+      const command = ChildProcess.make(bunExecutable, ["run", "--conditions=browser", cliEntry, ...args], {
         cwd: home,
         env: { ...env, ...opts?.env },
         extendEnv: true,
@@ -254,6 +282,7 @@ export function withCliFixture<A, E>(
       // off stdout. Hard-coded ports flake under parallel tests.
       argv.push("--port", String(opts?.port ?? 0))
       if (opts?.hostname) argv.push("--hostname", opts.hostname)
+      if (opts?.json) argv.push("--json")
       if (opts?.extraArgs) argv.push(...opts.extraArgs)
 
       // Acquire the subprocess; release sends SIGTERM and awaits exit on
@@ -261,7 +290,7 @@ export function withCliFixture<A, E>(
       // as a finalizer error during test teardown.
       const proc = yield* Effect.acquireRelease(
         Effect.sync(() =>
-          Bun.spawn(["bun", "run", "--conditions=browser", cliEntry, ...argv], {
+          Bun.spawn([bunExecutable, "run", "--conditions=browser", cliEntry, ...argv], {
             cwd: home,
             env: { ...process.env, ...env, ...opts?.env },
             stdout: "pipe",
@@ -280,18 +309,15 @@ export function withCliFixture<A, E>(
       const stderrChunks: string[] = []
       yield* forkStderrDrain(proc.stderr, stderrChunks)
 
-      // Watch stdout line-by-line for the listening sentinel. Format
-      // (see src/cli/cmd/serve.ts):
-      //   "jyycode server listening on http://<host>:<port>"
-      const readyRe = /listening on (http:\/\/([^\s:]+):(\d+))/
-      const readyDeferred = yield* Deferred.make<{ url: string; hostname: string; port: number }>()
+      // Watch stdout line-by-line for either the human-readable or JSON ready sentinel.
+      const readyDeferred = yield* Deferred.make<ServeReady>()
       yield* Effect.forkScoped(
         fromBunStream("stdout", () => proc.stdout).pipe(
           Stream.decodeText(),
           Stream.splitLines,
           Stream.runForEach((line) => {
-            const m = line.match(readyRe)
-            return m ? Deferred.succeed(readyDeferred, { url: m[1], hostname: m[2], port: Number(m[3]) }) : Effect.void
+            const ready = parseServeReady(line)
+            return ready ? Deferred.succeed(readyDeferred, ready) : Effect.void
           }),
           Effect.ignore({ log: true }),
         ),
@@ -312,9 +338,10 @@ export function withCliFixture<A, E>(
       )
 
       return {
-        url: match.url,
+        url: `http://${match.hostname}:${match.port}`,
         hostname: match.hostname,
         port: match.port,
+        ready: match,
         kill: () => {
           proc.kill()
         },
@@ -332,7 +359,7 @@ export function withCliFixture<A, E>(
       // Either way we await proc.exited so the test scope doesn't leak.
       const proc = yield* Effect.acquireRelease(
         Effect.sync(() =>
-          Bun.spawn(["bun", "run", "--conditions=browser", cliEntry, ...argv], {
+          Bun.spawn([bunExecutable, "run", "--conditions=browser", cliEntry, ...argv], {
             cwd: opts?.cwd ?? home,
             env: { ...process.env, ...env, ...opts?.env },
             stdin: "pipe",

@@ -4,9 +4,17 @@ import { effectCmd } from "../effect-cmd"
 import { withNetworkOptions, resolveNetworkOptions } from "../network"
 import { Flag } from "@jyycode-ai/core/flag/flag"
 
+const readyOptions = {
+  json: {
+    type: "boolean" as const,
+    default: false,
+    describe: "print a machine-readable server.ready event",
+  },
+}
+
 export const ServeCommand = effectCmd({
   command: "serve",
-  builder: (yargs) => withNetworkOptions(yargs),
+  builder: (yargs) => withNetworkOptions(yargs).options(readyOptions),
   describe: "starts a headless jyycode server",
   // Server loads instances per-request via x-jyycode-directory header — no
   // need for an ambient project InstanceContext at startup.
@@ -17,7 +25,14 @@ export const ServeCommand = effectCmd({
     }
     const opts = yield* resolveNetworkOptions(args)
     const server = yield* Effect.promise(() => Server.listen(opts))
-    console.log(`jyycode server listening on http://${server.hostname}:${server.port}`)
+    const ready = {
+      type: "server.ready" as const,
+      hostname: server.hostname,
+      port: server.port,
+    }
+    console.log(
+      args.json ? JSON.stringify(ready) : `jyycode server listening on http://${server.hostname}:${server.port}`,
+    )
 
     yield* Effect.never
   }),

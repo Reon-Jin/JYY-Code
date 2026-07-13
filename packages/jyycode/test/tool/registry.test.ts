@@ -205,13 +205,6 @@ describe("tool.registry", () => {
     }),
   )
 
-      expect(ids).toContain("multi_edit")
-      expect(ids).toContain("process_start")
-      expect(ids).toContain("process_output")
-      expect(ids).toContain("kill_process")
-    }),
-  )
-
   scout.instance("shows repo research tools when experimental scout is enabled", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service

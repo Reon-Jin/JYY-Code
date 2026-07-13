@@ -10,6 +10,7 @@ import {
   TaskStatus,
 } from "@/agent-cluster/schema"
 import { Session } from "@/session/session"
+import { WorkspaceID } from "@/control-plane/schema"
 import { MessageV2 } from "@/session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
@@ -37,6 +38,7 @@ export const ListQuery = Schema.Struct({
   scope: Schema.optional(Schema.Literals(["project"])),
   path: Schema.optional(Schema.String),
   roots: Schema.optional(QueryBoolean),
+  archived: Schema.optional(QueryBoolean),
   start: Schema.optional(Schema.NumberFromString),
   search: Schema.optional(Schema.String),
   limit: Schema.optional(Schema.NumberFromString),
@@ -61,6 +63,23 @@ export const UpdatePayload = Schema.Struct({
     }),
   ),
 })
+export const CreatePayload = Schema.optional(
+  Schema.Struct({
+    parentID: Schema.optional(SessionID),
+    title: Schema.optional(Schema.String),
+    agent: Schema.optional(Schema.String),
+    model: Schema.optional(
+      Schema.Struct({
+        id: ModelID,
+        providerID: ProviderID,
+        variant: Schema.optional(Schema.String),
+      }),
+    ),
+    multiAgent: Schema.optional(Schema.Boolean),
+    permission: Schema.optional(Permission.Ruleset),
+    workspaceID: Schema.optional(WorkspaceID),
+  }),
+)
 export const ForkPayload = Schema.Struct(Struct.omit(Session.ForkInput.fields, ["sessionID"]))
 export const InitPayload = Schema.Struct({
   modelID: ModelID,
@@ -283,7 +302,7 @@ export const SessionApi = HttpApi.make("session")
         ),
         HttpApiEndpoint.post("create", SessionPaths.create, {
           query: WorkspaceRoutingQuery,
-          payload: [HttpApiSchema.NoContent, Session.CreateInput],
+          payload: [HttpApiSchema.NoContent, CreatePayload],
           success: described(Session.Info, "Successfully created session"),
           error: HttpApiError.BadRequest,
         }).annotateMerge(

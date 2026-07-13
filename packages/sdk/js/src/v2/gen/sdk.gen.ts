@@ -24,6 +24,7 @@ import type {
   ConfigProvidersResponses,
   ConfigUpdateErrors,
   ConfigUpdateResponses,
+  ConsoleSwitchPayload,
   EventSubscribeResponses,
   EventTuiCommandExecute2,
   EventTuiPromptAppend2,
@@ -159,10 +160,14 @@ import type {
   QuestionReplyResponses,
   SessionAbortErrors,
   SessionAbortResponses,
+  SessionAgentClusterErrors,
+  SessionAgentClusterResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
   SessionCommandErrors,
   SessionCommandResponses,
+  SessionContextErrors,
+  SessionContextResponses,
   SessionCreateErrors,
   SessionCreateResponses,
   SessionDeleteErrors,
@@ -731,100 +736,43 @@ export class Config2 extends HeyApiClient {
 
 export class Console extends HeyApiClient {
   /**
-   * Get active Console provider metadata
+   * Get console state
    *
-   * Get the active Console org name and the set of provider IDs managed by that Console org.
+   * Get console-managed provider state and organization switching availability.
    */
-  public get<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
+  public get<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
     return (options?.client ?? this.client).get<
       ExperimentalConsoleGetResponses,
       ExperimentalConsoleGetErrors,
       ThrowOnError
-    >({
-      url: "/experimental/console",
-      ...options,
-      ...params,
-    })
+    >({ url: "/experimental/console", ...options })
   }
 
   /**
-   * List switchable Console orgs
+   * List console organizations
    *
-   * Get the available Console orgs across logged-in accounts, including the current active org.
+   * List console organizations available for switching.
    */
-  public listOrgs<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
+  public listOrgs<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
     return (options?.client ?? this.client).get<
       ExperimentalConsoleListOrgsResponses,
       ExperimentalConsoleListOrgsErrors,
       ThrowOnError
-    >({
-      url: "/experimental/console/orgs",
-      ...options,
-      ...params,
-    })
+    >({ url: "/experimental/console/orgs", ...options })
   }
 
   /**
-   * Switch active Console org
+   * Switch console organization
    *
-   * Persist a new active Console account/org selection for the current local JYYCode state.
+   * Switch the active console organization for an authenticated account.
    */
   public switchOrg<ThrowOnError extends boolean = false>(
     parameters?: {
-      directory?: string
-      workspace?: string
-      accountID?: string
-      orgID?: string
+      consoleSwitchPayload?: ConsoleSwitchPayload
     },
     options?: Options<never, ThrowOnError>,
   ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "accountID" },
-            { in: "body", key: "orgID" },
-          ],
-        },
-      ],
-    )
+    const params = buildClientParams([parameters], [{ args: [{ key: "consoleSwitchPayload", map: "body" }] }])
     return (options?.client ?? this.client).post<ExperimentalConsoleSwitchOrgResponses, unknown, ThrowOnError>({
       url: "/experimental/console/switch",
       ...options,
@@ -1281,7 +1229,6 @@ export class Tool extends HeyApiClient {
       ...params,
     })
   }
-
 }
 
 export class Worktree extends HeyApiClient {
@@ -3050,6 +2997,7 @@ export class Session2 extends HeyApiClient {
       scope?: "project"
       path?: string
       roots?: boolean | "true" | "false"
+      archived?: boolean | "true" | "false"
       start?: number
       search?: string
       limit?: number
@@ -3066,6 +3014,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "scope" },
             { in: "query", key: "path" },
             { in: "query", key: "roots" },
+            { in: "query", key: "archived" },
             { in: "query", key: "start" },
             { in: "query", key: "search" },
             { in: "query", key: "limit" },
@@ -3301,6 +3250,70 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<SessionChildrenResponses, SessionChildrenErrors, ThrowOnError>({
       url: "/session/{sessionID}/children",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get active context estimate
+   *
+   * Retrieve a media-aware active context estimate for a session, including decoded media bytes.
+   */
+  public context<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionContextResponses, SessionContextErrors, ThrowOnError>({
+      url: "/session/{sessionID}/context",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get session agent cluster state
+   *
+   * Retrieve persisted agent cluster runs and tasks for a specific session.
+   */
+  public agentCluster<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionAgentClusterResponses, SessionAgentClusterErrors, ThrowOnError>({
+      url: "/session/{sessionID}/agent-cluster",
       ...options,
       ...params,
     })
