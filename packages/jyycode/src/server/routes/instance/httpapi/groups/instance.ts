@@ -40,6 +40,18 @@ export class ApiVcsApplyError extends Schema.ErrorClass<ApiVcsApplyError>("VcsAp
   { httpApiStatus: 400 },
 ) {}
 
+export class ApiVcsOperationError extends Schema.ErrorClass<ApiVcsOperationError>("VcsOperationError")(
+  {
+    name: Schema.Literal("VcsOperationError"),
+    data: Schema.Struct({
+      message: Schema.String,
+      reason: Vcs.OperationReason,
+      candidates: Schema.optional(Schema.Array(Schema.String)),
+    }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
 export const InstancePaths = {
   dispose: "/instance/dispose",
   path: "/path",
@@ -48,6 +60,11 @@ export const InstancePaths = {
   vcsDiff: "/vcs/diff",
   vcsDiffRaw: "/vcs/diff/raw",
   vcsApply: "/vcs/apply",
+  vcsBranches: "/vcs/branches",
+  vcsBranchCreate: "/vcs/branches",
+  vcsBranchSwitch: "/vcs/branches/switch",
+  vcsFetch: "/vcs/fetch",
+  vcsPush: "/vcs/push",
   command: "/command",
   agent: "/agent",
   skill: "/skill",
@@ -134,6 +151,63 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "vcs.apply",
             summary: "Apply VCS patch",
             description: "Apply a raw patch to the current working tree.",
+          }),
+        ),
+        HttpApiEndpoint.get("vcsBranches", InstancePaths.vcsBranches, {
+          query: WorkspaceRoutingQuery,
+          success: described(Vcs.Branches, "VCS branches and remotes"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "vcs.branch.list",
+            summary: "List VCS branches",
+            description: "List local and remote Git branches and configured remotes.",
+          }),
+        ),
+        HttpApiEndpoint.post("vcsBranchCreate", InstancePaths.vcsBranchCreate, {
+          query: WorkspaceRoutingQuery,
+          payload: Vcs.CreateBranchInput,
+          success: described(Vcs.Branches, "Updated VCS branches and remotes"),
+          error: ApiVcsOperationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "vcs.branch.create",
+            summary: "Create VCS branch",
+            description: "Create a local Git branch and optionally switch to it.",
+          }),
+        ),
+        HttpApiEndpoint.post("vcsBranchSwitch", InstancePaths.vcsBranchSwitch, {
+          query: WorkspaceRoutingQuery,
+          payload: Vcs.SwitchBranchInput,
+          success: described(Vcs.Branches, "Updated VCS branches and remotes"),
+          error: ApiVcsOperationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "vcs.branch.switch",
+            summary: "Switch VCS branch",
+            description: "Switch to a local branch or create a local branch tracking a remote branch.",
+          }),
+        ),
+        HttpApiEndpoint.post("vcsFetch", InstancePaths.vcsFetch, {
+          query: WorkspaceRoutingQuery,
+          success: described(Vcs.Branches, "Updated VCS branches and remotes"),
+          error: ApiVcsOperationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "vcs.fetch",
+            summary: "Fetch VCS remotes",
+            description: "Fetch and prune all configured Git remotes.",
+          }),
+        ),
+        HttpApiEndpoint.post("vcsPush", InstancePaths.vcsPush, {
+          query: WorkspaceRoutingQuery,
+          payload: Vcs.PushInput,
+          success: described(Vcs.Branches, "Updated VCS branches and remotes"),
+          error: ApiVcsOperationError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "vcs.push",
+            summary: "Push VCS branch",
+            description: "Push the current Git branch using its upstream or a selected remote.",
           }),
         ),
         HttpApiEndpoint.get("command", InstancePaths.command, {

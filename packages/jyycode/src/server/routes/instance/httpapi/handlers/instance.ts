@@ -9,8 +9,18 @@ import { Skill } from "@/skill"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { ApiVcsApplyError } from "../groups/instance"
+import { ApiVcsApplyError, ApiVcsOperationError } from "../groups/instance"
 import { markInstanceForDisposal } from "../lifecycle"
+
+const mapVcsOperationError = (error: Vcs.OperationError) =>
+  new ApiVcsOperationError({
+    name: "VcsOperationError",
+    data: {
+      message: error.message,
+      reason: error.reason,
+      ...(error.candidates ? { candidates: error.candidates } : {}),
+    },
+  })
 
 export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance", (handlers) =>
   Effect.gen(function* () {
@@ -73,6 +83,30 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       )
     })
 
+    const getVcsBranches = Effect.fn("InstanceHttpApi.vcsBranches")(function* () {
+      return yield* vcs.branches()
+    })
+
+    const createVcsBranch = Effect.fn("InstanceHttpApi.vcsBranchCreate")(function* (ctx: {
+      payload: Vcs.CreateBranchInput
+    }) {
+      return yield* vcs.createBranch(ctx.payload).pipe(Effect.mapError(mapVcsOperationError))
+    })
+
+    const switchVcsBranch = Effect.fn("InstanceHttpApi.vcsBranchSwitch")(function* (ctx: {
+      payload: Vcs.SwitchBranchInput
+    }) {
+      return yield* vcs.switchBranch(ctx.payload).pipe(Effect.mapError(mapVcsOperationError))
+    })
+
+    const fetchVcs = Effect.fn("InstanceHttpApi.vcsFetch")(function* () {
+      return yield* vcs.fetch().pipe(Effect.mapError(mapVcsOperationError))
+    })
+
+    const pushVcs = Effect.fn("InstanceHttpApi.vcsPush")(function* (ctx: { payload: Vcs.PushInput }) {
+      return yield* vcs.push(ctx.payload).pipe(Effect.mapError(mapVcsOperationError))
+    })
+
     const getCommand = Effect.fn("InstanceHttpApi.command")(function* () {
       return yield* command.list()
     })
@@ -101,6 +135,11 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       .handle("vcsDiff", getVcsDiff)
       .handle("vcsDiffRaw", getVcsDiffRaw)
       .handle("vcsApply", applyVcs)
+      .handle("vcsBranches", getVcsBranches)
+      .handle("vcsBranchCreate", createVcsBranch)
+      .handle("vcsBranchSwitch", switchVcsBranch)
+      .handle("vcsFetch", fetchVcs)
+      .handle("vcsPush", pushVcs)
       .handle("command", getCommand)
       .handle("agent", getAgent)
       .handle("skill", getSkill)

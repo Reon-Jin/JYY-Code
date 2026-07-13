@@ -27,6 +27,7 @@ import { PtyPaths } from "../../src/server/routes/instance/httpapi/groups/pty"
 import { MessagesQuery as V2MessagesQuery } from "../../src/server/routes/instance/httpapi/groups/v2/message"
 import { SessionsQuery as V2SessionsQuery } from "../../src/server/routes/instance/httpapi/groups/v2/session"
 import { QueryBoolean, QueryBooleanOpenApi } from "../../src/server/routes/instance/httpapi/groups/query"
+import { WorkspaceRoutingQuery } from "../../src/server/routes/instance/httpapi/middleware/workspace-routing"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 import { it } from "../lib/effect"
@@ -55,6 +56,11 @@ const openApiDriftRoutes = [
   { method: "get", path: ExperimentalPaths.session, query: ExperimentalSessionListQuery },
   { method: "get", path: ExperimentalPaths.tool, query: ToolListQuery },
   { method: "get", path: InstancePaths.vcsDiff, query: VcsDiffQuery },
+  { method: "get", path: InstancePaths.vcsBranches, query: WorkspaceRoutingQuery },
+  { method: "post", path: InstancePaths.vcsBranchCreate, query: WorkspaceRoutingQuery },
+  { method: "post", path: InstancePaths.vcsBranchSwitch, query: WorkspaceRoutingQuery },
+  { method: "post", path: InstancePaths.vcsFetch, query: WorkspaceRoutingQuery },
+  { method: "post", path: InstancePaths.vcsPush, query: WorkspaceRoutingQuery },
   { method: "get", path: "/api/session", query: V2SessionsQuery },
   { method: "get", path: "/api/session/:sessionID/message", query: V2MessagesQuery },
 ] satisfies Array<{ method: Method; path: string; query: QuerySchema }>
@@ -327,6 +333,17 @@ describe("httpapi query schema drift", () => {
     withTmp({ config: { formatter: false, lsp: false } }, (tmp) =>
       Effect.gen(function* () {
         const url = `/vcs/diff?mode=working&${routingParams(tmp.path)}`
+        const response = yield* request(url)
+        expectNotSchemaRejection(response.status, url)
+      }),
+    ),
+  )
+
+  it.live(
+    "vcs branches accepts directory and workspace",
+    withTmp({ git: true, config: { formatter: false, lsp: false } }, (tmp) =>
+      Effect.gen(function* () {
+        const url = `${InstancePaths.vcsBranches}?${routingParams(tmp.path)}`
         const response = yield* request(url)
         expectNotSchemaRejection(response.status, url)
       }),

@@ -10,6 +10,7 @@ import { InstancePaths } from "../../src/server/routes/instance/httpapi/groups/i
 import { SessionPaths } from "../../src/server/routes/instance/httpapi/groups/session"
 import { PermissionID } from "../../src/permission/schema"
 import { ProjectID } from "../../src/project/schema"
+import { Git } from "../../src/git"
 import { QuestionID } from "../../src/question/schema"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
 import { HEADER as FenceHeader } from "../../src/server/shared/fence"
@@ -50,10 +51,16 @@ const httpApiServerLayer = servedRoutes.pipe(
   Layer.provideMerge(NodeServices.layer),
 )
 
-const it = testEffect(Layer.mergeAll(testStateLayer, httpApiServerLayer))
+const it = testEffect(Layer.mergeAll(testStateLayer, httpApiServerLayer, Git.defaultLayer))
 const handlerContext = Context.empty() as Context.Context<unknown>
 
 const directoryHeader = (dir: string) => HttpClientRequest.setHeader("x-jyycode-directory", dir)
+const directoryQuery = (dir: string) => HttpClientRequest.setUrlParam("directory", dir)
+
+const git = Effect.fn("HttpApiInstanceTest.git")(function* (cwd: string, args: string[]) {
+  const result = yield* Git.Service.use((git) => git.run(args, { cwd }))
+  if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString("utf8")}`)
+})
 
 describe("instance HttpApi", () => {
   it.live("serves the OpenAPI document", () =>
@@ -260,6 +267,77 @@ describe("instance HttpApi", () => {
       expect(yield* diff.json).toContainEqual(
         expect.objectContaining({ file: "changed.txt", additions: 1, status: "added" }),
       )
+    }),
+  )
+
+  it.live("serves typed VCS branch and remote operations", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const remote = yield* tmpdirScoped()
+      yield* git(dir, ["branch", "-M", "main"])
+      yield* git(remote, ["init", "--bare"])
+      yield* git(dir, ["remote", "add", "origin", remote])
+
+      const listed = yield* HttpClientRequest.get(InstancePaths.vcsBranches).pipe(
+        directoryQuery(dir),
+        HttpClient.execute,
+      )
+      expect(listed.status).toBe(200)
+      expect(yield* listed.json).toMatchObject({
+        current: "main",
+        branches: [expect.objectContaining({ name: "main", kind: "local", current: true })],
+        remotes: [expect.objectContaining({ name: "origin" })],
+      })
+
+      const created = yield* HttpClientRequest.post(InstancePaths.vcsBranchCreate).pipe(
+        directoryQuery(dir),
+        HttpClientRequest.bodyJson({ name: "feature/api", checkout: true }),
+        Effect.flatMap(HttpClient.execute),
+      )
+      expect(created.status).toBe(200)
+      expect(yield* created.json).toMatchObject({ current: "feature/api" })
+
+      const switched = yield* HttpClientRequest.post(InstancePaths.vcsBranchSwitch).pipe(
+        directoryQuery(dir),
+        HttpClientRequest.bodyJson({ name: "main" }),
+        Effect.flatMap(HttpClient.execute),
+      )
+      expect(switched.status).toBe(200)
+      expect(yield* switched.json).toMatchObject({ current: "main" })
+
+      const fetched = yield* HttpClientRequest.post(InstancePaths.vcsFetch).pipe(
+        directoryQuery(dir),
+        HttpClient.execute,
+      )
+      expect(fetched.status).toBe(200)
+
+      const pushed = yield* HttpClientRequest.post(InstancePaths.vcsPush).pipe(
+        directoryQuery(dir),
+        HttpClientRequest.bodyJson({}),
+        Effect.flatMap(HttpClient.execute),
+      )
+      expect(pushed.status).toBe(200)
+      expect(yield* pushed.json).toMatchObject({
+        current: "main",
+        branches: expect.arrayContaining([expect.objectContaining({ name: "main", upstream: "origin/main" })]),
+      })
+    }),
+  )
+
+  it.live("returns a typed 400 error for invalid branch names", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const response = yield* HttpClientRequest.post(InstancePaths.vcsBranchCreate).pipe(
+        directoryQuery(dir),
+        HttpClientRequest.bodyJson({ name: "bad branch", checkout: true }),
+        Effect.flatMap(HttpClient.execute),
+      )
+
+      expect(response.status).toBe(400)
+      expect(yield* response.json).toEqual({
+        name: "VcsOperationError",
+        data: { message: "The branch name is invalid", reason: "invalid-name" },
+      })
     }),
   )
 })
