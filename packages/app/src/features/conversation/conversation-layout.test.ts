@@ -14,7 +14,7 @@ describe("conversation layout CSS", () => {
 
   it("uses the responsive wide-screen content width for the timeline and Composer", () => {
     expect(sessionsCSS).toMatch(
-      /--conversation-content-width:\s*min\(1280px, calc\(100% - 32px\)\);/,
+      /--conversation-content-width:\s*min\(1100px, calc\(100% - 32px\)\);/,
     )
     expect(conversationCSS).toMatch(/\.message-timeline\s*\{[^}]*width:\s*100%;/s)
     expect(conversationCSS).toMatch(
@@ -23,5 +23,21 @@ describe("conversation layout CSS", () => {
     expect(composerCSS).toMatch(/\.composer\s*\{[^}]*width:\s*var\(--conversation-content-width\);/s)
     expect(composerCSS).toMatch(/\.provider-empty\s*\{[^}]*width:\s*var\(--conversation-content-width\);/s)
     expect(`${conversationCSS}\n${composerCSS}`).not.toContain("820px")
+  })
+
+  it("aligns the user bubble and Agent content on opposite sides and keeps tool calls compact", () => {
+    expect(conversationCSS).toMatch(
+      /\.conversation-message\[data-role="user"\]\s*\{[^}]*justify-self:\s*end;[^}]*text-align:\s*right;/s,
+    )
+    expect(conversationCSS).toMatch(
+      /\.conversation-message\[data-role="user"\]\s*\{[^}]*background:\s*var\(--color-surface\);/s,
+    )
+    expect(conversationCSS).toMatch(
+      /\.conversation-message\[data-role="assistant"\]\s*\{[^}]*width:\s*100%;[^}]*justify-self:\s*start;/s,
+    )
+    expect(conversationCSS).toMatch(
+      /\.tool-call\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*18px minmax\(0, 1fr\) auto;/s,
+    )
+    expect(conversationCSS).not.toContain(".tool-call__details")
   })
 })

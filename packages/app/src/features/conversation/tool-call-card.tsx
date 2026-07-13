@@ -1,6 +1,6 @@
 import type { ToolPart } from "@jyycode-ai/sdk/v2/client"
 import { CircleCheck, CircleEllipsis, CircleX, LoaderCircle, Wrench } from "lucide-solid"
-import { Match, Switch } from "solid-js"
+import { Match, Show, Switch } from "solid-js"
 
 function statusLabel(status: ToolPart["state"]["status"]) {
   switch (status) {
@@ -21,14 +21,6 @@ function duration(state: ToolPart["state"]) {
   return milliseconds < 1_000 ? `${milliseconds}ms` : `${(milliseconds / 1_000).toFixed(1)}s`
 }
 
-function payload(state: ToolPart["state"]) {
-  const detail: Record<string, unknown> = { input: state.input }
-  if (state.status === "pending") detail.raw = state.raw
-  if (state.status === "completed") detail.output = state.output
-  if (state.status === "error") detail.error = state.error
-  return JSON.stringify(detail, null, 2)
-}
-
 export function ToolCallCard(props: { part: ToolPart }) {
   const title = () =>
     (props.part.state.status === "running" || props.part.state.status === "completed") && props.part.state.title
@@ -37,37 +29,33 @@ export function ToolCallCard(props: { part: ToolPart }) {
 
   return (
     <section class="tool-call" data-status={props.part.state.status} aria-label={`工具调用：${props.part.tool}`}>
-      <header class="tool-call__header">
-        <span class="tool-call__icon" aria-hidden="true">
-          <Wrench />
-        </span>
-        <span class="tool-call__title">
-          <strong>{title()}</strong>
+      <span class="tool-call__icon" aria-hidden="true">
+        <Wrench />
+      </span>
+      <span class="tool-call__title">
+        <strong>{title()}</strong>
+        <Show when={title() !== props.part.tool}>
           <small>{props.part.tool}</small>
-        </span>
-        <span class="tool-call__status">
-          <Switch>
-            <Match when={props.part.state.status === "pending"}>
-              <CircleEllipsis aria-hidden="true" />
-            </Match>
-            <Match when={props.part.state.status === "running"}>
-              <LoaderCircle aria-hidden="true" />
-            </Match>
-            <Match when={props.part.state.status === "completed"}>
-              <CircleCheck aria-hidden="true" />
-            </Match>
-            <Match when={props.part.state.status === "error"}>
-              <CircleX aria-hidden="true" />
-            </Match>
-          </Switch>
-          {statusLabel(props.part.state.status)}
-          {duration(props.part.state) ? ` · ${duration(props.part.state)}` : ""}
-        </span>
-      </header>
-      <details class="tool-call__details">
-        <summary>查看工具详情</summary>
-        <pre>{payload(props.part.state)}</pre>
-      </details>
+        </Show>
+      </span>
+      <span class="tool-call__status">
+        <Switch>
+          <Match when={props.part.state.status === "pending"}>
+            <CircleEllipsis aria-hidden="true" />
+          </Match>
+          <Match when={props.part.state.status === "running"}>
+            <LoaderCircle aria-hidden="true" />
+          </Match>
+          <Match when={props.part.state.status === "completed"}>
+            <CircleCheck aria-hidden="true" />
+          </Match>
+          <Match when={props.part.state.status === "error"}>
+            <CircleX aria-hidden="true" />
+          </Match>
+        </Switch>
+        {statusLabel(props.part.state.status)}
+        {duration(props.part.state) ? ` · ${duration(props.part.state)}` : ""}
+      </span>
     </section>
   )
 }

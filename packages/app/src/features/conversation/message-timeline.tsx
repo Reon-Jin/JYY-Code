@@ -105,9 +105,9 @@ export function MessageTimeline(props: MessageTimelineProps) {
                     <article
                       class="conversation-message"
                       data-role={message.info.role}
-                      aria-label={message.info.role === "user" ? "你的消息" : "Agent 回复"}
+                      aria-label={message.info.role === "user" ? "我的消息" : "Agent 回复"}
                     >
-                      <header>{message.info.role === "user" ? "你" : message.info.agent}</header>
+                      <header>{message.info.role === "user" ? "我" : message.info.agent}</header>
                       <div class="conversation-message__parts">
                         <For each={message.parts}>{(part) => <MessagePartView part={part} />}</For>
                       </div>

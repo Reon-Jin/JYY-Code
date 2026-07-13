@@ -39,7 +39,7 @@
 .message-timeline__empty svg {
   width: 24px;
   height: 24px;
-  color: var(--color-accent);
+  color: var(--color-text-muted);
 }
 
 .message-timeline__new {
@@ -64,16 +64,32 @@
 }
 
 .conversation-message[data-role="user"] {
-  width: min(680px, 92%);
+  width: min(720px, 88%);
   justify-self: end;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4) var(--space-6);
-  background: rgb(16 36 58 / 68%);
+  border: 0;
+  border-radius: 18px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  text-align: right;
 }
 
 .conversation-message[data-role="user"] > header {
-  color: var(--color-accent);
+  color: var(--color-text-muted);
+}
+.conversation-message[data-role="user"] .conversation-message__parts {
+  justify-items: end;
+}
+.conversation-message[data-role="user"] .conversation-markdown {
+  width: 100%;
+}
+.conversation-message[data-role="user"] .conversation-markdown pre,
+.conversation-message[data-role="user"] .conversation-markdown ul,
+.conversation-message[data-role="user"] .conversation-markdown ol {
+  text-align: left;
+}
+.conversation-message[data-role="assistant"] {
+  width: 100%;
+  justify-self: start;
 }
 .conversation-message__parts {
   display: grid;
@@ -141,7 +157,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: var(--space-4);
-  background: #050d18;
+  background: #101010;
 }
 .conversation-markdown blockquote {
   margin-inline: 0;
@@ -193,38 +209,33 @@
 }
 
 .tool-call {
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: rgb(11 25 43 / 72%);
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
 }
 
 .tool-call[data-status="error"] {
-  border-color: rgb(248 113 113 / 28%);
-}
-.tool-call__header {
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
+  color: #fecaca;
 }
 .tool-call__icon {
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: 18px;
+  height: 18px;
   place-items: center;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-accent);
+  color: var(--color-text-muted);
 }
 .tool-call__icon svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 .tool-call__title {
-  display: grid;
+  display: flex;
   min-width: 0;
+  align-items: baseline;
+  gap: var(--space-2);
 }
 .tool-call__title strong,
 .tool-call__title small {
@@ -233,7 +244,9 @@
   white-space: nowrap;
 }
 .tool-call__title strong {
+  min-width: 0;
   font-size: var(--text-xs);
+  font-weight: 600;
 }
 .tool-call__title small {
   color: var(--color-text-muted);
@@ -252,34 +265,13 @@
   height: 13px;
 }
 .tool-call[data-status="running"] .tool-call__status {
-  color: var(--color-accent);
+  color: var(--color-text);
 }
 .tool-call[data-status="running"] .tool-call__status svg {
   animation: ui-spin 900ms linear infinite;
 }
 .tool-call[data-status="error"] .tool-call__status {
   color: #fecaca;
-}
-.tool-call__details {
-  border-top: 1px solid var(--color-border);
-}
-.tool-call__details summary {
-  padding: var(--space-2) var(--space-3);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font-size: var(--text-xs);
-}
-.tool-call__details pre {
-  max-height: 300px;
-  margin: 0;
-  overflow: auto;
-  border-top: 1px solid var(--color-border);
-  padding: var(--space-3);
-  background: #050d18;
-  color: var(--color-text-muted);
-  font-family: var(--font-code);
-  font-size: 0.72rem;
-  white-space: pre-wrap;
 }
 
 .unsupported-part {
@@ -299,8 +291,11 @@
     width: 100%;
     padding-inline: var(--space-4);
   }
-  .tool-call__header {
-    grid-template-columns: 30px minmax(0, 1fr);
+  .conversation-message[data-role="assistant"] {
+    width: 100%;
+  }
+  .tool-call {
+    grid-template-columns: 18px minmax(0, 1fr);
   }
   .tool-call__status {
     grid-column: 2;
