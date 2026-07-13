@@ -191,12 +191,13 @@
 .workspace-rail-toggle { position: absolute; z-index: 5; top: var(--space-4); left: 296px; transition: left var(--motion-normal) ease-out; }
 .workspace-shell[data-rail-open="false"] .workspace-rail-toggle { left: var(--space-4); }
 
-.workspace-main { position: relative; display: grid; min-width: 0; min-height: 0; place-items: center; overflow: auto; padding: 72px clamp(32px, 7vw, 96px); }
+.workspace-main { position: relative; display: grid; min-width: 0; min-height: 0; place-items: center; overflow: hidden; }
 .workspace-main > .ui-inline-error { position: absolute; top: var(--space-4); right: var(--space-4); left: 64px; }
-.workspace-conversation-placeholder { width: min(680px, 100%); border-left: 2px solid var(--color-accent); padding: var(--space-2) 0 var(--space-2) var(--space-6); }
-.workspace-conversation-placeholder__eyebrow { color: var(--color-accent); font-family: var(--font-code); font-size: var(--text-xs); letter-spacing: 0.06em; text-transform: uppercase; }
-.workspace-conversation-placeholder h1 { margin: var(--space-3) 0 var(--space-2); font-size: clamp(1.5rem, 3vw, 2.25rem); letter-spacing: -0.035em; }
-.workspace-conversation-placeholder p { margin: 0; color: var(--color-text-muted); }
+
+.workspace-conversation { display: grid; width: 100%; height: 100%; min-height: 0; grid-template-rows: auto minmax(0, 1fr); justify-items: center; }
+.workspace-conversation__header { display: grid; width: 100%; gap: 2px; border-bottom: 1px solid var(--color-border); padding: var(--space-3) var(--space-6) var(--space-3) 64px; background: rgb(7 17 31 / 74%); backdrop-filter: blur(12px); }
+.workspace-conversation__header span { color: var(--color-accent); font-family: var(--font-code); font-size: 0.64rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.workspace-conversation__header h1 { margin: 0; overflow: hidden; font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 960px) {
   .workspace-shell,
@@ -210,5 +211,5 @@
 @media (max-width: 420px) {
   .workspace-rail { width: min(280px, calc(100vw - 56px)); min-width: min(280px, calc(100vw - 56px)); }
   .workspace-shell[data-rail-open="true"] .workspace-rail-toggle { right: var(--space-3); left: auto; }
-  .workspace-main { padding-inline: var(--space-6); }
+  .workspace-conversation__header { padding-right: 56px; }
 }

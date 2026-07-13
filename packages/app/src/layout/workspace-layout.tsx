@@ -10,6 +10,9 @@ import type { ConnectionState } from "../data/event-bridge"
 import { keys } from "../data/query-keys"
 import { errorMessage } from "../features/projects/project-controller"
 import { useProjects } from "../features/projects/project-context"
+import { conversationQueryOptions } from "../features/conversation/conversation-query"
+import type { ConversationSnapshot } from "../features/conversation/conversation-state"
+import { MessageTimeline } from "../features/conversation/message-timeline"
 import { createSessionApi } from "../features/sessions/session-api"
 import { SessionEmpty } from "../features/sessions/session-empty"
 import { SessionList } from "../features/sessions/session-list"
@@ -24,15 +27,19 @@ export type WorkspaceLayoutViewProps = {
   activeSessions: readonly Session[]
   archivedSessions: readonly Session[]
   statuses: Record<string, SessionStatus>
+  conversation?: ConversationSnapshot
   activeSessionID?: string
   activeLoading?: boolean
   archivedLoading?: boolean
+  conversationLoading?: boolean
   activeError?: string
   archivedError?: string
+  conversationError?: string
   operationError?: string
   busy?: boolean
   onRetryActive?: () => void
   onRetryArchived?: () => void
+  onRetryConversation?: () => void
   onSwitchProject: () => Promise<void>
   onCreate: () => Promise<void>
   onRename: (sessionID: string, title: string) => Promise<void>
@@ -80,7 +87,9 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
         inert={!railOpen() ? true : undefined}
       >
         <header class="workspace-project">
-          <span class="workspace-project__mark" aria-hidden="true">J</span>
+          <span class="workspace-project__mark" aria-hidden="true">
+            J
+          </span>
           <span class="workspace-project__copy">
             <strong>{props.projectName}</strong>
             <small>{props.projectDirectory}</small>
@@ -148,16 +157,23 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
       <main class="workspace-main">
         <Show when={props.operationError}>{(message) => <InlineError message={message()} />}</Show>
         <Show
-          when={selected()}
-          fallback={<SessionEmpty disabled={props.busy || props.activeLoading} onCreate={() => void props.onCreate()} />}
+          when={props.activeSessionID}
+          fallback={
+            <SessionEmpty disabled={props.busy || props.activeLoading} onCreate={() => void props.onCreate()} />
+          }
         >
-          {(session) => (
-            <section class="workspace-conversation-placeholder" aria-labelledby="workspace-session-title">
-              <span class="workspace-conversation-placeholder__eyebrow">Single Agent Workspace</span>
-              <h1 id="workspace-session-title">{session().title}</h1>
-              <p>Session 已就绪。下一步将在这里加载对话消息与实时生成状态。</p>
-            </section>
-          )}
+          <section class="workspace-conversation" aria-labelledby="workspace-session-title">
+            <header class="workspace-conversation__header">
+              <span>Single Agent</span>
+              <h1 id="workspace-session-title">{selected()?.title ?? "Session"}</h1>
+            </header>
+            <MessageTimeline
+              messages={props.conversation?.messages ?? []}
+              loading={props.conversationLoading}
+              error={props.conversationError}
+              onRetry={props.onRetryConversation}
+            />
+          </section>
         </Show>
       </main>
     </div>
@@ -183,6 +199,18 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   )
   const statusQuery = createQuery(
     () => ({ queryKey: keys.status(data.directory()), queryFn: () => api().status() }),
+    data.queryClient,
+  )
+  const conversationQuery = createQuery(
+    () => ({
+      ...conversationQueryOptions({
+        client: data.client(),
+        directory: data.directory(),
+        sessionID: props.activeSessionID ?? "",
+        queryClient: data.queryClient(),
+      }),
+      enabled: Boolean(props.activeSessionID),
+    }),
     data.queryClient,
   )
 
@@ -247,15 +275,21 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       activeSessions={activeQuery.data ?? []}
       archivedSessions={archivedQuery.data ?? []}
       statuses={statusQuery.data ?? {}}
+      conversation={conversationQuery.data}
       activeSessionID={props.activeSessionID}
       activeLoading={activeQuery.isPending}
       archivedLoading={archivedQuery.isPending}
+      conversationLoading={Boolean(props.activeSessionID) && conversationQuery.isPending}
       activeError={activeQuery.error ? errorMessage(activeQuery.error, "无法加载活动 Session") : undefined}
       archivedError={archivedQuery.error ? errorMessage(archivedQuery.error, "无法加载归档 Session") : undefined}
+      conversationError={
+        conversationQuery.error ? errorMessage(conversationQuery.error, "无法加载 Session 消息") : undefined
+      }
       operationError={operationError()}
       busy={busy()}
       onRetryActive={() => void activeQuery.refetch()}
       onRetryArchived={() => void archivedQuery.refetch()}
+      onRetryConversation={() => void conversationQuery.refetch()}
       onSwitchProject={switchProject}
       onCreate={createNewSession}
       onRename={rename}

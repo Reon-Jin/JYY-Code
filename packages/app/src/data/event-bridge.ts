@@ -9,9 +9,13 @@ import type {
 } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import type { DesktopClient } from "./sdk"
+import {
+  applyConversationEvents,
+  isConversationSnapshot,
+  type ConversationSnapshot,
+} from "../features/conversation/conversation-state"
 import { keys, normalizeDirectory } from "./query-keys"
 
-export type Conversation = Array<{ info: Message; parts: Part[] }>
 export type ConnectionState = "connecting" | "connected" | "disconnected"
 
 export type ConversationAction =
@@ -158,95 +162,6 @@ function upsertByID<T extends { id: string }>(items: readonly T[], value: T) {
   return result
 }
 
-export function patchConversation(current: Conversation, actions: readonly CacheAction[]) {
-  let data = current.map((message) => ({ info: message.info, parts: [...message.parts] }))
-  let missingTarget = false
-  const seen = new Set<string>()
-
-  for (const action of actions) {
-    if (seen.has(action.eventID)) continue
-    seen.add(action.eventID)
-
-    switch (action.kind) {
-      case "message.upsert": {
-        const index = data.findIndex((item) => item.info.id === action.info.id)
-        if (index === -1) {
-          data = [...data, { info: action.info, parts: [] }].sort((left, right) =>
-            left.info.id.localeCompare(right.info.id),
-          )
-        } else {
-          const existing = data[index]
-          if (!existing) {
-            missingTarget = true
-            break
-          }
-          data[index] = { ...existing, info: action.info }
-        }
-        break
-      }
-      case "message.remove": {
-        const next = data.filter((item) => item.info.id !== action.messageID)
-        missingTarget ||= next.length === data.length
-        data = next
-        break
-      }
-      case "part.upsert": {
-        const messageIndex = data.findIndex((item) => item.info.id === action.part.messageID)
-        if (messageIndex === -1) {
-          missingTarget = true
-          break
-        }
-        const message = data[messageIndex]
-        if (!message) {
-          missingTarget = true
-          break
-        }
-        data[messageIndex] = {
-          ...message,
-          parts: upsertByID(message.parts, action.part),
-        }
-        break
-      }
-      case "part.delta": {
-        const messageIndex = data.findIndex((item) => item.info.id === action.messageID)
-        const message = messageIndex === -1 ? undefined : data[messageIndex]
-        if (!message) {
-          missingTarget = true
-          break
-        }
-        const partIndex = message.parts.findIndex((item) => item.id === action.partID)
-        const part = partIndex === -1 ? undefined : message.parts[partIndex]
-        if (!part || action.field !== "text" || (part.type !== "text" && part.type !== "reasoning")) {
-          missingTarget = true
-          break
-        }
-        const parts = [...message.parts]
-        parts[partIndex] = { ...part, text: part.text + action.delta }
-        data[messageIndex] = { ...message, parts }
-        break
-      }
-      case "part.remove": {
-        const messageIndex = data.findIndex((item) => item.info.id === action.messageID)
-        if (messageIndex === -1) {
-          missingTarget = true
-          break
-        }
-        const message = data[messageIndex]
-        if (!message) {
-          missingTarget = true
-          break
-        }
-        const parts = message.parts.filter((item) => item.id !== action.partID)
-        missingTarget ||= parts.length === message.parts.length
-        data[messageIndex] = { ...message, parts }
-        break
-      }
-    }
-  }
-
-  return { data, missingTarget }
-}
-
 export function retryDelay(attempt: number) {
   if (attempt <= 0) return 0
   if (attempt <= 4) return 1_000 * 2 ** (attempt - 1)
@@ -388,33 +303,34 @@ export class EventBridge {
   async #flush() {
     if (this.#queue.length === 0 || this.#abort.signal.aborted) return
     const events = this.#queue.splice(0)
-    const actions = events.flatMap((event) => routeEvent(this.#options.directory, event))
-    const conversations = new Map<string, ConversationAction[]>()
+    const conversations = new Map<string, GlobalEvent[]>()
 
-    for (const action of actions) {
-      if (action.kind === "server.connected") {
-        await this.#connected()
-        continue
+    for (const event of events) {
+      for (const action of routeEvent(this.#options.directory, event)) {
+        if (action.kind === "server.connected") {
+          await this.#connected()
+          continue
+        }
+        if (isConversationAction(action)) {
+          const current = conversations.get(action.sessionID) ?? []
+          current.push(event)
+          conversations.set(action.sessionID, current)
+          continue
+        }
+        this.#apply(action)
       }
-      if (isConversationAction(action)) {
-        const current = conversations.get(action.sessionID) ?? []
-        current.push(action)
-        conversations.set(action.sessionID, current)
-        continue
-      }
-      this.#apply(action)
     }
 
-    for (const [sessionID, conversationActions] of conversations) {
+    for (const [sessionID, conversationEvents] of conversations) {
       const queryKey = keys.messages(this.#options.directory, sessionID)
-      const current = this.#options.queryClient.getQueryData<Conversation>(queryKey)
-      if (!current) {
+      const current = this.#options.queryClient.getQueryData<ConversationSnapshot>(queryKey)
+      if (!isConversationSnapshot(current)) {
         this.#invalidate(queryKey)
         continue
       }
-      const patched = patchConversation(current, conversationActions)
-      this.#options.queryClient.setQueryData(queryKey, patched.data)
-      if (patched.missingTarget) this.#invalidate(queryKey)
+      const patched = applyConversationEvents(current, conversationEvents)
+      this.#options.queryClient.setQueryData(queryKey, patched)
+      if (!current.needsRefetch && patched.needsRefetch) this.#invalidate(queryKey)
     }
   }
 

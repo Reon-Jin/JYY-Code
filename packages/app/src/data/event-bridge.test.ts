@@ -1,9 +1,10 @@
 import type { GlobalEvent, Message, Session, TextPart } from "@jyycode-ai/sdk/v2/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { EventBridge, patchConversation, retryDelay, routeEvent } from "./event-bridge"
+import { EventBridge, retryDelay, routeEvent } from "./event-bridge"
 import { createDesktopQueryClient } from "./query-client"
 import { keys } from "./query-keys"
 import { authorizationHeader, createDesktopClient } from "./sdk"
+import { snapshotFromMessages, type ConversationSnapshot } from "../features/conversation/conversation-state"
 
 const session: Session = {
   id: "ses_1",
@@ -106,31 +107,6 @@ describe("event routing", () => {
     expect(action).toEqual([])
   })
 
-  it("deduplicates deltas and invalidates an out-of-order target", () => {
-    const delta = routeEvent("C:\\a", {
-      directory: "c:/A",
-      payload: {
-        id: "evt_delta",
-        type: "message.part.delta",
-        properties: {
-          sessionID: session.id,
-          messageID: message.id,
-          partID: part.id,
-          field: "text",
-          delta: "!",
-        },
-      },
-    } as GlobalEvent)
-
-    const patched = patchConversation([{ info: message, parts: [part] }], [...delta, ...delta])
-    expect(patched.data[0]?.parts[0]).toMatchObject({ text: "Hello!" })
-    expect(patched.missingTarget).toBe(false)
-
-    const outOfOrder = patchConversation([{ info: message, parts: [] }], delta)
-    expect(outOfOrder.data[0]?.parts).toEqual([])
-    expect(outOfOrder.missingTarget).toBe(true)
-  })
-
   it("batches a frame and patches exact session and status caches", async () => {
     const queryClient = createDesktopQueryClient()
     queryClient.setQueryData(keys.sessions("C:\\a"), [session])
@@ -182,6 +158,59 @@ describe("event routing", () => {
 
     expect(queryClient.getQueryData<Session[]>(keys.sessions("C:\\a"))?.[0]?.title).toBe("Updated")
     expect(queryClient.getQueryData(keys.status("C:\\a"))).toEqual({ ses_1: { type: "busy" } })
+
+    bridge.abort()
+    releaseStream()
+  })
+
+  it("patches the active conversation snapshot without replaying a duplicate delta", async () => {
+    const queryClient = createDesktopQueryClient()
+    queryClient.setQueryData(
+      keys.messages("C:\\a", session.id),
+      snapshotFromMessages(session.id, [{ info: message, parts: [part] }]),
+    )
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    const delta = {
+      directory: "C:\\a",
+      payload: {
+        id: "evt_delta_once",
+        type: "message.part.delta",
+        properties: {
+          sessionID: session.id,
+          messageID: message.id,
+          partID: part.id,
+          field: "text",
+          delta: "!",
+        },
+      },
+    } as GlobalEvent
+    const stream = (async function* () {
+      yield delta
+      yield delta
+      await streamWait
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+    scheduled?.(0)
+    await Promise.resolve()
+
+    const snapshot = queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", session.id))
+    expect(snapshot?.messages[0]?.parts[0]).toMatchObject({ text: "Hello!" })
 
     bridge.abort()
     releaseStream()
