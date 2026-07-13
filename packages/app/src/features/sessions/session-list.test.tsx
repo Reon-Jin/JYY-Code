@@ -163,4 +163,38 @@ describe("SessionList", () => {
     expect(screen.getByRole("button", { name: "收起 Session 导航" })).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByRole("complementary")).toHaveAttribute("aria-hidden", "false")
   })
+
+  it("keeps the active request immediately above the Composer outside the message scroller", () => {
+    render(() => (
+      <MemoryRouter>
+        <Route
+          path="*"
+          component={() => (
+            <WorkspaceLayoutView
+              projectName="demo"
+              projectDirectory={directory}
+              connection="connected"
+              activeSessions={[newer]}
+              archivedSessions={[]}
+              statuses={{}}
+              activeSessionID={newer.id}
+              requestArea={<div data-testid="request-area">request</div>}
+              composer={<div data-testid="composer">composer</div>}
+              onSwitchProject={vi.fn(async () => undefined)}
+              onCreate={vi.fn(async () => undefined)}
+              onRename={vi.fn(async () => undefined)}
+              onArchive={vi.fn(async () => undefined)}
+              onDelete={vi.fn(async () => undefined)}
+            />
+          )}
+        />
+      </MemoryRouter>
+    ))
+
+    const footer = screen.getByTestId("request-area").parentElement!
+    expect(footer).toHaveClass("workspace-conversation__footer")
+    expect(footer.children[0]).toBe(screen.getByTestId("request-area"))
+    expect(footer.children[1]).toBe(screen.getByTestId("composer"))
+    expect(footer.previousElementSibling).toHaveClass("message-timeline")
+  })
 })

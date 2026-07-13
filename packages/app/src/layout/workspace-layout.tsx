@@ -21,6 +21,13 @@ import {
   type ModelSelection,
 } from "../features/composer/model-catalog"
 import { ProviderEmpty } from "../features/composer/provider-empty"
+import { PermissionBar } from "../features/requests/permission-bar"
+import { QuestionPanel } from "../features/requests/question-panel"
+import {
+  permissionQueryOptions,
+  questionQueryOptions,
+  selectActiveRequest,
+} from "../features/requests/request-query"
 import { createSessionApi } from "../features/sessions/session-api"
 import { SessionEmpty } from "../features/sessions/session-empty"
 import { SessionList } from "../features/sessions/session-list"
@@ -44,6 +51,7 @@ export type WorkspaceLayoutViewProps = {
   archivedError?: string
   conversationError?: string
   operationError?: string
+  requestArea?: JSX.Element
   composer?: JSX.Element
   busy?: boolean
   onRetryActive?: () => void
@@ -182,7 +190,10 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
               error={props.conversationError}
               onRetry={props.onRetryConversation}
             />
-            {props.composer}
+            <div class="workspace-conversation__footer">
+              {props.requestArea}
+              {props.composer}
+            </div>
           </section>
         </Show>
       </main>
@@ -221,6 +232,20 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         sessionID: props.activeSessionID ?? "",
         queryClient: data.queryClient(),
       }),
+      enabled: Boolean(props.activeSessionID),
+    }),
+    data.queryClient,
+  )
+  const permissionsQuery = createQuery(
+    () => ({
+      ...permissionQueryOptions({ client: data.client(), directory: data.directory() }),
+      enabled: Boolean(props.activeSessionID),
+    }),
+    data.queryClient,
+  )
+  const questionsQuery = createQuery(
+    () => ({
+      ...questionQueryOptions({ client: data.client(), directory: data.directory() }),
       enabled: Boolean(props.activeSessionID),
     }),
     data.queryClient,
@@ -320,6 +345,18 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }
     return undefined
   })
+  const activeRequest = createMemo(() =>
+    selectActiveRequest(
+      permissionsQuery.data ?? [],
+      questionsQuery.data ?? [],
+      props.activeSessionID,
+    ),
+  )
+  const requestError = createMemo(() => {
+    if (permissionsQuery.error) return errorMessage(permissionsQuery.error, "无法加载权限请求")
+    if (questionsQuery.error) return errorMessage(questionsQuery.error, "无法加载 Agent 问题")
+    return undefined
+  })
 
   return (
     <WorkspaceLayoutView
@@ -340,6 +377,26 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         conversationQuery.error ? errorMessage(conversationQuery.error, "无法加载 Session 消息") : undefined
       }
       operationError={operationError()}
+      requestArea={
+        <Show
+          when={!requestError()}
+          fallback={
+            <div class="request-panel">
+              <InlineError message={requestError()!} />
+            </div>
+          }
+        >
+          <Show when={activeRequest()} keyed>
+            {(pending) =>
+              pending.type === "permission" ? (
+                <PermissionBar client={data.client()} directory={data.directory()} request={pending.request} />
+              ) : (
+                <QuestionPanel client={data.client()} directory={data.directory()} request={pending.request} />
+              )
+            }
+          </Show>
+        </Show>
+      }
       composer={
         <Show when={props.activeSessionID} keyed>
           {(sessionID) => (

@@ -197,6 +197,7 @@
 .workspace-main > .ui-inline-error { position: absolute; top: var(--space-4); right: var(--space-4); left: 64px; }
 
 .workspace-conversation { --conversation-content-width: min(1100px, calc(100% - 32px)); display: grid; width: 100%; height: 100%; min-height: 0; grid-template-rows: auto minmax(0, 1fr); justify-items: center; }
+.workspace-conversation__footer { display: grid; width: 100%; min-width: 0; }
 .workspace-conversation__header { display: grid; width: 100%; gap: 2px; border-bottom: 1px solid var(--color-border); padding: var(--space-3) var(--space-6) var(--space-3) 64px; background: rgb(24 24 24 / 88%); backdrop-filter: blur(12px); }
 .workspace-conversation__header span { color: var(--color-text-muted); font-family: var(--font-code); font-size: 0.64rem; letter-spacing: 0.06em; text-transform: uppercase; }
 .workspace-conversation__header h1 { margin: 0; overflow: hidden; font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }

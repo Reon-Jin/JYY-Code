@@ -1,4 +1,4 @@
-import type { GlobalEvent, Message, Session, TextPart } from "@jyycode-ai/sdk/v2/client"
+import type { GlobalEvent, Message, PermissionRequest, QuestionRequest, Session, TextPart } from "@jyycode-ai/sdk/v2/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { EventBridge, retryDelay, routeEvent } from "./event-bridge"
 import { createDesktopQueryClient } from "./query-client"
@@ -105,6 +105,55 @@ describe("event routing", () => {
     } as GlobalEvent)
 
     expect(action).toEqual([])
+  })
+
+  it("upserts asked requests and removes them only after server confirmation", () => {
+    const permission: PermissionRequest = {
+      id: "per_1",
+      sessionID: session.id,
+      permission: "bash",
+      patterns: ["git status"],
+      metadata: {},
+      always: ["git *"],
+    }
+    const question: QuestionRequest = {
+      id: "que_1",
+      sessionID: session.id,
+      questions: [{ header: "范围", question: "继续吗？", options: [] }],
+    }
+
+    expect(
+      routeEvent("C:\\a", {
+        directory: "C:\\a",
+        payload: { id: "evt_permission_asked", type: "permission.asked", properties: permission },
+      } as GlobalEvent),
+    ).toEqual([{ kind: "permission.upsert", eventID: "evt_permission_asked", request: permission }])
+    expect(
+      routeEvent("C:\\a", {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_permission_replied",
+          type: "permission.replied",
+          properties: { sessionID: session.id, requestID: permission.id, reply: "once" },
+        },
+      } as GlobalEvent),
+    ).toEqual([{ kind: "permission.remove", eventID: "evt_permission_replied", requestID: permission.id }])
+    expect(
+      routeEvent("C:\\a", {
+        directory: "C:\\a",
+        payload: { id: "evt_question_asked", type: "question.asked", properties: question },
+      } as GlobalEvent),
+    ).toEqual([{ kind: "question.upsert", eventID: "evt_question_asked", request: question }])
+    expect(
+      routeEvent("C:\\a", {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_question_rejected",
+          type: "question.rejected",
+          properties: { sessionID: session.id, requestID: question.id },
+        },
+      } as GlobalEvent),
+    ).toEqual([{ kind: "question.remove", eventID: "evt_question_rejected", requestID: question.id }])
   })
 
   it("batches a frame and patches exact session and status caches", async () => {
