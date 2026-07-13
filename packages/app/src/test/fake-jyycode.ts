@@ -75,7 +75,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       { name: "origin", fetchUrl: "https://github.com/example/demo.git", pushUrl: "git@github.com:example/demo.git" },
     ],
   }
-  const githubStatus: GitHubAvailability = {
+  let githubStatus: GitHubAvailability = {
     available: true,
     repository: { nameWithOwner: "example/demo", url: "https://github.com/example/demo", defaultBranch: "main" },
   }
@@ -117,7 +117,13 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   function emit(payload: GlobalEvent["payload"]) {
     const event: GlobalEvent = { directory, payload }
     const frame = encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
-    for (const stream of streams) stream.enqueue(frame)
+    for (const stream of streams) {
+      try {
+        stream.enqueue(frame)
+      } catch {
+        streams.delete(stream)
+      }
+    }
   }
 
   function event(type: string, properties: Record<string, unknown>) {
@@ -126,8 +132,10 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   }
 
   function sse(request: Request) {
+    let active: ReadableStreamDefaultController<Uint8Array> | undefined
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
+        active = controller
         streams.add(controller)
         controller.enqueue(
           encoder.encode(
@@ -148,7 +156,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
         )
       },
       cancel() {
-        // The controller is removed by the request abort handler.
+        if (active) streams.delete(active)
       },
     })
     return new Response(stream, {
@@ -377,7 +385,9 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     const pullMatch = url.pathname.match(/^\/github\/pulls\/(\d+)/)
     const pullNumber = Number(pullMatch?.[1])
     const pull = pullRequestDetails.get(pullNumber)
-    if (pull && url.pathname.endsWith("/diff") && request.method === "GET") return json("@@ -1 +1 @@")
+    if (pull && url.pathname.endsWith("/diff") && request.method === "GET") {
+      return json("diff --git a/src/app.tsx b/src/app.tsx\n@@ -1 +1 @@\n-old\n+new")
+    }
     if (pull && url.pathname.endsWith("/comments") && request.method === "POST") {
       pull.comments.push({
         id: `comment_${pull.comments.length + 1}`,
@@ -435,6 +445,10 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     event("todo.updated", { sessionID, todos: next })
   }
 
+  function setGitHubStatus(next: GitHubAvailability) {
+    githubStatus = next
+  }
+
   return {
     fetch: fetch as typeof globalThis.fetch,
     project,
@@ -450,5 +464,6 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     requests,
     emit,
     setTodos,
+    setGitHubStatus,
   }
 }

@@ -8,9 +8,9 @@ import { Git } from "@/git"
 import * as Log from "@jyycode-ai/core/util/log"
 
 const log = Log.create({ service: "vcs" })
-const PATCH_CONTEXT_LINES = 2_147_483_647
 const MAX_PATCH_BYTES = 10_000_000
 const MAX_TOTAL_PATCH_BYTES = 10_000_000
+const PATCH_CONTEXT_LINES = MAX_TOTAL_PATCH_BYTES
 type DiffOptions = {
   readonly context?: number
 }

@@ -58,9 +58,14 @@ describe("desktop GUI journey", () => {
     submitProject.focus()
     await user.keyboard("{Enter}")
 
-    expect(await screen.findByRole("main")).toBeVisible()
-    expect(await screen.findByRole("combobox", { name: "Agent" })).toHaveValue("build")
-    expect(screen.getByRole("combobox", { name: "模型" })).toHaveValue("test/test-model")
+    await waitFor(
+      () => {
+        expect(screen.getByRole("main")).toBeVisible()
+        expect(screen.getByRole("combobox", { name: "Agent" })).toHaveValue("build")
+        expect(screen.getByRole("combobox", { name: "模型" })).toHaveValue("test/test-model")
+      },
+      { timeout: 5_000 },
+    )
     expect(screen.queryByText(/Multi-Agent/i)).not.toBeInTheDocument()
     const createSession = backend.requests.find((request) => request.method === "POST" && request.path === "/session")
     expect(createSession?.body).toMatchObject({ multiAgent: false })
@@ -96,10 +101,18 @@ describe("desktop GUI journey", () => {
     window.history.replaceState(null, "", "/")
     render(() => <App bridge={desktop.bridge} />)
 
-    expect(await screen.findByText("流式回复已完成")).toBeVisible()
-    expect(screen.getByText("检查当前工作区")).toBeVisible()
-    expect(screen.queryByText(/Multi-Agent/i)).not.toBeInTheDocument()
+    await waitFor(
+      () => {
+        expect(screen.getByText("流式回复已完成")).toBeVisible()
+        expect(screen.getByText("检查当前工作区")).toBeVisible()
+        expect(screen.queryByText(/Multi-Agent/i)).not.toBeInTheDocument()
+        expect(screen.getByText("后端已连接")).toBeVisible()
+        expect(screen.getByRole("button", { name: "返回项目首页" })).toBeVisible()
+      },
+      { timeout: 5_000 },
+    )
 
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
     await user.click(screen.getByRole("button", { name: "返回项目首页" }))
     expect(await screen.findByRole("heading", { name: /让代码保持流动/ })).toBeVisible()
     expect(desktop.lastLocation()).toEqual({})

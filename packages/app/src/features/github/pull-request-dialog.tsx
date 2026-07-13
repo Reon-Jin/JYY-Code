@@ -171,6 +171,34 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
     }
   })
 
+  function editorContent() {
+    const mode = editor()
+    if (!mode) return undefined
+    return (
+      <PullRequestForm
+        mode={mode}
+        initial={
+          mode === "edit" && detail.data
+            ? {
+                title: detail.data.title,
+                body: detail.data.body,
+                head: detail.data.headRefName,
+                base: detail.data.baseRefName,
+                draft: detail.data.isDraft,
+              }
+            : {
+                title: "",
+                body: "",
+                head: detail.data?.headRefName ?? "",
+                base: status.data?.available ? status.data.repository.defaultBranch : "main",
+              }
+        }
+        onSubmit={mode === "create" ? saveCreate : saveEdit}
+        onCancel={() => setEditor(undefined)}
+      />
+    )
+  }
+
   return (
     <PullRequestDialogView
       open={props.open}
@@ -185,33 +213,7 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
       detail={detail.data}
       detailLoading={Boolean(selected()) && detail.isPending}
       detailError={detail.error ? errorMessage(detail.error, "无法加载 Pull Request 详情") : undefined}
-      editor={
-        <Show when={editor()} keyed>
-          {(mode) => (
-            <PullRequestForm
-              mode={mode}
-              initial={
-                mode === "edit" && detail.data
-                  ? {
-                      title: detail.data.title,
-                      body: detail.data.body,
-                      head: detail.data.headRefName,
-                      base: detail.data.baseRefName,
-                      draft: detail.data.isDraft,
-                    }
-                  : {
-                      title: "",
-                      body: "",
-                      head: detail.data?.headRefName ?? "",
-                      base: status.data?.available ? status.data.repository.defaultBranch : "main",
-                    }
-              }
-              onSubmit={mode === "create" ? saveCreate : saveEdit}
-              onCancel={() => setEditor(undefined)}
-            />
-          )}
-        </Show>
-      }
+      editor={editorContent()}
       diff={selected() ? <PullRequestDiff directory={props.directory} number={selected()!} /> : undefined}
       handlers={handlers()}
       onClose={props.onClose}
