@@ -179,6 +179,32 @@
   margin: 0;
   font-size: var(--text-lg);
 }
+
+.pull-detail__title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.pull-detail__tabs {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+}
+.pull-detail__tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: var(--space-1) 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.pull-detail__tabs button[aria-pressed="true"] {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+}
 .pull-detail__body {
   display: grid;
   gap: var(--space-6);
@@ -257,6 +283,172 @@
   overflow-wrap: anywhere;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
+}
+
+.pull-detail--editor {
+  padding: var(--space-6);
+}
+.pull-form {
+  display: grid;
+  gap: var(--space-4);
+}
+.pull-form h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.pull-form label {
+  display: grid;
+  gap: var(--space-1);
+}
+.pull-form label > span {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.pull-form input:not([type="checkbox"]),
+.pull-form textarea {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.pull-form textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+.pull-form__branches {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.pull-form .pull-form__checkbox,
+.merge-confirm .pull-form__checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.pull-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.pull-actions {
+  display: grid;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-5);
+}
+.pull-actions__commands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.pull-actions__hint,
+.pull-actions__success {
+  margin: 0;
+  font-size: var(--text-xs);
+}
+.pull-actions__hint {
+  color: var(--color-warning);
+}
+.pull-actions__success {
+  color: var(--color-success);
+}
+.pull-comment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-2);
+}
+.pull-comment label {
+  display: grid;
+  gap: var(--space-1);
+}
+.pull-comment label > span {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.pull-comment textarea {
+  min-width: 0;
+  resize: vertical;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.merge-confirm {
+  display: grid;
+  gap: var(--space-4);
+}
+.merge-confirm fieldset {
+  display: grid;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+.merge-confirm legend {
+  padding: 0 var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.merge-confirm fieldset label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.pull-diff {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.pull-diff pre {
+  display: grid;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: var(--space-3) 0;
+  font-family: var(--font-code);
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+.pull-diff__hunk {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  background: rgb(96 165 250 / 10%);
+  color: var(--color-accent);
+}
+.pull-diff__line {
+  display: grid;
+  min-width: max-content;
+  grid-template-columns: 46px 46px 18px minmax(0, 1fr);
+}
+.pull-diff__line > span {
+  white-space: pre;
+}
+.pull-diff__line > span:nth-child(-n + 3) {
+  color: var(--color-text-muted);
+  text-align: right;
+  user-select: none;
+}
+.pull-diff__line > span:nth-child(3) {
+  padding-right: var(--space-2);
+}
+.pull-diff__line > span:last-child {
+  padding-right: var(--space-4);
+}
+.pull-diff__line[data-kind="add"] {
+  background: rgb(74 222 128 / 10%);
+}
+.pull-diff__line[data-kind="delete"] {
+  background: rgb(248 113 113 / 10%);
 }
 
 @media (max-width: 720px) {

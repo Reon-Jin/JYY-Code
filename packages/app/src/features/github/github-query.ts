@@ -69,6 +69,12 @@ export function createGitHubApi(input: GitHubQueryInput & { queryClient: QueryCl
     input.queryClient.invalidateQueries({ queryKey: keys.pullRequestsScope(input.directory), exact: false })
   const invalidateDetail = (number: number) =>
     input.queryClient.invalidateQueries({ queryKey: keys.pullRequest(input.directory, number), exact: true })
+  const invalidateWorkspace = () =>
+    Promise.all([
+      input.queryClient.invalidateQueries({ queryKey: keys.vcsInfo(input.directory), exact: true }),
+      input.queryClient.invalidateQueries({ queryKey: keys.vcsBranches(input.directory), exact: true }),
+      input.queryClient.invalidateQueries({ queryKey: keys.vcsDiff(input.directory), exact: true }),
+    ])
   const number = (value: number) => String(value)
 
   async function create(value: { head: string; base: string; title: string; body: string; draft?: boolean }) {
@@ -98,12 +104,30 @@ export function createGitHubApi(input: GitHubQueryInput & { queryClient: QueryCl
     return result.data
   }
 
-  const mutate = async (operation: "checkout" | "close" | "reopen", value: { number: number }) => {
+  const mutate = async (operation: "checkout" | "close" | "reopen", value: { number: number; branch?: string }) => {
     const result = await input.client.github.pull[operation](
       { directory: input.directory, number: number(value.number) },
       { throwOnError: true },
     )
-    await Promise.all([invalidateLists(), invalidateDetail(value.number)])
+    await Promise.all([
+      invalidateLists(),
+      invalidateDetail(value.number),
+      ...(operation === "checkout" ? [invalidateWorkspace()] : []),
+    ])
+    if (operation === "checkout" && value.branch) {
+      input.queryClient.setQueryData(keys.vcsInfo(input.directory), (current: object | undefined) => ({
+        ...current,
+        branch: value.branch,
+      }))
+      input.queryClient.setQueryData(
+        keys.vcsBranches(input.directory),
+        (current: { branches?: Array<{ name: string; current: boolean }> } | undefined) => ({
+          ...current,
+          current: value.branch,
+          branches: current?.branches?.map((branch) => ({ ...branch, current: branch.name === value.branch })) ?? [],
+        }),
+      )
+    }
     return result.data
   }
 
@@ -112,7 +136,7 @@ export function createGitHubApi(input: GitHubQueryInput & { queryClient: QueryCl
       { directory: input.directory, ...value, number: number(value.number) },
       { throwOnError: true },
     )
-    await Promise.all([invalidateLists(), invalidateDetail(value.number)])
+    await Promise.all([invalidateLists(), invalidateDetail(value.number), invalidateWorkspace()])
     return result.data
   }
 
@@ -120,7 +144,7 @@ export function createGitHubApi(input: GitHubQueryInput & { queryClient: QueryCl
     create,
     edit,
     comment,
-    checkout: (value: { number: number }) => mutate("checkout", value),
+    checkout: (value: { number: number; branch?: string }) => mutate("checkout", value),
     close: (value: { number: number }) => mutate("close", value),
     reopen: (value: { number: number }) => mutate("reopen", value),
     merge,

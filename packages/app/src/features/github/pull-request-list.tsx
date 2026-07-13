@@ -1,5 +1,5 @@
 import type { GitHubPullRequestSummary } from "@jyycode-ai/sdk/v2/client"
-import { GitPullRequest, RefreshCw } from "lucide-solid"
+import { GitPullRequest, Plus, RefreshCw } from "lucide-solid"
 import { For, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
@@ -26,6 +26,7 @@ export function PullRequestList(props: {
   onState: (state: PullRequestState) => void
   onSelect: (number: number) => void
   onRefresh: () => void
+  onCreate?: () => void
 }) {
   return (
     <section class="pull-list" aria-label="Pull Request 列表">
@@ -46,6 +47,11 @@ export function PullRequestList(props: {
         <Button size="icon" variant="ghost" aria-label="刷新 Pull Requests" onClick={props.onRefresh}>
           <RefreshCw aria-hidden="true" />
         </Button>
+        <Show when={props.onCreate}>
+          <Button size="icon" variant="ghost" aria-label="创建 Pull Request" onClick={props.onCreate}>
+            <Plus aria-hidden="true" />
+          </Button>
+        </Show>
       </header>
       <Show
         when={!props.loading}

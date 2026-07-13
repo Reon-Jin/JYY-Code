@@ -1,8 +1,10 @@
 import type { GitHubPullRequestCheck, GitHubPullRequestDetail as Detail } from "@jyycode-ai/sdk/v2/client"
 import { CheckCircle2, CircleDashed, CircleX, Clock3, GitCommit, MessageSquare } from "lucide-solid"
-import { For, Match, Show, Switch } from "solid-js"
+import { createSignal, For, Match, Show, Switch, type JSX } from "solid-js"
+import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
+import { PullRequestActions, type PullRequestActionHandlers } from "./pull-request-actions"
 
 function checkState(check: GitHubPullRequestCheck) {
   const status = check.status.toLowerCase()
@@ -31,7 +33,15 @@ function CheckIcon(props: { state: string }) {
   )
 }
 
-export function PullRequestDetailView(props: { detail?: Detail; loading?: boolean; error?: string }) {
+export function PullRequestDetailView(props: {
+  detail?: Detail
+  loading?: boolean
+  error?: string
+  diff?: JSX.Element
+  handlers?: PullRequestActionHandlers
+  onEdit?: () => void
+}) {
+  const [tab, setTab] = createSignal<"overview" | "diff">("overview")
   return (
     <section class="pull-detail" aria-label="Pull Request 详情">
       <Show
@@ -58,76 +68,99 @@ export function PullRequestDetailView(props: { detail?: Detail; loading?: boolea
                     #{pull().number} · {pull().state}
                     {pull().isDraft ? " · Draft" : ""}
                   </span>
-                  <h3>{pull().title}</h3>
+                  <div class="pull-detail__title">
+                    <h3>{pull().title}</h3>
+                    <Show when={props.onEdit}>
+                      <Button size="small" variant="ghost" onClick={props.onEdit}>
+                        编辑
+                      </Button>
+                    </Show>
+                  </div>
                   <p>
                     由 {pull().author.name ?? pull().author.login} 提交 · {pull().headRefName} → {pull().baseRefName}
                   </p>
+                  <div class="pull-detail__tabs" aria-label="Pull Request 详情视图">
+                    <button type="button" aria-pressed={tab() === "overview"} onClick={() => setTab("overview")}>
+                      Overview
+                    </button>
+                    <button type="button" aria-pressed={tab() === "diff"} onClick={() => setTab("diff")}>
+                      Diff
+                    </button>
+                  </div>
                 </header>
-                <div class="pull-detail__body">
-                  <section>
-                    <h4>说明</h4>
-                    <p class="pull-detail__markdown">{pull().body || "未填写说明"}</p>
-                  </section>
-                  <section>
-                    <h4>合并状态</h4>
-                    <p>
-                      {pull().mergeable || "UNKNOWN"} · {pull().reviewDecision ?? "No review decision"}
-                    </p>
-                  </section>
-                  <section>
-                    <h4>Checks</h4>
-                    <Show when={pull().checks.length} fallback={<p>没有 Checks</p>}>
-                      <ul class="pull-checks">
-                        <For each={pull().checks}>
-                          {(check) => {
-                            const state = () => checkState(check)
-                            return (
-                              <li data-state={state()}>
-                                <CheckIcon state={state()} />
-                                <span>{check.name}</span>
-                                <small>{check.conclusion ?? check.status}</small>
+                <Show
+                  when={tab() === "overview"}
+                  fallback={props.diff ?? <p class="pull-detail__state">Diff 暂不可用</p>}
+                >
+                  <div class="pull-detail__body">
+                    <section>
+                      <h4>说明</h4>
+                      <p class="pull-detail__markdown">{pull().body || "未填写说明"}</p>
+                    </section>
+                    <section>
+                      <h4>合并状态</h4>
+                      <p>
+                        {pull().mergeable || "UNKNOWN"} · {pull().reviewDecision ?? "No review decision"}
+                      </p>
+                    </section>
+                    <section>
+                      <h4>Checks</h4>
+                      <Show when={pull().checks.length} fallback={<p>没有 Checks</p>}>
+                        <ul class="pull-checks">
+                          <For each={pull().checks}>
+                            {(check) => {
+                              const state = () => checkState(check)
+                              return (
+                                <li data-state={state()}>
+                                  <CheckIcon state={state()} />
+                                  <span>{check.name}</span>
+                                  <small>{check.conclusion ?? check.status}</small>
+                                </li>
+                              )
+                            }}
+                          </For>
+                        </ul>
+                      </Show>
+                    </section>
+                    <section>
+                      <h4>
+                        <GitCommit aria-hidden="true" /> Commits
+                      </h4>
+                      <Show when={pull().commits.length} fallback={<p>没有 Commit 信息</p>}>
+                        <ul class="pull-detail__items">
+                          <For each={pull().commits}>
+                            {(commit) => (
+                              <li>
+                                <code>{commit.oid.slice(0, 7)}</code>
+                                <span>{commit.messageHeadline}</span>
                               </li>
-                            )
-                          }}
-                        </For>
-                      </ul>
+                            )}
+                          </For>
+                        </ul>
+                      </Show>
+                    </section>
+                    <section>
+                      <h4>
+                        <MessageSquare aria-hidden="true" /> Comments
+                      </h4>
+                      <Show when={pull().comments.length} fallback={<p>暂无评论</p>}>
+                        <ul class="pull-comments">
+                          <For each={pull().comments}>
+                            {(comment) => (
+                              <li>
+                                <strong>{comment.author.name ?? comment.author.login}</strong>
+                                <p>{comment.body}</p>
+                              </li>
+                            )}
+                          </For>
+                        </ul>
+                      </Show>
+                    </section>
+                    <Show when={props.handlers}>
+                      <PullRequestActions detail={pull()} handlers={props.handlers!} />
                     </Show>
-                  </section>
-                  <section>
-                    <h4>
-                      <GitCommit aria-hidden="true" /> Commits
-                    </h4>
-                    <Show when={pull().commits.length} fallback={<p>没有 Commit 信息</p>}>
-                      <ul class="pull-detail__items">
-                        <For each={pull().commits}>
-                          {(commit) => (
-                            <li>
-                              <code>{commit.oid.slice(0, 7)}</code>
-                              <span>{commit.messageHeadline}</span>
-                            </li>
-                          )}
-                        </For>
-                      </ul>
-                    </Show>
-                  </section>
-                  <section>
-                    <h4>
-                      <MessageSquare aria-hidden="true" /> Comments
-                    </h4>
-                    <Show when={pull().comments.length} fallback={<p>暂无评论</p>}>
-                      <ul class="pull-comments">
-                        <For each={pull().comments}>
-                          {(comment) => (
-                            <li>
-                              <strong>{comment.author.name ?? comment.author.login}</strong>
-                              <p>{comment.body}</p>
-                            </li>
-                          )}
-                        </For>
-                      </ul>
-                    </Show>
-                  </section>
-                </div>
+                  </div>
+                </Show>
               </>
             )}
           </Show>
