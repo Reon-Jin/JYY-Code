@@ -295,7 +295,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     setBusy(true)
     setOperationError(undefined)
     try {
-      const session = await api().create({ title: "New session" })
+      const session = await api().create({})
       navigate(`/session/${encodeURIComponent(session.id)}`)
     } catch (cause) {
       setOperationError(errorMessage(cause, "无法创建 Session"))

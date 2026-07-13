@@ -1,7 +1,7 @@
 import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { RotateCcw, Send, Square } from "lucide-solid"
-import { createMemo, Show } from "solid-js"
-import { Button } from "../../components/ui/button"
+import { createEffect, createMemo, Show } from "solid-js"
+import { Button, IconButton } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import type { DesktopClient } from "../../data/sdk"
 import { errorMessage } from "../projects/project-controller"
@@ -26,6 +26,29 @@ export type ComposerProps = {
   onModelChange: (model: ModelSelection) => void
 }
 
+const maximumDraftLines = 5
+
+function numericStyle(value: string) {
+  return Number.parseFloat(value) || 0
+}
+
+function resizeDraft(textarea: HTMLTextAreaElement) {
+  textarea.style.height = "auto"
+  const contentHeight = textarea.scrollHeight
+  if (contentHeight <= 0) return
+
+  const style = window.getComputedStyle(textarea)
+  const lineHeight = numericStyle(style.lineHeight) || 24
+  const verticalChrome =
+    numericStyle(style.paddingTop) +
+    numericStyle(style.paddingBottom) +
+    numericStyle(style.borderTopWidth) +
+    numericStyle(style.borderBottomWidth)
+  const maximumHeight = lineHeight * maximumDraftLines + verticalChrome
+  textarea.style.height = `${Math.min(contentHeight, maximumHeight)}px`
+  textarea.style.overflowY = contentHeight > maximumHeight ? "auto" : "hidden"
+}
+
 export function Composer(props: ComposerProps) {
   const controller = createComposerController({
     client: props.client,
@@ -34,6 +57,7 @@ export function Composer(props: ComposerProps) {
     agent: () => props.selectedAgent,
     model: () => props.selectedModel,
   })
+  let textarea!: HTMLTextAreaElement
   let composing = false
   const active = () => props.status.type !== "idle"
   const generationStatus = createMemo(() => {
@@ -44,6 +68,11 @@ export function Composer(props: ComposerProps) {
     if (props.lastMessageError?.name === "MessageAbortedError") return "已停止生成"
     if (props.disabled) return "后端连接中断，消息已暂存，恢复连接后可发送"
     return ""
+  })
+
+  createEffect(() => {
+    controller.draft()
+    queueMicrotask(() => resizeDraft(textarea))
   })
 
   function submit() {
@@ -72,18 +101,22 @@ export function Composer(props: ComposerProps) {
         />
       </div>
 
-      <div class="composer__input">
+      <div class="composer__input" data-active={active()}>
         <label class="composer__label" for="composer-message">
           消息
         </label>
         <textarea
+          ref={textarea}
           id="composer-message"
           aria-label="消息"
-          rows={3}
+          rows={1}
           value={controller.draft()}
           disabled={controller.sending()}
           placeholder="向 Agent 发送消息"
-          onInput={(event) => controller.setDraft(event.currentTarget.value)}
+          onInput={(event) => {
+            controller.setDraft(event.currentTarget.value)
+            resizeDraft(event.currentTarget)
+          }}
           onCompositionStart={() => {
             composing = true
           }}
@@ -100,16 +133,15 @@ export function Composer(props: ComposerProps) {
           <Show
             when={active()}
             fallback={
-              <Button
-                size="small"
+              <IconButton
+                label={controller.sending() ? "正在发送" : "发送"}
                 disabled={props.disabled || !controller.draft().trim()}
                 loading={controller.sending()}
                 loadingLabel="正在发送"
                 onClick={submit}
               >
                 <Send aria-hidden="true" />
-                发送
-              </Button>
+              </IconButton>
             }
           >
             <Button

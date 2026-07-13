@@ -46,9 +46,43 @@ function renderComposer(input?: { status?: SessionStatus; lastMessageError?: { n
   return client
 }
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe("Composer", () => {
+  it("starts on one line and keeps the send control icon-only", () => {
+    renderComposer()
+
+    expect(screen.getByRole("textbox", { name: "消息" })).toHaveAttribute("rows", "1")
+    expect(screen.getByRole("button", { name: "发送" })).not.toHaveTextContent("发送")
+  })
+
+  it("grows with the draft, then scrolls after five lines", () => {
+    renderComposer()
+    const textbox = screen.getByRole("textbox", { name: "消息" }) as HTMLTextAreaElement
+    let scrollHeight = 56
+    Object.defineProperty(textbox, "scrollHeight", { configurable: true, get: () => scrollHeight })
+    vi.spyOn(window, "getComputedStyle").mockReturnValue({
+      lineHeight: "20px",
+      paddingTop: "8px",
+      paddingBottom: "8px",
+      borderTopWidth: "0px",
+      borderBottomWidth: "0px",
+    } as CSSStyleDeclaration)
+
+    fireEvent.input(textbox, { target: { value: "first\nsecond" } })
+    expect(textbox.style.height).toBe("56px")
+    expect(textbox.style.overflowY).toBe("hidden")
+
+    scrollHeight = 180
+    fireEvent.input(textbox, { target: { value: "1\n2\n3\n4\n5\n6" } })
+    expect(textbox.style.height).toBe("116px")
+    expect(textbox.style.overflowY).toBe("auto")
+    fireEvent.input(textbox, { target: { value: "" } })
+  })
+
   it("exposes labeled selectors and sends on Enter but not Shift+Enter", async () => {
     const user = userEvent.setup()
     const client = renderComposer()

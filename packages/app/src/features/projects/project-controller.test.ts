@@ -77,11 +77,15 @@ describe("project controller", () => {
   })
 
   it("creates the directory before asking the backend to initialize git", async () => {
-    const { calls, controller } = createHarness()
+    const { calls, controller, sdk } = createHarness()
 
     await controller.createProject({ parent: "C:\\work", name: "demo", initGit: true })
 
     expect(calls).toEqual(["createProjectDirectory", "project.current", "project.initGit", "session.create"])
+    expect(sdk.session.create).toHaveBeenCalledWith(
+      { directory: project.worktree, multiAgent: false },
+      { throwOnError: true },
+    )
   })
 
   it("does not persist a failed project open", async () => {

@@ -62,14 +62,16 @@ describe("desktop GUI journey", () => {
     expect(await screen.findByRole("combobox", { name: "Agent" })).toHaveValue("build")
     expect(screen.getByRole("combobox", { name: "模型" })).toHaveValue("test/test-model")
     expect(screen.queryByText(/Multi-Agent/i)).not.toBeInTheDocument()
-    expect(backend.requests.find((request) => request.method === "POST" && request.path === "/session")?.body)
-      .toMatchObject({ multiAgent: false })
+    const createSession = backend.requests.find((request) => request.method === "POST" && request.path === "/session")
+    expect(createSession?.body).toMatchObject({ multiAgent: false })
+    expect(createSession?.body).not.toHaveProperty("title")
 
     const composer = screen.getByRole("textbox", { name: "消息" })
     await user.type(composer, "检查当前工作区")
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter" })
 
     expect(await screen.findByText("流式回复已完成")).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "检查工作区状态" })).toBeVisible()
     expect(screen.getByRole("region", { name: "工具调用：bash" })).toHaveTextContent("检查工作区")
     const handleRequest = await screen.findByRole("button", { name: "处理请求" })
     handleRequest.focus()

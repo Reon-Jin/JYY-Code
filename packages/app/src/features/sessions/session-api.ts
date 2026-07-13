@@ -4,7 +4,7 @@ import type { DesktopClient } from "../../data/sdk"
 import { keys } from "../../data/query-keys"
 
 export type CreateSessionInput = {
-  title: string
+  title?: string
   agent?: string
   model?: NonNullable<Session["model"]>
 }

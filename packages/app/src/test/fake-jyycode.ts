@@ -125,7 +125,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
         slug: `session-${sessions.length + 1}`,
         projectID: project.id,
         directory,
-        title: typeof value.title === "string" ? value.title : "New session",
+        title: typeof value.title === "string" ? value.title : "New session - 2026-07-13T00:00:00.000Z",
         version: "test",
         time: { created: Date.now(), updated: Date.now() },
       }
@@ -206,6 +206,12 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
         always: ["git status"],
       }
       permissions.push(permission)
+      const session = sessions.find((candidate) => candidate.id === sessionID)
+      if (session) {
+        session.title = "检查工作区状态"
+        session.time.updated = Date.now()
+        event("session.updated", { sessionID, info: session })
+      }
       event("session.status", { sessionID, status: { type: "busy" } })
       event("message.updated", { sessionID, info: userInfo })
       event("message.part.updated", { sessionID, part: userPart })

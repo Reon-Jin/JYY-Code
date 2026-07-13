@@ -49,10 +49,10 @@ describe("session api", () => {
   it("forces single-Agent mode when creating a session", async () => {
     const { api, client } = createHarness()
 
-    await api.create({ title: "New session", agent: "build", model })
+    await api.create({ agent: "build", model })
 
     expect(client.session.create).toHaveBeenCalledWith(
-      { directory, title: "New session", agent: "build", model, multiAgent: false },
+      { directory, agent: "build", model, multiAgent: false },
       { throwOnError: true },
     )
   })
