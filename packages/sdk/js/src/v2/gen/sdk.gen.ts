@@ -69,6 +69,29 @@ import type {
   FindTextResponses,
   FormatterStatusErrors,
   FormatterStatusResponses,
+  GithubPullCheckoutErrors,
+  GithubPullCheckoutResponses,
+  GithubPullCloseErrors,
+  GithubPullCloseResponses,
+  GithubPullCommentErrors,
+  GithubPullCommentResponses,
+  GithubPullCreateErrors,
+  GithubPullCreateResponses,
+  GithubPullDiffErrors,
+  GithubPullDiffResponses,
+  GithubPullEditErrors,
+  GithubPullEditResponses,
+  GithubPullGetErrors,
+  GithubPullGetResponses,
+  GithubPullListErrors,
+  GithubPullListResponses,
+  GithubPullMergeErrors,
+  GithubPullMergeResponses,
+  GithubPullReopenErrors,
+  GithubPullReopenResponses,
+  GitHubPullRequestNumber,
+  GithubStatusErrors,
+  GithubStatusResponses,
   GlobalConfigGetErrors,
   GlobalConfigGetResponses,
   GlobalConfigUpdateErrors,
@@ -271,14 +294,27 @@ import type {
   V2SessionWaitResponses,
   VcsApplyErrors,
   VcsApplyResponses,
+  VcsBranchCreateErrors,
+  VcsBranchCreateResponses,
+  VcsBranchListErrors,
+  VcsBranchListResponses,
+  VcsBranchSwitchErrors,
+  VcsBranchSwitchResponses,
+  VcsCreateBranchInput,
   VcsDiffErrors,
   VcsDiffRawErrors,
   VcsDiffRawResponses,
   VcsDiffResponses,
+  VcsFetchErrors,
+  VcsFetchResponses,
   VcsGetErrors,
   VcsGetResponses,
+  VcsPushErrors,
+  VcsPushInput,
+  VcsPushResponses,
   VcsStatusErrors,
   VcsStatusResponses,
+  VcsSwitchBranchInput,
   WorktreeCreateErrors,
   WorktreeCreateInput,
   WorktreeCreateResponses,
@@ -1574,6 +1610,403 @@ export class File extends HeyApiClient {
   }
 }
 
+export class Pull extends HeyApiClient {
+  /**
+   * List pull requests
+   *
+   * List pull requests for the selected workspace repository.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      state?: "open" | "closed" | "merged" | "all"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "state" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<GithubPullListResponses, GithubPullListErrors, ThrowOnError>({
+      url: "/github/pulls",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create pull request
+   *
+   * Create a pull request from the selected workspace repository.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      head?: string
+      base?: string
+      title?: string
+      body?: string
+      draft?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "head" },
+            { in: "body", key: "base" },
+            { in: "body", key: "title" },
+            { in: "body", key: "body" },
+            { in: "body", key: "draft" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GithubPullCreateResponses, GithubPullCreateErrors, ThrowOnError>({
+      url: "/github/pulls",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get pull request
+   *
+   * Get pull request metadata, comments, commits, and checks.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      number: GitHubPullRequestNumber
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "number" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<GithubPullGetResponses, GithubPullGetErrors, ThrowOnError>({
+      url: "/github/pulls/{number}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Edit pull request
+   *
+   * Update the title and body of a pull request.
+   */
+  public edit<ThrowOnError extends boolean = false>(
+    parameters: {
+      number: GitHubPullRequestNumber
+      directory?: string
+      workspace?: string
+      title?: string
+      body?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "number" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "title" },
+            { in: "body", key: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<GithubPullEditResponses, GithubPullEditErrors, ThrowOnError>({
+      url: "/github/pulls/{number}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Get pull request diff
+   *
+   * Get the unified diff for a pull request.
+   */
+  public diff<ThrowOnError extends boolean = false>(
+    parameters: {
+      number: GitHubPullRequestNumber
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "number" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<GithubPullDiffResponses, GithubPullDiffErrors, ThrowOnError>({
+      url: "/github/pulls/{number}/diff",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Comment on pull request
+   *
+   * Add a comment to a pull request.
+   */
+  public comment<ThrowOnError extends boolean = false>(
+    parameters: {
+      number: GitHubPullRequestNumber
+      directory?: string
+      workspace?: string
+      body?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "number" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GithubPullCommentResponses, GithubPullCommentErrors, ThrowOnError>({
+      url: "/github/pulls/{number}/comments",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Checkout pull request
+   *
+   * Checkout a pull request in the selected workspace.
+   */
+  public checkout<ThrowOnError extends boolean = false>(
+    parameters: {
+      number: GitHubPullRequestNumber
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "number" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GithubPullCheckoutResponses, GithubPullCheckoutErrors, ThrowOnError>({
+      url: "/github/pulls/{number}/checkout",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Close pull request
+   *
+   * Close a pull request without merging it.
+   */
+  public close<ThrowOnError extends boolean = false>(
+    parameters: {
+      number: GitHubPullRequestNumber
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "number" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GithubPullCloseResponses, GithubPullCloseErrors, ThrowOnError>({
+      url: "/github/pulls/{number}/close",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Reopen pull request
+   *
+   * Reopen a closed pull request.
+   */
+  public reopen<ThrowOnError extends boolean = false>(
+    parameters: {
+      number: GitHubPullRequestNumber
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "number" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GithubPullReopenResponses, GithubPullReopenErrors, ThrowOnError>({
+      url: "/github/pulls/{number}/reopen",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Merge pull request
+   *
+   * Merge a pull request using the selected merge method.
+   */
+  public merge<ThrowOnError extends boolean = false>(
+    parameters: {
+      number: GitHubPullRequestNumber
+      directory?: string
+      workspace?: string
+      method?: "merge" | "squash" | "rebase"
+      deleteBranch?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "number" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "method" },
+            { in: "body", key: "deleteBranch" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GithubPullMergeResponses, GithubPullMergeErrors, ThrowOnError>({
+      url: "/github/pulls/{number}/merge",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Github extends HeyApiClient {
+  /**
+   * Get GitHub availability
+   *
+   * Check GitHub CLI authentication and repository connectivity for the selected workspace.
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<GithubStatusResponses, GithubStatusErrors, ThrowOnError>({
+      url: "/github/status",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _pull?: Pull
+  get pull(): Pull {
+    return (this._pull ??= new Pull({ client: this.client }))
+  }
+}
+
 export class Instance extends HeyApiClient {
   /**
    * Dispose instance
@@ -1666,6 +2099,112 @@ export class Diff extends HeyApiClient {
       url: "/vcs/diff/raw",
       ...options,
       ...params,
+    })
+  }
+}
+
+export class Branch extends HeyApiClient {
+  /**
+   * List VCS branches
+   *
+   * List local and remote Git branches and configured remotes.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<VcsBranchListResponses, VcsBranchListErrors, ThrowOnError>({
+      url: "/vcs/branches",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create VCS branch
+   *
+   * Create a local Git branch and optionally switch to it.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      vcsCreateBranchInput?: VcsCreateBranchInput
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "vcsCreateBranchInput", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<VcsBranchCreateResponses, VcsBranchCreateErrors, ThrowOnError>({
+      url: "/vcs/branches",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Switch VCS branch
+   *
+   * Switch to a local branch or create a local branch tracking a remote branch.
+   */
+  public switch<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      vcsSwitchBranchInput?: VcsSwitchBranchInput
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "vcsSwitchBranchInput", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<VcsBranchSwitchResponses, VcsBranchSwitchErrors, ThrowOnError>({
+      url: "/vcs/branches/switch",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }
@@ -1802,9 +2341,81 @@ export class Vcs extends HeyApiClient {
     })
   }
 
+  /**
+   * Fetch VCS remotes
+   *
+   * Fetch and prune all configured Git remotes.
+   */
+  public fetch<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<VcsFetchResponses, VcsFetchErrors, ThrowOnError>({
+      url: "/vcs/fetch",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Push VCS branch
+   *
+   * Push the current Git branch using its upstream or a selected remote.
+   */
+  public push<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      vcsPushInput?: VcsPushInput
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "vcsPushInput", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<VcsPushResponses, VcsPushErrors, ThrowOnError>({
+      url: "/vcs/push",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   private _diff?: Diff
   get diff2(): Diff {
     return (this._diff ??= new Diff({ client: this.client }))
+  }
+
+  private _branch?: Branch
+  get branch(): Branch {
+    return (this._branch ??= new Branch({ client: this.client }))
   }
 }
 
@@ -5091,6 +5702,11 @@ export class JyycodeClient extends HeyApiClient {
   private _file?: File
   get file(): File {
     return (this._file ??= new File({ client: this.client }))
+  }
+
+  private _github?: Github
+  get github(): Github {
+    return (this._github ??= new Github({ client: this.client }))
   }
 
   private _instance?: Instance
