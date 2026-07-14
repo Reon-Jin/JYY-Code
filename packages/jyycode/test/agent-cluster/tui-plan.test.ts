@@ -557,6 +557,47 @@ describe("agent cluster TUI plan parsing", () => {
     expect(snapshot.steps[0]?.tasks[0]?.status).toBe("running")
   })
 
+  test("projects every cluster run in a session onto continuous steps", () => {
+    const snapshot = agentClusterSnapshot({
+      sessionID: "ses_parent",
+      enabled: true,
+      disabled: false,
+      cluster: {
+        runs: [
+          { id: "run_2", status: "dispatching", goal: "second turn", time_created: 200 },
+          { id: "run_1", status: "completed", goal: "first turn", time_created: 100 },
+        ],
+        tasks: [
+          { id: "shared", run_id: "run_1", title: "First A", status: "accepted", step: 1, role: "coder" },
+          { id: "finish", run_id: "run_1", title: "First B", status: "accepted", step: 2, role: "tester" },
+          { id: "shared", run_id: "run_2", title: "Second A", status: "running", step: 1, role: "coder" },
+          {
+            id: "later",
+            run_id: "run_2",
+            title: "Second B",
+            status: "planned",
+            step: 3,
+            role: "tester",
+            dependencies: ["shared"],
+          },
+        ],
+      },
+      messages: () => [],
+      parts: () => [],
+    })
+
+    expect(snapshot.steps.map((step) => [step.index, step.status])).toEqual([
+      [1, "done"],
+      [2, "done"],
+      [3, "running"],
+      [4, "queued"],
+    ])
+    expect(snapshot.currentStep).toBe(3)
+    expect(snapshot.completedSteps).toBe(2)
+    expect(new Set(snapshot.plan?.tasks.map((task) => task.id)).size).toBe(4)
+    expect(snapshot.plan?.tasks.find((task) => task.title === "Second B")?.dependencies).toEqual(["run_2:shared"])
+  })
+
   test("shows a partial plan in the snapshot while planning", () => {
     const parent = "ses_parent"
     const assistant = "msg_assistant"
@@ -1096,6 +1137,70 @@ describe("agent cluster TUI plan parsing", () => {
 
       expect(snapshot.steps[0]?.tasks[0]?.status).toBe("running")
       expect(snapshot.runningAgents).toBe(1)
+    })
+
+    test("dispatch preflight errors do not mark persisted planned tasks as failed", () => {
+      const cluster = {
+        runs: [{ id: "run_current", status: "dispatching", goal: "Reuse a prior worker" }],
+        tasks: [
+          {
+            id: "follow-up",
+            run_id: "run_current",
+            title: "Return work to prior agent",
+            role: "general" as const,
+            step: 2,
+            status: "planned",
+            dependencies: ["prepare"],
+            acceptance_criteria: [],
+            artifact_paths: [],
+          },
+        ],
+      }
+      const assistant = "msg_assistant"
+      const snapshot = agentClusterSnapshot({
+        sessionID: "ses_parent",
+        enabled: true,
+        disabled: false,
+        cluster,
+        messages: () =>
+          [
+            {
+              id: assistant,
+              sessionID: "ses_parent",
+              role: "assistant",
+              time: { created: 1 },
+            },
+          ] as Message[],
+        parts: (messageID) =>
+          messageID === assistant
+            ? ([
+                {
+                  id: "part_task",
+                  messageID: assistant,
+                  sessionID: "ses_parent",
+                  type: "tool",
+                  callID: "call_task",
+                  tool: "task",
+                  state: {
+                    status: "error",
+                    input: {
+                      description: "Return work to prior agent",
+                      prompt: "Continue the work",
+                      subagent_type: "general",
+                      task_id: "follow-up",
+                      resume_session_id: "ses_old_child",
+                    },
+                    error: "Step gate blocked",
+                    time: { start: 1, end: 2 },
+                  },
+                },
+              ] as Part[])
+            : [],
+      })
+
+      expect(snapshot.steps[0]?.tasks[0]?.status).toBe("queued")
+      expect(snapshot.rows[0]?.status).toBe("queued")
+      expect(snapshot.failedAgents).toBe(0)
     })
   })
 })

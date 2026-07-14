@@ -14,6 +14,7 @@ import { useArgs } from "./args"
 import { useSDK } from "./sdk"
 import { RGBA } from "@opentui/core"
 import { Filesystem } from "@/util/filesystem"
+import { decodeModelState, encodeModelState, type ModelRef } from "./model-state"
 
 export function parseModel(model: string) {
   const [providerID, ...rest] = model.split("/")
@@ -105,21 +106,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
     const model = iife(() => {
       const [modelStore, setModelStore] = createStore<{
         ready: boolean
-        model: Record<
-          string,
-          {
-            providerID: string
-            modelID: string
-          }
-        >
-        recent: {
-          providerID: string
-          modelID: string
-        }[]
-        favorite: {
-          providerID: string
-          modelID: string
-        }[]
+        model: Record<string, ModelRef>
+        recent: ModelRef[]
+        favorite: ModelRef[]
         variant: Record<string, string | undefined>
       }>({
         ready: false,
@@ -140,18 +129,21 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           return
         }
         state.pending = false
-        void Filesystem.writeJson(filePath, {
+        void Filesystem.writeJson(filePath, encodeModelState({
+          model: modelStore.model,
           recent: modelStore.recent,
           favorite: modelStore.favorite,
           variant: modelStore.variant,
-        })
+        }))
       }
 
       Filesystem.readJson(filePath)
-        .then((x: any) => {
-          if (Array.isArray(x.recent)) setModelStore("recent", x.recent)
-          if (Array.isArray(x.favorite)) setModelStore("favorite", x.favorite)
-          if (typeof x.variant === "object" && x.variant !== null) setModelStore("variant", x.variant)
+        .then((value) => {
+          const saved = decodeModelState(value)
+          setModelStore("model", saved.model)
+          setModelStore("recent", saved.recent)
+          setModelStore("favorite", saved.favorite)
+          setModelStore("variant", saved.variant)
         })
         .catch(() => {})
         .finally(() => {
@@ -252,6 +244,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           const a = agent.current()
           if (!a) return
           setModelStore("model", a.name, { ...val })
+          save()
         },
         cycleFavorite(direction: 1 | -1) {
           const favorites = modelStore.favorite.filter((item) => isModelValid(item))

@@ -84,6 +84,17 @@ describe("createComposerController", () => {
     ])
   })
 
+  it("sends a queued prompt with its captured Agent and model", async () => {
+    const { client, controller } = setup()
+    const queuedModel = { providerID: "deepseek", modelID: "deepseek-reasoner" }
+    await controller.send("queued", { agent: "plan", model: queuedModel })
+
+    expect(client.session.promptAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ agent: "plan", model: queuedModel, parts: [{ type: "text", text: "queued" }] }),
+      { throwOnError: true },
+    )
+  })
+
   it("stops a running session through abort", async () => {
     const { client, controller } = setup()
     await controller.stop()

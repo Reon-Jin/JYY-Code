@@ -370,12 +370,11 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         case "agent_cluster.event": {
           const sessionID = event.properties.sessionID
           const current = store.agent_cluster[sessionID] ?? { runs: [], tasks: [] }
-          const hasRun = current.runs.some((run) => run.id === event.properties.runID)
-          const hasTask =
-            event.properties.taskID === undefined ||
-            current.tasks.some((task) => task.run_id === event.properties.runID && task.id === event.properties.taskID)
           setStore("agent_cluster", sessionID, reconcile(applyAgentClusterEvent(current, event)))
-          if (!hasRun || !hasTask) scheduleAgentClusterRefresh(sessionID)
+          // Apply the status immediately, then always fetch the authoritative
+          // session JSON. The refresh is debounced, so a burst of task events
+          // becomes one request while still picking up new rows and metadata.
+          scheduleAgentClusterRefresh(sessionID)
           break
         }
 

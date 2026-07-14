@@ -10,8 +10,8 @@ import type { PromptInput } from "@/session/prompt"
 import type { SessionID } from "@/session/schema"
 import { Bus } from "@/bus"
 import * as Database from "@/storage/db"
-import { and, eq, inArray, or } from "@/storage/db"
-import { Cause, Effect } from "effect"
+import { and, eq, inArray } from "@/storage/db"
+import { Cause, Effect, Option } from "effect"
 import path from "path"
 import { ulid } from "ulid"
 import { AgentClusterRunTable, AgentClusterEventTable, AgentClusterTaskTable } from "./cluster.sql"
@@ -34,6 +34,99 @@ type ClusterModels = {
 }
 
 type TaskRow = typeof AgentClusterTaskTable.$inferSelect
+
+function sameStrings(left: readonly string[], right: readonly string[]) {
+  return [...left].sort().join("\u0000") === [...right].sort().join("\u0000")
+}
+
+function normalizeTaskTitle(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ")
+}
+
+export function incrementalPlan(plan: Plan, history: readonly TaskRow[]): Plan {
+  const accepted = history.filter((task) => task.status === "accepted")
+  const completed = new Set(
+    plan.tasks
+      .filter((task) =>
+        accepted.some(
+          (row) =>
+            row.id === task.id &&
+            normalizeTaskTitle(row.title) === normalizeTaskTitle(task.title) &&
+            sameStrings(row.artifact_paths, task.expectedArtifacts),
+        ),
+      )
+      .map((task) => task.id),
+  )
+  const remaining = plan.tasks.filter((task) => !completed.has(task.id))
+  const steps = [...new Set(remaining.map((task) => task.step))].sort((a, b) => a - b)
+  const compactStep = new Map(steps.map((step, index) => [step, index + 1]))
+  return {
+    ...plan,
+    tasks: remaining.map((task) => ({
+      ...task,
+      step: compactStep.get(task.step)!,
+      dependencies: task.dependencies.filter((dependency) => !completed.has(dependency)),
+    })),
+  }
+}
+
+const publishTaskState = Effect.fn("AgentCluster.publishTaskState")(function* (input: {
+  runID: RunID
+  taskID: TaskID
+  message?: string
+}) {
+  const state = yield* Database.query((db) =>
+    Effect.gen(function* () {
+      const task = (yield* db
+        .select()
+        .from(AgentClusterTaskTable)
+        .where(and(eq(AgentClusterTaskTable.run_id, input.runID), eq(AgentClusterTaskTable.id, input.taskID)))
+        .get()) as TaskRow | undefined
+      if (!task) return
+      const run = (yield* db
+        .select({ sessionID: AgentClusterRunTable.session_id })
+        .from(AgentClusterRunTable)
+        .where(eq(AgentClusterRunTable.id, input.runID))
+        .get()) as { sessionID: SessionID } | undefined
+      if (!run) return
+      return { task, run }
+    }),
+  )
+  if (!state) return
+
+  const createdAt = Date.now()
+  const message = input.message ?? `task ${input.taskID}: ${state.task.status}`
+  const metadata = {
+    status: state.task.status,
+    childSessionID: state.task.child_session_id,
+  }
+  yield* Database.query((db) =>
+    db
+      .insert(AgentClusterEventTable)
+      .values({
+        id: ulid(),
+        run_id: input.runID,
+        task_id: input.taskID,
+        type: "task",
+        message,
+        metadata,
+      })
+      .run(),
+  )
+
+  const bus = Option.getOrUndefined(yield* Effect.serviceOption(Bus.Service))
+  if (!bus) return
+  yield* bus.publish(Event, {
+    sessionID: state.run.sessionID,
+    runID: input.runID,
+    taskID: input.taskID,
+    type: "task",
+    status: state.task.status,
+    message,
+    metadata,
+    createdAt,
+  })
+})
 
 export function isMailSession(session: Pick<Session.Info, "title" | "agent" | "path">) {
   if (MailSession.isMailSessionTitle(session.title)) return true
@@ -105,6 +198,13 @@ export function decoratePromptInput(input: {
   session: Pick<Session.Info, "directory">
   config: ConfigAgentCluster.Info
   models: ClusterModels
+  reusableSubagents?: readonly {
+    sessionID: SessionID
+    lastTaskID: TaskID
+    role: string
+    title: string
+    status: TaskStatus
+  }[]
 }): PromptInput {
   const config = ConfigAgentCluster.resolve(input.config)
   // When the user explicitly passes --model, use it as the planner model instead
@@ -128,6 +228,7 @@ export function decoratePromptInput(input: {
           maxSubagents: config.max_subagents,
           maxConcurrency: config.max_concurrency,
           maxReviewRounds: config.max_review_rounds,
+          reusableSubagents: input.reusableSubagents,
         }),
         metadata: {
           kind: "agent_cluster",
@@ -140,11 +241,23 @@ export function decoratePromptInput(input: {
 
 export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (input: { runID: RunID; plan: Plan }) {
   const now = Date.now()
-  yield* Database.query((db) =>
+  const run = yield* Database.query((db) =>
+    db
+      .select({ sessionID: AgentClusterRunTable.session_id })
+      .from(AgentClusterRunTable)
+      .where(eq(AgentClusterRunTable.id, input.runID))
+      .get(),
+  )
+  const history = run
+    ? (yield* getSessionState(run.sessionID)).tasks.filter((task) => task.run_id !== input.runID)
+    : []
+  const plan = incrementalPlan(input.plan, history)
+  if (plan.tasks.length === 0) return
+  const inserted = yield* Database.query((db) =>
     db
       .insert(AgentClusterTaskTable)
       .values(
-        input.plan.tasks.map((task) => ({
+        plan.tasks.map((task) => ({
           id: task.id,
           run_id: input.runID,
           role: task.role,
@@ -163,7 +276,11 @@ export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (inpu
         })),
       )
       .onConflictDoNothing()
-      .run(),
+      .returning({ id: AgentClusterTaskTable.id })
+      .all(),
+  )
+  yield* Effect.forEach(inserted, (task) =>
+    publishTaskState({ runID: input.runID, taskID: task.id, message: `task ${task.id}: planned` }),
   )
 })
 
@@ -171,6 +288,7 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
   runID?: string
   taskID?: string
   childSessionID: SessionID
+  model?: string
 }) {
   if (!input.runID || !input.taskID) return
   const now = Date.now()
@@ -181,6 +299,7 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
       .set({
         child_session_id: input.childSessionID,
         status: "revising" as const,
+        ...(input.model ? { model: input.model } : {}),
         time_updated: now,
       })
       .where(
@@ -201,6 +320,7 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
       .set({
         child_session_id: input.childSessionID,
         status: "running" as const,
+        ...(input.model ? { model: input.model } : {}),
         time_updated: now,
       })
       .where(
@@ -212,6 +332,7 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
       )
       .run(),
   )
+  yield* publishTaskState({ runID: input.runID as RunID, taskID: input.taskID as TaskID })
 })
 
 export const submitTaskResult = Effect.fn("AgentCluster.submitTaskResult")(function* (input: {
@@ -239,6 +360,7 @@ export const submitTaskResult = Effect.fn("AgentCluster.submitTaskResult")(funct
       )
       .run(),
   )
+  yield* publishTaskState({ runID: input.runID as RunID, taskID: input.taskID as TaskID })
 })
 
 export const failTaskResult = Effect.fn("AgentCluster.failTaskResult")(function* (input: {
@@ -266,6 +388,7 @@ export const failTaskResult = Effect.fn("AgentCluster.failTaskResult")(function*
       )
       .run(),
   )
+  yield* publishTaskState({ runID: input.runID as RunID, taskID: input.taskID as TaskID })
   yield* finishRunFromTaskStates(input.runID as RunID)
 })
 
@@ -327,6 +450,7 @@ export function summarizeTaskResult(text: string) {
 export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")(function* (input: {
   runID?: string
   requestedTaskID?: string
+  resumeSessionID?: string
   prompt: string
   config: ConfigAgentCluster.Info
 }) {
@@ -356,18 +480,67 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   if (target.status === "failed" || target.status === "cancelled" || target.status === "accepted") {
     return yield* Effect.fail(new Error(`Cluster task ${target.id} cannot be dispatched from status ${target.status}`))
   }
+  const resumedSessionID = input.resumeSessionID as SessionID | undefined
+  if (resumedSessionID) {
+    const run = (yield* Database.query((db) =>
+      db
+        .select({ sessionID: AgentClusterRunTable.session_id })
+        .from(AgentClusterRunTable)
+        .where(eq(AgentClusterRunTable.id, runID))
+        .get(),
+    )) as { sessionID: SessionID } | undefined
+    const sessionState = run ? yield* getSessionState(run.sessionID) : undefined
+    let latestTask: TaskRow | undefined
+    for (const task of sessionState?.tasks ?? []) {
+      if (task.child_session_id !== resumedSessionID) continue
+      if (!latestTask || latestTask.time_updated <= task.time_updated) latestTask = task
+    }
+    const reusable =
+      latestTask &&
+      (latestTask.status === "accepted" || latestTask.status === "failed" || latestTask.status === "cancelled")
+    if (!reusable) {
+      return yield* Effect.fail(
+        new Error(
+          `Cannot resume subagent ${resumedSessionID}: it is not a completed child task from this parent session.`,
+        ),
+      )
+    }
+  }
   const isRevision = target.child_session_id === input.requestedTaskID || target.status === "revision_requested"
   if (!isRevision) {
     const gate = stepGate(rows, target.step)
     if (!gate.allowed) {
+      const earlier = rows.filter((row) => row.step < target.step)
+      const undispatched = earlier.filter((row) => row.status === "planned" || row.status === "queued")
+      const running = earlier.filter((row) => row.status === "running" || row.status === "revising")
+      const awaitingReview = earlier.filter((row) => row.status === "submitted" || row.status === "reviewing")
+      const revisions = earlier.filter((row) => row.status === "revision_requested")
       const instructions: string[] = []
-      if (gate.pending.length) instructions.push(`call agent_cluster_review for each pending task to accept or reject them`)
+      if (undispatched.length)
+        instructions.push(
+          `dispatch the smallest earlier step first (${undispatched.map((row) => row.id).join(", ")}); do not review planned tasks`,
+        )
+      if (running.length)
+        instructions.push(`wait for running tasks with task_status (${running.map((row) => row.id).join(", ")})`)
+      if (awaitingReview.length)
+        instructions.push(
+          `call agent_cluster_review for submitted tasks (${awaitingReview.map((row) => row.id).join(", ")})`,
+        )
+      if (revisions.length)
+        instructions.push(`resume revision-requested tasks (${revisions.map((row) => row.id).join(", ")})`)
       if (gate.rejected.length) instructions.push(`rejected tasks must be replaced with new tasks or the run must be failed`)
       return yield* Effect.fail(
         new Error(
           [
             `Step gate blocked: step ${target.step} cannot start until all earlier steps are accepted.`,
-            gate.pending.length ? `Pending review: ${gate.pending.join(", ")}.` : undefined,
+            undispatched.length
+              ? `Undispatched: ${undispatched.map((row) => `${row.id}(${row.status})`).join(", ")}.`
+              : undefined,
+            running.length ? `Running: ${running.map((row) => row.id).join(", ")}.` : undefined,
+            awaitingReview.length
+              ? `Awaiting review: ${awaitingReview.map((row) => row.id).join(", ")}.`
+              : undefined,
+            revisions.length ? `Revision requested: ${revisions.map((row) => row.id).join(", ")}.` : undefined,
             gate.rejected.length ? `Rejected: ${gate.rejected.join(", ")}.` : undefined,
             instructions.length ? `Next action: ${instructions.join("; ")}.` : undefined,
           ]
@@ -432,7 +605,7 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   return {
     prompt,
     taskID: target.id,
-    childSessionID: target.child_session_id ?? undefined,
+    childSessionID: resumedSessionID ?? target.child_session_id ?? undefined,
     model,
   }
 })
@@ -458,9 +631,41 @@ export const getSessionState = Effect.fn("AgentCluster.getSessionState")(functio
                 ),
               )
               .all()) as TaskRow[])
-      return { runs, tasks }
+      const orderedRuns = [...runs].sort(
+        (left, right) => left.time_created - right.time_created || left.id.localeCompare(right.id),
+      )
+      const runOrder = new Map(orderedRuns.map((run, index) => [run.id, index]))
+      const orderedTasks = [...tasks].sort(
+        (left, right) =>
+          (runOrder.get(left.run_id) ?? Number.MAX_SAFE_INTEGER) -
+            (runOrder.get(right.run_id) ?? Number.MAX_SAFE_INTEGER) ||
+          left.step - right.step ||
+          left.time_created - right.time_created ||
+          left.id.localeCompare(right.id),
+      )
+      return { runs: orderedRuns, tasks: orderedTasks }
     }),
   )
+})
+
+export const reusableSubagents = Effect.fn("AgentCluster.reusableSubagents")(function* (sessionID: SessionID) {
+  const state = yield* getSessionState(sessionID)
+  const latestBySession = new Map<SessionID, TaskRow>()
+  for (const task of state.tasks) {
+    if (!task.child_session_id) continue
+    const previous = latestBySession.get(task.child_session_id)
+    if (!previous || previous.time_updated <= task.time_updated) latestBySession.set(task.child_session_id, task)
+  }
+  return [...latestBySession.values()]
+    .filter((task) => task.status === "accepted" || task.status === "failed" || task.status === "cancelled")
+    .sort((left, right) => right.time_updated - left.time_updated)
+    .map((task) => ({
+      sessionID: task.child_session_id!,
+      lastTaskID: task.id,
+      role: task.role,
+      title: task.title,
+      status: task.status,
+    }))
 })
 
 export const run = Effect.fn("AgentCluster.run")(function* (input: {
@@ -494,38 +699,6 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
         type: "run",
         status,
         message,
-        createdAt,
-      })
-    })
-
-  const publishReview = (taskID: string, decision: string, issues: string) =>
-    Effect.gen(function* () {
-      const createdAt = Date.now()
-      yield* Database.query((db) =>
-        db
-          .insert(AgentClusterEventTable)
-          .values({
-            id: ulid(),
-            run_id: runID,
-            type: "review",
-            message: `Review for task ${taskID}: ${decision}`,
-            metadata: {
-              status: "reviewing",
-              taskID,
-              decision,
-              issues,
-            },
-          })
-          .run(),
-      )
-      yield* bus.publish(Event, {
-        sessionID: input.session.id,
-        runID,
-        type: "review",
-        status: "reviewing",
-        taskID: taskID as any,
-        message: `Review for task ${taskID}: ${decision}`,
-        metadata: { taskID, decision, issues },
         createdAt,
       })
     })

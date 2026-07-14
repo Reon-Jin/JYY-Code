@@ -1,4 +1,4 @@
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { Effect, Exit, Fiber, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
@@ -13,7 +13,13 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { TaskTool, type TaskGitOps, type TaskPromptOps, type TaskWorktreeOps } from "../../src/tool/task"
+import {
+  TaskTool,
+  agentClusterRunIDFromMessages,
+  type TaskGitOps,
+  type TaskPromptOps,
+  type TaskWorktreeOps,
+} from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -31,6 +37,15 @@ const ref = {
   providerID: ProviderID.make("test"),
   modelID: ModelID.make("test-model"),
 }
+
+test("agent cluster run lookup prefers the newest turn", () => {
+  const messages = [
+    { parts: [{ type: "text", text: "run_id: 01AAAAAAAAAAAAAAAAAAAA" }] },
+    { parts: [{ type: "text", text: "run_id: 01BBBBBBBBBBBBBBBBBBBB" }] },
+  ] as MessageV2.WithParts[]
+
+  expect(agentClusterRunIDFromMessages(undefined, messages)).toBe("01BBBBBBBBBBBBBBBBBBBB")
+})
 
 const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
   Layer.mergeAll(
@@ -1031,7 +1046,7 @@ describe("tool.task", () => {
             title: "Research",
             prompt: "Find the bug",
             complexity: "simple",
-            model: "test/test-model",
+            model: "-",
             status: "planned",
             acceptance_criteria: ["done"],
             artifact_paths: [],
@@ -1082,7 +1097,165 @@ describe("tool.task", () => {
       )
       expect(row?.child_session_id).toBe(result.metadata.sessionId)
       expect(row?.status).toBe("running")
+      expect(row?.model).toBe("test/test-model")
       expect(result.metadata.model).toEqual(ref)
+    }),
+    {
+      config: {
+        agent_cluster: {
+          simple_model: "test/test-model",
+          complex_model: "test/test-model",
+          visual_model: "test/test-model",
+        },
+      },
+    },
+  )
+
+  it.instance("cluster task reuses a completed subagent from an earlier turn", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      const child = yield* sessions.create({ parentID: chat.id, title: "Reusable researcher" })
+      const previousRunID = "run_previous_turn"
+      const currentRunID = "run_current_turn"
+      const currentTaskID = "task-follow-up"
+
+      yield* sessions.updatePart({
+        id: PartID.ascending(),
+        messageID: assistant.parentID!,
+        sessionID: chat.id,
+        type: "text",
+        synthetic: true,
+        metadata: { kind: "agent_cluster", runID: currentRunID },
+        text: "Agent cluster instructions",
+      })
+      yield* sessions.updatePart({
+        id: PartID.ascending(),
+        messageID: assistant.id,
+        sessionID: chat.id,
+        type: "text",
+        text: [
+          "```json",
+          JSON.stringify({
+            goal: "Continue the investigation",
+            tasks: [
+              {
+                id: currentTaskID,
+                step: 1,
+                title: "Follow up",
+                role: "researcher",
+                complexity: "simple",
+                model: "test/test-model",
+                dependencies: [],
+                prompt: "Continue from prior findings",
+                acceptanceCriteria: ["follow-up complete"],
+                expectedArtifacts: [],
+              },
+            ],
+          }),
+          "```",
+        ].join("\n"),
+      })
+
+      Database.use((db) => {
+        const now = Date.now()
+        for (const [runID, status, goal] of [
+          [previousRunID, "completed", "Initial investigation"],
+          [currentRunID, "dispatching", "Continue the investigation"],
+        ] as const) {
+          db.insert(AgentClusterRunTable)
+            .values({
+              id: runID as any,
+              session_id: chat.id,
+              parent_message_id: assistant.parentID!,
+              enabled: true,
+              status,
+              goal,
+              planner_model: "test/planner",
+              reviewer_model: "test/reviewer",
+              time_created: now,
+              time_updated: now,
+            })
+            .run()
+        }
+        db.insert(AgentClusterTaskTable)
+          .values([
+            {
+              id: "task-initial" as any,
+              run_id: previousRunID as any,
+              child_session_id: child.id,
+              role: "researcher",
+              title: "Initial research",
+              prompt: "Investigate",
+              complexity: "simple",
+              model: "test/test-model",
+              status: "accepted",
+              acceptance_criteria: ["done"],
+              artifact_paths: [],
+              time_created: now,
+              time_updated: now,
+            },
+            {
+              id: currentTaskID as any,
+              run_id: currentRunID as any,
+              role: "researcher",
+              title: "Follow up",
+              prompt: "Continue from prior findings",
+              complexity: "simple",
+              model: "test/test-model",
+              status: "planned",
+              acceptance_criteria: ["follow-up complete"],
+              artifact_paths: [],
+              time_created: now,
+              time_updated: now,
+            },
+          ])
+          .run()
+      })
+
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const def = yield* (yield* TaskTool).init()
+      const result = yield* def.execute(
+        {
+          description: "continue research",
+          prompt: "Use the earlier context and investigate the follow-up",
+          subagent_type: "general",
+          task_id: currentTaskID,
+          resume_session_id: child.id,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "cluster",
+          abort: new AbortController().signal,
+          extra: {
+            promptOps: {
+              ...stubOps(),
+              prompt: () => Effect.never,
+            } satisfies TaskPromptOps,
+          },
+          messages,
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const row = Database.use((db) =>
+        db
+          .select()
+          .from(AgentClusterTaskTable)
+          .where(
+            Database.and(
+              Database.eq(AgentClusterTaskTable.run_id, currentRunID as any),
+              Database.eq(AgentClusterTaskTable.id, currentTaskID as any),
+            ),
+          )
+          .get(),
+      )
+      expect(result.metadata.sessionId).toBe(child.id)
+      expect(result.metadata.reusedSession).toBe(true)
+      expect(row?.child_session_id).toBe(child.id)
+      expect(row?.status).toBe("running")
     }),
   )
 

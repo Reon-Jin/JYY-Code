@@ -37,7 +37,7 @@ export function createComposerController(input: ComposerControllerInput) {
     return value
   }
 
-  function send(text = draft()): Promise<void> {
+  function send(text = draft(), selection?: { agent: string; model: ModelSelection }): Promise<void> {
     if (inFlight) return inFlight
     setDraft(text)
     if (!text.trim()) return Promise.resolve()
@@ -50,8 +50,8 @@ export function createComposerController(input: ComposerControllerInput) {
           {
             directory: resolve(input.directory),
             sessionID: resolve(input.sessionID),
-            agent: resolve(input.agent),
-            model: resolve(input.model),
+            agent: selection?.agent ?? resolve(input.agent),
+            model: selection?.model ?? resolve(input.model),
             agentCluster: { enabled: false },
             parts: [{ type: "text", text }],
           },

@@ -220,6 +220,26 @@ const memoryLifecycleLayer = Layer.succeed(
   }),
 )
 
+const memoryFailureLayer = Layer.succeed(
+  Memory.Service,
+  Memory.Service.of({
+    dir: () => Effect.succeed(Memory.DIRECTORY),
+    ensure: () => Effect.void,
+    read: () => Effect.succeed(""),
+    search: () => Effect.succeed([]),
+    upsertTaskMemory: () => Effect.die("unexpected direct task memory upsert"),
+    upsertUserMemory: () => Effect.die("unexpected direct user memory upsert"),
+    write: () => Effect.die("unexpected memory write"),
+    replaceBySubstring: () => Effect.die("unexpected memory replace"),
+    removeBySubstring: () => Effect.die("unexpected memory remove"),
+    compact: () => Effect.die("unexpected memory compact"),
+    usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
+    formatWithHeader: () => Effect.succeed(""),
+    updateStepBegin: () => Effect.fail(new Error("Task memory 用户要求 must not exceed 30 characters")),
+    updateAfterTurn: () => Effect.fail(new Error("memory completion update failed")),
+  }),
+)
+
 const status = SessionStatus.layer.pipe(Layer.provideMerge(Bus.layer))
 const run = SessionRunState.layer.pipe(Layer.provide(status))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
@@ -314,6 +334,7 @@ function makeHttpNoLLMServer(input?: { processor?: "blocking"; memory?: Layer.La
 const it = testEffect(makeHttp())
 const withMemory = testEffect(makeHttp({ memory: memorySearchLayer }))
 const withMemoryLifecycle = testEffect(makeHttp({ memory: memoryLifecycleLayer }))
+const withMemoryFailure = testEffect(makeHttp({ memory: memoryFailureLayer }))
 const noLLMServer = testEffect(makeHttpNoLLMServer())
 const raceNoLLMServer = testEffect(makeHttpNoLLMServer({ processor: "blocking" }))
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
@@ -678,6 +699,25 @@ withMemoryLifecycle.instance("updates memory while busy and before returning the
       "before_final",
     ])
   }).pipe(Effect.ensuring(Effect.sync(() => void (memoryStepBeginGate = undefined)))),
+)
+
+withMemoryFailure.instance("memory curator failures do not abort the assistant run", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Memory failure isolation" })
+    yield* llm.text("assistant still runs")
+
+    const result = yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "a request whose memory summary is too long" }],
+    })
+
+    expect(result.info.role).toBe("assistant")
+    expect(result.parts.some((part) => part.type === "text" && part.text === "assistant still runs")).toBe(true)
+  }),
 )
 
 noLLMServer.instance(

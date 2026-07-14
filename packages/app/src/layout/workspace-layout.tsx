@@ -459,7 +459,17 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
               >
                 <Show
                   when={catalogQuery.data?.selectedModel && selectedModel()}
-                  fallback={<ProviderEmpty configPath={catalogQuery.data?.configPath ?? "jyycode.jsonc"} />}
+                  fallback={
+                    <ProviderEmpty
+                      client={data.client()}
+                      configPath={catalogQuery.data?.configPath ?? "jyycode.jsonc"}
+                      directory={data.directory()}
+                      disabled={data.connection() !== "connected"}
+                      onProviderConnected={async () => {
+                        await catalogQuery.refetch()
+                      }}
+                    />
+                  }
                 >
                   <Composer
                     client={data.client()}
@@ -475,6 +485,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     branchControl={<BranchControl directory={data.directory()} />}
                     onAgentChange={changeAgent}
                     onModelChange={changeModel}
+                    onProviderConnected={async () => {
+                      await catalogQuery.refetch()
+                    }}
                   />
                 </Show>
               </Show>

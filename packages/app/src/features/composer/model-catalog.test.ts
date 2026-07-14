@@ -56,24 +56,36 @@ function response<T>(data: T) {
 function createClient(input?: {
   agents?: Agent[]
   providers?: Provider[]
+  configuredProviders?: Provider[]
   connected?: string[]
   defaults?: Record<string, string>
   config?: Config
   path?: Path
 }) {
   const providers = input?.providers ?? [provider("openai", ["gpt-4.1", "gpt-5"])]
+  const configuredProviders = input?.configuredProviders ?? providers
   return {
     app: { agents: vi.fn(() => response(input?.agents ?? [agent("plan"), agent("build")])) },
     config: {
-      providers: vi.fn(() => response({ providers, default: input?.defaults ?? { openai: "gpt-5" } })),
+      providers: vi.fn(() =>
+        response({ providers: configuredProviders, default: input?.defaults ?? { openai: "gpt-5" } }),
+      ),
       get: vi.fn(() => response(input?.config ?? ({ default_agent: "plan", model: "openai/gpt-5" } as Config))),
     },
     provider: {
       list: vi.fn(() =>
-        response({ all: providers, default: input?.defaults ?? { openai: "gpt-5" }, connected: input?.connected ?? ["openai"] }),
+        response({
+          all: providers,
+          default: input?.defaults ?? { openai: "gpt-5" },
+          connected: input?.connected ?? ["openai"],
+        }),
       ),
     },
-    path: { get: vi.fn(() => response(input?.path ?? { home: "C:\\Users\\dev", state: "state", config: "C:\\Users\\dev\\.config\\jyycode" })) },
+    path: {
+      get: vi.fn(() =>
+        response(input?.path ?? { home: "C:\\Users\\dev", state: "state", config: "C:\\Users\\dev\\.config\\jyycode" }),
+      ),
+    },
   }
 }
 
@@ -103,6 +115,7 @@ describe("loadModelCatalog", () => {
     const client = createClient({
       agents: [agent("build")],
       providers,
+      configuredProviders: [providers[1]!],
       connected: ["anthropic"],
       defaults: { anthropic: "claude-sonnet" },
       config: { default_agent: "removed-agent", model: "openai/gpt-5" } as Config,
@@ -116,9 +129,28 @@ describe("loadModelCatalog", () => {
   })
 
   it("does not silently select a model when no provider is connected", async () => {
-    const catalog = await loadModelCatalog({ client: createClient({ connected: [] }) as never, directory })
+    const catalog = await loadModelCatalog({
+      client: createClient({ configuredProviders: [], connected: [] }) as never,
+      directory,
+    })
     expect(catalog.models).toEqual([])
     expect(catalog.selectedModel).toBeUndefined()
+  })
+
+  it("ignores environment-discovered providers that are absent from config.providers", async () => {
+    const deepseek = provider("deepseek", ["deepseek-v4-flash"])
+    const anthropic = provider("anthropic", ["claude-opus-4-8", "claude-sonnet-5"])
+    const catalog = await loadModelCatalog({
+      client: createClient({
+        providers: [anthropic, deepseek],
+        configuredProviders: [deepseek],
+        connected: ["anthropic", "deepseek"],
+        defaults: { deepseek: "deepseek-v4-flash" },
+      }) as never,
+      directory,
+    })
+
+    expect(catalog.models.map((model) => model.providerID)).toEqual(["deepseek"])
   })
 
   it("persists only Agent and model identifiers", () => {
@@ -129,10 +161,7 @@ describe("loadModelCatalog", () => {
         values.set(key, value)
       },
     }
-    saveComposerPreference(
-      { agent: "build", model: { providerID: "openai", modelID: "gpt-5" } },
-      storage,
-    )
+    saveComposerPreference({ agent: "build", model: { providerID: "openai", modelID: "gpt-5" } }, storage)
     expect(loadComposerPreference(storage)).toEqual({
       agent: "build",
       model: { providerID: "openai", modelID: "gpt-5" },

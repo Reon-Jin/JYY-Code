@@ -89,8 +89,8 @@ export function agentClusterRunIDFromMessages(
   messages: readonly MessageV2.WithParts[],
 ): string | undefined {
   if (typeof extraRunID === "string") return extraRunID as string
-  for (const message of messages) {
-    for (const part of message.parts) {
+  for (const message of [...messages].reverse()) {
+    for (const part of [...message.parts].reverse()) {
       // Check explicit metadata first
       const metadata = "metadata" in part ? (part.metadata as { kind?: string; runID?: string } | undefined) : undefined
       if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID as string
@@ -110,10 +110,14 @@ export function agentClusterRunIDFromMessages(
 const BaseParameters = Schema.Struct({
   description: Schema.String.annotate({ description: "A short (3-5 words) description of the task" }),
   prompt: Schema.String.annotate({ description: "The task for the agent to perform" }),
+  resume_session_id: Schema.optional(Schema.String).annotate({
+    description:
+      "In cluster mode, resume an existing completed subagent session for a new planned task while task_id remains the new plan task id",
+  }),
   subagent_type: Schema.String.annotate({ description: "The type of specialized agent to use for this task" }),
   task_id: Schema.optional(Schema.String).annotate({
     description:
-      "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
+      "In cluster mode, use the current plan task id for initial dispatch or a prior ses_... id for revision. Outside cluster mode, pass a prior task_id only to resume that subagent session.",
   }),
   model: Schema.optional(Schema.String).annotate({
     description:
@@ -144,10 +148,14 @@ const BaseParameters = Schema.Struct({
 export const Parameters = Schema.Struct({
   description: Schema.String.annotate({ description: "A short (3-5 words) description of the task" }),
   prompt: Schema.String.annotate({ description: "The task for the agent to perform" }),
+  resume_session_id: Schema.optional(Schema.String).annotate({
+    description:
+      "In cluster mode, resume an existing completed subagent session for a new planned task while task_id remains the new plan task id",
+  }),
   subagent_type: Schema.String.annotate({ description: "The type of specialized agent to use for this task" }),
   task_id: Schema.optional(Schema.String).annotate({
     description:
-      "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
+      "In cluster mode, use the current plan task id for initial dispatch or a prior ses_... id for revision. Outside cluster mode, pass a prior task_id only to resume that subagent session.",
   }),
   model: Schema.optional(Schema.String).annotate({
     description:
@@ -391,6 +399,12 @@ export const TaskTool = Tool.define(
       const clusterBackground = ctx.agent === "cluster"
       const runInBackground = params.background === true || clusterBackground
       const clusterRunID = clusterBackground ? agentClusterRunID(ctx) : undefined
+      if (params.resume_session_id && !clusterBackground) {
+        return yield* Effect.fail(new Error("resume_session_id is only available in cluster mode"))
+      }
+      if (params.resume_session_id && !clusterRunID) {
+        return yield* Effect.fail(new Error("resume_session_id requires an active cluster run"))
+      }
       const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
       const persistCurrentClusterPlan = Effect.fn("TaskTool.persistCurrentClusterPlan")(function* () {
@@ -475,6 +489,7 @@ export const TaskTool = Tool.define(
         AgentCluster.prepareTaskDispatch({
           runID: clusterRunID,
           requestedTaskID: params.task_id,
+          resumeSessionID: params.resume_session_id,
           prompt: params.prompt,
           config: cfg.agent_cluster ?? {},
         })
@@ -605,6 +620,12 @@ export const TaskTool = Tool.define(
         ? yield* sessions.get(SessionID.make(taskID)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
       const parent = yield* sessions.get(ctx.sessionID)
+      if (preparedDispatch?.childSessionID && !session) {
+        return yield* Effect.fail(new Error(`Task session ${preparedDispatch.childSessionID} was not found.`))
+      }
+      if (session && session.parentID !== ctx.sessionID) {
+        return yield* Effect.fail(new Error(`Task session ${session.id} does not belong to this parent session.`))
+      }
       if (params.isolation === "worktree" && session) {
         return yield* Effect.fail(
           new Error("Worktree isolation only applies when creating a new task session; resume without isolation."),
@@ -690,6 +711,7 @@ export const TaskTool = Tool.define(
             }
           : {}),
         ...(runInBackground ? { background: true } : {}),
+        ...(params.resume_session_id ? { reusedSession: true } : {}),
         ...(clusterRunID && clusterPlanTaskID
           ? { agentCluster: { runID: clusterRunID, taskID: clusterPlanTaskID } }
           : {}),
@@ -996,11 +1018,21 @@ export const TaskTool = Tool.define(
             ),
           ),
         })
+        const claimedTaskID = (info.metadata?.agentCluster as { taskID?: unknown } | undefined)?.taskID
+        if (clusterPlanTaskID && claimedTaskID !== clusterPlanTaskID) {
+          return yield* Effect.fail(
+            new Error(
+              `Subagent ${nextSession.id} is already running ${claimedTaskID ? `cluster task ${String(claimedTaskID)}` : "another task"}. ` +
+                "Wait for it to finish before assigning another task to the same subagent.",
+            ),
+          )
+        }
         if (clusterPlanTaskID) {
           yield* AgentCluster.markTaskRunning({
             runID: clusterRunID,
             taskID: clusterPlanTaskID,
             childSessionID: nextSession.id,
+            model: `${model.providerID}/${model.modelID}`,
           })
         }
 

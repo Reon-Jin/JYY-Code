@@ -1399,6 +1399,7 @@ export const layer = Layer.effect(
           ? yield* AgentCluster.resolveModels(cfg.agent_cluster ?? {}).pipe(Effect.orDie)
           : undefined
         const runID = useCluster ? AgentCluster.createRunID() : undefined
+        const reusableSubagents = useCluster ? yield* AgentCluster.reusableSubagents(session.id) : undefined
         const promptInput =
           useCluster && clusterModels && runID
             ? AgentCluster.decoratePromptInput({
@@ -1407,6 +1408,7 @@ export const layer = Layer.effect(
                 session,
                 config: cfg.agent_cluster ?? {},
                 models: clusterModels,
+                reusableSubagents,
               })
             : input
         yield* revert.cleanup(session)
@@ -1457,8 +1459,11 @@ export const layer = Layer.effect(
         const clusterDispatchReminderKind = "agent_cluster_dispatch_reminder"
         const clusterSynthesisReminderKind = "agent_cluster_synthesis_gate"
 
-        function hasTaskTool(messages: MessageV2.WithParts[]) {
-          return messages.some((message) => message.parts.some((part) => part.type === "tool" && part.tool === "task"))
+        function hasTaskToolAfter(messages: MessageV2.WithParts[], userID: MessageID) {
+          const userIndex = messages.findIndex((message) => message.info.id === userID)
+          return messages
+            .slice(userIndex + 1)
+            .some((message) => message.parts.some((part) => part.type === "tool" && part.tool === "task"))
         }
 
         function clusterPlan(message: MessageV2.WithParts | undefined) {
@@ -1473,8 +1478,8 @@ export const layer = Layer.effect(
             return "metadata" in part ? part.metadata : undefined
           }
 
-          for (const message of messages) {
-            for (const part of message.parts) {
+          for (const message of [...messages].reverse()) {
+            for (const part of [...message.parts].reverse()) {
               const metadata = metadataOf(part) as { kind?: string; runID?: string } | undefined
               if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID as RunID
             }
@@ -1607,8 +1612,16 @@ export const layer = Layer.effect(
           if (step === 0 && memory && (!lastAssistant || lastUser.id > lastAssistant.id)) {
             const updated = yield* memory
               .updateStepBegin(sessionID, evaluateMemoryDecision, { userText: latestMemoryUserText })
-              .pipe(Effect.orDie)
-            yield* slog.info("persistent memory updated after user message", { ...updated })
+              .pipe(
+                Effect.catchCause((cause) =>
+                  slog
+                    .warn("persistent memory update failed after user message; continuing prompt", {
+                      cause: Cause.pretty(cause),
+                    })
+                    .pipe(Effect.as(undefined)),
+                ),
+              )
+            if (updated) yield* slog.info("persistent memory updated after user message", { ...updated })
           }
 
           const lastAssistantMsg = msgs.findLast(
@@ -1638,7 +1651,10 @@ export const layer = Layer.effect(
               if (validation.valid && persistedRunID) {
                 yield* AgentCluster.persistPlan({ runID: persistedRunID, plan })
               }
-              if (!hasTaskTool(msgs) && !isClusterDispatchReminder(msgs.find((msg) => msg.info.id === lastUser.id))) {
+              if (
+                !hasTaskToolAfter(msgs, lastUser.id) &&
+                !isClusterDispatchReminder(msgs.find((msg) => msg.info.id === lastUser.id))
+              ) {
                 yield* slog.info("cluster plan produced without task dispatch; requesting dispatch")
                 yield* createClusterDispatchReminder({ lastUser, plan })
                 continue
@@ -1988,8 +2004,16 @@ export const layer = Layer.effect(
               userText: latestMemoryUserText,
               assistantText: latestRealAssistantText(result),
             })
-            .pipe(Effect.orDie)
-          yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
+            .pipe(
+              Effect.catchCause((cause) =>
+                slog
+                  .warn("persistent memory update failed after assistant response; preserving response", {
+                    cause: Cause.pretty(cause),
+                  })
+                  .pipe(Effect.as(undefined)),
+              ),
+            )
+          if (curated) yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
         }
         return result
       },

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import { AgentCluster } from "../../src/agent-cluster/cluster"
-import { AgentClusterRunTable, AgentClusterTaskTable } from "../../src/agent-cluster/cluster.sql"
+import {
+  AgentClusterEventTable,
+  AgentClusterRunTable,
+  AgentClusterTaskTable,
+} from "../../src/agent-cluster/cluster.sql"
+import { Event as AgentClusterEvent } from "../../src/agent-cluster/event"
+import { Bus } from "../../src/bus"
 import type { Plan, RunID } from "../../src/agent-cluster/schema"
 import { ClusterPrimaryPrompt, runInstructions } from "../../src/agent-cluster/planner"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
@@ -10,10 +16,11 @@ import * as Database from "../../src/storage/db"
 import { Session } from "../../src/session/session"
 import { MessageID } from "../../src/session/schema"
 import type { Session as SessionInfo } from "../../src/session/session"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(Session.defaultLayer)
+const eventIt = testEffect(Layer.mergeAll(Session.defaultLayer, Bus.defaultLayer))
 
 describe("AgentCluster planner instructions", () => {
   test("describe dependency steps as parallel dispatch waves", () => {
@@ -35,6 +42,15 @@ describe("AgentCluster planner instructions", () => {
       maxSubagents: 100,
       maxConcurrency: 10,
       maxReviewRounds: 2,
+      reusableSubagents: [
+        {
+          sessionID: "ses_researcher",
+          lastTaskID: "task-research",
+          role: "researcher",
+          title: "Research",
+          status: "accepted",
+        },
+      ],
     })
 
     expect(text).toContain("max_subagents: 100")
@@ -52,6 +68,12 @@ describe("AgentCluster planner instructions", () => {
     expect(text).toContain("use provider/complex for complex tasks")
     expect(text).not.toContain("including simple and complex work")
     expect(text).toContain('set "model" to "-" so the runtime applies this routing')
+    expect(text).toContain("reusable_subagents:")
+    expect(text).toContain("ses_researcher")
+    expect(text).toContain("resume_session_id=<existing ses_... id>")
+    expect(text).toContain("This run is delta-only")
+    expect(text).toContain("Never copy a historical task into the new JSON plan")
+    expect(text).toContain("TUI appends this run after prior session Steps automatically")
   })
 
   test("planner instructions require terminal task_status before final synthesis", () => {
@@ -290,6 +312,84 @@ describe("AgentCluster.createRunID", () => {
 })
 
 describe("AgentCluster.persistPlan", () => {
+  eventIt.instance("publishes every task state transition for live TUI refresh", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const bus = yield* Bus.Service
+      const chat = yield* sessions.create({ title: "Live cluster steps" })
+      const user = yield* sessions.updateMessage({
+        id: MessageID.ascending(),
+        role: "user",
+        sessionID: chat.id,
+        agent: "cluster",
+        model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+        time: { created: Date.now() },
+      })
+      const runID = AgentCluster.createRunID() as RunID
+      const now = Date.now()
+      Database.use((db) =>
+        db
+          .insert(AgentClusterRunTable)
+          .values({
+            id: runID,
+            session_id: chat.id,
+            parent_message_id: user.id,
+            enabled: true,
+            status: "dispatching",
+            goal: "Refresh steps",
+            planner_model: "test/planner",
+            reviewer_model: "test/reviewer",
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+
+      const events: string[] = []
+      let signal!: () => void
+      const received = new Promise<void>((resolve) => (signal = resolve))
+      const unsubscribe = yield* bus.subscribeCallback(AgentClusterEvent, (event) => {
+        if (event.properties.type !== "task") return
+        events.push(String(event.properties.status))
+        if (events.length === 3) signal()
+      })
+      const plan: Plan = {
+        goal: "Refresh steps",
+        tasks: [
+          {
+            id: AgentClusterRuntime.coerceTaskID("live-task"),
+            step: 1,
+            title: "Live task",
+            role: "general",
+            complexity: "simple",
+            model: "test/simple",
+            dependencies: [],
+            prompt: "Do work",
+            acceptanceCriteria: ["done"],
+            expectedArtifacts: [],
+          },
+        ],
+      }
+
+      yield* AgentCluster.persistPlan({ runID, plan })
+      yield* AgentCluster.markTaskRunning({ runID, taskID: "live-task", childSessionID: "ses_child" as any })
+      yield* AgentCluster.submitTaskResult({
+        runID,
+        taskID: "live-task",
+        childSessionID: "ses_child" as any,
+        summary: "done",
+      })
+      yield* Effect.promise(() => received).pipe(Effect.timeout("2 seconds"))
+      unsubscribe()
+
+      expect(events).toEqual(["planned", "running", "submitted"])
+      const persisted = Database.use((db) =>
+        db.select().from(AgentClusterEventTable).where(Database.eq(AgentClusterEventTable.run_id, runID)).all(),
+      )
+      expect(persisted.filter((event) => event.type === "task")).toHaveLength(3)
+    }),
+  )
+
   it.instance("scopes reusable plan task ids to each run", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service
@@ -355,6 +455,107 @@ describe("AgentCluster.persistPlan", () => {
           .all(),
       )
       expect(rows.map((row) => row.run_id).toSorted()).toEqual(runIDs.toSorted())
+    }),
+  )
+
+  it.instance("does not persist exact accepted tasks from earlier runs", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Incremental cluster runs" })
+      const users = yield* Effect.all(
+        [1, 2].map((index) =>
+          sessions.updateMessage({
+            id: MessageID.ascending(),
+            role: "user" as const,
+            sessionID: chat.id,
+            agent: "cluster",
+            model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+            time: { created: Date.now() + index },
+          }),
+        ),
+      )
+      const previousRunID = AgentCluster.createRunID() as RunID
+      const currentRunID = AgentCluster.createRunID() as RunID
+      const now = Date.now()
+      Database.use((db) => {
+        for (const [index, runID] of [previousRunID, currentRunID].entries()) {
+          db.insert(AgentClusterRunTable)
+            .values({
+              id: runID,
+              session_id: chat.id,
+              parent_message_id: users[index]!.id,
+              enabled: true,
+              status: index === 0 ? "completed" : "planning",
+              goal: index === 0 ? "Create base files" : "Extend files",
+              planner_model: "test/planner",
+              reviewer_model: "test/planner",
+              time_created: now + index,
+              time_updated: now + index,
+            })
+            .run()
+        }
+        db.insert(AgentClusterTaskTable)
+          .values({
+            id: AgentClusterRuntime.coerceTaskID("task-create-1"),
+            run_id: previousRunID,
+            role: "general",
+            title: "Create 1.txt",
+            prompt: "Create 1.txt",
+            complexity: "simple",
+            model: "test/simple",
+            status: "accepted",
+            step: 1,
+            dependencies: [],
+            acceptance_criteria: ["created"],
+            artifact_paths: ["1.txt"],
+            time_created: now,
+            time_updated: now,
+          })
+          .run()
+      })
+
+      const plan: Plan = {
+        goal: "Extend files",
+        tasks: [
+          {
+            id: AgentClusterRuntime.coerceTaskID("task-create-1"),
+            step: 1,
+            title: "Create 1.txt",
+            role: "general",
+            complexity: "simple",
+            model: "test/simple",
+            dependencies: [],
+            prompt: "Create 1.txt",
+            acceptanceCriteria: ["created"],
+            expectedArtifacts: ["1.txt"],
+          },
+          {
+            id: AgentClusterRuntime.coerceTaskID("task-create-4"),
+            step: 2,
+            title: "Create 4.txt",
+            role: "general",
+            complexity: "simple",
+            model: "test/simple",
+            dependencies: [AgentClusterRuntime.coerceTaskID("task-create-1")],
+            prompt: "Create 4.txt",
+            acceptanceCriteria: ["created"],
+            expectedArtifacts: ["4.txt"],
+          },
+        ],
+      }
+
+      yield* AgentCluster.persistPlan({ runID: currentRunID, plan })
+      const rows = Database.use((db) =>
+        db
+          .select()
+          .from(AgentClusterTaskTable)
+          .where(Database.eq(AgentClusterTaskTable.run_id, currentRunID))
+          .all(),
+      )
+
+      expect(rows.map((row) => String(row.id))).toEqual(["task-create-4"])
+      expect(rows[0]?.step).toBe(1)
+      expect(rows[0]?.dependencies).toEqual([])
     }),
   )
 
