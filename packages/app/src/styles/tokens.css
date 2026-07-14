@@ -12,9 +12,10 @@
   --color-text-muted: #a1a1a1;
   --color-border: #2d2d2d;
   --color-border-strong: #454545;
-  --color-danger: #ef4444;
+  --color-danger: #f87171;
   --color-danger-surface: #321c1c;
   --color-warning: #d4a72c;
+  --color-success: #67d391;
   --color-overlay: rgb(0 0 0 / 72%);
 
   --font-ui: "Inter Variable", "Segoe UI", system-ui, sans-serif;

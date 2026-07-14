@@ -132,6 +132,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     body: Record<string, unknown>
   }> = []
   let sequence = 0
+  let streamSequence = 0
 
   function emit(payload: GlobalEvent["payload"]) {
     const event: GlobalEvent = { directory, payload }
@@ -174,11 +175,12 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     let active: ReadableStreamDefaultController<Uint8Array> | undefined
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
+        streamSequence += 1
         active = controller
         streams.add(controller)
         controller.enqueue(
           encoder.encode(
-            `data: ${JSON.stringify({ directory, payload: { id: "connected", type: "server.connected", properties: {} } })}\n\n`,
+            `data: ${JSON.stringify({ directory, payload: { id: `connected_${streamSequence}`, type: "server.connected", properties: {} } })}\n\n`,
           ),
         )
         request.signal.addEventListener(
@@ -294,6 +296,15 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     }
 
     const sessionID = url.pathname.match(/^\/session\/([^/]+)/)?.[1]
+    if (sessionID && request.method === "PATCH") {
+      const session = sessions.find((candidate) => candidate.id === sessionID)
+      if (!session) return json({ name: "NotFoundError", message: "Session not found" }, 404)
+      if (typeof value.multiAgent === "boolean") session.multiAgent = value.multiAgent
+      if (typeof value.title === "string") session.title = value.title
+      session.time.updated = Date.now()
+      event("session.updated", { sessionID, info: session })
+      return json(session)
+    }
     if (sessionID && url.pathname.endsWith("/agent-cluster") && request.method === "GET") {
       return json(agentClusters.get(sessionID) ?? { runs: [], tasks: [] })
     }
@@ -520,6 +531,17 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     event("agent_cluster.event", properties)
   }
 
+  function disconnectStreams() {
+    for (const stream of [...streams]) {
+      streams.delete(stream)
+      try {
+        stream.error(new Error("test disconnect"))
+      } catch {
+        // A stream may already be closed by the client.
+      }
+    }
+  }
+
   function setGitHubStatus(next: GitHubAvailability) {
     githubStatus = next
   }
@@ -544,6 +566,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     setTodos,
     setAgentCluster,
     emitAgentCluster,
+    disconnectStreams,
     setGitHubStatus,
   }
 }

@@ -1,9 +1,54 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library"
+import type { SessionAgentClusterResponse } from "@jyycode-ai/sdk/v2/client"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { App } from "./app"
 import { createFakeDesktop } from "./test/fake-desktop"
 import { createFakeJyycode } from "./test/fake-jyycode"
+
+function clusterSnapshot(): SessionAgentClusterResponse {
+  return {
+    runs: [
+      {
+        id: "run_1",
+        session_id: "ses_root",
+        parent_message_id: "msg_parent",
+        enabled: true,
+        status: "dispatching" as const,
+        goal: "Ship the feature",
+        planner_model: "test/test-planner",
+        reviewer_model: "test/test-planner",
+        time_created: 1,
+        time_updated: 2,
+        completed_at: 0,
+      },
+    ],
+    tasks: [
+      {
+        id: "code",
+        run_id: "run_1",
+        parent_task_id: "",
+        child_session_id: "ses_child",
+        role: "coder",
+        title: "Implement feature",
+        prompt: "Implement the feature",
+        complexity: "complex" as const,
+        model: "test/test-complex",
+        status: "running" as const,
+        step: 1,
+        dependencies: [],
+        review_round: 0,
+        acceptance_criteria: ["Tests pass"],
+        artifact_paths: [],
+        result_summary: "",
+        review_issues: [],
+        last_event: "Started coding",
+        time_created: 2,
+        time_updated: 2,
+      },
+    ],
+  }
+}
 
 function installDialog() {
   Object.defineProperties(HTMLDialogElement.prototype, {
@@ -62,7 +107,7 @@ describe("desktop GUI journey", () => {
       () => {
         expect(screen.getByRole("main")).toBeVisible()
         expect(screen.getByRole("combobox", { name: "Agent" })).toHaveValue("build")
-        expect(screen.getByRole("combobox", { name: "模型" })).toHaveValue("test/test-model")
+        expect(screen.getByRole("button", { name: "配置模型：Test · Test Model" })).toBeVisible()
       },
       { timeout: 5_000 },
     )
@@ -149,6 +194,152 @@ describe("desktop GUI journey", () => {
     expect(loadingFlashes).toEqual([])
     expect(screen.getByText("后端已连接")).toBeVisible()
   })
+
+  it("runs the complete Multi-Agent root, child, model, reconnect, and restore journey", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_root" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.addSession({ id: "ses_root", slug: "root", title: "Root Session" })
+    backend.addSession({
+      id: "ses_child",
+      slug: "child",
+      title: "Implement feature",
+      parentID: "ses_root",
+      agent: "coder",
+      model: { providerID: "test", id: "test-complex" },
+    })
+    vi.stubGlobal("fetch", backend.fetch)
+    render(() => <App bridge={desktop.bridge} />)
+
+    expect(await screen.findByRole("heading", { name: "Root Session" }, { timeout: 5_000 })).toBeVisible()
+    const mode = screen.getByRole("switch", { name: "Multi-Agent" })
+    expect(mode).toHaveAttribute("aria-checked", "false")
+    expect(backend.sessions[0]).not.toHaveProperty("multiAgent")
+    await user.click(mode)
+    await waitFor(() => expect(mode).toHaveAttribute("aria-checked", "true"))
+    expect(
+      backend.requests.some(
+        (request) => request.method === "PATCH" && request.path === "/session/ses_root" && request.body.multiAgent === true,
+      ),
+    ).toBe(true)
+
+    const draft = screen.getByRole("textbox", { name: "消息" })
+    await user.type(draft, "保留根草稿")
+    await user.click(screen.getByRole("button", { name: "查看 Multi-Agent" }))
+    expect(screen.getByRole("button", { name: "Multi-Agent" })).toHaveAttribute("aria-pressed", "true")
+
+    backend.setAgentCluster("ses_root", clusterSnapshot())
+    backend.emitAgentCluster({
+      sessionID: "ses_root",
+      runID: "run_1",
+      taskID: "code",
+      type: "task",
+      status: "running",
+      message: "Started coding",
+      createdAt: 3,
+    })
+    expect(await screen.findByText("Ship the feature")).toBeVisible()
+    expect(screen.getByRole("progressbar", { name: "Multi-Agent progress" })).toHaveAttribute("aria-valuenow", "0")
+    expect(screen.getAllByText("Running").length).toBeGreaterThan(0)
+
+    const railButton = screen.getByRole("button", { name: "Multi-Agent" })
+    await user.click(railButton)
+    expect(screen.queryByRole("complementary", { name: "Multi-Agent" })).not.toBeInTheDocument()
+    expect(draft).toHaveValue("保留根草稿")
+    expect(railButton.querySelector(".workspace-activity-button__badge")).toHaveTextContent("1")
+
+    await user.click(railButton)
+    await user.click(await screen.findByRole("button", { name: "打开子 Agent：Implement feature" }))
+    expect(await screen.findByRole("heading", { name: "Implement feature" })).toBeVisible()
+    const rootList = screen.getByRole("navigation", { name: "活动 Session" })
+    expect(within(rootList).getByRole("link", { name: /Root Session/ })).toHaveAttribute("aria-current", "page")
+    const childDraft = screen.getByRole("textbox", { name: "消息" })
+    await user.type(childDraft, "请先解释你的修改")
+    await user.click(screen.getByRole("button", { name: "发送" }))
+    await waitFor(() =>
+      expect(
+        backend.requests.some(
+          (request) =>
+            request.path === "/session/ses_child/prompt_async" &&
+            request.body.agent === "coder" &&
+            JSON.stringify(request.body.model) === JSON.stringify({ providerID: "test", modelID: "test-complex" }),
+        ),
+      ).toBe(true),
+    )
+
+    await user.click(screen.getByRole("button", { name: "返回主 Session" }))
+    expect(await screen.findByRole("heading", { name: "Root Session" })).toBeVisible()
+    expect(screen.getByText("Ship the feature")).toBeVisible()
+    expect(screen.getByRole("textbox", { name: "消息" })).toHaveValue("保留根草稿")
+
+    await user.click(screen.getByRole("button", { name: /配置模型/ }))
+    const modelDialog = screen.getByRole("dialog", { name: "配置模型" })
+    const selects = await within(modelDialog).findAllByRole("combobox")
+    await user.selectOptions(selects[0]!, "test/test-simple")
+    await user.selectOptions(selects[1]!, "test/test-planner")
+    await user.selectOptions(selects[2]!, "test/test-visual")
+    await user.selectOptions(selects[3]!, "test/test-complex")
+    await user.click(within(modelDialog).getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(modelDialog).not.toHaveAttribute("open"))
+    expect(backend.globalConfig().agent_cluster).toMatchObject({
+      planner_model: "test/test-simple",
+      simple_model: "test/test-planner",
+      complex_model: "test/test-visual",
+      visual_model: "test/test-complex",
+      max_concurrency: 4,
+    })
+
+    await user.click(screen.getByRole("switch", { name: "Multi-Agent" }))
+    const rootDraft = screen.getByRole("textbox", { name: "消息" })
+    await user.clear(rootDraft)
+    await user.type(rootDraft, "普通提示")
+    await user.click(screen.getByRole("button", { name: "发送" }))
+    await waitFor(() =>
+      expect(
+        backend.requests.some(
+          (request) =>
+            request.path === "/session/ses_root/prompt_async" &&
+            JSON.stringify(request.body.model) === JSON.stringify({ providerID: "test", modelID: "test-simple" }),
+        ),
+      ).toBe(true),
+    )
+    await user.click(await screen.findByRole("button", { name: "停止" }))
+    await waitFor(() => expect(screen.getByRole("button", { name: "发送" })).toBeVisible())
+
+    await user.click(screen.getByRole("switch", { name: "Multi-Agent" }))
+    await user.type(screen.getByRole("textbox", { name: "消息" }), "规划提示")
+    await user.click(screen.getByRole("button", { name: "发送" }))
+    await waitFor(() => {
+      const prompts = backend.requests.filter((request) => request.path === "/session/ses_root/prompt_async")
+      expect(prompts.at(-1)?.body.model).toEqual({ providerID: "test", modelID: "test-simple" })
+      expect(prompts.at(-1)?.body.agentCluster).toEqual({ enabled: true })
+    })
+    await user.click(await screen.findByRole("button", { name: "停止" }))
+
+    const beforeReconnect = backend.requests.filter((request) => request.path.endsWith("/agent-cluster")).length
+    backend.disconnectStreams()
+    expect(await screen.findByText("连接已中断，正在重新连接…")).toBeVisible()
+    await waitFor(
+      () => {
+        expect(screen.getByText("后端已连接")).toBeVisible()
+        const after = backend.requests.filter((request) => request.path.endsWith("/agent-cluster")).length
+        expect(after).toBe(beforeReconnect + 1)
+        expect(screen.getByText("Ship the feature")).toBeVisible()
+      },
+      { timeout: 4_000 },
+    )
+
+    await user.click(screen.getByRole("button", { name: "打开子 Agent：Implement feature" }))
+    await waitFor(() => expect(desktop.lastLocation()).toEqual({ project: desktop.directory, sessionID: "ses_child" }))
+    cleanup()
+    window.history.replaceState(null, "", "/")
+    render(() => <App bridge={desktop.bridge} />)
+    const restoredBack = await screen.findByRole("button", { name: "返回主 Session" }, { timeout: 5_000 })
+    expect(screen.getByRole("button", { name: "当前模型：Test · Test Model" })).toBeDisabled()
+    await user.click(restoredBack)
+    await waitFor(() => expect(screen.queryByRole("button", { name: "返回主 Session" })).not.toBeInTheDocument())
+    expect(screen.getByText("Single Agent")).toBeVisible()
+  }, 25_000)
 
   it("restores, guides, and returns from a writable child-Agent Session", async () => {
     const user = userEvent.setup()
@@ -267,8 +458,7 @@ describe("desktop GUI journey", () => {
     expect(screen.getByText(/子 Agent · Coder/)).toBeVisible()
     expect(screen.getByLabelText("Agent")).toHaveValue("coder")
     expect(screen.getByLabelText("Agent")).toBeDisabled()
-    expect(screen.getByLabelText("模型")).toHaveValue("test/coder-model")
-    expect(screen.getByLabelText("模型")).toBeDisabled()
+    expect(screen.getByRole("button", { name: "当前模型：test/coder-model" })).toBeDisabled()
     expect(screen.getByText("child command")).toBeVisible()
     expect(screen.queryByText("sibling command")).not.toBeInTheDocument()
 

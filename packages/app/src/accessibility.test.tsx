@@ -15,6 +15,7 @@ function unnamedIconButtons(root: ParentNode) {
 
 describe("desktop accessibility contract", () => {
   beforeEach(() => {
+    Object.defineProperty(window, "scrollTo", { configurable: true, value: vi.fn() })
     Object.defineProperties(HTMLDialogElement.prototype, {
       close: {
         configurable: true,
@@ -81,26 +82,141 @@ describe("desktop accessibility contract", () => {
     vi.stubGlobal("fetch", backend.fetch)
     const { container } = render(() => <App bridge={desktop.bridge} />)
 
-    await waitFor(
-      () => {
-        expect(screen.getByRole("complementary", { name: "项目与 Session 导航" })).toBeVisible()
-        expect(screen.getByRole("navigation", { name: "活动 Session" })).toBeVisible()
-        expect(screen.getByRole("combobox", { name: "Agent" })).toBeVisible()
-        expect(screen.getByRole("combobox", { name: "模型" })).toBeVisible()
-        expect(screen.getByRole("region", { name: "消息编辑器" })).toBeVisible()
-        expect(screen.getByRole("textbox", { name: "消息" })).toBeVisible()
-        expect(screen.getByRole("complementary", { name: "工作栏" })).toBeVisible()
-        expect(screen.getByRole("separator", { name: "调整计划与工作区变更高度" })).toHaveAttribute(
-          "aria-valuenow",
-          "42",
-        )
-        expect(screen.getByRole("button", { name: /main/ })).toHaveAttribute("aria-haspopup", "dialog")
-        expect(container.querySelector(".workspace-connection")).toHaveAttribute("aria-live", "polite")
-      },
-      { timeout: 5_000 },
-    )
+    expect(
+      await screen.findByRole("complementary", { name: "项目与 Session 导航" }, { timeout: 5_000 }),
+    ).toBeVisible()
+    expect(screen.getByRole("navigation", { name: "活动 Session" })).toBeVisible()
+    expect(await screen.findByRole("combobox", { name: "Agent" }, { timeout: 5_000 })).toBeVisible()
+    expect(screen.getByRole("button", { name: "配置模型：Test · Test Model" })).toBeVisible()
+    expect(screen.getByRole("region", { name: "消息编辑器" })).toBeVisible()
+    expect(screen.getByRole("textbox", { name: "消息" })).toBeVisible()
+    expect(screen.getByRole("navigation", { name: "工作栏页面" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Todo" })).toHaveAttribute("aria-pressed", "false")
+    expect(screen.getByRole("button", { name: "Multi-Agent" })).toHaveAttribute("aria-pressed", "false")
+    expect(screen.getByRole("button", { name: "工作区变更" })).toHaveAttribute("aria-pressed", "false")
+    expect(container.querySelector(".branch-control__trigger")).toHaveAttribute("aria-haspopup", "dialog")
+    expect(container.querySelector(".workspace-connection")).toHaveAttribute("aria-live", "polite")
     expect(unnamedIconButtons(container)).toEqual([])
   })
+
+  it("keeps the Multi-Agent drawer, task, model dialog, and child route keyboard-operable", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_root" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.addSession({ id: "ses_root", slug: "root", title: "Root Session", multiAgent: true })
+    backend.addSession({
+      id: "ses_child",
+      slug: "child",
+      title: "Coder Session",
+      parentID: "ses_root",
+      agent: "coder",
+      model: { providerID: "test", id: "test-complex" },
+    })
+    backend.setAgentCluster("ses_root", {
+      runs: [
+        {
+          id: "run_1",
+          session_id: "ses_root",
+          parent_message_id: "msg_parent",
+          enabled: true,
+          status: "dispatching",
+          goal: "Accessible workflow",
+          planner_model: "test/test-planner",
+          reviewer_model: "test/test-planner",
+          time_created: 1,
+          time_updated: 2,
+          completed_at: 0,
+        },
+      ],
+      tasks: [
+        {
+          id: "code",
+          run_id: "run_1",
+          parent_task_id: "",
+          child_session_id: "ses_child",
+          role: "coder",
+          title: "Keyboard task",
+          prompt: "Implement",
+          complexity: "complex",
+          model: "test/test-complex",
+          status: "running",
+          step: 1,
+          dependencies: [],
+          review_round: 0,
+          acceptance_criteria: [],
+          artifact_paths: [],
+          result_summary: "",
+          review_issues: [],
+          last_event: "Started coding",
+          time_created: 2,
+          time_updated: 2,
+        },
+      ],
+    })
+    vi.stubGlobal("fetch", backend.fetch)
+    render(() => <App bridge={desktop.bridge} />)
+
+    const mode = await screen.findByRole("switch", { name: "Multi-Agent" }, { timeout: 5_000 })
+    mode.focus()
+    expect(mode).toHaveFocus()
+    expect(mode).toHaveAttribute("aria-checked", "true")
+
+    const openPanel = screen.getByRole("button", { name: "查看 Multi-Agent" })
+    openPanel.focus()
+    await user.keyboard("{Enter}")
+    expect(openPanel).toHaveFocus()
+    const progress = await screen.findByRole("progressbar", { name: "Multi-Agent progress" })
+    expect(progress).toHaveAttribute("aria-valuemin", "0")
+    expect(progress).toHaveAttribute("aria-valuemax", "1")
+    expect(progress).toHaveAttribute("aria-valuenow", "0")
+
+    for (const name of ["Todo", "Multi-Agent", "工作区变更"]) {
+      const button = screen.getByRole("button", { name })
+      button.focus()
+      expect(button).toHaveFocus()
+      expect(button).toHaveAttribute("aria-pressed")
+    }
+    expect(screen.getByRole("button", { name: "Multi-Agent" })).toHaveAttribute("aria-pressed", "true")
+
+    const disclosure = screen.getByText("Keyboard task").closest("summary")!
+    disclosure.focus()
+    expect(disclosure).toHaveFocus()
+    await user.click(disclosure)
+    expect(screen.getByText("Started coding")).toBeVisible()
+
+    const modelButton = screen.getByRole("button", { name: /配置模型/ })
+    modelButton.focus()
+    await user.keyboard("{Enter}")
+    const modelDialog = screen.getByRole("dialog", { name: "配置模型" })
+    const selects = await modelDialog.querySelectorAll("select")
+    expect(selects).toHaveLength(4)
+    for (const select of selects) {
+      select.focus()
+      expect(select).toHaveFocus()
+    }
+    const cancel = screen.getByRole("button", { name: "取消" })
+    cancel.focus()
+    await user.keyboard("{Enter}")
+    await waitFor(() => expect(modelButton).toHaveFocus())
+
+    await user.keyboard("{Enter}")
+    const save = await screen.findByRole("button", { name: "保存" })
+    save.focus()
+    await user.keyboard("{Enter}")
+    await waitFor(() => expect(modelButton).toHaveFocus())
+
+    const openChild = screen.getByRole("button", { name: "打开子 Agent：Keyboard task" })
+    openChild.focus()
+    await user.keyboard("{Enter}")
+    expect(await screen.findByRole("heading", { name: "Coder Session" })).toBeVisible()
+    expect(screen.getByRole("link", { name: /Root Session/ })).toHaveAttribute("aria-current", "page")
+    expect(screen.getByRole("button", { name: "当前模型：Test · Test Model" })).toBeDisabled()
+    expect(screen.getByRole("textbox", { name: "消息" })).toBeEnabled()
+    const back = screen.getByRole("button", { name: "返回主 Session" })
+    back.focus()
+    await user.keyboard("{Enter}")
+    expect(await screen.findByRole("heading", { name: "Root Session" })).toBeVisible()
+  }, 15_000)
 
   it("defines a reduced-motion override for nonessential transitions", () => {
     const stylesheet = readFileSync("src/styles/global.css", "utf8")
