@@ -1783,6 +1783,7 @@ export type VcsBranch = {
   current: boolean
   remote?: string
   upstream?: string
+  updatedAt?: string
 }
 
 export type VcsRemote = {

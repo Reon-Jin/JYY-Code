@@ -27,7 +27,10 @@ describe("conversation layout CSS", () => {
 
   it("aligns the user bubble and Agent content on opposite sides and keeps tool calls compact", () => {
     expect(conversationCSS).toMatch(
-      /\.conversation-message\[data-role="user"\]\s*\{[^}]*justify-self:\s*end;[^}]*text-align:\s*right;/s,
+      /\.conversation-message\[data-role="user"\]\s*\{[^}]*justify-self:\s*end;[^}]*text-align:\s*left;/s,
+    )
+    expect(conversationCSS).toMatch(
+      /\.conversation-message\[data-role="user"\] \.conversation-message__parts\s*\{[^}]*justify-items:\s*stretch;/s,
     )
     expect(conversationCSS).toMatch(
       /\.conversation-message\[data-role="user"\]\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*50%;/s,

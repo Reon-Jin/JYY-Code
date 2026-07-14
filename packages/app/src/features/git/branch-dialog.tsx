@@ -26,56 +26,101 @@ export type BranchDialogProps = {
   onPullRequests?: () => void
 }
 
+type BranchEntry = {
+  branch: VcsBranch
+  name: string
+}
+
+function branchDisplayName(branch: VcsBranch) {
+  if (branch.kind === "local") return branch.name
+  const prefix = branch.remote ? `${branch.remote}/` : ""
+  if (prefix && branch.name.startsWith(prefix)) return branch.name.slice(prefix.length)
+  return branch.name
+}
+
+export function formatBranchUpdatedAt(value?: string, now = Date.now()) {
+  if (!value) return undefined
+  const updatedAt = Date.parse(value)
+  if (!Number.isFinite(updatedAt)) return undefined
+  const elapsed = Math.max(0, now - updatedAt)
+  const minute = 60 * 1_000
+  const hour = 60 * minute
+  const day = 24 * hour
+  if (elapsed < minute) return "刚刚"
+  if (elapsed < hour) return `${Math.max(1, Math.round(elapsed / minute))} 分钟前`
+  if (elapsed < day) return `${Math.max(1, Math.round(elapsed / hour))} 小时前`
+  if (elapsed < 30 * day) return `${Math.max(1, Math.round(elapsed / day))} 天前`
+  if (elapsed < 365 * day) return `${Math.max(1, Math.round(elapsed / (30 * day)))} 个月前`
+  return `${Math.max(1, Math.round(elapsed / (365 * day)))} 年前`
+}
+
 export function BranchDialog(props: BranchDialogProps) {
-  const matches = (branch: VcsBranch) => branch.name.toLowerCase().includes(props.search.trim().toLowerCase())
-  const local = () => props.branches.filter((branch) => branch.kind === "local" && matches(branch))
-  const remote = () => props.branches.filter((branch) => branch.kind === "remote" && matches(branch))
+  const branches = () => {
+    const entries: BranchEntry[] = []
+    const names = new Set<string>()
+    for (const branch of props.branches) {
+      if (branch.kind !== "local") continue
+      names.add(branch.name)
+      entries.push({ branch, name: branch.name })
+    }
+    for (const branch of props.branches) {
+      if (branch.kind !== "remote") continue
+      const name = branchDisplayName(branch)
+      if (names.has(name)) continue
+      names.add(name)
+      entries.push({ branch, name })
+    }
+    const search = props.search.trim().toLowerCase()
+    return search ? entries.filter((entry) => entry.name.toLowerCase().includes(search)) : entries
+  }
 
   return (
-    <Dialog open={props.open} title="Git 分支" description="切换分支或同步远程仓库" onClose={props.onClose}>
+    <Dialog
+      open={props.open}
+      class="branch-dialog-modal"
+      title="Git 分支"
+      description="切换分支或同步远程仓库"
+      showClose
+      onClose={props.onClose}
+    >
       <div class="branch-dialog">
         <label class="branch-search">
           <Search aria-hidden="true" />
           <span>搜索分支</span>
           <input
             value={props.search}
-            placeholder="搜索本地与远程分支"
+            placeholder="搜索分支"
             onInput={(event) => props.onSearch(event.currentTarget.value)}
           />
         </label>
 
         <div class="branch-groups">
-          <section aria-labelledby="local-branches-title">
-            <h3 id="local-branches-title">本地</h3>
+          <section aria-labelledby="branches-title">
+            <h3 id="branches-title">分支</h3>
             <ul>
-              <For each={local()} fallback={<li class="branch-empty">没有匹配的本地分支</li>}>
-                {(branch) => (
+              <For each={branches()} fallback={<li class="branch-empty">没有匹配的分支</li>}>
+                {(entry) => (
                   <li>
                     <button
                       type="button"
-                      aria-current={branch.current ? "true" : undefined}
-                      disabled={Boolean(props.pending) || branch.current}
-                      onClick={() => props.onSwitch(branch)}
+                      aria-current={entry.branch.current ? "true" : undefined}
+                      disabled={Boolean(props.pending) || entry.branch.current}
+                      onClick={() => props.onSwitch(entry.branch)}
                     >
                       <GitFork aria-hidden="true" />
-                      <span>{branch.name}</span>
-                      <Show when={branch.current}>当前</Show>
-                    </button>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </section>
-          <section aria-labelledby="remote-branches-title">
-            <h3 id="remote-branches-title">远程</h3>
-            <ul>
-              <For each={remote()} fallback={<li class="branch-empty">没有匹配的远程分支</li>}>
-                {(branch) => (
-                  <li>
-                    <button type="button" disabled={Boolean(props.pending)} onClick={() => props.onSwitch(branch)}>
-                      <GitFork aria-hidden="true" />
-                      <span>{branch.name}</span>
-                      <small>创建本地跟踪分支</small>
+                      <span class="branch-name">{entry.name}</span>
+                      <span class="branch-meta">
+                        <Show when={formatBranchUpdatedAt(entry.branch.updatedAt)}>
+                          {(label) => (
+                            <time dateTime={entry.branch.updatedAt} title={new Date(entry.branch.updatedAt!).toLocaleString()}>
+                              {label()}
+                            </time>
+                          )}
+                        </Show>
+                        <Show when={entry.branch.current}>
+                          <strong>当前</strong>
+                        </Show>
+                      </span>
                     </button>
                   </li>
                 )}

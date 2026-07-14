@@ -71,11 +71,11 @@
   border-radius: 18px;
   padding: var(--space-3) var(--space-4);
   background: var(--color-surface);
-  text-align: right;
+  text-align: left;
 }
 
 .conversation-message[data-role="user"] .conversation-message__parts {
-  justify-items: end;
+  justify-items: stretch;
 }
 .conversation-message[data-role="user"] .conversation-markdown pre,
 .conversation-message[data-role="user"] .conversation-markdown ul,

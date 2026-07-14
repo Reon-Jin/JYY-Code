@@ -1,10 +1,22 @@
 import { HashRouter, Navigate, Route, useParams } from "@solidjs/router"
-import { lazy, Show, Suspense } from "solid-js"
+import { createSignal, onMount, Show, type Component } from "solid-js"
+import { Dynamic } from "solid-js/web"
 import type { DesktopBootstrap } from "./platform/types"
 import { useProjects } from "./features/projects/project-context"
 import { WelcomePage } from "./features/projects/welcome-page"
 
-const ProjectWorkspace = lazy(() => import("./layout/project-workspace"))
+type ProjectWorkspaceComponent = Component<{
+  bootstrap: DesktopBootstrap
+  directory: string
+  activeSessionID?: string
+}>
+
+let projectWorkspacePromise: Promise<{ default: ProjectWorkspaceComponent }> | undefined
+
+function loadProjectWorkspace() {
+  projectWorkspacePromise ??= import("./layout/project-workspace")
+  return projectWorkspacePromise
+}
 
 function WorkspaceLoading() {
   return (
@@ -14,33 +26,31 @@ function WorkspaceLoading() {
   )
 }
 
-function ProjectHome(props: { bootstrap: DesktopBootstrap }) {
+function WorkspaceRoute(props: { bootstrap: DesktopBootstrap }) {
   const projects = useProjects()
-  return (
-    <Show when={projects.activeProject()} fallback={<WelcomePage />}>
-      {(project) => (
-        <Suspense fallback={<WorkspaceLoading />}>
-          <ProjectWorkspace bootstrap={props.bootstrap} directory={project().directory} />
-        </Suspense>
-      )}
-    </Show>
-  )
-}
+  const params = useParams<{ sessionID?: string }>()
+  const [Workspace, setWorkspace] = createSignal<ProjectWorkspaceComponent>()
 
-function SessionRoute(props: { bootstrap: DesktopBootstrap }) {
-  const projects = useProjects()
-  const params = useParams<{ sessionID: string }>()
+  onMount(() => {
+    void loadProjectWorkspace().then((module) => setWorkspace(() => module.default))
+  })
 
   return (
-    <Show when={projects.activeProject()} fallback={<Navigate href="/" />}>
+    <Show
+      when={projects.activeProject()}
+      fallback={<Show when={!params.sessionID} fallback={<Navigate href="/" />}><WelcomePage /></Show>}
+    >
       {(project) => (
-        <Suspense fallback={<WorkspaceLoading />}>
-          <ProjectWorkspace
-            bootstrap={props.bootstrap}
-            directory={project().directory}
-            activeSessionID={params.sessionID}
-          />
-        </Suspense>
+        <Show when={Workspace()} fallback={<WorkspaceLoading />}>
+          {(Component) => (
+            <Dynamic
+              component={Component()}
+              bootstrap={props.bootstrap}
+              directory={project().directory}
+              activeSessionID={params.sessionID}
+            />
+          )}
+        </Show>
       )}
     </Show>
   )
@@ -49,8 +59,7 @@ function SessionRoute(props: { bootstrap: DesktopBootstrap }) {
 export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
   return (
     <HashRouter>
-      <Route path="/" component={() => <ProjectHome bootstrap={props.bootstrap} />} />
-      <Route path="/session/:sessionID" component={() => <SessionRoute bootstrap={props.bootstrap} />} />
+      <Route path={["/", "/session/:sessionID"]} component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
     </HashRouter>
   )
 }

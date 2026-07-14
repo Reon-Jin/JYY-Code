@@ -135,12 +135,23 @@ describe("Vcs", () => {
         expect(result).toEqual({
           current: "main",
           branches: [
-            { name: "feature/local", kind: "local", current: false },
-            { name: "main", kind: "local", current: true },
-            { name: "origin/feature/remote", kind: "remote", remote: "origin", current: false },
+            { name: "feature/local", kind: "local", current: false, updatedAt: expect.any(String) },
+            { name: "main", kind: "local", current: true, updatedAt: expect.any(String) },
+            {
+              name: "origin/feature/remote",
+              kind: "remote",
+              remote: "origin",
+              current: false,
+              updatedAt: expect.any(String),
+            },
           ],
           remotes: [{ name: "origin", fetchUrl: expect.any(String), pushUrl: expect.any(String) }],
         })
+        expect(
+          result.branches.every((branch) =>
+            /^\d{4}-\d{2}-\d{2}T/.test((branch as { updatedAt?: string }).updatedAt ?? ""),
+          ),
+        ).toBe(true)
       }),
     { git: true },
   )

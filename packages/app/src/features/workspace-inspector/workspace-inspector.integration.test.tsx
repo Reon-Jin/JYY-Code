@@ -88,9 +88,16 @@ describe("workspace inspector Git and GitHub journey", () => {
     await waitFor(() => expect(within(branchDialog).getByRole("status")).toHaveTextContent("Fetch 完成"))
     await user.click(within(branchDialog).getByRole("button", { name: "Push" }))
     await waitFor(() => expect(within(branchDialog).getByRole("status")).toHaveTextContent("Push 完成"))
+    const loadingFlashes: string[] = []
+    const observer = new MutationObserver(() => {
+      if (document.body.textContent?.includes("正在加载工作区")) loadingFlashes.push("workspace")
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
     await user.click(within(branchDialog).getByRole("button", { name: "Pull Requests" }))
 
     const pullDialog = await screen.findByRole("dialog", { name: "GitHub Pull Requests" })
+    observer.disconnect()
+    expect(loadingFlashes).toEqual([])
     expect(within(pullDialog).getByText("example/demo")).toBeVisible()
     await user.click(within(pullDialog).getByRole("button", { name: "创建 Pull Request" }))
     const createForm = within(pullDialog).getByRole("form", { name: "创建 Pull Request" })

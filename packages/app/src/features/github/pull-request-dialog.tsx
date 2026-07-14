@@ -1,6 +1,8 @@
 import type { GitHubAvailability, GitHubPullRequestDetail, GitHubPullRequestSummary } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
+import { ArrowLeft } from "lucide-solid"
 import { createEffect, createMemo, createSignal, on, Show, type JSX } from "solid-js"
+import { Button } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
 import { useData } from "../../data/context"
 import { errorMessage } from "../projects/project-controller"
@@ -78,19 +80,27 @@ export function PullRequestDialogView(props: PullRequestDialogViewProps) {
             onRefresh={props.onRefresh}
             onCreate={props.onCreate}
           />
-          <Show
-            when={!props.editor}
-            fallback={<section class="pull-detail pull-detail--editor">{props.editor}</section>}
-          >
-            <PullRequestDetailView
-              detail={props.detail}
-              loading={props.detailLoading}
-              error={props.detailError}
-              diff={props.diff}
-              handlers={props.handlers}
-              onEdit={props.onEdit}
-            />
-          </Show>
+          <div class="pull-detail-column">
+            <div class="pull-detail-column__toolbar">
+              <Button size="small" variant="ghost" onClick={props.onClose}>
+                <ArrowLeft aria-hidden="true" />
+                返回并关闭
+              </Button>
+            </div>
+            <Show
+              when={!props.editor}
+              fallback={<section class="pull-detail pull-detail--editor">{props.editor}</section>}
+            >
+              <PullRequestDetailView
+                detail={props.detail}
+                loading={props.detailLoading}
+                error={props.detailError}
+                diff={props.diff}
+                handlers={props.handlers}
+                onEdit={props.onEdit}
+              />
+            </Show>
+          </div>
         </div>
       </Show>
     </Dialog>
@@ -109,7 +119,7 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
   const pulls = createQuery(
     () => ({
       ...pullRequestsQueryOptions({ client: data.client(), directory: props.directory, state: state() }),
-      enabled: props.open && status.data?.available === true,
+      enabled: props.open && !status.isPending && status.data?.available === true,
     }),
     data.queryClient,
   )
@@ -123,10 +133,13 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
   const api = createMemo(() =>
     createGitHubApi({ client: data.client(), directory: props.directory, queryClient: data.queryClient() }),
   )
+  const statusData = () => (status.isPending ? undefined : status.data)
+  const pullsData = () => (pulls.isPending ? undefined : pulls.data)
+  const detailData = () => (detail.isPending ? undefined : detail.data)
 
   createEffect(
     on(
-      () => pulls.data,
+      pullsData,
       (items) => {
         if (!items?.length) return setSelected(undefined)
         if (!selected() || !items.some((pull) => Number(pull.number) === selected()))
@@ -149,7 +162,7 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
   }
 
   const handlers = createMemo<PullRequestActionHandlers | undefined>(() => {
-    const pull = detail.data
+    const pull = detailData()
     if (!pull) return undefined
     const number = Number(pull.number)
     return {
@@ -174,23 +187,25 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
   function editorContent() {
     const mode = editor()
     if (!mode) return undefined
+    const currentDetail = detailData()
+    const currentStatus = statusData()
     return (
       <PullRequestForm
         mode={mode}
         initial={
-          mode === "edit" && detail.data
+          mode === "edit" && currentDetail
             ? {
-                title: detail.data.title,
-                body: detail.data.body,
-                head: detail.data.headRefName,
-                base: detail.data.baseRefName,
-                draft: detail.data.isDraft,
+                title: currentDetail.title,
+                body: currentDetail.body,
+                head: currentDetail.headRefName,
+                base: currentDetail.baseRefName,
+                draft: currentDetail.isDraft,
               }
             : {
                 title: "",
                 body: "",
-                head: detail.data?.headRefName ?? "",
-                base: status.data?.available ? status.data.repository.defaultBranch : "main",
+                head: currentDetail?.headRefName ?? "",
+                base: currentStatus?.available ? currentStatus.repository.defaultBranch : "main",
               }
         }
         onSubmit={mode === "create" ? saveCreate : saveEdit}
@@ -202,15 +217,15 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
   return (
     <PullRequestDialogView
       open={props.open}
-      status={status.data}
+      status={statusData()}
       statusLoading={status.isPending}
       statusError={status.error ? errorMessage(status.error, "无法检测 GitHub 环境") : undefined}
-      pulls={pulls.data ?? []}
+      pulls={pullsData() ?? []}
       pullsLoading={pulls.isPending}
       pullsError={pulls.error ? errorMessage(pulls.error, "无法加载 Pull Requests") : undefined}
       state={state()}
       selected={selected()}
-      detail={detail.data}
+      detail={detailData()}
       detailLoading={Boolean(selected()) && detail.isPending}
       detailError={detail.error ? errorMessage(detail.error, "无法加载 Pull Request 详情") : undefined}
       editor={editorContent()}

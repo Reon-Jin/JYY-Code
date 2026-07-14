@@ -259,7 +259,7 @@ const remoteName = (ref: string, remotes: Remote[]) =>
 const parseBranches = (text: string, current: string | undefined, remotes: Remote[]): Branch[] => {
   const branches: Branch[] = []
   for (const line of text.split(/\r?\n/)) {
-    const [ref = "", upstream = "", symref = ""] = line.split("\t")
+    const [ref = "", upstream = "", symref = "", updatedAt = ""] = line.split("\t")
     if (ref.startsWith("refs/heads/")) {
       const name = ref.slice("refs/heads/".length)
       branches.push({
@@ -267,12 +267,19 @@ const parseBranches = (text: string, current: string | undefined, remotes: Remot
         kind: "local",
         current: name === current,
         ...(upstream ? { upstream } : {}),
+        ...(updatedAt ? { updatedAt } : {}),
       })
       continue
     }
     if (!ref.startsWith("refs/remotes/") || symref) continue
     const name = ref.slice("refs/remotes/".length)
-    branches.push({ name, kind: "remote", remote: remoteName(name, remotes), current: false })
+    branches.push({
+      name,
+      kind: "remote",
+      remote: remoteName(name, remotes),
+      current: false,
+      ...(updatedAt ? { updatedAt } : {}),
+    })
   }
   return branches.toSorted((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name))
 }
@@ -313,6 +320,7 @@ export const Branch = Schema.Struct({
   current: Schema.Boolean,
   remote: Schema.optional(Schema.String),
   upstream: Schema.optional(Schema.String),
+  updatedAt: Schema.optional(Schema.String),
 }).annotate({ identifier: "VcsBranch" })
 export type Branch = Schema.Schema.Type<typeof Branch>
 
@@ -495,7 +503,7 @@ export const layer: Layer.Layer<Service, never, Git.Service | Bus.Service> = Lay
           git.run(
             [
               "for-each-ref",
-              "--format=%(refname)%09%(upstream:short)%09%(symref)%09%(HEAD)",
+              "--format=%(refname)%09%(upstream:short)%09%(symref)%09%(committerdate:iso-strict)",
               "refs/heads",
               "refs/remotes",
             ],

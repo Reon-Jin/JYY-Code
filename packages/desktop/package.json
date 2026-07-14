@@ -5,8 +5,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tauri dev",
-    "build": "tauri build",
+    "dev": "bun run stage:sidecar && tauri dev",
+    "build": "bun run stage:sidecar && tauri build",
     "stage:sidecar": "bun script/stage-sidecar.ts",
     "test": "bun test script",
     "typecheck": "tsc --noEmit"

@@ -24,7 +24,7 @@ const pulls: GitHubPullRequestSummary[] = [
 ]
 const detail: GitHubPullRequestDetail = {
   ...pulls[0]!,
-  body: "Safe plain text",
+  body: "## Safe Markdown\n\n- first item\n- second item",
   mergeable: "MERGEABLE",
   checks: [
     { name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
@@ -58,6 +58,7 @@ afterEach(cleanup)
 function renderView(status: GitHubAvailability = available) {
   const onState = vi.fn()
   const onSelect = vi.fn()
+  const onClose = vi.fn()
   render(() => (
     <PullRequestDialogView
       open
@@ -66,14 +67,14 @@ function renderView(status: GitHubAvailability = available) {
       state="open"
       selected={7}
       detail={detail}
-      onClose={vi.fn()}
+      onClose={onClose}
       onRetryStatus={vi.fn()}
       onState={onState}
       onSelect={onSelect}
       onRefresh={vi.fn()}
     />
   ))
-  return { onState, onSelect }
+  return { onState, onSelect, onClose }
 }
 
 describe("PullRequestDialog", () => {
@@ -96,12 +97,15 @@ describe("PullRequestDialog", () => {
     expect(within(dialog).getByText(/#7 Desktop inspector/)).toBeVisible()
     expect(within(dialog).getByText("feature → main")).toBeVisible()
     expect(within(dialog).getByText("APPROVED")).toBeVisible()
-    expect(within(dialog).getByText("Safe plain text")).toBeVisible()
+    expect(within(dialog).getByRole("heading", { name: "Safe Markdown", level: 2 })).toBeVisible()
+    expect(within(dialog).getByText("first item").closest("li")).toBeVisible()
     expect(within(dialog).getByText("SUCCESS")).toBeVisible()
     expect(within(dialog).getByText("Looks good")).toBeVisible()
     await user.click(within(dialog).getByRole("button", { name: "Closed" }))
     expect(handlers.onState).toHaveBeenCalledWith("closed")
     await user.click(within(dialog).getByRole("button", { name: /#7 Desktop inspector/ }))
     expect(handlers.onSelect).toHaveBeenCalledWith(7)
+    await user.click(within(dialog).getByRole("button", { name: "返回并关闭" }))
+    expect(handlers.onClose).toHaveBeenCalledOnce()
   })
 })

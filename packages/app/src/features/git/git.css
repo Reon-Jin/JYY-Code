@@ -12,10 +12,24 @@
   white-space: nowrap;
 }
 
+.branch-dialog-modal.ui-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+.branch-dialog-modal .ui-dialog__header,
+.branch-dialog-modal .ui-dialog__content {
+  padding: var(--space-4) var(--space-6);
+}
+.branch-dialog-modal .ui-dialog__header {
+  padding-right: var(--space-12);
+}
 .branch-dialog {
   display: grid;
-  width: min(680px, calc(100vw - 48px));
-  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+  gap: var(--space-3);
 }
 .branch-search {
   position: relative;
@@ -39,6 +53,9 @@
 .branch-search input,
 .branch-create input,
 .branch-remote select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   height: 34px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -50,8 +67,6 @@
 }
 .branch-groups {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-3);
 }
 .branch-groups section {
   min-width: 0;
@@ -62,11 +77,12 @@
 }
 .branch-groups ul {
   display: grid;
-  max-height: 210px;
+  max-height: 280px;
   gap: 2px;
   margin: 0;
   padding: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   list-style: none;
 }
 .branch-groups li > button {
@@ -93,12 +109,23 @@
   width: 14px;
   height: 14px;
 }
-.branch-groups li > button span {
+.branch-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.branch-groups li > button small,
+.branch-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.branch-meta strong {
+  color: var(--color-text);
+  font-size: inherit;
+}
 .branch-empty {
   color: var(--color-text-muted);
   font-size: 0.65rem;
@@ -129,9 +156,6 @@
 }
 
 @media (max-width: 560px) {
-  .branch-groups {
-    grid-template-columns: 1fr;
-  }
   .branch-create {
     grid-template-columns: 1fr;
   }

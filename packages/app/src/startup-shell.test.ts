@@ -13,7 +13,9 @@ describe("desktop startup shell", () => {
     expect(entrySource).toContain("root.replaceChildren()")
   })
 
-  it("loads the heavy project workspace after the application shell", () => {
-    expect(routesSource).toMatch(/lazy\(\(\) => import\("\.\/layout\/project-workspace"\)\)/)
+  it("keeps one mounted workspace route without a route-wide loading boundary", () => {
+    expect(routesSource).toContain('import("./layout/project-workspace")')
+    expect(routesSource).toContain('path={["/", "/session/:sessionID"]}')
+    expect(routesSource).not.toContain("Suspense")
   })
 })

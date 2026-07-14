@@ -20,6 +20,7 @@ export type BranchControlViewProps = {
   current?: string
   branches: VcsBranches
   loading?: boolean
+  loadError?: string
   actions: BranchActions
   onPullRequests?: () => void
 }
@@ -128,7 +129,7 @@ export function BranchControlView(props: BranchControlViewProps) {
         remote={remote()}
         pending={pending()}
         feedback={feedback()}
-        error={error()}
+        error={error() ?? props.loadError}
         onClose={() => setOpen(false)}
         onSearch={setSearch}
         onNewBranch={setNewBranch}
@@ -174,6 +175,7 @@ export function BranchControl(props: { directory: string; onPullRequests?: () =>
         current={branches.data?.current ?? info.data?.branch}
         branches={branches.data ?? { branches: [], remotes: [] }}
         loading={info.isPending || (Boolean(info.data?.branch) && branches.isPending)}
+        loadError={branches.error ? `无法加载分支：${operationError(branches.error).message}` : undefined}
         actions={actions()}
         onPullRequests={props.onPullRequests ?? (() => setPullRequestsOpen(true))}
       />

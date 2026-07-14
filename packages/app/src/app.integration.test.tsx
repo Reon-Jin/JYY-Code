@@ -117,4 +117,36 @@ describe("desktop GUI journey", () => {
     expect(await screen.findByRole("heading", { name: /让代码保持流动/ })).toBeVisible()
     expect(desktop.lastLocation()).toEqual({})
   })
+
+  it("keeps the workspace mounted while creating and opening a new Session", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_1" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.sessions.push({
+      id: "ses_1",
+      slug: "existing",
+      projectID: backend.project.id,
+      directory: desktop.directory,
+      title: "Existing Session",
+      version: "test",
+      time: { created: 1, updated: 1 },
+    })
+    backend.messages.set("ses_1", [])
+    vi.stubGlobal("fetch", backend.fetch)
+    render(() => <App bridge={desktop.bridge} />)
+
+    expect(await screen.findByRole("heading", { name: "Existing Session" }, { timeout: 5_000 })).toBeVisible()
+    const loadingFlashes: string[] = []
+    const observer = new MutationObserver(() => {
+      if (document.body.textContent?.includes("正在加载工作区")) loadingFlashes.push("workspace")
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+
+    await user.click(screen.getByRole("button", { name: "新建 Session" }))
+    await waitFor(() => expect(screen.getByRole("heading", { name: /^New session/ })).toBeVisible(), { timeout: 5_000 })
+    observer.disconnect()
+
+    expect(loadingFlashes).toEqual([])
+    expect(screen.getByText("后端已连接")).toBeVisible()
+  })
 })

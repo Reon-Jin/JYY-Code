@@ -4,6 +4,7 @@ import { createSignal, For, Match, Show, Switch, type JSX } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
+import { renderMarkdown } from "../conversation/markdown"
 import { PullRequestActions, type PullRequestActionHandlers } from "./pull-request-actions"
 
 function checkState(check: GitHubPullRequestCheck) {
@@ -95,7 +96,10 @@ export function PullRequestDetailView(props: {
                   <div class="pull-detail__body">
                     <section>
                       <h4>说明</h4>
-                      <p class="pull-detail__markdown">{pull().body || "未填写说明"}</p>
+                      <div
+                        class="pull-detail__markdown conversation-markdown"
+                        innerHTML={renderMarkdown(pull().body || "未填写说明")}
+                      />
                     </section>
                     <section>
                       <h4>合并状态</h4>
