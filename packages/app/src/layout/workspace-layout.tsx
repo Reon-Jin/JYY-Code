@@ -25,6 +25,7 @@ import {
 import { ProviderEmpty } from "../features/composer/provider-empty"
 import { effectiveMultiAgent, MultiAgentControl } from "../features/multi-agent/multi-agent-control"
 import { agentClusterQueryOptions } from "../features/multi-agent/multi-agent-query"
+import { MultiAgentPanel } from "../features/multi-agent/multi-agent-panel"
 import { projectAgentClusterState } from "../features/multi-agent/multi-agent-state"
 import { PermissionBar } from "../features/requests/permission-bar"
 import { QuestionPanel } from "../features/requests/question-panel"
@@ -317,6 +318,12 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const activeSession = createMemo(() => sessionQuery.data)
   const parentSessionID = createMemo(() => activeSession()?.parentID)
   const rootSessionID = createMemo(() => parentSessionID() ?? activeSession()?.id)
+  const rootSession = createMemo(() => {
+    const rootID = rootSessionID()
+    if (!rootID) return undefined
+    if (activeSession()?.id === rootID) return activeSession()
+    return [...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])].find((session) => session.id === rootID)
+  })
   const isChildSession = createMemo(() => Boolean(parentSessionID()))
   const clusterQuery = createQuery(
     () => ({
@@ -330,6 +337,15 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     data.queryClient,
   )
   const clusterSnapshot = createMemo(() => projectAgentClusterState(clusterQuery.data ?? { runs: [], tasks: [] }))
+  const rootMultiAgentEnabled = createMemo(() =>
+    rootSession() ? effectiveMultiAgent(rootSession()!, catalogQuery.data?.agentCluster) : false,
+  )
+  const multiAgentBadge = createMemo(() => {
+    const snapshot = clusterSnapshot()
+    if (snapshot.failedAgents > 0) return `${snapshot.runningAgents}/${snapshot.failedAgents}`
+    if (snapshot.runningAgents > 0) return String(snapshot.runningAgents)
+    return undefined
+  })
   const requestScope = createMemo(() => {
     const session = activeSession()
     if (!session) return []
@@ -575,6 +591,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                             session={session}
                             config={catalogQuery.data?.agentCluster}
                             onOpenPanel={() => updateInspectorPreferences({ pane: "multi-agent" })}
+                            counts={{
+                              running: clusterSnapshot().runningAgents,
+                              done: clusterSnapshot().doneAgents,
+                              failed: clusterSnapshot().failedAgents,
+                            }}
                           />
                         )}
                       </Show>
@@ -598,6 +619,16 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           sessionID={props.activeSessionID}
           pane={inspectorPreferences().pane}
           onPaneChange={(pane) => updateInspectorPreferences({ pane })}
+          multiAgent={
+            <MultiAgentPanel
+              directory={data.directory()}
+              sessionID={rootSessionID()}
+              enabled={rootMultiAgentEnabled()}
+              selectedChildSessionID={isChildSession() ? activeSession()?.id : undefined}
+              onOpenChild={(sessionID) => navigate(`/session/${encodeURIComponent(sessionID)}`)}
+            />
+          }
+          multiAgentBadge={multiAgentBadge()}
         />
       }
       busy={busy()}
