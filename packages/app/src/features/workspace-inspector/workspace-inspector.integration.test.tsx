@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library"
+import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { App } from "../../app"
@@ -66,18 +66,17 @@ describe("workspace inspector Git and GitHub journey", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Workspace flow" })).toBeVisible(), {
       timeout: 5_000,
     })
+    await user.click(screen.getByRole("button", { name: "Todo" }))
     expect(await screen.findByText("Inspect workspace")).toBeVisible()
     expect(await screen.findByText("后端已连接")).toBeVisible()
     expect(screen.getByText("Inspect workspace").closest("li")).toHaveTextContent("未开始")
 
+    await user.click(screen.getByRole("button", { name: "工作区变更" }))
     expect(await screen.findByRole("button", { name: /src\/app.tsx, \+4 -1/ })).toBeVisible()
-    const separator = screen.getByRole("separator", { name: "调整计划与工作区变更高度" })
-    separator.focus()
-    await user.keyboard("{End}")
-    expect(separator).toHaveAttribute("aria-valuenow", "80")
-    await user.click(screen.getByRole("button", { name: "收起工作栏" }))
-    await user.click(screen.getByRole("button", { name: "展开工作栏" }))
-    expect(screen.getByRole("separator")).toHaveAttribute("aria-valuenow", "80")
+    await user.click(screen.getByRole("button", { name: "工作区变更" }))
+    expect(screen.queryByRole("complementary", { name: "工作区变更" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "工作区变更" }))
+    expect(screen.getByRole("complementary", { name: "工作区变更" })).toBeVisible()
 
     await user.click(await screen.findByRole("button", { name: /main/ }))
     const branchDialog = screen.getByRole("dialog", { name: "Git 分支" })

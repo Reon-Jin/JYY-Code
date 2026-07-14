@@ -495,15 +495,13 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           )}
         </Show>
       }
-      inspectorOpen={inspectorPreferences().open}
+      inspectorOpen={Boolean(inspectorPreferences().pane)}
       inspector={
         <WorkspaceInspector
           directory={data.directory()}
           sessionID={props.activeSessionID}
-          open={inspectorPreferences().open}
-          todoRatio={inspectorPreferences().todoRatio}
-          onOpenChange={(open) => updateInspectorPreferences({ open })}
-          onTodoRatioChange={(todoRatio) => updateInspectorPreferences({ todoRatio })}
+          pane={inspectorPreferences().pane}
+          onPaneChange={(pane) => updateInspectorPreferences({ pane })}
         />
       }
       busy={busy()}

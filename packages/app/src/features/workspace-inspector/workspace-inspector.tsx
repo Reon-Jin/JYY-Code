@@ -1,56 +1,104 @@
-import { PanelRightClose, PanelRightOpen } from "lucide-solid"
-import { Show, type JSX } from "solid-js"
+import { FileDiff, ListTodo, Network } from "lucide-solid"
+import { onCleanup, onMount, Show, type JSX } from "solid-js"
 import { IconButton } from "../../components/ui/button"
 import { ChangesPanel } from "../changes/changes-panel"
 import { TodoPanel } from "../todos/todo-panel"
-import { ResizableSplit } from "./resizable-split"
+import type { InspectorPane } from "./inspector-preferences"
 import "./workspace-inspector.css"
 
+const paneLabels: Record<InspectorPane, string> = {
+  todo: "Todo",
+  "multi-agent": "Multi-Agent",
+  changes: "工作区变更",
+}
+
+function isNarrow() {
+  return typeof window !== "undefined" && window.matchMedia?.("(max-width: 960px)").matches === true
+}
+
 export type WorkspaceInspectorViewProps = {
-  open: boolean
-  todoRatio: number
-  onOpenChange: (open: boolean) => void
-  onTodoRatioChange: (ratio: number) => void
+  pane?: InspectorPane
+  onPaneChange: (pane: InspectorPane | undefined) => void
   todo: JSX.Element
+  multiAgent: JSX.Element
   changes: JSX.Element
+  todoBadge?: JSX.Element
+  multiAgentBadge?: JSX.Element
+  changesBadge?: JSX.Element
 }
 
 export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
+  const selectPane = (next: InspectorPane) => props.onPaneChange(next === props.pane ? undefined : next)
+  const panel = (pane: InspectorPane) => {
+    if (pane === "todo") return props.todo
+    if (pane === "multi-agent") return props.multiAgent
+    return props.changes
+  }
+
+  function keydown(event: KeyboardEvent) {
+    if (event.key !== "Escape" || !props.pane || !isNarrow()) return
+    props.onPaneChange(undefined)
+  }
+
+  onMount(() => window.addEventListener("keydown", keydown))
+  onCleanup(() => window.removeEventListener("keydown", keydown))
+
+  const ActivityButton = (buttonProps: {
+    pane: InspectorPane
+    icon: JSX.Element
+    badge?: JSX.Element
+  }) => (
+    <IconButton
+      class="workspace-activity-button"
+      label={paneLabels[buttonProps.pane]}
+      variant="ghost"
+      aria-controls={props.pane === buttonProps.pane ? "workspace-drawer" : undefined}
+      aria-pressed={props.pane === buttonProps.pane}
+      onClick={() => selectPane(buttonProps.pane)}
+    >
+      {buttonProps.icon}
+      <Show when={buttonProps.badge !== undefined}>
+        <span class="workspace-activity-button__badge" aria-hidden="true">
+          {buttonProps.badge}
+        </span>
+      </Show>
+    </IconButton>
+  )
+
   return (
     <>
-      <IconButton
-        class="workspace-inspector-toggle"
-        label={props.open ? "收起工作栏" : "展开工作栏"}
-        variant="secondary"
-        aria-controls="workspace-inspector"
-        aria-expanded={props.open}
-        onClick={() => props.onOpenChange(!props.open)}
-      >
-        <Show when={props.open} fallback={<PanelRightOpen aria-hidden="true" />}>
-          <PanelRightClose aria-hidden="true" />
-        </Show>
-      </IconButton>
-
-      <aside
-        id="workspace-inspector"
-        class="workspace-inspector"
-        aria-label="工作栏"
-        aria-hidden={props.open ? "false" : "true"}
-        inert={!props.open ? true : undefined}
-        style={`--todo-ratio: ${props.todoRatio}fr; --changes-ratio: ${1 - props.todoRatio}fr`}
-      >
-        <div class="workspace-inspector__region workspace-inspector__region--todo" role="region" aria-label="Todo">
-          {props.todo}
-        </div>
-        <ResizableSplit value={props.todoRatio} onChange={props.onTodoRatioChange} />
-        <div
-          class="workspace-inspector__region workspace-inspector__region--changes"
-          role="region"
-          aria-label="工作区变更"
-        >
-          {props.changes}
-        </div>
-      </aside>
+      <Show when={props.pane && isNarrow()}>
+        <button
+          type="button"
+          class="workspace-drawer-scrim"
+          aria-label="关闭工作栏页面"
+          onClick={() => props.onPaneChange(undefined)}
+        />
+      </Show>
+      <Show when={props.pane} keyed>
+        {(pane) => (
+          <aside id="workspace-drawer" class="workspace-drawer" aria-label={paneLabels[pane]}>
+            {panel(pane)}
+          </aside>
+        )}
+      </Show>
+      <nav class="workspace-activity-rail" aria-label="工作栏页面">
+        <ActivityButton
+          pane="todo"
+          icon={<ListTodo aria-hidden="true" />}
+          badge={props.todoBadge}
+        />
+        <ActivityButton
+          pane="multi-agent"
+          icon={<Network aria-hidden="true" />}
+          badge={props.multiAgentBadge}
+        />
+        <ActivityButton
+          pane="changes"
+          icon={<FileDiff aria-hidden="true" />}
+          badge={props.changesBadge}
+        />
+      </nav>
     </>
   )
 }
@@ -58,19 +106,26 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
 export function WorkspaceInspector(props: {
   directory: string
   sessionID?: string
-  open: boolean
-  todoRatio: number
-  onOpenChange: (open: boolean) => void
-  onTodoRatioChange: (ratio: number) => void
+  pane?: InspectorPane
+  onPaneChange: (pane: InspectorPane | undefined) => void
+  multiAgent?: JSX.Element
+  multiAgentBadge?: JSX.Element
 }) {
   return (
     <WorkspaceInspectorView
-      open={props.open}
-      todoRatio={props.todoRatio}
-      onOpenChange={props.onOpenChange}
-      onTodoRatioChange={props.onTodoRatioChange}
+      pane={props.pane}
+      onPaneChange={props.onPaneChange}
       todo={<TodoPanel directory={props.directory} sessionID={props.sessionID} />}
+      multiAgent={
+        props.multiAgent ?? (
+          <section class="workspace-drawer__placeholder" aria-labelledby="multi-agent-placeholder-title">
+            <h2 id="multi-agent-placeholder-title">Multi-Agent</h2>
+            <p>选择 Session 后可在这里查看 Agent 计划与进度。</p>
+          </section>
+        )
+      }
       changes={<ChangesPanel directory={props.directory} />}
+      multiAgentBadge={props.multiAgentBadge}
     />
   )
 }

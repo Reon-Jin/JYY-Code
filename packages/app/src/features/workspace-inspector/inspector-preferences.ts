@@ -1,18 +1,11 @@
 import { normalizeDirectory } from "../../data/query-keys"
 
-export type InspectorPreferences = {
-  open: boolean
-  todoRatio: number
-}
+export type InspectorPane = "todo" | "multi-agent" | "changes"
+export type InspectorPreferences = { pane?: InspectorPane }
 
-export const defaultInspectorPreferences: InspectorPreferences = {
-  open: true,
-  todoRatio: 0.42,
-}
+export const defaultInspectorPreferences: InspectorPreferences = { pane: undefined }
 
-export function clampInspectorRatio(value: number) {
-  return Math.min(0.8, Math.max(0.2, value))
-}
+const panes = new Set<InspectorPane>(["todo", "multi-agent", "changes"])
 
 function preferenceKey(directory: string) {
   return `jyycode:workspace-inspector:${normalizeDirectory(directory)}`
@@ -29,19 +22,15 @@ export function loadInspectorPreferences(directory: string, storage?: Storage): 
     const value = browserStorage(storage)?.getItem(preferenceKey(directory))
     if (!value) return { ...defaultInspectorPreferences }
     const parsed: unknown = JSON.parse(value)
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      typeof (parsed as Record<string, unknown>).open !== "boolean" ||
-      typeof (parsed as Record<string, unknown>).todoRatio !== "number" ||
-      !Number.isFinite((parsed as Record<string, unknown>).todoRatio)
-    ) {
-      return { ...defaultInspectorPreferences }
+    if (typeof parsed !== "object" || parsed === null) return { ...defaultInspectorPreferences }
+    const record = parsed as Record<string, unknown>
+    if (typeof record.pane === "string") {
+      return panes.has(record.pane as InspectorPane)
+        ? { pane: record.pane as InspectorPane }
+        : { ...defaultInspectorPreferences }
     }
-    return {
-      open: (parsed as InspectorPreferences).open,
-      todoRatio: clampInspectorRatio((parsed as InspectorPreferences).todoRatio),
-    }
+    if (typeof record.open === "boolean") return { pane: record.open ? "todo" : undefined }
+    return { ...defaultInspectorPreferences }
   } catch {
     return { ...defaultInspectorPreferences }
   }
@@ -49,13 +38,7 @@ export function loadInspectorPreferences(directory: string, storage?: Storage): 
 
 export function saveInspectorPreferences(directory: string, preferences: InspectorPreferences, storage?: Storage) {
   try {
-    browserStorage(storage)?.setItem(
-      preferenceKey(directory),
-      JSON.stringify({
-        open: preferences.open,
-        todoRatio: clampInspectorRatio(preferences.todoRatio),
-      }),
-    )
+    browserStorage(storage)?.setItem(preferenceKey(directory), JSON.stringify({ pane: preferences.pane }))
   } catch {
     // Preference persistence should never block the workspace.
   }
