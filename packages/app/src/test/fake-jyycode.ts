@@ -153,6 +153,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   function addSession(overrides: Partial<Session> = {}) {
     const index = sessions.length + 1
     const timestamp = Date.now()
+    const { time, ...sessionOverrides } = overrides
     const session: Session = {
       id: `ses_${index}`,
       slug: `session-${index}`,
@@ -160,9 +161,8 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       directory,
       title: "New session - 2026-07-13T00:00:00.000Z",
       version: "test",
-      time: { created: timestamp, updated: timestamp },
-      ...overrides,
-      time: { created: timestamp, updated: timestamp, ...overrides.time },
+      ...sessionOverrides,
+      time: { created: timestamp, updated: timestamp, ...time },
     }
     sessions.push(session)
     messages.set(session.id, [])
