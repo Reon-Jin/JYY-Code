@@ -206,6 +206,51 @@
   white-space: pre-wrap;
 }
 
+.activity-group {
+  min-width: 0;
+  border-left: 1px solid var(--color-border-strong);
+  padding-left: var(--space-2);
+}
+
+.activity-group__toggle {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--space-2);
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.activity-group__toggle small {
+  color: var(--color-text-muted);
+  font-size: inherit;
+}
+.activity-group__toggle svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  transition: transform var(--motion-fast) ease-out;
+}
+.activity-group__toggle svg[data-expanded="true"] {
+  transform: rotate(180deg);
+}
+.activity-group__toggle .activity-group__spinner {
+  animation: ui-spin 900ms linear infinite;
+}
+.activity-group__content {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-left: var(--space-1);
+}
+.activity-group__content > .reasoning-part {
+  border-left: 0;
+  padding-left: 0;
+}
+
 .tool-call {
   display: grid;
   min-width: 0;
@@ -270,6 +315,14 @@
 }
 .tool-call[data-status="error"] .tool-call__status {
   color: #fecaca;
+}
+.tool-call__activity {
+  grid-column: 2 / -1;
+  margin-top: var(--space-1);
+}
+.task-activity__waiting {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
 }
 
 .unsupported-part {

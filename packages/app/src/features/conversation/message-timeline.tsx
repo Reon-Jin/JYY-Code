@@ -4,6 +4,7 @@ import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
 import type { ConversationMessage } from "./conversation-state"
+import { ActivityGroup, groupMessageParts } from "./activity-group"
 import { MessagePartView } from "./message-part"
 import "./conversation.css"
 
@@ -118,7 +119,28 @@ export function MessageTimeline(props: MessageTimelineProps) {
                         <header>{message.info.agent}</header>
                       </Show>
                       <div class="conversation-message__parts">
-                        <For each={message.parts}>{(part) => <MessagePartView part={part} />}</For>
+                        <For each={groupMessageParts(message.parts)}>
+                          {(group) => (
+                            <Show
+                              when={group.type === "activity" ? group : undefined}
+                              fallback={group.type === "part" ? <MessagePartView part={group.part} /> : null}
+                            >
+                              {(activity) => (
+                                <ActivityGroup
+                                  label="思考与工具调用"
+                                  count={activity().parts.length}
+                                  running={activity().parts.some(
+                                    (part) =>
+                                      part.type === "tool" &&
+                                      (part.state.status === "pending" || part.state.status === "running"),
+                                  )}
+                                >
+                                  <For each={activity().parts}>{(part) => <MessagePartView part={part} />}</For>
+                                </ActivityGroup>
+                              )}
+                            </Show>
+                          )}
+                        </For>
                       </div>
                     </article>
                   )}
