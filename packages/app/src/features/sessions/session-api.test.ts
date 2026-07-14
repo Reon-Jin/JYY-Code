@@ -46,13 +46,24 @@ describe("session api", () => {
     )
   })
 
-  it("forces single-Agent mode when creating a session", async () => {
+  it("does not persist an unnecessary false override when creating a session", async () => {
     const { api, client } = createHarness()
 
     await api.create({ agent: "build", model })
 
     expect(client.session.create).toHaveBeenCalledWith(
-      { directory, agent: "build", model, multiAgent: false },
+      { directory, agent: "build", model },
+      { throwOnError: true },
+    )
+  })
+
+  it("forwards an explicit Multi-Agent creation override", async () => {
+    const { api, client } = createHarness()
+
+    await api.create({ agent: "build", model, multiAgent: true })
+
+    expect(client.session.create).toHaveBeenCalledWith(
+      { directory, agent: "build", model, multiAgent: true },
       { throwOnError: true },
     )
   })

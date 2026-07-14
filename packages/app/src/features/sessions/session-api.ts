@@ -7,6 +7,7 @@ export type CreateSessionInput = {
   title?: string
   agent?: string
   model?: NonNullable<Session["model"]>
+  multiAgent?: boolean
 }
 
 export type SessionApiInput = {
@@ -60,7 +61,7 @@ export function createSessionApi(input: SessionApiInput) {
 
   async function create(value: CreateSessionInput) {
     const result = await input.client.session.create(
-      { directory: input.directory, ...value, multiAgent: false },
+      { directory: input.directory, ...value },
       { throwOnError: true },
     )
     await invalidateLists()

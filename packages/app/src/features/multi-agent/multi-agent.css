@@ -1,0 +1,80 @@
+.multi-agent-control {
+  display: grid;
+  align-self: end;
+  gap: 2px;
+}
+
+.multi-agent-control__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.multi-agent-switch {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.multi-agent-switch:hover:not(:disabled),
+.multi-agent-switch:focus-visible {
+  border-color: var(--color-border-strong);
+}
+
+.multi-agent-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.multi-agent-switch:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.multi-agent-switch__track {
+  display: flex;
+  width: 26px;
+  height: 16px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px;
+  background: var(--color-border-strong);
+  transition: background var(--motion-fast) ease-out;
+}
+
+.multi-agent-switch__track > span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-text);
+  transition: transform var(--motion-fast) ease-out;
+}
+
+.multi-agent-switch[aria-checked="true"] .multi-agent-switch__track {
+  background: var(--color-accent);
+}
+
+.multi-agent-switch[aria-checked="true"] .multi-agent-switch__track > span {
+  transform: translateX(10px);
+}
+
+.multi-agent-control__counts,
+.multi-agent-control__reason {
+  color: var(--color-text-muted);
+  font-family: var(--font-code);
+  font-size: 0.6rem;
+  white-space: nowrap;
+}
+
+.multi-agent-control .ui-inline-error {
+  max-width: 280px;
+  font-size: var(--text-xs);
+}

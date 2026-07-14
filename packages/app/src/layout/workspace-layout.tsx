@@ -23,6 +23,7 @@ import {
   type ModelSelection,
 } from "../features/composer/model-catalog"
 import { ProviderEmpty } from "../features/composer/provider-empty"
+import { effectiveMultiAgent, MultiAgentControl } from "../features/multi-agent/multi-agent-control"
 import { PermissionBar } from "../features/requests/permission-bar"
 import { QuestionPanel } from "../features/requests/question-panel"
 import {
@@ -280,6 +281,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }),
     data.queryClient,
   )
+  const activeSession = createMemo(() =>
+    [...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])].find(
+      (session) => session.id === props.activeSessionID,
+    ),
+  )
 
   createEffect(
     on(
@@ -479,10 +485,27 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     models={catalogQuery.data?.models ?? []}
                     selectedAgent={selectedAgent() ?? catalogQuery.data?.selectedAgent ?? "build"}
                     selectedModel={selectedModel()!}
+                    agentClusterEnabled={
+                      activeSession() ? effectiveMultiAgent(activeSession()!, catalogQuery.data?.agentCluster) : false
+                    }
                     status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
                     lastMessageError={lastMessageError()}
                     disabled={data.connection() !== "connected"}
                     branchControl={<BranchControl directory={data.directory()} />}
+                    multiAgentControl={
+                      <Show when={activeSession()} keyed>
+                        {(session) => (
+                          <MultiAgentControl
+                            client={data.client()}
+                            queryClient={data.queryClient()}
+                            directory={data.directory()}
+                            session={session}
+                            config={catalogQuery.data?.agentCluster}
+                            onOpenPanel={() => updateInspectorPreferences({ pane: "multi-agent" })}
+                          />
+                        )}
+                      </Show>
+                    }
                     onAgentChange={changeAgent}
                     onModelChange={changeModel}
                     onProviderConnected={async () => {

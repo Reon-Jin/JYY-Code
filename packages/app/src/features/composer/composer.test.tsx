@@ -25,6 +25,7 @@ function renderComposer(input?: {
   lastMessageError?: { name: string }
   disabled?: boolean
   branchControl?: JSX.Element
+  multiAgentControl?: JSX.Element
 }) {
   const client = {
     session: {
@@ -46,6 +47,8 @@ function renderComposer(input?: {
       lastMessageError={input?.lastMessageError}
       disabled={input?.disabled}
       branchControl={input?.branchControl}
+      multiAgentControl={input?.multiAgentControl}
+      agentClusterEnabled
       onAgentChange={vi.fn()}
       onModelChange={vi.fn()}
       onProviderConnected={vi.fn()}
@@ -107,14 +110,18 @@ describe("Composer", () => {
     await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledTimes(1))
   })
 
-  it("renders Agent, Connect, Model, then Branch in the selector row", () => {
-    renderComposer({ branchControl: <button aria-label="Branch">main</button> })
+  it("renders the Multi-Agent control immediately after Branch in the selector row", () => {
+    renderComposer({
+      branchControl: <button aria-label="Branch">main</button>,
+      multiAgentControl: <button aria-label="Multi-Agent control">Multi-Agent</button>,
+    })
     const selectors = screen.getByLabelText("Agent").parentElement?.parentElement
-    expect(selectors?.children).toHaveLength(4)
+    expect(selectors?.children).toHaveLength(5)
     expect(selectors?.children[0]).toContainElement(screen.getByLabelText("Agent"))
     expect(selectors?.children[1]).toContainElement(screen.getByRole("button", { name: "Connect" }))
     expect(selectors?.children[2]).toContainElement(screen.getByLabelText("模型"))
     expect(selectors?.children[3]).toContainElement(screen.getByRole("button", { name: "Branch" }))
+    expect(selectors?.children[4]).toContainElement(screen.getByRole("button", { name: "Multi-Agent control" }))
   })
 
   it("does not submit during IME composition", () => {

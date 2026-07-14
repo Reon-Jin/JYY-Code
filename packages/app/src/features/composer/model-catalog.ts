@@ -1,4 +1,4 @@
-import type { Agent, Config, Provider } from "@jyycode-ai/sdk/v2/client"
+import type { Agent, AgentClusterConfig, Config, Provider } from "@jyycode-ai/sdk/v2/client"
 import type { DesktopClient } from "../../data/sdk"
 
 const PREFERENCE_KEY = "jyycode.desktop.composer-preference"
@@ -20,13 +20,15 @@ export type CatalogModel = ModelSelection & {
 
 export type ModelCatalog = {
   agents: Agent[]
+  allAgents: Agent[]
   models: CatalogModel[]
   selectedAgent: string
   selectedModel?: ModelSelection
   configPath: string
+  agentCluster: AgentClusterConfig
 }
 
-type CatalogClient = Pick<DesktopClient, "app" | "config" | "path" | "provider">
+type CatalogClient = Pick<DesktopClient, "app" | "config" | "global" | "path" | "provider">
 
 function parseModel(value: string | undefined): ModelSelection | undefined {
   if (!value) return undefined
@@ -105,18 +107,21 @@ export async function loadModelCatalog(input: {
   preference?: ComposerPreference
 }): Promise<ModelCatalog> {
   const options = { throwOnError: true } as const
-  const [agentsResponse, configuredResponse, providersResponse, configResponse, pathResponse] = await Promise.all([
+  const [agentsResponse, configuredResponse, providersResponse, configResponse, pathResponse, globalResponse] =
+    await Promise.all([
     input.client.app.agents({ directory: input.directory }, options),
     input.client.config.providers({ directory: input.directory }, options),
     input.client.provider.list({ directory: input.directory }, options),
     input.client.config.get({ directory: input.directory }, options),
     input.client.path.get({ directory: input.directory }, options),
+    input.client.global.config.get(options),
   ])
   const allAgents = dataOrThrow(agentsResponse, "app.agents")
   const configured = dataOrThrow(configuredResponse, "config.providers")
   const providers = dataOrThrow(providersResponse, "provider.list")
   const config = dataOrThrow(configResponse, "config.get") as Config
   const paths = dataOrThrow(pathResponse, "path.get")
+  const globalConfig = dataOrThrow(globalResponse, "global.config.get") as Config
   const preference = parseComposerPreference(input.preference)
 
   const agents = allAgents.filter((candidate) => candidate.mode !== "subagent" && !candidate.hidden)
@@ -157,9 +162,15 @@ export async function loadModelCatalog(input: {
 
   return {
     agents,
+    allAgents,
     models,
     selectedAgent,
     selectedModel,
     configPath: globalConfigPath(paths.config),
+    agentCluster: {
+      enabled: true,
+      default_on: false,
+      ...globalConfig.agent_cluster,
+    },
   }
 }

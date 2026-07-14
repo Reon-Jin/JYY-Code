@@ -13,7 +13,7 @@ function deferred() {
   return { promise, resolve }
 }
 
-function setup(draftStore = new Map<string, string>()) {
+function setup(draftStore = new Map<string, string>(), agentClusterEnabled = true) {
   const client = {
     session: {
       promptAsync: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
@@ -26,13 +26,14 @@ function setup(draftStore = new Map<string, string>()) {
     sessionID: () => sessionID,
     agent: () => "build",
     model: () => model,
+    agentClusterEnabled: () => agentClusterEnabled,
     draftStore,
   })
   return { client, controller }
 }
 
 describe("createComposerController", () => {
-  it("submits exactly one async single-Agent prompt", async () => {
+  it("submits exactly one async prompt with the effective root cluster mode", async () => {
     const { client, controller } = setup()
     const pending = deferred()
     client.session.promptAsync.mockImplementationOnce(() => pending.promise.then(() => ({ data: undefined })))
@@ -50,12 +51,23 @@ describe("createComposerController", () => {
         sessionID,
         agent: "build",
         model,
-        agentCluster: { enabled: false },
+        agentCluster: { enabled: true },
         parts: [{ type: "text", text: "hello" }],
       },
       { throwOnError: true },
     )
     expect(controller.draft()).toBe("")
+  })
+
+  it("always disables nested cluster dispatch for a child prompt", async () => {
+    const { client, controller } = setup(new Map(), false)
+
+    await controller.send("guide child")
+
+    expect(client.session.promptAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ agentCluster: { enabled: false } }),
+      { throwOnError: true },
+    )
   })
 
   it("keeps the draft when submission fails and retries through send", async () => {

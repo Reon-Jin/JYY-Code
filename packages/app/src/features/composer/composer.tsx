@@ -22,10 +22,12 @@ export type ComposerProps = {
   models: readonly CatalogModel[]
   selectedAgent: string
   selectedModel: ModelSelection
+  agentClusterEnabled: boolean
   status: SessionStatus
   lastMessageError?: { name: string }
   disabled?: boolean
   branchControl?: JSX.Element
+  multiAgentControl?: JSX.Element
   onAgentChange: (name: string) => void
   onModelChange: (model: ModelSelection) => void
   onProviderConnected: (providerID: string) => void | Promise<void>
@@ -62,6 +64,7 @@ export function Composer(props: ComposerProps) {
     sessionID: () => props.sessionID,
     agent: () => props.selectedAgent,
     model: () => props.selectedModel,
+    agentClusterEnabled: () => props.agentClusterEnabled,
   })
   const queue = createComposerQueue({
     directory: props.directory,
@@ -156,6 +159,7 @@ export function Composer(props: ComposerProps) {
             onChange={props.onModelChange}
           />
           {props.branchControl}
+          {props.multiAgentControl}
         </div>
 
         <div class="composer__input" data-active={active()}>

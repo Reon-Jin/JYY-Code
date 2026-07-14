@@ -2,7 +2,7 @@ import { createSignal } from "solid-js"
 import type { DesktopClient } from "../../data/sdk"
 import type { ModelSelection } from "./model-catalog"
 
-type Value<T> = T | (() => T)
+export type Value<T> = T | (() => T)
 
 function resolve<T>(value: Value<T>) {
   return typeof value === "function" ? (value as () => T)() : value
@@ -14,6 +14,7 @@ export type ComposerControllerInput = {
   sessionID: Value<string>
   agent: Value<string>
   model: Value<ModelSelection>
+  agentClusterEnabled: Value<boolean>
   draftStore?: Map<string, string>
 }
 
@@ -52,7 +53,7 @@ export function createComposerController(input: ComposerControllerInput) {
             sessionID: resolve(input.sessionID),
             agent: selection?.agent ?? resolve(input.agent),
             model: selection?.model ?? resolve(input.model),
-            agentCluster: { enabled: false },
+            agentCluster: { enabled: resolve(input.agentClusterEnabled) },
             parts: [{ type: "text", text }],
           },
           { throwOnError: true },
