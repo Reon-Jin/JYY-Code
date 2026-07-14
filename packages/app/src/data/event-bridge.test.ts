@@ -4,6 +4,7 @@ import type {
   PermissionRequest,
   QuestionRequest,
   Session,
+  SessionAgentClusterResponse,
   TextPart,
   Todo,
   VcsInfo,
@@ -42,6 +43,48 @@ const part: TextPart = {
   text: "Hello",
 }
 
+const clusterState: SessionAgentClusterResponse = {
+  runs: [
+    {
+      id: "run_1",
+      session_id: "ses_root",
+      parent_message_id: "msg_parent",
+      enabled: true,
+      status: "planning",
+      goal: "Build the feature",
+      planner_model: "test/planner",
+      reviewer_model: "test/reviewer",
+      time_created: 10,
+      time_updated: 10,
+      completed_at: 0,
+    },
+  ],
+  tasks: [
+    {
+      id: "task_1",
+      run_id: "run_1",
+      parent_task_id: "",
+      child_session_id: "ses_child",
+      role: "coder",
+      title: "Implement",
+      prompt: "Implement the feature",
+      complexity: "complex",
+      model: "test/coder",
+      status: "running",
+      step: 1,
+      dependencies: [],
+      review_round: 0,
+      acceptance_criteria: [],
+      artifact_paths: [],
+      result_summary: "",
+      review_issues: [],
+      last_event: "Started",
+      time_created: 11,
+      time_updated: 11,
+    },
+  ],
+}
+
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
@@ -59,6 +102,14 @@ describe("desktop data boundary", () => {
     expect(keys.pullRequests("C:/A/", "open")).toEqual(["project", "c:\\a", "github", "pulls", "open"])
     expect(keys.pullRequest("C:/A/", 12)).toEqual(["project", "c:\\a", "github", "pull", 12])
     expect(keys.pullRequestDiff("C:/A/", 12)).toEqual(["project", "c:\\a", "github", "pull", 12, "diff"])
+    expect(keys.agentClustersScope("C:/A/")).toEqual(["project", "c:\\a", "agent-clusters"])
+    expect(keys.agentCluster("C:/A/", "ses_root")).toEqual([
+      "project",
+      "c:\\a",
+      "agent-clusters",
+      "ses_root",
+    ])
+    expect(keys.globalConfig).toEqual(["global", "config"])
   })
 
   it("creates Basic auth without putting credentials in a URL", () => {
@@ -115,6 +166,36 @@ describe("desktop data boundary", () => {
 })
 
 describe("event routing", () => {
+  it("routes same-project cluster events and ignores other projects", () => {
+    const clusterEvent = {
+      directory: "C:\\a",
+      payload: {
+        id: "evt_cluster_1",
+        type: "agent_cluster.event",
+        properties: {
+          sessionID: "ses_root",
+          runID: "run_1",
+          taskID: "task_1",
+          type: "task",
+          status: "reviewing",
+          message: "Review started",
+          createdAt: 20,
+        },
+      },
+    } as GlobalEvent
+
+    expect(routeEvent("C:\\a", clusterEvent)).toEqual([
+      {
+        kind: "agent-cluster.event",
+        eventID: "evt_cluster_1",
+        directory: "C:\\a",
+        sessionID: "ses_root",
+        event: clusterEvent.payload,
+      },
+    ])
+    expect(routeEvent("C:\\b", clusterEvent)).toEqual([])
+  })
+
   it("routes workspace inspector events to explicit cache actions", () => {
     const todos: Todo[] = [{ content: "Implement", status: "in_progress", priority: "high" }]
 
@@ -317,6 +398,96 @@ describe("event routing", () => {
 
     expect(queryClient.getQueryData<Session[]>(keys.sessions("C:\\a"))?.[0]?.title).toBe("Updated")
     expect(queryClient.getQueryData(keys.status("C:\\a"))).toEqual({ ses_1: { type: "busy" } })
+
+    bridge.abort()
+    releaseStream()
+  })
+
+  it("patches known cluster rows and refetches once per root session per frame", async () => {
+    const queryClient = createDesktopQueryClient()
+    const queryKey = keys.agentCluster("C:\\a", "ses_root")
+    queryClient.setQueryData(queryKey, structuredClone(clusterState))
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    const clusterEvents = [
+      {
+        id: "evt_cluster_run",
+        type: "agent_cluster.event",
+        properties: {
+          sessionID: "ses_root",
+          runID: "run_1",
+          type: "run",
+          status: "completed",
+          message: "Run completed",
+          createdAt: 20,
+        },
+      },
+      {
+        id: "evt_cluster_task",
+        type: "agent_cluster.event",
+        properties: {
+          sessionID: "ses_root",
+          runID: "run_1",
+          taskID: "task_1",
+          type: "task",
+          status: "revision_requested",
+          message: "Needs another pass",
+          createdAt: 21,
+        },
+      },
+      {
+        id: "evt_cluster_unknown",
+        type: "agent_cluster.event",
+        properties: {
+          sessionID: "ses_root",
+          runID: "run_1",
+          taskID: "task_new",
+          type: "task",
+          status: "queued",
+          message: "New task queued",
+          createdAt: 22,
+        },
+      },
+    ] as const
+    const stream = (async function* () {
+      for (const payload of clusterEvents) yield { directory: "C:\\a", payload } as GlobalEvent
+      await streamWait
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
+      scheduled = callback
+      return 1
+    })
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame,
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(requestFrame).toHaveBeenCalledTimes(1))
+    scheduled?.(0)
+    await vi.waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey, exact: true }),
+    )
+
+    const patched = queryClient.getQueryData<SessionAgentClusterResponse>(queryKey)
+    expect(patched?.runs[0]).toMatchObject({ status: "completed", time_updated: 20, completed_at: 20 })
+    expect(patched?.tasks[0]).toMatchObject({
+      status: "revision_requested",
+      time_updated: 21,
+      last_event: "Needs another pass",
+    })
+    expect(patched?.tasks.map((task) => task.id)).toEqual(["task_1"])
+    expect(
+      invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(queryKey)),
+    ).toHaveLength(1)
 
     bridge.abort()
     releaseStream()
@@ -528,9 +699,11 @@ describe("event routing", () => {
       keys.vcsDiff("C:\\a"),
       keys.githubStatus("C:\\a"),
       keys.pullRequestsScope("C:\\a"),
+      keys.agentClustersScope("C:\\a"),
       keys.messages("C:\\a", session.id),
       keys.todos("C:\\a", session.id),
     ])
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.agentClustersScope("C:\\a"), exact: false })
     expect(states.at(-1)).toBe("connected")
 
     bridge.abort()

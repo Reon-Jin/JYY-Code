@@ -8,12 +8,14 @@ import type {
   PermissionRequest,
   Project,
   Session,
+  SessionAgentClusterResponse,
   Todo,
   VcsBranches,
   VcsFileDiff,
 } from "@jyycode-ai/sdk/v2/client"
 
 const encoder = new TextEncoder()
+type AgentClusterEvent = Extract<GlobalEvent["payload"], { type: "agent_cluster.event" }>
 
 function model(providerID = "test", modelID = "test-model") {
   return {
@@ -61,6 +63,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   const sessions: Session[] = []
   const messages = new Map<string, Array<{ info: Message; parts: Part[] }>>()
   const todos = new Map<string, Todo[]>()
+  const agentClusters = new Map<string, SessionAgentClusterResponse>()
   const permissions: PermissionRequest[] = []
   const changes: VcsFileDiff[] = [
     { file: "src/app.tsx", status: "modified", additions: 4, deletions: 1, patch: "@@ -1 +1 @@" },
@@ -78,6 +81,22 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   let githubStatus: GitHubAvailability = {
     available: true,
     repository: { nameWithOwner: "example/demo", url: "https://github.com/example/demo", defaultBranch: "main" },
+  }
+  let globalConfig: Record<string, unknown> & { agent_cluster: Record<string, unknown> } = {
+    default_agent: "build",
+    model: "test/test-model",
+    agent_cluster: {
+      enabled: true,
+      default_on: false,
+      planner_model: "test/test-planner",
+      reviewer_model: "test/test-planner",
+      simple_model: "test/test-simple",
+      complex_model: "test/test-complex",
+      visual_model: "test/test-visual",
+      max_subagents: 8,
+      max_concurrency: 4,
+      max_review_rounds: 2,
+    },
   }
   const pullRequests: GitHubPullRequestSummary[] = [
     {
@@ -131,6 +150,26 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     emit({ id: `event_${sequence}`, type, properties } as GlobalEvent["payload"])
   }
 
+  function addSession(overrides: Partial<Session> = {}) {
+    const index = sessions.length + 1
+    const timestamp = Date.now()
+    const session: Session = {
+      id: `ses_${index}`,
+      slug: `session-${index}`,
+      projectID: project.id,
+      directory,
+      title: "New session - 2026-07-13T00:00:00.000Z",
+      version: "test",
+      time: { created: timestamp, updated: timestamp },
+      ...overrides,
+      time: { created: timestamp, updated: timestamp, ...overrides.time },
+    }
+    sessions.push(session)
+    messages.set(session.id, [])
+    todos.set(session.id, [])
+    return session
+  }
+
   function sse(request: Request) {
     let active: ReadableStreamDefaultController<Uint8Array> | undefined
     const stream = new ReadableStream<Uint8Array>({
@@ -177,11 +216,29 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
 
     if (url.pathname === "/global/event") return sse(request)
     if (url.pathname === "/global/health") return json({ healthy: true, version: "test" })
+    if (url.pathname === "/global/config" && request.method === "GET") return json(globalConfig)
+    if (url.pathname === "/global/config" && request.method === "PATCH") {
+      const nextAgentCluster =
+        typeof value.agent_cluster === "object" && value.agent_cluster !== null
+          ? (value.agent_cluster as Record<string, unknown>)
+          : undefined
+      globalConfig = {
+        ...globalConfig,
+        ...value,
+        agent_cluster: nextAgentCluster
+          ? { ...globalConfig.agent_cluster, ...nextAgentCluster }
+          : globalConfig.agent_cluster,
+      }
+      return json(globalConfig)
+    }
     if (url.pathname === "/project/current") return json(project)
     if (url.pathname === "/project/git/init") return json({ ...project, vcs: "git" })
 
     if (url.pathname === "/agent") {
-      return json([{ name: "build", mode: "primary", permission: [], options: {} }])
+      return json([
+        { name: "build", mode: "primary", permission: [], options: {} },
+        { name: "coder", mode: "subagent", model: "test/test-complex", permission: [], options: {} },
+      ])
     }
     if (url.pathname === "/config/providers") {
       const provider = {
@@ -190,7 +247,13 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
         source: "config",
         env: [],
         options: {},
-        models: { "test-model": model() },
+        models: {
+          "test-model": model(),
+          "test-planner": model("test", "test-planner"),
+          "test-simple": model("test", "test-simple"),
+          "test-complex": model("test", "test-complex"),
+          "test-visual": model("test", "test-visual"),
+        },
       }
       return json({ providers: [provider], default: { test: "test-model" } })
     }
@@ -201,7 +264,13 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
         source: "config",
         env: [],
         options: {},
-        models: { "test-model": model() },
+        models: {
+          "test-model": model(),
+          "test-planner": model("test", "test-planner"),
+          "test-simple": model("test", "test-simple"),
+          "test-complex": model("test", "test-complex"),
+          "test-visual": model("test", "test-visual"),
+        },
       }
       return json({ all: [provider], connected: ["test"], default: { test: "test-model" } })
     }
@@ -209,18 +278,13 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     if (url.pathname === "/path") return json({ home: "C:\\Users\\test", state: "state", config: "C:\\config" })
 
     if (url.pathname === "/session" && request.method === "POST") {
-      const session: Session = {
-        id: `ses_${sessions.length + 1}`,
-        slug: `session-${sessions.length + 1}`,
-        projectID: project.id,
-        directory,
-        title: typeof value.title === "string" ? value.title : "New session - 2026-07-13T00:00:00.000Z",
-        version: "test",
-        time: { created: Date.now(), updated: Date.now() },
-      }
-      sessions.push(session)
-      messages.set(session.id, [])
-      todos.set(session.id, [])
+      const overrides: Partial<Session> = {}
+      if (typeof value.title === "string") overrides.title = value.title
+      if (typeof value.parentID === "string") overrides.parentID = value.parentID
+      if (typeof value.agent === "string") overrides.agent = value.agent
+      if (typeof value.model === "object" && value.model !== null) overrides.model = value.model as Session["model"]
+      if (typeof value.multiAgent === "boolean") overrides.multiAgent = value.multiAgent
+      const session = addSession(overrides)
       event("session.created", { info: session })
       return json(session)
     }
@@ -230,6 +294,9 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     }
 
     const sessionID = url.pathname.match(/^\/session\/([^/]+)/)?.[1]
+    if (sessionID && url.pathname.endsWith("/agent-cluster") && request.method === "GET") {
+      return json(agentClusters.get(sessionID) ?? { runs: [], tasks: [] })
+    }
     if (sessionID && url.pathname.endsWith("/message") && request.method === "GET") {
       return json(messages.get(sessionID) ?? [])
     }
@@ -445,6 +512,14 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     event("todo.updated", { sessionID, todos: next })
   }
 
+  function setAgentCluster(sessionID: string, state: SessionAgentClusterResponse) {
+    agentClusters.set(sessionID, structuredClone(state))
+  }
+
+  function emitAgentCluster(properties: AgentClusterEvent["properties"]) {
+    event("agent_cluster.event", properties)
+  }
+
   function setGitHubStatus(next: GitHubAvailability) {
     githubStatus = next
   }
@@ -453,8 +528,10 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     fetch: fetch as typeof globalThis.fetch,
     project,
     sessions,
+    addSession,
     messages,
     todos,
+    agentClusters,
     permissions,
     changes,
     branches,
@@ -464,6 +541,8 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     requests,
     emit,
     setTodos,
+    setAgentCluster,
+    emitAgentCluster,
     setGitHubStatus,
   }
 }
