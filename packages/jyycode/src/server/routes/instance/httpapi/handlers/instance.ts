@@ -103,7 +103,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* vcs.fetch().pipe(Effect.mapError(mapVcsOperationError))
     })
 
-    const pushVcs = Effect.fn("InstanceHttpApi.vcsPush")(function* (ctx: { payload: Vcs.PushInput }) {
+    const pushVcs = Effect.fn("InstanceHttpApi.vcsPush")(function* (ctx: { payload: Vcs.PushInput | undefined }) {
       return yield* vcs.push(ctx.payload).pipe(Effect.mapError(mapVcsOperationError))
     })
 

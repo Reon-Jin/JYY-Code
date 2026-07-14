@@ -313,11 +313,12 @@ describe("instance HttpApi", () => {
 
       const pushed = yield* HttpClientRequest.post(InstancePaths.vcsPush).pipe(
         directoryQuery(dir),
-        HttpClientRequest.bodyJson({}),
-        Effect.flatMap(HttpClient.execute),
+        HttpClientRequest.setHeader("content-type", "application/json"),
+        HttpClient.execute,
       )
-      expect(pushed.status).toBe(200)
-      expect(yield* pushed.json).toMatchObject({
+      const pushedBody = yield* pushed.json
+      expect(pushed.status, JSON.stringify(pushedBody)).toBe(200)
+      expect(pushedBody).toMatchObject({
         current: "main",
         branches: expect.arrayContaining([expect.objectContaining({ name: "main", upstream: "origin/main" })]),
       })

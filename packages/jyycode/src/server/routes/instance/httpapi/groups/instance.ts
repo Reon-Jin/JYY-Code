@@ -199,8 +199,9 @@ export const InstanceApi = HttpApi.make("instance")
           }),
         ),
         HttpApiEndpoint.post("vcsPush", InstancePaths.vcsPush, {
+          disableCodecs: true,
           query: WorkspaceRoutingQuery,
-          payload: Vcs.PushInput,
+          payload: Schema.UndefinedOr(Vcs.PushInput),
           success: described(Vcs.Branches, "Updated VCS branches and remotes"),
           error: ApiVcsOperationError,
         }).annotateMerge(
