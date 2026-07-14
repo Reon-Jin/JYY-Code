@@ -1,182 +1,173 @@
 # JYY-Code
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://github.com/Reon-Jin/JYY-Code/blob/main/LICENSE)
-[![Bun](https://img.shields.io/badge/runtime-Bun-black?style=flat-square&logo=bun)](https://bun.sh/)
-[![TypeScript](https://img.shields.io/badge/language-TypeScript-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
+[![Release](https://img.shields.io/github/v/release/Reon-Jin/JYY-Code?style=flat-square)](https://github.com/Reon-Jin/JYY-Code/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-[中文文档](README-zh.md) · [English](README.md)
-
-> **一套会计划、派发、审核、打回并汇总交付的 Multi-Agent 工程工作流。**
->
-> 一句话交代目标，剩下的交给一支可观察、可恢复的 AI 工程团队。
+[中文](README-zh.md) · [English](README.md)
 
 <p align="center">
-  <img src="./logo/logo.gif" alt="JYY-Code 动态标志" width="500" />
+  <img src="./logo/logo.gif" alt="JYY-Code" width="500" />
 </p>
 
-JYY-Code 是一个面向真实代码与文档工作的终端 Multi-Agent 系统。它不让单个通用 Agent 同时承担全部上下文、执行和自我验收，而是把目标变成一条受控的工程流水线：主 Agent 制定计划、向专业 Agent 派发任务、逐项审核结果、不合格就打回修改，最后只汇总通过验收的产物。
+> **让 AI 围绕真实项目持续推进，直到形成可验证的交付。**
+
+JYY-Code 是一个面向真实代码与文档工作的 AI 工程环境。它将项目上下文、工程工具、会话状态、长期记忆和 Agent 协作组织在同一套工作流中，让复杂任务可以持续推进，并最终形成可验证的交付结果。
+
+[开始使用](#快速开始) · [查看 Releases](https://github.com/Reon-Jin/JYY-Code/releases)
+
+## 完成真正交付
+
+JYY-Code 将完成标准落实到计划、任务、实际产物和验收记录。面对复杂目标，它会形成可执行的计划，把任务交给适合的 Agent，并持续记录每一步的依赖、状态和结果。
 
 ```text
-计划 → 派发 → 并行执行 → 审核 → 打回修改 → 汇总交付
+目标 → 计划 → 执行 → 验收 → 修改 → 交付
 ```
 
-**安装：** `npm install -g jyycode-ai` · **启动：** `jyy`
+子 Agent 提交结果后，主 Agent 会根据验收标准检查实际产物。未通过的工作会带着具体问题返回原来的 Agent 继续修改；只有经过验收的结果，才能进入最终汇总。
 
-按 **F9** 启动 Multi-Agent 工作流；运行 **`/cluster`**，可分别为规划、复杂任务、简单任务和视觉任务选择模型。
+项目、Session、任务进度和审核记录会持续保存。工作中断后，可以恢复已有 Session，并基于已保存的对话和任务状态继续工作。
 
-## 为什么是 JYY-Code
-
-| 常见编程 Agent | JYY-Code |
-| --- | --- |
-| 会话一换，上下文就丢 | 用结构化项目记忆和用户记忆持续积累上下文 |
-| 所有过程挤在文本流里 | 在 TUI 中直接展示计划、任务、Agent 和状态 |
-| 后台任务容易失联 | 用 SQLite 持久化会话、集群运行、任务和事件 |
-| 一个 Agent 既生产又自我验收 | 专业 Agent 产出代码和文档，主 Agent 负责审核、打回和汇总 |
-
-## 核心亮点
-
-### 有闭环的 Multi-Agent 工程工作流
-
-按 **F9** 启动 Multi-Agent 模式，把复杂目标变成带依赖关系的执行计划。使用 **`/cluster`**，可为 planner、complex、simple、visual 等不同角色分别选择模型，让每个阶段使用更适合它的模型。
-
-- **计划：** 主 Agent 把目标拆成明确任务，写清依赖关系、验收标准和预期产物。
-- **派发：** researcher、coder、tester、analyst、visual、chart、PDF 等专业 Agent 获取聚焦后的上下文，并可并行执行。
-- **审核：** 每项结果都必须对照验收标准检查；仍在运行或未审核的任务无法越过完成门控。
-- **打回：** 不合格结果会带着具体问题退回同一个子 Agent 会话修改，保留已有上下文并支持多轮复审。
-- **汇总：** 所有任务进入终态后，主 Agent 只把验收通过的结果整合为一致的代码或文档交付物。
-- 支持并发控制和按角色配置模型，在质量、速度与成本之间灵活取舍。
-- Git worktree 隔离并行编码任务，减少互相覆盖。
-
-规划、生产与质量控制彼此分离，使 JYY-Code 在代码实现和复杂文档交付上，比让单 Agent 在一个上下文窗口里同时研究、执行、验证和自审更可靠。
-
-### 在执行前后持续校准的结构化记忆
-
-JYY-Code 使用透明、可检查、经过严格 Schema 校验的 JSON 记忆，而不是不透明的向量数据库：
-
-- `MEMORY.json` 保存每个主会话不断演进的任务状态与最终结果；`USER.json` 保存稳定的用户事实和偏好。
-- 用户发起新一步时，系统先进行语义更新，在执行前记录当前目标；助手完成交付后再次更新，用已经验证的完成状态替换进行中的任务记忆。
-- 在 Multi-Agent 模式中，记忆系统会跳过中间的规划回复，以最后的汇总结果为准，避免把“准备做什么”误记成“已经完成什么”。
-- 每条记忆都有重要度、规范化关键词和精炼内容；任务记忆还包含日期与会话来源。提示词优先注入最重要、最相关的条目，按需搜索则综合关键词、正文和重要度排序。
-- 相同规范化关键词对应同一条结构化记忆，更新时直接替换，而不是不断追加近似内容，长期使用也不容易积累噪声。
-- 接近容量阈值时会自动压缩：合并重叠条目，并结合重要度、时效性和关键词复用率保留更有价值的信息；硬性容量限制避免记忆无限挤占上下文。
-- 严格 Schema 校验、敏感信息拒绝、仅主会话可写、文件锁、原子替换和追加式审计日志，共同保证一致性、安全性与可追溯性。
-
-这套记忆不是“记得越多越好”，而是有选择地记录、可直接检查、能够追踪来源；所有子 Agent 都能受益于长期上下文，却不能污染持久记忆。
-
-### 长任务也不会失联
-
-长时间运行的工作，不应该因为终端刷新而消失。
-
-- 会话、消息、Todo、集群运行、集群任务和事件全部写入 SQLite。
-- 子会话始终绑定到对应的计划任务 ID。
-- 通过 `task` 和 `task_status` 观察后台执行。
-- `/sessions` 可直接恢复持久化根会话。
-- 不同发布渠道使用隔离数据库，避免开发版 Schema 意外影响稳定数据。
-
-### 为 Agent 工作流设计的 TUI
-
-右侧栏清晰区分三类进度：
-
-- **Multi-Agent Plan**：目标、运行状态、步骤和 Agent 数量。
-- **Tasks**：queued、running、done、failed 等结构化任务状态。
-- **Todo**：普通 `todowrite` 项，不与集群任务重复展示。
-
-无需翻完整聊天记录，就能知道谁在做什么、哪里被阻塞、哪些任务已经完成。
-
-核心工具覆盖目录探索、代码搜索、原子多段编辑、Shell、后台进程、子 Agent 任务和输出截断。
+JYY-Code 让工作持续推进到真正可以交付的状态。
 
 ## 快速开始
 
-### 安装
+### 安装并启动
 
-普通用户只需要 Node.js 20+ 和 npm；从源码开发时才需要 Bun。
+需要 Node.js 20+ 和 npm。
 
 ```bash
-npm install -g jyycode-ai
+npm install -g jyycode-ai@latest
 cd /path/to/your/project
 jyy
 ```
 
-进入 JYY-Code 后运行 `/connect` 配置模型 Provider。
+首次启动时，JYY-Code 会自动下载适合当前操作系统和处理器架构的可执行文件。
 
-`jyy` 和 `jyycode` 是同一个 CLI。启动时所在的终端目录，就是 Agent 的工作区。
+`jyy` 和 `jyycode` 是同一个命令。启动命令时所在的目录，就是 Agent 的工作区。
 
-### 使用配置文件
+### 连接模型
 
-全局配置：`~/.config/jyycode/jyycode.jsonc`
-
-```jsonc
-{
-  "$schema": "https://jyycode.ai/config.json",
-  "model": "openai/gpt-5",
-  "provider": {
-    "openai": {
-      "options": {
-        "apiKey": "sk-..."
-      }
-    }
-  }
-}
-```
-
-项目配置位于 `.jyycode/jyycode.jsonc`。主要配置项包括 `provider`、`permission`、`agent_cluster`、`mcp`、`skills` 和 `plugin`。
-
-## 工作流程
+进入 JYY-Code 后运行：
 
 ```text
-用户目标
-  → 恢复会话与长期记忆
-  → 构建提示词（指令 + 技能 + 记忆 + 工具）
-  → 规划并委派任务
-  → Agent 与工具在权限控制下执行
-  → 持久化任务、事件、消息和结果
-  → 审查输出并检查是否真正完成
-  → 对话结束后评估长期记忆
+/connect
 ```
 
-集群模式：
+选择并连接你使用的模型 Provider。连接完成后，就可以直接在当前项目中发起任务。
+
+例如：
 
 ```text
-目标
-  → 规划器
-  → 持久化任务依赖图
-  → 专业子 Agent 并行执行
-  → 审查器
-  → 最终汇总
+分析这个项目的认证流程，找出一个可以复现的问题，修复它，并运行相关测试验证。
 ```
 
-## 更多内置能力
+### 处理复杂任务
 
-- **20+ 模型 Provider**：Anthropic、OpenAI、Gemini、Bedrock、Azure、GitHub Copilot、OpenRouter、xAI、Groq、Mistral 等。
-- **MCP 与插件**：连接外部工具、Hook 和 TUI 扩展。
-- **技能系统**：从本地或远程加载可复用的领域知识和工作流。
-- **LSP 集成**：让 Agent 获得超越文本搜索的代码理解能力。
-- **邮件能力**：SMTP、IMAP、OAuth2 和 MIME 附件。
-- **上下文感知**：估算活跃上下文，不把 PDF 和图片 data URL 当作普通文本计算。
-- **会话同步**：跨环境恢复和同步工作状态。
-- **权限控制**：按工具、Agent 和会话配置 ask、allow、deny。
+普通任务默认由单个 Agent 完成。面对需要研究、实现、测试和审核的复杂目标，可以按 **F9** 启用 Multi-Agent 工作流。
 
-## 会话安全与恢复
+运行 `/cluster` 可以分别配置规划、复杂任务、简单任务和视觉任务使用的模型。启用后，JYY-Code 会生成执行计划、派发任务，并在所有结果通过验收后完成最终交付。
 
-JYY-Code 会隔离已发布版本和源码开发版本的数据库。运行：
+## 在真实项目中工作
+
+JYY-Code 直接在项目目录中工作。它结合项目结构、开发约定、代码搜索、LSP 和 Git 信息理解当前环境，再通过文件编辑、Shell 和工程工具完成修改与验证。
+
+- **理解项目上下文**：读取项目结构、开发指令、依赖关系和已有实现。
+- **执行并验证修改**：编辑文件、运行命令、执行测试，并根据结果继续调整。
+- **保持工作连续**：保存项目、Session、消息、任务状态和长期记忆。
+- **控制关键操作**：敏感操作需要确认；信息不足时，Agent 会提出具体问题。
+- **接入现有工具链**：支持模型 Provider、MCP、Skills 和插件。
+
+## Multi-Agent 协作
+
+JYY-Code 将复杂目标拆成带有依赖关系、验收标准和预期产物的任务。主 Agent 负责规划、审核和最终汇总，专业 Agent 分别承担研究、编码、测试、分析和视觉工作。
+
+- **聚焦的任务简报**：每个 Agent 获得当前任务范围、前序结果、下游需求、验收标准和待解决的审核问题。
+- **分步执行**：同一步骤中的任务可以并行处理；当前步骤全部通过后，下一步骤开始执行。
+- **明确验收**：主 Agent 对照验收标准检查结果和实际产物，并记录每项审核结论。
+- **连续修改**：未通过的任务返回原 Agent 会话，保留已有上下文，并附带具体修改要求。
+- **按角色选择模型**：规划、复杂任务、简单任务和视觉任务可以使用不同模型。
+- **隔离并行修改**：编码任务可以使用独立 Git worktree，减少并行工作之间的文件冲突。
+
+所有计划任务通过验收后，主 Agent 会将结果整理成一致的最终交付。
+
+## 持续保存的工作状态
+
+JYY-Code 将项目、Session、消息、Todo、集群运行、任务和事件写入 SQLite。重新启动后，可以通过 `/sessions` 恢复已有 Session，查看之前的对话和任务状态，并继续工作。
+
+结构化记忆保存当前目标、已验证的结果以及稳定的用户偏好。每轮任务开始时记录当前目标，完成后更新实际交付状态。主 Agent 负责写入长期记忆，子 Agent 使用与任务相关的共享上下文。
+
+运行以下命令可以查看当前数据库、发布渠道、迁移状态和 Session 数量：
 
 ```bash
 jyycode db status
 ```
 
-可以查看当前数据库、发布渠道、迁移状态和会话数量，不会修改其他数据库。更改渠道策略前，请先停止 JYY-Code，并同时备份数据库及其 `-wal`、`-shm` 文件。
+该命令只读取状态。发布版本和源码开发环境使用独立数据库。
 
-如果会话看起来“丢失”，先用 `jyycode db status` 确认当前数据库，再从同一项目或 worktree 打开 `/sessions`。
+## 权限与本地数据
 
-## Windows 桌面预览版
+JYY-Code 按工具、Agent 和 Session 执行权限规则。每项操作可以配置为 `ask`、`allow` 或 `deny`。需要确认的操作会在执行前向用户发出权限请求。
 
-第一阶段的 Windows 桌面端提供单 Agent GUI，并复用 TUI 的认证本地后端。项目、Session、消息、Provider
-配置、权限请求和 Agent 提问都保持共享，因此同一个目录可以在两种界面中打开。Windows x64 构建会产出
-NSIS、MSI 和 portable 三类包；开发依赖、命令、产物路径与 WebView2 行为见
-[`packages/desktop/README.md`](packages/desktop/README.md)。当前预览版不在 GUI 中提供 Multi-Agent/Agent
-Cluster 控件，这部分仍由 TUI 使用。
+项目目录是 Agent 的默认工作区。文件操作、Shell 命令、外部目录访问和其他工具调用都遵循对应的权限策略。
+
+通过 `/connect` 添加的认证信息保存在 JYY-Code 数据目录的 `auth.json` 中，并使用受限文件权限写入。模型请求由所连接的 Provider 处理；项目文件、Session 和运行状态由本地后端管理。
+
+## 配置与扩展
+
+全局配置文件位于：
+
+```text
+~/.config/jyycode/jyycode.jsonc
+```
+
+项目配置文件位于：
+
+```text
+.jyycode/jyycode.jsonc
+```
+
+最小配置示例：
+
+```jsonc
+{
+  "model": "openai/gpt-5",
+  "permission": {
+    "*": "ask",
+  },
+  "agent_cluster": {
+    "default_on": false,
+    "max_concurrency": 4,
+  },
+}
+```
+
+配置文件可以管理：
+
+- 模型 Provider 和默认模型；
+- 工具与目录权限；
+- Multi-Agent 模型路由、并发和审核轮次；
+- MCP Server；
+- Skills；
+- 插件与 Hook。
+
+认证信息可以通过 `/connect` 单独管理。
+
+## 使用入口
+
+JYY-Code 的不同界面共享同一套项目和运行数据。
+
+| 入口            | 当前状态 | 适用场景                                             |
+| --------------- | -------- | ---------------------------------------------------- |
+| CLI / TUI       | 完整支持 | 单 Agent、Multi-Agent、模型配置和完整工程工作流      |
+| Windows Desktop | Preview  | 项目、Session、对话、工具调用、权限请求和 Agent 问题 |
+
+CLI / TUI 支持 macOS、Linux 和 Windows，并提供 x64 与 arm64 构建。
+
+Windows Desktop 当前提供单 Agent 界面，并复用 JYY-Code 本地后端。开发要求、构建命令和运行说明见 [`packages/desktop/README.md`](packages/desktop/README.md)。
 
 ## 从源码开发
+
+源码开发使用 Bun 1.3.14。
 
 ```bash
 git clone https://github.com/Reon-Jin/JYY-Code.git
@@ -185,18 +176,30 @@ bun install
 bun run dev
 ```
 
+仓库采用 Bun workspace：
+
 ```text
-packages/jyycode/   主 CLI、Agent、会话、记忆、工具和 TUI
-packages/core/      文件系统、Provider 和共享工具
+packages/jyycode/   Agent Runtime、Session、Memory、Tools 和 TUI
+packages/app/       图形界面
+packages/desktop/   Desktop 外壳与本地 sidecar
+packages/core/      文件系统、Provider 和共享基础能力
 packages/llm/       LLM 协议与运行时适配
 packages/plugin/    插件 SDK 与扩展接口
-packages/sdk/       JYY-Code API 客户端
-packages/app/       桌面端 Web UI
-packages/desktop/   Tauri Windows 外壳与 sidecar 打包
-.jyycode/           项目 Agent、技能、命令、主题和配置
-memory/             结构化持久记忆
+packages/sdk/       JYY-Code API Client
 ```
 
-## License
+Desktop 开发流程见 [`packages/desktop/README.md`](packages/desktop/README.md)。
 
-MIT © [JYYCode](https://github.com/Reon-Jin/JYY-Code)
+## 致谢
+
+JYY-Code 最初基于 [OpenCode](https://github.com/anomalyco/opencode) 的开源代码与架构开始开发，并在此基础上持续扩展了工作状态持久化、Multi-Agent 任务编排、验收门控和交付流程。
+
+JYY-Code 是独立开发的开源项目，与 OpenCode 团队不存在隶属或官方合作关系。
+
+## 反馈
+
+通过 [GitHub Issues](https://github.com/Reon-Jin/JYY-Code/issues) 报告问题或提出功能建议。
+
+## 许可证
+
+JYY-Code 基于 [MIT License](LICENSE) 发布。
