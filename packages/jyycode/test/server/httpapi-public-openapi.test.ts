@@ -216,4 +216,30 @@ describe("PublicApi OpenAPI v2 errors", () => {
       "ProjectNotFoundError",
     )
   })
+
+  test("documents GitHub dependency, repository, and command errors", () => {
+    const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
+
+    for (const route of [
+      ["get", "/github/pulls"],
+      ["post", "/github/pulls"],
+      ["get", "/github/pulls/{number}"],
+      ["patch", "/github/pulls/{number}"],
+      ["get", "/github/pulls/{number}/diff"],
+      ["post", "/github/pulls/{number}/comments"],
+      ["post", "/github/pulls/{number}/checkout"],
+      ["post", "/github/pulls/{number}/close"],
+      ["post", "/github/pulls/{number}/reopen"],
+      ["post", "/github/pulls/{number}/merge"],
+    ] as const) {
+      const responses = spec.paths[route[1]]?.[route[0]]?.responses
+      expect(componentName(responseRef(responses?.["424"]) ?? ""), `${route[0]} ${route[1]}`).toBe(
+        "GitHubDependencyError",
+      )
+      expect(componentName(responseRef(responses?.["409"]) ?? ""), `${route[0]} ${route[1]}`).toBe(
+        "GitHubRepositoryError",
+      )
+      expect(componentName(responseRef(responses?.["502"]) ?? ""), `${route[0]} ${route[1]}`).toBe("GitHubCommandError")
+    }
+  })
 })

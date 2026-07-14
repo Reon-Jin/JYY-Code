@@ -58,15 +58,25 @@ describe("desktop GUI journey", () => {
     submitProject.focus()
     await user.keyboard("{Enter}")
 
-    expect(await screen.findByRole("main")).toBeVisible()
-    expect(await screen.findByRole("combobox", { name: "Agent" })).toHaveValue("build")
-    expect(screen.getByRole("combobox", { name: "模型" })).toHaveValue("test/test-model")
+    await waitFor(
+      () => {
+        expect(screen.getByRole("main")).toBeVisible()
+        expect(screen.getByRole("combobox", { name: "Agent" })).toHaveValue("build")
+        expect(screen.getByRole("combobox", { name: "模型" })).toHaveValue("test/test-model")
+      },
+      { timeout: 5_000 },
+    )
     expect(screen.queryByText(/Multi-Agent/i)).not.toBeInTheDocument()
     const createSession = backend.requests.find((request) => request.method === "POST" && request.path === "/session")
     expect(createSession?.body).toMatchObject({ multiAgent: false })
     expect(createSession?.body).not.toHaveProperty("title")
 
     const composer = screen.getByRole("textbox", { name: "消息" })
+    await user.type(composer, "保留这段草稿")
+    await user.click(screen.getByRole("button", { name: "收起工作栏" }))
+    await user.click(screen.getByRole("button", { name: "展开工作栏" }))
+    expect(composer).toHaveValue("保留这段草稿")
+    await user.clear(composer)
     await user.type(composer, "检查当前工作区")
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter" })
 
@@ -91,12 +101,52 @@ describe("desktop GUI journey", () => {
     window.history.replaceState(null, "", "/")
     render(() => <App bridge={desktop.bridge} />)
 
-    expect(await screen.findByText("流式回复已完成")).toBeVisible()
-    expect(screen.getByText("检查当前工作区")).toBeVisible()
-    expect(screen.queryByText(/Multi-Agent/i)).not.toBeInTheDocument()
+    await waitFor(
+      () => {
+        expect(screen.getByText("流式回复已完成")).toBeVisible()
+        expect(screen.getByText("检查当前工作区")).toBeVisible()
+        expect(screen.queryByText(/Multi-Agent/i)).not.toBeInTheDocument()
+        expect(screen.getByText("后端已连接")).toBeVisible()
+        expect(screen.getByRole("button", { name: "返回项目首页" })).toBeVisible()
+      },
+      { timeout: 5_000 },
+    )
 
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
     await user.click(screen.getByRole("button", { name: "返回项目首页" }))
     expect(await screen.findByRole("heading", { name: /让代码保持流动/ })).toBeVisible()
     expect(desktop.lastLocation()).toEqual({})
+  })
+
+  it("keeps the workspace mounted while creating and opening a new Session", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_1" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.sessions.push({
+      id: "ses_1",
+      slug: "existing",
+      projectID: backend.project.id,
+      directory: desktop.directory,
+      title: "Existing Session",
+      version: "test",
+      time: { created: 1, updated: 1 },
+    })
+    backend.messages.set("ses_1", [])
+    vi.stubGlobal("fetch", backend.fetch)
+    render(() => <App bridge={desktop.bridge} />)
+
+    expect(await screen.findByRole("heading", { name: "Existing Session" }, { timeout: 5_000 })).toBeVisible()
+    const loadingFlashes: string[] = []
+    const observer = new MutationObserver(() => {
+      if (document.body.textContent?.includes("正在加载工作区")) loadingFlashes.push("workspace")
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+
+    await user.click(screen.getByRole("button", { name: "新建 Session" }))
+    await waitFor(() => expect(screen.getByRole("heading", { name: /^New session/ })).toBeVisible(), { timeout: 5_000 })
+    observer.disconnect()
+
+    expect(loadingFlashes).toEqual([])
+    expect(screen.getByText("后端已连接")).toBeVisible()
   })
 })

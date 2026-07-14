@@ -1,6 +1,6 @@
 import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { RotateCcw, Send, Square } from "lucide-solid"
-import { createEffect, createMemo, Show } from "solid-js"
+import { createEffect, createMemo, Show, type JSX } from "solid-js"
 import { Button, IconButton } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import type { DesktopClient } from "../../data/sdk"
@@ -22,6 +22,7 @@ export type ComposerProps = {
   status: SessionStatus
   lastMessageError?: { name: string }
   disabled?: boolean
+  branchControl?: JSX.Element
   onAgentChange: (name: string) => void
   onModelChange: (model: ModelSelection) => void
 }
@@ -99,6 +100,7 @@ export function Composer(props: ComposerProps) {
           disabled={controller.sending() || active()}
           onChange={props.onModelChange}
         />
+        {props.branchControl}
       </div>
 
       <div class="composer__input" data-active={active()}>

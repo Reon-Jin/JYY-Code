@@ -1,14 +1,14 @@
 import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { A } from "@solidjs/router"
 import { Circle, Clock3 } from "lucide-solid"
-import { createEffect, createSignal, Show } from "solid-js"
+import { createEffect, createSignal, onCleanup, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { errorMessage } from "../projects/project-controller"
 import { SessionActions } from "./session-actions"
 
-export function relativeUpdatedTime(updated: number, now = Date.now()) {
-  const elapsed = Math.max(0, now - updated)
+export function relativeSessionTime(created: number, now = Date.now()) {
+  const elapsed = Math.max(0, now - created)
   const minutes = Math.floor(elapsed / 60_000)
   if (minutes < 1) return "刚刚"
   if (minutes < 60) return `${minutes} 分钟前`
@@ -16,7 +16,7 @@ export function relativeUpdatedTime(updated: number, now = Date.now()) {
   if (hours < 24) return `${hours} 小时前`
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days} 天前`
-  return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(updated)
+  return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(created)
 }
 
 function statusText(status: SessionStatus | undefined) {
@@ -43,11 +43,15 @@ export type SessionListItemProps = {
 }
 
 export function SessionListItem(props: SessionListItemProps) {
+  const [now, setNow] = createSignal(Date.now())
   const [editing, setEditing] = createSignal(false)
   const [title, setTitle] = createSignal(props.session.title)
   const [saving, setSaving] = createSignal(false)
   const [error, setError] = createSignal<string>()
   let input: HTMLInputElement | undefined
+
+  const clock = window.setInterval(() => setNow(Date.now()), 60_000)
+  onCleanup(() => window.clearInterval(clock))
 
   createEffect(() => {
     if (!editing()) setTitle(props.session.title)
@@ -140,7 +144,7 @@ export function SessionListItem(props: SessionListItemProps) {
             </span>
             <span>
               <Clock3 aria-hidden="true" />
-              {relativeUpdatedTime(props.session.time.updated)}
+              {relativeSessionTime(props.session.time.created, now())}
             </span>
           </span>
         </A>

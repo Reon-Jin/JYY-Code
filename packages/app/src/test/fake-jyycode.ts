@@ -1,4 +1,17 @@
-import type { GlobalEvent, Message, Part, PermissionRequest, Project, Session } from "@jyycode-ai/sdk/v2/client"
+import type {
+  GitHubAvailability,
+  GitHubPullRequestDetail,
+  GitHubPullRequestSummary,
+  GlobalEvent,
+  Message,
+  Part,
+  PermissionRequest,
+  Project,
+  Session,
+  Todo,
+  VcsBranches,
+  VcsFileDiff,
+} from "@jyycode-ai/sdk/v2/client"
 
 const encoder = new TextEncoder()
 
@@ -47,15 +60,70 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   }
   const sessions: Session[] = []
   const messages = new Map<string, Array<{ info: Message; parts: Part[] }>>()
+  const todos = new Map<string, Todo[]>()
   const permissions: PermissionRequest[] = []
+  const changes: VcsFileDiff[] = [
+    { file: "src/app.tsx", status: "modified", additions: 4, deletions: 1, patch: "@@ -1 +1 @@" },
+  ]
+  const branches: VcsBranches = {
+    current: "main",
+    branches: [
+      { name: "main", kind: "local", current: true, upstream: "origin/main" },
+      { name: "origin/main", kind: "remote", current: false, remote: "origin" },
+    ],
+    remotes: [
+      { name: "origin", fetchUrl: "https://github.com/example/demo.git", pushUrl: "git@github.com:example/demo.git" },
+    ],
+  }
+  let githubStatus: GitHubAvailability = {
+    available: true,
+    repository: { nameWithOwner: "example/demo", url: "https://github.com/example/demo", defaultBranch: "main" },
+  }
+  const pullRequests: GitHubPullRequestSummary[] = [
+    {
+      number: 1,
+      title: "Workspace inspector",
+      state: "OPEN",
+      isDraft: false,
+      headRefName: "feature/inspector",
+      baseRefName: "main",
+      author: { login: "codex" },
+      updatedAt: "2026-07-13T00:00:00Z",
+      url: "https://github.com/example/demo/pull/1",
+    },
+  ]
+  const pullRequestDetails = new Map<number, GitHubPullRequestDetail>([
+    [
+      1,
+      {
+        ...pullRequests[0]!,
+        body: "Adds the workspace inspector.",
+        mergeable: "MERGEABLE",
+        comments: [],
+        commits: [],
+        checks: [],
+      },
+    ],
+  ])
   const streams = new Set<ReadableStreamDefaultController<Uint8Array>>()
-  const requests: Array<{ method: string; path: string; body: Record<string, unknown> }> = []
+  const requests: Array<{
+    method: string
+    path: string
+    query: Record<string, string>
+    body: Record<string, unknown>
+  }> = []
   let sequence = 0
 
   function emit(payload: GlobalEvent["payload"]) {
     const event: GlobalEvent = { directory, payload }
     const frame = encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
-    for (const stream of streams) stream.enqueue(frame)
+    for (const stream of streams) {
+      try {
+        stream.enqueue(frame)
+      } catch {
+        streams.delete(stream)
+      }
+    }
   }
 
   function event(type: string, properties: Record<string, unknown>) {
@@ -64,8 +132,10 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   }
 
   function sse(request: Request) {
+    let active: ReadableStreamDefaultController<Uint8Array> | undefined
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
+        active = controller
         streams.add(controller)
         controller.enqueue(
           encoder.encode(
@@ -86,7 +156,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
         )
       },
       cancel() {
-        // The controller is removed by the request abort handler.
+        if (active) streams.delete(active)
       },
     })
     return new Response(stream, {
@@ -98,7 +168,12 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     const request = input instanceof Request ? input : new Request(input, init)
     const url = new URL(request.url)
     const value = await body(request)
-    requests.push({ method: request.method, path: url.pathname, body: value })
+    requests.push({
+      method: request.method,
+      path: url.pathname,
+      query: Object.fromEntries(url.searchParams),
+      body: value,
+    })
 
     if (url.pathname === "/global/event") return sse(request)
     if (url.pathname === "/global/health") return json({ healthy: true, version: "test" })
@@ -109,11 +184,25 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       return json([{ name: "build", mode: "primary", permission: [], options: {} }])
     }
     if (url.pathname === "/config/providers") {
-      const provider = { id: "test", name: "Test", source: "config", env: [], options: {}, models: { "test-model": model() } }
+      const provider = {
+        id: "test",
+        name: "Test",
+        source: "config",
+        env: [],
+        options: {},
+        models: { "test-model": model() },
+      }
       return json({ providers: [provider], default: { test: "test-model" } })
     }
     if (url.pathname === "/provider") {
-      const provider = { id: "test", name: "Test", source: "config", env: [], options: {}, models: { "test-model": model() } }
+      const provider = {
+        id: "test",
+        name: "Test",
+        source: "config",
+        env: [],
+        options: {},
+        models: { "test-model": model() },
+      }
       return json({ all: [provider], connected: ["test"], default: { test: "test-model" } })
     }
     if (url.pathname === "/config") return json({ default_agent: "build", model: "test/test-model" })
@@ -131,6 +220,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       }
       sessions.push(session)
       messages.set(session.id, [])
+      todos.set(session.id, [])
       event("session.created", { info: session })
       return json(session)
     }
@@ -143,6 +233,9 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     if (sessionID && url.pathname.endsWith("/message") && request.method === "GET") {
       return json(messages.get(sessionID) ?? [])
     }
+    if (sessionID && url.pathname.endsWith("/todo") && request.method === "GET") {
+      return json(todos.get(sessionID) ?? [])
+    }
     if (sessionID && url.pathname.endsWith("/prompt_async") && request.method === "POST") {
       const promptText = Array.isArray(value.parts)
         ? String((value.parts[0] as Record<string, unknown> | undefined)?.text ?? "")
@@ -153,7 +246,10 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
         role: "user",
         time: { created: 10 },
         agent: String(value.agent ?? "build"),
-        model: (value.model as { providerID: string; modelID: string }) ?? { providerID: "test", modelID: "test-model" },
+        model: (value.model as { providerID: string; modelID: string }) ?? {
+          providerID: "test",
+          modelID: "test-model",
+        },
       }
       const userPart: Part = { id: "part_user", sessionID, messageID: userInfo.id, type: "text", text: promptText }
       const assistantInfo: Message = {
@@ -236,7 +332,121 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       return json(true)
     }
     if (url.pathname === "/question" && request.method === "GET") return json([])
+
+    if (url.pathname === "/vcs" && request.method === "GET") {
+      return json({ branch: branches.current, default_branch: "main" })
+    }
+    if (url.pathname === "/vcs/diff" && request.method === "GET") return json(changes)
+    if (url.pathname === "/vcs/branches" && request.method === "GET") return json(branches)
+    if (url.pathname === "/vcs/branches" && request.method === "POST") {
+      const name = String(value.name ?? "feature")
+      branches.branches.push({ name, kind: "local", current: value.checkout === true })
+      if (value.checkout === true) setCurrentBranch(name)
+      return json(branches)
+    }
+    if (url.pathname === "/vcs/branches/switch" && request.method === "POST") {
+      setCurrentBranch(String(value.name ?? "main"))
+      event("vcs.branch.updated", { branch: branches.current })
+      return json(branches)
+    }
+    if (url.pathname === "/vcs/fetch" && request.method === "POST") return json(branches)
+    if (url.pathname === "/vcs/push" && request.method === "POST") return json(branches)
+
+    if (url.pathname === "/github/status" && request.method === "GET") return json(githubStatus)
+    if (url.pathname === "/github/pulls" && request.method === "GET") {
+      const state = url.searchParams.get("state") ?? "all"
+      return json(state === "all" ? pullRequests : pullRequests.filter((pull) => pull.state.toLowerCase() === state))
+    }
+    if (url.pathname === "/github/pulls" && request.method === "POST") {
+      const number = Math.max(0, ...pullRequests.map((pull) => Number(pull.number))) + 1
+      const summary: GitHubPullRequestSummary = {
+        number,
+        title: String(value.title ?? "Pull request"),
+        state: "OPEN",
+        isDraft: value.draft === true,
+        headRefName: String(value.head ?? branches.current ?? "feature"),
+        baseRefName: String(value.base ?? "main"),
+        author: { login: "codex" },
+        updatedAt: new Date().toISOString(),
+        url: `https://github.com/example/demo/pull/${number}`,
+      }
+      pullRequests.unshift(summary)
+      pullRequestDetails.set(number, {
+        ...summary,
+        body: String(value.body ?? ""),
+        mergeable: "MERGEABLE",
+        comments: [],
+        commits: [],
+        checks: [],
+      })
+      return json({ number, url: summary.url })
+    }
+
+    const pullMatch = url.pathname.match(/^\/github\/pulls\/(\d+)/)
+    const pullNumber = Number(pullMatch?.[1])
+    const pull = pullRequestDetails.get(pullNumber)
+    if (pull && url.pathname.endsWith("/diff") && request.method === "GET") {
+      return json("diff --git a/src/app.tsx b/src/app.tsx\n@@ -1 +1 @@\n-old\n+new")
+    }
+    if (pull && url.pathname.endsWith("/comments") && request.method === "POST") {
+      pull.comments.push({
+        id: `comment_${pull.comments.length + 1}`,
+        body: String(value.body ?? ""),
+        author: { login: "codex" },
+        createdAt: new Date().toISOString(),
+      })
+      return json({ success: true })
+    }
+    if (pull && url.pathname.endsWith("/checkout") && request.method === "POST") {
+      setCurrentBranch(pull.headRefName)
+      event("vcs.branch.updated", { branch: branches.current })
+      return json({ success: true })
+    }
+    if (pull && url.pathname.endsWith("/close") && request.method === "POST") {
+      setPullState(pullNumber, "CLOSED")
+      return json({ success: true })
+    }
+    if (pull && url.pathname.endsWith("/reopen") && request.method === "POST") {
+      setPullState(pullNumber, "OPEN")
+      return json({ success: true })
+    }
+    if (pull && url.pathname.endsWith("/merge") && request.method === "POST") {
+      setPullState(pullNumber, "MERGED")
+      return json({ success: true })
+    }
+    if (pull && url.pathname === `/github/pulls/${pullNumber}` && request.method === "PATCH") {
+      pull.title = String(value.title ?? pull.title)
+      pull.body = String(value.body ?? pull.body)
+      const summary = pullRequests.find((candidate) => Number(candidate.number) === pullNumber)
+      if (summary) summary.title = pull.title
+      return json({ success: true })
+    }
+    if (pull && url.pathname === `/github/pulls/${pullNumber}` && request.method === "GET") return json(pull)
     throw new Error(`Unhandled fake JYYCode request: ${request.method} ${url.pathname}`)
+  }
+
+  function setCurrentBranch(name: string) {
+    branches.current = name
+    for (const branch of branches.branches) branch.current = branch.name === name
+    if (!branches.branches.some((branch) => branch.name === name)) {
+      branches.branches.push({ name, kind: "local", current: true })
+    }
+  }
+
+  function setPullState(number: number, state: "OPEN" | "CLOSED" | "MERGED") {
+    const detail = pullRequestDetails.get(number)
+    if (detail) detail.state = state
+    const summary = pullRequests.find((pull) => Number(pull.number) === number)
+    if (summary) summary.state = state
+  }
+
+  function setTodos(sessionID: string, next: Todo[]) {
+    todos.set(sessionID, next)
+    event("todo.updated", { sessionID, todos: next })
+  }
+
+  function setGitHubStatus(next: GitHubAvailability) {
+    githubStatus = next
   }
 
   return {
@@ -244,8 +454,16 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     project,
     sessions,
     messages,
+    todos,
     permissions,
+    changes,
+    branches,
+    githubStatus,
+    pullRequests,
+    pullRequestDetails,
     requests,
     emit,
+    setTodos,
+    setGitHubStatus,
   }
 }

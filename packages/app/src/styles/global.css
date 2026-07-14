@@ -188,7 +188,33 @@ button:disabled {
 }
 
 .ui-dialog__header {
+  position: relative;
   border-bottom: 1px solid var(--color-border);
+}
+
+.ui-dialog__close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-4);
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.ui-dialog__close:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.ui-dialog__close svg {
+  width: 18px;
+  height: 18px;
 }
 
 .ui-dialog__title {

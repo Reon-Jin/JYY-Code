@@ -8,9 +8,9 @@ import { Git } from "@/git"
 import * as Log from "@jyycode-ai/core/util/log"
 
 const log = Log.create({ service: "vcs" })
-const PATCH_CONTEXT_LINES = 2_147_483_647
 const MAX_PATCH_BYTES = 10_000_000
 const MAX_TOTAL_PATCH_BYTES = 10_000_000
+const PATCH_CONTEXT_LINES = MAX_TOTAL_PATCH_BYTES
 type DiffOptions = {
   readonly context?: number
 }
@@ -235,6 +235,67 @@ const track = Effect.fnUntraced(function* (
   return yield* diffAgainstRef(git, cwd, ref, options)
 })
 
+const parseRemotes = (text: string): Remote[] => {
+  const remotes = new Map<string, { fetchUrl?: string; pushUrl?: string }>()
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^(\S+)\s+(.+)\s+\((fetch|push)\)$/.exec(line)
+    if (!match) continue
+    const [, name, url, kind] = match
+    if (!name || !url) continue
+    const remote = remotes.get(name) ?? {}
+    if (kind === "fetch") remote.fetchUrl = url
+    if (kind === "push") remote.pushUrl = url
+    remotes.set(name, remote)
+  }
+  return [...remotes].map(([name, remote]) => ({ name, ...remote })).toSorted((a, b) => a.name.localeCompare(b.name))
+}
+
+const remoteName = (ref: string, remotes: Remote[]) =>
+  remotes
+    .map((remote) => remote.name)
+    .toSorted((a, b) => b.length - a.length)
+    .find((name) => ref.startsWith(`${name}/`)) ?? ref.split("/")[0]
+
+const parseBranches = (text: string, current: string | undefined, remotes: Remote[]): Branch[] => {
+  const branches: Branch[] = []
+  for (const line of text.split(/\r?\n/)) {
+    const [ref = "", upstream = "", symref = "", updatedAt = ""] = line.split("\t")
+    if (ref.startsWith("refs/heads/")) {
+      const name = ref.slice("refs/heads/".length)
+      branches.push({
+        name,
+        kind: "local",
+        current: name === current,
+        ...(upstream ? { upstream } : {}),
+        ...(updatedAt ? { updatedAt } : {}),
+      })
+      continue
+    }
+    if (!ref.startsWith("refs/remotes/") || symref) continue
+    const name = ref.slice("refs/remotes/".length)
+    branches.push({
+      name,
+      kind: "remote",
+      remote: remoteName(name, remotes),
+      current: false,
+      ...(updatedAt ? { updatedAt } : {}),
+    })
+  }
+  return branches.toSorted((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name))
+}
+
+const safeCommandMessage = (result: Git.Result, fallback: string) => {
+  const text = result.stderr
+    .toString("utf8")
+    .replace(/:\/\/[^\s/@:]+:[^\s/@]+@/g, "://***@")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .trim()
+  return (text || fallback).slice(0, 2_000)
+}
+
+const isConflict = (message: string) =>
+  /local changes|would be overwritten|please commit your changes|untracked working tree files/i.test(message)
+
 export const Mode = Schema.Literals(["git", "branch"])
 export type Mode = Schema.Schema.Type<typeof Mode>
 
@@ -252,6 +313,88 @@ export const Info = Schema.Struct({
   default_branch: Schema.optional(Schema.String),
 }).annotate({ identifier: "VcsInfo" })
 export type Info = Schema.Schema.Type<typeof Info>
+
+export const Branch = Schema.Struct({
+  name: Schema.String,
+  kind: Schema.Literals(["local", "remote"]),
+  current: Schema.Boolean,
+  remote: Schema.optional(Schema.String),
+  upstream: Schema.optional(Schema.String),
+  updatedAt: Schema.optional(Schema.String),
+}).annotate({ identifier: "VcsBranch" })
+export type Branch = Schema.Schema.Type<typeof Branch>
+
+export const Remote = Schema.Struct({
+  name: Schema.String,
+  fetchUrl: Schema.optional(Schema.String),
+  pushUrl: Schema.optional(Schema.String),
+}).annotate({ identifier: "VcsRemote" })
+export type Remote = Schema.Schema.Type<typeof Remote>
+
+export const Branches = Schema.Struct({
+  current: Schema.optional(Schema.String),
+  branches: Schema.Array(Branch),
+  remotes: Schema.Array(Remote),
+}).annotate({ identifier: "VcsBranches" })
+export type Branches = Schema.Schema.Type<typeof Branches>
+
+export const CreateBranchInput = Schema.Struct({
+  name: Schema.String,
+  checkout: Schema.optional(Schema.Boolean),
+}).annotate({ identifier: "VcsCreateBranchInput" })
+export type CreateBranchInput = Schema.Schema.Type<typeof CreateBranchInput>
+
+export const SwitchBranchInput = Schema.Struct({
+  name: Schema.String,
+  createLocal: Schema.optional(Schema.Boolean),
+}).annotate({ identifier: "VcsSwitchBranchInput" })
+export type SwitchBranchInput = Schema.Schema.Type<typeof SwitchBranchInput>
+
+export const PushInput = Schema.Struct({
+  remote: Schema.optional(Schema.String),
+}).annotate({ identifier: "VcsPushInput" })
+export type PushInput = Schema.Schema.Type<typeof PushInput>
+
+export const OperationReason = Schema.Literals([
+  "non-git",
+  "invalid-name",
+  "already-exists",
+  "not-found",
+  "conflict",
+  "missing-remote",
+  "ambiguous-remote",
+  "command-failed",
+])
+export type OperationReason = Schema.Schema.Type<typeof OperationReason>
+
+export class OperationError extends Schema.TaggedErrorClass<OperationError>()("VcsOperationError", {
+  message: Schema.String,
+  reason: OperationReason,
+  candidates: Schema.optional(Schema.Array(Schema.String)),
+}) {}
+
+export type PushRemoteSelection =
+  | { readonly remote: string; readonly setUpstream: boolean }
+  | { readonly reason: "missing-remote" }
+  | { readonly reason: "ambiguous-remote" | "not-found"; readonly candidates: string[] }
+
+export const selectPushRemote = (input: {
+  readonly remotes: readonly Remote[]
+  readonly upstream?: string
+  readonly requested?: string
+}): PushRemoteSelection => {
+  const names = input.remotes.map((remote) => remote.name).toSorted((a, b) => a.localeCompare(b))
+  const upstream = names.toSorted((a, b) => b.length - a.length).find((name) => input.upstream?.startsWith(`${name}/`))
+  if (input.requested) {
+    if (!names.includes(input.requested)) return { reason: "not-found", candidates: names }
+    return { remote: input.requested, setUpstream: upstream === undefined }
+  }
+  if (upstream) return { remote: upstream, setUpstream: false }
+  if (names.includes("origin")) return { remote: "origin", setUpstream: true }
+  if (names.length === 1) return { remote: names[0]!, setUpstream: true }
+  if (names.length === 0) return { reason: "missing-remote" }
+  return { reason: "ambiguous-remote", candidates: names }
+}
 
 export const FileDiff = Schema.Struct({
   file: Schema.String,
@@ -291,6 +434,11 @@ export class PatchApplyError extends Schema.TaggedErrorClass<PatchApplyError>()(
 export interface Interface {
   readonly init: () => Effect.Effect<void>
   readonly branch: () => Effect.Effect<string | undefined>
+  readonly branches: () => Effect.Effect<Branches>
+  readonly createBranch: (input: CreateBranchInput) => Effect.Effect<Branches, OperationError>
+  readonly switchBranch: (input: SwitchBranchInput) => Effect.Effect<Branches, OperationError>
+  readonly fetch: () => Effect.Effect<Branches, OperationError>
+  readonly push: (input?: PushInput) => Effect.Effect<Branches, OperationError>
   readonly defaultBranch: () => Effect.Effect<string | undefined>
   readonly status: () => Effect.Effect<FileStatus[]>
   readonly diff: (mode: Mode, options?: DiffOptions) => Effect.Effect<FileDiff[]>
@@ -346,12 +494,169 @@ export const layer: Layer.Layer<Service, never, Git.Service | Bus.Service> = Lay
       }),
     )
 
+    const branchList = Effect.fnUntraced(function* () {
+      const ctx = yield* InstanceState.context
+      if (ctx.project.vcs !== "git") return { branches: [], remotes: [] } satisfies Branches
+      const [current, refs, configuredRemotes] = yield* Effect.all(
+        [
+          git.branch(ctx.directory),
+          git.run(
+            [
+              "for-each-ref",
+              "--format=%(refname)%09%(upstream:short)%09%(symref)%09%(committerdate:iso-strict)",
+              "refs/heads",
+              "refs/remotes",
+            ],
+            { cwd: ctx.directory },
+          ),
+          git.run(["remote", "-v"], { cwd: ctx.directory }),
+        ],
+        { concurrency: 3 },
+      )
+      const remotes = parseRemotes(configuredRemotes.text())
+      return {
+        ...(current ? { current } : {}),
+        branches: parseBranches(refs.text(), current, remotes),
+        remotes,
+      }
+    })
+
+    const gitContext = Effect.fnUntraced(function* () {
+      const ctx = yield* InstanceState.context
+      if (ctx.project.vcs !== "git") {
+        return yield* new OperationError({ message: "The project is not a Git repository", reason: "non-git" })
+      }
+      return ctx
+    })
+
+    const validateBranchName = Effect.fnUntraced(function* (cwd: string, name: string) {
+      const result = yield* git.run(["check-ref-format", "--branch", name], { cwd })
+      if (result.exitCode !== 0) {
+        return yield* new OperationError({ message: "The branch name is invalid", reason: "invalid-name" })
+      }
+    })
+
+    const refExists = Effect.fnUntraced(function* (cwd: string, ref: string) {
+      return (yield* git.run(["show-ref", "--verify", "--quiet", ref], { cwd })).exitCode === 0
+    })
+
+    const publishBranchUpdated = Effect.fnUntraced(function* () {
+      const ctx = yield* InstanceState.context
+      const current = yield* git.branch(ctx.directory)
+      const value = yield* InstanceState.get(state)
+      value.current = current
+      yield* bus.publish(Event.BranchUpdated, { branch: current })
+    })
+
     return Service.of({
       init: Effect.fn("Vcs.init")(function* () {
         yield* InstanceState.get(state).pipe(Effect.forkIn(scope))
       }),
       branch: Effect.fn("Vcs.branch")(function* () {
         return yield* InstanceState.use(state, (x) => x.current)
+      }),
+      branches: Effect.fn("Vcs.branches")(branchList),
+      createBranch: Effect.fn("Vcs.createBranch")(function* (input: CreateBranchInput) {
+        const ctx = yield* gitContext()
+        yield* validateBranchName(ctx.directory, input.name)
+        if (yield* refExists(ctx.directory, `refs/heads/${input.name}`)) {
+          return yield* new OperationError({ message: "The branch already exists", reason: "already-exists" })
+        }
+        const args = input.checkout ? ["switch", "-c", input.name] : ["branch", input.name]
+        const result = yield* git.run(args, { cwd: ctx.directory })
+        if (result.exitCode !== 0) {
+          return yield* new OperationError({
+            message: safeCommandMessage(result, "Git could not create the branch"),
+            reason: "command-failed",
+          })
+        }
+        yield* publishBranchUpdated()
+        return yield* branchList()
+      }),
+      switchBranch: Effect.fn("Vcs.switchBranch")(function* (input: SwitchBranchInput) {
+        const ctx = yield* gitContext()
+        yield* validateBranchName(ctx.directory, input.name)
+
+        let args: string[]
+        if (input.createLocal) {
+          const branches = yield* branchList()
+          const remote = branches.branches.find((branch) => branch.kind === "remote" && branch.name === input.name)
+          if (!remote?.remote || !(yield* refExists(ctx.directory, `refs/remotes/${input.name}`))) {
+            return yield* new OperationError({ message: "The remote branch was not found", reason: "not-found" })
+          }
+          const local = input.name.slice(remote.remote.length + 1)
+          if (yield* refExists(ctx.directory, `refs/heads/${local}`)) {
+            return yield* new OperationError({ message: "The local branch already exists", reason: "already-exists" })
+          }
+          args = ["switch", "--track", input.name]
+        } else {
+          if (!(yield* refExists(ctx.directory, `refs/heads/${input.name}`))) {
+            return yield* new OperationError({ message: "The branch was not found", reason: "not-found" })
+          }
+          args = ["switch", input.name]
+        }
+
+        const result = yield* git.run(args, { cwd: ctx.directory })
+        if (result.exitCode !== 0) {
+          const message = safeCommandMessage(result, "Git could not switch branches")
+          return yield* new OperationError({
+            message,
+            reason: isConflict(message) ? "conflict" : "command-failed",
+          })
+        }
+        yield* publishBranchUpdated()
+        return yield* branchList()
+      }),
+      fetch: Effect.fn("Vcs.fetch")(function* () {
+        const ctx = yield* gitContext()
+        const result = yield* git.run(["fetch", "--all", "--prune"], { cwd: ctx.directory })
+        if (result.exitCode !== 0) {
+          return yield* new OperationError({
+            message: safeCommandMessage(result, "Git could not fetch remotes"),
+            reason: "command-failed",
+          })
+        }
+        return yield* branchList()
+      }),
+      push: Effect.fn("Vcs.push")(function* (input: PushInput = {}) {
+        const ctx = yield* gitContext()
+        const branches = yield* branchList()
+        const current = branches.branches.find((branch) => branch.kind === "local" && branch.current)
+        if (!current) {
+          return yield* new OperationError({
+            message: "Git cannot push while HEAD is detached",
+            reason: "command-failed",
+          })
+        }
+        const selection = selectPushRemote({
+          remotes: branches.remotes,
+          upstream: current.upstream,
+          requested: input.remote,
+        })
+        if ("reason" in selection) {
+          if (selection.reason === "missing-remote") {
+            return yield* new OperationError({ message: "No Git remote is configured", reason: selection.reason })
+          }
+          return yield* new OperationError({
+            message:
+              selection.reason === "ambiguous-remote"
+                ? "Choose a remote before pushing"
+                : "The selected remote was not found",
+            reason: selection.reason,
+            candidates: selection.candidates,
+          })
+        }
+        const args = selection.setUpstream
+          ? ["push", "--set-upstream", selection.remote, "HEAD"]
+          : ["push", selection.remote, "HEAD"]
+        const result = yield* git.run(args, { cwd: ctx.directory })
+        if (result.exitCode !== 0) {
+          return yield* new OperationError({
+            message: safeCommandMessage(result, "Git could not push the current branch"),
+            reason: "command-failed",
+          })
+        }
+        return yield* branchList()
       }),
       defaultBranch: Effect.fn("Vcs.defaultBranch")(function* () {
         return yield* InstanceState.use(state, (x) => x.root?.name)

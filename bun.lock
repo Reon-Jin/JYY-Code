@@ -30,6 +30,7 @@
         "@tauri-apps/api": "catalog:",
         "@tauri-apps/plugin-dialog": "catalog:",
         "@tauri-apps/plugin-store": "catalog:",
+        "diff": "catalog:",
         "dompurify": "catalog:",
         "katex": "catalog:",
         "lucide-solid": "catalog:",

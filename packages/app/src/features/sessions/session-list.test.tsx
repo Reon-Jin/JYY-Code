@@ -8,7 +8,7 @@ import { SessionList } from "./session-list"
 
 const directory = "C:\\work\\demo"
 
-function session(id: string, title: string, updated: number): Session {
+function session(id: string, title: string, updated: number, created = 1): Session {
   return {
     id,
     slug: id,
@@ -16,7 +16,7 @@ function session(id: string, title: string, updated: number): Session {
     directory,
     title,
     version: "test",
-    time: { created: 1, updated },
+    time: { created, updated },
   }
 }
 
@@ -64,6 +64,7 @@ describe("SessionList", () => {
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
@@ -77,6 +78,31 @@ describe("SessionList", () => {
       expect.stringContaining("Older session"),
     ])
     expect(screen.getByRole("link", { name: /Newer session/ })).toHaveAttribute("aria-current", "page")
+  })
+
+  it("shows the stable creation time instead of a recent metadata update", () => {
+    vi.useFakeTimers()
+    const now = new Date("2026-07-14T12:00:00+08:00").getTime()
+    vi.setSystemTime(now)
+    const yesterday = session("ses_yesterday", "Yesterday session", now - 10 * 60_000, now - 26 * 60 * 60_000)
+
+    renderList({ sessions: [yesterday], activeSessionID: yesterday.id })
+
+    expect(screen.getByRole("link", { name: /Yesterday session/ })).toHaveTextContent("1 天前")
+    expect(screen.getByRole("link", { name: /Yesterday session/ })).not.toHaveTextContent("10 分钟前")
+  })
+
+  it("refreshes the relative creation time while Desktop stays open", async () => {
+    vi.useFakeTimers()
+    const now = new Date("2026-07-14T12:00:00+08:00").getTime()
+    vi.setSystemTime(now)
+    const recent = session("ses_recent", "Recent session", now, now)
+
+    renderList({ sessions: [recent], activeSessionID: recent.id })
+    expect(screen.getByRole("link", { name: /Recent session/ })).toHaveTextContent("刚刚")
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(screen.getByRole("link", { name: /Recent session/ })).toHaveTextContent("1 分钟前")
   })
 
   it("renders no empty-state panel inside an empty Session list", () => {

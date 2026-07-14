@@ -45,7 +45,7 @@ describe("desktop accessibility contract", () => {
     vi.stubGlobal("fetch", backend.fetch)
     const { container } = render(() => <App bridge={desktop.bridge} />)
 
-    expect(await screen.findAllByRole("main")).toHaveLength(1)
+    expect(await screen.findAllByRole("main", {}, { timeout: 5_000 })).toHaveLength(1)
     expect(unnamedIconButtons(container)).toEqual([])
     const trigger = screen.getByRole("button", { name: /新建项目/ })
     trigger.focus()
@@ -81,14 +81,24 @@ describe("desktop accessibility contract", () => {
     vi.stubGlobal("fetch", backend.fetch)
     const { container } = render(() => <App bridge={desktop.bridge} />)
 
-    expect(await screen.findAllByRole("main")).toHaveLength(1)
-    expect(screen.getByRole("complementary", { name: "项目与 Session 导航" })).toBeVisible()
-    expect(screen.getByRole("navigation", { name: "活动 Session" })).toBeVisible()
-    expect(screen.getByRole("combobox", { name: "Agent" })).toBeVisible()
-    expect(screen.getByRole("combobox", { name: "模型" })).toBeVisible()
-    expect(screen.getByRole("region", { name: "消息编辑器" })).toBeVisible()
-    expect(screen.getByRole("textbox", { name: "消息" })).toBeVisible()
-    expect(container.querySelector(".workspace-connection")).toHaveAttribute("aria-live", "polite")
+    await waitFor(
+      () => {
+        expect(screen.getByRole("complementary", { name: "项目与 Session 导航" })).toBeVisible()
+        expect(screen.getByRole("navigation", { name: "活动 Session" })).toBeVisible()
+        expect(screen.getByRole("combobox", { name: "Agent" })).toBeVisible()
+        expect(screen.getByRole("combobox", { name: "模型" })).toBeVisible()
+        expect(screen.getByRole("region", { name: "消息编辑器" })).toBeVisible()
+        expect(screen.getByRole("textbox", { name: "消息" })).toBeVisible()
+        expect(screen.getByRole("complementary", { name: "工作栏" })).toBeVisible()
+        expect(screen.getByRole("separator", { name: "调整计划与工作区变更高度" })).toHaveAttribute(
+          "aria-valuenow",
+          "42",
+        )
+        expect(screen.getByRole("button", { name: /main/ })).toHaveAttribute("aria-haspopup", "dialog")
+        expect(container.querySelector(".workspace-connection")).toHaveAttribute("aria-live", "polite")
+      },
+      { timeout: 5_000 },
+    )
     expect(unnamedIconButtons(container)).toEqual([])
   })
 

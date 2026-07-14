@@ -15,6 +15,7 @@ import { conversationQueryOptions } from "../features/conversation/conversation-
 import type { ConversationSnapshot } from "../features/conversation/conversation-state"
 import { MessageTimeline } from "../features/conversation/message-timeline"
 import { Composer } from "../features/composer/composer"
+import { BranchControl } from "../features/git/branch-control"
 import {
   loadComposerPreference,
   loadModelCatalog,
@@ -25,10 +26,12 @@ import { ProviderEmpty } from "../features/composer/provider-empty"
 import { PermissionBar } from "../features/requests/permission-bar"
 import { QuestionPanel } from "../features/requests/question-panel"
 import {
-  permissionQueryOptions,
-  questionQueryOptions,
-  selectActiveRequest,
-} from "../features/requests/request-query"
+  loadInspectorPreferences,
+  saveInspectorPreferences,
+  type InspectorPreferences,
+} from "../features/workspace-inspector/inspector-preferences"
+import { WorkspaceInspector } from "../features/workspace-inspector/workspace-inspector"
+import { permissionQueryOptions, questionQueryOptions, selectActiveRequest } from "../features/requests/request-query"
 import { createSessionApi } from "../features/sessions/session-api"
 import { SessionEmpty } from "../features/sessions/session-empty"
 import { SessionList } from "../features/sessions/session-list"
@@ -55,6 +58,8 @@ export type WorkspaceLayoutViewProps = {
   operationError?: string
   requestArea?: JSX.Element
   composer?: JSX.Element
+  inspector?: JSX.Element
+  inspectorOpen?: boolean
   busy?: boolean
   onRetryActive?: () => void
   onRetryArchived?: () => void
@@ -97,7 +102,11 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
   }
 
   return (
-    <div class="workspace-shell" data-rail-open={railOpen() ? "true" : "false"}>
+    <div
+      class="workspace-shell"
+      data-rail-open={railOpen() ? "true" : "false"}
+      data-inspector-open={props.inspectorOpen ? "true" : "false"}
+    >
       <aside
         id="session-navigation"
         class="workspace-rail"
@@ -201,6 +210,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
           </section>
         </Show>
       </main>
+      {props.inspector}
     </div>
   )
 }
@@ -214,6 +224,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const [busy, setBusy] = createSignal(false)
   const [selectedAgent, setSelectedAgent] = createSignal<string>()
   const [selectedModel, setSelectedModel] = createSignal<ModelSelection>()
+  const [inspectorPreferences, setInspectorPreferences] = createSignal<InspectorPreferences>(
+    loadInspectorPreferences(data.directory()),
+  )
   const api = createMemo(() =>
     createSessionApi({ client: data.client(), directory: data.directory(), queryClient: data.queryClient() }),
   )
@@ -278,6 +291,19 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       },
     ),
   )
+
+  createEffect(
+    on(
+      () => data.directory(),
+      (directory) => setInspectorPreferences(loadInspectorPreferences(directory)),
+    ),
+  )
+
+  function updateInspectorPreferences(update: Partial<InspectorPreferences>) {
+    const next = { ...inspectorPreferences(), ...update }
+    setInspectorPreferences(next)
+    saveInspectorPreferences(data.directory(), next)
+  }
 
   const projectName = createMemo(() => {
     const project = projects.activeProject()
@@ -351,11 +377,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return undefined
   })
   const activeRequest = createMemo(() =>
-    selectActiveRequest(
-      permissionsQuery.data ?? [],
-      questionsQuery.data ?? [],
-      props.activeSessionID,
-    ),
+    selectActiveRequest(permissionsQuery.data ?? [], questionsQuery.data ?? [], props.activeSessionID),
   )
   const requestError = createMemo(() => {
     if (permissionsQuery.error) return errorMessage(permissionsQuery.error, "无法加载权限请求")
@@ -425,7 +447,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           {(sessionID) => (
             <Show
               when={!catalogQuery.isPending}
-              fallback={<p class="composer__status" role="status">正在加载 Agent 和模型</p>}
+              fallback={
+                <p class="composer__status" role="status">
+                  正在加载 Agent 和模型
+                </p>
+              }
             >
               <Show
                 when={!catalogQuery.error}
@@ -446,6 +472,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
                     lastMessageError={lastMessageError()}
                     disabled={data.connection() !== "connected"}
+                    branchControl={<BranchControl directory={data.directory()} />}
                     onAgentChange={changeAgent}
                     onModelChange={changeModel}
                   />
@@ -454,6 +481,17 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
             </Show>
           )}
         </Show>
+      }
+      inspectorOpen={inspectorPreferences().open}
+      inspector={
+        <WorkspaceInspector
+          directory={data.directory()}
+          sessionID={props.activeSessionID}
+          open={inspectorPreferences().open}
+          todoRatio={inspectorPreferences().todoRatio}
+          onOpenChange={(open) => updateInspectorPreferences({ open })}
+          onTodoRatioChange={(todoRatio) => updateInspectorPreferences({ todoRatio })}
+        />
       }
       busy={busy()}
       onRetryActive={() => void activeQuery.refetch()}

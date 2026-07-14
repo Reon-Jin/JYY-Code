@@ -1,10 +1,13 @@
+import { X } from "lucide-solid"
 import { createEffect, createUniqueId, onCleanup, Show, type JSX, type ParentProps } from "solid-js"
 
 export type DialogProps = ParentProps<{
   open: boolean
+  class?: string
   title: string
   description?: string
   footer?: JSX.Element
+  showClose?: boolean
   onClose: () => void
 }>
 
@@ -41,7 +44,7 @@ export function Dialog(props: DialogProps) {
   return (
     <dialog
       ref={dialog}
-      class="ui-dialog"
+      class={["ui-dialog", props.class].filter(Boolean).join(" ")}
       aria-labelledby={titleID}
       aria-describedby={props.description ? descriptionID : undefined}
       onCancel={(event) => {
@@ -58,6 +61,11 @@ export function Dialog(props: DialogProps) {
           <p class="ui-dialog__description" id={descriptionID}>
             {props.description}
           </p>
+        </Show>
+        <Show when={props.showClose}>
+          <button type="button" class="ui-dialog__close" aria-label="关闭" onClick={props.onClose}>
+            <X aria-hidden="true" />
+          </button>
         </Show>
       </header>
       <section class="ui-dialog__content">{props.children}</section>

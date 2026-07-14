@@ -24,12 +24,15 @@ export function sourceBinary(architecture: string) {
 }
 
 async function runBuild() {
-  const child = Bun.spawn([Bun.which("bun") ?? process.execPath, "run", "build", "--single", "--skip-embed-web-ui"], {
-    cwd: jyycodeRoot,
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  })
+  const child = Bun.spawn(
+    [Bun.which("bun") ?? process.execPath, "run", "build", "--single", "--skip-install", "--skip-embed-web-ui"],
+    {
+      cwd: jyycodeRoot,
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    },
+  )
   const exitCode = await child.exited
   if (exitCode !== 0) throw new Error(`JYYCode sidecar build failed with exit code ${exitCode}`)
 }

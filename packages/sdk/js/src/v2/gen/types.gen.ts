@@ -1635,6 +1635,112 @@ export type File = {
   status: "added" | "deleted" | "modified"
 }
 
+export type GitHubRepository = {
+  nameWithOwner: string
+  url: string
+  defaultBranch: string
+}
+
+export type GitHubAvailability =
+  | {
+      available: true
+      repository: GitHubRepository
+    }
+  | {
+      available: false
+      reason: "missing-gh" | "not-authenticated" | "not-github-repo" | "command-failed"
+      message: string
+    }
+
+export type GitHubPullRequestAuthor = {
+  login: string
+  name?: string
+}
+
+export type GitHubPullRequestSummary = {
+  number: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  title: string
+  state: "OPEN" | "CLOSED" | "MERGED"
+  isDraft: boolean
+  headRefName: string
+  baseRefName: string
+  author: GitHubPullRequestAuthor
+  updatedAt: string
+  url: string
+  reviewDecision?: string
+}
+
+export type GitHubDependencyError = {
+  _tag: "GitHubDependencyError"
+  reason: "missing-gh" | "not-authenticated"
+  message: string
+}
+
+export type GitHubRepositoryError = {
+  _tag: "GitHubRepositoryError"
+  reason: "not-github-repo" | "conflict"
+  message: string
+}
+
+export type GitHubCommandError = {
+  _tag: "GitHubCommandError"
+  reason: "command-failed" | "invalid-response"
+  message: string
+}
+
+export type GitHubPullRequestReference = {
+  number: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  url: string
+}
+
+export type GitHubPullRequestNumber = string
+
+export type GitHubPullRequestComment = {
+  id: string
+  body: string
+  author: GitHubPullRequestAuthor
+  createdAt: string
+  url?: string
+}
+
+export type GitHubPullRequestCommit = {
+  oid: string
+  messageHeadline: string
+  authoredDate: string
+  authors: Array<GitHubPullRequestAuthor>
+}
+
+export type GitHubPullRequestCheck = {
+  name: string
+  status: string
+  conclusion?: string
+  detailsUrl?: string
+}
+
+export type GitHubPullRequestDetail = {
+  number: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  title: string
+  state: "OPEN" | "CLOSED" | "MERGED"
+  isDraft: boolean
+  headRefName: string
+  baseRefName: string
+  author: GitHubPullRequestAuthor
+  updatedAt: string
+  url: string
+  reviewDecision?: string
+  body: string
+  mergeable: string
+  comments: Array<GitHubPullRequestComment>
+  commits: Array<GitHubPullRequestCommit>
+  checks: Array<GitHubPullRequestCheck>
+}
+
+export type GitHubMutationResult = {
+  success: boolean
+}
+
+export type GitHubPullRequestDiff = string
+
 export type Path = {
   home: string
   state: string
@@ -1669,6 +1775,58 @@ export type VcsApplyError = {
     message: string
     reason: "non-git" | "not-clean"
   }
+}
+
+export type VcsBranch = {
+  name: string
+  kind: "local" | "remote"
+  current: boolean
+  remote?: string
+  upstream?: string
+  updatedAt?: string
+}
+
+export type VcsRemote = {
+  name: string
+  fetchUrl?: string
+  pushUrl?: string
+}
+
+export type VcsBranches = {
+  current?: string
+  branches: Array<VcsBranch>
+  remotes: Array<VcsRemote>
+}
+
+export type VcsCreateBranchInput = {
+  name: string
+  checkout?: boolean
+}
+
+export type VcsOperationError = {
+  name: "VcsOperationError"
+  data: {
+    message: string
+    reason:
+      | "non-git"
+      | "invalid-name"
+      | "already-exists"
+      | "not-found"
+      | "conflict"
+      | "missing-remote"
+      | "ambiguous-remote"
+      | "command-failed"
+    candidates?: Array<string>
+  }
+}
+
+export type VcsSwitchBranchInput = {
+  name: string
+  createLocal?: boolean
+}
+
+export type VcsPushInput = {
+  remote?: string
 }
 
 export type Command = {
@@ -4854,6 +5012,465 @@ export type FileStatusResponses = {
 
 export type FileStatusResponse = FileStatusResponses[keyof FileStatusResponses]
 
+export type GithubStatusData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/github/status"
+}
+
+export type GithubStatusErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GithubStatusError = GithubStatusErrors[keyof GithubStatusErrors]
+
+export type GithubStatusResponses = {
+  /**
+   * GitHub CLI and repository availability
+   */
+  200: GitHubAvailability
+}
+
+export type GithubStatusResponse = GithubStatusResponses[keyof GithubStatusResponses]
+
+export type GithubPullListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    state?: "open" | "closed" | "merged" | "all"
+  }
+  url: "/github/pulls"
+}
+
+export type GithubPullListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * GitHubRepositoryError
+   */
+  409: GitHubRepositoryError
+  /**
+   * GitHubDependencyError
+   */
+  424: GitHubDependencyError
+  /**
+   * GitHubCommandError
+   */
+  502: GitHubCommandError
+}
+
+export type GithubPullListError = GithubPullListErrors[keyof GithubPullListErrors]
+
+export type GithubPullListResponses = {
+  /**
+   * Pull requests
+   */
+  200: Array<GitHubPullRequestSummary>
+}
+
+export type GithubPullListResponse = GithubPullListResponses[keyof GithubPullListResponses]
+
+export type GithubPullCreateData = {
+  body?: {
+    head: string
+    base: string
+    title: string
+    body: string
+    draft?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/github/pulls"
+}
+
+export type GithubPullCreateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * GitHubRepositoryError
+   */
+  409: GitHubRepositoryError
+  /**
+   * GitHubDependencyError
+   */
+  424: GitHubDependencyError
+  /**
+   * GitHubCommandError
+   */
+  502: GitHubCommandError
+}
+
+export type GithubPullCreateError = GithubPullCreateErrors[keyof GithubPullCreateErrors]
+
+export type GithubPullCreateResponses = {
+  /**
+   * Created pull request
+   */
+  200: GitHubPullRequestReference
+}
+
+export type GithubPullCreateResponse = GithubPullCreateResponses[keyof GithubPullCreateResponses]
+
+export type GithubPullGetData = {
+  body?: never
+  path: {
+    number: GitHubPullRequestNumber
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/github/pulls/{number}"
+}
+
+export type GithubPullGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * GitHubRepositoryError
+   */
+  409: GitHubRepositoryError
+  /**
+   * GitHubDependencyError
+   */
+  424: GitHubDependencyError
+  /**
+   * GitHubCommandError
+   */
+  502: GitHubCommandError
+}
+
+export type GithubPullGetError = GithubPullGetErrors[keyof GithubPullGetErrors]
+
+export type GithubPullGetResponses = {
+  /**
+   * Pull request detail
+   */
+  200: GitHubPullRequestDetail
+}
+
+export type GithubPullGetResponse = GithubPullGetResponses[keyof GithubPullGetResponses]
+
+export type GithubPullEditData = {
+  body?: {
+    title: string
+    body: string
+  }
+  path: {
+    number: GitHubPullRequestNumber
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/github/pulls/{number}"
+}
+
+export type GithubPullEditErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * GitHubRepositoryError
+   */
+  409: GitHubRepositoryError
+  /**
+   * GitHubDependencyError
+   */
+  424: GitHubDependencyError
+  /**
+   * GitHubCommandError
+   */
+  502: GitHubCommandError
+}
+
+export type GithubPullEditError = GithubPullEditErrors[keyof GithubPullEditErrors]
+
+export type GithubPullEditResponses = {
+  /**
+   * Pull request update result
+   */
+  200: GitHubMutationResult
+}
+
+export type GithubPullEditResponse = GithubPullEditResponses[keyof GithubPullEditResponses]
+
+export type GithubPullDiffData = {
+  body?: never
+  path: {
+    number: GitHubPullRequestNumber
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/github/pulls/{number}/diff"
+}
+
+export type GithubPullDiffErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * GitHubRepositoryError
+   */
+  409: GitHubRepositoryError
+  /**
+   * GitHubDependencyError
+   */
+  424: GitHubDependencyError
+  /**
+   * GitHubCommandError
+   */
+  502: GitHubCommandError
+}
+
+export type GithubPullDiffError = GithubPullDiffErrors[keyof GithubPullDiffErrors]
+
+export type GithubPullDiffResponses = {
+  /**
+   * Unified pull request diff
+   */
+  200: GitHubPullRequestDiff
+}
+
+export type GithubPullDiffResponse = GithubPullDiffResponses[keyof GithubPullDiffResponses]
+
+export type GithubPullCommentData = {
+  body?: {
+    body: string
+  }
+  path: {
+    number: GitHubPullRequestNumber
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/github/pulls/{number}/comments"
+}
+
+export type GithubPullCommentErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * GitHubRepositoryError
+   */
+  409: GitHubRepositoryError
+  /**
+   * GitHubDependencyError
+   */
+  424: GitHubDependencyError
+  /**
+   * GitHubCommandError
+   */
+  502: GitHubCommandError
+}
+
+export type GithubPullCommentError = GithubPullCommentErrors[keyof GithubPullCommentErrors]
+
+export type GithubPullCommentResponses = {
+  /**
+   * Comment result
+   */
+  200: GitHubMutationResult
+}
+
+export type GithubPullCommentResponse = GithubPullCommentResponses[keyof GithubPullCommentResponses]
+
+export type GithubPullCheckoutData = {
+  body?: never
+  path: {
+    number: GitHubPullRequestNumber
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/github/pulls/{number}/checkout"
+}
+
+export type GithubPullCheckoutErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * GitHubRepositoryError
+   */
+  409: GitHubRepositoryError
+  /**
+   * GitHubDependencyError
+   */
+  424: GitHubDependencyError
+  /**
+   * GitHubCommandError
+   */
+  502: GitHubCommandError
+}
+
+export type GithubPullCheckoutError = GithubPullCheckoutErrors[keyof GithubPullCheckoutErrors]
+
+export type GithubPullCheckoutResponses = {
+  /**
+   * Checkout result
+   */
+  200: GitHubMutationResult
+}
+
+export type GithubPullCheckoutResponse = GithubPullCheckoutResponses[keyof GithubPullCheckoutResponses]
+
+export type GithubPullCloseData = {
+  body?: never
+  path: {
+    number: GitHubPullRequestNumber
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/github/pulls/{number}/close"
+}
+
+export type GithubPullCloseErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * GitHubRepositoryError
+   */
+  409: GitHubRepositoryError
+  /**
+   * GitHubDependencyError
+   */
+  424: GitHubDependencyError
+  /**
+   * GitHubCommandError
+   */
+  502: GitHubCommandError
+}
+
+export type GithubPullCloseError = GithubPullCloseErrors[keyof GithubPullCloseErrors]
+
+export type GithubPullCloseResponses = {
+  /**
+   * Close result
+   */
+  200: GitHubMutationResult
+}
+
+export type GithubPullCloseResponse = GithubPullCloseResponses[keyof GithubPullCloseResponses]
+
+export type GithubPullReopenData = {
+  body?: never
+  path: {
+    number: GitHubPullRequestNumber
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/github/pulls/{number}/reopen"
+}
+
+export type GithubPullReopenErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * GitHubRepositoryError
+   */
+  409: GitHubRepositoryError
+  /**
+   * GitHubDependencyError
+   */
+  424: GitHubDependencyError
+  /**
+   * GitHubCommandError
+   */
+  502: GitHubCommandError
+}
+
+export type GithubPullReopenError = GithubPullReopenErrors[keyof GithubPullReopenErrors]
+
+export type GithubPullReopenResponses = {
+  /**
+   * Reopen result
+   */
+  200: GitHubMutationResult
+}
+
+export type GithubPullReopenResponse = GithubPullReopenResponses[keyof GithubPullReopenResponses]
+
+export type GithubPullMergeData = {
+  body?: {
+    method: "merge" | "squash" | "rebase"
+    deleteBranch?: boolean
+  }
+  path: {
+    number: GitHubPullRequestNumber
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/github/pulls/{number}/merge"
+}
+
+export type GithubPullMergeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * GitHubRepositoryError
+   */
+  409: GitHubRepositoryError
+  /**
+   * GitHubDependencyError
+   */
+  424: GitHubDependencyError
+  /**
+   * GitHubCommandError
+   */
+  502: GitHubCommandError
+}
+
+export type GithubPullMergeError = GithubPullMergeErrors[keyof GithubPullMergeErrors]
+
+export type GithubPullMergeResponses = {
+  /**
+   * Merge result
+   */
+  200: GitHubMutationResult
+}
+
+export type GithubPullMergeResponse = GithubPullMergeResponses[keyof GithubPullMergeResponses]
+
 export type InstanceDisposeData = {
   body?: never
   path?: never
@@ -5055,6 +5672,146 @@ export type VcsApplyResponses = {
 }
 
 export type VcsApplyResponse = VcsApplyResponses[keyof VcsApplyResponses]
+
+export type VcsBranchListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/branches"
+}
+
+export type VcsBranchListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type VcsBranchListError = VcsBranchListErrors[keyof VcsBranchListErrors]
+
+export type VcsBranchListResponses = {
+  /**
+   * VCS branches and remotes
+   */
+  200: VcsBranches
+}
+
+export type VcsBranchListResponse = VcsBranchListResponses[keyof VcsBranchListResponses]
+
+export type VcsBranchCreateData = {
+  body?: VcsCreateBranchInput
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/branches"
+}
+
+export type VcsBranchCreateErrors = {
+  /**
+   * VcsOperationError | InvalidRequestError
+   */
+  400: VcsOperationError | InvalidRequestError
+}
+
+export type VcsBranchCreateError = VcsBranchCreateErrors[keyof VcsBranchCreateErrors]
+
+export type VcsBranchCreateResponses = {
+  /**
+   * Updated VCS branches and remotes
+   */
+  200: VcsBranches
+}
+
+export type VcsBranchCreateResponse = VcsBranchCreateResponses[keyof VcsBranchCreateResponses]
+
+export type VcsBranchSwitchData = {
+  body?: VcsSwitchBranchInput
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/branches/switch"
+}
+
+export type VcsBranchSwitchErrors = {
+  /**
+   * VcsOperationError | InvalidRequestError
+   */
+  400: VcsOperationError | InvalidRequestError
+}
+
+export type VcsBranchSwitchError = VcsBranchSwitchErrors[keyof VcsBranchSwitchErrors]
+
+export type VcsBranchSwitchResponses = {
+  /**
+   * Updated VCS branches and remotes
+   */
+  200: VcsBranches
+}
+
+export type VcsBranchSwitchResponse = VcsBranchSwitchResponses[keyof VcsBranchSwitchResponses]
+
+export type VcsFetchData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/fetch"
+}
+
+export type VcsFetchErrors = {
+  /**
+   * VcsOperationError | InvalidRequestError
+   */
+  400: VcsOperationError | InvalidRequestError
+}
+
+export type VcsFetchError = VcsFetchErrors[keyof VcsFetchErrors]
+
+export type VcsFetchResponses = {
+  /**
+   * Updated VCS branches and remotes
+   */
+  200: VcsBranches
+}
+
+export type VcsFetchResponse = VcsFetchResponses[keyof VcsFetchResponses]
+
+export type VcsPushData = {
+  body?: VcsPushInput
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/vcs/push"
+}
+
+export type VcsPushErrors = {
+  /**
+   * VcsOperationError | InvalidRequestError
+   */
+  400: VcsOperationError | InvalidRequestError
+}
+
+export type VcsPushError = VcsPushErrors[keyof VcsPushErrors]
+
+export type VcsPushResponses = {
+  /**
+   * Updated VCS branches and remotes
+   */
+  200: VcsBranches
+}
+
+export type VcsPushResponse = VcsPushResponses[keyof VcsPushResponses]
 
 export type CommandListData = {
   body?: never

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { ConfigProvider, Deferred, Effect, Layer } from "effect"
 import type * as Scope from "effect/Scope"
 import { HttpRouter } from "effect/unstable/http"
@@ -335,6 +335,42 @@ afterEach(async () => {
 })
 
 describe("HttpApi SDK", () => {
+  test("exposes workspace-scoped VCS and GitHub clients", async () => {
+    const urls: URL[] = []
+    const fetch = Object.assign(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(input, init)
+        urls.push(new URL(request.url))
+        return Response.json({})
+      },
+      { preconnect: globalThis.fetch.preconnect },
+    ) satisfies typeof globalThis.fetch
+    const sdk = createJyycodeClient({ baseUrl: "http://sdk.test", fetch })
+    const directory = "C:/workspace/project"
+
+    await Promise.all([
+      sdk.vcs.branch.list({ directory }),
+      sdk.vcs.branch.create({ directory, vcsCreateBranchInput: { name: "feature", checkout: true } }),
+      sdk.vcs.branch.switch({ directory, vcsSwitchBranchInput: { name: "main" } }),
+      sdk.vcs.fetch({ directory }),
+      sdk.vcs.push({ directory, vcsPushInput: { remote: "origin" } }),
+      sdk.github.status({ directory }),
+      sdk.github.pull.list({ directory, state: "open" }),
+      sdk.github.pull.create({ directory, head: "feature", base: "main", title: "title", body: "body" }),
+      sdk.github.pull.get({ directory, number: "1" }),
+      sdk.github.pull.edit({ directory, number: "1", title: "title", body: "body" }),
+      sdk.github.pull.diff({ directory, number: "1" }),
+      sdk.github.pull.comment({ directory, number: "1", body: "comment" }),
+      sdk.github.pull.checkout({ directory, number: "1" }),
+      sdk.github.pull.close({ directory, number: "1" }),
+      sdk.github.pull.reopen({ directory, number: "1" }),
+      sdk.github.pull.merge({ directory, number: "1", method: "squash", deleteBranch: true }),
+    ])
+
+    expect(urls).toHaveLength(16)
+    expect(urls.every((url) => url.searchParams.get("directory") === directory)).toBe(true)
+  })
+
   httpapi(
     "uses the generated SDK for global and control routes",
     Effect.gen(function* () {
