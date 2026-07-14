@@ -43,6 +43,7 @@
 .workspace-inspector__separator svg {
   width: 16px;
   height: 16px;
+  transform: translateY(-5px);
 }
 .workspace-inspector__separator:hover,
 .workspace-inspector__separator:focus-visible {
