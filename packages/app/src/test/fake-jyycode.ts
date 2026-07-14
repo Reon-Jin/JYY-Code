@@ -532,6 +532,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     messages,
     todos,
     agentClusters,
+    globalConfig: () => structuredClone(globalConfig),
     permissions,
     changes,
     branches,

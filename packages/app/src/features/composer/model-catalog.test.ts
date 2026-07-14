@@ -155,6 +155,35 @@ describe("loadModelCatalog", () => {
     expect(catalog.selectedModel).toBeUndefined()
   })
 
+  it("prefers the global planner model over a stale local preference", async () => {
+    const catalog = await loadModelCatalog({
+      client: createClient({
+        agentCluster: { enabled: true, planner_model: "openai/gpt-4.1" },
+      }) as never,
+      directory,
+      preference: { model: { providerID: "openai", modelID: "gpt-5" } },
+    })
+
+    expect(catalog.selectedModel).toEqual({ providerID: "openai", modelID: "gpt-4.1" })
+  })
+
+  it("accepts a unique bare global planner ID and excludes deprecated models", async () => {
+    const openai = provider("openai", ["planner", "legacy"])
+    openai.models.legacy!.status = "deprecated"
+    const catalog = await loadModelCatalog({
+      client: createClient({
+        providers: [openai],
+        configuredProviders: [openai],
+        defaults: { openai: "planner" },
+        agentCluster: { planner_model: "planner" },
+      }) as never,
+      directory,
+    })
+
+    expect(catalog.selectedModel).toEqual({ providerID: "openai", modelID: "planner" })
+    expect(catalog.models.map((model) => model.modelID)).toEqual(["planner"])
+  })
+
   it("ignores environment-discovered providers that are absent from config.providers", async () => {
     const deepseek = provider("deepseek", ["deepseek-v4-flash"])
     const anthropic = provider("anthropic", ["claude-opus-4-8", "claude-sonnet-5"])

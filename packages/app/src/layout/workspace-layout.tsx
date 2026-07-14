@@ -567,6 +567,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                 >
                   <Composer
                     client={data.client()}
+                    queryClient={data.queryClient()}
                     directory={data.directory()}
                     sessionID={sessionID}
                     agents={isChildSession() ? (catalogQuery.data?.allAgents ?? []) : (catalogQuery.data?.agents ?? [])}

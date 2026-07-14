@@ -2,6 +2,7 @@ import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { createSignal, type JSX } from "solid-js"
+import { createDesktopQueryClient } from "../../data/query-client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Composer } from "./composer"
 import { createComposerQueueStore } from "./composer-queue"
@@ -42,6 +43,7 @@ function renderComposer(input?: {
   render(() => (
     <Composer
       client={client as never}
+      queryClient={createDesktopQueryClient()}
       directory={directory}
       sessionID={sessionID}
       agents={input?.agents ?? agents}
@@ -105,7 +107,7 @@ describe("Composer", () => {
     const user = userEvent.setup()
     const client = renderComposer()
     expect(screen.getByLabelText("Agent")).toBeVisible()
-    expect(screen.getByLabelText("模型")).toBeVisible()
+    expect(screen.getByRole("button", { name: "配置模型：OpenAI · GPT-5" })).toBeVisible()
     const textbox = screen.getByRole("textbox", { name: "消息" })
 
     await user.type(textbox, "line one{shift>}{enter}{/shift}line two")
@@ -125,7 +127,7 @@ describe("Composer", () => {
     expect(selectors?.children).toHaveLength(5)
     expect(selectors?.children[0]).toContainElement(screen.getByLabelText("Agent"))
     expect(selectors?.children[1]).toContainElement(screen.getByRole("button", { name: "Connect" }))
-    expect(selectors?.children[2]).toContainElement(screen.getByLabelText("模型"))
+    expect(selectors?.children[2]).toContainElement(screen.getByRole("button", { name: /配置模型/ }))
     expect(selectors?.children[3]).toContainElement(screen.getByRole("button", { name: "Branch" }))
     expect(selectors?.children[4]).toContainElement(screen.getByRole("button", { name: "Multi-Agent control" }))
   })
@@ -142,8 +144,7 @@ describe("Composer", () => {
 
     expect(screen.getByLabelText("Agent")).toHaveValue("coder")
     expect(screen.getByLabelText("Agent")).toBeDisabled()
-    expect(screen.getByLabelText("模型")).toHaveValue("test/coder-model")
-    expect(screen.getByLabelText("模型")).toBeDisabled()
+    expect(screen.getByRole("button", { name: "当前模型：test/coder-model" })).toBeDisabled()
     const textbox = screen.getByRole("textbox", { name: "消息" })
     expect(textbox).toBeEnabled()
     await user.type(textbox, "guide child")

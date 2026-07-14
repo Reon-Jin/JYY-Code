@@ -1,21 +1,23 @@
 import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
+import type { QueryClient } from "@tanstack/solid-query"
 import { ListPlus, RotateCcw, Send, Square } from "lucide-solid"
 import { createEffect, createMemo, createSignal, Show, type JSX } from "solid-js"
 import { Button, IconButton } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import type { DesktopClient } from "../../data/sdk"
+import { ClusterModelControl } from "../multi-agent/cluster-model-control"
 import { errorMessage } from "../projects/project-controller"
 import { AgentSelect } from "./agent-select"
 import { createComposerController } from "./composer-controller"
 import { createComposerQueue, type ComposerQueueStore } from "./composer-queue"
 import { ComposerQueuePanel } from "./composer-queue-panel"
 import type { CatalogModel, ModelSelection } from "./model-catalog"
-import { ModelSelect } from "./model-select"
 import { ProviderConnectButton } from "./provider-connect"
 import "./composer.css"
 
 export type ComposerProps = {
-  client: Pick<DesktopClient, "auth" | "instance" | "provider" | "session">
+  client: Pick<DesktopClient, "auth" | "global" | "instance" | "provider" | "session">
+  queryClient: QueryClient
   directory: string
   sessionID: string
   agents: readonly Agent[]
@@ -153,11 +155,14 @@ export function Composer(props: ComposerProps) {
             disabled={controller.sending() || active() || props.disabled}
             onConnected={props.onProviderConnected}
           />
-          <ModelSelect
+          <ClusterModelControl
+            client={props.client}
+            queryClient={props.queryClient}
             models={props.models}
-            value={props.selectedModel}
+            currentModel={props.selectedModel}
             disabled={props.identityLocked || controller.sending() || active()}
-            onChange={props.onModelChange}
+            identityLocked={props.identityLocked}
+            onModelChange={props.onModelChange}
           />
           {props.branchControl}
           {props.multiAgentControl}

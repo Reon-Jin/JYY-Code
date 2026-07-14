@@ -79,6 +79,91 @@
   font-size: var(--text-xs);
 }
 
+.cluster-model-control {
+  display: grid;
+  align-self: end;
+}
+
+.cluster-model-control__button {
+  max-width: 240px;
+  min-height: 30px;
+  gap: var(--space-1);
+  padding-inline: var(--space-2);
+}
+
+.cluster-model-control__button svg {
+  width: 14px;
+}
+
+.cluster-model-control__button span {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.cluster-model-control__button strong {
+  overflow: hidden;
+  font-family: var(--font-code);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cluster-model-control__status {
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  margin: -1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.cluster-model-dialog {
+  width: min(620px, calc(100vw - var(--space-6)));
+}
+
+.cluster-model-dialog__loading {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.cluster-model-dialog__roles {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.cluster-model-dialog__role {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.cluster-model-dialog__role > span {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+.cluster-model-dialog__role > small {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.cluster-model-dialog__role select {
+  min-height: 36px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.cluster-model-dialog__role select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .multi-agent-panel {
   display: grid;
   height: 100%;

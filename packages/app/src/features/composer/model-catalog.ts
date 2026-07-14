@@ -1,5 +1,6 @@
 import type { Agent, AgentClusterConfig, Config, Provider } from "@jyycode-ai/sdk/v2/client"
 import type { DesktopClient } from "../../data/sdk"
+import { resolveClusterModel } from "../multi-agent/cluster-model-config"
 
 const PREFERENCE_KEY = "jyycode.desktop.composer-preference"
 
@@ -98,7 +99,8 @@ function modelKey(model: ModelSelection) {
 
 function chooseModel(candidates: Array<ModelSelection | undefined>, models: readonly CatalogModel[]) {
   const available = new Set(models.map(modelKey))
-  return candidates.find((candidate) => candidate && available.has(modelKey(candidate)))
+  const selected = candidates.find((candidate) => candidate && available.has(modelKey(candidate)))
+  return selected ? { providerID: selected.providerID, modelID: selected.modelID } : undefined
 }
 
 export async function loadModelCatalog(input: {
@@ -141,12 +143,14 @@ export async function loadModelCatalog(input: {
   // providers the user explicitly connected or configured for model picking.
   const connectedProviders: Provider[] = configured.providers
   const models = connectedProviders.flatMap((provider) =>
-    Object.values(provider.models).map((model) => ({
-      providerID: provider.id,
-      providerName: provider.name,
-      modelID: model.id,
-      modelName: model.name,
-    })),
+    Object.values(provider.models)
+      .filter((model) => model.status !== "deprecated")
+      .map((model) => ({
+        providerID: provider.id,
+        providerName: provider.name,
+        modelID: model.id,
+        modelName: model.name,
+      })),
   )
   const agentModel = agents.find((candidate) => candidate.name === selectedAgent)?.model
   const defaultModels = connectedProviders.flatMap((provider) => [
@@ -156,7 +160,14 @@ export async function loadModelCatalog(input: {
     providers.default[provider.id] ? { providerID: provider.id, modelID: providers.default[provider.id]! } : undefined,
   ])
   const selectedModel = chooseModel(
-    [preference.model, agentModel, parseModel(config.model), ...defaultModels, models[0]],
+    [
+      resolveClusterModel(globalConfig.agent_cluster?.planner_model, models),
+      preference.model,
+      agentModel,
+      parseModel(config.model),
+      ...defaultModels,
+      models[0],
+    ],
     models,
   )
 
