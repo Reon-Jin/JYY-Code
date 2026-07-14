@@ -1,5 +1,7 @@
 import { Config } from "@/config/config"
 import { Provider } from "@/provider/provider"
+import { Auth } from "@/auth"
+import { explicitlySelectableProviders } from "@/provider/selectable"
 import * as InstanceState from "@/effect/instance-state"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
@@ -10,6 +12,7 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
   Effect.gen(function* () {
     const providerSvc = yield* Provider.Service
     const configSvc = yield* Config.Service
+    const authSvc = yield* Auth.Service
 
     const get = Effect.fn("ConfigHttpApi.get")(function* () {
       return yield* configSvc.get()
@@ -22,7 +25,16 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
     })
 
     const providers = Effect.fn("ConfigHttpApi.providers")(function* () {
-      const providers = yield* providerSvc.list()
+      const [available, credentials, config] = yield* Effect.all([
+        providerSvc.list(),
+        authSvc.all().pipe(Effect.orDie),
+        configSvc.get(),
+      ])
+      const providers = explicitlySelectableProviders(
+        available,
+        Object.keys(credentials),
+        Object.keys(config.provider ?? {}),
+      )
       return {
         providers: Object.values(providers).map(Provider.toPublicInfo),
         default: Provider.defaultModelIDs(providers),

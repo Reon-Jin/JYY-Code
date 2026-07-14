@@ -327,12 +327,65 @@ exports[`tool parameters JSON Schema (wire shape) task 1`] = `
       "description": "The command that triggered this task",
       "type": "string",
     },
+    "context": {
+      "description": "Optional structured context for the subagent. Use text for short notes, file for a relevant file path, and directory for a relevant directory path.",
+      "items": {
+        "properties": {
+          "note": {
+            "type": "string",
+          },
+          "type": {
+            "enum": [
+              "text",
+              "file",
+              "directory",
+            ],
+            "type": "string",
+          },
+          "value": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "type",
+          "value",
+        ],
+        "type": "object",
+      },
+      "type": "array",
+    },
     "description": {
       "description": "A short (3-5 words) description of the task",
       "type": "string",
     },
+    "fork": {
+      "description": "When true, inherit recent parent conversation context. Use for continuing a multi-file investigation or refactor where the child needs the same background.",
+      "type": "boolean",
+    },
+    "isolation": {
+      "description": "Optional isolation mode. Set to worktree when the subagent may edit files in parallel without touching the parent working tree.",
+      "enum": [
+        "worktree",
+      ],
+      "type": "string",
+    },
+    "merge": {
+      "description": "When isolation=worktree, set merge=auto to review the child worktree, commit its changes on the child branch, and merge that branch into the parent session branch after the task succeeds.",
+      "enum": [
+        "auto",
+      ],
+      "type": "string",
+    },
+    "model": {
+      "description": "Optional model override for this subagent task. Use provider/model when possible; a bare model id must match exactly one configured provider.",
+      "type": "string",
+    },
     "prompt": {
       "description": "The task for the agent to perform",
+      "type": "string",
+    },
+    "resume_session_id": {
+      "description": "In cluster mode, resume an existing completed subagent session for a new planned task while task_id remains the new plan task id",
       "type": "string",
     },
     "subagent_type": {
@@ -340,7 +393,11 @@ exports[`tool parameters JSON Schema (wire shape) task 1`] = `
       "type": "string",
     },
     "task_id": {
-      "description": "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
+      "description": "In cluster mode, use the current plan task id for initial dispatch or a prior ses_... id for revision. Outside cluster mode, pass a prior task_id only to resume that subagent session.",
+      "type": "string",
+    },
+    "worktree_name": {
+      "description": "Optional short name for the isolated worktree when isolation=worktree",
       "type": "string",
     },
   },

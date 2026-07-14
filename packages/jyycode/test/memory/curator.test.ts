@@ -308,6 +308,29 @@ describe("two-phase semantic memory curator", () => {
     expect(Memory.parseStore("user", ctx.files.get(ctx.userPath)!).entries).toEqual([{ scope: "user", ...userFact }])
   })
 
+  test("coalesces equivalent user candidates returned by one evaluator call", async () => {
+    const ctx = fixture()
+    ctx.setMessages(messages("我叫金毅阳", "已记录。", "duplicate-user"))
+
+    const result = await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateStepBegin(sessionID, () =>
+          Effect.succeed(
+            decision("用户要求记住其姓名为金毅阳", [
+              { importance: 8, keywords: ["称呼"], content: "用户名为金毅阳" },
+              { importance: 10, keywords: ["姓名"], content: "User name is 金毅阳" },
+            ]),
+          ),
+        ),
+      ),
+    )
+
+    expect(result).toEqual({ status: "updated", taskUpdated: true, userUpdated: 1 })
+    const stored = Memory.parseStore("user", ctx.files.get(ctx.userPath)!).entries as Memory.UserMemoryEntry[]
+    expect(stored).toHaveLength(1)
+    expect(stored[0]).toMatchObject({ importance: 10, content: "User name is 金毅阳" })
+  })
+
   test("skips subagent sessions without invoking either evaluator", async () => {
     const childID = SessionID.make("ses_curator_child")
     const ctx = fixture({ parentID: sessionID })

@@ -34,6 +34,7 @@ export type AgentClusterStep = {
 export type AgentClusterTaskRun = {
   index: number
   id?: string
+  runID?: string
   role: string
   model: string
   status: AgentClusterTaskStatus
@@ -71,6 +72,7 @@ type AgentClusterRowState = {
     id: string
     status?: string
     goal?: string
+    time_created?: number
   }[]
   tasks: readonly {
     id: string
@@ -525,8 +527,12 @@ function taskRuns(input: SnapshotInput, statuses: Map<string, AgentClusterTaskSt
         .map((part) => {
           const sessionID = taskSessionID(part)
           const state = stateInput(part)
+          const cluster = record(metadata(part)?.agentCluster)
+          const runID = text(cluster?.runID)
+          const clusterTaskID = text(cluster?.taskID)
           return {
-            id: text(state?.task_id),
+            id: clusterTaskID ?? text(state?.task_id),
+            runID,
             role: text(state?.subagent_type) ?? "general",
             model: modelLabel(part),
             status: taskStatus(part, childStatus(input, sessionID, statuses)),
@@ -545,7 +551,60 @@ function clusterTaskStatus(status: string): AgentClusterTaskStatus {
   return "queued"
 }
 
+function projectSessionCluster(cluster: AgentClusterRowState | undefined): AgentClusterRowState | undefined {
+  if (!cluster?.tasks.length) return cluster
+
+  const runs = cluster.runs
+    .map((run, index) => ({ run, index }))
+    .sort((a, b) => {
+      if (a.run.time_created !== undefined && b.run.time_created !== undefined) {
+        const chronological = a.run.time_created - b.run.time_created
+        if (chronological !== 0) return chronological
+      }
+      return a.index - b.index
+    })
+    .map((item) => item.run)
+  const runOrder = new Map(runs.map((run, index) => [run.id, index]))
+  const duplicateIDs = new Map<string, number>()
+  for (const task of cluster.tasks) duplicateIDs.set(task.id, (duplicateIDs.get(task.id) ?? 0) + 1)
+
+  const groups = new Map<string, (typeof cluster.tasks)[number][]>()
+  for (const task of cluster.tasks) {
+    const key = task.run_id ?? "__session__"
+    const group = groups.get(key) ?? []
+    group.push(task)
+    groups.set(key, group)
+  }
+
+  const orderedGroups = [...groups.entries()].sort(
+    ([left], [right]) =>
+      (runOrder.get(left) ?? Number.MAX_SAFE_INTEGER) - (runOrder.get(right) ?? Number.MAX_SAFE_INTEGER),
+  )
+  const tasks: (typeof cluster.tasks)[number][] = []
+  let stepOffset = 0
+
+  for (const [runID, group] of orderedGroups) {
+    const localSteps = [...new Set(group.map((task) => Math.max(1, Math.trunc(task.step ?? 1))))].sort((a, b) => a - b)
+    const projectedStep = new Map(localSteps.map((step, index) => [step, stepOffset + index + 1]))
+    const qualify = (id: string) => (duplicateIDs.get(id) === 1 ? id : `${runID}:${id}`)
+
+    for (const task of group) {
+      const localStep = Math.max(1, Math.trunc(task.step ?? 1))
+      tasks.push({
+        ...task,
+        id: qualify(task.id),
+        step: projectedStep.get(localStep)!,
+        dependencies: task.dependencies?.map(qualify),
+      })
+    }
+    stepOffset += localSteps.length
+  }
+
+  return { runs, tasks }
+}
+
 function clusterPlan(cluster: AgentClusterRowState | undefined): AgentClusterPlan | undefined {
+  cluster = projectSessionCluster(cluster)
   if (!cluster?.tasks.length) return
   return {
     goal: cluster.runs.at(-1)?.goal ?? "Multi-Agent cluster run",
@@ -565,16 +624,40 @@ function clusterPlan(cluster: AgentClusterRowState | undefined): AgentClusterPla
 }
 
 function clusterTaskRuns(cluster: AgentClusterRowState | undefined): AgentClusterTaskRun[] {
+  cluster = projectSessionCluster(cluster)
   if (!cluster?.tasks.length) return []
   return cluster.tasks.map((task, index) => ({
     index: index + 1,
     id: task.id,
+    runID: task.run_id,
     role: task.role,
     model: task.model ?? "-",
     status: clusterTaskStatus(task.status),
     task: task.title,
     sessionID: task.child_session_id ?? undefined,
   }))
+}
+
+function boundLiveTaskRuns(cluster: AgentClusterRowState | undefined, rows: AgentClusterTaskRun[]) {
+  if (!cluster?.tasks.length) return rows
+  const runIDs = new Set(cluster.runs.map((run) => run.id))
+  const duplicateIDs = new Map<string, number>()
+  for (const task of cluster.tasks) duplicateIDs.set(task.id, (duplicateIDs.get(task.id) ?? 0) + 1)
+
+  return rows.flatMap((row) => {
+    // A task tool error raised during dispatch validation has no agentCluster
+    // binding because no child was started. It must not override the persisted
+    // planned row as failed in the Step panel.
+    if (!row.runID) {
+      // Compatibility for task calls persisted before agentCluster metadata was
+      // added: a real child session proves dispatch started. Only bind it when
+      // the plan id is unambiguous across the whole session.
+      return row.sessionID && row.id && duplicateIDs.get(row.id) === 1 ? [row] : []
+    }
+    if (!runIDs.has(row.runID)) return []
+    if (!row.id || duplicateIDs.get(row.id) === 1) return [row]
+    return [{ ...row, id: `${row.runID}:${row.id}` }]
+  })
 }
 
 function reconcileTaskRuns(
@@ -758,14 +841,15 @@ export function agentClusterSnapshot(input: SnapshotInput): AgentClusterSnapshot
   const statuses = explicitTaskStatus(input)
   const liveRows = taskRuns(input, statuses)
   const clusterRows = clusterTaskRuns(input.cluster)
+  const boundLiveRows = authoritativePlan ? boundLiveTaskRuns(input.cluster, liveRows) : liveRows
   const plan = authoritativePlan ?? latestPlan(input)
   // Always merge live statuses from both live tool calls and cluster DB rows
   // into the plan, so that running/submitted tasks are reflected immediately
   // even when authoritative cluster data is available.
   // Cluster rows are placed first so that live row statuses (from tool calls)
   // overwrite stale DB statuses in the merge maps below.
-  const planWithStatus = plan ? mergePlanStatus(plan, [...clusterRows, ...liveRows], statuses) : undefined
-  const rows = authoritativePlan ? reconcileTaskRuns(clusterRows, planWithStatus, liveRows) : liveRows
+  const planWithStatus = plan ? mergePlanStatus(plan, [...clusterRows, ...boundLiveRows], statuses) : undefined
+  const rows = authoritativePlan ? reconcileTaskRuns(clusterRows, planWithStatus, boundLiveRows) : liveRows
   const steps = buildSteps(planWithStatus)
   const taskSource = planWithStatus?.tasks ?? rows
   const runningAgents = taskSource.filter((task) => task.status === "running").length

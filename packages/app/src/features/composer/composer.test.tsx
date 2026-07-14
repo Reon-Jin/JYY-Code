@@ -1,9 +1,10 @@
 import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
-import type { JSX } from "solid-js"
+import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Composer } from "./composer"
+import { createComposerQueueStore } from "./composer-queue"
 import type { CatalogModel } from "./model-catalog"
 
 const directory = "C:\\work\\demo"
@@ -31,6 +32,7 @@ function renderComposer(input?: {
       abort: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: true })),
     },
   }
+  const [status, setStatus] = createSignal<SessionStatus>(input?.status ?? { type: "idle" })
   render(() => (
     <Composer
       client={client as never}
@@ -40,15 +42,17 @@ function renderComposer(input?: {
       models={models}
       selectedAgent="build"
       selectedModel={{ providerID: "openai", modelID: "gpt-5" }}
-      status={input?.status ?? { type: "idle" }}
+      status={status()}
       lastMessageError={input?.lastMessageError}
       disabled={input?.disabled}
       branchControl={input?.branchControl}
       onAgentChange={vi.fn()}
       onModelChange={vi.fn()}
+      onProviderConnected={vi.fn()}
+      queueStore={createComposerQueueStore()}
     />
   ))
-  return client
+  return Object.assign(client, { setStatus })
 }
 
 afterEach(() => {
@@ -103,13 +107,14 @@ describe("Composer", () => {
     await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledTimes(1))
   })
 
-  it("renders Agent, Model, then Branch in the selector row", () => {
+  it("renders Agent, Connect, Model, then Branch in the selector row", () => {
     renderComposer({ branchControl: <button aria-label="Branch">main</button> })
     const selectors = screen.getByLabelText("Agent").parentElement?.parentElement
-    expect(selectors?.children).toHaveLength(3)
+    expect(selectors?.children).toHaveLength(4)
     expect(selectors?.children[0]).toContainElement(screen.getByLabelText("Agent"))
-    expect(selectors?.children[1]).toContainElement(screen.getByLabelText("模型"))
-    expect(selectors?.children[2]).toContainElement(screen.getByRole("button", { name: "Branch" }))
+    expect(selectors?.children[1]).toContainElement(screen.getByRole("button", { name: "Connect" }))
+    expect(selectors?.children[2]).toContainElement(screen.getByLabelText("模型"))
+    expect(selectors?.children[3]).toContainElement(screen.getByRole("button", { name: "Branch" }))
   })
 
   it("does not submit during IME composition", () => {
@@ -148,6 +153,47 @@ describe("Composer", () => {
     await user.click(screen.getByRole("button", { name: "停止" }))
     expect(client.session.abort).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
     expect(screen.getByRole("status")).toHaveTextContent(/正在生成|正在停止/)
+  })
+
+  it("queues prompts while busy and drains one per busy-to-idle cycle", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer({ status: { type: "busy" } })
+    const textbox = screen.getByRole("textbox", { name: "消息" })
+
+    await user.type(textbox, "first queued{Enter}")
+    await user.type(textbox, "second queued")
+    await user.click(screen.getByRole("button", { name: "加入队列" }))
+
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(screen.getByText("排队等待 · 2")).toBeVisible()
+    expect(screen.getByText("first queued")).toBeVisible()
+    expect(screen.getByText("second queued")).toBeVisible()
+
+    client.setStatus({ type: "idle" })
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledTimes(1))
+    expect((client.session.promptAsync.mock.calls[0]?.[0] as { parts: unknown }).parts).toEqual([
+      { type: "text", text: "first queued" },
+    ])
+    expect(screen.getByText("second queued")).toBeVisible()
+
+    client.setStatus({ type: "busy" })
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Agent 正在生成回复"))
+    client.setStatus({ type: "idle" })
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledTimes(2))
+    expect((client.session.promptAsync.mock.calls[1]?.[0] as { parts: unknown }).parts).toEqual([
+      { type: "text", text: "second queued" },
+    ])
+  })
+
+  it("removes a pending queued prompt", async () => {
+    const user = userEvent.setup()
+    renderComposer({ status: { type: "busy" } })
+    const textbox = screen.getByRole("textbox", { name: "消息" })
+    await user.type(textbox, "remove me{Enter}")
+
+    await user.click(screen.getByRole("button", { name: "移除排队消息 1" }))
+    expect(screen.queryByText("remove me")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("排队等待的消息")).not.toBeInTheDocument()
   })
 
   it("keeps a failed draft and offers Retry", async () => {

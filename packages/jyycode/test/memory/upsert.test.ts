@@ -9,12 +9,12 @@ import { SessionID } from "@/session/schema"
 const firstSession = SessionID.make("ses_first")
 const secondSession = SessionID.make("ses_second")
 
-function fixture() {
+function fixture(initialUserEntries: readonly Memory.UserMemoryEntry[] = []) {
   const memoryPath = path.join(Memory.DIRECTORY, "MEMORY.json")
   const userPath = path.join(Memory.DIRECTORY, "USER.json")
   const files = new Map<string, string>([
     [memoryPath, Memory.serializeStore("memory", [])],
-    [userPath, Memory.serializeStore("user", [])],
+    [userPath, Memory.serializeStore("user", initialUserEntries)],
   ])
   const fsLayer = Layer.effect(
     AppFileSystem.Service,
@@ -141,6 +141,164 @@ describe("structured memory upserts", () => {
       importance: 9,
       content: "用户长期偏好使用 TypeScript。",
     })
+  })
+
+  test("merges identical user facts even when their keywords differ", async () => {
+    const { run, entries } = fixture()
+
+    const results = await run(
+      Memory.Service.use((memory) =>
+        Effect.gen(function* () {
+          const created = yield* memory.upsertUserMemory({
+            sessionID: firstSession,
+            importance: 7,
+            keywords: ["技术"],
+            content: "用户偏好使用 TypeScript。",
+          })
+          const merged = yield* memory.upsertUserMemory({
+            sessionID: secondSession,
+            importance: 8,
+            keywords: ["偏好"],
+            content: "用户偏好使用 TypeScript。",
+          })
+          return { created, merged }
+        }),
+      ),
+    )
+
+    expect(results.created.status).toBe("written")
+    expect(results.merged.status).toBe("replaced")
+    expect(entries("user")).toEqual([
+      expect.objectContaining({
+        scope: "user",
+        importance: 8,
+        keywords: ["偏好", "技术"],
+        content: "用户偏好使用 TypeScript。",
+      }),
+    ])
+  })
+
+  test("consolidates existing name paraphrases and updates the profile field in place", async () => {
+    const { run, entries } = fixture([
+      {
+        scope: "user",
+        importance: 9,
+        keywords: ["姓名", "称呼", "金毅阳"],
+        content: '用户姓名：金毅阳。在对话中称呼用户为"金毅阳"。',
+      },
+      {
+        scope: "user",
+        importance: 5,
+        keywords: ["称呼"],
+        content: "用户名为金毅阳",
+      },
+      {
+        scope: "user",
+        importance: 6,
+        keywords: ["姓名"],
+        content: "User name is 金毅阳",
+      },
+      {
+        scope: "user",
+        importance: 8,
+        keywords: ["主题"],
+        content: "用户偏好深色主题。",
+      },
+    ])
+
+    const updated = await run(
+      Memory.Service.use((memory) =>
+        memory.upsertUserMemory({
+          sessionID: firstSession,
+          importance: 10,
+          keywords: ["名字"],
+          content: "User name is 李雷",
+        }),
+      ),
+    )
+
+    expect(updated.status).toBe("replaced")
+    const stored = entries("user") as Memory.UserMemoryEntry[]
+    expect(stored).toHaveLength(2)
+    expect(stored.filter((entry) => /姓名|用户名|user name/iu.test(entry.content))).toEqual([
+      expect.objectContaining({
+        importance: 10,
+        content: "User name is 李雷",
+      }),
+    ])
+    expect(stored).toContainEqual(
+      expect.objectContaining({
+        keywords: ["主题"],
+        content: "用户偏好深色主题。",
+      }),
+    )
+  })
+
+  test("cleans equivalent stored profile facts during an unrelated user upsert", async () => {
+    const { run, entries } = fixture([
+      {
+        scope: "user",
+        importance: 9,
+        keywords: ["姓名"],
+        content: "用户姓名为金毅阳。",
+      },
+      {
+        scope: "user",
+        importance: 6,
+        keywords: ["称呼"],
+        content: "User name is 金毅阳",
+      },
+    ])
+
+    await run(
+      Memory.Service.use((memory) =>
+        memory.upsertUserMemory({
+          sessionID: firstSession,
+          importance: 7,
+          keywords: ["语言"],
+          content: "用户偏好使用中文。",
+        }),
+      ),
+    )
+
+    const stored = entries("user") as Memory.UserMemoryEntry[]
+    expect(stored).toHaveLength(2)
+    expect(stored.filter((entry) => /姓名|user name/iu.test(entry.content))).toHaveLength(1)
+    expect(stored.some((entry) => entry.content === "用户偏好使用中文。")).toBe(true)
+  })
+
+  test("recognizes equivalent birthday formats without merging unrelated facts", async () => {
+    const { run, entries } = fixture()
+
+    await run(
+      Memory.Service.use((memory) =>
+        Effect.gen(function* () {
+          yield* memory.upsertUserMemory({
+            sessionID: firstSession,
+            importance: 9,
+            keywords: ["生日"],
+            content: "用户生日：2005年2月18日。",
+          })
+          yield* memory.upsertUserMemory({
+            sessionID: secondSession,
+            importance: 8,
+            keywords: ["出生"],
+            content: "User birthday is 2005-02-18.",
+          })
+          yield* memory.upsertUserMemory({
+            sessionID: firstSession,
+            importance: 7,
+            keywords: ["语言"],
+            content: "用户偏好使用中文。",
+          })
+        }),
+      ),
+    )
+
+    const stored = entries("user") as Memory.UserMemoryEntry[]
+    expect(stored).toHaveLength(2)
+    expect(stored.filter((entry) => /生日|birthday/iu.test(entry.content))).toHaveLength(1)
+    expect(stored.some((entry) => entry.content === "用户偏好使用中文。")).toBe(true)
   })
 
   test("rejects task upserts that do not use the required content format", async () => {

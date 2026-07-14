@@ -519,25 +519,45 @@ export const layerWithDirectory = (directory: string) =>
         return yield* flock.withLock(
           Effect.gen(function* () {
             const store = yield* readStore(sessionID, scope)
-            const entries = [...store.entries]
+            const deduplicated = scope === "user" ? deduplicateStoredUserEntries(store.entries) : null
+            const entries = deduplicated ? [...deduplicated.entries] : [...store.entries]
             const normalized = normalizeEntry(candidate)
             if (looksSensitive(normalized.content)) {
               return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
             }
             const key = entryKey(normalized)
-            const index = entries.findIndex((entry) => entryKey(entry) === key)
+            const matchingIndexes = entries.flatMap((entry, index) => {
+              if (entryKey(entry) === key) return [index]
+              if (entry.scope !== "user" || normalized.scope !== "user") return []
+              return equivalentUserFacts(entry, normalized) || sameUserProfileSlot(entry, normalized) ? [index] : []
+            })
+            const index = matchingIndexes[0] ?? -1
+            const storedCandidate =
+              normalized.scope === "user" && matchingIndexes.length > 0
+                ? mergeUserCandidate(
+                    normalized,
+                    matchingIndexes.map((matchingIndex) => entries[matchingIndex]! as UserMemoryEntry),
+                  )
+                : normalized
             const status: "written" | "duplicate" | "replaced" =
-              index === -1 ? "written" : entriesEquivalent(entries[index]!, normalized) ? "duplicate" : "replaced"
+              index === -1
+                ? "written"
+                : matchingIndexes.length === 1 && entriesEquivalent(entries[index]!, storedCandidate)
+                  ? "duplicate"
+                  : "replaced"
 
-            if (status !== "duplicate") {
-              if (index === -1) entries.push(normalized)
-              else entries[index] = normalized
+            if (status !== "duplicate" || (deduplicated?.removed ?? 0) > 0) {
+              if (index === -1) entries.push(storedCandidate)
+              else {
+                for (const matchingIndex of matchingIndexes.slice(1).reverse()) entries.splice(matchingIndex, 1)
+                entries[index] = storedCandidate
+              }
               const projected = serializeStore(scope, entries, store.lastCompactedAt)
               const shouldCompact =
                 projected.length >= charLimit(scope) * CAPACITY_WARN_THRESHOLD || entries.length > ENTRY_LIMIT
               if (shouldCompact) {
                 const outcome = compactEntrySet(store, scope, entries)
-                const retained = containsCandidate(outcome.entries, normalized)
+                const retained = containsCandidate(outcome.entries, storedCandidate)
                 if (!retained || outcome.after.used > outcome.after.limit || outcome.after.entries > ENTRY_LIMIT) {
                   yield* audit(sessionID, {
                     writerSessionID: sessionID,
@@ -577,7 +597,12 @@ export const layerWithDirectory = (directory: string) =>
               action: `memory.${status}`,
               scope,
               key,
-              reason: status === "duplicate" ? "Exact structured entry already exists." : "Structured memory upsert.",
+              reason:
+                status === "duplicate"
+                  ? "Equivalent structured entry already exists."
+                  : normalized.scope === "user" && matchingIndexes.length > 0
+                    ? "Equivalent user fact consolidated during structured memory upsert."
+                    : "Structured memory upsert.",
             })
             return {
               file: targetFile,
@@ -1024,13 +1049,96 @@ function compactEntrySet(store: MemoryStore, scope: Scope, source: readonly Memo
 
 function entriesAreSimilar(left: MemoryEntry, right: MemoryEntry): boolean {
   if (left.scope !== right.scope) return false
+  if (left.scope === "user" && right.scope === "user") return equivalentUserFacts(left, right)
   const leftKeys = new Set(left.keywords)
   const rightKeys = new Set(right.keywords)
   const intersection = [...leftKeys].filter((keyword) => rightKeys.has(keyword)).length
   const union = new Set([...leftKeys, ...rightKeys]).size
   if (union > 0 && intersection / union >= 0.6) return true
-  if (left.scope !== "user") return false
-  return left.keywords.some((a) => right.keywords.some((b) => a.includes(b) || b.includes(a)))
+  return false
+}
+
+type UserProfileFact = {
+  slot: "name" | "birthday"
+  value: string
+}
+
+function userProfileFact(content: string): UserProfileFact | null {
+  const normalized = content.normalize("NFKC").trim()
+  const chineseName = normalized.match(
+    /(?:用户(?:的)?)?(?:姓名|名字|称呼|用户名)\s*(?:是|为|叫|[:：=])\s*([^，。；;.!?！？]{1,40}?)(?=[，。；;.!?！？]|$)/iu,
+  )
+  const englishName = normalized.match(
+    /\buser(?:'s)?\s+name\s*(?:is|[:=])\s*([^，。；;.!?！？]{1,40}?)(?=[，。；;.!?！？]|$)/iu,
+  )
+  const name = canonicalProfileValue(chineseName?.[1] ?? englishName?.[1] ?? "")
+  if (name) return { slot: "name", value: name }
+
+  const birthday = normalized.match(
+    /(?:用户(?:的)?)?(?:生日|出生日期)|\buser(?:'s)?\s+(?:birthday|date\s+of\s+birth)\b/iu,
+  )
+  if (!birthday) return null
+  const date = normalized.match(/(\d{4})\s*(?:年|[-/.])\s*(\d{1,2})\s*(?:月|[-/.])\s*(\d{1,2})\s*日?/u)
+  if (!date) return null
+  return { slot: "birthday", value: `${date[1]}-${date[2]!.padStart(2, "0")}-${date[3]!.padStart(2, "0")}` }
+}
+
+function canonicalProfileValue(value: string) {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s"'“”‘’.,，。:：;；!?！？_-]+/gu, "")
+}
+
+function canonicalUserContent(content: string) {
+  return content
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s"'“”‘’.,，。:：;；!?！？_-]+/gu, "")
+}
+
+function equivalentUserFacts(left: UserMemoryEntry, right: UserMemoryEntry) {
+  const leftProfile = userProfileFact(left.content)
+  const rightProfile = userProfileFact(right.content)
+  if (leftProfile && rightProfile) {
+    return leftProfile.slot === rightProfile.slot && leftProfile.value === rightProfile.value
+  }
+  return canonicalUserContent(left.content) === canonicalUserContent(right.content)
+}
+
+function sameUserProfileSlot(left: UserMemoryEntry, right: UserMemoryEntry) {
+  const leftProfile = userProfileFact(left.content)
+  const rightProfile = userProfileFact(right.content)
+  return !!leftProfile && !!rightProfile && leftProfile.slot === rightProfile.slot
+}
+
+function mergeUserCandidate(candidate: UserMemoryEntry, matches: readonly UserMemoryEntry[]): UserMemoryEntry {
+  return {
+    ...candidate,
+    importance: Math.max(candidate.importance, ...matches.map((entry) => entry.importance)) as Importance,
+    keywords: normalizeKeywords([...candidate.keywords, ...matches.flatMap((entry) => entry.keywords)]).slice(0, 3),
+  }
+}
+
+function deduplicateStoredUserEntries(source: readonly MemoryEntry[]) {
+  const entries: MemoryEntry[] = []
+  let removed = 0
+  for (const entry of source) {
+    if (entry.scope !== "user") {
+      entries.push(entry)
+      continue
+    }
+    const index = entries.findIndex(
+      (existing) => existing.scope === "user" && equivalentUserFacts(existing, entry),
+    )
+    if (index === -1) {
+      entries.push(entry)
+      continue
+    }
+    entries[index] = mergeEntries(entries[index]!, entry)
+    removed++
+  }
+  return { entries, removed }
 }
 
 function mergeEntries(left: MemoryEntry, right: MemoryEntry): MemoryEntry {
@@ -1224,12 +1332,28 @@ function parseDecision(value: unknown): MemoryDecision {
   if (!reason) throw new Error("Invalid memory decision reason")
   if (!Array.isArray(decision.user)) throw new Error("Invalid memory decision user")
   const task = parseCandidate(decision.task, "task")
-  const user = decision.user.map((candidate, index) => parseCandidate(candidate, `user ${index}`))
-  const keys = new Set<string>()
-  for (const candidate of user) {
-    const key = entryKey({ scope: "user", ...candidate })
-    if (keys.has(key)) throw new Error(`Invalid memory decision: duplicate user key ${key}`)
-    keys.add(key)
+  const user: MemoryCandidate[] = []
+  for (const [index, value] of decision.user.entries()) {
+    const candidate = parseCandidate(value, `user ${index}`)
+    const candidateEntry: UserMemoryEntry = { scope: "user", ...candidate }
+    const existingIndex = user.findIndex((existing) => {
+      const existingEntry: UserMemoryEntry = { scope: "user", ...existing }
+      return (
+        entryKey(existingEntry) === entryKey(candidateEntry) ||
+        equivalentUserFacts(existingEntry, candidateEntry) ||
+        sameUserProfileSlot(existingEntry, candidateEntry)
+      )
+    })
+    if (existingIndex === -1) {
+      user.push(candidate)
+      continue
+    }
+    const merged = mergeUserCandidate(candidateEntry, [{ scope: "user", ...user[existingIndex]! }])
+    user[existingIndex] = {
+      importance: merged.importance,
+      keywords: merged.keywords,
+      content: merged.content,
+    }
   }
   return { shouldUpdate: true, reason, task, user }
 }

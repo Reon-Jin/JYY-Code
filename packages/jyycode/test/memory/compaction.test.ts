@@ -86,7 +86,7 @@ describe("bounded deterministic memory compaction", () => {
     ).toHaveLength(1)
   })
 
-  test("evicts low-value entries, protects high-value user facts, and returns below 70 percent", async () => {
+  test("consolidates low-value entries, protects high-value user facts, and returns below 70 percent", async () => {
     const { run, seed, read } = await fixture()
     const long = "长期稳定信息".repeat(30)
     await seed("user", [
@@ -97,7 +97,7 @@ describe("bounded deterministic memory compaction", () => {
     const result = await run(Memory.Service.use((memory) => memory.compact({ sessionID: writer, scope: "user" })))
     const stored = await read("user")
 
-    expect(result.removed).toBeGreaterThan(0)
+    expect(result.removed + result.merged).toBeGreaterThan(0)
     expect(result.after.percentage).toBeLessThanOrEqual(70)
     expect(result.after.entries).toBeLessThanOrEqual(45)
     expect(stored.text.length).toBeLessThanOrEqual(2_000)

@@ -82,6 +82,7 @@ export const ClusterPrimaryPrompt = [
   "Use the task tool for concrete work. In cluster mode, task calls run as background subagents by default.",
   "",
   "CRITICAL - task_id routing: On the initial task tool call for a planned task, set `task_id` to that task's plan `id` exactly so the runtime can bind the plan row to the child session. The task tool output returns a SESSION ID that starts with `ses_`. For task_status, revisions, and review blocks, use the returned `ses_...` session ID, not the plan id.",
+  "When the current run lists reusable_subagents, prefer a suitable existing subagent over creating another one. To assign a NEW planned task to an existing subagent, keep task_id set to the NEW plan task id and set resume_session_id to that subagent's ses_... ID. This preserves the new plan row while resuming the existing worker.",
   "",
   "=== MANDATORY REVIEW PROCESS ===",
   "",
@@ -113,6 +114,13 @@ export function runInstructions(input: {
   maxSubagents: number
   maxConcurrency: number
   maxReviewRounds: number
+  reusableSubagents?: readonly {
+    sessionID: string
+    lastTaskID: string
+    role: string
+    title: string
+    status: string
+  }[]
 }) {
   return [
     "<agent-cluster-run>",
@@ -124,6 +132,13 @@ export function runInstructions(input: {
     `max_subagents: ${input.maxSubagents}`,
     `max_concurrency: ${input.maxConcurrency}`,
     `max_review_rounds: ${input.maxReviewRounds}`,
+    "reusable_subagents:",
+    input.reusableSubagents?.length ? JSON.stringify(input.reusableSubagents) : "[]",
+    "",
+    "=== CURRENT TURN SCOPE ===",
+    "This run is delta-only: plan only the work requested by the latest real user message. Earlier conversation, completed Steps, and reusable_subagents are context, not work to schedule again.",
+    "Never copy a historical task into the new JSON plan and never add an already completed historical task as a dependency. If the latest request modifies or extends earlier work, create only the new modification/follow-up task and use resume_session_id to return it to the appropriate existing subagent.",
+    "Task step numbers restart at 1 inside this run; the TUI appends this run after prior session Steps automatically.",
     "",
     "Limits: the full plan must not exceed max_subagents. A single dependency step must not exceed max_concurrency.",
     "",
@@ -202,6 +217,7 @@ export function runInstructions(input: {
     "Parallelism: max_concurrency is the upper bound for one dependency step. Task calls run in the background in cluster mode. Dispatch only the smallest unfinished step. Later steps are blocked until every earlier-step task is accepted.",
     "Do not stop after presenting the JSON plan. The same assistant response that presents the plan must also include task tool calls for every ready step-1 task.",
     "On each initial task tool call, set task_id to the planned task's id exactly. After the task tool returns, use the returned ses_... session ID for polling, reviews, and revisions.",
+    "Before opening a new subagent, inspect reusable_subagents. Prefer a matching existing worker. For a new planned task handled by that worker, call task with task_id=<new plan task id> and resume_session_id=<existing ses_... id>. Do not put the old session id in task_id for a new plan row.",
     "",
     "Required task plan JSON fields (every task object MUST include all of these):",
     "\"id\": unique kebab-case task identifier (e.g. task-research, task-build)",

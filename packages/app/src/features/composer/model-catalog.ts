@@ -122,15 +122,19 @@ export async function loadModelCatalog(input: {
   const agents = allAgents.filter((candidate) => candidate.mode !== "subagent" && !candidate.hidden)
   const agentNames = new Set(agents.map((candidate) => candidate.name))
   const selectedAgent =
-    [preference.agent, config.default_agent, "build", agents.find((candidate) => candidate.mode === "primary")?.name].find(
-      (candidate) => candidate && agentNames.has(candidate),
-    ) ?? agents[0]?.name ?? "build"
+    [
+      preference.agent,
+      config.default_agent,
+      "build",
+      agents.find((candidate) => candidate.mode === "primary")?.name,
+    ].find((candidate) => candidate && agentNames.has(candidate)) ??
+    agents[0]?.name ??
+    "build"
 
-  const configuredByID = new Map(configured.providers.map((provider) => [provider.id, provider]))
-  const allByID = new Map(providers.all.map((provider) => [provider.id, provider]))
-  const connectedProviders = providers.connected
-    .map((providerID) => configuredByID.get(providerID) ?? allByID.get(providerID))
-    .filter((provider): provider is Provider => Boolean(provider))
+  // `/provider.connected` includes providers discovered from inherited
+  // environment variables. `/config/providers` is the authoritative list of
+  // providers the user explicitly connected or configured for model picking.
+  const connectedProviders: Provider[] = configured.providers
   const models = connectedProviders.flatMap((provider) =>
     Object.values(provider.models).map((model) => ({
       providerID: provider.id,
