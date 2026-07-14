@@ -11,7 +11,7 @@ import { Flag } from "@jyycode-ai/core/flag/flag"
 import { Auth } from "../auth"
 import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
-import { InstallationLocal, InstallationVersion } from "@jyycode-ai/core/installation/version"
+import { InstallationPackageVersion } from "@jyycode-ai/core/installation/version"
 import { existsSync } from "fs"
 import { isRecord } from "@/util/record"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
@@ -704,7 +704,7 @@ export const layer = Layer.effect(
               add: [
                 {
                   name: "@jyycode-ai/plugin",
-                  version: InstallationLocal ? undefined : InstallationVersion,
+                  version: InstallationPackageVersion,
                 },
               ],
             })

@@ -142,11 +142,20 @@ POST   /github/pulls/:number/merge
 
 - Tauri capability 保持最小权限：`core:default`、dialog open 和 store load/get/set/save；没有通用 shell capability。
 - `externalBin` 指向 `jyycode-sidecar`，后端仅监听 `127.0.0.1` 随机端口，并通过随机密码启动。
-- 仓库默认 sidecar 构建脚本包含安全规则禁止的 `rm -rf`，因此未执行该路径。
-- 本次从主检出目录复用已存在且 `--version` 验证为 `1.15.10` 的 Windows x64 binary，使用 `stage-sidecar.ts --skip-build` 做单文件暂存；二进制与 `target` 均被 Git 忽略，不进入提交。
+- 仓库默认 sidecar 构建脚本包含安全规则禁止的 `rm -rf`。验证时临时增加并使用 `--no-clean` 分支，仅覆盖已有构建产物；构建结束后该临时代码已移除，未进入提交。
+- 修复后的 Windows x64 sidecar 通过 `--version` 和 session persistence smoke test，再使用 `stage-sidecar.ts --skip-build` 做单文件暂存；二进制与 `target` 均被 Git 忽略，不进入提交。
 - 同时构建 NSIS 与 MSI 时，NSIS 已成功生成后 CLI 在 MSI/WiX 阶段长时间无输出；显式 `--bundles nsis` 在 136.2 秒内成功退出。可用安装器位于构建工作树的 `packages/desktop/src-tauri/target/release/bundle/nsis/JYYCode_0.1.0_x64-setup.exe`。
 
-## 10. 提交结构
+## 10. 桌面启动 GitHub 登录弹窗修复
+
+- 进程树确认弹窗来自 `jyycode-sidecar -> git ls-remote -> git-remote-https -> git credential-manager get`，不是当前工作区 remote，也不是 `gh auth`。
+- 预览版版本号包含分支名，例如 `0.0.0-codex/desktop-workspace-...`。该字符串被作为 `@jyycode-ai/plugin` 版本传给 npm 时，斜杠会让 npm 将其误判为 GitHub `owner/repo`，从而查询不存在的仓库并启动 Git Credential Manager。
+- `packageDependencyVersion` 统一规定：本地版和 `0.0.0-*` 预览版不传依赖版本，正式发布版继续精确固定到当前发布版本。Config 与 TUI 两条安装路径共用同一规则。
+- 新增 3 个断言覆盖本地、预览和正式发布版本；相关 core/npm 测试共 6 个通过，core 与 jyycode 类型检查通过。
+- 修复版桌面程序启动后等待 30 秒，只有桌面进程及其 sidecar；未出现 `git-remote-https` 或 `git-credential-manager.exe`。最新日志也不再包含错误 GitHub URL。
+- 当前 `@jyycode-ai/plugin` 未在 npm registry 发布时，预览版仍可能快速记录 404 背景警告；该警告不再被解释为 Git URL，也不会弹出 GitHub 登录窗口。
+
+## 11. 提交结构
 
 ```text
 4ea3827 feat(api): expose github pull request management
