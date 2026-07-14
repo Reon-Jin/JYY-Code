@@ -1,6 +1,7 @@
 import type { ToolPart } from "@jyycode-ai/sdk/v2/client"
 import { CircleCheck, CircleEllipsis, CircleX, LoaderCircle, Wrench } from "lucide-solid"
 import { Match, Show, Switch } from "solid-js"
+import { TaskActivity } from "./task-activity"
 
 function statusLabel(status: ToolPart["state"]["status"]) {
   switch (status) {
@@ -19,6 +20,12 @@ function duration(state: ToolPart["state"]) {
   if (state.status !== "completed" && state.status !== "error") return undefined
   const milliseconds = Math.max(0, state.time.end - state.time.start)
   return milliseconds < 1_000 ? `${milliseconds}ms` : `${(milliseconds / 1_000).toFixed(1)}s`
+}
+
+export function taskSessionID(part: ToolPart) {
+  if (part.tool !== "task" || part.state.status === "pending") return undefined
+  const sessionID = part.state.metadata?.sessionId
+  return typeof sessionID === "string" ? sessionID : undefined
 }
 
 export function ToolCallCard(props: { part: ToolPart }) {
@@ -56,6 +63,9 @@ export function ToolCallCard(props: { part: ToolPart }) {
         {statusLabel(props.part.state.status)}
         {duration(props.part.state) ? ` · ${duration(props.part.state)}` : ""}
       </span>
+      <Show when={taskSessionID(props.part)}>
+        {(sessionID) => <TaskActivity sessionID={sessionID()} running={props.part.state.status === "running"} />}
+      </Show>
     </section>
   )
 }

@@ -5,6 +5,8 @@ import { createSignal } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import type { ConversationMessage } from "./conversation-state"
 import { MessageTimeline } from "./message-timeline"
+import { TaskActivityContent } from "./task-activity"
+import { taskSessionID } from "./tool-call-card"
 
 const sessionID = "ses_1"
 const info: Message = {
@@ -123,6 +125,111 @@ describe("MessageTimeline", () => {
     await user.click(toggle)
     expect(toggle).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByText("private reasoning")).toBeVisible()
+  })
+
+  it("groups consecutive reasoning and tool calls behind one collapsible control", async () => {
+    const user = userEvent.setup()
+    render(() => (
+      <MessageTimeline
+        messages={[
+          conversation(
+            [
+              {
+                id: "part_reasoning_grouped",
+                sessionID,
+                messageID: assistantInfo.id,
+                type: "reasoning",
+                text: "grouped reasoning",
+                time: { start: 1, end: 2 },
+              },
+              {
+                id: "part_tool_grouped",
+                sessionID,
+                messageID: assistantInfo.id,
+                type: "tool",
+                callID: "call_grouped",
+                tool: "read",
+                state: {
+                  status: "completed",
+                  input: { filePath: "README.md" },
+                  output: "contents",
+                  title: "Read README.md",
+                  metadata: {},
+                  time: { start: 2, end: 3 },
+                },
+              },
+              {
+                id: "part_text_after_group",
+                sessionID,
+                messageID: assistantInfo.id,
+                type: "text",
+                text: "Visible answer",
+              },
+            ],
+            assistantInfo,
+          ),
+        ]}
+      />
+    ))
+
+    const toggle = screen.getByRole("button", { name: /思考与工具调用/ })
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByText("Read README.md")).toBeVisible()
+    expect(screen.getByText("Visible answer")).toBeVisible()
+
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByText("Read README.md")).not.toBeInTheDocument()
+    expect(screen.getByText("Visible answer")).toBeVisible()
+  })
+
+  it("appends task child activity while keeping it in one process group", async () => {
+    const tool = (id: string, title: string): Part => ({
+      id,
+      sessionID: "ses_child",
+      messageID: "msg_child",
+      type: "tool",
+      callID: `call_${id}`,
+      tool: "read",
+      state: {
+        status: "completed",
+        input: {},
+        output: "done",
+        title,
+        metadata: {},
+        time: { start: 1, end: 2 },
+      },
+    })
+    const childInfo = { ...assistantInfo, id: "msg_child", sessionID: "ses_child" }
+    const [messages, setMessages] = createSignal([conversation([tool("part_child_1", "Read first file")], childInfo)])
+
+    render(() => <TaskActivityContent messages={messages()} running />)
+
+    expect(screen.getByRole("button", { name: /Task 执行过程/ })).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByText("Read first file")).toBeVisible()
+
+    setMessages([conversation([tool("part_child_1", "Read first file"), tool("part_child_2", "Read second file")], childInfo)])
+    await waitFor(() => expect(screen.getByText("Read second file")).toBeVisible())
+  })
+
+  it("finds the child session attached to a running task tool", () => {
+    expect(
+      taskSessionID({
+        id: "part_task",
+        sessionID,
+        messageID: assistantInfo.id,
+        type: "tool",
+        callID: "call_task",
+        tool: "task",
+        state: {
+          status: "running",
+          input: { description: "Explore project" },
+          title: "Explore project",
+          metadata: { sessionId: "ses_child" },
+          time: { start: 1 },
+        },
+      }),
+    ).toBe("ses_child")
   })
 
   it("renders a compact tool summary without a detail panel or raw payload", () => {
