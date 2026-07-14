@@ -116,7 +116,7 @@ export function createProjectController(input: ProjectControllerInput) {
 
   async function createInitialSession(opened: OpenedProject): Promise<CreatedProject> {
     const result = await opened.client.session.create(
-      { directory: opened.directory, multiAgent: false },
+      { directory: opened.directory },
       { throwOnError: true },
     )
     if (!result.data) throw new Error("创建 Session 失败")

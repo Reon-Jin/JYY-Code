@@ -83,7 +83,7 @@ describe("project controller", () => {
 
     expect(calls).toEqual(["createProjectDirectory", "project.current", "project.initGit", "session.create"])
     expect(sdk.session.create).toHaveBeenCalledWith(
-      { directory: project.worktree, multiAgent: false },
+      { directory: project.worktree },
       { throwOnError: true },
     )
   })
