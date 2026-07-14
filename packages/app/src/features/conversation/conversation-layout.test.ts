@@ -20,7 +20,7 @@ describe("conversation layout CSS", () => {
     expect(conversationCSS).toMatch(
       /\.message-timeline__content\s*\{[^}]*width:\s*var\(--conversation-content-width\);[^}]*margin:\s*0 auto;/s,
     )
-    expect(composerCSS).toMatch(/\.composer\s*\{[^}]*width:\s*var\(--conversation-content-width\);/s)
+    expect(composerCSS).toMatch(/\.composer-stack\s*\{[^}]*width:\s*var\(--conversation-content-width\);/s)
     expect(composerCSS).toMatch(/\.provider-empty\s*\{[^}]*width:\s*var\(--conversation-content-width\);/s)
     expect(`${conversationCSS}\n${composerCSS}`).not.toContain("820px")
   })
