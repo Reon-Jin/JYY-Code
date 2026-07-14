@@ -26,6 +26,11 @@ function renderComposer(input?: {
   disabled?: boolean
   branchControl?: JSX.Element
   multiAgentControl?: JSX.Element
+  identityLocked?: boolean
+  selectedAgent?: string
+  selectedModel?: { providerID: string; modelID: string }
+  agents?: Agent[]
+  models?: CatalogModel[]
 }) {
   const client = {
     session: {
@@ -39,15 +44,16 @@ function renderComposer(input?: {
       client={client as never}
       directory={directory}
       sessionID={sessionID}
-      agents={agents}
-      models={models}
-      selectedAgent="build"
-      selectedModel={{ providerID: "openai", modelID: "gpt-5" }}
+      agents={input?.agents ?? agents}
+      models={input?.models ?? models}
+      selectedAgent={input?.selectedAgent ?? "build"}
+      selectedModel={input?.selectedModel ?? { providerID: "openai", modelID: "gpt-5" }}
       status={status()}
       lastMessageError={input?.lastMessageError}
       disabled={input?.disabled}
       branchControl={input?.branchControl}
       multiAgentControl={input?.multiAgentControl}
+      identityLocked={input?.identityLocked}
       agentClusterEnabled
       onAgentChange={vi.fn()}
       onModelChange={vi.fn()}
@@ -122,6 +128,26 @@ describe("Composer", () => {
     expect(selectors?.children[2]).toContainElement(screen.getByLabelText("模型"))
     expect(selectors?.children[3]).toContainElement(screen.getByRole("button", { name: "Branch" }))
     expect(selectors?.children[4]).toContainElement(screen.getByRole("button", { name: "Multi-Agent control" }))
+  })
+
+  it("locks child Agent and model identity while keeping messaging enabled", async () => {
+    const user = userEvent.setup()
+    renderComposer({
+      identityLocked: true,
+      selectedAgent: "coder",
+      selectedModel: { providerID: "test", modelID: "coder-model" },
+      agents: [{ name: "coder", mode: "subagent", permission: [], options: {} }],
+      models: [],
+    })
+
+    expect(screen.getByLabelText("Agent")).toHaveValue("coder")
+    expect(screen.getByLabelText("Agent")).toBeDisabled()
+    expect(screen.getByLabelText("模型")).toHaveValue("test/coder-model")
+    expect(screen.getByLabelText("模型")).toBeDisabled()
+    const textbox = screen.getByRole("textbox", { name: "消息" })
+    expect(textbox).toBeEnabled()
+    await user.type(textbox, "guide child")
+    expect(screen.getByRole("button", { name: "发送" })).toBeEnabled()
   })
 
   it("does not submit during IME composition", () => {

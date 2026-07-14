@@ -30,17 +30,25 @@ describe("request queries", () => {
     expect(client.question.list).toHaveBeenCalledWith({ directory }, { throwOnError: true })
   })
 
-  it("filters to the active Session and gives permissions priority", () => {
+  it("uses ordered Session scope while giving all permissions priority over questions", () => {
     const otherPermission = { ...permission, id: "per_other", sessionID: "ses_2" }
     const otherQuestion = { ...question, id: "que_other", sessionID: "ses_2" }
 
-    expect(selectActiveRequest([otherPermission, permission], [question, otherQuestion], "ses_1")).toEqual({
+    expect(selectActiveRequest([otherPermission, permission], [question, otherQuestion], ["ses_1", "ses_2"])).toEqual({
       type: "permission",
       request: permission,
+      sourceSessionID: "ses_1",
     })
-    expect(selectActiveRequest([], [otherQuestion, question], "ses_1")).toEqual({
+    expect(selectActiveRequest([], [otherQuestion, question], ["ses_1", "ses_2"])).toEqual({
       type: "question",
       request: question,
+      sourceSessionID: "ses_1",
     })
+    expect(selectActiveRequest([otherPermission], [question], ["ses_1", "ses_2"])).toEqual({
+      type: "permission",
+      request: otherPermission,
+      sourceSessionID: "ses_2",
+    })
+    expect(selectActiveRequest([permission, otherPermission], [], ["ses_2", "ses_1"])?.request).toBe(otherPermission)
   })
 })

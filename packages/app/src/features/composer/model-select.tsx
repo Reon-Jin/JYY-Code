@@ -1,4 +1,4 @@
-import { For } from "solid-js"
+import { For, Show } from "solid-js"
 import type { CatalogModel, ModelSelection } from "./model-catalog"
 
 function valueOf(model: ModelSelection) {
@@ -23,6 +23,11 @@ export function ModelSelect(props: {
           if (model) props.onChange({ providerID: model.providerID, modelID: model.modelID })
         }}
       >
+        <Show when={!props.models.some((model) => valueOf(model) === valueOf(props.value))}>
+          <option value={valueOf(props.value)}>
+            {props.value.providerID} · {props.value.modelID}
+          </option>
+        </Show>
         <For each={props.models}>
           {(model) => (
             <option value={valueOf(model)}>

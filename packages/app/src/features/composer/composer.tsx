@@ -28,6 +28,7 @@ export type ComposerProps = {
   disabled?: boolean
   branchControl?: JSX.Element
   multiAgentControl?: JSX.Element
+  identityLocked?: boolean
   onAgentChange: (name: string) => void
   onModelChange: (model: ModelSelection) => void
   onProviderConnected: (providerID: string) => void | Promise<void>
@@ -143,7 +144,7 @@ export function Composer(props: ComposerProps) {
           <AgentSelect
             agents={props.agents}
             value={props.selectedAgent}
-            disabled={controller.sending() || active()}
+            disabled={props.identityLocked || controller.sending() || active()}
             onChange={props.onAgentChange}
           />
           <ProviderConnectButton
@@ -155,7 +156,7 @@ export function Composer(props: ComposerProps) {
           <ModelSelect
             models={props.models}
             value={props.selectedModel}
-            disabled={controller.sending() || active()}
+            disabled={props.identityLocked || controller.sending() || active()}
             onChange={props.onModelChange}
           />
           {props.branchControl}

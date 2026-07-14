@@ -23,6 +23,9 @@ function createHarness() {
     session: {
       list: vi.fn(async () => ({ data: [] })),
       status: vi.fn(async () => ({ data: {} })),
+      get: vi.fn(async ({ sessionID }: { sessionID: string }) => ({
+        data: sessionID === "ses_child" ? { ...session, id: sessionID, parentID: "ses_1", agent: "coder" } : session,
+      })),
       create: vi.fn(async () => ({ data: session })),
       update: vi.fn(async () => ({ data: undefined })),
       delete: vi.fn(async () => ({ data: true })),
@@ -44,6 +47,18 @@ describe("session api", () => {
       { directory, scope: "project", roots: true },
       { throwOnError: true },
     )
+  })
+
+  it.each([
+    ["ses_1", undefined],
+    ["ses_child", "ses_1"],
+  ])("loads an exact active Session route for %s", async (sessionID, parentID) => {
+    const { api, client } = createHarness()
+
+    const loaded = await api.load(sessionID)
+
+    expect(client.session.get).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
+    expect(loaded).toMatchObject({ id: sessionID, ...(parentID ? { parentID } : {}) })
   })
 
   it("does not persist an unnecessary false override when creating a session", async () => {

@@ -17,6 +17,27 @@ export type SessionApiInput = {
   now?: () => number
 }
 
+export type SessionQueryInput = Pick<SessionApiInput, "client" | "directory"> & {
+  sessionID: string
+  signal?: AbortSignal
+}
+
+export async function loadSession(input: SessionQueryInput) {
+  const result = await input.client.session.get(
+    { directory: input.directory, sessionID: input.sessionID },
+    input.signal ? { throwOnError: true, signal: input.signal } : { throwOnError: true },
+  )
+  if (!result.data) throw new Error("无法加载 Session")
+  return result.data
+}
+
+export function sessionQueryOptions(input: SessionQueryInput) {
+  return {
+    queryKey: keys.session(input.directory, input.sessionID),
+    queryFn: ({ signal }: { signal: AbortSignal }) => loadSession({ ...input, signal }),
+  } as const
+}
+
 function sessionsFrom(result: { data?: Session[] }, archived: boolean) {
   return [...(result.data ?? [])]
     .filter(
@@ -59,6 +80,10 @@ export function createSessionApi(input: SessionApiInput) {
     return (result.data ?? {}) as Record<string, SessionStatus>
   }
 
+  async function load(sessionID: string) {
+    return loadSession({ client: input.client, directory: input.directory, sessionID })
+  }
+
   async function create(value: CreateSessionInput) {
     const result = await input.client.session.create(
       { directory: input.directory, ...value },
@@ -96,7 +121,7 @@ export function createSessionApi(input: SessionApiInput) {
     return result.data ?? false
   }
 
-  return { list, status, create, rename, archive, remove }
+  return { list, load, status, create, rename, archive, remove }
 }
 
 export type SessionApi = ReturnType<typeof createSessionApi>

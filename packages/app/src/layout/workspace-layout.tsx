@@ -1,7 +1,7 @@
 import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { useNavigate } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
-import { House, PanelLeftClose, PanelLeftOpen, Plus, Radio } from "lucide-solid"
+import { ArrowLeft, House, PanelLeftClose, PanelLeftOpen, Plus, Radio } from "lucide-solid"
 import { createEffect, createMemo, createSignal, on, Show, type JSX } from "solid-js"
 import { Button, IconButton } from "../components/ui/button"
 import { InlineError } from "../components/ui/inline-error"
@@ -24,6 +24,8 @@ import {
 } from "../features/composer/model-catalog"
 import { ProviderEmpty } from "../features/composer/provider-empty"
 import { effectiveMultiAgent, MultiAgentControl } from "../features/multi-agent/multi-agent-control"
+import { agentClusterQueryOptions } from "../features/multi-agent/multi-agent-query"
+import { projectAgentClusterState } from "../features/multi-agent/multi-agent-state"
 import { PermissionBar } from "../features/requests/permission-bar"
 import { QuestionPanel } from "../features/requests/question-panel"
 import {
@@ -33,7 +35,7 @@ import {
 } from "../features/workspace-inspector/inspector-preferences"
 import { WorkspaceInspector } from "../features/workspace-inspector/workspace-inspector"
 import { permissionQueryOptions, questionQueryOptions, selectActiveRequest } from "../features/requests/request-query"
-import { createSessionApi } from "../features/sessions/session-api"
+import { createSessionApi, sessionQueryOptions } from "../features/sessions/session-api"
 import { SessionEmpty } from "../features/sessions/session-empty"
 import { SessionList } from "../features/sessions/session-list"
 import { useDesktopBridge } from "../platform/context"
@@ -49,7 +51,9 @@ export type WorkspaceLayoutViewProps = {
   archivedSessions: readonly Session[]
   statuses: Record<string, SessionStatus>
   conversation?: ConversationSnapshot
+  activeSession?: Session
   activeSessionID?: string
+  selectedRootSessionID?: string
   activeLoading?: boolean
   archivedLoading?: boolean
   conversationLoading?: boolean
@@ -70,6 +74,7 @@ export type WorkspaceLayoutViewProps = {
   onRename: (sessionID: string, title: string) => Promise<void>
   onArchive: AsyncSessionAction
   onDelete: AsyncSessionAction
+  onReturnToRoot?: () => void
 }
 
 function connectionLabel(connection: ConnectionState) {
@@ -83,6 +88,10 @@ function connectionLabel(connection: ConnectionState) {
   }
 }
 
+function capitalize(value: string) {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value
+}
+
 function startsNarrow() {
   return typeof window !== "undefined" && window.matchMedia?.("(max-width: 960px)").matches === true
 }
@@ -90,8 +99,10 @@ function startsNarrow() {
 export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
   const [filter, setFilter] = createSignal<"active" | "archived">("active")
   const [railOpen, setRailOpen] = createSignal(!startsNarrow())
-  const selected = createMemo(() =>
-    [...props.activeSessions, ...props.archivedSessions].find((session) => session.id === props.activeSessionID),
+  const selected = createMemo(
+    () =>
+      props.activeSession ??
+      [...props.activeSessions, ...props.archivedSessions].find((session) => session.id === props.activeSessionID),
   )
   const list = () => (filter() === "active" ? props.activeSessions : props.archivedSessions)
   const listLoading = () => (filter() === "active" ? props.activeLoading : props.archivedLoading)
@@ -151,7 +162,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
         <SessionList
           sessions={list()}
           statuses={props.statuses}
-          activeSessionID={props.activeSessionID}
+          activeSessionID={props.selectedRootSessionID ?? props.activeSessionID}
           archived={filter() === "archived"}
           loading={listLoading()}
           error={listError()}
@@ -192,7 +203,18 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
         >
           <section class="workspace-conversation" aria-labelledby="workspace-session-title">
             <header class="workspace-conversation__header">
-              <span>Single Agent</span>
+              <Show
+                when={selected()?.parentID}
+                fallback={<span class="workspace-conversation__context">Single Agent</span>}
+              >
+                <div class="workspace-conversation__child-context">
+                  <button type="button" onClick={props.onReturnToRoot} aria-label="返回主 Session">
+                    <ArrowLeft aria-hidden="true" />
+                    返回主 Session
+                  </button>
+                  <span>子 Agent · {selected()?.agent ? capitalize(selected()!.agent!) : "Specialist"}</span>
+                </div>
+              </Show>
               <h1 id="workspace-session-title">{selected()?.title ?? "Session"}</h1>
             </header>
             <Show when={props.connection === "connected" ? undefined : props.connection} keyed>
@@ -239,6 +261,17 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     () => ({ queryKey: keys.sessions(data.directory(), true), queryFn: () => api().list(true) }),
     data.queryClient,
   )
+  const sessionQuery = createQuery(
+    () => ({
+      ...sessionQueryOptions({
+        client: data.client(),
+        directory: data.directory(),
+        sessionID: props.activeSessionID ?? "",
+      }),
+      enabled: Boolean(props.activeSessionID),
+    }),
+    data.queryClient,
+  )
   const statusQuery = createQuery(
     () => ({ queryKey: keys.status(data.directory()), queryFn: () => api().status() }),
     data.queryClient,
@@ -281,11 +314,43 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }),
     data.queryClient,
   )
-  const activeSession = createMemo(() =>
-    [...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])].find(
-      (session) => session.id === props.activeSessionID,
-    ),
+  const activeSession = createMemo(() => sessionQuery.data)
+  const parentSessionID = createMemo(() => activeSession()?.parentID)
+  const rootSessionID = createMemo(() => parentSessionID() ?? activeSession()?.id)
+  const isChildSession = createMemo(() => Boolean(parentSessionID()))
+  const clusterQuery = createQuery(
+    () => ({
+      ...agentClusterQueryOptions({
+        client: data.client(),
+        directory: data.directory(),
+        sessionID: rootSessionID() ?? "",
+      }),
+      enabled: Boolean(rootSessionID()),
+    }),
+    data.queryClient,
   )
+  const clusterSnapshot = createMemo(() => projectAgentClusterState(clusterQuery.data ?? { runs: [], tasks: [] }))
+  const requestScope = createMemo(() => {
+    const session = activeSession()
+    if (!session) return []
+    if (session.parentID) return [session.id]
+    return [
+      ...new Set([
+        session.id,
+        ...clusterSnapshot().tasks.flatMap((task) => (task.childSessionID ? [task.childSessionID] : [])),
+      ]),
+    ]
+  })
+  const composerAgent = createMemo(() =>
+    isChildSession()
+      ? (activeSession()?.agent ?? "build")
+      : (selectedAgent() ?? catalogQuery.data?.selectedAgent ?? "build"),
+  )
+  const composerModel = createMemo<ModelSelection | undefined>(() => {
+    const stored = activeSession()?.model
+    if (isChildSession() && stored) return { providerID: stored.providerID, modelID: stored.id }
+    return selectedModel() ?? catalogQuery.data?.selectedModel
+  })
 
   createEffect(
     on(
@@ -383,7 +448,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return undefined
   })
   const activeRequest = createMemo(() =>
-    selectActiveRequest(permissionsQuery.data ?? [], questionsQuery.data ?? [], props.activeSessionID),
+    selectActiveRequest(permissionsQuery.data ?? [], questionsQuery.data ?? [], requestScope()),
   )
   const requestError = createMemo(() => {
     if (permissionsQuery.error) return errorMessage(permissionsQuery.error, "无法加载权限请求")
@@ -394,12 +459,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   createEffect(() => {
     if (activeQuery.isPending || archivedQuery.isPending || activeQuery.error || archivedQuery.error) return
     const sessionID = props.activeSessionID
-    if (
-      sessionID &&
-      ![...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])].some((session) => session.id === sessionID)
-    ) {
-      return
-    }
+    if (sessionID && sessionQuery.data?.id !== sessionID) return
     const location = { project: data.directory(), ...(sessionID ? { sessionID } : {}) }
     const signature = JSON.stringify(location)
     if (signature === persistedLocation) return
@@ -418,8 +478,10 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       archivedSessions={archivedQuery.data ?? []}
       statuses={statusQuery.data ?? {}}
       conversation={conversationQuery.data}
+      activeSession={activeSession()}
       activeSessionID={props.activeSessionID}
-      activeLoading={activeQuery.isPending}
+      selectedRootSessionID={rootSessionID()}
+      activeLoading={activeQuery.isPending || (Boolean(props.activeSessionID) && sessionQuery.isPending)}
       archivedLoading={archivedQuery.isPending}
       conversationLoading={Boolean(props.activeSessionID) && conversationQuery.isPending}
       activeError={activeQuery.error ? errorMessage(activeQuery.error, "无法加载活动 Session") : undefined}
@@ -438,13 +500,23 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           }
         >
           <Show when={activeRequest()} keyed>
-            {(pending) =>
-              pending.type === "permission" ? (
-                <PermissionBar client={data.client()} directory={data.directory()} request={pending.request} />
-              ) : (
-                <QuestionPanel client={data.client()} directory={data.directory()} request={pending.request} />
-              )
-            }
+            {(pending) => (
+              <>
+                <Show when={pending.sourceSessionID !== activeSession()?.id}>
+                  <p class="request-panel__source">
+                    来自子 Agent · {capitalize(
+                      clusterSnapshot().tasks.find((task) => task.childSessionID === pending.sourceSessionID)?.role ??
+                        "Agent",
+                    )}
+                  </p>
+                </Show>
+                {pending.type === "permission" ? (
+                  <PermissionBar client={data.client()} directory={data.directory()} request={pending.request} />
+                ) : (
+                  <QuestionPanel client={data.client()} directory={data.directory()} request={pending.request} />
+                )}
+              </>
+            )}
           </Show>
         </Show>
       }
@@ -464,7 +536,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                 fallback={<InlineError message={errorMessage(catalogQuery.error, "无法加载 Agent 和模型")} />}
               >
                 <Show
-                  when={catalogQuery.data?.selectedModel && selectedModel()}
+                  when={composerModel()}
                   fallback={
                     <ProviderEmpty
                       client={data.client()}
@@ -481,16 +553,17 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     client={data.client()}
                     directory={data.directory()}
                     sessionID={sessionID}
-                    agents={catalogQuery.data?.agents ?? []}
+                    agents={isChildSession() ? (catalogQuery.data?.allAgents ?? []) : (catalogQuery.data?.agents ?? [])}
                     models={catalogQuery.data?.models ?? []}
-                    selectedAgent={selectedAgent() ?? catalogQuery.data?.selectedAgent ?? "build"}
-                    selectedModel={selectedModel()!}
+                    selectedAgent={composerAgent()}
+                    selectedModel={composerModel()!}
                     agentClusterEnabled={
                       activeSession() ? effectiveMultiAgent(activeSession()!, catalogQuery.data?.agentCluster) : false
                     }
                     status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
                     lastMessageError={lastMessageError()}
                     disabled={data.connection() !== "connected"}
+                    identityLocked={isChildSession()}
                     branchControl={<BranchControl directory={data.directory()} />}
                     multiAgentControl={
                       <Show when={activeSession()} keyed>
@@ -536,6 +609,10 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       onRename={rename}
       onArchive={archive}
       onDelete={remove}
+      onReturnToRoot={() => {
+        const parentID = parentSessionID()
+        if (parentID) navigate(`/session/${encodeURIComponent(parentID)}`)
+      }}
     />
   )
 }

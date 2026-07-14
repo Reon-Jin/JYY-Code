@@ -43,12 +43,15 @@ export function questionQueryOptions(input: RequestQueryInput) {
 export function selectActiveRequest(
   permissions: readonly PermissionRequest[],
   questions: readonly QuestionRequest[],
-  sessionID: string | undefined,
+  sessionScope: readonly string[],
 ) {
-  if (!sessionID) return undefined
-  const permission = permissions.find((request) => request.sessionID === sessionID)
-  if (permission) return { type: "permission" as const, request: permission }
-  const question = questions.find((request) => request.sessionID === sessionID)
-  if (question) return { type: "question" as const, request: question }
+  for (const sessionID of sessionScope) {
+    const permission = permissions.find((request) => request.sessionID === sessionID)
+    if (permission) return { type: "permission" as const, request: permission, sourceSessionID: sessionID }
+  }
+  for (const sessionID of sessionScope) {
+    const question = questions.find((request) => request.sessionID === sessionID)
+    if (question) return { type: "question" as const, request: question, sourceSessionID: sessionID }
+  }
   return undefined
 }
