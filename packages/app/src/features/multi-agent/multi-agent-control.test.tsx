@@ -21,7 +21,6 @@ function renderControl(input?: {
   session?: Session
   config?: AgentClusterConfig
   reject?: boolean
-  onPaneChange?: (pane: "multi-agent") => void
 }) {
   const queryClient = createDesktopQueryClient()
   const activeSession = input?.session ?? session
@@ -35,7 +34,6 @@ function renderControl(input?: {
     : vi.fn(async (value: { multiAgent: boolean }) => ({
         data: { ...activeSession, multiAgent: value.multiAgent },
       }))
-  const onPaneChange = input?.onPaneChange ?? vi.fn()
   render(() => (
     <MultiAgentControl
       client={{ session: { update } } as never}
@@ -43,11 +41,9 @@ function renderControl(input?: {
       directory={directory}
       session={activeSession}
       config={input?.config ?? { enabled: true, default_on: false }}
-      onOpenPanel={() => onPaneChange("multi-agent")}
-      counts={{ running: 2, done: 3, failed: 1 }}
     />
   ))
-  return { queryClient, update, onPaneChange }
+  return { queryClient, update }
 }
 
 afterEach(cleanup)
@@ -112,14 +108,11 @@ describe("MultiAgentControl", () => {
     expect(screen.getByText(reason)).toBeVisible()
   })
 
-  it("opens the panel independently and renders compact running counts", async () => {
-    const user = userEvent.setup()
-    const { update, onPaneChange } = renderControl()
+  it("renders only the Session mode switch without a duplicate panel action or counts", () => {
+    const { update } = renderControl()
 
-    expect(screen.getByText("2 运行 · 3 完成 · 1 失败")).toBeVisible()
-    await user.click(screen.getByRole("button", { name: "查看 Multi-Agent" }))
-
-    expect(onPaneChange).toHaveBeenCalledWith("multi-agent")
+    expect(screen.queryByRole("button", { name: "查看 Multi-Agent" })).not.toBeInTheDocument()
+    expect(screen.queryByText(/运行.*完成.*失败/)).not.toBeInTheDocument()
     expect(update).not.toHaveBeenCalled()
   })
 })

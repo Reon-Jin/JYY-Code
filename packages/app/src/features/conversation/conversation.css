@@ -192,10 +192,11 @@
   height: 14px;
 }
 .reasoning-part__toggle svg:last-child {
+  transform: rotate(180deg);
   transition: transform var(--motion-fast) ease-out;
 }
 .reasoning-part__toggle svg[data-expanded="true"] {
-  transform: rotate(180deg);
+  transform: none;
 }
 .reasoning-part__content {
   margin: var(--space-3) 0 0;
@@ -233,8 +234,11 @@
   flex: 0 0 auto;
   transition: transform var(--motion-fast) ease-out;
 }
-.activity-group__toggle svg[data-expanded="true"] {
+.activity-group__toggle svg:last-child {
   transform: rotate(180deg);
+}
+.activity-group__toggle svg[data-expanded="true"] {
+  transform: none;
 }
 .activity-group__toggle .activity-group__spinner {
   animation: ui-spin 900ms linear infinite;

@@ -99,6 +99,9 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
       <header class="multi-agent-panel__header">
         <Bot aria-hidden="true" />
         <h2 id="multi-agent-panel-title">Multi-Agent</h2>
+        <span class="multi-agent-panel__counts">
+          {props.snapshot.runningAgents} 运行 · {props.snapshot.doneAgents} 完成 · {props.snapshot.failedAgents} 失败
+        </span>
       </header>
 
       <Show
@@ -159,9 +162,6 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                       </div>
                       <p class="multi-agent-summary__counts">
                         Step {props.snapshot.currentStep}/{props.snapshot.totalSteps} · {props.snapshot.completedSteps} 完成
-                      </p>
-                      <p class="multi-agent-summary__counts">
-                        Agents {props.snapshot.totalAgents} · {props.snapshot.runningAgents} 运行 · {props.snapshot.doneAgents} 完成 · {props.snapshot.failedAgents} 失败
                       </p>
                     </Show>
                   </div>

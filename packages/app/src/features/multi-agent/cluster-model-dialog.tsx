@@ -100,14 +100,9 @@ export function ClusterModelDialog(props: ClusterModelDialogProps) {
   }
 
   const footer = () => (
-    <>
-      <Button variant="secondary" disabled={saving()} onClick={props.onClose}>
-        取消
-      </Button>
-      <Button loading={saving()} loadingLabel="正在保存" disabled={loading() || !validSelections()} onClick={() => void save()}>
-        保存
-      </Button>
-    </>
+    <Button loading={saving()} loadingLabel="正在保存" disabled={loading() || !validSelections()} onClick={() => void save()}>
+      保存
+    </Button>
   )
 
   return (
@@ -117,6 +112,7 @@ export function ClusterModelDialog(props: ClusterModelDialogProps) {
       title="配置模型"
       description="主模型用于普通单 Agent 对话，也负责 Multi-Agent 的规划与汇总；另外三种模型用于对应的子任务。设置对所有项目生效，正在运行的任务不会切换模型。"
       footer={footer()}
+      showClose
       onClose={props.onClose}
     >
       <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>

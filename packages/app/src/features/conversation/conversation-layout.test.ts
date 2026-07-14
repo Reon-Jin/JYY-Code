@@ -25,6 +25,21 @@ describe("conversation layout CSS", () => {
     expect(`${conversationCSS}\n${composerCSS}`).not.toContain("820px")
   })
 
+  it("points activity chevrons down while expanded and up while collapsed", () => {
+    expect(conversationCSS).toMatch(
+      /\.reasoning-part__toggle svg:last-child\s*\{[^}]*transform:\s*rotate\(180deg\);/s,
+    )
+    expect(conversationCSS).toMatch(
+      /\.reasoning-part__toggle svg\[data-expanded="true"\]\s*\{[^}]*transform:\s*none;/s,
+    )
+    expect(conversationCSS).toMatch(
+      /\.activity-group__toggle svg:last-child\s*\{[^}]*transform:\s*rotate\(180deg\);/s,
+    )
+    expect(conversationCSS).toMatch(
+      /\.activity-group__toggle svg\[data-expanded="true"\]\s*\{[^}]*transform:\s*none;/s,
+    )
+  })
+
   it("aligns the user bubble and Agent content on opposite sides and keeps tool calls compact", () => {
     expect(conversationCSS).toMatch(
       /\.conversation-message\[data-role="user"\]\s*\{[^}]*justify-self:\s*end;[^}]*text-align:\s*left;/s,

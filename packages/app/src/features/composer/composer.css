@@ -46,11 +46,13 @@
 
 .composer-select {
   display: grid;
-  min-width: 120px;
+  width: 100px;
+  min-width: 100px;
   gap: 2px;
 }
 
 .composer-select--model {
+  width: auto;
   min-width: 0;
   flex: 0 1 220px;
 }

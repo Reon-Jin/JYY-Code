@@ -101,12 +101,15 @@ export function ProviderConnectButton(props: {
         class="provider-connect-dialog"
         title={selected() ? `连接 ${selected()!.name}` : "连接模型提供商"}
         description={selected() ? "输入 API Key，凭据将安全保存在本机。" : "选择要连接的模型提供商。"}
+        showClose
         onClose={close}
       >
-        <Button class="provider-connect__back" size="small" variant="ghost" onClick={back}>
-          <ArrowLeft aria-hidden="true" />
-          返回
-        </Button>
+        <Show when={selected()}>
+          <Button class="provider-connect__back" size="small" variant="ghost" onClick={back}>
+            <ArrowLeft aria-hidden="true" />
+            返回提供商列表
+          </Button>
+        </Show>
 
         <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>
 

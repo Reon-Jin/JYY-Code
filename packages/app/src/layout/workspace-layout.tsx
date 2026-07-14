@@ -591,12 +591,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                             directory={data.directory()}
                             session={session}
                             config={catalogQuery.data?.agentCluster}
-                            onOpenPanel={() => updateInspectorPreferences({ pane: "multi-agent" })}
-                            counts={{
-                              running: clusterSnapshot().runningAgents,
-                              done: clusterSnapshot().doneAgents,
-                              failed: clusterSnapshot().failedAgents,
-                            }}
                           />
                         )}
                       </Show>

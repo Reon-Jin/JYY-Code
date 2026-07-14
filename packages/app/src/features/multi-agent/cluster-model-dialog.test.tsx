@@ -210,12 +210,12 @@ describe("ClusterModelControl", () => {
     expect(within(dialog).getByRole("combobox", { name: "主模型" })).toHaveValue("other/planner")
   })
 
-  it("does not write on cancel or Escape", async () => {
+  it("does not write when closed or dismissed with Escape", async () => {
     const user = userEvent.setup()
     const { update } = renderControl()
     const trigger = screen.getByRole("button", { name: /配置模型/ })
     await user.click(trigger)
-    await user.click(await screen.findByRole("button", { name: "取消" }))
+    await user.click(await screen.findByRole("button", { name: "关闭" }))
     expect(update).not.toHaveBeenCalled()
 
     await user.click(trigger)

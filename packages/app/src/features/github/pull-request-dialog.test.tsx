@@ -105,7 +105,7 @@ describe("PullRequestDialog", () => {
     expect(handlers.onState).toHaveBeenCalledWith("closed")
     await user.click(within(dialog).getByRole("button", { name: /#7 Desktop inspector/ }))
     expect(handlers.onSelect).toHaveBeenCalledWith(7)
-    await user.click(within(dialog).getByRole("button", { name: "返回并关闭" }))
+    await user.click(within(dialog).getByRole("button", { name: "关闭" }))
     expect(handlers.onClose).toHaveBeenCalledOnce()
   })
 })

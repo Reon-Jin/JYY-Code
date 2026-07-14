@@ -161,7 +161,7 @@ describe("desktop accessibility contract", () => {
     expect(mode).toHaveFocus()
     expect(mode).toHaveAttribute("aria-checked", "true")
 
-    const openPanel = screen.getByRole("button", { name: "查看 Multi-Agent" })
+    const openPanel = screen.getByRole("button", { name: "Multi-Agent" })
     openPanel.focus()
     await user.keyboard("{Enter}")
     expect(openPanel).toHaveFocus()
@@ -194,8 +194,8 @@ describe("desktop accessibility contract", () => {
       select.focus()
       expect(select).toHaveFocus()
     }
-    const cancel = screen.getByRole("button", { name: "取消" })
-    cancel.focus()
+    const close = screen.getByRole("button", { name: "关闭" })
+    close.focus()
     await user.keyboard("{Enter}")
     await waitFor(() => expect(modelButton).toHaveFocus())
 

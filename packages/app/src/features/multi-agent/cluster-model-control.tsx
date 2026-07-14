@@ -31,6 +31,7 @@ export function ClusterModelControl(props: ClusterModelControlProps) {
   return (
     <div class="cluster-model-control">
       <Button
+        size="small"
         variant="secondary"
         class="cluster-model-control__button"
         aria-label={props.identityLocked ? `当前模型：${currentLabel()}` : `配置模型：${currentLabel()}`}

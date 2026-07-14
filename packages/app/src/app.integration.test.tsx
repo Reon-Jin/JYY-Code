@@ -225,7 +225,7 @@ describe("desktop GUI journey", () => {
 
     const draft = screen.getByRole("textbox", { name: "消息" })
     await user.type(draft, "保留根草稿")
-    await user.click(screen.getByRole("button", { name: "查看 Multi-Agent" }))
+    await user.click(screen.getByRole("button", { name: "Multi-Agent" }))
     expect(screen.getByRole("button", { name: "Multi-Agent" })).toHaveAttribute("aria-pressed", "true")
 
     backend.setAgentCluster("ses_root", clusterSnapshot())

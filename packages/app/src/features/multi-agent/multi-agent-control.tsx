@@ -1,8 +1,6 @@
 import type { AgentClusterConfig, Session } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
-import { Network } from "lucide-solid"
 import { createMemo, createSignal, Show } from "solid-js"
-import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { keys } from "../../data/query-keys"
 import type { DesktopClient } from "../../data/sdk"
@@ -45,8 +43,6 @@ export type MultiAgentControlProps = {
   directory: string
   session: Session
   config?: AgentClusterConfig
-  onOpenPanel: () => void
-  counts?: { running: number; done: number; failed: number }
 }
 
 export function MultiAgentControl(props: MultiAgentControlProps) {
@@ -82,34 +78,21 @@ export function MultiAgentControl(props: MultiAgentControlProps) {
 
   return (
     <div class="multi-agent-control">
-      <div class="multi-agent-control__actions">
-        <button
-          type="button"
-          class="multi-agent-switch"
-          role="switch"
-          aria-label="Multi-Agent"
-          aria-checked={checked()}
-          disabled={Boolean(reason()) || saving()}
-          title={reason()}
-          onClick={() => void toggle()}
-        >
-          <span class="multi-agent-switch__track" aria-hidden="true">
-            <span />
-          </span>
-          <span>Multi-Agent</span>
-        </button>
-        <Button size="small" variant="ghost" aria-label="查看 Multi-Agent" onClick={props.onOpenPanel}>
-          <Network aria-hidden="true" />
-          查看
-        </Button>
-      </div>
-      <Show when={props.counts}>
-        {(counts) => (
-          <span class="multi-agent-control__counts">
-            {counts().running} 运行 · {counts().done} 完成 · {counts().failed} 失败
-          </span>
-        )}
-      </Show>
+      <button
+        type="button"
+        class="multi-agent-switch"
+        role="switch"
+        aria-label="Multi-Agent"
+        aria-checked={checked()}
+        disabled={Boolean(reason()) || saving()}
+        title={reason()}
+        onClick={() => void toggle()}
+      >
+        <span class="multi-agent-switch__track" aria-hidden="true">
+          <span />
+        </span>
+        <span>Multi-Agent</span>
+      </button>
       <Show when={reason()}>{(message) => <span class="multi-agent-control__reason">{message()}</span>}</Show>
       <Show when={failure()}>
         {(cause) => <InlineError message={errorMessage(cause(), "无法更新 Multi-Agent 模式")} />}

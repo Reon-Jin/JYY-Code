@@ -139,7 +139,7 @@ describe("MultiAgentPanelView plan and task interactions", () => {
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "3")
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1")
     expect(screen.getByText("Step 2/3 · 1 完成")).toBeVisible()
-    expect(screen.getByText("Agents 3 · 1 运行 · 1 完成 · 1 失败")).toBeVisible()
+    expect(screen.getByText("1 运行 · 1 完成 · 1 失败")).toBeVisible()
   })
 
   it("renders chronological semantic steps with readable tones and full task disclosure", async () => {

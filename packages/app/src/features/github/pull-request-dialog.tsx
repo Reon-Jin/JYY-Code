@@ -1,8 +1,6 @@
 import type { GitHubAvailability, GitHubPullRequestDetail, GitHubPullRequestSummary } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
-import { ArrowLeft } from "lucide-solid"
 import { createEffect, createMemo, createSignal, on, Show, type JSX } from "solid-js"
-import { Button } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
 import { useData } from "../../data/context"
 import { errorMessage } from "../projects/project-controller"
@@ -55,6 +53,7 @@ export function PullRequestDialogView(props: PullRequestDialogViewProps) {
       description={
         props.status?.available ? props.status.repository.nameWithOwner : "浏览与管理当前仓库的 Pull Requests"
       }
+      showClose
       onClose={props.onClose}
     >
       <Show
@@ -81,12 +80,6 @@ export function PullRequestDialogView(props: PullRequestDialogViewProps) {
             onCreate={props.onCreate}
           />
           <div class="pull-detail-column">
-            <div class="pull-detail-column__toolbar">
-              <Button size="small" variant="ghost" onClick={props.onClose}>
-                <ArrowLeft aria-hidden="true" />
-                返回并关闭
-              </Button>
-            </div>
             <Show
               when={!props.editor}
               fallback={<section class="pull-detail pull-detail--editor">{props.editor}</section>}

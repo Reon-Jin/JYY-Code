@@ -63,9 +63,20 @@ describe("ProviderConnectButton", () => {
     await user.click(await screen.findByRole("button", { name: /DeepSeek/ }))
     expect(screen.getByLabelText("API Key")).toBeVisible()
 
-    await user.click(screen.getByRole("button", { name: "返回" }))
+    await user.click(screen.getByRole("button", { name: "返回提供商列表" }))
     expect(screen.queryByLabelText("API Key")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Anthropic/ })).toBeVisible()
+  })
+
+  it("uses the shared close button from the provider list", async () => {
+    const user = userEvent.setup()
+    renderConnect()
+
+    await user.click(screen.getByRole("button", { name: "Connect" }))
+    expect(screen.queryByRole("button", { name: "返回提供商列表" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "关闭" }))
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
   it("stores the API key, reloads the instance, and closes", async () => {

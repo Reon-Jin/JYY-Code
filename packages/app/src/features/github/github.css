@@ -162,13 +162,7 @@
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr);
-}
-.pull-detail-column__toolbar {
-  display: flex;
-  justify-content: flex-end;
-  border-bottom: 1px solid var(--color-border);
-  padding: var(--space-2) var(--space-3);
+  grid-template-rows: minmax(0, 1fr);
 }
 .pull-detail {
   min-width: 0;
