@@ -1,6 +1,6 @@
 # JYYCode Desktop (Windows Preview)
 
-JYYCode Desktop is the Windows single-Agent GUI for the same local backend, project database, Sessions, messages,
+JYYCode Desktop is the Windows GUI for the same local backend, project database, Sessions, messages,
 permissions, questions, tools, and Provider configuration used by the JYYCode TUI. The GUI does not open SQLite or
 import backend internals; the Tauri host owns an authenticated loopback sidecar and the web UI uses the generated SDK.
 
@@ -27,6 +27,24 @@ cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml
 Development starts Vite and the Tauri shell. The Rust supervisor launches exactly one `jyycode-sidecar`, waits for its
 authenticated loopback ready event, and terminates it when the desktop process exits. Backend credentials stay in the
 desktop process and are not persisted by the web UI.
+
+## Multi-Agent workflow
+
+The Composer's Multi-Agent switch controls the current root Session. New Sessions inherit the global setting, which is
+off by default, until the user explicitly enables or disables it. Todo, Multi-Agent, and Changes share the permanent
+activity rail on the right; selecting an item opens its one on-demand drawer without replacing the conversation.
+
+The Multi-Agent drawer shows the backend's current plan, progress, and task states. A task with a child Session can be
+opened in the main conversation, where the child keeps its assigned Agent and model but remains writable for direct
+guidance. The header returns to the root Session, which stays selected in the Session list while a child is open.
+
+The Composer model button configures four global roles: Main, Simple, Complex, and Visual & Documents. Main is used for
+ordinary single-Agent prompts and for Multi-Agent planning, coordination, review, and final synthesis; the other three
+roles select models for their corresponding child tasks. Changes apply to every project and do not switch models for
+tasks already running.
+
+Desktop and the TUI share the same Sessions, SQLite-backed state, HTTP API, and SSE events. Actions and progress remain
+authoritative in the shared backend and are visible from either interface.
 
 ## Build a Windows release
 
