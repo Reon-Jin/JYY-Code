@@ -7,6 +7,9 @@ import * as Log from "@jyycode-ai/core/util/log"
 import { resetDatabase } from "../fixture/db"
 import { TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+import { Global } from "@jyycode-ai/core/global"
+import fs from "fs/promises"
+import path from "path"
 
 void Log.init({ print: false })
 
@@ -64,6 +67,103 @@ const readResponse = Effect.fnUntraced(function* (input: { app: TestApp; path: s
 })
 
 describe("mcp HttpApi", () => {
+  it.instance(
+    "persists global MCP configuration without disturbing comments or unrelated config",
+    () =>
+      Effect.gen(function* () {
+        const tmp = yield* TestInstance
+        const handler = yield* handlerScoped
+        const configFile = path.join(Global.Path.config, "jyycode.jsonc")
+        const authFile = path.join(Global.Path.data, "mcp-auth.json")
+        const before = yield* Effect.promise(() => fs.readFile(configFile, "utf8").catch(() => undefined))
+        const beforeAuth = yield* Effect.promise(() => fs.readFile(authFile, "utf8").catch(() => undefined))
+        const original = `{
+  // keep this comment
+  "mcp": {
+    "old": { "type": "local", "command": ["old"], "enabled": false },
+    "keep": { "type": "local", "command": ["keep"], "enabled": false }
+  },
+  "skills": { "paths": ["/keep/skills"] }
+}
+`
+        yield* Effect.addFinalizer(() =>
+          Effect.promise(async () => {
+            if (before === undefined) await fs.rm(configFile, { force: true })
+            else await fs.writeFile(configFile, before)
+            if (beforeAuth === undefined) await fs.rm(authFile, { force: true })
+            else await fs.writeFile(authFile, beforeAuth)
+          }),
+        )
+        yield* Effect.promise(() => fs.mkdir(Global.Path.config, { recursive: true }))
+        yield* Effect.promise(() => fs.writeFile(configFile, original))
+        yield* Effect.promise(() => fs.mkdir(Global.Path.data, { recursive: true }))
+        yield* Effect.promise(() =>
+          fs.writeFile(authFile, JSON.stringify({ old: { tokens: { accessToken: "do-not-log" } } })),
+        )
+
+        const remote = { type: "remote", url: "https://mcp.example.test", enabled: true } as const
+        const created = yield* request(handler, "/mcp/browser/config", tmp.directory, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(remote),
+        })
+        expect(created.status).toBe(200)
+        expect(yield* json(created)).toEqual(remote)
+
+        const configResponse = yield* request(handler, McpPaths.config, tmp.directory)
+        expect(configResponse.status).toBe(200)
+        const config = yield* json<Record<string, unknown>>(configResponse)
+        expect(config).toMatchObject({ browser: remote, old: expect.any(Object), keep: expect.any(Object) })
+        expect(config.projectOnly).toBeUndefined()
+
+        const local = {
+          type: "local",
+          command: ["bun", "run", "server.ts", "--port", "3000"],
+          enabled: false,
+        } as const
+        const replaced = yield* request(handler, "/mcp/browser/config", tmp.directory, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(local),
+        })
+        expect(replaced.status).toBe(200)
+        expect(yield* json(replaced)).toEqual(local)
+
+        for (const payload of [
+          { type: "local", command: [] },
+          { type: "remote", url: "not a URL" },
+        ]) {
+          const invalid = yield* request(handler, "/mcp/invalid/config", tmp.directory, {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          })
+          expect(invalid.status).toBe(400)
+        }
+
+        const missing = yield* request(handler, "/mcp/missing/config", tmp.directory, { method: "DELETE" })
+        expect(missing.status).toBe(404)
+
+        const removed = yield* request(handler, "/mcp/old/config", tmp.directory, { method: "DELETE" })
+        expect(removed.status).toBe(200)
+        expect(yield* json(removed)).toBe(true)
+
+        const source = yield* Effect.promise(() => fs.readFile(configFile, "utf8"))
+        expect(source).toContain("// keep this comment")
+        expect(source).toContain('"keep"')
+        expect(source).toContain('"skills"')
+        expect(source).not.toContain('"old"')
+        expect(JSON.parse(yield* Effect.promise(() => fs.readFile(authFile, "utf8"))).old).toBeUndefined()
+      }),
+    {
+      config: {
+        mcp: {
+          projectOnly: { type: "local", command: ["project"], enabled: false },
+        },
+      },
+    },
+  )
+
   it.instance(
     "serves status endpoint",
     () =>

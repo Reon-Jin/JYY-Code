@@ -60,6 +60,18 @@ describe("PublicApi OpenAPI v2 errors", () => {
     }
   })
 
+  test("documents global MCP configuration operations", () => {
+    const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
+
+    for (const [method, path, operationId] of [
+      ["get", "/mcp/config", "mcp.config.list"],
+      ["put", "/mcp/{name}/config", "mcp.config.update"],
+      ["delete", "/mcp/{name}/config", "mcp.config.delete"],
+    ] as const) {
+      expect(spec.paths[path]?.[method]?.operationId, `${method.toUpperCase()} ${path}`).toBe(operationId)
+    }
+  })
+
   test("preserves /api auth responses", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 

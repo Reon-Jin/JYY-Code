@@ -81,7 +81,7 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/SkillManagement") {}
 
-function validName(name: string) {
+export function isSafeName(name: string) {
   return (
     name.length > 0 &&
     name === name.trim() &&
@@ -218,7 +218,7 @@ export const layer = Layer.effect(
     })
 
     const create = Effect.fn("SkillManagement.create")(function* (input: CreateInput) {
-      if (!validName(input.name)) {
+      if (!isSafeName(input.name)) {
         return yield* new InvalidContentError({ name: input.name, message: "Invalid Skill name" })
       }
 
@@ -246,7 +246,7 @@ export const layer = Layer.effect(
     })
 
     const update = Effect.fn("SkillManagement.update")(function* (name: string, input: UpdateInput) {
-      if (!validName(name)) return yield* new InvalidContentError({ name, message: "Invalid Skill name" })
+      if (!isSafeName(name)) return yield* new InvalidContentError({ name, message: "Invalid Skill name" })
       const info = yield* find(name)
       const target = yield* mutableFile(info)
       const current = yield* fs.readFileString(target.file).pipe(Effect.orDie)
@@ -295,7 +295,7 @@ export const layer = Layer.effect(
     })
 
     const remove = Effect.fn("SkillManagement.remove")(function* (name: string) {
-      if (!validName(name)) return yield* new InvalidContentError({ name, message: "Invalid Skill name" })
+      if (!isSafeName(name)) return yield* new InvalidContentError({ name, message: "Invalid Skill name" })
       const info = yield* find(name)
       if (!info.deletable || info.origin === "built_in") {
         return yield* new ProtectedError({ name, origin: info.origin })
