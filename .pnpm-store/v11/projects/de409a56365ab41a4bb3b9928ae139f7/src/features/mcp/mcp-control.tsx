@@ -21,7 +21,7 @@ export type McpControlProps = {
 function statusLabel(status: McpStatus) {
   switch (status.status) {
     case "connected":
-      return "已启用"
+      return undefined
     case "disabled":
       return "已关闭"
     case "failed":
@@ -112,7 +112,9 @@ export function McpControl(props: McpControlProps) {
                       <div class="mcp-control__item">
                         <span>
                           <strong>{name}</strong>
-                          <small data-status={current.status}>{statusLabel(current)}</small>
+                          <Show when={statusLabel(current)}>
+                            {(label) => <small data-status={current.status}>{label()}</small>}
+                          </Show>
                         </span>
                         <button
                           type="button"

@@ -67,7 +67,7 @@ describe("McpControl", () => {
     const dialog = await screen.findByRole("dialog", { name: "MCP 插件" })
     expect(screen.getByRole("switch", { name: "filesystem" })).toHaveAttribute("aria-checked", "true")
     expect(screen.getByRole("switch", { name: "browser" })).toHaveAttribute("aria-checked", "false")
-    expect(dialog).toHaveTextContent("已启用")
+    expect(dialog).not.toHaveTextContent("已启用")
     expect(dialog).toHaveTextContent("已关闭")
 
     await user.click(screen.getByRole("button", { name: "关闭" }))
