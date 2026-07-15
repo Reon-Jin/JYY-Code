@@ -48,4 +48,24 @@ describe("createComposerQueue", () => {
     restored.remove("queued_1")
     expect(first.items()).toEqual([])
   })
+
+  it("moves entries before or after a drop target", () => {
+    const queue = createComposerQueue({
+      directory: "C:\\work",
+      sessionID: "ses_1",
+      store: createComposerQueueStore(),
+      createID: (() => {
+        let nextID = 0
+        return () => `queued_${++nextID}`
+      })(),
+    })
+    queue.enqueue({ text: "first", agent: "build", model })
+    queue.enqueue({ text: "second", agent: "build", model })
+    queue.enqueue({ text: "third", agent: "build", model })
+
+    queue.move("queued_3", "queued_1")
+    expect(queue.items().map((item) => item.text)).toEqual(["third", "first", "second"])
+    queue.move("queued_3", "queued_2", true)
+    expect(queue.items().map((item) => item.text)).toEqual(["first", "second", "third"])
+  })
 })

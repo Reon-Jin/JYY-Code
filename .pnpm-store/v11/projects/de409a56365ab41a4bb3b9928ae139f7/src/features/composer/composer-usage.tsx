@@ -3,9 +3,10 @@ import type { ComposerUsageMetrics } from "./usage-metrics"
 
 const exactNumber = new Intl.NumberFormat("zh-CN")
 const compactNumber = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 })
-const money = new Intl.NumberFormat("en-US", {
+const usdToCnyRate = 7.2
+const money = new Intl.NumberFormat("zh-CN", {
   style: "currency",
-  currency: "USD",
+  currency: "CNY",
   minimumFractionDigits: 4,
   maximumFractionDigits: 6,
 })
@@ -66,7 +67,7 @@ export function ComposerUsage(props: { metrics: ComposerUsageMetrics; permission
             </div>
             <div class="composer-usage__item">
               <span>API 消费</span>
-              <strong>{money.format(aggregate.cost)}</strong>
+              <strong>{money.format(aggregate.cost * usdToCnyRate)}</strong>
             </div>
           </>
         )}

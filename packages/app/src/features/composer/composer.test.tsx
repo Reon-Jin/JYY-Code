@@ -191,7 +191,7 @@ describe("Composer", () => {
     expect(screen.getByLabelText("会话用量")).toHaveTextContent("主 + 子智能体 Token")
     expect(screen.getByRole("tooltip")).toHaveTextContent("输入10,000")
     expect(screen.getByRole("tooltip")).toHaveTextContent("工具调用已计入输入/输出，提供商未单列")
-    expect(screen.getByLabelText("会话用量")).toHaveTextContent("$1.2345")
+    expect(screen.getByLabelText("会话用量")).toHaveTextContent("¥8.8884")
   })
 
   it("shows only context metrics in a child composer", () => {
@@ -284,6 +284,48 @@ describe("Composer", () => {
     await user.click(screen.getByRole("button", { name: "移除排队消息 1" }))
     expect(screen.queryByText("remove me")).not.toBeInTheDocument()
     expect(screen.queryByLabelText("排队等待的消息")).not.toBeInTheDocument()
+  })
+
+  it("reorders queued prompts by dragging an item onto its new position", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer({ status: { type: "busy" } })
+    const textbox = screen.getByRole("textbox", { name: "消息" })
+    await user.type(textbox, "first queued{Enter}")
+    await user.type(textbox, "second queued{Enter}")
+
+    const transfer = {
+      effectAllowed: "none",
+      dropEffect: "none",
+      setData: vi.fn(),
+      getData: vi.fn(() => ""),
+    }
+    fireEvent.dragStart(screen.getByText("second queued").closest("li")!, { dataTransfer: transfer })
+    fireEvent.dragOver(screen.getByText("first queued").closest("li")!, { dataTransfer: transfer })
+    fireEvent.drop(screen.getByText("first queued").closest("li")!, { dataTransfer: transfer, clientY: 0 })
+
+    client.setStatus({ type: "idle" })
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
+    expect((client.session.promptAsync.mock.calls[0]![0] as { parts: unknown }).parts).toEqual([
+      { type: "text", text: "second queued" },
+    ])
+  })
+
+  it("interrupts the active turn and immediately guides with the selected queued prompt", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer({ status: { type: "busy" } })
+    const textbox = screen.getByRole("textbox", { name: "消息" })
+    await user.type(textbox, "keep queued{Enter}")
+    await user.type(textbox, "guide now{Enter}")
+
+    await user.click(screen.getByRole("button", { name: "立即引导排队消息 2" }))
+
+    await waitFor(() => expect(client.session.abort).toHaveBeenCalledOnce())
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
+    expect((client.session.promptAsync.mock.calls[0]![0] as { parts: unknown }).parts).toEqual([
+      { type: "text", text: "guide now" },
+    ])
+    expect(screen.getByText("keep queued")).toBeVisible()
+    expect(screen.queryByText("guide now")).not.toBeInTheDocument()
   })
 
   it("keeps a failed draft and offers Retry", async () => {

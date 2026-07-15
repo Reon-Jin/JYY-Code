@@ -53,11 +53,25 @@ export function createComposerQueue(input: {
     channel!.setItems((items) => items.filter((item) => item.id !== id))
   }
 
+  function move(id: string, targetID: string, after = false) {
+    if (id === targetID) return
+    channel!.setItems((items) => {
+      const item = items.find((entry) => entry.id === id)
+      const targetIndex = items.findIndex((entry) => entry.id === targetID)
+      if (!item || targetIndex < 0) return items
+
+      const remaining = items.filter((entry) => entry.id !== id)
+      const nextTargetIndex = remaining.findIndex((entry) => entry.id === targetID)
+      const insertAt = nextTargetIndex + (after ? 1 : 0)
+      return [...remaining.slice(0, insertAt), item, ...remaining.slice(insertAt)]
+    })
+  }
+
   function shift() {
     const first = channel!.items()[0]
     if (first) channel!.setItems((items) => items.slice(1))
     return first
   }
 
-  return { items: channel.items, enqueue, remove, shift }
+  return { items: channel.items, enqueue, remove, move, shift }
 }

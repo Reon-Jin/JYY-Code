@@ -496,13 +496,22 @@
 
 .composer-queue__list li {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-2);
   min-height: 36px;
   border-radius: var(--radius-md);
   padding: 2px var(--space-1) 2px var(--space-2);
   background: var(--color-surface);
+  cursor: grab;
+}
+
+.composer-queue__list li:active {
+  cursor: grabbing;
+}
+
+.composer-queue__list li[data-dragging="true"] {
+  opacity: 0.55;
 }
 
 .composer-queue__index {

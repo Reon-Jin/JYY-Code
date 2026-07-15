@@ -79,6 +79,7 @@ export function Composer(props: ComposerProps) {
     store: props.queueStore,
   })
   const [queuePhase, setQueuePhase] = createSignal<"ready" | "awaiting-busy" | "busy-observed">("ready")
+  const [guiding, setGuiding] = createSignal(false)
   let textarea!: HTMLTextAreaElement
   let composing = false
   const active = () => props.status.type !== "idle"
@@ -92,6 +93,7 @@ export function Composer(props: ComposerProps) {
     const phase = queuePhase()
     const items = queue.items()
 
+    if (guiding()) return
     if (phase === "awaiting-busy") {
       if (isActive) setQueuePhase("busy-observed")
       return
@@ -130,10 +132,34 @@ export function Composer(props: ComposerProps) {
     void controller.stop().catch(() => {})
   }
 
+  async function guide(id: string) {
+    if (guiding() || props.disabled) return
+    const item = queue.items().find((entry) => entry.id === id)
+    if (!item) return
+
+    setGuiding(true)
+    try {
+      if (active()) await controller.stop()
+      queue.remove(id)
+      setQueuePhase("awaiting-busy")
+      await controller.send(item.text, { agent: item.agent, model: item.model })
+    } catch {
+      setQueuePhase("ready")
+      // The controller exposes the actionable failure beside the composer.
+    } finally {
+      setGuiding(false)
+    }
+  }
+
   return (
     <div class="composer-stack">
       <Show when={!props.minimal && queue.items().length > 0}>
-        <ComposerQueuePanel items={queue.items()} onRemove={queue.remove} />
+        <ComposerQueuePanel
+          items={queue.items()}
+          onGuide={(id) => void guide(id)}
+          onMove={queue.move}
+          onRemove={queue.remove}
+        />
       </Show>
       <section class="composer" data-minimal={props.minimal ? "true" : "false"} aria-label="消息编辑器">
         <Show when={!props.minimal}>
