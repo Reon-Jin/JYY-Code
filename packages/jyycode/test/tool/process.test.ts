@@ -37,6 +37,7 @@ const configLayer = Layer.succeed(
     getGlobal: () => Effect.succeed({}),
     update: () => Effect.void,
     updateGlobal: (config) => Effect.succeed({ info: config, changed: false }),
+    updateGlobalPath: () => Effect.succeed({ info: {}, changed: false }),
     invalidate: () => Effect.void,
     directories: () => Effect.succeed([]),
     waitForDependencies: () => Effect.void,
