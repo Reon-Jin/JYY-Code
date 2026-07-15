@@ -18,6 +18,7 @@ const BACKEND_USERNAME: &str = "jyycode";
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
 const BOOTSTRAP_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const STDERR_LINE_LIMIT: usize = 200;
+const STDOUT_BUFFER_LIMIT: usize = 64 * 1024;
 
 #[derive(Clone, Debug, serde::Deserialize)]
 struct ReadyLine {
@@ -208,14 +209,14 @@ impl BackendSupervisor {
         let supervisor = self.clone();
         tauri::async_runtime::spawn(async move {
             let mut ready_tx = Some(ready_tx);
+            let mut stdout_buffer = String::new();
             while let Some(event) = events.recv().await {
                 if !supervisor.is_current_generation(generation) {
                     return;
                 }
                 match event {
                     CommandEvent::Stdout(bytes) => {
-                        let line = String::from_utf8_lossy(&bytes);
-                        if let Ok(ready) = parse_ready(line.trim()) {
+                        if let Some(ready) = push_ready_chunk(&mut stdout_buffer, &bytes) {
                             let mut value = bootstrap.clone();
                             value.base_url = format!("http://{}:{}", ready.hostname, ready.port);
                             if supervisor
@@ -390,6 +391,37 @@ fn parse_ready(line: &str) -> Result<ReadyLine, String> {
     Ok(value)
 }
 
+fn push_ready_chunk(buffer: &mut String, bytes: &[u8]) -> Option<ReadyLine> {
+    buffer.push_str(&String::from_utf8_lossy(bytes));
+
+    while let Some(newline) = buffer.find('\n') {
+        let line = buffer[..newline].trim().to_owned();
+        buffer.drain(..=newline);
+        if let Ok(ready) = parse_ready(&line) {
+            buffer.clear();
+            return Some(ready);
+        }
+    }
+
+    let pending = buffer.trim();
+    if let Ok(ready) = parse_ready(pending) {
+        buffer.clear();
+        return Some(ready);
+    }
+
+    if !pending.is_empty() {
+        match serde_json::from_str::<serde_json::Value>(pending) {
+            Ok(_) => buffer.clear(),
+            Err(error) if !error.is_eof() => buffer.clear(),
+            Err(_) => {}
+        }
+    }
+    if buffer.len() > STDOUT_BUFFER_LIMIT {
+        buffer.clear();
+    }
+    None
+}
+
 #[tauri::command]
 pub async fn desktop_bootstrap(
     app: AppHandle,
@@ -410,7 +442,7 @@ pub async fn restart_backend(
 mod tests {
     use std::sync::atomic::Ordering;
 
-    use super::{BackendPhase, BackendSupervisor, parse_ready};
+    use super::{BackendPhase, BackendSupervisor, parse_ready, push_ready_chunk};
 
     #[test]
     fn parses_ready_line() {
@@ -425,6 +457,27 @@ mod tests {
         assert!(
             parse_ready(r#"{"type":"server.ready","hostname":"0.0.0.0","port":49152}"#).is_err()
         );
+    }
+
+    #[test]
+    fn parses_ready_line_split_across_stdout_chunks() {
+        let mut buffer = String::new();
+        assert!(push_ready_chunk(&mut buffer, br#"{"type":"server.re"#).is_none());
+        let ready = push_ready_chunk(&mut buffer, br#"ady","hostname":"127.0.0.1","port":49152}"#)
+            .expect("split ready event");
+        assert_eq!(ready.port, 49152);
+        assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn finds_ready_line_after_other_stdout_lines() {
+        let mut buffer = String::new();
+        let ready = push_ready_chunk(
+            &mut buffer,
+            b"not json\n{\"type\":\"server.ready\",\"hostname\":\"127.0.0.1\",\"port\":49153}\n",
+        )
+        .expect("ready event after log line");
+        assert_eq!(ready.port, 49153);
     }
 
     #[test]

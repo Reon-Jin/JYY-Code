@@ -689,6 +689,19 @@ describe("session HttpApi", () => {
         })
         expect(updated).toMatchObject({ id: created.id, title: "updated", time: { archived: 1 } })
 
+        const fullPermission = [{ permission: "*", pattern: "*", action: "allow" as const }]
+        const withFullPermission = yield* requestJson<Session.Info>(
+          pathFor(SessionPaths.update, { sessionID: created.id }),
+          { method: "PATCH", headers, body: JSON.stringify({ permission: fullPermission }) },
+        )
+        expect(withFullPermission.permission).toEqual(fullPermission)
+
+        const withAutomaticPermission = yield* requestJson<Session.Info>(
+          pathFor(SessionPaths.update, { sessionID: created.id }),
+          { method: "PATCH", headers, body: JSON.stringify({ permission: [] }) },
+        )
+        expect(withAutomaticPermission.permission).toEqual([])
+
         const forked = yield* requestJson<Session.Info>(pathFor(SessionPaths.fork, { sessionID: created.id }), {
           method: "POST",
           headers,
