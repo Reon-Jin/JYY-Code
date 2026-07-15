@@ -23,6 +23,7 @@ function deferred() {
 
 function renderComposer(input?: {
   status?: SessionStatus
+  requestPending?: boolean
   disabled?: boolean
   branchControl?: JSX.Element
   multiAgentControl?: JSX.Element
@@ -53,6 +54,7 @@ function renderComposer(input?: {
       selectedAgent={input?.selectedAgent ?? "build"}
       selectedModel={input?.selectedModel ?? { providerID: "openai", modelID: "gpt-5" }}
       status={status()}
+      requestPending={input?.requestPending}
       disabled={input?.disabled}
       branchControl={input?.branchControl}
       multiAgentControl={input?.multiAgentControl}
@@ -326,6 +328,21 @@ describe("Composer", () => {
     ])
     expect(screen.getByText("keep queued")).toBeVisible()
     expect(screen.queryByText("guide now")).not.toBeInTheDocument()
+  })
+
+  it("keeps queue controls active while a non-automatic permission request is pending", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer({ status: { type: "idle" }, requestPending: true })
+    const textbox = screen.getByRole("textbox", { name: "消息" })
+    await user.type(textbox, "approve-mode queue{Enter}")
+
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "立即引导排队消息 1" })).toBeVisible()
+    expect(screen.getByText("approve-mode queue").closest("li")).toHaveAttribute("draggable", "true")
+
+    await user.click(screen.getByRole("button", { name: "立即引导排队消息 1" }))
+    await waitFor(() => expect(client.session.abort).toHaveBeenCalledOnce())
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
   })
 
   it("keeps a failed draft and offers Retry", async () => {

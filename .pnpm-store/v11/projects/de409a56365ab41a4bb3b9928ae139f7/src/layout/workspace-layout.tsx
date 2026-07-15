@@ -616,6 +616,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                       activeSession() ? effectiveMultiAgent(activeSession()!, catalogQuery.data?.agentCluster) : false
                     }
                     status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
+                    requestPending={Boolean(activeRequest())}
                     disabled={data.connection() !== "connected"}
                     identityLocked={isChildSession()}
                     minimal={isChildSession()}

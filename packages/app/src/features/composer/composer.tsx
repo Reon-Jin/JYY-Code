@@ -28,6 +28,7 @@ export type ComposerProps = {
   selectedModel: ModelSelection
   agentClusterEnabled: boolean
   status: SessionStatus
+  requestPending?: boolean
   disabled?: boolean
   branchControl?: JSX.Element
   multiAgentControl?: JSX.Element
@@ -82,7 +83,7 @@ export function Composer(props: ComposerProps) {
   const [guiding, setGuiding] = createSignal(false)
   let textarea!: HTMLTextAreaElement
   let composing = false
-  const active = () => props.status.type !== "idle"
+  const active = () => props.status.type !== "idle" || props.requestPending === true
   createEffect(() => {
     controller.draft()
     queueMicrotask(() => resizeDraft(textarea))
