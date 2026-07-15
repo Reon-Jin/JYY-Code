@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js"
-import { Clock3, Folder, Trash2 } from "lucide-solid"
+import { Folder, Trash2 } from "lucide-solid"
 import { Button, IconButton } from "../../components/ui/button"
 import type { RecentProject } from "../../platform/types"
 
@@ -20,13 +20,10 @@ export function RecentProjects(props: RecentProjectsProps) {
   return (
     <section class="recent-projects" aria-labelledby="recent-projects-title">
       <div class="recent-projects__heading">
-        <div>
-          <span class="recent-projects__eyebrow">
-            <Clock3 aria-hidden="true" /> 最近使用
-          </span>
-          <h2 id="recent-projects-title">最近项目</h2>
-        </div>
-        <span class="recent-projects__count">{props.projects.length}/10</span>
+        <h2 id="recent-projects-title">最近项目</h2>
+        <span class="recent-projects__count" aria-label={`${props.projects.length} 个最近项目`}>
+          {props.projects.length}
+        </span>
       </div>
 
       <Show
@@ -40,6 +37,7 @@ export function RecentProjects(props: RecentProjectsProps) {
                 <Button
                   class="recent-projects__open"
                   variant="ghost"
+                  aria-label={`打开 ${projectName(project.path)}`}
                   disabled={props.disabled}
                   onClick={() => props.onOpen(project.path)}
                 >

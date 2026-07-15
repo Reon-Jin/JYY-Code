@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { DesktopBridge } from "./platform/types"
 import { App } from "./app"
 
@@ -18,7 +18,23 @@ function bridgeWith(bootstrap: DesktopBridge["bootstrap"]): DesktopBridge {
 }
 
 describe("App", () => {
-  afterEach(cleanup)
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ directory: "C:\\Users\\test" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    )
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
 
   it("shows a non-blank startup state", () => {
     const pendingBootstrap: DesktopBridge["bootstrap"] = () => new Promise(() => undefined)
@@ -33,13 +49,26 @@ describe("App", () => {
     )
     render(() => <App bridge={bridge} />)
 
-    expect(await screen.findByRole("heading", { name: /让代码保持流动/ })).toBeVisible()
-    const actions = [
-      screen.getByRole("button", { name: /打开现有目录/ }),
-      screen.getByRole("button", { name: /新建项目/ }),
-    ]
+    expect(await screen.findByRole("heading", { name: "JYYCode" })).toBeVisible()
+    expect(screen.getByRole("navigation", { name: "全局管理" })).toBeVisible()
+    const actions = [screen.getByRole("button", { name: "打开目录" }), screen.getByRole("button", { name: /新建项目/ })]
     expect(actions).toHaveLength(2)
     for (const action of actions) expect(action).toHaveAttribute("data-variant", "primary")
+  })
+
+  it("navigates between management routes without changing project state", async () => {
+    const user = userEvent.setup()
+    const bridge = bridgeWith(
+      vi.fn(async () => ({ baseUrl: "http://127.0.0.1:4096", username: "jyycode", password: "secret" })),
+    )
+    render(() => <App bridge={bridge} />)
+
+    await user.click(await screen.findByRole("link", { name: "Skill" }))
+
+    expect(await screen.findByRole("heading", { name: "Skill" })).toBeVisible()
+    expect(screen.queryByText("ProjectWorkspace")).not.toBeInTheDocument()
+    expect(bridge.createProjectDirectory).not.toHaveBeenCalled()
+    expect(bridge.saveLastLocation).not.toHaveBeenCalled()
   })
 
   it("shows a recoverable error when desktop bootstrap fails", async () => {
@@ -63,6 +92,6 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "重新启动后端" }))
 
     expect(bridge.restartBackend).toHaveBeenCalledOnce()
-    expect(await screen.findByRole("heading", { name: /让代码保持流动/ })).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "JYYCode" })).toBeVisible()
   })
 })
