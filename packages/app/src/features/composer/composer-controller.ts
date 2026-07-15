@@ -20,6 +20,12 @@ export type ComposerControllerInput = {
 
 const processDrafts = new Map<string, string>()
 
+function slashCommand(text: string) {
+  const match = /^\/([^\s/]+)(?:\s+([\s\S]*))?$/.exec(text.trim())
+  if (!match) return undefined
+  return { command: match[1], arguments: match[2] ?? "" }
+}
+
 export function createComposerController(input: ComposerControllerInput) {
   const draftStore = input.draftStore ?? processDrafts
   const draftKey = `${resolve(input.directory)}\u0000${resolve(input.sessionID)}`
@@ -47,17 +53,35 @@ export function createComposerController(input: ComposerControllerInput) {
     setSending(true)
     const task = Promise.resolve().then(async () => {
       try {
-        await input.client.session.promptAsync(
-          {
-            directory: resolve(input.directory),
-            sessionID: resolve(input.sessionID),
-            agent: selection?.agent ?? resolve(input.agent),
-            model: selection?.model ?? resolve(input.model),
-            agentCluster: { enabled: resolve(input.agentClusterEnabled) },
-            parts: [{ type: "text", text }],
-          },
-          { throwOnError: true },
-        )
+        const directory = resolve(input.directory)
+        const sessionID = resolve(input.sessionID)
+        const agent = selection?.agent ?? resolve(input.agent)
+        const model = selection?.model ?? resolve(input.model)
+        const command = slashCommand(text)
+        if (command) {
+          await input.client.session.command(
+            {
+              directory,
+              sessionID,
+              agent,
+              model: `${model.providerID}/${model.modelID}`,
+              ...command,
+            },
+            { throwOnError: true },
+          )
+        } else {
+          await input.client.session.promptAsync(
+            {
+              directory,
+              sessionID,
+              agent,
+              model,
+              agentCluster: { enabled: resolve(input.agentClusterEnabled) },
+              parts: [{ type: "text", text }],
+            },
+            { throwOnError: true },
+          )
+        }
         setDraft("")
         setLastFailedDraft(undefined)
       } catch (cause) {

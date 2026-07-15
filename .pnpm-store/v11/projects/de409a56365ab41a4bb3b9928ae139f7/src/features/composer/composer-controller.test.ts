@@ -17,6 +17,7 @@ function setup(draftStore = new Map<string, string>(), agentClusterEnabled = tru
   const client = {
     session: {
       promptAsync: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
+      command: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
       abort: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: true })),
     },
   }
@@ -68,6 +69,25 @@ describe("createComposerController", () => {
       expect.objectContaining({ agentCluster: { enabled: false } }),
       { throwOnError: true },
     )
+  })
+
+  it("executes a leading Skill slash as a Session command", async () => {
+    const { client, controller } = setup()
+
+    await controller.send("/pdf polish this report")
+
+    expect(client.session.command).toHaveBeenCalledWith(
+      {
+        directory,
+        sessionID,
+        agent: "build",
+        model: "openai/gpt-5",
+        command: "pdf",
+        arguments: "polish this report",
+      },
+      { throwOnError: true },
+    )
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
 
   it("keeps the draft when submission fails and retries through send", async () => {

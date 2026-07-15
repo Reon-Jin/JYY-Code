@@ -14,9 +14,11 @@ export type LifecycleControllerInput = {
   bridge: DesktopBridge
   clientFor?: (directory: string, bootstrap: DesktopBootstrap) => DesktopClient
   bootstrapTimeoutMs?: number
+  restoreTimeoutMs?: number
 }
 
-const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 12_000
+const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 22_000
+const DEFAULT_RESTORE_TIMEOUT_MS = 10_000
 
 export function withTimeout<T>(promise: Promise<T>, milliseconds: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -49,6 +51,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
   const [failure, setFailure] = createSignal<string>()
   const [recovering, setRecovering] = createSignal(false)
   const [recoveryAvailable, setRecoveryAvailable] = createSignal(true)
+  const restoreTimeoutMs = input.restoreTimeoutMs ?? DEFAULT_RESTORE_TIMEOUT_MS
   let startPromise: Promise<void> | undefined
 
   function fail(cause: unknown) {
@@ -58,7 +61,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
 
   async function persist(value: { project?: string; sessionID?: string }) {
     try {
-      await input.bridge.saveLastLocation(value)
+      await withTimeout(input.bridge.saveLastLocation(value), restoreTimeoutMs, "保存启动位置超时")
     } catch {
       // Persistence must not block an otherwise valid workspace.
     }
@@ -97,7 +100,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
 
     let location: Awaited<ReturnType<DesktopBridge["loadLastLocation"]>> = {}
     try {
-      location = await input.bridge.loadLastLocation()
+      location = await withTimeout(input.bridge.loadLastLocation(), restoreTimeoutMs, "读取上次位置超时")
     } catch {
       location = {}
     }
@@ -110,7 +113,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
     setPhase("projectLoading")
     let opened: OpenedProject
     try {
-      opened = await controller.openProject(location.project)
+      opened = await withTimeout(controller.openProject(location.project), restoreTimeoutMs, "恢复上次项目超时")
     } catch {
       await persist({})
       setPhase("ready")
@@ -124,9 +127,13 @@ export function createLifecycleController(input: LifecycleControllerInput) {
     }
 
     try {
-      const result = await opened.client.session.get(
-        { directory: opened.directory, sessionID: location.sessionID },
-        { throwOnError: true },
+      const result = await withTimeout(
+        opened.client.session.get(
+          { directory: opened.directory, sessionID: location.sessionID },
+          { throwOnError: true },
+        ),
+        restoreTimeoutMs,
+        "恢复上次 Session 超时",
       )
       if (!result.data) throw new Error("Session 不存在")
       setRoute(`/session/${encodeURIComponent(result.data.id)}`)

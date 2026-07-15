@@ -31,5 +31,7 @@ export const keys = {
   agentClustersScope: (directory: string) => [...project(directory), "agent-clusters"] as const,
   agentCluster: (directory: string, sessionID: string) =>
     [...project(directory), "agent-clusters", sessionID] as const,
+  skills: (directory: string) => [...project(directory), "skills"] as const,
+  mcp: (directory: string) => [...project(directory), "mcp"] as const,
   globalConfig: ["global", "config"] as const,
 }

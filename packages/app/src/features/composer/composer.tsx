@@ -15,10 +15,11 @@ import { ComposerUsage } from "./composer-usage"
 import type { CatalogModel, ModelSelection } from "./model-catalog"
 import type { ComposerUsageMetrics } from "./usage-metrics"
 import { ProviderConnectButton } from "./provider-connect"
+import { SkillAutocomplete, type SkillAutocompleteHandle } from "./skill-autocomplete"
 import "./composer.css"
 
 export type ComposerProps = {
-  client: Pick<DesktopClient, "auth" | "global" | "instance" | "provider" | "session">
+  client: Pick<DesktopClient, "app" | "auth" | "global" | "instance" | "provider" | "session">
   queryClient: QueryClient
   directory: string
   sessionID: string
@@ -32,6 +33,7 @@ export type ComposerProps = {
   disabled?: boolean
   branchControl?: JSX.Element
   multiAgentControl?: JSX.Element
+  mcpControl?: JSX.Element
   permissionControl?: JSX.Element
   identityLocked?: boolean
   minimal?: boolean
@@ -81,9 +83,15 @@ export function Composer(props: ComposerProps) {
   })
   const [queuePhase, setQueuePhase] = createSignal<"ready" | "awaiting-busy" | "busy-observed">("ready")
   const [guiding, setGuiding] = createSignal(false)
+  const [focused, setFocused] = createSignal(false)
+  const [autocompleteDismissed, setAutocompleteDismissed] = createSignal(false)
   let textarea!: HTMLTextAreaElement
+  let skillAutocomplete: SkillAutocompleteHandle | undefined
   let composing = false
   const active = () => props.status.type !== "idle" || props.requestPending === true
+  const slashQuery = () => /^\/([^\s/]*)$/.exec(controller.draft())?.[1]
+  const autocompleteOpen = () =>
+    !props.minimal && focused() && !autocompleteDismissed() && slashQuery() !== undefined
   createEffect(() => {
     controller.draft()
     queueMicrotask(() => resizeDraft(textarea))
@@ -188,10 +196,31 @@ export function Composer(props: ComposerProps) {
           />
           {props.branchControl}
           {props.multiAgentControl}
+          {props.mcpControl}
           </div>
         </Show>
 
         <div class="composer__input" data-active={active()}>
+          <SkillAutocomplete
+            client={props.client}
+            queryClient={props.queryClient}
+            directory={props.directory}
+            open={autocompleteOpen()}
+            query={slashQuery() ?? ""}
+            ref={(handle) => {
+              skillAutocomplete = handle
+            }}
+            onDismiss={() => setAutocompleteDismissed(true)}
+            onSelect={(name) => {
+              controller.setDraft(`/${name} `)
+              setAutocompleteDismissed(true)
+              queueMicrotask(() => {
+                textarea.focus()
+                textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+                resizeDraft(textarea)
+              })
+            }}
+          />
           <label class="composer__label" for="composer-message">
             消息
           </label>
@@ -201,12 +230,21 @@ export function Composer(props: ComposerProps) {
             aria-label="消息"
             rows={1}
             value={controller.draft()}
+            aria-autocomplete="list"
+            aria-expanded={autocompleteOpen()}
+            aria-controls={autocompleteOpen() ? "composer-skill-listbox" : undefined}
             disabled={controller.sending()}
             placeholder="向智能体发送消息"
             onInput={(event) => {
               controller.setDraft(event.currentTarget.value)
+              setAutocompleteDismissed(false)
               resizeDraft(event.currentTarget)
             }}
+            onFocus={() => {
+              setFocused(true)
+              setAutocompleteDismissed(false)
+            }}
+            onBlur={() => setFocused(false)}
             onCompositionStart={() => {
               composing = true
             }}
@@ -214,6 +252,7 @@ export function Composer(props: ComposerProps) {
               composing = false
             }}
             onKeyDown={(event) => {
+              if (skillAutocomplete?.handleKeyDown(event)) return
               if (event.key !== "Enter" || event.shiftKey || event.isComposing || composing) return
               event.preventDefault()
               submit()

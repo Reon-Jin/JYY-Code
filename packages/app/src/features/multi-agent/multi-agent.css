@@ -409,6 +409,7 @@
   background: var(--color-surface);
 }
 
+.multi-agent-task[data-tone="queued"] { border-color: transparent; }
 .multi-agent-task[data-selected="true"] { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
 
 .multi-agent-task summary {

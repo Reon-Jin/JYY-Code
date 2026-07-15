@@ -24,8 +24,12 @@ export function MessagePartView(props: {
       <Match when={props.part.type === "step-start" || props.part.type === "step-finish"}>{null}</Match>
       <Match when={props.part.type === "text" ? props.part : undefined}>
         {(part) => {
-          const presentation = () =>
-            presentMessageText({ part: part(), role: props.messageRole, agent: props.messageAgent })
+          const presentation = () => {
+            if (props.planStatus === "planning" && props.messageRole === "assistant" && props.messageAgent === "cluster") {
+              return { kind: "plan" } as const
+            }
+            return presentMessageText({ part: part(), role: props.messageRole, agent: props.messageAgent })
+          }
           return (
             <Switch>
               <Match when={presentation().kind === "hidden"}>{null}</Match>

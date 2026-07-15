@@ -26,6 +26,7 @@ import {
 } from "../features/composer/model-catalog"
 import { ProviderEmpty } from "../features/composer/provider-empty"
 import { effectiveMultiAgent, MultiAgentControl } from "../features/multi-agent/multi-agent-control"
+import { McpControl } from "../features/mcp/mcp-control"
 import { agentClusterQueryOptions } from "../features/multi-agent/multi-agent-query"
 import { MultiAgentPanel } from "../features/multi-agent/multi-agent-panel"
 import { findTaskByChildSessionID, projectAgentClusterState } from "../features/multi-agent/multi-agent-state"
@@ -647,6 +648,14 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                           />
                         )}
                       </Show>
+                    }
+                    mcpControl={
+                      <McpControl
+                        client={data.client()}
+                        queryClient={data.queryClient()}
+                        directory={data.directory()}
+                        disabled={data.connection() !== "connected"}
+                      />
                     }
                     onAgentChange={changeAgent}
                     onModelChange={changeModel}

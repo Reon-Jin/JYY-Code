@@ -70,6 +70,62 @@ describe("createLifecycleController", () => {
     expect(controller.recoveryAvailable()).toBe(true)
   })
 
+  it("does not stay loading when the last-location store stalls", async () => {
+    vi.useFakeTimers()
+    const { bridge, sdk } = harness({})
+    vi.mocked(bridge.loadLastLocation).mockImplementation(() => new Promise(() => {}))
+    const controller = createLifecycleController({
+      bridge,
+      clientFor: () => sdk as unknown as DesktopClient,
+      restoreTimeoutMs: 25,
+    })
+
+    const started = controller.start()
+    await vi.advanceTimersByTimeAsync(25)
+    await started
+
+    expect(controller.phase()).toBe("ready")
+    expect(controller.project()).toBeUndefined()
+  })
+
+  it("does not stay loading when the previous project stalls", async () => {
+    vi.useFakeTimers()
+    const { bridge, sdk } = harness({ project: directory })
+    sdk.project.current.mockImplementation(() => new Promise(() => {}))
+    const controller = createLifecycleController({
+      bridge,
+      clientFor: () => sdk as unknown as DesktopClient,
+      restoreTimeoutMs: 25,
+    })
+
+    const started = controller.start()
+    await vi.advanceTimersByTimeAsync(25)
+    await started
+
+    expect(controller.phase()).toBe("ready")
+    expect(controller.route()).toBe("/")
+    expect(bridge.saveLastLocation).toHaveBeenCalledWith({})
+  })
+
+  it("does not stay loading when the previous Session stalls", async () => {
+    vi.useFakeTimers()
+    const { bridge, sdk } = harness()
+    sdk.session.get.mockImplementation(() => new Promise(() => {}))
+    const controller = createLifecycleController({
+      bridge,
+      clientFor: () => sdk as unknown as DesktopClient,
+      restoreTimeoutMs: 25,
+    })
+
+    const started = controller.start()
+    await vi.advanceTimersByTimeAsync(25)
+    await started
+
+    expect(controller.phase()).toBe("ready")
+    expect(controller.route()).toBe("/")
+    expect(bridge.saveLastLocation).toHaveBeenCalledWith({ project: directory })
+  })
+
   it("restores a valid last project and Session", async () => {
     const { bridge, controller, sdk } = harness()
 

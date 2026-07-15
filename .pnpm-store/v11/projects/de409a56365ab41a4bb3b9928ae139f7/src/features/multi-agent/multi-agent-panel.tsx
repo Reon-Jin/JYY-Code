@@ -202,7 +202,11 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                                 <li
                                   class="multi-agent-task"
                                   data-tone={task.tone}
-                                  data-selected={task.childSessionID === props.selectedChildSessionID ? "true" : "false"}
+                                  data-selected={
+                                    task.childSessionID && task.childSessionID === props.selectedChildSessionID
+                                      ? "true"
+                                      : "false"
+                                  }
                                 >
                                   <details>
                                     <summary>

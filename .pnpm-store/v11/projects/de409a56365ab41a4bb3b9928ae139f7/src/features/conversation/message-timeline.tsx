@@ -1,12 +1,16 @@
 import { ArrowDown, MessageCircle } from "lucide-solid"
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
 import type { ConversationMessage } from "./conversation-state"
 import { ActivityGroup } from "./activity-group"
 import { MessagePartView } from "./message-part"
-import { presentConversationMessages } from "./message-presentation"
+import {
+  presentConversationMessages,
+  type PresentedConversationMessage,
+  type PresentedMessageGroup,
+} from "./message-presentation"
 import "./conversation.css"
 
 export type MessageTimelineProps = {
@@ -32,17 +36,91 @@ function messageSignature(messages: readonly ConversationMessage[]) {
     .join("|")
 }
 
-function messageAgent(message: ConversationMessage) {
-  return message.info.role === "assistant" ? (message.info.agent ?? message.info.mode) : message.info.agent
+function groupKey(group: PresentedMessageGroup) {
+  return `${group.type}:${group.parts[0]?.id ?? "empty"}`
+}
+
+function PresentedGroupView(props: {
+  group: PresentedMessageGroup
+  messageRole: string
+  messageAgent?: string
+  planStatus?: "planning" | "ready"
+}) {
+  const partIDs = createMemo(() => props.group.parts.map((part) => part.id))
+  const partsByID = createMemo(() => new Map(props.group.parts.map((part) => [part.id, part])))
+  const running = () =>
+    props.group.parts.some(
+      (part) => part.type === "tool" && (part.state.status === "pending" || part.state.status === "running"),
+    )
+
+  const parts = () => (
+    <For each={partIDs()}>
+      {(partID) => (
+        <MessagePartView
+          part={partsByID().get(partID)!}
+          messageRole={props.messageRole}
+          messageAgent={props.messageAgent}
+          planStatus={props.planStatus}
+        />
+      )}
+    </For>
+  )
+
+  return (
+    <Show when={props.group.type === "activity"} fallback={parts()}>
+      <ActivityGroup label="思考与工具调用" count={props.group.parts.length} running={running()}>
+        {parts()}
+      </ActivityGroup>
+    </Show>
+  )
+}
+
+function PresentedMessageView(props: {
+  message: PresentedConversationMessage
+  planStatus?: "planning" | "ready"
+}) {
+  const groupKeys = createMemo(() => props.message.groups.map(groupKey))
+  const groupsByKey = createMemo(() => new Map(props.message.groups.map((group) => [groupKey(group), group])))
+  const agent = () =>
+    props.message.info.role === "assistant"
+      ? (props.message.info.agent ?? props.message.info.mode)
+      : props.message.info.agent
+
+  return (
+    <article
+      class="conversation-message"
+      data-role={props.message.info.role}
+      aria-label={props.message.info.role === "user" ? "我的消息" : "Agent 回复"}
+    >
+      <Show when={props.message.info.role === "assistant"}>
+        <header>{props.message.info.agent}</header>
+      </Show>
+      <div class="conversation-message__parts">
+        <For each={groupKeys()}>
+          {(key) => (
+            <PresentedGroupView
+              group={groupsByKey().get(key)!}
+              messageRole={props.message.info.role}
+              messageAgent={agent()}
+              planStatus={props.planStatus}
+            />
+          )}
+        </For>
+      </div>
+    </article>
+  )
 }
 
 export function MessageTimeline(props: MessageTimelineProps) {
   const [hasNewMessages, setHasNewMessages] = createSignal(false)
   const signature = createMemo(() => messageSignature(props.messages))
   const presentedMessages = createMemo(() => presentConversationMessages(props.messages))
+  const messageIDs = createMemo(() => presentedMessages().map((message) => message.info.id))
+  const messagesByID = createMemo(() => new Map(presentedMessages().map((message) => [message.info.id, message])))
   let viewport: HTMLDivElement | undefined
   let pinnedToBottom = true
   let initialized = false
+  let scrollFrame: number | undefined
 
   function distanceFromBottom() {
     if (!viewport) return 0
@@ -58,7 +136,9 @@ export function MessageTimeline(props: MessageTimelineProps) {
 
   createEffect(
     on(signature, () => {
-      queueMicrotask(() => {
+      if (scrollFrame !== undefined) return
+      scrollFrame = window.requestAnimationFrame(() => {
+        scrollFrame = undefined
         if (!viewport) return
         if (!initialized || pinnedToBottom) scrollToBottom()
         else setHasNewMessages(true)
@@ -66,6 +146,10 @@ export function MessageTimeline(props: MessageTimelineProps) {
       })
     }),
   )
+
+  onCleanup(() => {
+    if (scrollFrame !== undefined) window.cancelAnimationFrame(scrollFrame)
+  })
 
   return (
     <section class="message-timeline" aria-label="对话消息">
@@ -94,6 +178,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
             ref={viewport}
             class="message-timeline__viewport"
             onScroll={() => {
+              initialized = true
               pinnedToBottom = distanceFromBottom() <= 80
               if (pinnedToBottom) setHasNewMessages(false)
             }}
@@ -108,57 +193,9 @@ export function MessageTimeline(props: MessageTimelineProps) {
               }
             >
               <div class="message-timeline__content">
-                <For each={presentedMessages()}>
-                  {(message) => (
-                    <article
-                      class="conversation-message"
-                      data-role={message.info.role}
-                      aria-label={message.info.role === "user" ? "我的消息" : "Agent 回复"}
-                    >
-                      <Show when={message.info.role === "assistant"}>
-                        <header>{message.info.agent}</header>
-                      </Show>
-                      <div class="conversation-message__parts">
-                        <For each={message.groups}>
-                          {(group) => (
-                            <Show
-                              when={group.type === "activity"}
-                              fallback={
-                                <For each={group.parts}>
-                                  {(part) => (
-                                    <MessagePartView
-                                      part={part}
-                                      messageRole={message.info.role}
-                                      messageAgent={messageAgent({ info: message.info, parts: [] })}
-                                      planStatus={props.planStatus}
-                                    />
-                                  )}
-                                </For>
-                              }
-                            >
-                              <ActivityGroup
-                                label="思考与工具调用"
-                                count={group.parts.length}
-                                running={group.parts.some(
-                                  (part) =>
-                                    part.type === "tool" &&
-                                    (part.state.status === "pending" || part.state.status === "running"),
-                                )}
-                              >
-                                <For each={group.parts}>{(part) => (
-                                <MessagePartView
-                                  part={part}
-                                  messageRole={message.info.role}
-                                  messageAgent={messageAgent({ info: message.info, parts: [] })}
-                                  planStatus={props.planStatus}
-                                />
-                                )}</For>
-                              </ActivityGroup>
-                            </Show>
-                          )}
-                        </For>
-                      </div>
-                    </article>
+                <For each={messageIDs()}>
+                  {(messageID) => (
+                    <PresentedMessageView message={messagesByID().get(messageID)!} planStatus={props.planStatus} />
                   )}
                 </For>
               </div>

@@ -1,5 +1,5 @@
 import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { createSignal, type JSX } from "solid-js"
 import { createDesktopQueryClient } from "../../data/query-client"
@@ -27,6 +27,7 @@ function renderComposer(input?: {
   disabled?: boolean
   branchControl?: JSX.Element
   multiAgentControl?: JSX.Element
+  mcpControl?: JSX.Element
   permissionControl?: JSX.Element
   identityLocked?: boolean
   minimal?: boolean
@@ -35,10 +36,20 @@ function renderComposer(input?: {
   agents?: Agent[]
   models?: CatalogModel[]
   usage?: ComposerProps["usage"]
+  skills?: Array<{ name: string; description?: string; location: string; content: string }>
 }) {
   const client = {
+    app: {
+      skills: vi.fn(async () => ({
+        data: input?.skills ?? [
+          { name: "documents", description: "Create and edit documents", location: "skills/documents", content: "" },
+          { name: "pdf", description: "Create and inspect PDFs", location: "skills/pdf", content: "" },
+        ],
+      })),
+    },
     session: {
       promptAsync: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
+      command: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
       abort: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: true })),
     },
   }
@@ -58,6 +69,7 @@ function renderComposer(input?: {
       disabled={input?.disabled}
       branchControl={input?.branchControl}
       multiAgentControl={input?.multiAgentControl}
+      mcpControl={input?.mcpControl}
       permissionControl={input?.permissionControl}
       identityLocked={input?.identityLocked}
       minimal={input?.minimal}
@@ -128,14 +140,51 @@ describe("Composer", () => {
     renderComposer({
       branchControl: <button aria-label="Branch">main</button>,
       multiAgentControl: <button aria-label="Multi-Agent control">Multi-Agent</button>,
+      mcpControl: <button aria-label="MCP control">MCP</button>,
     })
     const selectors = screen.getByLabelText("智能体").parentElement?.parentElement
-    expect(selectors?.children).toHaveLength(5)
+    expect(selectors?.children).toHaveLength(6)
     expect(selectors?.children[0]).toContainElement(screen.getByLabelText("智能体"))
     expect(selectors?.children[1]).toContainElement(screen.getByRole("button", { name: "连接" }))
     expect(selectors?.children[2]).toContainElement(screen.getByRole("button", { name: /配置模型/ }))
     expect(selectors?.children[3]).toContainElement(screen.getByRole("button", { name: "Branch" }))
     expect(selectors?.children[4]).toContainElement(screen.getByRole("button", { name: "Multi-Agent control" }))
+    expect(selectors?.children[5]).toContainElement(screen.getByRole("button", { name: "MCP control" }))
+  })
+
+  it("opens Skill suggestions for a slash query and selects them without submitting", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer()
+    const textbox = screen.getByRole("textbox", { name: "消息" })
+
+    await user.type(textbox, "/")
+    const listbox = await screen.findByRole("listbox", { name: "Skills" })
+    expect(within(listbox).getByRole("option", { name: /documents/ })).toBeVisible()
+    expect(within(listbox).getByRole("option", { name: /pdf/ })).toBeVisible()
+
+    await user.keyboard("{ArrowDown}{Enter}")
+
+    expect(textbox).toHaveValue("/pdf ")
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(client.session.command).not.toHaveBeenCalled()
+    expect(screen.queryByRole("listbox", { name: "Skills" })).not.toBeInTheDocument()
+    fireEvent.input(textbox, { target: { value: "" } })
+  })
+
+  it("filters Skill suggestions and dismisses them with Escape", async () => {
+    const user = userEvent.setup()
+    renderComposer()
+    const textbox = screen.getByRole("textbox", { name: "消息" })
+
+    await user.type(textbox, "/doc")
+    const listbox = await screen.findByRole("listbox", { name: "Skills" })
+    expect(within(listbox).getByRole("option", { name: /documents/ })).toBeVisible()
+    expect(within(listbox).queryByRole("option", { name: /pdf/ })).not.toBeInTheDocument()
+
+    await user.keyboard("{Escape}")
+    expect(textbox).toHaveValue("/doc")
+    expect(screen.queryByRole("listbox", { name: "Skills" })).not.toBeInTheDocument()
+    fireEvent.input(textbox, { target: { value: "" } })
   })
 
   it("locks child Agent and model identity while keeping messaging enabled", async () => {

@@ -91,6 +91,65 @@
   position: relative;
 }
 
+.composer-skill-menu {
+  position: absolute;
+  z-index: 40;
+  right: 0;
+  bottom: calc(100% + 7px);
+  left: 0;
+  display: grid;
+  max-height: min(320px, 42vh);
+  gap: 2px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  background: var(--color-panel);
+  box-shadow: 0 18px 52px rgb(0 0 0 / 46%);
+}
+
+.composer-skill-menu button {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 8px var(--space-3);
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.composer-skill-menu button:hover,
+.composer-skill-menu button:focus-visible,
+.composer-skill-menu button[data-selected="true"] {
+  outline: none;
+  background: color-mix(in srgb, var(--color-text) 9%, transparent);
+}
+
+.composer-skill-menu strong {
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.composer-skill-menu small,
+.composer-skill-menu__status {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+}
+
+.composer-skill-menu small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-skill-menu__status {
+  margin: 0;
+  padding: var(--space-3);
+}
+
 .composer__label {
   position: absolute;
   width: 1px;

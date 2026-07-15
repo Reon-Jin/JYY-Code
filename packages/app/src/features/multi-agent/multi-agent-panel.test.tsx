@@ -1,9 +1,12 @@
 import type { SessionAgentClusterResponse } from "@jyycode-ai/sdk/v2/client"
+import { readFileSync } from "node:fs"
 import { cleanup, render, screen, within } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { projectAgentClusterState } from "./multi-agent-state"
 import { MultiAgentPanelView } from "./multi-agent-panel"
+
+const multiAgentCSS = readFileSync("src/features/multi-agent/multi-agent.css", "utf8")
 
 type Run = SessionAgentClusterResponse["runs"][number]
 type Task = SessionAgentClusterResponse["tasks"][number]
@@ -162,6 +165,11 @@ describe("MultiAgentPanelView plan and task interactions", () => {
     expect(screen.getAllByText("已完成")[0]).toBeVisible()
     expect(screen.getAllByText("失败")[0]).toBeVisible()
     expect(screen.getAllByText("运行中")[0]).toBeVisible()
+
+    const queuedRow = screen.getByText("Queued task").closest("li")!
+    expect(queuedRow).toHaveAttribute("data-tone", "queued")
+    expect(queuedRow).toHaveAttribute("data-selected", "false")
+    expect(multiAgentCSS).toMatch(/\.multi-agent-task\[data-tone="queued"\]\s*\{\s*border-color:\s*transparent;/)
 
     const taskSummary = screen.getByText("Implement the panel")
     await user.click(taskSummary)

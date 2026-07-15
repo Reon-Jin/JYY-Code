@@ -143,6 +143,55 @@ describe("MessageTimeline", () => {
     expect(screen.queryByText("Hel")).not.toBeInTheDocument()
   })
 
+  it("keeps an activity disclosure expanded while immutable stream snapshots replace its parts", async () => {
+    const user = userEvent.setup()
+    const reasoning = (text: string): Part => ({
+      id: "part_reasoning_stream",
+      sessionID,
+      messageID: assistantInfo.id,
+      type: "reasoning",
+      text,
+      time: { start: 1 },
+    })
+    const [messages, setMessages] = createSignal([conversation([reasoning("first thought")], assistantInfo)])
+    render(() => <MessageTimeline messages={messages()} />)
+
+    const activityToggle = screen.getByRole("button", { name: /思考与工具调用/ })
+    await user.click(activityToggle)
+    expect(activityToggle).toHaveAttribute("aria-expanded", "true")
+
+    setMessages([conversation([reasoning("first thought, then another")], assistantInfo)])
+
+    await waitFor(() => expect(activityToggle).toHaveAttribute("aria-expanded", "true"))
+    expect(screen.getByRole("button", { name: "思考过程" })).toBeVisible()
+  })
+
+  it("uses the lightweight planning state while cluster plan JSON is still streaming", () => {
+    const clusterInfo: Message = { ...assistantInfo, agent: "cluster", mode: "cluster" }
+    render(() => (
+      <MessageTimeline
+        planStatus="planning"
+        messages={[
+          conversation(
+            [
+              {
+                id: "part_partial_plan",
+                sessionID,
+                messageID: clusterInfo.id,
+                type: "text",
+                text: '```json\n{"goal":"Ship","tasks":[{"id":"long partial payload',
+              },
+            ],
+            clusterInfo,
+          ),
+        ]}
+      />
+    ))
+
+    expect(screen.getByRole("status")).toHaveTextContent("正在生成计划")
+    expect(screen.queryByText(/long partial payload/)).not.toBeInTheDocument()
+  })
+
   it("keeps reasoning collapsed until explicitly expanded", async () => {
     const user = userEvent.setup()
     render(() => (
