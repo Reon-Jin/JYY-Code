@@ -17,7 +17,7 @@ import type {
   AuthSetResponses,
   CommandListErrors,
   CommandListResponses,
-  Config as Config3,
+  Config as Config4,
   ConfigGetErrors,
   ConfigGetResponses,
   ConfigProvidersErrors,
@@ -102,6 +102,8 @@ import type {
   GlobalEventResponses,
   GlobalHealthErrors,
   GlobalHealthResponses,
+  GlobalManagementContextErrors,
+  GlobalManagementContextResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
   InstanceDisposeErrors,
@@ -118,6 +120,12 @@ import type {
   McpAuthRemoveResponses,
   McpAuthStartErrors,
   McpAuthStartResponses,
+  McpConfigDeleteErrors,
+  McpConfigDeleteResponses,
+  McpConfigListErrors,
+  McpConfigListResponses,
+  McpConfigUpdateErrors,
+  McpConfigUpdateResponses,
   McpConnectErrors,
   McpConnectResponses,
   McpDisconnectErrors,
@@ -234,6 +242,16 @@ import type {
   SessionUnshareResponses,
   SessionUpdateErrors,
   SessionUpdateResponses,
+  SkillCreateErrors,
+  SkillCreateResponses,
+  SkillDeleteErrors,
+  SkillDeleteResponses,
+  SkillSourceAddErrors,
+  SkillSourceAddResponses,
+  SkillSourceRemoveErrors,
+  SkillSourceRemoveResponses,
+  SkillUpdateErrors,
+  SkillUpdateResponses,
   SubtaskPartInput,
   SyncHistoryListErrors,
   SyncHistoryListResponses,
@@ -512,6 +530,7 @@ export class App extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
+      scope?: "global"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -522,6 +541,7 @@ export class App extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
+            { in: "query", key: "scope" },
           ],
         },
       ],
@@ -554,7 +574,7 @@ export class Config extends HeyApiClient {
    */
   public update<ThrowOnError extends boolean = false>(
     parameters?: {
-      config?: Config3
+      config?: Config4
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -595,6 +615,19 @@ export class Global extends HeyApiClient {
       url: "/global/event",
       ...options,
     })
+  }
+
+  /**
+   * Get management context
+   *
+   * Return the authenticated backend home directory used for global management queries.
+   */
+  public managementContext<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      GlobalManagementContextResponses,
+      GlobalManagementContextErrors,
+      ThrowOnError
+    >({ url: "/global/management-context", ...options })
   }
 
   /**
@@ -711,7 +744,7 @@ export class Config2 extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
-      config?: Config3
+      config?: Config4
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2451,6 +2484,207 @@ export class Command extends HeyApiClient {
   }
 }
 
+export class Source extends HeyApiClient {
+  /**
+   * Remove Skill source
+   *
+   * Remove exactly one global local-path or remote-URL Skill source.
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      type?: "path" | "url"
+      value?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "type" },
+            { in: "body", key: "value" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<SkillSourceRemoveResponses, SkillSourceRemoveErrors, ThrowOnError>({
+      url: "/skill/source",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Add Skill source
+   *
+   * Add a global local-path or remote-URL Skill source.
+   */
+  public add<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      type?: "path" | "url"
+      value?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "type" },
+            { in: "body", key: "value" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SkillSourceAddResponses, SkillSourceAddErrors, ThrowOnError>({
+      url: "/skill/source",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Skill extends HeyApiClient {
+  /**
+   * Create Skill
+   *
+   * Create a globally managed Skill.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      name?: string
+      description?: string
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "description" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SkillCreateResponses, SkillCreateErrors, ThrowOnError>({
+      url: "/skill",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete Skill
+   *
+   * Delete a local Skill or remove its synchronized source.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "name" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<SkillDeleteResponses, SkillDeleteErrors, ThrowOnError>({
+      url: "/skill/{name}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update Skill
+   *
+   * Update editable Skill Markdown using its current revision.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      directory?: string
+      workspace?: string
+      content?: string
+      revision?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "name" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "content" },
+            { in: "body", key: "revision" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<SkillUpdateResponses, SkillUpdateErrors, ThrowOnError>({
+      url: "/skill/{name}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  private _source?: Source
+  get source(): Source {
+    return (this._source ??= new Source({ client: this.client }))
+  }
+}
+
 export class Lsp extends HeyApiClient {
   /**
    * Get LSP status
@@ -2511,6 +2745,109 @@ export class Formatter extends HeyApiClient {
       url: "/formatter",
       ...options,
       ...params,
+    })
+  }
+}
+
+export class Config3 extends HeyApiClient {
+  /**
+   * List global MCP configuration
+   *
+   * Return persisted global MCP server entries without runtime status.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<McpConfigListResponses, McpConfigListErrors, ThrowOnError>({
+      url: "/mcp/config",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Delete global MCP configuration
+   *
+   * Disconnect, remove OAuth credentials, and delete one persisted global MCP entry.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "name" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<McpConfigDeleteResponses, McpConfigDeleteErrors, ThrowOnError>({
+      url: "/mcp/{name}/config",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update global MCP configuration
+   *
+   * Create or replace one persisted global MCP server entry.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      directory?: string
+      workspace?: string
+      body?: McpLocalConfig | McpRemoteConfig
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "name" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<McpConfigUpdateResponses, McpConfigUpdateErrors, ThrowOnError>({
+      url: "/mcp/{name}/config",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }
@@ -2782,6 +3119,11 @@ export class Mcp extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _config?: Config3
+  get config(): Config3 {
+    return (this._config ??= new Config3({ client: this.client }))
   }
 
   private _auth?: Auth2
@@ -5727,6 +6069,11 @@ export class JyycodeClient extends HeyApiClient {
   private _command?: Command
   get command(): Command {
     return (this._command ??= new Command({ client: this.client }))
+  }
+
+  private _skill?: Skill
+  get skill(): Skill {
+    return (this._skill ??= new Skill({ client: this.client }))
   }
 
   private _lsp?: Lsp

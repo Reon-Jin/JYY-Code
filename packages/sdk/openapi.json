@@ -386,6 +386,43 @@
         ]
       }
     },
+    "/global/management-context": {
+      "get": {
+        "tags": ["global"],
+        "operationId": "global.managementContext",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Global management context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagementContext"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Return the authenticated backend home directory used for global management queries.",
+        "summary": "Get management context",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.global.managementContext({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/global/dispose": {
       "post": {
         "tags": ["global"],
@@ -754,27 +791,10 @@
       "get": {
         "tags": ["experimental"],
         "operationId": "experimental.console.get",
-        "parameters": [
-          {
-            "name": "directory",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false
-          },
-          {
-            "name": "workspace",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false
-          }
-        ],
+        "parameters": [],
         "responses": {
           "200": {
-            "description": "Active Console provider metadata",
+            "description": "Console state",
             "content": {
               "application/json": {
                 "schema": {
@@ -792,20 +812,10 @@
                 }
               }
             }
-          },
-          "500": {
-            "description": "InternalServerError",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/effect_HttpApiError_InternalServerError"
-                }
-              }
-            }
           }
         },
-        "description": "Get the active Console org name and the set of provider IDs managed by that Console org.",
-        "summary": "Get active Console provider metadata",
+        "description": "Get console-managed provider state and organization switching availability.",
+        "summary": "Get console state",
         "x-codeSamples": [
           {
             "lang": "js",
@@ -818,64 +828,14 @@
       "get": {
         "tags": ["experimental"],
         "operationId": "experimental.console.listOrgs",
-        "parameters": [
-          {
-            "name": "directory",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false
-          },
-          {
-            "name": "workspace",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false
-          }
-        ],
+        "parameters": [],
         "responses": {
           "200": {
-            "description": "Switchable Console orgs",
+            "description": "Console organizations",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "orgs": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "accountID": {
-                            "type": "string"
-                          },
-                          "accountEmail": {
-                            "type": "string"
-                          },
-                          "accountUrl": {
-                            "type": "string"
-                          },
-                          "orgID": {
-                            "type": "string"
-                          },
-                          "orgName": {
-                            "type": "string"
-                          },
-                          "active": {
-                            "type": "boolean"
-                          }
-                        },
-                        "required": ["accountID", "accountEmail", "accountUrl", "orgID", "orgName", "active"],
-                        "additionalProperties": false
-                      }
-                    }
-                  },
-                  "required": ["orgs"],
-                  "additionalProperties": false,
-                  "description": "Switchable Console orgs"
+                  "$ref": "#/components/schemas/ConsoleOrgList"
                 }
               }
             }
@@ -889,20 +849,10 @@
                 }
               }
             }
-          },
-          "500": {
-            "description": "InternalServerError",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/effect_HttpApiError_InternalServerError"
-                }
-              }
-            }
           }
         },
-        "description": "Get the available Console orgs across logged-in accounts, including the current active org.",
-        "summary": "List switchable Console orgs",
+        "description": "List console organizations available for switching.",
+        "summary": "List console organizations",
         "x-codeSamples": [
           {
             "lang": "js",
@@ -915,54 +865,26 @@
       "post": {
         "tags": ["experimental"],
         "operationId": "experimental.console.switchOrg",
-        "parameters": [
-          {
-            "name": "directory",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false
-          },
-          {
-            "name": "workspace",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false
-          }
-        ],
+        "parameters": [],
         "responses": {
           "200": {
-            "description": "Switch success",
+            "description": "Console organization switched",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "boolean",
-                  "description": "Switch success"
+                  "$ref": "#/components/schemas/ConsoleSwitchResult"
                 }
               }
             }
           }
         },
-        "description": "Persist a new active Console account/org selection for the current local JYYCode state.",
-        "summary": "Switch active Console org",
+        "description": "Switch the active console organization for an authenticated account.",
+        "summary": "Switch console organization",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "accountID": {
-                    "type": "string"
-                  },
-                  "orgID": {
-                    "type": "string"
-                  }
-                },
-                "required": ["accountID", "orgID"],
-                "additionalProperties": false
+                "$ref": "#/components/schemas/ConsoleSwitchPayload"
               }
             }
           }
@@ -2038,6 +1960,1063 @@
         ]
       }
     },
+    "/github/status": {
+      "get": {
+        "tags": ["github"],
+        "operationId": "github.status",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "GitHub CLI and repository availability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubAvailability"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Check GitHub CLI authentication and repository connectivity for the selected workspace.",
+        "summary": "Get GitHub availability",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.github.status({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/github/pulls": {
+      "get": {
+        "tags": ["github"],
+        "operationId": "github.pull.list",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["open", "closed", "merged", "all"]
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pull requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GitHubPullRequestSummary"
+                  },
+                  "description": "Pull requests"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GitHubRepositoryError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepositoryError"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "GitHubDependencyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubDependencyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHubCommandError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubCommandError"
+                }
+              }
+            }
+          }
+        },
+        "description": "List pull requests for the selected workspace repository.",
+        "summary": "List pull requests",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.github.pull.list({\n  ...\n})"
+          }
+        ]
+      },
+      "post": {
+        "tags": ["github"],
+        "operationId": "github.pull.create",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Created pull request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubPullRequestReference"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GitHubRepositoryError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepositoryError"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "GitHubDependencyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubDependencyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHubCommandError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubCommandError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a pull request from the selected workspace repository.",
+        "summary": "Create pull request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "head": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "base": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "title": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "body": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "draft": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["head", "base", "title", "body"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.github.pull.create({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/github/pulls/{number}": {
+      "get": {
+        "tags": ["github"],
+        "operationId": "github.pull.get",
+        "parameters": [
+          {
+            "name": "number",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/GitHubPullRequestNumber"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pull request detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubPullRequestDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GitHubRepositoryError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepositoryError"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "GitHubDependencyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubDependencyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHubCommandError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubCommandError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get pull request metadata, comments, commits, and checks.",
+        "summary": "Get pull request",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.github.pull.get({\n  ...\n})"
+          }
+        ]
+      },
+      "patch": {
+        "tags": ["github"],
+        "operationId": "github.pull.edit",
+        "parameters": [
+          {
+            "name": "number",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/GitHubPullRequestNumber"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pull request update result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GitHubRepositoryError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepositoryError"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "GitHubDependencyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubDependencyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHubCommandError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubCommandError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Update the title and body of a pull request.",
+        "summary": "Edit pull request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  },
+                  "body": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  }
+                },
+                "required": ["title", "body"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.github.pull.edit({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/github/pulls/{number}/diff": {
+      "get": {
+        "tags": ["github"],
+        "operationId": "github.pull.diff",
+        "parameters": [
+          {
+            "name": "number",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/GitHubPullRequestNumber"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unified pull request diff",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubPullRequestDiff"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GitHubRepositoryError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepositoryError"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "GitHubDependencyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubDependencyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHubCommandError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubCommandError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Get the unified diff for a pull request.",
+        "summary": "Get pull request diff",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.github.pull.diff({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/github/pulls/{number}/comments": {
+      "post": {
+        "tags": ["github"],
+        "operationId": "github.pull.comment",
+        "parameters": [
+          {
+            "name": "number",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/GitHubPullRequestNumber"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Comment result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GitHubRepositoryError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepositoryError"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "GitHubDependencyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubDependencyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHubCommandError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubCommandError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Add a comment to a pull request.",
+        "summary": "Comment on pull request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "body": {
+                    "type": "string",
+                    "pattern": "\\S"
+                  }
+                },
+                "required": ["body"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.github.pull.comment({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/github/pulls/{number}/checkout": {
+      "post": {
+        "tags": ["github"],
+        "operationId": "github.pull.checkout",
+        "parameters": [
+          {
+            "name": "number",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/GitHubPullRequestNumber"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Checkout result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GitHubRepositoryError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepositoryError"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "GitHubDependencyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubDependencyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHubCommandError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubCommandError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Checkout a pull request in the selected workspace.",
+        "summary": "Checkout pull request",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.github.pull.checkout({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/github/pulls/{number}/close": {
+      "post": {
+        "tags": ["github"],
+        "operationId": "github.pull.close",
+        "parameters": [
+          {
+            "name": "number",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/GitHubPullRequestNumber"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Close result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GitHubRepositoryError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepositoryError"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "GitHubDependencyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubDependencyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHubCommandError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubCommandError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Close a pull request without merging it.",
+        "summary": "Close pull request",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.github.pull.close({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/github/pulls/{number}/reopen": {
+      "post": {
+        "tags": ["github"],
+        "operationId": "github.pull.reopen",
+        "parameters": [
+          {
+            "name": "number",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/GitHubPullRequestNumber"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reopen result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GitHubRepositoryError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepositoryError"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "GitHubDependencyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubDependencyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHubCommandError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubCommandError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reopen a closed pull request.",
+        "summary": "Reopen pull request",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.github.pull.reopen({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/github/pulls/{number}/merge": {
+      "post": {
+        "tags": ["github"],
+        "operationId": "github.pull.merge",
+        "parameters": [
+          {
+            "name": "number",
+            "in": "path",
+            "schema": {
+              "$ref": "#/components/schemas/GitHubPullRequestNumber"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Merge result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GitHubRepositoryError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepositoryError"
+                }
+              }
+            }
+          },
+          "424": {
+            "description": "GitHubDependencyError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubDependencyError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "GitHubCommandError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubCommandError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Merge a pull request using the selected merge method.",
+        "summary": "Merge pull request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "enum": ["merge", "squash", "rebase"]
+                  },
+                  "deleteBranch": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["method"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.github.pull.merge({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/instance/dispose": {
       "post": {
         "tags": ["instance"],
@@ -2474,6 +3453,329 @@
         ]
       }
     },
+    "/vcs/branches": {
+      "get": {
+        "tags": ["instance"],
+        "operationId": "vcs.branch.list",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VCS branches and remotes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VcsBranches"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "List local and remote Git branches and configured remotes.",
+        "summary": "List VCS branches",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.vcs.branch.list({\n  ...\n})"
+          }
+        ]
+      },
+      "post": {
+        "tags": ["instance"],
+        "operationId": "vcs.branch.create",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated VCS branches and remotes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VcsBranches"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VcsOperationError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/VcsOperationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a local Git branch and optionally switch to it.",
+        "summary": "Create VCS branch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VcsCreateBranchInput"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.vcs.branch.create({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/vcs/branches/switch": {
+      "post": {
+        "tags": ["instance"],
+        "operationId": "vcs.branch.switch",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated VCS branches and remotes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VcsBranches"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VcsOperationError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/VcsOperationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Switch to a local branch or create a local branch tracking a remote branch.",
+        "summary": "Switch VCS branch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VcsSwitchBranchInput"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.vcs.branch.switch({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/vcs/fetch": {
+      "post": {
+        "tags": ["instance"],
+        "operationId": "vcs.fetch",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated VCS branches and remotes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VcsBranches"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VcsOperationError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/VcsOperationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Fetch and prune all configured Git remotes.",
+        "summary": "Fetch VCS remotes",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.vcs.fetch({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/vcs/push": {
+      "post": {
+        "tags": ["instance"],
+        "operationId": "vcs.push",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated VCS branches and remotes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VcsBranches"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VcsOperationError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/VcsOperationError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Push the current Git branch using its upstream or a selected remote.",
+        "summary": "Push VCS branch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VcsPushInput"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.vcs.push({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/command": {
       "get": {
         "tags": ["instance"],
@@ -2610,6 +3912,15 @@
               "type": "string"
             },
             "required": false
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["global"]
+            },
+            "required": false
           }
         ],
         "responses": {
@@ -2633,9 +3944,25 @@
                       },
                       "content": {
                         "type": "string"
+                      },
+                      "origin": {
+                        "type": "string",
+                        "enum": ["built_in", "managed", "path", "url"]
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "editable": {
+                        "type": "boolean"
+                      },
+                      "deletable": {
+                        "type": "boolean"
+                      },
+                      "revision": {
+                        "type": "string"
                       }
                     },
-                    "required": ["name", "location", "content"],
+                    "required": ["name", "location", "content", "origin", "editable", "deletable", "revision"],
                     "additionalProperties": false
                   },
                   "description": "List of skills"
@@ -2660,6 +3987,671 @@
           {
             "lang": "js",
             "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.app.skills({\n  ...\n})"
+          }
+        ]
+      },
+      "post": {
+        "tags": ["instance"],
+        "operationId": "skill.create",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Skill created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "origin": {
+                      "type": "string",
+                      "enum": ["built_in", "managed", "path", "url"]
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "editable": {
+                      "type": "boolean"
+                    },
+                    "deletable": {
+                      "type": "boolean"
+                    },
+                    "revision": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["name", "location", "content", "origin", "editable", "deletable", "revision"],
+                  "additionalProperties": false,
+                  "description": "Skill created"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "SkillInvalidError | SkillUnsafePathError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillInvalidError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SkillUnsafePathError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "SkillProtectedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillProtectedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SkillNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillNotFoundError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SkillConflictError | SkillDuplicateError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillConflictError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SkillDuplicateError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a globally managed Skill.",
+        "summary": "Create Skill",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  }
+                },
+                "required": ["name", "content"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.skill.create({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/skill/{name}": {
+      "put": {
+        "tags": ["instance"],
+        "operationId": "skill.update",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Skill updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "origin": {
+                      "type": "string",
+                      "enum": ["built_in", "managed", "path", "url"]
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "editable": {
+                      "type": "boolean"
+                    },
+                    "deletable": {
+                      "type": "boolean"
+                    },
+                    "revision": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["name", "location", "content", "origin", "editable", "deletable", "revision"],
+                  "additionalProperties": false,
+                  "description": "Skill updated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "SkillInvalidError | SkillUnsafePathError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillInvalidError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SkillUnsafePathError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "SkillProtectedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillProtectedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SkillNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillNotFoundError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SkillConflictError | SkillDuplicateError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillConflictError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SkillDuplicateError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Update editable Skill Markdown using its current revision.",
+        "summary": "Update Skill",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "revision": {
+                    "type": "string"
+                  }
+                },
+                "required": ["content", "revision"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.skill.update({\n  ...\n})"
+          }
+        ]
+      },
+      "delete": {
+        "tags": ["instance"],
+        "operationId": "skill.delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Skill deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "Skill deleted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "SkillInvalidError | SkillUnsafePathError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillInvalidError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SkillUnsafePathError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "SkillProtectedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillProtectedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SkillNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillNotFoundError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SkillConflictError | SkillDuplicateError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillConflictError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SkillDuplicateError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Delete a local Skill or remove its synchronized source.",
+        "summary": "Delete Skill",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.skill.delete({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/skill/source": {
+      "post": {
+        "tags": ["instance"],
+        "operationId": "skill.source.add",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Skill source added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "Skill source added"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "SkillInvalidError | SkillUnsafePathError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillInvalidError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SkillUnsafePathError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "SkillProtectedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillProtectedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SkillNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillNotFoundError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SkillConflictError | SkillDuplicateError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillConflictError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SkillDuplicateError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Add a global local-path or remote-URL Skill source.",
+        "summary": "Add Skill source",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["path", "url"]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": ["type", "value"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.skill.source.add({\n  ...\n})"
+          }
+        ]
+      },
+      "delete": {
+        "tags": ["instance"],
+        "operationId": "skill.source.remove",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Skill source removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "Skill source removed"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "SkillInvalidError | SkillUnsafePathError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillInvalidError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SkillUnsafePathError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "SkillProtectedError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillProtectedError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "SkillNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillNotFoundError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SkillConflictError | SkillDuplicateError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SkillConflictError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SkillDuplicateError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Remove exactly one global local-path or remote-URL Skill source.",
+        "summary": "Remove Skill source",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["path", "url"]
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "required": ["type", "value"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.skill.source.remove({\n  ...\n})"
           }
         ]
       }
@@ -2923,6 +4915,242 @@
           {
             "lang": "js",
             "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.mcp.add({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/mcp/config": {
+      "get": {
+        "tags": ["mcp"],
+        "operationId": "mcp.config.list",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Global MCP configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/McpLocalConfig"
+                      },
+                      {
+                        "$ref": "#/components/schemas/McpRemoteConfig"
+                      }
+                    ]
+                  },
+                  "description": "Global MCP configuration"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Return persisted global MCP server entries without runtime status.",
+        "summary": "List global MCP configuration",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.mcp.config.list({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/mcp/{name}/config": {
+      "put": {
+        "tags": ["mcp"],
+        "operationId": "mcp.config.update",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Global MCP configuration updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/McpLocalConfig"
+                    },
+                    {
+                      "$ref": "#/components/schemas/McpRemoteConfig"
+                    }
+                  ],
+                  "description": "Global MCP configuration updated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "McpConfigInvalidError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/McpConfigInvalidError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Create or replace one persisted global MCP server entry.",
+        "summary": "Update global MCP configuration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/McpLocalConfig"
+                  },
+                  {
+                    "$ref": "#/components/schemas/McpRemoteConfig"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.mcp.config.update({\n  ...\n})"
+          }
+        ]
+      },
+      "delete": {
+        "tags": ["mcp"],
+        "operationId": "mcp.config.delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Global MCP configuration deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "Global MCP configuration deleted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "McpConfigInvalidError | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/McpConfigInvalidError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "McpServerNotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpServerNotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Disconnect, remove OAuth credentials, and delete one persisted global MCP entry.",
+        "summary": "Delete global MCP configuration",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.mcp.config.delete({\n  ...\n})"
           }
         ]
       }
@@ -5042,6 +7270,22 @@
             "required": false
           },
           {
+            "name": "archived",
+            "in": "query",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "enum": ["true", "false"]
+                }
+              ]
+            },
+            "required": false
+          },
+          {
             "name": "start",
             "in": "query",
             "schema": {
@@ -5184,6 +7428,9 @@
                     },
                     "required": ["id", "providerID"],
                     "additionalProperties": false
+                  },
+                  "multiAgent": {
+                    "type": "boolean"
                   },
                   "permission": {
                     "$ref": "#/components/schemas/PermissionRuleset"
@@ -5509,6 +7756,9 @@
                   "title": {
                     "type": "string"
                   },
+                  "multiAgent": {
+                    "type": "boolean"
+                  },
                   "permission": {
                     "$ref": "#/components/schemas/PermissionRuleset"
                   },
@@ -5615,6 +7865,541 @@
           {
             "lang": "js",
             "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.session.children({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/context": {
+      "get": {
+        "tags": ["session"],
+        "operationId": "session.context",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Media-aware active context estimate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalTokens": {
+                      "type": "number"
+                    },
+                    "textTokens": {
+                      "type": "number"
+                    },
+                    "toolTokens": {
+                      "type": "number"
+                    },
+                    "mediaTokens": {
+                      "type": "number"
+                    },
+                    "mediaBytes": {
+                      "type": "number"
+                    },
+                    "overheadTokens": {
+                      "type": "number"
+                    },
+                    "thresholdTokens": {
+                      "type": "number"
+                    },
+                    "shouldCompact": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "totalTokens",
+                    "textTokens",
+                    "toolTokens",
+                    "mediaTokens",
+                    "mediaBytes",
+                    "overheadTokens"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Media-aware active context estimate"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BadRequest | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Retrieve a media-aware active context estimate for a session, including decoded media bytes.",
+        "summary": "Get active context estimate",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.session.context({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/agent-cluster": {
+      "get": {
+        "tags": ["session"],
+        "operationId": "session.agentCluster",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent cluster state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "runs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "session_id": {
+                            "type": "string",
+                            "pattern": "^ses"
+                          },
+                          "parent_message_id": {
+                            "type": "string",
+                            "pattern": "^msg"
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "planning",
+                              "dispatching",
+                              "reviewing",
+                              "synthesizing",
+                              "completed",
+                              "failed",
+                              "cancelled"
+                            ]
+                          },
+                          "goal": {
+                            "type": "string"
+                          },
+                          "planner_model": {
+                            "type": "string"
+                          },
+                          "reviewer_model": {
+                            "type": "string"
+                          },
+                          "time_created": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["NaN"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["-Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity", "-Infinity", "NaN"]
+                              }
+                            ]
+                          },
+                          "time_updated": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["NaN"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["-Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity", "-Infinity", "NaN"]
+                              }
+                            ]
+                          },
+                          "completed_at": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["NaN"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["-Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity", "-Infinity", "NaN"]
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "session_id",
+                          "parent_message_id",
+                          "enabled",
+                          "status",
+                          "goal",
+                          "planner_model",
+                          "reviewer_model",
+                          "time_created",
+                          "time_updated",
+                          "completed_at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "run_id": {
+                            "type": "string"
+                          },
+                          "parent_task_id": {
+                            "type": "string"
+                          },
+                          "child_session_id": {
+                            "type": "string",
+                            "pattern": "^ses"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "researcher",
+                              "analyst",
+                              "writer",
+                              "chart",
+                              "pdf",
+                              "coder",
+                              "tester",
+                              "picture_searcher",
+                              "general"
+                            ]
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "prompt": {
+                            "type": "string"
+                          },
+                          "complexity": {
+                            "type": "string",
+                            "enum": ["simple", "complex"]
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "planned",
+                              "queued",
+                              "running",
+                              "submitted",
+                              "reviewing",
+                              "accepted",
+                              "revision_requested",
+                              "revising",
+                              "failed",
+                              "cancelled"
+                            ]
+                          },
+                          "step": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["NaN"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["-Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity", "-Infinity", "NaN"]
+                              }
+                            ]
+                          },
+                          "dependencies": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "review_round": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["NaN"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["-Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity", "-Infinity", "NaN"]
+                              }
+                            ]
+                          },
+                          "acceptance_criteria": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "artifact_paths": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "result_summary": {
+                            "type": "string"
+                          },
+                          "review_issues": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "last_event": {
+                            "type": "string"
+                          },
+                          "time_created": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["NaN"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["-Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity", "-Infinity", "NaN"]
+                              }
+                            ]
+                          },
+                          "time_updated": {
+                            "anyOf": [
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["NaN"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["-Infinity"]
+                              },
+                              {
+                                "type": "string",
+                                "enum": ["Infinity", "-Infinity", "NaN"]
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "run_id",
+                          "parent_task_id",
+                          "child_session_id",
+                          "role",
+                          "title",
+                          "prompt",
+                          "complexity",
+                          "model",
+                          "status",
+                          "step",
+                          "dependencies",
+                          "review_round",
+                          "acceptance_criteria",
+                          "artifact_paths",
+                          "result_summary",
+                          "review_issues",
+                          "last_event",
+                          "time_created",
+                          "time_updated"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["runs", "tasks"],
+                  "additionalProperties": false,
+                  "description": "Agent cluster state"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BadRequest | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Retrieve persisted agent cluster runs and tasks for a specific session.",
+        "summary": "Get session agent cluster state",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.session.agentCluster({\n  ...\n})"
           }
         ]
       }
@@ -6019,6 +8804,15 @@
                   },
                   "variant": {
                     "type": "string"
+                  },
+                  "agentCluster": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "parts": {
                     "type": "array",
@@ -6901,6 +9695,15 @@
                   },
                   "variant": {
                     "type": "string"
+                  },
+                  "agentCluster": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
                   },
                   "parts": {
                     "type": "array",
@@ -10480,6 +13283,9 @@
             "$ref": "#/components/schemas/Event.tui.session.select"
           },
           {
+            "$ref": "#/components/schemas/EventAgent_clusterEvent1"
+          },
+          {
             "$ref": "#/components/schemas/EventServerConnected"
           },
           {
@@ -10546,7 +13352,22 @@
             "$ref": "#/components/schemas/EventProjectUpdated"
           },
           {
+            "$ref": "#/components/schemas/EventToolCatalogResolved1"
+          },
+          {
+            "$ref": "#/components/schemas/EventToolSearchExecuted1"
+          },
+          {
+            "$ref": "#/components/schemas/EventToolExecutionCompleted1"
+          },
+          {
             "$ref": "#/components/schemas/EventSessionCompacted"
+          },
+          {
+            "$ref": "#/components/schemas/EventWorktreeReady"
+          },
+          {
+            "$ref": "#/components/schemas/EventWorktreeFailed"
           },
           {
             "$ref": "#/components/schemas/EventVcsBranchUpdated"
@@ -10559,12 +13380,6 @@
           },
           {
             "$ref": "#/components/schemas/EventWorkspaceStatus"
-          },
-          {
-            "$ref": "#/components/schemas/EventWorktreeReady"
-          },
-          {
-            "$ref": "#/components/schemas/EventWorktreeFailed"
           },
           {
             "$ref": "#/components/schemas/EventPtyCreated"
@@ -10766,15 +13581,6 @@
           },
           {
             "$ref": "#/components/schemas/EventModels-devRefreshed"
-          },
-          {
-            "$ref": "#/components/schemas/EventAccountAdded"
-          },
-          {
-            "$ref": "#/components/schemas/EventAccountRemoved"
-          },
-          {
-            "$ref": "#/components/schemas/EventAccountSwitched"
           }
         ]
       },
@@ -12798,6 +15604,9 @@
             "required": ["id", "providerID"],
             "additionalProperties": false
           },
+          "multiAgent": {
+            "type": "boolean"
+          },
           "version": {
             "type": "string"
           },
@@ -12906,6 +15715,9 @@
                 "$ref": "#/components/schemas/Event.tui.session.select"
               },
               {
+                "$ref": "#/components/schemas/EventAgent_clusterEvent"
+              },
+              {
                 "$ref": "#/components/schemas/EventServerConnected"
               },
               {
@@ -12972,7 +15784,22 @@
                 "$ref": "#/components/schemas/EventProjectUpdated"
               },
               {
+                "$ref": "#/components/schemas/EventToolCatalogResolved"
+              },
+              {
+                "$ref": "#/components/schemas/EventToolSearchExecuted"
+              },
+              {
+                "$ref": "#/components/schemas/EventToolExecutionCompleted"
+              },
+              {
                 "$ref": "#/components/schemas/EventSessionCompacted"
+              },
+              {
+                "$ref": "#/components/schemas/EventWorktreeReady"
+              },
+              {
+                "$ref": "#/components/schemas/EventWorktreeFailed"
               },
               {
                 "$ref": "#/components/schemas/EventVcsBranchUpdated"
@@ -12985,12 +15812,6 @@
               },
               {
                 "$ref": "#/components/schemas/EventWorkspaceStatus"
-              },
-              {
-                "$ref": "#/components/schemas/EventWorktreeReady"
-              },
-              {
-                "$ref": "#/components/schemas/EventWorktreeFailed"
               },
               {
                 "$ref": "#/components/schemas/EventPtyCreated"
@@ -13192,15 +16013,6 @@
               },
               {
                 "$ref": "#/components/schemas/EventModels-devRefreshed"
-              },
-              {
-                "$ref": "#/components/schemas/EventAccountAdded"
-              },
-              {
-                "$ref": "#/components/schemas/EventAccountRemoved"
-              },
-              {
-                "$ref": "#/components/schemas/EventAccountSwitched"
               },
               {
                 "$ref": "#/components/schemas/SyncEventMessageUpdated"
@@ -13528,6 +16340,54 @@
           }
         },
         "additionalProperties": {}
+      },
+      "AgentClusterConfig": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "default_on": {
+            "type": "boolean"
+          },
+          "disable_for_routes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "planner_model": {
+            "type": "string"
+          },
+          "reviewer_model": {
+            "type": "string"
+          },
+          "complex_model": {
+            "type": "string"
+          },
+          "simple_model": {
+            "type": "string"
+          },
+          "visual_model": {
+            "type": "string"
+          },
+          "max_subagents": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "max_concurrency": {
+            "type": "integer",
+            "exclusiveMinimum": 0
+          },
+          "max_review_rounds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "artifact_dir": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "ProviderConfig": {
         "type": "object",
@@ -14087,6 +16947,9 @@
               "$ref": "#/components/schemas/AgentConfig"
             }
           },
+          "agent_cluster": {
+            "$ref": "#/components/schemas/AgentClusterConfig"
+          },
           "provider": {
             "type": "object",
             "additionalProperties": {
@@ -14275,6 +17138,19 @@
               "reserved": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "trigger_ratio": {
+                "type": "number"
+              },
+              "micro_compact": {
+                "type": "boolean"
+              },
+              "micro_compact_max_chars": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "reactive_compact": {
+                "type": "boolean"
               }
             },
             "additionalProperties": false
@@ -14306,8 +17182,158 @@
               }
             },
             "additionalProperties": false
+          },
+          "communication": {
+            "type": "object",
+            "properties": {
+              "email": {
+                "type": "object",
+                "properties": {
+                  "smtpHost": {
+                    "type": "string"
+                  },
+                  "smtpPort": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["NaN"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["Infinity"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["-Infinity"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["Infinity", "-Infinity", "NaN"]
+                      }
+                    ]
+                  },
+                  "imapHost": {
+                    "type": "string"
+                  },
+                  "imapPort": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["NaN"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["Infinity"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["-Infinity"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["Infinity", "-Infinity", "NaN"]
+                      }
+                    ]
+                  },
+                  "mailbox": {
+                    "type": "string"
+                  },
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "authMethod": {
+                    "type": "string",
+                    "enum": ["password", "oauth2"]
+                  },
+                  "clientId": {
+                    "type": "string"
+                  },
+                  "tenant": {
+                    "type": "string"
+                  },
+                  "refreshToken": {
+                    "type": "string"
+                  }
+                },
+                "required": ["smtpHost", "username", "password", "from"],
+                "additionalProperties": false
+              },
+              "finish": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "to": {
+                    "type": "string"
+                  },
+                  "subject": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "inbox": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "pollSeconds": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["NaN"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["Infinity"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["-Infinity"]
+                      },
+                      {
+                        "type": "string",
+                        "enum": ["Infinity", "-Infinity", "NaN"]
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
           }
         },
+        "additionalProperties": false
+      },
+      "ManagementContext": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "type": "string"
+          }
+        },
+        "required": ["directory"],
         "additionalProperties": false
       },
       "Model": {
@@ -14615,27 +17641,58 @@
               "type": "string"
             }
           },
-          "activeOrgName": {
-            "type": "string"
-          },
           "switchableOrgCount": {
-            "type": "integer",
-            "minimum": 0
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
           }
         },
         "required": ["consoleManagedProviders", "switchableOrgCount"],
         "additionalProperties": false
       },
-      "effect_HttpApiError_InternalServerError": {
+      "ConsoleOrgList": {
         "type": "object",
         "properties": {
-          "_tag": {
-            "type": "string",
-            "enum": ["InternalServerError"]
+          "orgs": {
+            "type": "array"
           }
         },
-        "required": ["_tag"],
+        "required": ["orgs"],
         "additionalProperties": false
+      },
+      "ConsoleSwitchPayload": {
+        "type": "object",
+        "properties": {
+          "accountID": {
+            "type": "string"
+          },
+          "orgID": {
+            "type": "string"
+          }
+        },
+        "required": ["accountID", "orgID"],
+        "additionalProperties": false
+      },
+      "ConsoleSwitchResult": {
+        "type": "boolean"
       },
       "ToolListItem": {
         "type": "object",
@@ -14869,6 +17926,9 @@
             },
             "required": ["id", "providerID"],
             "additionalProperties": false
+          },
+          "multiAgent": {
+            "type": "boolean"
           },
           "version": {
             "type": "string"
@@ -15105,6 +18165,392 @@
         "required": ["path", "added", "removed", "status"],
         "additionalProperties": false
       },
+      "GitHubRepository": {
+        "type": "object",
+        "properties": {
+          "nameWithOwner": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "defaultBranch": {
+            "type": "string"
+          }
+        },
+        "required": ["nameWithOwner", "url", "defaultBranch"],
+        "additionalProperties": false
+      },
+      "GitHubAvailability": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean",
+                "enum": [true]
+              },
+              "repository": {
+                "$ref": "#/components/schemas/GitHubRepository"
+              }
+            },
+            "required": ["available", "repository"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean",
+                "enum": [false]
+              },
+              "reason": {
+                "type": "string",
+                "enum": ["missing-gh", "not-authenticated", "not-github-repo", "command-failed"]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["available", "reason", "message"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "GitHubPullRequestAuthor": {
+        "type": "object",
+        "properties": {
+          "login": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": ["login"],
+        "additionalProperties": false
+      },
+      "GitHubPullRequestSummary": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["OPEN", "CLOSED", "MERGED"]
+          },
+          "isDraft": {
+            "type": "boolean"
+          },
+          "headRefName": {
+            "type": "string"
+          },
+          "baseRefName": {
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/components/schemas/GitHubPullRequestAuthor"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "reviewDecision": {
+            "type": "string"
+          }
+        },
+        "required": ["number", "title", "state", "isDraft", "headRefName", "baseRefName", "author", "updatedAt", "url"],
+        "additionalProperties": false
+      },
+      "GitHubDependencyError": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["GitHubDependencyError"]
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["missing-gh", "not-authenticated"]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "reason", "message"],
+        "additionalProperties": false
+      },
+      "GitHubRepositoryError": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["GitHubRepositoryError"]
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["not-github-repo", "conflict"]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "reason", "message"],
+        "additionalProperties": false
+      },
+      "GitHubCommandError": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["GitHubCommandError"]
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["command-failed", "invalid-response"]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["_tag", "reason", "message"],
+        "additionalProperties": false
+      },
+      "GitHubPullRequestReference": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": ["number", "url"],
+        "additionalProperties": false
+      },
+      "GitHubPullRequestNumber": {
+        "type": "string"
+      },
+      "GitHubPullRequestComment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/components/schemas/GitHubPullRequestAuthor"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "body", "author", "createdAt"],
+        "additionalProperties": false
+      },
+      "GitHubPullRequestCommit": {
+        "type": "object",
+        "properties": {
+          "oid": {
+            "type": "string"
+          },
+          "messageHeadline": {
+            "type": "string"
+          },
+          "authoredDate": {
+            "type": "string"
+          },
+          "authors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitHubPullRequestAuthor"
+            }
+          }
+        },
+        "required": ["oid", "messageHeadline", "authoredDate", "authors"],
+        "additionalProperties": false
+      },
+      "GitHubPullRequestCheck": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "detailsUrl": {
+            "type": "string"
+          }
+        },
+        "required": ["name", "status"],
+        "additionalProperties": false
+      },
+      "GitHubPullRequestDetail": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["OPEN", "CLOSED", "MERGED"]
+          },
+          "isDraft": {
+            "type": "boolean"
+          },
+          "headRefName": {
+            "type": "string"
+          },
+          "baseRefName": {
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/components/schemas/GitHubPullRequestAuthor"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "reviewDecision": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "mergeable": {
+            "type": "string"
+          },
+          "comments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitHubPullRequestComment"
+            }
+          },
+          "commits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitHubPullRequestCommit"
+            }
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitHubPullRequestCheck"
+            }
+          }
+        },
+        "required": [
+          "number",
+          "title",
+          "state",
+          "isDraft",
+          "headRefName",
+          "baseRefName",
+          "author",
+          "updatedAt",
+          "url",
+          "body",
+          "mergeable",
+          "comments",
+          "commits",
+          "checks"
+        ],
+        "additionalProperties": false
+      },
+      "GitHubMutationResult": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "additionalProperties": false
+      },
+      "GitHubPullRequestDiff": {
+        "type": "string"
+      },
       "Path": {
         "type": "object",
         "properties": {
@@ -15207,6 +18653,145 @@
         "required": ["name", "data"],
         "additionalProperties": false
       },
+      "VcsBranch": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["local", "remote"]
+          },
+          "current": {
+            "type": "boolean"
+          },
+          "remote": {
+            "type": "string"
+          },
+          "upstream": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": ["name", "kind", "current"],
+        "additionalProperties": false
+      },
+      "VcsRemote": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "fetchUrl": {
+            "type": "string"
+          },
+          "pushUrl": {
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "VcsBranches": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": "string"
+          },
+          "branches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VcsBranch"
+            }
+          },
+          "remotes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VcsRemote"
+            }
+          }
+        },
+        "required": ["branches", "remotes"],
+        "additionalProperties": false
+      },
+      "VcsCreateBranchInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "checkout": {
+            "type": "boolean"
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "VcsOperationError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["VcsOperationError"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "non-git",
+                  "invalid-name",
+                  "already-exists",
+                  "not-found",
+                  "conflict",
+                  "missing-remote",
+                  "ambiguous-remote",
+                  "command-failed"
+                ]
+              },
+              "candidates": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["message", "reason"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["name", "data"],
+        "additionalProperties": false
+      },
+      "VcsSwitchBranchInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "createLocal": {
+            "type": "boolean"
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "VcsPushInput": {
+        "type": "object",
+        "properties": {
+          "remote": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "Command": {
         "type": "object",
         "properties": {
@@ -15300,6 +18885,156 @@
           }
         },
         "required": ["name", "mode", "permission", "options"],
+        "additionalProperties": false
+      },
+      "SkillInvalidError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["SkillInvalidError"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["message"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["name", "data"],
+        "additionalProperties": false
+      },
+      "SkillUnsafePathError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["SkillUnsafePathError"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "skill": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": ["message", "skill", "path"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["name", "data"],
+        "additionalProperties": false
+      },
+      "SkillProtectedError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["SkillProtectedError"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "skill": {
+                "type": "string"
+              }
+            },
+            "required": ["message", "skill"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["name", "data"],
+        "additionalProperties": false
+      },
+      "SkillNotFoundError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["SkillNotFoundError"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "skill": {
+                "type": "string"
+              }
+            },
+            "required": ["message", "skill"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["name", "data"],
+        "additionalProperties": false
+      },
+      "SkillConflictError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["SkillConflictError"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "skill": {
+                "type": "string"
+              },
+              "latestRevision": {
+                "type": "string"
+              }
+            },
+            "required": ["message", "skill", "latestRevision"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["name", "data"],
+        "additionalProperties": false
+      },
+      "SkillDuplicateError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["SkillDuplicateError"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "skill": {
+                "type": "string"
+              },
+              "location": {
+                "type": "string"
+              }
+            },
+            "required": ["message", "skill"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["name", "data"],
         "additionalProperties": false
       },
       "LSPStatus": {
@@ -15421,14 +19156,25 @@
           }
         ]
       },
-      "McpUnsupportedOAuthError": {
+      "McpConfigInvalidError": {
         "type": "object",
         "properties": {
-          "error": {
-            "type": "string"
+          "name": {
+            "type": "string",
+            "enum": ["McpConfigInvalidError"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["message"],
+            "additionalProperties": false
           }
         },
-        "required": ["error"],
+        "required": ["name", "data"],
         "additionalProperties": false
       },
       "McpServerNotFoundError": {
@@ -15446,6 +19192,16 @@
           }
         },
         "required": ["_tag", "name", "message"],
+        "additionalProperties": false
+      },
+      "McpUnsupportedOAuthError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": ["error"],
         "additionalProperties": false
       },
       "ProjectNotFoundError": {
@@ -15711,6 +19467,17 @@
             }
           }
         }
+      },
+      "effect_HttpApiError_InternalServerError": {
+        "type": "object",
+        "properties": {
+          "_tag": {
+            "type": "string",
+            "enum": ["InternalServerError"]
+          }
+        },
+        "required": ["_tag"],
+        "additionalProperties": false
       },
       "TextPartInput": {
         "type": "object",
@@ -16682,6 +20449,16 @@
                         },
                         "required": ["id", "providerID"],
                         "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "multiAgent": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
                       },
                       {
                         "type": "null"
@@ -18099,6 +21876,92 @@
         "required": ["type", "name", "id", "seq", "aggregateID", "data"],
         "additionalProperties": false
       },
+      "EventAgent_clusterEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["agent_cluster.event"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses"
+              },
+              "runID": {
+                "type": "string"
+              },
+              "taskID": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["run", "task", "review", "artifact"]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "planning",
+                  "dispatching",
+                  "reviewing",
+                  "synthesizing",
+                  "completed",
+                  "failed",
+                  "cancelled",
+                  "planned",
+                  "queued",
+                  "running",
+                  "submitted",
+                  "reviewing",
+                  "accepted",
+                  "revision_requested",
+                  "revising",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "metadata": {
+                "type": "object"
+              },
+              "createdAt": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              }
+            },
+            "required": ["sessionID", "runID", "type", "message", "createdAt"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
       "EventServerConnected": {
         "type": "object",
         "properties": {
@@ -18663,6 +22526,231 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
+      "EventToolCatalogResolved": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["tool.catalog.resolved"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "providerID": {
+                "type": "string"
+              },
+              "modelID": {
+                "type": "string"
+              },
+              "agent": {
+                "type": "string"
+              },
+              "toolCount": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "schemaBytes": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "toolIDs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["providerID", "modelID", "agent", "toolCount", "schemaBytes", "toolIDs"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventToolSearchExecuted": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["tool.search.executed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "callID": {
+                "type": "string"
+              },
+              "query": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "matches": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "resultIDs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["query", "detail", "matches", "resultIDs"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventToolExecutionCompleted": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["tool.execution.completed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "callID": {
+                "type": "string"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "success": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["success", "error", "permission_rejected"]
+              },
+              "durationMs": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "error": {
+                "type": "string"
+              },
+              "delegatedTool": {
+                "type": "string"
+              }
+            },
+            "required": ["tool", "success", "status"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
       "EventSessionCompacted": {
         "type": "object",
         "properties": {
@@ -18682,6 +22770,57 @@
               }
             },
             "required": ["sessionID"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventWorktreeReady": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["worktree.ready"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "branch": {
+                "type": "string"
+              }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventWorktreeFailed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["worktree.failed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["message"],
             "additionalProperties": false
           }
         },
@@ -18782,57 +22921,6 @@
               }
             },
             "required": ["workspaceID", "status"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventWorktreeReady": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["worktree.ready"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "branch": {
-                "type": "string"
-              }
-            },
-            "required": ["name"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventWorktreeFailed": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["worktree.failed"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "message": {
-                "type": "string"
-              }
-            },
-            "required": ["message"],
             "additionalProperties": false
           }
         },
@@ -20704,154 +24792,6 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
-      "AccountV2OAuthCredential": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": ["oauth"]
-          },
-          "refresh": {
-            "type": "string"
-          },
-          "access": {
-            "type": "string"
-          },
-          "expires": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "required": ["type", "refresh", "access", "expires"],
-        "additionalProperties": false
-      },
-      "AccountV2ApiKeyCredential": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": ["api"]
-          },
-          "key": {
-            "type": "string"
-          },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            }
-          }
-        },
-        "required": ["type", "key"],
-        "additionalProperties": false
-      },
-      "AccountV2Credential": {
-        "anyOf": [
-          {
-            "$ref": "#/components/schemas/AccountV2OAuthCredential"
-          },
-          {
-            "$ref": "#/components/schemas/AccountV2ApiKeyCredential"
-          }
-        ]
-      },
-      "AccountV2Info": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "serviceID": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "credential": {
-            "$ref": "#/components/schemas/AccountV2Credential"
-          }
-        },
-        "required": ["id", "serviceID", "description", "credential"],
-        "additionalProperties": false
-      },
-      "EventAccountAdded": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["account.added"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "account": {
-                "$ref": "#/components/schemas/AccountV2Info"
-              }
-            },
-            "required": ["account"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventAccountRemoved": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["account.removed"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "account": {
-                "$ref": "#/components/schemas/AccountV2Info"
-              }
-            },
-            "required": ["account"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventAccountSwitched": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["account.switched"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "serviceID": {
-                "type": "string"
-              },
-              "from": {
-                "type": "string"
-              },
-              "to": {
-                "type": "string"
-              }
-            },
-            "required": ["serviceID"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
       "SessionInfo": {
         "type": "object",
         "properties": {
@@ -21767,6 +25707,297 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
+      "EventAgent_clusterEvent1": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["agent_cluster.event"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses"
+              },
+              "runID": {
+                "type": "string"
+              },
+              "taskID": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["run", "task", "review", "artifact"]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "planning",
+                  "dispatching",
+                  "reviewing",
+                  "synthesizing",
+                  "completed",
+                  "failed",
+                  "cancelled",
+                  "planned",
+                  "queued",
+                  "running",
+                  "submitted",
+                  "reviewing",
+                  "accepted",
+                  "revision_requested",
+                  "revising",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "metadata": {
+                "type": "object"
+              },
+              "createdAt": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  }
+                ]
+              }
+            },
+            "required": ["sessionID", "runID", "type", "message", "createdAt"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventToolCatalogResolved1": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["tool.catalog.resolved"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "providerID": {
+                "type": "string"
+              },
+              "modelID": {
+                "type": "string"
+              },
+              "agent": {
+                "type": "string"
+              },
+              "toolCount": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  }
+                ]
+              },
+              "schemaBytes": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  }
+                ]
+              },
+              "toolIDs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["providerID", "modelID", "agent", "toolCount", "schemaBytes", "toolIDs"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventToolSearchExecuted1": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["tool.search.executed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "callID": {
+                "type": "string"
+              },
+              "query": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "matches": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  }
+                ]
+              },
+              "resultIDs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["query", "detail", "matches", "resultIDs"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventToolExecutionCompleted1": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["tool.execution.completed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "callID": {
+                "type": "string"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "success": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["success", "error", "permission_rejected"]
+              },
+              "durationMs": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  }
+                ]
+              },
+              "error": {
+                "type": "string"
+              },
+              "delegatedTool": {
+                "type": "string"
+              }
+            },
+            "required": ["tool", "success", "status"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
       "ModelV2Info1": {
         "type": "object",
         "properties": {
@@ -22137,6 +26368,10 @@
     {
       "name": "file",
       "description": "Experimental HttpApi file routes."
+    },
+    {
+      "name": "github",
+      "description": "Workspace-scoped GitHub pull request operations."
     },
     {
       "name": "instance",
