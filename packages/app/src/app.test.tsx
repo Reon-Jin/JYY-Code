@@ -22,8 +22,8 @@ describe("App", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
-        async () =>
-          new Response(JSON.stringify({ directory: "C:\\Users\\test" }), {
+        async (input: RequestInfo | URL) =>
+          new Response(JSON.stringify(String(input).includes("/skill") ? [] : { directory: "C:\\Users\\test" }), {
             status: 200,
             headers: { "content-type": "application/json" },
           }),

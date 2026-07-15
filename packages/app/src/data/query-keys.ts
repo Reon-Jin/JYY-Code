@@ -5,6 +5,11 @@ export function normalizeDirectory(directory: string) {
 const project = (directory: string) => ["project", normalizeDirectory(directory)] as const
 
 export const keys = {
+  management: ["management"] as const,
+  managementSkills: ["management", "skills"] as const,
+  managementSkill: (name: string) => ["management", "skills", name] as const,
+  managementMcpConfig: ["management", "mcp", "config"] as const,
+  managementMcpStatus: ["management", "mcp", "status"] as const,
   project,
   sessions: (directory: string, archived = false) =>
     archived
@@ -29,8 +34,7 @@ export const keys = {
   pullRequestDiff: (directory: string, number: number) =>
     [...project(directory), "github", "pull", number, "diff"] as const,
   agentClustersScope: (directory: string) => [...project(directory), "agent-clusters"] as const,
-  agentCluster: (directory: string, sessionID: string) =>
-    [...project(directory), "agent-clusters", sessionID] as const,
+  agentCluster: (directory: string, sessionID: string) => [...project(directory), "agent-clusters", sessionID] as const,
   skills: (directory: string) => [...project(directory), "skills"] as const,
   mcp: (directory: string) => [...project(directory), "mcp"] as const,
   globalConfig: ["global", "config"] as const,
