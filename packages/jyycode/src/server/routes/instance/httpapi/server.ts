@@ -47,6 +47,8 @@ import { ShareNext } from "@/share/share-next"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { BackgroundProcess } from "@/process/job"
 import { Skill } from "@/skill"
+import { SkillManagement } from "@/skill/management"
+import { Global } from "@jyycode-ai/core/global"
 import { Snapshot } from "@/snapshot"
 import { SyncEvent } from "@/sync"
 import { ToolRegistry } from "@/tool/registry"
@@ -230,6 +232,7 @@ export function createRoutes(
       SyncEvent.defaultLayer,
       EventV2Bridge.defaultLayer,
       Skill.defaultLayer,
+      SkillManagement.defaultLayer,
       Todo.defaultLayer,
       ToolRegistry.defaultLayer,
       Vcs.defaultLayer,
@@ -237,6 +240,7 @@ export function createRoutes(
       Worktree.appLayer,
       Bus.layer,
       AppFileSystem.defaultLayer,
+      Global.layer,
       FetchHttpClient.layer,
       HttpServer.layerServices,
     ]),

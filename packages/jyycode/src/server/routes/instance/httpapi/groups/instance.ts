@@ -4,6 +4,7 @@ import { Format } from "@/format"
 import { LSP } from "@/lsp/lsp"
 import { Vcs } from "@/project/vcs"
 import { Skill } from "@/skill"
+import { SkillManagement } from "@/skill/management"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
@@ -52,6 +53,68 @@ export class ApiVcsOperationError extends Schema.ErrorClass<ApiVcsOperationError
   { httpApiStatus: 400 },
 ) {}
 
+export class ApiSkillInvalidError extends Schema.ErrorClass<ApiSkillInvalidError>("SkillInvalidError")(
+  {
+    name: Schema.Literal("SkillInvalidError"),
+    data: Schema.Struct({ message: Schema.String }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+export class ApiSkillProtectedError extends Schema.ErrorClass<ApiSkillProtectedError>("SkillProtectedError")(
+  {
+    name: Schema.Literal("SkillProtectedError"),
+    data: Schema.Struct({ message: Schema.String, skill: Schema.String }),
+  },
+  { httpApiStatus: 403 },
+) {}
+
+export class ApiSkillNotFoundError extends Schema.ErrorClass<ApiSkillNotFoundError>("SkillNotFoundError")(
+  {
+    name: Schema.Literal("SkillNotFoundError"),
+    data: Schema.Struct({ message: Schema.String, skill: Schema.String }),
+  },
+  { httpApiStatus: 404 },
+) {}
+
+export class ApiSkillConflictError extends Schema.ErrorClass<ApiSkillConflictError>("SkillConflictError")(
+  {
+    name: Schema.Literal("SkillConflictError"),
+    data: Schema.Struct({ message: Schema.String, skill: Schema.String, latestRevision: Schema.String }),
+  },
+  { httpApiStatus: 409 },
+) {}
+
+export class ApiSkillDuplicateError extends Schema.ErrorClass<ApiSkillDuplicateError>("SkillDuplicateError")(
+  {
+    name: Schema.Literal("SkillDuplicateError"),
+    data: Schema.Struct({ message: Schema.String, skill: Schema.String, location: Schema.optional(Schema.String) }),
+  },
+  { httpApiStatus: 409 },
+) {}
+
+export class ApiSkillUnsafePathError extends Schema.ErrorClass<ApiSkillUnsafePathError>("SkillUnsafePathError")(
+  {
+    name: Schema.Literal("SkillUnsafePathError"),
+    data: Schema.Struct({ message: Schema.String, skill: Schema.String, path: Schema.String }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+const SkillMutationErrors = [
+  ApiSkillInvalidError,
+  ApiSkillProtectedError,
+  ApiSkillNotFoundError,
+  ApiSkillConflictError,
+  ApiSkillDuplicateError,
+  ApiSkillUnsafePathError,
+] as const
+
+export const SkillListQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
+  scope: Schema.optional(Schema.Literal("global")),
+})
+
 export const InstancePaths = {
   dispose: "/instance/dispose",
   path: "/path",
@@ -68,6 +131,8 @@ export const InstancePaths = {
   command: "/command",
   agent: "/agent",
   skill: "/skill",
+  skillByName: "/skill/:name",
+  skillSource: "/skill/source",
   lsp: "/lsp",
   formatter: "/formatter",
 } as const
@@ -232,13 +297,74 @@ export const InstanceApi = HttpApi.make("instance")
           }),
         ),
         HttpApiEndpoint.get("skill", InstancePaths.skill, {
-          query: WorkspaceRoutingQuery,
+          query: SkillListQuery,
           success: described(Schema.Array(Skill.Info), "List of skills"),
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "app.skills",
             summary: "List skills",
             description: "Get a list of all available skills in the JYYCode system.",
+          }),
+        ),
+        HttpApiEndpoint.post("skillCreate", InstancePaths.skill, {
+          query: WorkspaceRoutingQuery,
+          payload: SkillManagement.CreateInput,
+          success: described(Skill.Info, "Skill created"),
+          error: SkillMutationErrors,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "skill.create",
+            summary: "Create Skill",
+            description: "Create a globally managed Skill.",
+          }),
+        ),
+        HttpApiEndpoint.put("skillUpdate", InstancePaths.skillByName, {
+          params: { name: Schema.String },
+          query: WorkspaceRoutingQuery,
+          payload: SkillManagement.UpdateInput,
+          success: described(Skill.Info, "Skill updated"),
+          error: SkillMutationErrors,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "skill.update",
+            summary: "Update Skill",
+            description: "Update editable Skill Markdown using its current revision.",
+          }),
+        ),
+        HttpApiEndpoint.delete("skillDelete", InstancePaths.skillByName, {
+          params: { name: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Skill deleted"),
+          error: SkillMutationErrors,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "skill.delete",
+            summary: "Delete Skill",
+            description: "Delete a local Skill or remove its synchronized source.",
+          }),
+        ),
+        HttpApiEndpoint.post("skillSourceAdd", InstancePaths.skillSource, {
+          query: WorkspaceRoutingQuery,
+          payload: SkillManagement.SourceInput,
+          success: described(Schema.Boolean, "Skill source added"),
+          error: SkillMutationErrors,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "skill.source.add",
+            summary: "Add Skill source",
+            description: "Add a global local-path or remote-URL Skill source.",
+          }),
+        ),
+        HttpApiEndpoint.delete("skillSourceRemove", InstancePaths.skillSource, {
+          query: WorkspaceRoutingQuery,
+          payload: SkillManagement.SourceInput,
+          success: described(Schema.Boolean, "Skill source removed"),
+          error: SkillMutationErrors,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "skill.source.remove",
+            summary: "Remove Skill source",
+            description: "Remove exactly one global local-path or remote-URL Skill source.",
           }),
         ),
         HttpApiEndpoint.get("lsp", InstancePaths.lsp, {

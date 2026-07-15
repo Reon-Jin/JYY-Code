@@ -11,6 +11,10 @@ const GlobalHealth = Schema.Struct({
   version: Schema.String,
 })
 
+export const ManagementContext = Schema.Struct({
+  directory: Schema.String,
+}).annotate({ identifier: "ManagementContext" })
+
 const GlobalEventSchema = Schema.Struct({
   directory: Schema.String,
   project: Schema.optional(Schema.String),
@@ -39,6 +43,7 @@ export const GlobalPaths = {
   config: "/global/config",
   dispose: "/global/dispose",
   upgrade: "/global/upgrade",
+  managementContext: "/global/management-context",
 } as const
 
 export const GlobalApi = HttpApi.make("global").add(
@@ -69,6 +74,15 @@ export const GlobalApi = HttpApi.make("global").add(
           identifier: "global.config.get",
           summary: "Get global configuration",
           description: "Retrieve the current global JYYCode configuration settings and preferences.",
+        }),
+      ),
+      HttpApiEndpoint.get("managementContext", GlobalPaths.managementContext, {
+        success: described(ManagementContext, "Global management context"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.managementContext",
+          summary: "Get management context",
+          description: "Return the authenticated backend home directory used for global management queries.",
         }),
       ),
       HttpApiEndpoint.patch("configUpdate", GlobalPaths.config, {
