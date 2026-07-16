@@ -1,4 +1,4 @@
-import { ErrorBoundary, Match, onMount, Show, Switch } from "solid-js"
+import { createEffect, ErrorBoundary, Match, onMount, Show, Switch } from "solid-js"
 import { Button } from "./components/ui/button"
 import { InlineError } from "./components/ui/inline-error"
 import { ProjectProvider } from "./features/projects/project-context"
@@ -9,6 +9,7 @@ import { StartupLoading } from "./features/lifecycle/startup-loading"
 import { DesktopBridgeProvider, useDesktopBridge } from "./platform/context"
 import type { DesktopBootstrap, DesktopBridge } from "./platform/types"
 import { AppRoutes } from "./routes"
+import { applyTheme } from "./features/settings/theme"
 
 export type AppProps = {
   bridge?: DesktopBridge
@@ -29,6 +30,7 @@ function ProjectApplication(props: { bootstrap: DesktopBootstrap; controller: Pr
 function DesktopApplication() {
   const bridge = useDesktopBridge()
   const lifecycle = createLifecycleController({ bridge })
+  createEffect(() => applyTheme(lifecycle.settings().theme))
   onMount(() => void lifecycle.start())
 
   const loadingPhase = () => {

@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js"
 import { createDesktopClient, type DesktopClient } from "../../data/sdk"
 import type { DesktopBootstrap, DesktopBridge } from "../../platform/types"
+import { defaultDesktopSettings, type DesktopSettings } from "../settings/settings-preferences"
 import {
   createProjectController,
   errorMessage,
@@ -48,6 +49,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
   const [bootstrap, setBootstrap] = createSignal<DesktopBootstrap>()
   const [projects, setProjects] = createSignal<ProjectController>()
   const [route, setRoute] = createSignal("/")
+  const [settings, setSettings] = createSignal<DesktopSettings>({ ...defaultDesktopSettings })
   const [failure, setFailure] = createSignal<string>()
   const [recovering, setRecovering] = createSignal(false)
   const [recoveryAvailable, setRecoveryAvailable] = createSignal(true)
@@ -97,6 +99,17 @@ export function createLifecycleController(input: LifecycleControllerInput) {
         : {}),
     })
     setProjects(controller)
+
+    try {
+      setSettings(await withTimeout(input.bridge.loadSettings(), restoreTimeoutMs, "读取桌面设置超时"))
+    } catch {
+      setSettings({ ...defaultDesktopSettings })
+    }
+
+    if (settings().startup === "home") {
+      setPhase("ready")
+      return
+    }
 
     let location: Awaited<ReturnType<DesktopBridge["loadLastLocation"]>> = {}
     try {
@@ -185,6 +198,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
     projects,
     project: () => projects()?.activeProject(),
     route,
+    settings,
     failure,
     recovering,
     recoveryAvailable,

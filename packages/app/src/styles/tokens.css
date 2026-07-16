@@ -1,23 +1,4 @@
 :root {
-  color-scheme: dark;
-
-  --color-bg: #181818;
-  --color-panel: #1f1f1f;
-  --color-surface: #262626;
-  --color-surface-hover: #303030;
-  --color-accent: #f2f2f2;
-  --color-accent-hover: #ffffff;
-  --color-accent-ink: #181818;
-  --color-text: #f2f2f2;
-  --color-text-muted: #a1a1a1;
-  --color-border: #2d2d2d;
-  --color-border-strong: #454545;
-  --color-danger: #f87171;
-  --color-danger-surface: #321c1c;
-  --color-warning: #d4a72c;
-  --color-success: #67d391;
-  --color-overlay: rgb(0 0 0 / 72%);
-
   --font-ui: "Inter Variable", "Segoe UI", system-ui, sans-serif;
   --font-code: "JetBrains Mono Variable", "Cascadia Mono", Consolas, monospace;
   --text-xs: 0.75rem;
@@ -37,8 +18,50 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
-  --shadow-panel: 0 18px 60px rgb(0 0 0 / 40%);
-  --focus-ring: 0 0 0 3px rgb(255 255 255 / 18%);
   --motion-fast: 120ms;
   --motion-normal: 180ms;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #181818;
+  --color-panel: #1f1f1f;
+  --color-surface: #262626;
+  --color-surface-hover: #303030;
+  --color-accent: #f2f2f2;
+  --color-accent-hover: #ffffff;
+  --color-accent-ink: #181818;
+  --color-text: #f2f2f2;
+  --color-text-muted: #a1a1a1;
+  --color-border: #2d2d2d;
+  --color-border-strong: #454545;
+  --color-danger: #f87171;
+  --color-danger-surface: #321c1c;
+  --color-warning: #d4a72c;
+  --color-success: #67d391;
+  --color-overlay: rgb(0 0 0 / 72%);
+  --shadow-panel: 0 18px 60px rgb(0 0 0 / 40%);
+  --focus-ring: 0 0 0 3px rgb(255 255 255 / 18%);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --color-bg: #f7f7f7;
+  --color-panel: #ffffff;
+  --color-surface: #ededed;
+  --color-surface-hover: #e3e3e3;
+  --color-accent: #202020;
+  --color-accent-hover: #000000;
+  --color-accent-ink: #ffffff;
+  --color-text: #202020;
+  --color-text-muted: #666666;
+  --color-border: #dddddd;
+  --color-border-strong: #b8b8b8;
+  --color-danger: #b42318;
+  --color-danger-surface: #fee4e2;
+  --color-warning: #8a5d00;
+  --color-success: #16794b;
+  --color-overlay: rgb(0 0 0 / 42%);
+  --shadow-panel: 0 18px 60px rgb(0 0 0 / 18%);
+  --focus-ring: 0 0 0 3px rgb(0 0 0 / 18%);
 }

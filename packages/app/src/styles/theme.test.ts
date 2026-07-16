@@ -54,4 +54,36 @@ describe("Codex-inspired desktop theme", () => {
     expect(themeSource).toContain("max-width: 720px")
     expect(themeSource).toContain("--management-rail-width: 52px")
   })
+
+  it("defines every semantic color token in dark and light themes", () => {
+    const tokens = [
+      "color-bg",
+      "color-panel",
+      "color-surface",
+      "color-surface-hover",
+      "color-accent",
+      "color-accent-hover",
+      "color-accent-ink",
+      "color-text",
+      "color-text-muted",
+      "color-border",
+      "color-border-strong",
+      "color-danger",
+      "color-danger-surface",
+      "color-warning",
+      "color-success",
+      "color-overlay",
+      "shadow-panel",
+      "focus-ring",
+    ]
+    const dark = themeSource.match(/html\[data-theme="dark"\]\s*\{([\s\S]*?)\}/)?.[1] ?? ""
+    const light = themeSource.match(/html\[data-theme="light"\]\s*\{([\s\S]*?)\}/)?.[1] ?? ""
+
+    for (const token of tokens) {
+      expect(dark).toContain(`--${token}:`)
+      expect(light).toContain(`--${token}:`)
+    }
+    expect(dark).toContain("color-scheme: dark")
+    expect(light).toContain("color-scheme: light")
+  })
 })

@@ -32,7 +32,7 @@ function harness(location: LastLocation = { project: directory, sessionID: sessi
     saveRecentProjects: vi.fn(async () => undefined),
     loadLastLocation: vi.fn(async () => location),
     saveLastLocation: vi.fn(async () => undefined),
-    loadSettings: vi.fn(async () => ({ startup: "restore", theme: "dark" })),
+    loadSettings: vi.fn(async () => ({ startup: "restore" as const, theme: "dark" as const })),
     saveSettings: vi.fn(async () => undefined),
   }
   const sdk = {
@@ -88,6 +88,18 @@ describe("createLifecycleController", () => {
 
     expect(controller.phase()).toBe("ready")
     expect(controller.project()).toBeUndefined()
+  })
+
+  it("skips last-location restoration when startup is set to Home", async () => {
+    const { bridge, controller } = harness()
+    vi.mocked(bridge.loadSettings).mockResolvedValue({ startup: "home", theme: "light" })
+
+    await controller.start()
+
+    expect(bridge.loadLastLocation).not.toHaveBeenCalled()
+    expect(controller.route()).toBe("/")
+    expect(controller.phase()).toBe("ready")
+    expect(controller.settings()).toEqual({ startup: "home", theme: "light" })
   })
 
   it("does not stay loading when the previous project stalls", async () => {
