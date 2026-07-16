@@ -2,7 +2,7 @@ import { tr } from "../../i18n/i18n-context"
 import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import { File, ListPlus, Plus, RotateCcw, Send, Square, X } from "lucide-solid"
-import { createEffect, createSignal, For, Show, type JSX } from "solid-js"
+import { createEffect, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { Button, IconButton } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import type { DesktopClient } from "../../data/sdk"
@@ -83,6 +83,40 @@ function readAttachment(file: globalThis.File): Promise<ComposerAttachment> {
   })
 }
 
+const fileMimeTypes: Record<string, string> = {
+  bmp: "image/bmp",
+  csv: "text/csv",
+  gif: "image/gif",
+  html: "text/html",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  json: "application/json",
+  md: "text/markdown",
+  pdf: "application/pdf",
+  png: "image/png",
+  svg: "image/svg+xml",
+  txt: "text/plain",
+  webp: "image/webp",
+  xml: "application/xml",
+  zip: "application/zip",
+}
+
+export function attachmentFromPath(filePath: string): ComposerAttachment {
+  const normalized = filePath.replaceAll("\\", "/")
+  const filename = normalized.split("/").at(-1) || normalized
+  const extension = filename.includes(".") ? filename.split(".").at(-1)!.toLowerCase() : ""
+  const encoded = normalized
+    .split("/")
+    .map((part, index) => index === 0 && /^[A-Za-z]:$/u.test(part) ? part : encodeURIComponent(part))
+    .join("/")
+  return {
+    type: "file",
+    mime: fileMimeTypes[extension] ?? "application/octet-stream",
+    filename,
+    url: normalized.startsWith("//") ? `file://${encoded.slice(2)}` : normalized.startsWith("/") ? `file://${encoded}` : `file:///${encoded}`,
+  }
+}
+
 export function Composer(props: ComposerProps) {
   const controller = createComposerController({
     client: props.client,
@@ -105,12 +139,48 @@ export function Composer(props: ComposerProps) {
   const [draggingFiles, setDraggingFiles] = createSignal(false)
   let textarea!: HTMLTextAreaElement
   let fileInput!: HTMLInputElement
+  let inputRegion!: HTMLDivElement
   let skillAutocomplete: SkillAutocompleteHandle | undefined
   let composing = false
   const active = () => props.status.type !== "idle" || props.requestPending === true
   const slashQuery = () => /^\/([^\s/]*)$/.exec(controller.draft())?.[1]
   const autocompleteOpen = () =>
     !props.minimal && focused() && !autocompleteDismissed() && slashQuery() !== undefined
+
+  onMount(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return
+    let unlisten: (() => void) | undefined
+    let disposed = false
+    void import("@tauri-apps/api/webview").then(async ({ getCurrentWebview }) => {
+      if (disposed) return
+      unlisten = await getCurrentWebview().onDragDropEvent((event) => {
+        const payload = event.payload
+        if (payload.type === "leave") {
+          setDraggingFiles(false)
+          return
+        }
+        const scale = window.devicePixelRatio || 1
+        const x = payload.position.x / scale
+        const y = payload.position.y / scale
+        const bounds = inputRegion.getBoundingClientRect()
+        const inside = x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom
+        if (payload.type !== "drop") {
+          setDraggingFiles(inside)
+          return
+        }
+        setDraggingFiles(false)
+        if (!inside || payload.paths.length === 0) return
+        setAttachments((current) => [...current, ...payload.paths.map(attachmentFromPath)])
+        queueMicrotask(() => textarea.focus())
+      })
+      if (disposed) unlisten()
+    })
+    onCleanup(() => {
+      disposed = true
+      unlisten?.()
+    })
+  })
+
   createEffect(() => {
     controller.draft()
     queueMicrotask(() => resizeDraft(textarea))
@@ -231,6 +301,7 @@ export function Composer(props: ComposerProps) {
         </Show>
 
         <div
+          ref={inputRegion}
           class="composer__input"
           data-active={active()}
           data-dragging={draggingFiles()}
