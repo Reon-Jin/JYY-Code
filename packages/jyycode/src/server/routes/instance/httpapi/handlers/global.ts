@@ -15,6 +15,18 @@ import * as Sse from "effect/unstable/encoding/Sse"
 import { RootHttpApi } from "../api"
 import { GlobalCompaction, GlobalDefaultPermissionUpdate, GlobalUpgradeInput } from "../groups/global"
 import { isDeepStrictEqual } from "node:util"
+import { MemoryManagement } from "@/memory/management"
+import {
+  GlobalMemoryBadRequestError,
+  GlobalMemoryConflictError,
+  GlobalMemoryEntryInput,
+  GlobalMemoryExport,
+  GlobalMemoryListQuery,
+  GlobalMemoryNotFoundError,
+  GlobalMemoryOperationQuery,
+  GlobalMemoryParams,
+  GlobalMemoryScopeParams,
+} from "../groups/global"
 
 const log = Log.create({ service: "server" })
 
@@ -65,6 +77,20 @@ function parseBody(body: string) {
   }
 }
 
+function memoryApiError(error: Error) {
+  if (/not found|missing|stale/iu.test(error.message)) {
+    return new GlobalMemoryNotFoundError({ message: "Memory entry was not found or has changed" })
+  }
+  if (/already exists|conflict/iu.test(error.message)) {
+    return new GlobalMemoryConflictError({ message: "Memory entry conflicts with an existing entry" })
+  }
+  return new GlobalMemoryBadRequestError({ message: "Invalid memory management request" })
+}
+
+function mapMemoryError<A>(effect: Effect.Effect<A, Error>) {
+  return effect.pipe(Effect.mapError(memoryApiError))
+}
+
 function eventResponse() {
   log.info("global event connected")
   const events = Stream.callback<GlobalBusEvent>((queue) => {
@@ -103,6 +129,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
     const config = yield* Config.Service
     const installation = yield* Installation.Service
     const global = yield* Global.Service
+    const memory = yield* MemoryManagement.Service
     const bridge = yield* EffectBridge.make()
 
     const health = Effect.fn("GlobalHttpApi.health")(function* () {
@@ -157,6 +184,74 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       const result = yield* config.updateGlobalPath(["compaction"], undefined)
       if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
       return globalCompaction(result.info.compaction)
+    })
+
+    const memoryList = Effect.fn("GlobalHttpApi.memoryList")(function* (ctx: {
+      query: typeof GlobalMemoryListQuery.Type
+    }) {
+      return yield* mapMemoryError(memory.list(ctx.query))
+    })
+
+    const memoryUserCreate = Effect.fn("GlobalHttpApi.memoryUserCreate")(function* (ctx: {
+      payload: typeof GlobalMemoryEntryInput.Type
+    }) {
+      return yield* mapMemoryError(memory.createUser(ctx.payload))
+    })
+
+    const memoryUpdate = Effect.fn("GlobalHttpApi.memoryUpdate")(function* (ctx: {
+      params: { scope: typeof GlobalMemoryParams.scope.Type; id: string }
+      query: typeof GlobalMemoryOperationQuery.Type
+      payload: typeof GlobalMemoryEntryInput.Type
+    }) {
+      const input =
+        ctx.params.scope === "task"
+          ? { scope: "task" as const, id: ctx.params.id, sessionID: ctx.query.sessionID!, ...ctx.payload }
+          : { scope: "user" as const, id: ctx.params.id, ...ctx.payload }
+      if (ctx.params.scope === "task" && !ctx.query.sessionID) {
+        return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
+      }
+      return yield* mapMemoryError(memory.update(input))
+    })
+
+    const memoryRemove = Effect.fn("GlobalHttpApi.memoryRemove")(function* (ctx: {
+      params: { scope: typeof GlobalMemoryParams.scope.Type; id: string }
+      query: typeof GlobalMemoryOperationQuery.Type
+    }) {
+      if (ctx.params.scope === "task" && !ctx.query.sessionID) {
+        return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
+      }
+      yield* mapMemoryError(memory.remove({ scope: ctx.params.scope, id: ctx.params.id, sessionID: ctx.query.sessionID }))
+      return { removed: true }
+    })
+
+    const memoryCompact = Effect.fn("GlobalHttpApi.memoryCompact")(function* (ctx: {
+      params: { scope: typeof GlobalMemoryScopeParams.scope.Type }
+      query: typeof GlobalMemoryOperationQuery.Type
+    }) {
+      if (ctx.params.scope === "task" && !ctx.query.sessionID) {
+        return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
+      }
+      const result = yield* mapMemoryError(memory.compact({ scope: ctx.params.scope, sessionID: ctx.query.sessionID }))
+      return { removed: result.removed, merged: result.merged, retained: result.retained }
+    })
+
+    const memoryTaskClear = Effect.fn("GlobalHttpApi.memoryTaskClear")(function* (ctx: {
+      query: typeof GlobalMemoryOperationQuery.Type
+    }) {
+      if (!ctx.query.sessionID) {
+        return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
+      }
+      return { removed: yield* mapMemoryError(memory.clearTask({ sessionID: ctx.query.sessionID })) }
+    })
+
+    const memoryExport = Effect.fn("GlobalHttpApi.memoryExport")(function* (ctx: {
+      query: typeof GlobalMemoryListQuery.Type
+    }) {
+      if (ctx.query.scope === "task" && !ctx.query.sessionID) {
+        return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
+      }
+      const text = yield* mapMemoryError(memory.exportStore({ scope: ctx.query.scope, sessionID: ctx.query.sessionID }))
+      return yield* Schema.decodeUnknownEffect(GlobalMemoryExport)(JSON.parse(text)).pipe(Effect.orDie)
     })
 
     const configUpdate = Effect.fn("GlobalHttpApi.configUpdate")(function* (ctx) {
@@ -231,6 +326,13 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       .handle("compactionGet", compactionGet)
       .handle("compactionUpdate", compactionUpdate)
       .handle("compactionReset", compactionReset)
+      .handle("memoryList", memoryList)
+      .handle("memoryUserCreate", memoryUserCreate)
+      .handle("memoryUpdate", memoryUpdate)
+      .handle("memoryRemove", memoryRemove)
+      .handle("memoryCompact", memoryCompact)
+      .handle("memoryTaskClear", memoryTaskClear)
+      .handle("memoryExport", memoryExport)
       .handle("configUpdate", configUpdate)
       .handle("dispose", dispose)
       .handleRaw("upgrade", upgradeRaw)

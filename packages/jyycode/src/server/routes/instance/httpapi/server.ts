@@ -70,6 +70,7 @@ import { controlHandlers } from "./handlers/control"
 import { experimentalHandlers } from "./handlers/experimental"
 import { fileHandlers } from "./handlers/file"
 import { globalHandlers } from "./handlers/global"
+import { MemoryManagement } from "@/memory/management"
 import { githubHandlers } from "./handlers/github"
 import { instanceHandlers } from "./handlers/instance"
 import { mcpHandlers } from "./handlers/mcp"
@@ -207,6 +208,7 @@ export function createRoutes(
       LSP.defaultLayer,
       Installation.defaultLayer,
       MCP.defaultLayer,
+      MemoryManagement.defaultLayer,
       ModelsDev.defaultLayer,
       Permission.defaultLayer,
       Plugin.defaultLayer,

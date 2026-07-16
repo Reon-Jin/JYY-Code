@@ -28,8 +28,8 @@ export type TaskEntry = {
 export type Entry = UserEntry | TaskEntry
 
 export type EntryInput = {
-  importance: Memory.Importance
-  keywords: string[]
+  importance: number
+  keywords: readonly string[]
   content: string
 }
 
@@ -165,7 +165,10 @@ export const layer = Layer.effect(
     })
 
     const createUser = Effect.fn("MemoryManagement.createUser")(function* (input: EntryInput) {
-      const entry = yield* storage.create({ sessionID: managementSessionID, entry: { scope: "user", ...input } })
+      const entry = yield* storage.create({
+        sessionID: managementSessionID,
+        entry: { scope: "user", ...input, importance: input.importance as Memory.Importance, keywords: [...input.keywords] },
+      })
       return managed(entry) as UserEntry
     })
 
@@ -181,8 +184,8 @@ export const layer = Layer.effect(
             scope: "memory",
             sessionID: input.sessionID,
             date: localDate(new Date()),
-            importance: input.importance,
-            keywords: input.keywords,
+            importance: input.importance as Memory.Importance,
+            keywords: [...input.keywords],
             content: input.content,
           },
         })
@@ -195,11 +198,16 @@ export const layer = Layer.effect(
         expected.scope === "memory"
           ? {
               ...expected,
-              importance: input.importance,
-              keywords: input.keywords,
+              importance: input.importance as Memory.Importance,
+              keywords: [...input.keywords],
               content: input.content,
             }
-          : { scope: "user", importance: input.importance, keywords: input.keywords, content: input.content }
+          : {
+              scope: "user",
+              importance: input.importance as Memory.Importance,
+              keywords: [...input.keywords],
+              content: input.content,
+            }
       return managed(yield* storage.update({ sessionID, expected, replacement }))
     })
 
