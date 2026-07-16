@@ -8,6 +8,7 @@ import type { DesktopBridge } from "../../platform/types"
 import { createProjectController } from "./project-controller"
 import { ProjectProvider } from "./project-context"
 import { WelcomePage } from "./welcome-page"
+import { defaultDesktopSettings } from "../settings/settings-preferences"
 
 const project: Project = {
   id: "p1",
@@ -41,8 +42,14 @@ function createHarness(options?: { gitError?: Error; openError?: Error; recentPa
     saveRecentProjects: vi.fn(async () => undefined),
     loadLastLocation: vi.fn(async () => ({})),
     saveLastLocation: vi.fn(async () => undefined),
-    loadSettings: vi.fn(async () => ({ startup: "restore" as const, theme: "dark" as const })),
+    loadSettings: vi.fn(async () => defaultDesktopSettings),
     saveSettings: vi.fn(async () => undefined),
+    setWindowGlass: vi.fn(),
+    requestNotificationPermission: vi.fn(),
+    sendNotification: vi.fn(),
+    checkForUpdate: vi.fn(),
+    installAvailableUpdate: vi.fn(),
+    saveTextFile: vi.fn(),
     revealConfigFile: vi.fn(async () => undefined),
   }
   const sdk = {

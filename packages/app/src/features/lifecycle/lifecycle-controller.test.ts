@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { DesktopClient } from "../../data/sdk"
 import type { DesktopBridge, LastLocation } from "../../platform/types"
 import { createLifecycleController, safeFailureMessage } from "./lifecycle-controller"
+import { defaultDesktopSettings } from "../settings/settings-preferences"
 
 const directory = "C:\\work\\demo"
 const bootstrap = { baseUrl: "http://127.0.0.1:4096", username: "jyycode", password: "secret" }
@@ -32,8 +33,14 @@ function harness(location: LastLocation = { project: directory, sessionID: sessi
     saveRecentProjects: vi.fn(async () => undefined),
     loadLastLocation: vi.fn(async () => location),
     saveLastLocation: vi.fn(async () => undefined),
-    loadSettings: vi.fn(async () => ({ startup: "restore" as const, theme: "dark" as const })),
+    loadSettings: vi.fn(async () => defaultDesktopSettings),
     saveSettings: vi.fn(async () => undefined),
+    setWindowGlass: vi.fn(),
+    requestNotificationPermission: vi.fn(),
+    sendNotification: vi.fn(),
+    checkForUpdate: vi.fn(),
+    installAvailableUpdate: vi.fn(),
+    saveTextFile: vi.fn(),
     revealConfigFile: vi.fn(async () => undefined),
   }
   const sdk = {
@@ -93,14 +100,14 @@ describe("createLifecycleController", () => {
 
   it("skips last-location restoration when startup is set to Home", async () => {
     const { bridge, controller } = harness()
-    vi.mocked(bridge.loadSettings).mockResolvedValue({ startup: "home", theme: "light" })
+    vi.mocked(bridge.loadSettings).mockResolvedValue({ ...defaultDesktopSettings, startup: "home", theme: "light" })
 
     await controller.start()
 
     expect(bridge.loadLastLocation).not.toHaveBeenCalled()
     expect(controller.route()).toBe("/")
     expect(controller.phase()).toBe("ready")
-    expect(controller.settings()).toEqual({ startup: "home", theme: "light" })
+    expect(controller.settings()).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
   })
 
   it("does not stay loading when the previous project stalls", async () => {

@@ -7,8 +7,13 @@ import {
   parseLastLocation,
   type DesktopBootstrap,
   type DesktopBridge,
+  type DesktopCapabilityResult,
   type LastLocation,
+  type DesktopNotification,
+  type DesktopNotificationPermission,
   type RecentProject,
+  type DesktopSaveResult,
+  type DesktopUpdateCheck,
 } from "./types"
 
 const STORE_PATH = "desktop.json"
@@ -63,6 +68,24 @@ export const tauriBridge: DesktopBridge = {
     const store = await desktopStore()
     await store.set(SETTINGS_KEY, parseDesktopSettings(value))
     await store.save()
+  },
+  setWindowGlass(enabled, theme) {
+    return invoke<DesktopCapabilityResult>("set_window_glass", { enabled, theme })
+  },
+  requestNotificationPermission() {
+    return invoke<DesktopNotificationPermission>("request_notification_permission")
+  },
+  sendNotification(notification: DesktopNotification) {
+    return invoke<DesktopCapabilityResult>("send_notification", { notification })
+  },
+  checkForUpdate() {
+    return invoke<DesktopUpdateCheck>("check_for_update")
+  },
+  installAvailableUpdate() {
+    return invoke<DesktopCapabilityResult>("install_available_update")
+  },
+  saveTextFile(suggestedName, contents) {
+    return invoke<DesktopSaveResult>("save_text_file", { suggestedName, contents })
   },
   revealConfigFile(path: string) {
     return invoke("reveal_config_file", { path })

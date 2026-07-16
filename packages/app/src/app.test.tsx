@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { DesktopBridge } from "./platform/types"
+import { defaultDesktopSettings } from "./features/settings/settings-preferences"
 import { App } from "./app"
 
 function bridgeWith(bootstrap: DesktopBridge["bootstrap"]): DesktopBridge {
@@ -14,8 +15,14 @@ function bridgeWith(bootstrap: DesktopBridge["bootstrap"]): DesktopBridge {
     saveRecentProjects: vi.fn(),
     loadLastLocation: vi.fn(async () => ({})),
     saveLastLocation: vi.fn(),
-    loadSettings: vi.fn(async () => ({ startup: "restore" as const, theme: "dark" as const })),
+    loadSettings: vi.fn(async () => defaultDesktopSettings),
     saveSettings: vi.fn(),
+    setWindowGlass: vi.fn(),
+    requestNotificationPermission: vi.fn(),
+    sendNotification: vi.fn(),
+    checkForUpdate: vi.fn(),
+    installAvailableUpdate: vi.fn(),
+    saveTextFile: vi.fn(),
     revealConfigFile: vi.fn(),
   }
 }

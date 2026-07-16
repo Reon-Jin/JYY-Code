@@ -31,10 +31,16 @@ export function createFakeDesktop(input?: {
     saveLastLocation: vi.fn(async (value) => {
       lastLocation = { ...value }
     }),
-    loadSettings: vi.fn(async () => ({ ...settings })),
+    loadSettings: vi.fn(async () => parseDesktopSettings(settings)),
     saveSettings: vi.fn(async (value) => {
       settings = parseDesktopSettings(value)
     }),
+    setWindowGlass: vi.fn(async () => ({ supported: true })),
+    requestNotificationPermission: vi.fn(async () => "granted" as const),
+    sendNotification: vi.fn(async () => ({ supported: true })),
+    checkForUpdate: vi.fn(async () => ({ supported: true, available: false })),
+    installAvailableUpdate: vi.fn(async () => ({ supported: true })),
+    saveTextFile: vi.fn(async () => ({ supported: true, saved: true })),
     revealConfigFile: vi.fn(async () => undefined),
   }
 
@@ -43,6 +49,6 @@ export function createFakeDesktop(input?: {
     directory,
     lastLocation: () => ({ ...lastLocation }),
     recentProjects: () => [...recentProjects],
-    settings: () => ({ ...settings }),
+    settings: () => parseDesktopSettings(settings),
   }
 }

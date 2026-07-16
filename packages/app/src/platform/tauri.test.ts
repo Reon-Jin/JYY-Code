@@ -19,6 +19,7 @@ vi.mock("@tauri-apps/plugin-store", () => ({
 }))
 
 import { tauriBridge } from "./tauri"
+import { defaultDesktopSettings } from "../features/settings/settings-preferences"
 
 describe("Tauri desktop settings persistence", () => {
   beforeEach(() => {
@@ -28,11 +29,29 @@ describe("Tauri desktop settings persistence", () => {
   })
 
   it("round-trips settings through desktop.json", async () => {
-    await tauriBridge.saveSettings({ startup: "home", theme: "light" })
+    await tauriBridge.saveSettings({ ...defaultDesktopSettings, startup: "home", theme: "light" })
 
-    expect(state.values.get("settings")).toEqual({ startup: "home", theme: "light" })
+    expect(state.values.get("settings")).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
     expect(state.save).toHaveBeenCalledOnce()
-    expect(await tauriBridge.loadSettings()).toEqual({ startup: "home", theme: "light" })
+    expect(await tauriBridge.loadSettings()).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
+  })
+
+  it("uses serializable command payloads for native capabilities", async () => {
+    await tauriBridge.setWindowGlass(true, "dark")
+    await tauriBridge.requestNotificationPermission()
+    await tauriBridge.sendNotification({ title: "JYYCode", body: "Ready" })
+    await tauriBridge.checkForUpdate()
+    await tauriBridge.installAvailableUpdate()
+    await tauriBridge.saveTextFile("memory.json", "{}")
+
+    expect(state.invoke.mock.calls).toEqual([
+      ["set_window_glass", { enabled: true, theme: "dark" }],
+      ["request_notification_permission"],
+      ["send_notification", { notification: { title: "JYYCode", body: "Ready" } }],
+      ["check_for_update"],
+      ["install_available_update"],
+      ["save_text_file", { suggestedName: "memory.json", contents: "{}" }],
+    ])
   })
 
   it("passes config reveal as a command argument", async () => {
