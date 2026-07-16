@@ -40,6 +40,8 @@
   gap: var(--space-2);
 }
 
+.management-nav-link--settings { margin-top: auto; }
+
 .management-nav-link {
   display: grid;
   width: 44px;

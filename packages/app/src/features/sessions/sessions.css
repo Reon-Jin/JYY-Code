@@ -193,10 +193,14 @@
 .session-list .session-empty h2 { font-size: var(--text-sm); }
 .session-list .session-empty p { margin-bottom: var(--space-4); font-size: var(--text-xs); }
 
-.workspace-connection { display: flex; min-width: 0; align-items: center; gap: var(--space-2); border-top: 1px solid var(--color-border); padding: var(--space-3) var(--space-4); color: var(--color-text-muted); font-family: var(--font-code); font-size: 0.66rem; }
+.workspace-connection { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: var(--space-2); border-top: 1px solid var(--color-border); padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4); color: var(--color-text-muted); font-family: var(--font-code); font-size: 0.66rem; }
+.workspace-connection__status { display: inline-flex; min-width: 0; align-items: center; gap: var(--space-2); }
 .workspace-connection svg { width: 13px; height: 13px; }
 .workspace-connection[data-state="connected"] svg { color: var(--color-text-muted); }
 .workspace-connection[data-state="disconnected"] svg { color: var(--color-danger); }
+.workspace-settings-link { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: var(--radius-sm); color: var(--color-text-muted); }
+.workspace-settings-link:hover { background: var(--color-surface); color: var(--color-text); }
+.workspace-settings-link:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 .workspace-rail-toggle { position: absolute; z-index: 5; top: var(--space-4); left: 296px; transition: left var(--motion-normal) ease-out; }
 .workspace-shell[data-rail-open="false"] .workspace-rail-toggle { left: var(--space-4); }

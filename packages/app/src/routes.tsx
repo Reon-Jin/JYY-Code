@@ -9,6 +9,7 @@ import { ManagementShell } from "./features/management/management-shell"
 
 const SkillsRoute = lazy(() => import("./features/management/skills-route"))
 const McpRoute = lazy(() => import("./features/management/mcp-route"))
+const SettingsRoute = lazy(() => import("./features/settings/settings-route"))
 
 type ProjectWorkspaceComponent = Component<{
   bootstrap: DesktopBootstrap
@@ -73,6 +74,14 @@ function ManagementRoute(props: ParentProps<{ bootstrap: DesktopBootstrap }>) {
   )
 }
 
+function SettingsProviderRoute(props: { bootstrap: DesktopBootstrap }) {
+  return (
+    <ManagementProvider bootstrap={props.bootstrap}>
+      <SettingsRoute />
+    </ManagementProvider>
+  )
+}
+
 export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
   return (
     <HashRouter>
@@ -110,6 +119,8 @@ export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
       />
       <Route path="/workspace" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
       <Route path="/session/:sessionID" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
+      <Route path="/settings" component={() => <SettingsProviderRoute bootstrap={props.bootstrap} />} />
+      <Route path="/settings/:section" component={() => <SettingsProviderRoute bootstrap={props.bootstrap} />} />
     </HashRouter>
   )
 }

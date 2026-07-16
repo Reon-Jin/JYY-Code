@@ -1,7 +1,7 @@
 import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
-import { useNavigate } from "@solidjs/router"
+import { A, useNavigate } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
-import { ArrowLeft, House, PanelLeftClose, PanelLeftOpen, Plus, Radio } from "lucide-solid"
+import { ArrowLeft, House, PanelLeftClose, PanelLeftOpen, Plus, Radio, Settings } from "lucide-solid"
 import { createEffect, createMemo, createSignal, on, Show, type JSX } from "solid-js"
 import { Button, IconButton } from "../components/ui/button"
 import { InlineError } from "../components/ui/inline-error"
@@ -44,6 +44,7 @@ import { SessionEmpty } from "../features/sessions/session-empty"
 import { SessionList } from "../features/sessions/session-list"
 import { useDesktopBridge } from "../platform/context"
 import "../features/sessions/sessions.css"
+import { settingsHref } from "../features/settings/settings-navigation"
 
 type AsyncSessionAction = (sessionID: string) => Promise<void>
 
@@ -189,9 +190,21 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
           onDelete={props.onDelete}
         />
 
-        <footer class="workspace-connection" data-state={props.connection} role="status" aria-live="polite">
-          <Radio aria-hidden="true" />
-          <span>{connectionLabel(props.connection)}</span>
+        <footer class="workspace-connection" data-state={props.connection}>
+          <span class="workspace-connection__status" role="status" aria-live="polite">
+            <Radio aria-hidden="true" />
+            <span>{connectionLabel(props.connection)}</span>
+          </span>
+          <A
+            class="workspace-settings-link"
+            href={settingsHref(
+              "general",
+              props.activeSessionID ? `/session/${encodeURIComponent(props.activeSessionID)}` : "/workspace",
+            )}
+            aria-label="打开设置"
+          >
+            <Settings aria-hidden="true" />
+          </A>
         </footer>
       </aside>
 

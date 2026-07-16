@@ -1,7 +1,8 @@
 import { A, useLocation } from "@solidjs/router"
-import { Blocks, House, Plug } from "lucide-solid"
+import { Blocks, House, Plug, Settings } from "lucide-solid"
 import type { ParentProps } from "solid-js"
 import "./management-shell.css"
+import { settingsHref } from "../settings/settings-navigation"
 
 const items = [
   { href: "/", label: "首页", icon: House },
@@ -28,6 +29,10 @@ export function ManagementShell(props: ParentProps) {
             </A>
           ))}
         </div>
+        <A class="management-nav-link management-nav-link--settings" href={settingsHref("general", "/")}>
+          <Settings aria-hidden="true" />
+          <span>设置</span>
+        </A>
       </nav>
       <div class="management-shell__content">{props.children}</div>
     </div>
