@@ -44,12 +44,15 @@ describe("Codex-inspired desktop theme", () => {
     expect(themeSource).toContain('"backgroundColor": "#181818"')
   })
 
-  it("keeps content surfaces solid and reserves layered glass for navigation and floating controls", () => {
+  it("extends the Home primary glass recipe to controls and component surfaces", () => {
     expect(themeSource).toContain("--glass-highlight:")
+    expect(themeSource).toContain("--glass-primary:")
+    expect(themeSource).toContain("--glass-control:")
     expect(themeSource).toContain('url("#liquid-glass-refraction")')
-    expect(themeSource).toContain(".settings-navigation")
-    expect(themeSource).toContain(".workspace-rail")
-    expect(themeSource).not.toMatch(/data-glass="on"[^}]*--surface:\s*rgb/s)
+    expect(themeSource).toContain('.ui-button[data-variant="primary"]')
+    expect(themeSource).toContain('input:not([type="checkbox"])')
+    expect(themeSource).toContain(".settings-card")
+    expect(themeSource).toMatch(/data-theme="dark"\]\[data-glass="on"\][^{]*\{[^}]*--surface:/s)
   })
 
   it("does not retain the retired blue and green palette", () => {

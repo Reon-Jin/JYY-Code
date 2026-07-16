@@ -54,6 +54,89 @@ html[data-glass="on"] :is(
   -webkit-backdrop-filter: var(--glass-blur);
 }
 
+html[data-glass="on"] :is(
+  [role="dialog"],
+  [role="menu"],
+  [role="listbox"],
+  .settings-card,
+  .coming-soon-setting,
+  .recent-projects__item,
+  .session-list-item,
+  .composer,
+  .composer-queue,
+  .provider-empty,
+  .project-checkbox,
+  [class$="-card"],
+  [class*="__card"],
+  [class$="-menu"],
+  [class*="__menu"],
+  [class$="-popover"],
+  [class*="__popover"]
+) {
+  background-image: var(--glass-highlight);
+  background-clip: padding-box;
+  box-shadow: var(--glass-control-shadow);
+  backdrop-filter: var(--glass-control-blur);
+  -webkit-backdrop-filter: var(--glass-control-blur);
+}
+
+html[data-glass="on"] :is(
+  button,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select,
+  [role="button"]
+) {
+  border-color: var(--glass-border);
+  background-color: var(--glass-control);
+  background-image: var(--glass-control-highlight);
+  background-clip: padding-box;
+  box-shadow: var(--glass-control-shadow);
+  backdrop-filter: var(--glass-control-blur);
+  -webkit-backdrop-filter: var(--glass-control-blur);
+}
+
+html[data-glass="on"] .ui-button[data-variant="primary"] {
+  border-color: var(--glass-border-bright);
+  background-color: var(--glass-primary);
+  background-image: var(--glass-primary-highlight);
+  box-shadow: var(--glass-primary-shadow);
+  color: var(--glass-primary-ink);
+}
+
+html[data-glass="on"] body .ui-button:is([data-variant="secondary"], [data-variant="ghost"]) {
+  border-color: var(--glass-border);
+  background-color: var(--glass-control);
+  background-image: var(--glass-control-highlight);
+  box-shadow: var(--glass-control-shadow);
+  color: var(--color-text);
+}
+
+html[data-glass="on"] body .ui-button[data-variant="danger"] {
+  background-image: var(--glass-control-highlight);
+  box-shadow: var(--glass-control-shadow);
+}
+
+html[data-glass="on"] .ui-button[data-variant="primary"]:hover:not(:disabled) {
+  background-color: var(--glass-primary-hover);
+  transform: translateY(-1px);
+}
+
+html[data-glass="on"] :is(
+  button,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select,
+  [role="button"]
+):is(:hover, :focus-visible, [aria-current="page"], [aria-pressed="true"], [aria-selected="true"]):not(:disabled) {
+  border-color: var(--glass-border-bright);
+  background-color: var(--glass-control-hover);
+}
+
+html[data-glass="on"] :is(input[type="checkbox"], input[type="radio"], input[type="range"]) {
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 24%));
+}
+
 html[data-glass="on"] :is(.ui-dialog, .request-panel) {
   border-color: var(--glass-border-bright);
   background: var(--glass-surface-strong);
@@ -115,7 +198,8 @@ html[data-glass="on"] :is(
   .ui-button
 ):is(:hover, :focus-visible, [aria-current="page"], [aria-pressed="true"]):not(:disabled) {
   border-color: var(--glass-border-bright);
-  background: color-mix(in srgb, var(--glass-surface-strong) 82%, white 4%);
+  background-color: var(--glass-control-hover);
+  background-image: var(--glass-control-highlight);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 22%), 0 7px 20px rgb(0 0 0 / 14%);
 }
 
@@ -202,7 +286,9 @@ button:disabled {
     background-color var(--motion-fast) ease-out,
     border-color var(--motion-fast) ease-out,
     color var(--motion-fast) ease-out,
-    opacity var(--motion-fast) ease-out;
+    opacity var(--motion-fast) ease-out,
+    transform var(--motion-fast) ease-out,
+    box-shadow var(--motion-fast) ease-out;
 }
 
 .ui-button[data-size="small"] {
