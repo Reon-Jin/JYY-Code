@@ -171,7 +171,6 @@ export function Composer(props: ComposerProps) {
         setDraggingFiles(false)
         if (!inside || payload.paths.length === 0) return
         setAttachments((current) => [...current, ...payload.paths.map(attachmentFromPath)])
-        queueMicrotask(() => textarea.focus())
       })
       if (disposed) unlisten()
     })

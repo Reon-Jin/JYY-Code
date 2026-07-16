@@ -139,6 +139,7 @@ describe("Composer", () => {
 
     await waitFor(() => expect(screen.getByRole("list", { name: "附件" })).toHaveTextContent("design.png"))
     expect(input).toHaveAttribute("data-dragging", "false")
+    expect(screen.getByRole("textbox", { name: "消息" })).not.toHaveFocus()
   })
 
   it("starts on one line and keeps the send control icon-only", () => {
