@@ -5,6 +5,7 @@ import { sanitizeSettingsReturnTo, settingsHref, type SettingsSection } from "./
 import "./settings.css"
 import { GeneralSettings } from "./general-settings"
 import { Show } from "solid-js"
+import { SecuritySettings } from "./security-settings"
 
 const sections: Array<{ id: SettingsSection; label: string }> = [
   { id: "general", label: "常规" },
@@ -47,6 +48,9 @@ export function SettingsPage() {
           <h2 id="settings-section-title">{sections.find((item) => item.id === section())?.label}</h2>
           <Show when={section() === "general"}>
             <GeneralSettings />
+          </Show>
+          <Show when={section() === "security"}>
+            <SecuritySettings />
           </Show>
         </section>
       </div>

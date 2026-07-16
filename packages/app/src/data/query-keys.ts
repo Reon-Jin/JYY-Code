@@ -38,4 +38,5 @@ export const keys = {
   skills: (directory: string) => [...project(directory), "skills"] as const,
   mcp: (directory: string) => [...project(directory), "mcp"] as const,
   globalConfig: ["global", "config"] as const,
+  globalDefaultPermission: ["global", "default-permission"] as const,
 }
