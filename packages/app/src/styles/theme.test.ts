@@ -61,6 +61,7 @@ describe("Codex-inspired desktop theme", () => {
       "color-panel",
       "color-surface",
       "color-surface-hover",
+      "color-header-surface",
       "color-accent",
       "color-accent-hover",
       "color-accent-ink",
@@ -85,5 +86,12 @@ describe("Codex-inspired desktop theme", () => {
     }
     expect(dark).toContain("color-scheme: dark")
     expect(light).toContain("color-scheme: light")
+  })
+
+  it("themes the Session conversation header in light mode", () => {
+    const sessions = readFileSync("src/features/sessions/sessions.css", "utf8")
+
+    expect(sessions).toContain("background: var(--color-header-surface)")
+    expect(sessions).not.toContain("background: rgb(24 24 24 / 88%)")
   })
 })

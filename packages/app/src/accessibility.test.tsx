@@ -123,8 +123,45 @@ describe("desktop accessibility contract", () => {
     expect(screen.getByRole("button", { name: "多智能体" })).toHaveAttribute("aria-pressed", "false")
     expect(screen.getByRole("button", { name: "工作区变更" })).toHaveAttribute("aria-pressed", "false")
     expect(container.querySelector(".branch-control__trigger")).toHaveAttribute("aria-haspopup", "dialog")
-    expect(container.querySelector(".workspace-connection")).toHaveAttribute("aria-live", "polite")
+    expect(container.querySelector(".workspace-connection__status")).toHaveAttribute("aria-live", "polite")
     expect(unnamedIconButtons(container)).toEqual([])
+  })
+
+  it("keeps Settings navigation, choices, placeholders, and return focus keyboard-operable", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop()
+    const backend = createFakeJyycode(desktop.directory)
+    vi.stubGlobal("fetch", backend.fetch)
+    render(() => <App bridge={desktop.bridge} />)
+
+    const settings = await screen.findByRole("link", { name: "设置" }, { timeout: 5_000 })
+    settings.focus()
+    await user.keyboard("{Enter}")
+    expect(await screen.findByRole("heading", { name: "设置" })).toBeVisible()
+
+    const light = await screen.findByRole("radio", { name: "浅色" })
+    light.focus()
+    await user.keyboard(" ")
+    expect(light).toBeChecked()
+
+    const security = screen.getByRole("link", { name: "权限与安全" })
+    security.focus()
+    await user.keyboard("{Enter}")
+    expect(await screen.findByRole("heading", { name: "权限与安全" })).toBeVisible()
+    expect(await screen.findByRole("radio", { name: "自动" })).toBeEnabled()
+
+    const advanced = screen.getByRole("link", { name: "高级" })
+    advanced.focus()
+    await user.keyboard("{Enter}")
+    expect(await screen.findByRole("combobox", { name: "默认 Shell" })).toBeEnabled()
+    expect(screen.getByLabelText("自动更新策略")).toBeDisabled()
+    expect(screen.getByRole("button", { name: "配置上下文压缩参数" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "管理记忆" })).toBeDisabled()
+
+    const back = screen.getByRole("button", { name: "返回" })
+    back.focus()
+    await user.keyboard("{Enter}")
+    await waitFor(() => expect(screen.getByRole("link", { name: "设置" })).toHaveFocus())
   })
 
   it("keeps the Multi-Agent drawer, task, model dialog, and child route keyboard-operable", async () => {

@@ -25,10 +25,19 @@ export function SettingsPage() {
   const section = () => selectedSection(params.section)
   const returnTo = () => sanitizeSettingsReturnTo(search.returnTo)
 
+  function returnFromSettings() {
+    const target = returnTo()
+    navigate(target)
+    window.requestAnimationFrame(() => {
+      const selector = target === "/" ? ".management-nav-link--settings" : ".workspace-settings-link"
+      document.querySelector<HTMLElement>(selector)?.focus()
+    })
+  }
+
   return (
     <main class="settings-page">
       <header class="settings-header">
-        <Button variant="ghost" onClick={() => navigate(returnTo())}>
+        <Button variant="ghost" onClick={returnFromSettings}>
           <ArrowLeft aria-hidden="true" />
           返回
         </Button>
@@ -37,10 +46,7 @@ export function SettingsPage() {
       <div class="settings-layout">
         <nav class="settings-navigation" aria-label="设置分类">
           {sections.map((item) => (
-            <A
-              href={settingsHref(item.id, returnTo())}
-              aria-current={section() === item.id ? "page" : undefined}
-            >
+            <A href={settingsHref(item.id, returnTo())} aria-current={section() === item.id ? "page" : undefined}>
               {item.label}
             </A>
           ))}

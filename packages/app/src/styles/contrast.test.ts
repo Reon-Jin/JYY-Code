@@ -11,6 +11,15 @@ describe("desktop palette", () => {
     expect(contrastRatio("#67D391", "#262626")).toBeGreaterThanOrEqual(4.5) // done
   })
 
+  it("meets AA for normal text in the light palette", () => {
+    expect(contrastRatio("#202020", "#F7F7F7")).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio("#666666", "#FFFFFF")).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio("#202020", "#EDEDED")).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio("#8A5D00", "#EDEDED")).toBeGreaterThanOrEqual(4.5) // review
+    expect(contrastRatio("#B42318", "#EDEDED")).toBeGreaterThanOrEqual(4.5) // failed
+    expect(contrastRatio("#16794B", "#EDEDED")).toBeGreaterThanOrEqual(4.5) // done
+  })
+
   it("rejects malformed colors", () => {
     expect(() => contrastRatio("#fff", "#181818")).toThrow("Invalid color")
   })

@@ -68,6 +68,24 @@ Treat MCP environment values, headers, OAuth client secrets, and the global conf
 Desktop UI does not display an existing client secret and the backend does not log secret field values, but configured
 values remain local configuration data and should not be copied into bug reports or committed to source control.
 
+## Settings
+
+Open Settings from the gear at the bottom of the Home management rail or from the gear in a project's Session footer.
+Settings is a full-screen route rather than another management panel. Its Back button returns to the caller; when
+opened from a Session it returns to that same Session.
+
+Startup location and dark/light theme are desktop-only preferences persisted by the Tauri host. The default permission
+policy and default Shell are stored in JYYCode's global backend configuration and therefore apply across projects. A
+permission-policy change affects only newly created Sessions; existing Sessions keep their current permission choices.
+
+The Advanced page can ask Windows Explorer to select the backend-provided global `jyycode.jsonc` file. The Tauri
+command accepts only an absolute path whose file name is exactly `jyycode.jsonc` or `jyycode.json`, and launches
+Explorer with an argument array rather than a shell command. It does not accept an arbitrary executable or command.
+
+Language switching, Apple-style liquid glass, Windows notifications, auto-update policy, context-compression tuning,
+and memory management are visible but disabled. Each placeholder explains the missing backend, platform, design, or
+distribution prerequisite; enabling one requires implementing and verifying that prerequisite first.
+
 ## Build a Windows release
 
 ```powershell

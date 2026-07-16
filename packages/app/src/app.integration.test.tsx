@@ -138,6 +138,61 @@ describe("desktop GUI journey", () => {
     expect(screen.queryByRole("navigation", { name: "全局管理" })).not.toBeInTheDocument()
   }, 20_000)
 
+  it("completes the desktop Settings journey and returns to the same Session", async () => {
+    const user = userEvent.setup()
+    const directory = "C:\\work\\demo"
+    const desktop = createFakeDesktop({ recentProjects: [{ path: directory, usedAt: 1 }] })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.addSession({ id: "ses_settings", slug: "settings", title: "Settings Session" })
+    vi.stubGlobal("fetch", backend.fetch)
+
+    render(() => <App bridge={desktop.bridge} />)
+
+    await user.click(await screen.findByRole("link", { name: "设置" }, { timeout: 5_000 }))
+    expect(await screen.findByRole("heading", { name: "设置" })).toBeVisible()
+
+    await user.click(await screen.findByRole("radio", { name: "启动时显示 Home" }))
+    await waitFor(() => expect(desktop.settings().startup).toBe("home"))
+    await user.click(screen.getByRole("radio", { name: "浅色" }))
+    await waitFor(() => expect(desktop.settings().theme).toBe("light"))
+    expect(document.documentElement).toHaveAttribute("data-theme", "light")
+    expect(screen.getByLabelText("语言")).toBeDisabled()
+    expect(screen.getByRole("checkbox", { name: "Apple 风格液态玻璃" })).toBeDisabled()
+    for (const label of ["回复完成", "等待权限", "Agent 提问"]) {
+      expect(screen.getByRole("checkbox", { name: label })).toBeDisabled()
+    }
+
+    await user.click(screen.getByRole("link", { name: "权限与安全" }))
+    expect(await screen.findByText("仅应用于新建的 Session；现有 Session 保留各自的权限选择。")).toBeVisible()
+    await user.click(await screen.findByRole("radio", { name: "每次询问" }))
+    await waitFor(() => expect(backend.globalConfig().permission).toEqual({ "*": "ask" }))
+
+    await user.click(screen.getByRole("link", { name: "高级" }))
+    const shell = await screen.findByRole("combobox", { name: "默认 Shell" })
+    await waitFor(() => expect(shell).toBeEnabled())
+    await user.selectOptions(shell, "pwsh")
+    await waitFor(() => expect(backend.globalConfig().shell).toBe("pwsh"))
+    await user.click(screen.getByRole("button", { name: "打开全局配置文件" }))
+    await waitFor(() => expect(desktop.bridge.revealConfigFile).toHaveBeenCalledWith("C:\\config\\jyycode.jsonc"))
+    expect(screen.getByLabelText("自动更新策略")).toBeDisabled()
+    expect(screen.getByRole("button", { name: "配置上下文压缩参数" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "管理记忆" })).toBeDisabled()
+    expect(screen.getAllByText("即将推出")).toHaveLength(3)
+
+    await user.click(screen.getByRole("button", { name: "返回" }))
+    expect(await screen.findByRole("heading", { name: "JYYCode" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "打开 demo" }))
+    expect(await screen.findByRole("complementary", { name: "项目与 Session 导航" }, { timeout: 5_000 })).toBeVisible()
+    await user.click(await screen.findByRole("link", { name: /Settings Session/ }))
+    expect(await screen.findByRole("heading", { name: "Settings Session" })).toBeVisible()
+
+    await user.click(screen.getByRole("link", { name: "打开设置" }))
+    expect(await screen.findByRole("heading", { name: "设置" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "返回" }))
+    expect(await screen.findByRole("heading", { name: "Settings Session" })).toBeVisible()
+    expect(desktop.lastLocation()).toEqual({ project: directory, sessionID: "ses_settings" })
+  }, 20_000)
+
   it("creates, prompts, streams, answers, stops, and restores a single-Agent Session", async () => {
     const user = userEvent.setup()
     const desktop = createFakeDesktop()

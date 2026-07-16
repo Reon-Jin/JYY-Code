@@ -6,6 +6,7 @@ const projects = readFileSync("src/features/projects/projects.css", "utf8")
 const mcp = readFileSync("src/features/mcp/mcp-management.css", "utf8")
 const skills = readFileSync("src/features/skills/skills.css", "utf8")
 const global = readFileSync("src/styles/global.css", "utf8")
+const settings = readFileSync("src/features/settings/settings.css", "utf8")
 
 describe("management responsive CSS contract", () => {
   it("uses the approved rail dimensions and compact icons", () => {
@@ -17,6 +18,7 @@ describe("management responsive CSS contract", () => {
   it("keeps 1024 by 720 content scrollable", () => {
     expect(shell).toMatch(/\.management-shell__content\s*\{[\s\S]*?overflow:\s*auto/)
     expect(projects).toMatch(/\.welcome-page\s*\{[\s\S]*?overflow:\s*auto/)
+    expect(settings).toMatch(/\.settings-content\s*\{[\s\S]*?overflow:\s*auto/)
   })
 
   it("stacks project actions before either card becomes narrower than 240px", () => {
