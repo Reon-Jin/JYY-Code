@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-  [string]$ReleaseRoot
+  [string]$ReleaseRoot,
+  [string]$ArtifactVersion,
+  [switch]$RequireUpdaterSignatures
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,6 +14,15 @@ $rawExe = Join-Path $release "jyycode-desktop.exe"
 $rawSidecar = Join-Path $release "jyycode-sidecar.exe"
 $msiFiles = @(Get-ChildItem -LiteralPath (Join-Path $release "bundle/msi") -Filter "*.msi" -File -ErrorAction SilentlyContinue)
 $nsisFiles = @(Get-ChildItem -LiteralPath (Join-Path $release "bundle/nsis") -Filter "*.exe" -File -ErrorAction SilentlyContinue)
+$msiSignatureFiles = @(Get-ChildItem -LiteralPath (Join-Path $release "bundle/msi") -Filter "*.msi.sig" -File -ErrorAction SilentlyContinue)
+$nsisSignatureFiles = @(Get-ChildItem -LiteralPath (Join-Path $release "bundle/nsis") -Filter "*.exe.sig" -File -ErrorAction SilentlyContinue)
+if ($ArtifactVersion) {
+  $versionPattern = "*_${ArtifactVersion}_*"
+  $msiFiles = @($msiFiles | Where-Object Name -Like $versionPattern)
+  $nsisFiles = @($nsisFiles | Where-Object Name -Like $versionPattern)
+  $msiSignatureFiles = @($msiSignatureFiles | Where-Object Name -Like $versionPattern)
+  $nsisSignatureFiles = @($nsisSignatureFiles | Where-Object Name -Like $versionPattern)
+}
 
 function Assert-OneArtifact([System.IO.FileInfo[]]$Files, [string]$Label) {
   if ($Files.Count -ne 1) {
@@ -35,6 +46,12 @@ $sidecar = Get-Item -LiteralPath $rawSidecar
 if ($sidecar.Length -le 0) { throw "Raw desktop sidecar is empty: $rawSidecar" }
 $msi = Assert-OneArtifact $msiFiles "MSI"
 $nsis = Assert-OneArtifact $nsisFiles "NSIS"
+$msiSignature = $null
+$nsisSignature = $null
+if ($RequireUpdaterSignatures) {
+  $msiSignature = Assert-OneArtifact $msiSignatureFiles "MSI updater signature"
+  $nsisSignature = Assert-OneArtifact $nsisSignatureFiles "NSIS updater signature"
+}
 
 $artifactRoot = Join-Path $release "desktop-artifacts"
 New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
@@ -45,6 +62,10 @@ Copy-Item -LiteralPath $raw.FullName -Destination $portable -Force
 Copy-Item -LiteralPath $sidecar.FullName -Destination $portableSidecar -Force
 Copy-Item -LiteralPath $msi.FullName -Destination (Join-Path $artifactRoot $msi.Name) -Force
 Copy-Item -LiteralPath $nsis.FullName -Destination (Join-Path $artifactRoot $nsis.Name) -Force
+if ($RequireUpdaterSignatures) {
+  Copy-Item -LiteralPath $msiSignature.FullName -Destination (Join-Path $artifactRoot $msiSignature.Name) -Force
+  Copy-Item -LiteralPath $nsisSignature.FullName -Destination (Join-Path $artifactRoot $nsisSignature.Name) -Force
+}
 $packaged = @(Get-ChildItem -LiteralPath $artifactRoot -File | Where-Object Name -ne "SHA256SUMS.txt")
 $checksumPath = Join-Path $artifactRoot "SHA256SUMS.txt"
 $checksums = $packaged | Sort-Object Name | ForEach-Object {

@@ -9,6 +9,7 @@ import { useManagement } from "../management/management-context"
 import { CompactionSettings } from "./compaction-settings"
 import { GlobalConfigReveal } from "./global-config-reveal"
 import { MemorySettings } from "./memory-settings"
+import { UpdateSettings } from "./update-settings"
 
 const knownShells = ["pwsh", "powershell", "cmd", "bash"] as const
 
@@ -84,13 +85,7 @@ export function AdvancedSettings(props: { management?: ManagementContextValue })
         <GlobalConfigReveal management={management} />
       </section>
 
-      <section class="settings-card update-release-gate" aria-labelledby="update-release-gate-title">
-        <header>
-          <h3 id="update-release-gate-title">{tr("settings.automatic-updates")}</h3>
-          <span class="settings-badge">{tr("settings.update-not-configured")}</span>
-        </header>
-        <p>{tr("settings.the-desktop-package-has-not-yet-generated-an")}</p>
-      </section>
+      <UpdateSettings />
       <CompactionSettings management={management} />
       <MemorySettings />
     </div>

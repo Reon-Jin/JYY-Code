@@ -55,10 +55,15 @@ Before promoting a desktop preview build:
    cleanup.
 4. Confirm WebView2 installation succeeds when the runtime is absent; network is needed only for that bootstrap.
 
-Phase 1 deliberately leaves auto-update disabled and contains no signing placeholders. Public stable Windows
-distribution is blocked until repository secrets contain production code-signing credentials, certificate access is
-restricted and audited, CI signs both installers and the portable executable, and signature verification is added to
-the release gate.
+The `desktop-release` workflow publishes signed Tauri updater artifacts and the rolling
+`desktop-latest/latest.json` manifest. Repository secrets `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` are required, and the corresponding private key must have a separate audited
+offline backup. Tauri updater signing is not Windows Authenticode signing.
+
+Public stable Windows distribution remains blocked until repository secrets contain production Authenticode
+credentials, certificate access is restricted and audited, CI signs the main executable, sidecar, both installers,
+and portable executable, and signature verification is added to the release gate. Until then Desktop releases must be
+marked as prereleases and warn users that SmartScreen may identify the publisher as unknown.
 
 ## Database rollback
 

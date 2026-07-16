@@ -76,9 +76,11 @@
 .settings-options small { color: var(--color-text-muted); }
 .settings-options--inline { grid-template-columns: 1fr 1fr; }
 
-.update-release-gate > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
-.update-release-gate h3 { margin: 0; font-size: var(--text-md); }
-.update-release-gate > p { margin: var(--space-3) 0 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+.update-settings > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.update-settings h3 { margin: 0; font-size: var(--text-md); }
+.update-settings > p { margin: var(--space-3) 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+.update-settings__notes { max-height: 160px; overflow: auto; white-space: pre-wrap; }
+.update-settings__actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); flex-wrap: wrap; }
 .settings-badge { border: 1px solid var(--color-border-strong); border-radius: 999px; padding: 3px 8px; color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; }
 .settings-select-label { display: grid; max-width: 280px; gap: var(--space-2); color: var(--color-text-muted); font-size: var(--text-sm); }
 .settings-select-label > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

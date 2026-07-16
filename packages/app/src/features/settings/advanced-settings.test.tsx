@@ -84,13 +84,12 @@ describe("AdvancedSettings", () => {
     )
   })
 
-  it("preserves an unrecognized existing Shell and exposes the skipped updater as a release gate", async () => {
+  it("preserves an unrecognized existing Shell and exposes updater controls", async () => {
     renderAdvanced(management("nu"))
 
     expect(await screen.findByRole("option", { name: "当前值：nu" })).toBeInTheDocument()
-    expect(screen.queryByLabelText("自动更新策略")).not.toBeInTheDocument()
-    expect(screen.getByText("未配置")).toBeVisible()
-    expect(screen.getByText(/签名更新端点/)).toBeVisible()
+    expect(screen.getByLabelText("自动更新策略")).toHaveValue("notify")
+    expect(screen.getByRole("button", { name: "立即检查" })).toBeVisible()
     expect(screen.getByRole("heading", { name: "上下文压缩参数" })).toBeVisible()
     expect(screen.queryByRole("button", { name: "配置上下文压缩参数" })).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "记忆管理" })).toBeVisible()
