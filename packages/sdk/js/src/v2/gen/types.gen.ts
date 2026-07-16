@@ -1384,6 +1384,78 @@ export type GlobalCompaction = {
   reactiveCompact: boolean
 }
 
+export type GlobalMemoryEntry =
+  | {
+      id: string
+      scope: "user"
+      importance: number
+      keywords: Array<string>
+      content: string
+    }
+  | {
+      id: string
+      scope: "task"
+      importance: number
+      date: string
+      keywords: Array<string>
+      content: string
+      sessionID: string
+    }
+
+export type GlobalMemoryPage = {
+  entries: Array<GlobalMemoryEntry>
+  total: number
+  nextCursor?: string
+}
+
+export type GlobalMemoryBadRequestError = {
+  _tag: "GlobalMemoryBadRequestError"
+  message: string
+}
+
+export type GlobalMemoryNotFoundError = {
+  _tag: "GlobalMemoryNotFoundError"
+  message: string
+}
+
+export type GlobalMemoryConflictError = {
+  _tag: "GlobalMemoryConflictError"
+  message: string
+}
+
+export type GlobalMemoryRemoveResult = {
+  removed: boolean
+}
+
+export type GlobalMemoryCompactResult = {
+  removed: number
+  merged: number
+  retained: number
+}
+
+export type GlobalMemoryClearResult = {
+  removed: number
+}
+
+export type GlobalMemoryExport = {
+  schemaVersion: 3
+  lastCompactedAt: string
+  entries: Array<
+    | {
+        importance: number
+        keywords: Array<string>
+        content: string
+      }
+    | {
+        sessionID: string
+        importance: number
+        date: string
+        keywords: Array<string>
+        content: string
+      }
+  >
+}
+
 export type Model = {
   id: string
   providerID: string
@@ -4579,6 +4651,273 @@ export type GlobalCompactionUpdateResponses = {
 }
 
 export type GlobalCompactionUpdateResponse = GlobalCompactionUpdateResponses[keyof GlobalCompactionUpdateResponses]
+
+export type GlobalMemoryListData = {
+  body?: never
+  path?: never
+  query: {
+    scope: "user" | "task"
+    sessionID?: string
+    query?: string
+    cursor?: string
+    limit?: string
+  }
+  url: "/global/memory"
+}
+
+export type GlobalMemoryListErrors = {
+  /**
+   * GlobalMemoryBadRequestError | InvalidRequestError
+   */
+  400: GlobalMemoryBadRequestError | InvalidRequestError
+  /**
+   * GlobalMemoryNotFoundError
+   */
+  404: GlobalMemoryNotFoundError
+  /**
+   * GlobalMemoryConflictError
+   */
+  409: GlobalMemoryConflictError
+}
+
+export type GlobalMemoryListError = GlobalMemoryListErrors[keyof GlobalMemoryListErrors]
+
+export type GlobalMemoryListResponses = {
+  /**
+   * Memory entries
+   */
+  200: GlobalMemoryPage
+}
+
+export type GlobalMemoryListResponse = GlobalMemoryListResponses[keyof GlobalMemoryListResponses]
+
+export type GlobalMemoryUserCreateData = {
+  body?: {
+    importance: number
+    keywords: Array<string>
+    content: string
+  }
+  path?: never
+  query?: never
+  url: "/global/memory/user"
+}
+
+export type GlobalMemoryUserCreateErrors = {
+  /**
+   * GlobalMemoryBadRequestError | InvalidRequestError
+   */
+  400: GlobalMemoryBadRequestError | InvalidRequestError
+  /**
+   * GlobalMemoryNotFoundError
+   */
+  404: GlobalMemoryNotFoundError
+  /**
+   * GlobalMemoryConflictError
+   */
+  409: GlobalMemoryConflictError
+}
+
+export type GlobalMemoryUserCreateError = GlobalMemoryUserCreateErrors[keyof GlobalMemoryUserCreateErrors]
+
+export type GlobalMemoryUserCreateResponses = {
+  /**
+   * Created user memory
+   */
+  200: GlobalMemoryEntry
+}
+
+export type GlobalMemoryUserCreateResponse = GlobalMemoryUserCreateResponses[keyof GlobalMemoryUserCreateResponses]
+
+export type GlobalMemoryRemoveData = {
+  body?: never
+  path: {
+    scope: "user" | "task"
+    id: string
+  }
+  query?: {
+    sessionID?: string
+  }
+  url: "/global/memory/{scope}/{id}"
+}
+
+export type GlobalMemoryRemoveErrors = {
+  /**
+   * GlobalMemoryBadRequestError | InvalidRequestError
+   */
+  400: GlobalMemoryBadRequestError | InvalidRequestError
+  /**
+   * GlobalMemoryNotFoundError
+   */
+  404: GlobalMemoryNotFoundError
+  /**
+   * GlobalMemoryConflictError
+   */
+  409: GlobalMemoryConflictError
+}
+
+export type GlobalMemoryRemoveError = GlobalMemoryRemoveErrors[keyof GlobalMemoryRemoveErrors]
+
+export type GlobalMemoryRemoveResponses = {
+  /**
+   * Removed memory
+   */
+  200: GlobalMemoryRemoveResult
+}
+
+export type GlobalMemoryRemoveResponse = GlobalMemoryRemoveResponses[keyof GlobalMemoryRemoveResponses]
+
+export type GlobalMemoryUpdateData = {
+  body?: {
+    importance: number
+    keywords: Array<string>
+    content: string
+  }
+  path: {
+    scope: "user" | "task"
+    id: string
+  }
+  query?: {
+    sessionID?: string
+  }
+  url: "/global/memory/{scope}/{id}"
+}
+
+export type GlobalMemoryUpdateErrors = {
+  /**
+   * GlobalMemoryBadRequestError | InvalidRequestError
+   */
+  400: GlobalMemoryBadRequestError | InvalidRequestError
+  /**
+   * GlobalMemoryNotFoundError
+   */
+  404: GlobalMemoryNotFoundError
+  /**
+   * GlobalMemoryConflictError
+   */
+  409: GlobalMemoryConflictError
+}
+
+export type GlobalMemoryUpdateError = GlobalMemoryUpdateErrors[keyof GlobalMemoryUpdateErrors]
+
+export type GlobalMemoryUpdateResponses = {
+  /**
+   * Updated memory
+   */
+  200: GlobalMemoryEntry
+}
+
+export type GlobalMemoryUpdateResponse = GlobalMemoryUpdateResponses[keyof GlobalMemoryUpdateResponses]
+
+export type GlobalMemoryCompactData = {
+  body?: never
+  path: {
+    scope: "user" | "task"
+  }
+  query?: {
+    sessionID?: string
+  }
+  url: "/global/memory/{scope}/compact"
+}
+
+export type GlobalMemoryCompactErrors = {
+  /**
+   * GlobalMemoryBadRequestError | InvalidRequestError
+   */
+  400: GlobalMemoryBadRequestError | InvalidRequestError
+  /**
+   * GlobalMemoryNotFoundError
+   */
+  404: GlobalMemoryNotFoundError
+  /**
+   * GlobalMemoryConflictError
+   */
+  409: GlobalMemoryConflictError
+}
+
+export type GlobalMemoryCompactError = GlobalMemoryCompactErrors[keyof GlobalMemoryCompactErrors]
+
+export type GlobalMemoryCompactResponses = {
+  /**
+   * Compaction result
+   */
+  200: GlobalMemoryCompactResult
+}
+
+export type GlobalMemoryCompactResponse = GlobalMemoryCompactResponses[keyof GlobalMemoryCompactResponses]
+
+export type GlobalMemoryTaskClearData = {
+  body?: never
+  path?: never
+  query?: {
+    sessionID?: string
+  }
+  url: "/global/memory/task/clear"
+}
+
+export type GlobalMemoryTaskClearErrors = {
+  /**
+   * GlobalMemoryBadRequestError | InvalidRequestError
+   */
+  400: GlobalMemoryBadRequestError | InvalidRequestError
+  /**
+   * GlobalMemoryNotFoundError
+   */
+  404: GlobalMemoryNotFoundError
+  /**
+   * GlobalMemoryConflictError
+   */
+  409: GlobalMemoryConflictError
+}
+
+export type GlobalMemoryTaskClearError = GlobalMemoryTaskClearErrors[keyof GlobalMemoryTaskClearErrors]
+
+export type GlobalMemoryTaskClearResponses = {
+  /**
+   * Task memories cleared
+   */
+  200: GlobalMemoryClearResult
+}
+
+export type GlobalMemoryTaskClearResponse = GlobalMemoryTaskClearResponses[keyof GlobalMemoryTaskClearResponses]
+
+export type GlobalMemoryExportData = {
+  body?: never
+  path?: never
+  query: {
+    scope: "user" | "task"
+    sessionID?: string
+    query?: string
+    cursor?: string
+    limit?: string
+  }
+  url: "/global/memory/export"
+}
+
+export type GlobalMemoryExportErrors = {
+  /**
+   * GlobalMemoryBadRequestError | InvalidRequestError
+   */
+  400: GlobalMemoryBadRequestError | InvalidRequestError
+  /**
+   * GlobalMemoryNotFoundError
+   */
+  404: GlobalMemoryNotFoundError
+  /**
+   * GlobalMemoryConflictError
+   */
+  409: GlobalMemoryConflictError
+}
+
+export type GlobalMemoryExportError = GlobalMemoryExportErrors[keyof GlobalMemoryExportErrors]
+
+export type GlobalMemoryExportResponses = {
+  /**
+   * Exported memory store
+   */
+  200: GlobalMemoryExport
+}
+
+export type GlobalMemoryExportResponse = GlobalMemoryExportResponses[keyof GlobalMemoryExportResponses]
 
 export type GlobalDisposeData = {
   body?: never

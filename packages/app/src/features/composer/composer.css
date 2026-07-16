@@ -29,6 +29,7 @@
 
 .composer[data-minimal="true"] .composer__input textarea {
   padding-right: var(--space-3);
+  padding-left: var(--space-3);
 }
 
 .composer__selectors {
@@ -89,6 +90,13 @@
 
 .composer__input {
   position: relative;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.composer__input[data-dragging="true"] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 .composer-skill-menu {
@@ -169,8 +177,8 @@
   overflow-y: hidden;
   border: 0;
   border-radius: var(--radius-md);
-  padding: 10px 52px 10px var(--space-3);
-  background: var(--color-surface);
+  padding: 10px 52px 10px 48px;
+  background: transparent;
   color: var(--color-text);
   font: inherit;
   line-height: 1.5;
@@ -194,6 +202,100 @@
   position: absolute;
   right: 6px;
   bottom: 6px;
+}
+
+.composer__attach {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  padding: 0;
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  color: var(--color-text);
+}
+
+.composer__attach:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  background: var(--surface-raised);
+}
+
+.composer__attach:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.composer__attach:disabled {
+  opacity: 0.45;
+}
+
+.composer__attach svg {
+  width: 17px;
+}
+
+.composer__file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.composer__attachments {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  margin: 0;
+  padding: var(--space-2) var(--space-2) 0;
+  list-style: none;
+}
+
+.composer__attachments li {
+  display: flex;
+  min-width: 0;
+  max-width: 240px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px 4px 8px;
+  background: var(--surface-raised);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+}
+
+.composer__attachments li > svg,
+.composer__attachments button svg {
+  width: 14px;
+  flex: 0 0 auto;
+}
+
+.composer__attachments span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer__attachments button {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.composer__attachments button:hover {
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+  color: var(--color-text);
 }
 
 .composer__action .ui-button[data-size="icon"] {

@@ -82,9 +82,22 @@ The Advanced page can ask Windows Explorer to select the backend-provided global
 command accepts only an absolute path whose file name is exactly `jyycode.jsonc` or `jyycode.json`, and launches
 Explorer with an argument array rather than a shell command. It does not accept an arbitrary executable or command.
 
-Language switching, Apple-style liquid glass, Windows notifications, auto-update policy, context-compression tuning,
-and memory management are visible but disabled. Each placeholder explains the missing backend, platform, design, or
-distribution prerequisite; enabling one requires implementing and verifying that prerequisite first.
+Language switching between Simplified Chinese and English applies immediately and is persisted with the other desktop
+preferences. The optional liquid-glass appearance uses Windows 11 Mica, Windows 10 Acrylic, and a solid semantic-color
+fallback when composition or transparency is unavailable. Notification categories for completed replies, permission
+requests, and Agent questions can be enabled independently; notifications are emitted only while the window is not
+focused and use generic text so prompt or response content is not exposed in the Windows notification center.
+
+Context-compression thresholds are validated before they are saved and apply to newly created Sessions. Memory
+management opens dedicated User and Task memory pages instead of expanding records in Settings. Both pages support
+search, editing, deletion, compression, and export; Task memories are listed across Sessions and do not require users
+to know a Session ID. Exported memory files can contain sensitive conversation-derived information and should be
+handled accordingly.
+
+Automatic updating is not configured in this phase. The Settings page reports that release gate without presenting a
+nonfunctional policy selector. The desktop bundle currently has no updater state machine or signed HTTPS update
+endpoint, and `createUpdaterArtifacts` remains disabled; production update distribution is blocked until those pieces
+and Windows signing are implemented and audited.
 
 ## Build a Windows release
 
@@ -104,8 +117,9 @@ Outputs are under `packages/desktop/src-tauri/target/x86_64-pc-windows-msvc/rele
 - `desktop-artifacts/SHA256SUMS.txt` — checksums for the portable executable and both installers.
 
 The installers use WebView2's download bootstrapper. Installation needs network access only when WebView2 is absent.
-Phase 1 intentionally has no auto-updater and no placeholder signing credentials; public stable distribution is gated
-on configured and audited Windows code-signing secrets.
+This build intentionally has no auto-updater and no placeholder signing credentials. Public stable distribution is
+gated on an audited signing setup, and update distribution additionally requires updater artifacts plus a signed HTTPS
+manifest endpoint.
 
 ## Clean-VM acceptance gate
 

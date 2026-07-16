@@ -1,4 +1,5 @@
 import { QueryClientProvider } from "@tanstack/solid-query"
+import { MemoryRouter, Route } from "@solidjs/router"
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -15,6 +16,28 @@ function management(shell = "cmd") {
         get: vi.fn(async () => ({ data: { shell } })),
         update: vi.fn(async ({ config }: { config: { shell: string } }) => ({ data: config })),
       },
+      compaction: {
+        get: vi.fn(async () => ({ data: {
+          auto: true,
+          prune: true,
+          tailTurns: 2,
+          triggerRatio: 0.92,
+          microCompact: true,
+          microCompactMaxChars: 8000,
+          reactiveCompact: true,
+        } })),
+        update: vi.fn(),
+        reset: vi.fn(),
+      },
+      memory: {
+        list: vi.fn(async () => ({ data: { entries: [], total: 0 } })),
+        update: vi.fn(),
+        remove: vi.fn(),
+        compact: vi.fn(),
+        export: vi.fn(),
+        user: { create: vi.fn() },
+        task: { clear: vi.fn() },
+      },
     },
     path: {
       get: vi.fn(async () => ({ data: { config: "C:\\Users\\dev\\.config\\jyycode" } })),
@@ -27,11 +50,15 @@ function management(shell = "cmd") {
 function renderAdvanced(value = management()) {
   const desktop = createFakeDesktop()
   render(() => (
-    <DesktopBridgeProvider bridge={desktop.bridge}>
-      <QueryClientProvider client={value.queryClient}>
-        <AdvancedSettings management={value} />
-      </QueryClientProvider>
-    </DesktopBridgeProvider>
+    <MemoryRouter>
+      <Route path="/" component={() => (
+        <DesktopBridgeProvider bridge={desktop.bridge}>
+          <QueryClientProvider client={value.queryClient}>
+            <AdvancedSettings management={value} />
+          </QueryClientProvider>
+        </DesktopBridgeProvider>
+      )} />
+    </MemoryRouter>
   ))
   return { value, desktop }
 }
@@ -57,12 +84,18 @@ describe("AdvancedSettings", () => {
     )
   })
 
-  it("preserves an unrecognized existing Shell and disables deferred settings", async () => {
+  it("preserves an unrecognized existing Shell and exposes the skipped updater as a release gate", async () => {
     renderAdvanced(management("nu"))
 
     expect(await screen.findByRole("option", { name: "当前值：nu" })).toBeInTheDocument()
-    expect(screen.getByLabelText("自动更新策略")).toBeDisabled()
-    expect(screen.getByRole("button", { name: "配置上下文压缩参数" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "管理记忆" })).toBeDisabled()
+    expect(screen.queryByLabelText("自动更新策略")).not.toBeInTheDocument()
+    expect(screen.getByText("未配置")).toBeVisible()
+    expect(screen.getByText(/签名更新端点/)).toBeVisible()
+    expect(screen.getByRole("heading", { name: "上下文压缩参数" })).toBeVisible()
+    expect(screen.queryByRole("button", { name: "配置上下文压缩参数" })).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "记忆管理" })).toBeVisible()
+    expect(screen.getByRole("link", { name: /用户记忆/ })).toBeVisible()
+    expect(screen.getByRole("link", { name: /任务记忆/ })).toBeVisible()
+    expect(screen.queryByText("用户偏好简体中文。")).not.toBeInTheDocument()
   })
 })

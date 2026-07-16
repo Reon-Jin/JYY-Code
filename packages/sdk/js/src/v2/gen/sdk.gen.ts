@@ -115,6 +115,20 @@ import type {
   GlobalHealthResponses,
   GlobalManagementContextErrors,
   GlobalManagementContextResponses,
+  GlobalMemoryCompactErrors,
+  GlobalMemoryCompactResponses,
+  GlobalMemoryExportErrors,
+  GlobalMemoryExportResponses,
+  GlobalMemoryListErrors,
+  GlobalMemoryListResponses,
+  GlobalMemoryRemoveErrors,
+  GlobalMemoryRemoveResponses,
+  GlobalMemoryTaskClearErrors,
+  GlobalMemoryTaskClearResponses,
+  GlobalMemoryUpdateErrors,
+  GlobalMemoryUpdateResponses,
+  GlobalMemoryUserCreateErrors,
+  GlobalMemoryUserCreateResponses,
   GlobalUpgradeErrors,
   GlobalUpgradeResponses,
   InstanceDisposeErrors,
@@ -701,6 +715,267 @@ export class Compaction extends HeyApiClient {
   }
 }
 
+export class User extends HeyApiClient {
+  /**
+   * Create user memory
+   *
+   * Create a validated persistent user memory entry.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters?: {
+      importance?: number
+      keywords?: Array<string>
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "body", key: "importance" },
+            { in: "body", key: "keywords" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      GlobalMemoryUserCreateResponses,
+      GlobalMemoryUserCreateErrors,
+      ThrowOnError
+    >({
+      url: "/global/memory/user",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Task extends HeyApiClient {
+  /**
+   * Clear task memory
+   *
+   * Clear task memory for one explicit session.
+   */
+  public clear<ThrowOnError extends boolean = false>(
+    parameters?: {
+      sessionID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "sessionID" }] }])
+    return (options?.client ?? this.client).post<
+      GlobalMemoryTaskClearResponses,
+      GlobalMemoryTaskClearErrors,
+      ThrowOnError
+    >({
+      url: "/global/memory/task/clear",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Memory extends HeyApiClient {
+  /**
+   * List persistent memories
+   *
+   * List a bounded page of user or task memories without exposing storage paths.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      scope: "user" | "task"
+      sessionID?: string
+      query?: string
+      cursor?: string
+      limit?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "scope" },
+            { in: "query", key: "sessionID" },
+            { in: "query", key: "query" },
+            { in: "query", key: "cursor" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<GlobalMemoryListResponses, GlobalMemoryListErrors, ThrowOnError>({
+      url: "/global/memory",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Remove memory
+   *
+   * Remove one memory selected by its opaque id.
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters: {
+      scope: "user" | "task"
+      id: string
+      sessionID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "scope" },
+            { in: "path", key: "id" },
+            { in: "query", key: "sessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<GlobalMemoryRemoveResponses, GlobalMemoryRemoveErrors, ThrowOnError>(
+      {
+        url: "/global/memory/{scope}/{id}",
+        ...options,
+        ...params,
+      },
+    )
+  }
+
+  /**
+   * Update memory
+   *
+   * Update one memory selected by its opaque id.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      scope: "user" | "task"
+      id: string
+      sessionID?: string
+      importance?: number
+      keywords?: Array<string>
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "scope" },
+            { in: "path", key: "id" },
+            { in: "query", key: "sessionID" },
+            { in: "body", key: "importance" },
+            { in: "body", key: "keywords" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<GlobalMemoryUpdateResponses, GlobalMemoryUpdateErrors, ThrowOnError>({
+      url: "/global/memory/{scope}/{id}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Compact memories
+   *
+   * Compact one memory scope using deterministic storage rules.
+   */
+  public compact<ThrowOnError extends boolean = false>(
+    parameters: {
+      scope: "user" | "task"
+      sessionID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "scope" },
+            { in: "query", key: "sessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GlobalMemoryCompactResponses, GlobalMemoryCompactErrors, ThrowOnError>(
+      {
+        url: "/global/memory/{scope}/compact",
+        ...options,
+        ...params,
+      },
+    )
+  }
+
+  /**
+   * Export memories
+   *
+   * Export a normalized memory store for one scope.
+   */
+  public export<ThrowOnError extends boolean = false>(
+    parameters: {
+      scope: "user" | "task"
+      sessionID?: string
+      query?: string
+      cursor?: string
+      limit?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "scope" },
+            { in: "query", key: "sessionID" },
+            { in: "query", key: "query" },
+            { in: "query", key: "cursor" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<GlobalMemoryExportResponses, GlobalMemoryExportErrors, ThrowOnError>({
+      url: "/global/memory/export",
+      ...options,
+      ...params,
+    })
+  }
+
+  private _user?: User
+  get user(): User {
+    return (this._user ??= new User({ client: this.client }))
+  }
+
+  private _task?: Task
+  get task(): Task {
+    return (this._task ??= new Task({ client: this.client }))
+  }
+}
+
 export class Global extends HeyApiClient {
   /**
    * Get health
@@ -788,6 +1063,11 @@ export class Global extends HeyApiClient {
   private _compaction?: Compaction
   get compaction(): Compaction {
     return (this._compaction ??= new Compaction({ client: this.client }))
+  }
+
+  private _memory?: Memory
+  get memory(): Memory {
+    return (this._memory ??= new Memory({ client: this.client }))
   }
 }
 

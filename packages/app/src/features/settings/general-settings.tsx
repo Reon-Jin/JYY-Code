@@ -204,12 +204,11 @@ export function GeneralSettings() {
           />
           {tr("settings.apple-style-liquid-glass")}
         </label>
-        <p class="settings-card__hint">{tr("settings.requires-full-vision-system-and-windows-and-webview")}</p>
       </section>
 
       <section class="settings-card" aria-labelledby="notifications-setting-title">
         <h3 id="notifications-setting-title">{tr("settings.windows-notifications")}</h3>
-        <fieldset class="settings-placeholder-options" disabled={saving()}>
+        <fieldset class="settings-notification-options" disabled={saving()}>
           <legend>{tr("settings.notification-trigger-conditions")}</legend>
           <label>
             <input

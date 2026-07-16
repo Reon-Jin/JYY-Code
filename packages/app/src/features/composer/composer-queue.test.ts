@@ -14,16 +14,17 @@ describe("createComposerQueue", () => {
       createID: () => `queued_${++nextID}`,
     })
 
-    queue.enqueue({ text: "first", agent: "build", model })
-    queue.enqueue({ text: "second", agent: "plan", model: { ...model, modelID: "deepseek-reasoner" } })
+    queue.enqueue({ text: "first", agent: "build", model, attachments: [] })
+    queue.enqueue({ text: "second", agent: "plan", model: { ...model, modelID: "deepseek-reasoner" }, attachments: [] })
 
     expect(queue.items()).toEqual([
-      { id: "queued_1", text: "first", agent: "build", model },
+      { id: "queued_1", text: "first", agent: "build", model, attachments: [] },
       {
         id: "queued_2",
         text: "second",
         agent: "plan",
         model: { providerID: "deepseek", modelID: "deepseek-reasoner" },
+        attachments: [],
       },
     ])
     expect(queue.shift()?.text).toBe("first")
@@ -38,7 +39,7 @@ describe("createComposerQueue", () => {
       store,
       createID: () => "queued_1",
     })
-    first.enqueue({ text: "keep", agent: "build", model })
+    first.enqueue({ text: "keep", agent: "build", model, attachments: [] })
 
     const restored = createComposerQueue({ directory: "C:\\work", sessionID: "ses_1", store })
     const other = createComposerQueue({ directory: "C:\\work", sessionID: "ses_2", store })
@@ -59,9 +60,9 @@ describe("createComposerQueue", () => {
         return () => `queued_${++nextID}`
       })(),
     })
-    queue.enqueue({ text: "first", agent: "build", model })
-    queue.enqueue({ text: "second", agent: "build", model })
-    queue.enqueue({ text: "third", agent: "build", model })
+    queue.enqueue({ text: "first", agent: "build", model, attachments: [] })
+    queue.enqueue({ text: "second", agent: "build", model, attachments: [] })
+    queue.enqueue({ text: "third", agent: "build", model, attachments: [] })
 
     queue.move("queued_3", "queued_1")
     expect(queue.items().map((item) => item.text)).toEqual(["third", "first", "second"])

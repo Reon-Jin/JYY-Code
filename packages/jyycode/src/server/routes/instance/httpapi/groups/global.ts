@@ -5,6 +5,7 @@ import "@/server/event"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import { described } from "./metadata"
+import { SessionID } from "@/session/schema"
 
 const GlobalHealth = Schema.Struct({
   healthy: Schema.Literal(true),
@@ -51,6 +52,97 @@ export const GlobalCompaction = Schema.Struct({
   reactiveCompact: Schema.Boolean,
 }).annotate({ identifier: "GlobalCompaction" })
 
+export const GlobalMemoryScope = Schema.Literals(["user", "task"])
+const MemoryImportance = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10 }))
+const MemoryKeywords = Schema.Array(Schema.String).check(Schema.isMinLength(1), Schema.isMaxLength(3))
+const MemoryEntryInput = Schema.Struct({
+  importance: MemoryImportance,
+  keywords: MemoryKeywords,
+  content: Schema.String,
+})
+const GlobalUserMemoryEntry = Schema.Struct({
+  id: Schema.String,
+  scope: Schema.Literal("user"),
+  importance: MemoryImportance,
+  keywords: MemoryKeywords,
+  content: Schema.String,
+})
+const GlobalTaskMemoryEntry = Schema.Struct({
+  id: Schema.String,
+  scope: Schema.Literal("task"),
+  importance: MemoryImportance,
+  date: Schema.String,
+  keywords: MemoryKeywords,
+  content: Schema.String,
+  sessionID: SessionID,
+})
+export const GlobalMemoryEntry = Schema.Union([GlobalUserMemoryEntry, GlobalTaskMemoryEntry]).annotate({
+  identifier: "GlobalMemoryEntry",
+})
+export const GlobalMemoryPage = Schema.Struct({
+  entries: Schema.Array(GlobalMemoryEntry),
+  total: Schema.Int,
+  nextCursor: Schema.optional(Schema.String),
+}).annotate({ identifier: "GlobalMemoryPage" })
+export const GlobalMemoryListQuery = Schema.Struct({
+  scope: GlobalMemoryScope,
+  sessionID: Schema.optional(SessionID),
+  query: Schema.optional(Schema.String),
+  cursor: Schema.optional(Schema.String),
+  limit: Schema.optional(
+    Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100)),
+  ),
+})
+export const GlobalMemoryOperationQuery = Schema.Struct({ sessionID: Schema.optional(SessionID) })
+export const GlobalMemoryParams = { scope: GlobalMemoryScope, id: Schema.String }
+export const GlobalMemoryScopeParams = { scope: GlobalMemoryScope }
+export const GlobalMemoryEntryInput = MemoryEntryInput
+const StoredUserMemoryEntry = Schema.Struct({
+  importance: MemoryImportance,
+  keywords: MemoryKeywords,
+  content: Schema.String,
+})
+const StoredTaskMemoryEntry = Schema.Struct({
+  sessionID: SessionID,
+  importance: MemoryImportance,
+  date: Schema.String,
+  keywords: MemoryKeywords,
+  content: Schema.String,
+})
+export const GlobalMemoryExport = Schema.Struct({
+  schemaVersion: Schema.Literal(3),
+  lastCompactedAt: Schema.NullOr(Schema.String),
+  entries: Schema.Array(Schema.Union([StoredUserMemoryEntry, StoredTaskMemoryEntry])),
+}).annotate({ identifier: "GlobalMemoryExport" })
+export const GlobalMemoryCompactResult = Schema.Struct({
+  removed: Schema.Int,
+  merged: Schema.Int,
+  retained: Schema.Int,
+}).annotate({ identifier: "GlobalMemoryCompactResult" })
+export const GlobalMemoryRemoveResult = Schema.Struct({ removed: Schema.Boolean }).annotate({
+  identifier: "GlobalMemoryRemoveResult",
+})
+export const GlobalMemoryClearResult = Schema.Struct({ removed: Schema.Int }).annotate({
+  identifier: "GlobalMemoryClearResult",
+})
+
+export class GlobalMemoryBadRequestError extends Schema.TaggedErrorClass<GlobalMemoryBadRequestError>()(
+  "GlobalMemoryBadRequestError",
+  { message: Schema.String },
+  { httpApiStatus: 400 },
+) {}
+export class GlobalMemoryNotFoundError extends Schema.TaggedErrorClass<GlobalMemoryNotFoundError>()(
+  "GlobalMemoryNotFoundError",
+  { message: Schema.String },
+  { httpApiStatus: 404 },
+) {}
+export class GlobalMemoryConflictError extends Schema.TaggedErrorClass<GlobalMemoryConflictError>()(
+  "GlobalMemoryConflictError",
+  { message: Schema.String },
+  { httpApiStatus: 409 },
+) {}
+const GlobalMemoryErrors = [GlobalMemoryBadRequestError, GlobalMemoryNotFoundError, GlobalMemoryConflictError] as const
+
 const GlobalUpgradeResult = Schema.Union([
   Schema.Struct({
     success: Schema.Literal(true),
@@ -71,6 +163,12 @@ export const GlobalPaths = {
   managementContext: "/global/management-context",
   defaultPermission: "/global/default-permission",
   compaction: "/global/compaction",
+  memory: "/global/memory",
+  memoryUser: "/global/memory/user",
+  memoryEntry: "/global/memory/:scope/:id",
+  memoryCompact: "/global/memory/:scope/compact",
+  memoryTaskClear: "/global/memory/task/clear",
+  memoryExport: "/global/memory/export",
 } as const
 
 export const GlobalApi = HttpApi.make("global").add(
@@ -158,6 +256,87 @@ export const GlobalApi = HttpApi.make("global").add(
           identifier: "global.compaction.reset",
           summary: "Reset compaction settings",
           description: "Remove only the global compaction override and return defaults.",
+        }),
+      ),
+      HttpApiEndpoint.get("memoryList", GlobalPaths.memory, {
+        query: GlobalMemoryListQuery,
+        success: described(GlobalMemoryPage, "Memory entries"),
+        error: GlobalMemoryErrors,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.memory.list",
+          summary: "List persistent memories",
+          description: "List a bounded page of user or task memories without exposing storage paths.",
+        }),
+      ),
+      HttpApiEndpoint.post("memoryUserCreate", GlobalPaths.memoryUser, {
+        payload: GlobalMemoryEntryInput,
+        success: described(GlobalMemoryEntry, "Created user memory"),
+        error: GlobalMemoryErrors,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.memory.user.create",
+          summary: "Create user memory",
+          description: "Create a validated persistent user memory entry.",
+        }),
+      ),
+      HttpApiEndpoint.put("memoryUpdate", GlobalPaths.memoryEntry, {
+        params: GlobalMemoryParams,
+        query: GlobalMemoryOperationQuery,
+        payload: GlobalMemoryEntryInput,
+        success: described(GlobalMemoryEntry, "Updated memory"),
+        error: GlobalMemoryErrors,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.memory.update",
+          summary: "Update memory",
+          description: "Update one memory selected by its opaque id.",
+        }),
+      ),
+      HttpApiEndpoint.delete("memoryRemove", GlobalPaths.memoryEntry, {
+        params: GlobalMemoryParams,
+        query: GlobalMemoryOperationQuery,
+        success: described(GlobalMemoryRemoveResult, "Removed memory"),
+        error: GlobalMemoryErrors,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.memory.remove",
+          summary: "Remove memory",
+          description: "Remove one memory selected by its opaque id.",
+        }),
+      ),
+      HttpApiEndpoint.post("memoryCompact", GlobalPaths.memoryCompact, {
+        params: GlobalMemoryScopeParams,
+        query: GlobalMemoryOperationQuery,
+        success: described(GlobalMemoryCompactResult, "Compaction result"),
+        error: GlobalMemoryErrors,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.memory.compact",
+          summary: "Compact memories",
+          description: "Compact one memory scope using deterministic storage rules, across all task sessions when omitted.",
+        }),
+      ),
+      HttpApiEndpoint.post("memoryTaskClear", GlobalPaths.memoryTaskClear, {
+        query: GlobalMemoryOperationQuery,
+        success: described(GlobalMemoryClearResult, "Task memories cleared"),
+        error: GlobalMemoryErrors,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.memory.task.clear",
+          summary: "Clear task memory",
+          description: "Clear task memory across all sessions, or one explicit session when provided.",
+        }),
+      ),
+      HttpApiEndpoint.get("memoryExport", GlobalPaths.memoryExport, {
+        query: GlobalMemoryListQuery,
+        success: described(GlobalMemoryExport, "Exported memory store"),
+        error: GlobalMemoryErrors,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.memory.export",
+          summary: "Export memories",
+          description: "Export a normalized memory store for one scope across all matching sessions.",
         }),
       ),
       HttpApiEndpoint.patch("configUpdate", GlobalPaths.config, {

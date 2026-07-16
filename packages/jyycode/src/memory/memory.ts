@@ -3,6 +3,7 @@ export * as Memory from "./memory"
 import path from "path"
 import { randomUUID } from "crypto"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
+import { Global } from "@jyycode-ai/core/global"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Session } from "@/session/session"
@@ -13,7 +14,8 @@ const log = Log.create({ service: "memory" })
 
 const MEMORY_FILE = "MEMORY.json"
 const USER_FILE = "USER.json"
-export const DIRECTORY = path.normalize("D:/jyycode/memory")
+export const LEGACY_DIRECTORY = path.normalize("D:/jyycode/memory")
+export const DIRECTORY = path.join(Global.Path.data, "memory")
 const MEMORY_CHAR_LIMIT = 10_000
 const USER_CHAR_LIMIT = 2_000
 const ENTRY_LIMIT = 50
@@ -331,7 +333,7 @@ export type UsageInfo = {
 
 export interface Interface {
   readonly dir: (sessionID: SessionID) => Effect.Effect<string>
-  readonly ensure: (sessionID: SessionID) => Effect.Effect<void>
+  readonly ensure: (sessionID: SessionID) => Effect.Effect<void, Error>
   readonly read: (input: { sessionID: SessionID; scope: Scope; section?: string }) => Effect.Effect<string, Error>
   readonly search: (input: {
     sessionID: SessionID
@@ -368,6 +370,16 @@ export interface Interface {
     evaluatorOrTurn?: DecisionEvaluator | TurnText,
     turn?: TurnText,
   ) => Effect.Effect<AutomaticUpdateResult, Error>
+  readonly managementRead?: (input: { sessionID: SessionID; scope: Scope }) => Effect.Effect<MemoryStore, Error>
+  readonly managementCreate?: (input: { sessionID: SessionID; entry: MemoryEntry }) => Effect.Effect<MemoryEntry, Error>
+  readonly managementUpdate?: (input: {
+    sessionID: SessionID
+    expected: MemoryEntry
+    replacement: MemoryEntry
+  }) => Effect.Effect<MemoryEntry, Error>
+  readonly managementRemove?: (input: { sessionID: SessionID; expected: MemoryEntry }) => Effect.Effect<void, Error>
+  readonly managementClearTask?: (input: { sessionID: SessionID }) => Effect.Effect<number, Error>
+  readonly managementCompact?: (input: { sessionID: SessionID; scope: Scope }) => Effect.Effect<CompactionResult, Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/Memory") {}
@@ -382,7 +394,7 @@ const filenames: Record<Scope, string> = {
   user: USER_FILE,
 }
 
-export const layerWithDirectory = (directory: string) =>
+export const layerWithDirectory = (directory: string, options?: { legacyDirectory?: string }) =>
   Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -390,6 +402,7 @@ export const layerWithDirectory = (directory: string) =>
       const sessions = yield* Session.Service
       const flock = yield* EffectFlock.Service
       const memoryDirectory = path.normalize(directory)
+      const legacyDirectory = options?.legacyDirectory ? path.normalize(options.legacyDirectory) : undefined
 
       const dir = Effect.fn("Memory.dir")(function* (_sessionID: SessionID) {
         return memoryDirectory
@@ -417,7 +430,21 @@ export const layerWithDirectory = (directory: string) =>
         for (const scope of ["memory", "user"] as const) {
           const target = yield* filePath(sessionID, scope)
           const exists = yield* fs.existsSafe(target).pipe(Effect.orDie)
-          if (!exists) yield* fs.writeWithDirs(target, templates[scope]).pipe(Effect.orDie)
+          if (!exists) {
+            const legacyText = legacyDirectory
+              ? yield* fs.readFileStringSafe(path.join(legacyDirectory, filenames[scope])).pipe(Effect.orDie)
+              : undefined
+            const initial = legacyText
+              ? yield* Effect.try({
+                  try: () => {
+                    const store = parseStore(scope, legacyText)
+                    return serializeStore(scope, store.entries, store.lastCompactedAt)
+                  },
+                  catch: (error) => asError(error),
+                })
+              : templates[scope]
+            yield* fs.writeWithDirs(target, initial).pipe(Effect.orDie)
+          }
         }
         // Clean up legacy .md files from the old memory system.
         yield* cleanupLegacyMdFiles(memoryDir)
@@ -774,6 +801,157 @@ export const layerWithDirectory = (directory: string) =>
         )
       })
 
+      const managementRead = Effect.fn("Memory.managementRead")(function* (input: {
+        sessionID: SessionID
+        scope: Scope
+      }) {
+        yield* ensure(input.sessionID)
+        return yield* readStore(input.sessionID, input.scope)
+      })
+
+      const validateManagementEntry = (entry: MemoryEntry) => {
+        const normalized = normalizeEntry(entry)
+        if (looksSensitive(normalized.content)) throw new Error("Refusing to store sensitive memory content")
+        if (normalized.scope === "memory") validateTaskContent(normalized.content)
+        return normalized
+      }
+
+      const writeManagedEntries = Effect.fn("Memory.writeManagedEntries")(function* (
+        sessionID: SessionID,
+        scope: Scope,
+        store: MemoryStore,
+        entries: MemoryEntry[],
+        action: string,
+      ) {
+        const projected = serializeStore(scope, entries, store.lastCompactedAt)
+        if (projected.length > charLimit(scope) || entries.length > ENTRY_LIMIT) {
+          return yield* Effect.fail(new Error(`Memory management write exceeds hard capacity limits for ${scope}`))
+        }
+        yield* writeFull(sessionID, scope, projected)
+        yield* audit(sessionID, {
+          writerSessionID: sessionID,
+          writerKind: "desktop-management",
+          action,
+          scope,
+        })
+      })
+
+      const managementCreate = Effect.fn("Memory.managementCreate")(function* (input: {
+        sessionID: SessionID
+        entry: MemoryEntry
+      }) {
+        yield* ensure(input.sessionID)
+        const entry = yield* Effect.try({ try: () => validateManagementEntry(input.entry), catch: asError })
+        const target = yield* filePath(input.sessionID, entry.scope)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(input.sessionID, entry.scope)
+            if (store.entries.some((candidate) => entryKey(candidate) === entryKey(entry))) {
+              return yield* Effect.fail(new Error("Memory entry already exists"))
+            }
+            yield* writeManagedEntries(input.sessionID, entry.scope, store, [...store.entries, entry], "memory.management.create")
+            return entry
+          }),
+          target,
+        )
+      })
+
+      const managementUpdate = Effect.fn("Memory.managementUpdate")(function* (input: {
+        sessionID: SessionID
+        expected: MemoryEntry
+        replacement: MemoryEntry
+      }) {
+        yield* ensure(input.sessionID)
+        if (input.expected.scope !== input.replacement.scope) return yield* Effect.fail(new Error("Memory scope mismatch"))
+        const replacement = yield* Effect.try({ try: () => validateManagementEntry(input.replacement), catch: asError })
+        const target = yield* filePath(input.sessionID, input.expected.scope)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(input.sessionID, input.expected.scope)
+            const index = store.entries.findIndex((entry) => entriesEquivalent(entry, input.expected))
+            if (index === -1) return yield* Effect.fail(new Error("Memory entry is missing or stale"))
+            const duplicate = store.entries.findIndex(
+              (entry, candidateIndex) => candidateIndex !== index && entryKey(entry) === entryKey(replacement),
+            )
+            if (duplicate !== -1) return yield* Effect.fail(new Error("Memory entry conflicts with an existing entry"))
+            const entries = [...store.entries]
+            entries[index] = replacement
+            yield* writeManagedEntries(input.sessionID, input.expected.scope, store, entries, "memory.management.update")
+            return replacement
+          }),
+          target,
+        )
+      })
+
+      const managementRemove = Effect.fn("Memory.managementRemove")(function* (input: {
+        sessionID: SessionID
+        expected: MemoryEntry
+      }) {
+        yield* ensure(input.sessionID)
+        const target = yield* filePath(input.sessionID, input.expected.scope)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(input.sessionID, input.expected.scope)
+            const index = store.entries.findIndex((entry) => entriesEquivalent(entry, input.expected))
+            if (index === -1) return yield* Effect.fail(new Error("Memory entry is missing or stale"))
+            const entries = store.entries.filter((_, candidateIndex) => candidateIndex !== index)
+            yield* writeManagedEntries(input.sessionID, input.expected.scope, store, entries, "memory.management.remove")
+          }),
+          target,
+        )
+      })
+
+      const managementClearTask = Effect.fn("Memory.managementClearTask")(function* (input: { sessionID: SessionID }) {
+        yield* ensure(input.sessionID)
+        const target = yield* filePath(input.sessionID, "memory")
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(input.sessionID, "memory")
+            const entries = store.entries.filter(
+              (entry) => entry.scope !== "memory" || entry.sessionID !== input.sessionID,
+            )
+            const removed = store.entries.length - entries.length
+            yield* writeManagedEntries(input.sessionID, "memory", store, entries, "memory.management.clear_task")
+            return removed
+          }),
+          target,
+        )
+      })
+
+      const managementCompact = Effect.fn("Memory.managementCompact")(function* (input: {
+        sessionID: SessionID
+        scope: Scope
+      }) {
+        yield* ensure(input.sessionID)
+        const targetFile = yield* filePath(input.sessionID, input.scope)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(input.sessionID, input.scope)
+            const source =
+              input.scope === "memory"
+                ? store.entries.filter(
+                    (entry) => entry.scope === "memory" && entry.sessionID === input.sessionID,
+                  )
+                : store.entries
+            const untouched = input.scope === "memory" ? store.entries.filter((entry) => !source.includes(entry)) : []
+            const outcome = compactEntrySet(store, input.scope, source)
+            const entries = input.scope === "memory" ? [...untouched, ...outcome.entries] : outcome.entries
+            yield* writeManagedEntries(input.sessionID, input.scope, store, entries, "memory.management.compact")
+            return {
+              file: targetFile,
+              status: "compacted" as const,
+              message: "Memory compacted.",
+              removed: outcome.removed,
+              merged: outcome.merged,
+              retained: outcome.entries.length,
+              before: outcome.before,
+              after: outcome.after,
+            }
+          }),
+          targetFile,
+        )
+      })
+
       const usage = Effect.fn("Memory.usage")(function* (sessionID: SessionID, scope: Scope) {
         yield* ensure(sessionID)
         const store = yield* readStore(sessionID, scope)
@@ -958,11 +1136,17 @@ export const layerWithDirectory = (directory: string) =>
         formatWithHeader,
         updateAfterTurn,
         updateStepBegin,
+        managementRead,
+        managementCreate,
+        managementUpdate,
+        managementRemove,
+        managementClearTask,
+        managementCompact,
       })
     }),
   ).pipe(Layer.provide(EffectFlock.defaultLayer))
 
-export const layer = layerWithDirectory(DIRECTORY)
+export const layer = layerWithDirectory(DIRECTORY, { legacyDirectory: LEGACY_DIRECTORY })
 
 export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer), Layer.provide(Session.defaultLayer))
 

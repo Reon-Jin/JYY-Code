@@ -2,6 +2,13 @@ import { createSignal } from "solid-js"
 import type { DesktopClient } from "../../data/sdk"
 import type { ModelSelection } from "./model-catalog"
 
+export type ComposerAttachment = {
+  type: "file"
+  mime: string
+  filename: string
+  url: string
+}
+
 export type Value<T> = T | (() => T)
 
 function resolve<T>(value: Value<T>) {
@@ -34,6 +41,7 @@ export function createComposerController(input: ComposerControllerInput) {
   const [stopping, setStopping] = createSignal(false)
   const [failure, setFailure] = createSignal<unknown>()
   const [lastFailedDraft, setLastFailedDraft] = createSignal<string>()
+  let lastFailedAttachments: readonly ComposerAttachment[] = []
   let inFlight: Promise<void> | undefined
   let stopInFlight: Promise<void> | undefined
 
@@ -44,10 +52,14 @@ export function createComposerController(input: ComposerControllerInput) {
     return value
   }
 
-  function send(text = draft(), selection?: { agent: string; model: ModelSelection }): Promise<void> {
+  function send(
+    text = draft(),
+    selection?: { agent: string; model: ModelSelection },
+    attachments: readonly ComposerAttachment[] = [],
+  ): Promise<void> {
     if (inFlight) return inFlight
     setDraft(text)
-    if (!text.trim()) return Promise.resolve()
+    if (!text.trim() && attachments.length === 0) return Promise.resolve()
 
     setFailure(undefined)
     setSending(true)
@@ -57,7 +69,7 @@ export function createComposerController(input: ComposerControllerInput) {
         const sessionID = resolve(input.sessionID)
         const agent = selection?.agent ?? resolve(input.agent)
         const model = selection?.model ?? resolve(input.model)
-        const command = slashCommand(text)
+        const command = attachments.length === 0 ? slashCommand(text) : undefined
         if (command) {
           await input.client.session.command(
             {
@@ -77,16 +89,18 @@ export function createComposerController(input: ComposerControllerInput) {
               agent,
               model,
               agentCluster: { enabled: resolve(input.agentClusterEnabled) },
-              parts: [{ type: "text", text }],
+              parts: [...(text ? [{ type: "text" as const, text }] : []), ...attachments],
             },
             { throwOnError: true },
           )
         }
         setDraft("")
         setLastFailedDraft(undefined)
+        lastFailedAttachments = []
       } catch (cause) {
         setDraft(text)
         setLastFailedDraft(text)
+        lastFailedAttachments = attachments
         setFailure(cause)
         throw cause
       } finally {
@@ -102,7 +116,7 @@ export function createComposerController(input: ComposerControllerInput) {
     const text = lastFailedDraft()
     if (text === undefined) return Promise.resolve()
     setDraft(text)
-    return send(text)
+    return send(text, undefined, lastFailedAttachments)
   }
 
   function stop(): Promise<void> {

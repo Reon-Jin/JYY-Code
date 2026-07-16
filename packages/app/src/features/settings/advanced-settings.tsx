@@ -6,8 +6,9 @@ import { InlineError } from "../../components/ui/inline-error"
 import { keys } from "../../data/query-keys"
 import type { ManagementContextValue } from "../management/management-context"
 import { useManagement } from "../management/management-context"
-import { ComingSoonSetting } from "./coming-soon-setting"
+import { CompactionSettings } from "./compaction-settings"
 import { GlobalConfigReveal } from "./global-config-reveal"
+import { MemorySettings } from "./memory-settings"
 
 const knownShells = ["pwsh", "powershell", "cmd", "bash"] as const
 
@@ -83,18 +84,15 @@ export function AdvancedSettings(props: { management?: ManagementContextValue })
         <GlobalConfigReveal management={management} />
       </section>
 
-      <ComingSoonSetting title={tr("settings.automatic-updates")} reason={tr("settings.the-desktop-package-has-not-yet-generated-an")}>
-        <label class="settings-select-label">
-          <span>{tr("settings.automatic-update-policy")}</span>
-          <select aria-label={tr("settings.automatic-update-policy")} disabled><option>{tr("settings.reminder-only")}</option></select>
-        </label>
-      </ComingSoonSetting>
-      <ComingSoonSetting title={tr("settings.context-compression-parameters")} reason={tr("settings.some-compression-mechanisms-are-still-placeholder-implementations-and")}>
-        <Button variant="secondary" disabled aria-label={tr("settings.configure-context-compression-parameters")}>{tr("settings.configure-advanced-parameters")}</Button>
-      </ComingSoonSetting>
-      <ComingSoonSetting title={tr("settings.memory-management")} reason={tr("settings.the-backend-does-not-yet-provide-a-safe")}>
-        <Button variant="secondary" disabled aria-label={tr("settings.manage-memory")}>{tr("settings.view-clean-and-export-memories")}</Button>
-      </ComingSoonSetting>
+      <section class="settings-card update-release-gate" aria-labelledby="update-release-gate-title">
+        <header>
+          <h3 id="update-release-gate-title">{tr("settings.automatic-updates")}</h3>
+          <span class="settings-badge">{tr("settings.update-not-configured")}</span>
+        </header>
+        <p>{tr("settings.the-desktop-package-has-not-yet-generated-an")}</p>
+      </section>
+      <CompactionSettings management={management} />
+      <MemorySettings />
     </div>
   )
 }

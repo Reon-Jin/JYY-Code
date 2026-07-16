@@ -4,9 +4,19 @@ import userEvent from "@testing-library/user-event"
 import { createSignal, type JSX } from "solid-js"
 import { createDesktopQueryClient } from "../../data/query-client"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { Composer, type ComposerProps } from "./composer"
+import { attachmentFromPath, Composer, type ComposerProps } from "./composer"
 import { createComposerQueueStore } from "./composer-queue"
 import type { CatalogModel } from "./model-catalog"
+
+let desktopDropHandler: ((event: { payload: unknown }) => void) | undefined
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({
+    onDragDropEvent: vi.fn(async (handler: (event: { payload: unknown }) => void) => {
+      desktopDropHandler = handler
+      return vi.fn()
+    }),
+  }),
+}))
 
 const directory = "C:\\work\\demo"
 const sessionID = "ses_1"
@@ -87,14 +97,99 @@ function renderComposer(input?: {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  desktopDropHandler = undefined
+  delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
 })
 
 describe("Composer", () => {
+  it("converts native desktop file paths into prompt attachments", () => {
+    expect(attachmentFromPath("C:\\Users\\dev\\My report.pdf")).toEqual({
+      type: "file",
+      mime: "application/pdf",
+      filename: "My report.pdf",
+      url: "file:///C:/Users/dev/My%20report.pdf",
+    })
+    expect(attachmentFromPath("/tmp/archive.bin")).toMatchObject({
+      mime: "application/octet-stream",
+      filename: "archive.bin",
+      url: "file:///tmp/archive.bin",
+    })
+  })
+
+  it("accepts a native Tauri file drop inside the input region", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} })
+    renderComposer()
+    const input = screen.getByRole("textbox", { name: "消息" }).parentElement!
+    vi.spyOn(input, "getBoundingClientRect").mockReturnValue({
+      x: 10,
+      y: 20,
+      top: 20,
+      right: 410,
+      bottom: 100,
+      left: 10,
+      width: 400,
+      height: 80,
+      toJSON: () => ({}),
+    })
+    await waitFor(() => expect(desktopDropHandler).toBeDefined())
+
+    desktopDropHandler!({
+      payload: { type: "drop", paths: ["C:\\work\\design.png"], position: { x: 80, y: 60 } },
+    })
+
+    await waitFor(() => expect(screen.getByRole("list", { name: "附件" })).toHaveTextContent("design.png"))
+    expect(input).toHaveAttribute("data-dragging", "false")
+    expect(screen.getByRole("textbox", { name: "消息" })).not.toHaveFocus()
+  })
+
   it("starts on one line and keeps the send control icon-only", () => {
     renderComposer()
 
     expect(screen.getByRole("textbox", { name: "消息" })).toHaveAttribute("rows", "1")
     expect(screen.getByRole("button", { name: "发送" })).not.toHaveTextContent("发送")
+  })
+
+  it("adds files from the attachment picker and sends them with the message", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer()
+    const file = new File(["hello attachment"], "notes.txt", { type: "text/plain" })
+
+    await user.upload(screen.getByLabelText("选择文件"), file)
+    await waitFor(() => expect(screen.getByRole("list", { name: "附件" })).toHaveTextContent("notes.txt"))
+
+    await user.type(screen.getByRole("textbox", { name: "消息" }), "read this")
+    await user.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
+    expect((client.session.promptAsync.mock.calls[0]![0] as { parts: unknown }).parts).toEqual([
+      { type: "text", text: "read this" },
+      expect.objectContaining({
+        type: "file",
+        mime: "text/plain",
+        filename: "notes.txt",
+        url: expect.stringMatching(/^data:text\/plain;base64,/),
+      }),
+    ])
+    expect(screen.queryByRole("list", { name: "附件" })).not.toBeInTheDocument()
+  })
+
+  it("accepts dropped files and can send an attachment without text", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer()
+    const input = screen.getByRole("textbox", { name: "消息" }).parentElement!
+    const file = new File([new Uint8Array([1, 2, 3])], "archive.bin")
+
+    fireEvent.drop(input, {
+      dataTransfer: { files: [file], types: ["Files"], dropEffect: "none" },
+    })
+    await waitFor(() => expect(screen.getByRole("list", { name: "附件" })).toHaveTextContent("archive.bin"))
+    expect(screen.getByRole("button", { name: "发送" })).toBeEnabled()
+
+    await user.click(screen.getByRole("button", { name: "发送" }))
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
+    expect((client.session.promptAsync.mock.calls[0]![0] as { parts: unknown }).parts).toEqual([
+      expect.objectContaining({ type: "file", mime: "application/octet-stream", filename: "archive.bin" }),
+    ])
   })
 
   it("grows with the draft, then scrolls after five lines", () => {

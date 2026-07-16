@@ -1,11 +1,13 @@
 import { createSignal, type Accessor, type Setter } from "solid-js"
 import type { ModelSelection } from "./model-catalog"
+import type { ComposerAttachment } from "./composer-controller"
 
 export type QueuedPrompt = {
   id: string
   text: string
   agent: string
   model: ModelSelection
+  attachments: readonly ComposerAttachment[]
 }
 
 type QueueChannel = {
