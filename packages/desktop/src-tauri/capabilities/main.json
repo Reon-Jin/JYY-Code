@@ -8,9 +8,12 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "notification:default",
+    "process:allow-restart",
     "store:allow-load",
     "store:allow-get",
     "store:allow-set",
-    "store:allow-save"
+    "store:allow-save",
+    "updater:allow-check",
+    "updater:allow-download-and-install"
   ]
 }

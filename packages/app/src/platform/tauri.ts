@@ -6,6 +6,8 @@ import {
   sendNotification as sendNativeNotification,
 } from "@tauri-apps/plugin-notification"
 import { Store } from "@tauri-apps/plugin-store"
+import { relaunch } from "@tauri-apps/plugin-process"
+import { check, type Update } from "@tauri-apps/plugin-updater"
 import { normalizeRecentProjects } from "./recent-projects"
 import { parseDesktopSettings, type DesktopSettings } from "../features/settings/settings-preferences"
 import {
@@ -26,6 +28,7 @@ const LAST_LOCATION_KEY = "lastLocation"
 const SETTINGS_KEY = "settings"
 
 let storePromise: Promise<Store> | undefined
+let pendingUpdate: Update | undefined
 
 function desktopStore() {
   storePromise ??= Store.load(STORE_PATH)
@@ -87,11 +90,30 @@ export const tauriBridge: DesktopBridge = {
     sendNativeNotification(notification)
     return { supported: true }
   },
-  checkForUpdate() {
-    return invoke<DesktopUpdateCheck>("check_for_update")
+  async checkForUpdate() {
+    if (pendingUpdate) {
+      await pendingUpdate.close().catch(() => undefined)
+      pendingUpdate = undefined
+    }
+    const update = await check({ timeout: 30_000 })
+    if (!update) return { supported: true, available: false }
+    pendingUpdate = update
+    return {
+      supported: true,
+      available: true,
+      currentVersion: update.currentVersion,
+      version: update.version,
+      ...(update.body ? { notes: update.body } : {}),
+    }
   },
-  installAvailableUpdate() {
-    return invoke<DesktopCapabilityResult>("install_available_update")
+  async installAvailableUpdate() {
+    if (!pendingUpdate) return { supported: false, reason: "No update is available" }
+    const update = pendingUpdate
+    await update.downloadAndInstall()
+    pendingUpdate = undefined
+    await update.close().catch(() => undefined)
+    await relaunch()
+    return { supported: true }
   },
   saveTextFile(suggestedName, contents) {
     return invoke<DesktopSaveResult>("save_text_file", { suggestedName, contents })

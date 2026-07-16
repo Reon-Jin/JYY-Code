@@ -94,10 +94,13 @@ search, editing, deletion, compression, and export; Task memories are listed acr
 to know a Session ID. Exported memory files can contain sensitive conversation-derived information and should be
 handled accordingly.
 
-Automatic updating is not configured in this phase. The Settings page reports that release gate without presenting a
-nonfunctional policy selector. The desktop bundle currently has no updater state machine or signed HTTPS update
-endpoint, and `createUpdaterArtifacts` remains disabled; production update distribution is blocked until those pieces
-and Windows signing are implemented and audited.
+Automatic updating uses Tauri's signed updater with the rolling `desktop-latest` GitHub Release manifest. Settings
+offers three policies: automatically install and restart, check and notify, or turn off automatic checks. Manual
+checking and installation remain available for every policy. Update failures never block application startup.
+
+Updater signatures verify artifact integrity and publisher continuity, but they are separate from Windows
+Authenticode. The 1.0.0 release remains a prerelease until the EXE, sidecar, NSIS installer, and MSI installer are
+signed with the production Windows certificate and verified on clean Windows 10 and 11 machines.
 
 ## Build a Windows release
 
@@ -117,9 +120,10 @@ Outputs are under `packages/desktop/src-tauri/target/x86_64-pc-windows-msvc/rele
 - `desktop-artifacts/SHA256SUMS.txt` — checksums for the portable executable and both installers.
 
 The installers use WebView2's download bootstrapper. Installation needs network access only when WebView2 is absent.
-This build intentionally has no auto-updater and no placeholder signing credentials. Public stable distribution is
-gated on an audited signing setup, and update distribution additionally requires updater artifacts plus a signed HTTPS
-manifest endpoint.
+Normal local builds do not create updater artifacts. The `desktop-release` workflow enables them with the protected
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository secrets, publishes the immutable
+versioned artifacts, and replaces `desktop-latest/latest.json`. The private key must also be kept in an audited offline
+backup; losing it prevents future updates for existing installations.
 
 ## Clean-VM acceptance gate
 

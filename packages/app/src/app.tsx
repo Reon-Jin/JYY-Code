@@ -14,6 +14,7 @@ import { applyTheme } from "./features/settings/theme"
 import { I18nProvider } from "./i18n/i18n-context"
 import { applyStoredGlass } from "./features/settings/glass-preference"
 import { createDesktopNotifications } from "./features/notifications/desktop-notifications"
+import { runDesktopUpdater } from "./features/settings/desktop-updater"
 
 export type AppProps = {
   bridge?: DesktopBridge
@@ -62,6 +63,7 @@ function DesktopApplication() {
         )
         notifications.start()
         await applyStoredGlass(bridge, lifecycle.settings())
+        void runDesktopUpdater(bridge, lifecycle.settings())
       })
       .catch(() => {
         document.documentElement.dataset.glass = "off"

@@ -7,6 +7,10 @@ const state = vi.hoisted(() => ({
   isPermissionGranted: vi.fn(async () => true),
   requestPermission: vi.fn(async () => "granted" as const),
   sendNotification: vi.fn(),
+  checkUpdate: vi.fn(),
+  downloadAndInstall: vi.fn(async () => undefined),
+  closeUpdate: vi.fn(async () => undefined),
+  relaunch: vi.fn(async () => undefined),
 }))
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: state.invoke }))
@@ -25,6 +29,8 @@ vi.mock("@tauri-apps/plugin-store", () => ({
     })),
   },
 }))
+vi.mock("@tauri-apps/plugin-updater", () => ({ check: state.checkUpdate }))
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: state.relaunch }))
 
 import { tauriBridge } from "./tauri"
 import { defaultDesktopSettings } from "../features/settings/settings-preferences"
@@ -35,6 +41,10 @@ describe("Tauri desktop settings persistence", () => {
     state.save.mockClear()
     state.invoke.mockClear()
     state.sendNotification.mockClear()
+    state.checkUpdate.mockReset()
+    state.downloadAndInstall.mockClear()
+    state.closeUpdate.mockClear()
+    state.relaunch.mockClear()
   })
 
   it("round-trips settings through desktop.json", async () => {
@@ -50,18 +60,47 @@ describe("Tauri desktop settings persistence", () => {
     await tauriBridge.getNotificationPermission?.()
     await tauriBridge.requestNotificationPermission()
     await tauriBridge.sendNotification({ title: "JYYCode", body: "Ready" })
-    await tauriBridge.checkForUpdate()
-    await tauriBridge.installAvailableUpdate()
     await tauriBridge.saveTextFile("memory.json", "{}")
 
     expect(state.invoke.mock.calls).toEqual([
       ["set_window_glass", { enabled: true, theme: "dark" }],
-      ["check_for_update"],
-      ["install_available_update"],
       ["save_text_file", { suggestedName: "memory.json", contents: "{}" }],
     ])
     expect(state.requestPermission).toHaveBeenCalledOnce()
     expect(state.sendNotification).toHaveBeenCalledWith({ title: "JYYCode", body: "Ready" })
+  })
+
+  it("checks, installs, closes, and relaunches a signed update", async () => {
+    state.checkUpdate.mockResolvedValueOnce({
+      currentVersion: "1.0.0",
+      version: "1.1.0",
+      body: "New release",
+      downloadAndInstall: state.downloadAndInstall,
+      close: state.closeUpdate,
+    })
+
+    await expect(tauriBridge.checkForUpdate()).resolves.toEqual({
+      supported: true,
+      available: true,
+      currentVersion: "1.0.0",
+      version: "1.1.0",
+      notes: "New release",
+    })
+    await expect(tauriBridge.installAvailableUpdate()).resolves.toEqual({ supported: true })
+
+    expect(state.downloadAndInstall).toHaveBeenCalledOnce()
+    expect(state.closeUpdate).toHaveBeenCalledOnce()
+    expect(state.relaunch).toHaveBeenCalledOnce()
+  })
+
+  it("reports when no update is available", async () => {
+    state.checkUpdate.mockResolvedValueOnce(null)
+
+    await expect(tauriBridge.checkForUpdate()).resolves.toEqual({ supported: true, available: false })
+    await expect(tauriBridge.installAvailableUpdate()).resolves.toEqual({
+      supported: false,
+      reason: "No update is available",
+    })
   })
 
   it("passes config reveal as a command argument", async () => {
