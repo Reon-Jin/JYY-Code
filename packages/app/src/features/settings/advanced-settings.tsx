@@ -7,6 +7,7 @@ import { keys } from "../../data/query-keys"
 import type { ManagementContextValue } from "../management/management-context"
 import { useManagement } from "../management/management-context"
 import { ComingSoonSetting } from "./coming-soon-setting"
+import { CompactionSettings } from "./compaction-settings"
 import { GlobalConfigReveal } from "./global-config-reveal"
 
 const knownShells = ["pwsh", "powershell", "cmd", "bash"] as const
@@ -89,9 +90,7 @@ export function AdvancedSettings(props: { management?: ManagementContextValue })
           <select aria-label={tr("settings.automatic-update-policy")} disabled><option>{tr("settings.reminder-only")}</option></select>
         </label>
       </ComingSoonSetting>
-      <ComingSoonSetting title={tr("settings.context-compression-parameters")} reason={tr("settings.some-compression-mechanisms-are-still-placeholder-implementations-and")}>
-        <Button variant="secondary" disabled aria-label={tr("settings.configure-context-compression-parameters")}>{tr("settings.configure-advanced-parameters")}</Button>
-      </ComingSoonSetting>
+      <CompactionSettings management={management} />
       <ComingSoonSetting title={tr("settings.memory-management")} reason={tr("settings.the-backend-does-not-yet-provide-a-safe")}>
         <Button variant="secondary" disabled aria-label={tr("settings.manage-memory")}>{tr("settings.view-clean-and-export-memories")}</Button>
       </ComingSoonSetting>

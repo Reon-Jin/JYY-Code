@@ -155,7 +155,8 @@ describe("desktop accessibility contract", () => {
     await user.keyboard("{Enter}")
     expect(await screen.findByRole("combobox", { name: "默认 Shell" })).toBeEnabled()
     expect(screen.getByLabelText("自动更新策略")).toBeDisabled()
-    expect(screen.getByRole("button", { name: "配置上下文压缩参数" })).toBeDisabled()
+    expect(await screen.findByRole("checkbox", { name: "自动压缩" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "保存压缩参数" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "管理记忆" })).toBeDisabled()
 
     const back = screen.getByRole("button", { name: "返回" })

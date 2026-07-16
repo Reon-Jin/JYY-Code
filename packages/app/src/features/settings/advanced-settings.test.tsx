@@ -15,6 +15,19 @@ function management(shell = "cmd") {
         get: vi.fn(async () => ({ data: { shell } })),
         update: vi.fn(async ({ config }: { config: { shell: string } }) => ({ data: config })),
       },
+      compaction: {
+        get: vi.fn(async () => ({ data: {
+          auto: true,
+          prune: true,
+          tailTurns: 2,
+          triggerRatio: 0.92,
+          microCompact: true,
+          microCompactMaxChars: 8000,
+          reactiveCompact: true,
+        } })),
+        update: vi.fn(),
+        reset: vi.fn(),
+      },
     },
     path: {
       get: vi.fn(async () => ({ data: { config: "C:\\Users\\dev\\.config\\jyycode" } })),
@@ -57,12 +70,13 @@ describe("AdvancedSettings", () => {
     )
   })
 
-  it("preserves an unrecognized existing Shell and disables deferred settings", async () => {
+  it("preserves an unrecognized existing Shell and keeps only unfinished settings deferred", async () => {
     renderAdvanced(management("nu"))
 
     expect(await screen.findByRole("option", { name: "当前值：nu" })).toBeInTheDocument()
     expect(screen.getByLabelText("自动更新策略")).toBeDisabled()
-    expect(screen.getByRole("button", { name: "配置上下文压缩参数" })).toBeDisabled()
+    expect(screen.getByRole("heading", { name: "上下文压缩参数" })).toBeVisible()
+    expect(screen.queryByRole("button", { name: "配置上下文压缩参数" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "管理记忆" })).toBeDisabled()
   })
 })

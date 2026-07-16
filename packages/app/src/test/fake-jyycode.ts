@@ -4,6 +4,7 @@ import type {
   GitHubPullRequestDetail,
   GitHubPullRequestSummary,
   GlobalEvent,
+  GlobalCompaction,
   Message,
   McpLocalConfig,
   McpRemoteConfig,
@@ -123,6 +124,16 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       max_review_rounds: 2,
     },
   }
+  const defaultGlobalCompaction = (): GlobalCompaction => ({
+    auto: true,
+    prune: true,
+    tailTurns: 2,
+    triggerRatio: 0.92,
+    microCompact: true,
+    microCompactMaxChars: 8000,
+    reactiveCompact: true,
+  })
+  let globalCompaction = defaultGlobalCompaction()
   const pullRequests: GitHubPullRequestSummary[] = [
     {
       number: 1,
@@ -244,6 +255,15 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     if (url.pathname === "/global/event") return sse(request)
     if (url.pathname === "/global/health") return json({ healthy: true, version: "test" })
     if (url.pathname === "/global/management-context") return json({ directory: "C:\\Users\\test" })
+    if (url.pathname === "/global/compaction" && request.method === "GET") return json(globalCompaction)
+    if (url.pathname === "/global/compaction" && request.method === "PUT") {
+      globalCompaction = value as GlobalCompaction
+      return json(globalCompaction)
+    }
+    if (url.pathname === "/global/compaction" && request.method === "DELETE") {
+      globalCompaction = defaultGlobalCompaction()
+      return json(globalCompaction)
+    }
     if (url.pathname === "/global/default-permission" && request.method === "GET") {
       const permission = globalConfig.permission
       const entries =

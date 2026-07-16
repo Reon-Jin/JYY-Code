@@ -180,9 +180,10 @@ describe("desktop GUI journey", () => {
     await user.click(screen.getByRole("button", { name: "打开全局配置文件" }))
     await waitFor(() => expect(desktop.bridge.revealConfigFile).toHaveBeenCalledWith("C:\\config\\jyycode.jsonc"))
     expect(screen.getByLabelText("自动更新策略")).toBeDisabled()
-    expect(screen.getByRole("button", { name: "配置上下文压缩参数" })).toBeDisabled()
+    expect(await screen.findByRole("checkbox", { name: "自动压缩" })).toBeChecked()
+    expect(screen.getByRole("button", { name: "保存压缩参数" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "管理记忆" })).toBeDisabled()
-    expect(screen.getAllByText("即将推出")).toHaveLength(3)
+    expect(screen.getAllByText("即将推出")).toHaveLength(2)
 
     await user.click(screen.getByRole("button", { name: "返回" }))
     expect(await screen.findByRole("heading", { name: "JYYCode" })).toBeVisible()
