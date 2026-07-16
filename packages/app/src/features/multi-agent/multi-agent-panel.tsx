@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { createQuery } from "@tanstack/solid-query"
 import { Bot, RefreshCw } from "lucide-solid"
 import { createMemo, For, Show } from "solid-js"
@@ -15,37 +16,40 @@ import {
 } from "./multi-agent-state"
 import "./multi-agent.css"
 
-const toneLabels: Record<MultiAgentTaskTone, string> = {
-  queued: "等待中",
-  running: "运行中",
-  review: "复核中",
-  done: "已完成",
-  failed: "失败",
+function toneLabel(tone: MultiAgentTaskTone) {
+  const labels: Record<MultiAgentTaskTone, string> = {
+  queued: tr("multi-agent.waiting"),
+  running: tr("multi-agent.running"),
+  review: tr("multi-agent.under-review"),
+  done: tr("conversation.completed"),
+  failed: tr("multi-agent.fail"),
+  }
+  return labels[tone]
 }
 
 function roleLabel(value: string) {
   const labels: Record<string, string> = {
-    general: "通用",
-    researcher: "调研",
-    coder: "编码",
-    reviewer: "审阅",
-    planner: "规划",
+    general: tr("multi-agent.universal"),
+    researcher: tr("multi-agent.research"),
+    coder: tr("multi-agent.coding"),
+    reviewer: tr("multi-agent.review"),
+    planner: tr("multi-agent.planning"),
   }
   return labels[value.toLowerCase()] ?? value
 }
 
 function eventLabel(value: string) {
   const labels: Record<string, string> = {
-    planned: "已规划",
-    queued: "已进入队列",
-    running: "正在运行",
-    revising: "正在修改",
-    submitted: "已提交",
-    reviewing: "正在复核",
-    revision_requested: "已要求修改",
-    accepted: "已通过",
-    failed: "失败",
-    cancelled: "已取消",
+    planned: tr("multi-agent.planned"),
+    queued: tr("multi-agent.already-queued"),
+    running: tr("multi-agent.running-2"),
+    revising: tr("multi-agent.modifying"),
+    submitted: tr("multi-agent.submitted"),
+    reviewing: tr("multi-agent.under-review-2"),
+    revision_requested: tr("multi-agent.modification-requested"),
+    accepted: tr("multi-agent.passed"),
+    failed: tr("multi-agent.fail"),
+    cancelled: tr("multi-agent.canceled"),
   }
   return labels[value.toLowerCase()] ?? value
 }
@@ -68,37 +72,37 @@ function TaskDetails(props: { task: MultiAgentTaskView }) {
     <div class="multi-agent-task__details">
       <dl>
         <div>
-          <dt>角色</dt>
+          <dt>{tr("multi-agent.role")}</dt>
           <dd>{roleLabel(props.task.role)}</dd>
         </div>
         <div>
-          <dt>模型</dt>
+          <dt>{tr("composer.model")}</dt>
           <dd>{props.task.model}</dd>
         </div>
         <div>
-          <dt>状态</dt>
+          <dt>{tr("multi-agent.state")}</dt>
           <dd>{props.task.statusLabel}</dd>
         </div>
       </dl>
       <Show when={props.task.reviewRound > 0}>
-        <p>第 {props.task.reviewRound} 轮复核</p>
+        <p>{tr("multi-agent.no")} {props.task.reviewRound} {tr("multi-agent.round-review")}</p>
       </Show>
       <Show when={props.task.lastEvent}>
         <div class="multi-agent-task__field">
-          <strong>最近事件</strong>
+          <strong>{tr("multi-agent.recent-events")}</strong>
           <p>{eventLabel(props.task.lastEvent!)}</p>
         </div>
       </Show>
-      <DetailList label="依赖任务" values={props.task.dependencies} />
-      <DetailList label="验收标准" values={props.task.acceptanceCriteria} />
+      <DetailList label={tr("multi-agent.dependent-tasks")} values={props.task.dependencies} />
+      <DetailList label={tr("multi-agent.acceptance-criteria")} values={props.task.acceptanceCriteria} />
       <Show when={props.task.resultSummary}>
         <div class="multi-agent-task__field">
-          <strong>结果摘要</strong>
+          <strong>{tr("multi-agent.summary-of-results")}</strong>
           <p>{props.task.resultSummary}</p>
         </div>
       </Show>
-      <DetailList label="复核问题" values={props.task.reviewIssues} />
-      <DetailList label="产物" values={props.task.artifactPaths} />
+      <DetailList label={tr("multi-agent.review-question")} values={props.task.reviewIssues} />
+      <DetailList label={tr("multi-agent.product")} values={props.task.artifactPaths} />
     </div>
   )
 }
@@ -121,9 +125,9 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
     <section class="multi-agent-panel" aria-labelledby="multi-agent-panel-title">
       <header class="multi-agent-panel__header">
         <Bot aria-hidden="true" />
-        <h2 id="multi-agent-panel-title">多智能体</h2>
+        <h2 id="multi-agent-panel-title">{tr("multi-agent.multi-agent")}</h2>
         <span class="multi-agent-panel__counts">
-          {props.snapshot.runningAgents} 运行 · {props.snapshot.doneAgents} 完成 · {props.snapshot.failedAgents} 失败
+          {props.snapshot.runningAgents} {tr("multi-agent.run")} {props.snapshot.doneAgents} {tr("multi-agent.finish")} {props.snapshot.failedAgents} {tr("multi-agent.fail")}
         </span>
       </header>
 
@@ -131,7 +135,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
         when={!props.loading}
         fallback={
           <p class="multi-agent-panel__loading" role="status" aria-live="polite">
-            <Spinner /> 正在加载多智能体任务
+            <Spinner /> {tr("multi-agent.loading-multi-agent-tasks")}
           </p>
         }
       >
@@ -143,18 +147,18 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
               <Show when={props.onRetry}>
                 <Button size="small" variant="secondary" onClick={props.onRetry}>
                   <RefreshCw aria-hidden="true" />
-                  重试
+                  {tr("changes.try-again")}
                 </Button>
               </Show>
             </div>
           }
         >
-          <Show when={props.sessionID} fallback={<p class="multi-agent-panel__empty">选择会话后查看多智能体任务</p>}>
+          <Show when={props.sessionID} fallback={<p class="multi-agent-panel__empty">{tr("multi-agent.view-multi-agent-tasks-after-selecting-a-session")}</p>}>
             <Show
               when={run()}
               fallback={
                 <p class="multi-agent-panel__empty">
-                  {props.enabled ? "正在等待主智能体生成计划" : "当前会话未启用多智能体"}
+                  {props.enabled ? tr("multi-agent.waiting-for-master-agent-to-generate-plan") : tr("multi-agent.multi-agent-is-not-enabled-for-the-current")}
                 </p>
               }
             >
@@ -166,12 +170,12 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                     </span>
                     <Show
                       when={props.snapshot.totalAgents > 0}
-                      fallback={<p class="multi-agent-panel__empty">正在等待主智能体生成计划</p>}
+                      fallback={<p class="multi-agent-panel__empty">{tr("multi-agent.waiting-for-master-agent-to-generate-plan")}</p>}
                     >
                       <div
                         class="multi-agent-progress"
                         role="progressbar"
-                        aria-label="多智能体进度"
+                        aria-label={tr("multi-agent.multi-agent-progress")}
                         aria-valuemin="0"
                         aria-valuemax={props.snapshot.totalAgents}
                         aria-valuenow={props.snapshot.doneAgents}
@@ -183,7 +187,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                         />
                       </div>
                       <p class="multi-agent-summary__counts">
-                        步骤 {props.snapshot.currentStep}/{props.snapshot.totalSteps} · {props.snapshot.completedSteps} 完成
+                        {tr("multi-agent.step")} {props.snapshot.currentStep}/{props.snapshot.totalSteps} · {props.snapshot.completedSteps} {tr("multi-agent.finish-2")}
                       </p>
                     </Show>
                   </div>
@@ -193,10 +197,10 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                       {(step) => (
                         <section class="multi-agent-step" aria-labelledby={`multi-agent-step-${step.index}`}>
                           <header>
-                            <h3 id={`multi-agent-step-${step.index}`}>步骤 {step.index}</h3>
-                            <span data-tone={step.tone}>{toneLabels[step.tone]}</span>
+                            <h3 id={`multi-agent-step-${step.index}`}>{tr("multi-agent.step")} {step.index}</h3>
+                            <span data-tone={step.tone}>{toneLabel(step.tone)}</span>
                           </header>
-                          <ol aria-label={`步骤 ${step.index} 的任务`}>
+                          <ol aria-label={tr("multi-agent.tasks-for-step", { index: step.index })}>
                             <For each={step.tasks}>
                               {(task) => (
                                 <li
@@ -216,14 +220,14 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                                           <Button
                                             size="small"
                                             variant="ghost"
-                                            aria-label={`审阅：${task.title}`}
+                                            aria-label={tr("multi-agent.review-task", { title: task.title })}
                                             onClick={(event) => {
                                               event.preventDefault()
                                               event.stopPropagation()
                                               props.onOpenChild(childSessionID())
                                             }}
                                           >
-                                            审阅
+                                            {tr("multi-agent.review")}
                                           </Button>
                                         )}
                                       </Show>
@@ -276,7 +280,7 @@ export function MultiAgentPanel(props: {
       snapshot={snapshot()}
       selectedChildSessionID={props.selectedChildSessionID}
       loading={Boolean(props.sessionID) && query.isPending}
-      error={query.error ? errorMessage(query.error, "无法加载多智能体任务") : undefined}
+      error={query.error ? errorMessage(query.error, tr("multi-agent.unable-to-load-multi-agent-task")) : undefined}
       onRetry={() => void query.refetch()}
       onOpenChild={props.onOpenChild}
     />

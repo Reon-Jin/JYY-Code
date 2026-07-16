@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { Part } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
 import { createMemo, For, Show } from "solid-js"
@@ -22,12 +23,12 @@ export function TaskActivityContent(props: { messages: readonly ConversationMess
     <Show when={parts().length > 0 || props.running}>
       <ActivityGroup
         class="tool-call__activity"
-        label="Task 执行过程"
+        label={tr("conversation.task-execution-process")}
         count={parts().length}
         running={props.running}
         defaultExpanded
       >
-        <Show when={parts().length > 0} fallback={<span class="task-activity__waiting">等待子任务输出…</span>}>
+        <Show when={parts().length > 0} fallback={<span class="task-activity__waiting">{tr("conversation.waiting-for-subtask-output")}</span>}>
           <For each={parts()}>{(part) => <MessagePartView part={part} />}</For>
         </Show>
       </ActivityGroup>

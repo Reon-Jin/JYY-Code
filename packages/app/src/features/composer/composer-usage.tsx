@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { Show, type JSX } from "solid-js"
 import type { ComposerUsageMetrics } from "./usage-metrics"
 
@@ -12,7 +13,7 @@ const money = new Intl.NumberFormat("zh-CN", {
 })
 
 function compact(value: number | undefined) {
-  return value === undefined ? "暂无数据" : compactNumber.format(value)
+  return value === undefined ? tr("composer.no-data-yet") : compactNumber.format(value)
 }
 
 function exact(value: number) {
@@ -23,15 +24,15 @@ export function ComposerUsage(props: { metrics: ComposerUsageMetrics; permission
   const contextLabel = () => {
     const used = props.metrics.contextUsed
     const limit = props.metrics.contextWindow
-    if (used === undefined) return "暂无数据"
+    if (used === undefined) return tr("composer.no-data-yet")
     return limit === undefined ? compact(used) : `${compact(used)} / ${compact(limit)}`
   }
 
   return (
-    <div class="composer-usage" aria-label="会话用量">
+    <div class="composer-usage" aria-label={tr("composer.session-usage")}>
       <div class="composer-usage__item composer-usage__permission">{props.permissionControl}</div>
       <div class="composer-usage__item composer-usage__context">
-        <span>窗口使用情况</span>
+        <span>{tr("composer.window-usage")}</span>
         <strong>
           {contextLabel()}
           <Show when={props.metrics.contextPercent !== undefined}>
@@ -50,23 +51,23 @@ export function ComposerUsage(props: { metrics: ComposerUsageMetrics; permission
               tabIndex={0}
               aria-describedby="composer-token-breakdown"
             >
-              <span>主 + 子智能体 Token</span>
+              <span>{tr("composer.main-sub-agent-token")}</span>
               <strong>{compact(aggregate.tokens.total)}</strong>
               <div id="composer-token-breakdown" class="composer-usage__popover" role="tooltip">
-                <strong>Token 来源</strong>
+                <strong>{tr("composer.token-source")}</strong>
                 <dl>
-                  <div><dt>输入</dt><dd>{exact(aggregate.tokens.input)}</dd></div>
-                  <div><dt>输出</dt><dd>{exact(aggregate.tokens.output)}</dd></div>
-                  <div><dt>思考</dt><dd>{exact(aggregate.tokens.reasoning)}</dd></div>
-                  <div><dt>工具调用</dt><dd>已计入输入/输出，提供商未单列</dd></div>
-                  <div><dt>子智能体</dt><dd>{exact(aggregate.tokens.subagents)}</dd></div>
-                  <div><dt>其它（缓存）</dt><dd>{exact(aggregate.tokens.other)}</dd></div>
-                  <div class="composer-usage__total"><dt>总计</dt><dd>{exact(aggregate.tokens.total)}</dd></div>
+                  <div><dt>{tr("composer.enter")}</dt><dd>{exact(aggregate.tokens.input)}</dd></div>
+                  <div><dt>{tr("composer.output")}</dt><dd>{exact(aggregate.tokens.output)}</dd></div>
+                  <div><dt>{tr("composer.think")}</dt><dd>{exact(aggregate.tokens.reasoning)}</dd></div>
+                  <div><dt>{tr("composer.tool-call")}</dt><dd>{tr("composer.included-in-input-output-provider-not-listed-separately")}</dd></div>
+                  <div><dt>{tr("composer.subagent")}</dt><dd>{exact(aggregate.tokens.subagents)}</dd></div>
+                  <div><dt>{tr("composer.others-cache")}</dt><dd>{exact(aggregate.tokens.other)}</dd></div>
+                  <div class="composer-usage__total"><dt>{tr("composer.total")}</dt><dd>{exact(aggregate.tokens.total)}</dd></div>
                 </dl>
               </div>
             </div>
             <div class="composer-usage__item">
-              <span>API 消费</span>
+              <span>{tr("composer.api-consumption")}</span>
               <strong>{money.format(aggregate.cost * usdToCnyRate)}</strong>
             </div>
           </>

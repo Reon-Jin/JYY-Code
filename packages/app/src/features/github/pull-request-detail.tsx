@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { GitHubPullRequestCheck, GitHubPullRequestDetail as Detail } from "@jyycode-ai/sdk/v2/client"
 import { CheckCircle2, CircleDashed, CircleX, Clock3, GitCommit, MessageSquare } from "lucide-solid"
 import { createSignal, For, Match, Show, Switch, type JSX } from "solid-js"
@@ -44,12 +45,12 @@ export function PullRequestDetailView(props: {
 }) {
   const [tab, setTab] = createSignal<"overview" | "diff">("overview")
   return (
-    <section class="pull-detail" aria-label="Pull Request 详情">
+    <section class="pull-detail" aria-label={tr("github.pull-request-details")}>
       <Show
         when={!props.loading}
         fallback={
           <p class="pull-detail__state" role="status">
-            <Spinner /> 正在加载详情
+            <Spinner /> {tr("github.loading-details")}
           </p>
         }
       >
@@ -61,7 +62,7 @@ export function PullRequestDetailView(props: {
             </div>
           }
         >
-          <Show when={props.detail} fallback={<p class="pull-detail__state">从左侧选择 Pull Request</p>}>
+          <Show when={props.detail} fallback={<p class="pull-detail__state">{tr("github.select-pull-request-from-the-left")}</p>}>
             {(pull) => (
               <>
                 <header class="pull-detail__header">
@@ -73,14 +74,14 @@ export function PullRequestDetailView(props: {
                     <h3>{pull().title}</h3>
                     <Show when={props.onEdit}>
                       <Button size="small" variant="ghost" onClick={props.onEdit}>
-                        编辑
+                        {tr("github.edit")}
                       </Button>
                     </Show>
                   </div>
                   <p>
-                    由 {pull().author.name ?? pull().author.login} 提交 · {pull().headRefName} → {pull().baseRefName}
+                    {tr("github.depend-on")} {pull().author.name ?? pull().author.login} {tr("github.submit")} {pull().headRefName} → {pull().baseRefName}
                   </p>
-                  <div class="pull-detail__tabs" aria-label="Pull Request 详情视图">
+                  <div class="pull-detail__tabs" aria-label={tr("github.pull-request-details-view")}>
                     <button type="button" aria-pressed={tab() === "overview"} onClick={() => setTab("overview")}>
                       Overview
                     </button>
@@ -91,25 +92,25 @@ export function PullRequestDetailView(props: {
                 </header>
                 <Show
                   when={tab() === "overview"}
-                  fallback={props.diff ?? <p class="pull-detail__state">Diff 暂不可用</p>}
+                  fallback={props.diff ?? <p class="pull-detail__state">{tr("github.diff-is-not-available-yet")}</p>}
                 >
                   <div class="pull-detail__body">
                     <section>
-                      <h4>说明</h4>
+                      <h4>{tr("github.illustrate")}</h4>
                       <div
                         class="pull-detail__markdown conversation-markdown"
-                        innerHTML={renderMarkdown(pull().body || "未填写说明")}
+                        innerHTML={renderMarkdown(pull().body || tr("github.no-description-filled-in"))}
                       />
                     </section>
                     <section>
-                      <h4>合并状态</h4>
+                      <h4>{tr("github.merge-status")}</h4>
                       <p>
                         {pull().mergeable || "UNKNOWN"} · {pull().reviewDecision ?? "No review decision"}
                       </p>
                     </section>
                     <section>
                       <h4>Checks</h4>
-                      <Show when={pull().checks.length} fallback={<p>没有 Checks</p>}>
+                      <Show when={pull().checks.length} fallback={<p>{tr("github.no-checks")}</p>}>
                         <ul class="pull-checks">
                           <For each={pull().checks}>
                             {(check) => {
@@ -130,7 +131,7 @@ export function PullRequestDetailView(props: {
                       <h4>
                         <GitCommit aria-hidden="true" /> Commits
                       </h4>
-                      <Show when={pull().commits.length} fallback={<p>没有 Commit 信息</p>}>
+                      <Show when={pull().commits.length} fallback={<p>{tr("github.no-commit-information")}</p>}>
                         <ul class="pull-detail__items">
                           <For each={pull().commits}>
                             {(commit) => (
@@ -147,7 +148,7 @@ export function PullRequestDetailView(props: {
                       <h4>
                         <MessageSquare aria-hidden="true" /> Comments
                       </h4>
-                      <Show when={pull().comments.length} fallback={<p>暂无评论</p>}>
+                      <Show when={pull().comments.length} fallback={<p>{tr("github.no-comments")}</p>}>
                         <ul class="pull-comments">
                           <For each={pull().comments}>
                             {(comment) => (

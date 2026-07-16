@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { ArrowDown, MessageCircle } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
@@ -68,7 +69,7 @@ function PresentedGroupView(props: {
 
   return (
     <Show when={props.group.type === "activity"} fallback={parts()}>
-      <ActivityGroup label="思考与工具调用" count={props.group.parts.length} running={running()}>
+      <ActivityGroup label={tr("conversation.thinking-and-tool-calling")} count={props.group.parts.length} running={running()}>
         {parts()}
       </ActivityGroup>
     </Show>
@@ -90,7 +91,7 @@ function PresentedMessageView(props: {
     <article
       class="conversation-message"
       data-role={props.message.info.role}
-      aria-label={props.message.info.role === "user" ? "我的消息" : "Agent 回复"}
+      aria-label={props.message.info.role === "user" ? tr("conversation.my-message") : tr("conversation.agent-reply")}
     >
       <Show when={props.message.info.role === "assistant"}>
         <header>{props.message.info.agent}</header>
@@ -152,12 +153,12 @@ export function MessageTimeline(props: MessageTimelineProps) {
   })
 
   return (
-    <section class="message-timeline" aria-label="对话消息">
+    <section class="message-timeline" aria-label={tr("conversation.conversation-messages")}>
       <Show
         when={!props.loading}
         fallback={
           <div class="message-timeline__loading" role="status">
-            <Spinner /> 正在加载消息
+            <Spinner /> {tr("conversation.loading-messages")}
           </div>
         }
       >
@@ -168,7 +169,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
               <InlineError message={props.error!} />
               <Show when={props.onRetry}>
                 <Button size="small" variant="secondary" onClick={props.onRetry}>
-                  重新加载
+                  {tr("conversation.reload")}
                 </Button>
               </Show>
             </div>
@@ -188,7 +189,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
               fallback={
                 <div class="message-timeline__empty" role="status">
                   <MessageCircle aria-hidden="true" />
-                  <span>还没有消息，从下方开始对话。</span>
+                  <span>{tr("conversation.no-news-yet-start-the-conversation-below")}</span>
                 </div>
               }
             >
@@ -206,7 +207,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
 
       <Show when={hasNewMessages()}>
         <Button class="message-timeline__new" variant="secondary" size="small" onClick={scrollToBottom}>
-          <ArrowDown aria-hidden="true" /> 新消息
+          <ArrowDown aria-hidden="true" /> {tr("conversation.new-news")}
         </Button>
       </Show>
     </section>

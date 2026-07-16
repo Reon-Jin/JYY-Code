@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { GitHubPullRequestSummary } from "@jyycode-ai/sdk/v2/client"
 import { GitPullRequest, Plus, RefreshCw } from "lucide-solid"
 import { For, Show } from "solid-js"
@@ -29,9 +30,9 @@ export function PullRequestList(props: {
   onCreate?: () => void
 }) {
   return (
-    <section class="pull-list" aria-label="Pull Request 列表">
+    <section class="pull-list" aria-label={tr("github.pull-request-list")}>
       <header class="pull-list__toolbar">
-        <div class="pull-list__filters" aria-label="Pull Request 状态">
+        <div class="pull-list__filters" aria-label={tr("github.pull-request-status")}>
           <For each={filters}>
             {(filter) => (
               <button
@@ -44,11 +45,11 @@ export function PullRequestList(props: {
             )}
           </For>
         </div>
-        <Button size="icon" variant="ghost" aria-label="刷新 Pull Requests" onClick={props.onRefresh}>
+        <Button size="icon" variant="ghost" aria-label={tr("github.refresh-pull-requests")} onClick={props.onRefresh}>
           <RefreshCw aria-hidden="true" />
         </Button>
         <Show when={props.onCreate}>
-          <Button size="icon" variant="ghost" aria-label="创建 Pull Request" onClick={props.onCreate}>
+          <Button size="icon" variant="ghost" aria-label={tr("github.create-pull-request")} onClick={props.onCreate}>
             <Plus aria-hidden="true" />
           </Button>
         </Show>
@@ -57,7 +58,7 @@ export function PullRequestList(props: {
         when={!props.loading}
         fallback={
           <p class="pull-list__state" role="status">
-            <Spinner /> 正在加载 Pull Requests
+            <Spinner /> {tr("github.loading-pull-requests")}
           </p>
         }
       >
@@ -69,7 +70,7 @@ export function PullRequestList(props: {
             </div>
           }
         >
-          <Show when={props.pulls.length > 0} fallback={<p class="pull-list__state">当前范围没有 Pull Request</p>}>
+          <Show when={props.pulls.length > 0} fallback={<p class="pull-list__state">{tr("github.there-is-no-pull-request-for-the-current")}</p>}>
             <ul>
               <For each={props.pulls}>
                 {(pull) => (

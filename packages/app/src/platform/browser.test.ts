@@ -1,22 +1,52 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createBrowserBridge } from "./browser"
+import { defaultDesktopSettings } from "../features/settings/settings-preferences"
 
 describe("browser desktop settings persistence", () => {
   beforeEach(() => localStorage.clear())
 
   it("round-trips validated settings", async () => {
     const bridge = createBrowserBridge(localStorage)
-    await bridge.saveSettings({ startup: "home", theme: "light" })
+    await bridge.saveSettings({ ...defaultDesktopSettings, startup: "home", theme: "light" })
 
-    expect(await bridge.loadSettings()).toEqual({ startup: "home", theme: "light" })
+    expect(await bridge.loadSettings()).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
   })
 
   it("recovers from malformed storage", async () => {
     localStorage.setItem("jyycode.desktop.settings", "{not json")
-    expect(await createBrowserBridge(localStorage).loadSettings()).toEqual({ startup: "restore", theme: "dark" })
+    expect(await createBrowserBridge(localStorage).loadSettings()).toEqual(defaultDesktopSettings)
 
     localStorage.setItem("jyycode.desktop.settings", JSON.stringify({ startup: "bad", theme: "liquid" }))
-    expect(await createBrowserBridge(localStorage).loadSettings()).toEqual({ startup: "restore", theme: "dark" })
+    expect(await createBrowserBridge(localStorage).loadSettings()).toEqual(defaultDesktopSettings)
+  })
+
+  it("reports native capabilities as unsupported", async () => {
+    const bridge = createBrowserBridge(localStorage)
+
+    await expect(bridge.setWindowGlass(true, "dark")).resolves.toMatchObject({ supported: false })
+    await expect(bridge.requestNotificationPermission()).resolves.toBe("unsupported")
+    await expect(bridge.sendNotification({ title: "JYYCode", body: "Ready" })).resolves.toMatchObject({
+      supported: false,
+    })
+    await expect(bridge.checkForUpdate()).resolves.toMatchObject({ supported: false, available: false })
+    await expect(bridge.installAvailableUpdate()).resolves.toMatchObject({ supported: false })
+  })
+
+  it("downloads exported text through a browser Blob", async () => {
+    const createObjectURL = vi.fn(() => "blob:memory")
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined)
+
+    await expect(createBrowserBridge(localStorage).saveTextFile("memory.json", "{}")).resolves.toEqual({
+      supported: true,
+      saved: true,
+    })
+    expect(createObjectURL).toHaveBeenCalledOnce()
+    expect(click).toHaveBeenCalledOnce()
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:memory")
+
+    vi.unstubAllGlobals()
   })
 
   it("rejects native config reveal", async () => {

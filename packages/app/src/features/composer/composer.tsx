@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import { ListPlus, RotateCcw, Send, Square } from "lucide-solid"
@@ -170,7 +171,7 @@ export function Composer(props: ComposerProps) {
           onRemove={queue.remove}
         />
       </Show>
-      <section class="composer" data-minimal={props.minimal ? "true" : "false"} aria-label="消息编辑器">
+      <section class="composer" data-minimal={props.minimal ? "true" : "false"} aria-label={tr("composer.message-editor")}>
         <Show when={!props.minimal}>
           <div class="composer__selectors">
           <AgentSelect
@@ -222,19 +223,19 @@ export function Composer(props: ComposerProps) {
             }}
           />
           <label class="composer__label" for="composer-message">
-            消息
+            {tr("composer.information")}
           </label>
           <textarea
             ref={textarea}
             id="composer-message"
-            aria-label="消息"
+            aria-label={tr("composer.information")}
             rows={1}
             value={controller.draft()}
             aria-autocomplete="list"
             aria-expanded={autocompleteOpen()}
             aria-controls={autocompleteOpen() ? "composer-skill-listbox" : undefined}
             disabled={controller.sending()}
-            placeholder="向智能体发送消息"
+            placeholder={tr("composer.send-message-to-agent")}
             onInput={(event) => {
               controller.setDraft(event.currentTarget.value)
               setAutocompleteDismissed(false)
@@ -264,10 +265,10 @@ export function Composer(props: ComposerProps) {
               when={active()}
               fallback={
                 <IconButton
-                  label={controller.sending() ? "正在发送" : "发送"}
+                  label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
                   disabled={props.disabled || !controller.draft().trim()}
                   loading={controller.sending()}
-                  loadingLabel="正在发送"
+                  loadingLabel={tr("composer.sending")}
                   onClick={submit}
                 >
                   <Send aria-hidden="true" />
@@ -275,18 +276,18 @@ export function Composer(props: ComposerProps) {
               }
             >
               <div class="composer__active-actions">
-                <IconButton label="加入队列" disabled={!controller.draft().trim()} onClick={submit}>
+                <IconButton label={tr("composer.join-queue")} disabled={!controller.draft().trim()} onClick={submit}>
                   <ListPlus aria-hidden="true" />
                 </IconButton>
                 <Button
                   size="small"
                   variant="secondary"
                   loading={controller.stopping()}
-                  loadingLabel="正在停止"
+                  loadingLabel={tr("composer.stopping")}
                   onClick={stop}
                 >
                   <Square aria-hidden="true" />
-                  停止
+                  {tr("composer.stop")}
                 </Button>
               </div>
             </Show>
@@ -301,11 +302,11 @@ export function Composer(props: ComposerProps) {
         <Show when={!props.minimal ? controller.failure() : undefined} keyed>
           {(failure) => (
             <div class="composer__failure">
-              <InlineError message={errorMessage(failure, "消息发送失败")} />
+              <InlineError message={errorMessage(failure, tr("composer.message-sending-failed"))} />
               <Show when={controller.lastFailedDraft() !== undefined}>
                 <Button size="small" variant="secondary" onClick={() => void controller.retry().catch(() => {})}>
                   <RotateCcw aria-hidden="true" />
-                  重试
+                  {tr("changes.try-again")}
                 </Button>
               </Show>
             </div>

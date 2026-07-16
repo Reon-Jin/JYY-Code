@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { useNavigate } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { ArrowLeft } from "lucide-solid"
@@ -30,13 +31,13 @@ export function SkillDetailPage(props: { management?: ManagementContextValue; na
     <main class="skill-page skill-detail">
       <button type="button" class="skill-back" onClick={() => navigate("/skills")}>
         <ArrowLeft aria-hidden="true" />
-        返回 Skill
+        {tr("skills.return-to-skill")}
       </button>
       <Show
         when={!query.isPending}
         fallback={
           <p class="skill-state" role="status">
-            正在加载 Skill…
+            {tr("skills.loading-skills")}
           </p>
         }
       >
@@ -44,9 +45,9 @@ export function SkillDetailPage(props: { management?: ManagementContextValue; na
           when={!query.error}
           fallback={
             <div class="skill-state">
-              <InlineError message={query.error instanceof Error ? query.error.message : "无法加载 Skill"} />
+              <InlineError message={query.error instanceof Error ? query.error.message : tr("skills.unable-to-load-skill")} />
               <Button size="small" variant="secondary" onClick={() => void query.refetch()}>
-                重试
+                {tr("changes.try-again")}
               </Button>
             </div>
           }
@@ -55,7 +56,7 @@ export function SkillDetailPage(props: { management?: ManagementContextValue; na
             when={skill()}
             fallback={
               <div class="skill-state">
-                <InlineError message="Skill 不存在" />
+                <InlineError message={tr("skills.skill-does-not-exist")} />
               </div>
             }
           >
@@ -64,18 +65,18 @@ export function SkillDetailPage(props: { management?: ManagementContextValue; na
                 <header class="skill-detail__header">
                   <div>
                     <h1>{current().name}</h1>
-                    <p>{current().description || "无描述"}</p>
+                    <p>{current().description || tr("skills.no-description")}</p>
                     <code>{current().location}</code>
                   </div>
                   <div class="skill-detail__actions">
                     <Show when={current().editable}>
                       <Button size="small" variant="secondary" onClick={() => setEditing(true)}>
-                        编辑
+                        {tr("github.edit")}
                       </Button>
                     </Show>
                     <Show when={current().deletable || sourceRemoval(current())}>
                       <Button size="small" variant="danger" onClick={() => setDeleteOpen(true)}>
-                        {sourceRemoval(current()) ? "移除来源" : "删除"}
+                        {sourceRemoval(current()) ? tr("skills.remove-source") : tr("mcp.delete")}
                       </Button>
                     </Show>
                   </div>

@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { A } from "@solidjs/router"
 import { Circle, Clock3 } from "lucide-solid"
@@ -10,23 +11,23 @@ import { SessionActions } from "./session-actions"
 export function relativeSessionTime(created: number, now = Date.now()) {
   const elapsed = Math.max(0, now - created)
   const minutes = Math.floor(elapsed / 60_000)
-  if (minutes < 1) return "刚刚"
-  if (minutes < 60) return `${minutes} 分钟前`
+  if (minutes < 1) return tr("git.just")
+  if (minutes < 60) return tr("time.minutes-ago", { count: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} 小时前`
+  if (hours < 24) return tr("time.hours-ago", { count: hours })
   const days = Math.floor(hours / 24)
-  if (days < 7) return `${days} 天前`
+  if (days < 7) return tr("time.days-ago", { count: days })
   return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(created)
 }
 
 function statusText(status: SessionStatus | undefined) {
   switch (status?.type) {
     case "busy":
-      return "生成中"
+      return tr("sessions.generating")
     case "retry":
-      return "等待重试"
+      return tr("sessions.waiting-for-retry")
     default:
-      return "空闲"
+      return tr("sessions.idle")
   }
 }
 
@@ -71,7 +72,7 @@ export function SessionListItem(props: SessionListItemProps) {
     event.preventDefault()
     const nextTitle = title().trim()
     if (!nextTitle) {
-      setError("名称不能为空")
+      setError(tr("sessions.name-cannot-be-empty"))
       input?.focus()
       return
     }
@@ -82,7 +83,7 @@ export function SessionListItem(props: SessionListItemProps) {
       await props.onRename(props.session.id, nextTitle)
       setEditing(false)
     } catch (cause) {
-      setError(errorMessage(cause, "无法重命名 Session"))
+      setError(errorMessage(cause, tr("sessions.unable-to-rename-session")))
     } finally {
       setSaving(false)
     }
@@ -95,7 +96,7 @@ export function SessionListItem(props: SessionListItemProps) {
         fallback={
           <form class="session-rename" onSubmit={save}>
             <label class="session-rename__label" for={`rename-${props.session.id}`}>
-              重命名 {props.session.title}
+              {tr("sessions.rename")} {props.session.title}
             </label>
             <input
               ref={input}
@@ -111,8 +112,8 @@ export function SessionListItem(props: SessionListItemProps) {
               }}
             />
             <div class="session-rename__actions">
-              <Button type="submit" size="small" loading={saving()} loadingLabel="保存中">
-                保存名称
+              <Button type="submit" size="small" loading={saving()} loadingLabel={tr("mcp.saving")}>
+                {tr("sessions.save-name")}
               </Button>
               <Button
                 size="small"
@@ -123,7 +124,7 @@ export function SessionListItem(props: SessionListItemProps) {
                   setError(undefined)
                 }}
               >
-                取消
+                {tr("github.cancel")}
               </Button>
             </div>
             <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>

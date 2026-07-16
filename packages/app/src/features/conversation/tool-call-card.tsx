@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { ToolPart } from "@jyycode-ai/sdk/v2/client"
 import { CircleCheck, CircleEllipsis, CircleX, LoaderCircle, Wrench } from "lucide-solid"
 import { Match, Show, Switch } from "solid-js"
@@ -6,13 +7,13 @@ import { TaskActivity } from "./task-activity"
 function statusLabel(status: ToolPart["state"]["status"]) {
   switch (status) {
     case "pending":
-      return "等待执行"
+      return tr("conversation.waiting-for-execution")
     case "running":
-      return "执行中"
+      return tr("conversation.executing")
     case "completed":
-      return "已完成"
+      return tr("conversation.completed")
     case "error":
-      return "执行失败"
+      return tr("conversation.execution-failed")
   }
 }
 
@@ -35,7 +36,7 @@ export function ToolCallCard(props: { part: ToolPart }) {
       : props.part.tool
 
   return (
-    <section class="tool-call" data-status={props.part.state.status} aria-label={`工具调用：${props.part.tool}`}>
+    <section class="tool-call" data-status={props.part.state.status} aria-label={tr("conversation.tool-call-name", { name: props.part.tool })}>
       <span class="tool-call__icon" aria-hidden="true">
         <Wrench />
       </span>

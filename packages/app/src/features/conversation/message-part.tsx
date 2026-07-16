@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { Part } from "@jyycode-ai/sdk/v2/client"
 import { Match, Switch } from "solid-js"
 import { ReasoningPartView } from "./reasoning-part"
@@ -36,7 +37,7 @@ export function MessagePartView(props: {
               <Match when={presentation().kind === "plan"}>
                 <div class="conversation-plan-status" role="status" aria-live="polite">
                   <span aria-hidden="true" />
-                  {props.planStatus === "planning" ? "正在生成计划" : "计划已生成"}
+                  {props.planStatus === "planning" ? tr("conversation.generating-plan") : tr("conversation.plan-has-been-generated")}
                 </div>
               </Match>
               <Match when={presentation().kind === "text"}>

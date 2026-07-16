@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { createQuery } from "@tanstack/solid-query"
 import { For, Show } from "solid-js"
 import { InlineError } from "../../components/ui/inline-error"
@@ -15,7 +16,7 @@ export function PullRequestDiffView(props: { patch?: string; loading?: boolean; 
         when={!props.loading}
         fallback={
           <p class="pull-detail__state" role="status">
-            <Spinner /> 正在加载 Diff
+            <Spinner /> {tr("github.loading-diff")}
           </p>
         }
       >
@@ -27,7 +28,7 @@ export function PullRequestDiffView(props: { patch?: string; loading?: boolean; 
             </div>
           }
         >
-          <Show when={diff().hunks.length > 0} fallback={<p class="pull-detail__state">没有可显示的文本 Diff</p>}>
+          <Show when={diff().hunks.length > 0} fallback={<p class="pull-detail__state">{tr("github.no-text-to-display-diff")}</p>}>
             <pre tabIndex={0} aria-label="Pull Request unified diff">
               <For each={diff().hunks}>
                 {(hunk) => (
@@ -64,7 +65,7 @@ export function PullRequestDiff(props: { directory: string; number: number }) {
     <PullRequestDiffView
       patch={query.data}
       loading={query.isPending}
-      error={query.error ? errorMessage(query.error, "无法加载 Pull Request Diff") : undefined}
+      error={query.error ? errorMessage(query.error, tr("github.unable-to-load-pull-request-diff")) : undefined}
     />
   )
 }

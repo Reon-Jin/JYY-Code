@@ -1,4 +1,5 @@
-import { createEffect, ErrorBoundary, Match, onMount, Show, Switch } from "solid-js"
+import { tr } from "./i18n/i18n-context"
+import { createEffect, ErrorBoundary, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { Button } from "./components/ui/button"
 import { InlineError } from "./components/ui/inline-error"
 import { ProjectProvider } from "./features/projects/project-context"
@@ -10,9 +11,26 @@ import { DesktopBridgeProvider, useDesktopBridge } from "./platform/context"
 import type { DesktopBootstrap, DesktopBridge } from "./platform/types"
 import { AppRoutes } from "./routes"
 import { applyTheme } from "./features/settings/theme"
+import { I18nProvider } from "./i18n/i18n-context"
+import { applyStoredGlass } from "./features/settings/glass-preference"
+import { createDesktopNotifications } from "./features/notifications/desktop-notifications"
 
 export type AppProps = {
   bridge?: DesktopBridge
+}
+
+function LiquidGlassFilters() {
+  return (
+    <svg class="liquid-glass-definitions" width="0" height="0" aria-hidden="true">
+      <defs>
+        <filter id="liquid-glass-refraction" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.012 0.018" numOctaves="2" seed="17" result="noise" />
+          <feGaussianBlur in="noise" stdDeviation="1.8" result="softNoise" />
+          <feDisplacementMap in="SourceGraphic" in2="softNoise" scale="16" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+      </defs>
+    </svg>
+  )
 }
 
 function ProjectApplication(props: { bootstrap: DesktopBootstrap; controller: ProjectController; route: string }) {
@@ -30,8 +48,25 @@ function ProjectApplication(props: { bootstrap: DesktopBootstrap; controller: Pr
 function DesktopApplication() {
   const bridge = useDesktopBridge()
   const lifecycle = createLifecycleController({ bridge })
+  const notifications = createDesktopNotifications({ bridge, settings: lifecycle.settings })
   createEffect(() => applyTheme(lifecycle.settings().theme))
-  onMount(() => void lifecycle.start())
+  onCleanup(() => notifications.dispose())
+  onMount(() => {
+    void lifecycle
+      .start()
+      .then(async () => {
+        notifications.setPermission(
+          await (bridge.getNotificationPermission?.() ?? Promise.resolve("unsupported" as const)).catch(
+            () => "default" as const,
+          ),
+        )
+        notifications.start()
+        await applyStoredGlass(bridge, lifecycle.settings())
+      })
+      .catch(() => {
+        document.documentElement.dataset.glass = "off"
+      })
+  })
 
   const loadingPhase = () => {
     const phase = lifecycle.phase()
@@ -42,7 +77,7 @@ function DesktopApplication() {
     <Switch fallback={<StartupLoading phase={loadingPhase()} />}>
       <Match when={lifecycle.phase() === "failed"}>
         <BackendUnavailable
-          reason={`JYYCode 本地后端启动失败：${lifecycle.failure() ?? "本地后端没有响应"}`}
+          reason={tr("app.backend-start-failed", { reason: lifecycle.failure() ?? tr("app.local-backend-is-not-responding") })}
           logPath={lifecycle.bootstrap()?.logPath}
           recovering={lifecycle.recovering()}
           recoveryAvailable={lifecycle.recoveryAvailable()}
@@ -72,17 +107,20 @@ export function App(props: AppProps) {
         <main class="startup-screen">
           <div class="startup-error">
             <InlineError
-              message={`JYYCode 界面运行失败：${error instanceof Error ? error.message : "未知错误"}`}
+              message={tr("app.interface-failed", { reason: error instanceof Error ? error.message : tr("app.unknown-error") })}
             />
             <Button variant="secondary" onClick={reset}>
-              重新加载界面
+              {tr("app.reload-interface")}
             </Button>
           </div>
         </main>
       )}
     >
+      <LiquidGlassFilters />
       <DesktopBridgeProvider bridge={props.bridge}>
-        <DesktopApplication />
+        <I18nProvider>
+          <DesktopApplication />
+        </I18nProvider>
       </DesktopBridgeProvider>
     </ErrorBoundary>
   )

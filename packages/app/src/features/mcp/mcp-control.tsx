@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { McpStatus } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import { createQuery } from "@tanstack/solid-query"
@@ -23,13 +24,13 @@ export function mcpStatusLabel(status: McpStatus) {
     case "connected":
       return undefined
     case "disabled":
-      return "已关闭"
+      return tr("mcp.closed")
     case "failed":
-      return "连接失败"
+      return tr("mcp.connection-failed")
     case "needs_auth":
-      return "需要认证"
+      return tr("mcp.authentication-required")
     case "needs_client_registration":
-      return "需要注册客户端"
+      return tr("mcp.need-to-register-client")
   }
 }
 
@@ -89,22 +90,22 @@ export function McpControl(props: McpControlProps) {
       <Dialog
         open={open()}
         class="mcp-control__dialog"
-        title="MCP 插件"
-        description="启用或关闭当前项目中已安装的 MCP 插件。"
+        title={tr("mcp.mcp-plug-in")}
+        description={tr("mcp.enable-or-disable-installed-mcp-plug-ins-in")}
         showClose
         onClose={() => setOpen(false)}
       >
         <Show when={failure()} keyed>
-          {(cause) => <InlineError message={errorMessage(cause, "无法更新 MCP 插件")} />}
+          {(cause) => <InlineError message={errorMessage(cause, tr("mcp.unable-to-update-mcp-plug-in"))} />}
         </Show>
-        <Show when={!status.isPending} fallback={<p class="mcp-control__status">正在加载 MCP 插件…</p>}>
+        <Show when={!status.isPending} fallback={<p class="mcp-control__status">{tr("mcp.loading-mcp-plugin")}</p>}>
           <Show
             when={!status.error}
-            fallback={<InlineError message={errorMessage(status.error, "无法加载 MCP 插件")} />}
+            fallback={<InlineError message={errorMessage(status.error, tr("mcp.unable-to-load-mcp-plugin"))} />}
           >
             <Show
               when={entries().length > 0}
-              fallback={<p class="mcp-control__status">当前项目没有已安装的 MCP 插件。</p>}
+              fallback={<p class="mcp-control__status">{tr("mcp.the-current-project-does-not-have-an-installed")}</p>}
             >
               <div class="mcp-control__list">
                 <For each={entries()}>

@@ -9,6 +9,11 @@ const multiAgentCSS = readFileSync("src/features/multi-agent/multi-agent.css", "
 describe("conversation layout CSS", () => {
   it("caps the workspace and reserves a scrollable timeline above the Composer", () => {
     expect(sessionsCSS).toMatch(/\.workspace-shell\s*\{[^}]*height:\s*100%;[^}]*min-height:\s*0;/s)
+    expect(sessionsCSS).toMatch(/\.workspace-shell\s*\{[^}]*--workspace-header-height:\s*69px;/s)
+    expect(sessionsCSS).toMatch(/\.workspace-project\s*\{[^}]*height:\s*var\(--workspace-header-height\);/s)
+    expect(sessionsCSS).toMatch(
+      /\.workspace-conversation__header\s*\{[^}]*height:\s*var\(--workspace-header-height\);[^}]*align-content:\s*center;/s,
+    )
     expect(composerCSS).toMatch(/grid-template-rows:\s*auto minmax\(0, 1fr\) auto;/)
     expect(conversationCSS).toMatch(/\.message-timeline__viewport\s*\{[^}]*height:\s*100%;[^}]*overflow-y:\s*auto;/s)
   })
@@ -71,7 +76,12 @@ describe("conversation layout CSS", () => {
     expect(conversationCSS).toMatch(
       /\.conversation-message\[data-role="assistant"\]\s*\+\s*\.conversation-message\[data-role="assistant"\]\s*\{[^}]*margin-top:\s*calc\(-1 \* var\(--space-6\)\);/s,
     )
-    expect(conversationCSS).toMatch(/\.reasoning-part__toggle\s*\{[^}]*padding:\s*0;/s)
+    expect(conversationCSS).toMatch(
+      /\.reasoning-part__toggle\s*\{[^}]*gap:\s*6px;[^}]*margin-inline:\s*var\(--space-1\);[^}]*border-radius:\s*var\(--radius-md\);[^}]*padding:\s*2px var\(--space-2\);/s,
+    )
+    expect(conversationCSS).toMatch(
+      /\.activity-group__toggle\s*\{[^}]*gap:\s*6px;[^}]*margin-inline:\s*var\(--space-1\);[^}]*border-radius:\s*var\(--radius-md\);[^}]*padding:\s*2px var\(--space-2\);/s,
+    )
     expect(conversationCSS).toMatch(/\.tool-call\s*\{[^}]*padding:\s*0;/s)
     expect(conversationCSS).not.toContain(".tool-call__details")
   })

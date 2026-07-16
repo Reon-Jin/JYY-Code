@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { A, useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { ArrowLeft } from "lucide-solid"
 import { Button } from "../../components/ui/button"
@@ -8,14 +9,14 @@ import { Show } from "solid-js"
 import { SecuritySettings } from "./security-settings"
 import { AdvancedSettings } from "./advanced-settings"
 
-const sections: Array<{ id: SettingsSection; label: string }> = [
-  { id: "general", label: "常规" },
-  { id: "security", label: "权限与安全" },
-  { id: "advanced", label: "高级" },
+const sections = (): Array<{ id: SettingsSection; label: string }> => [
+  { id: "general", label: tr("settings.conventional") },
+  { id: "security", label: tr("settings.permissions-and-security") },
+  { id: "advanced", label: tr("settings.advanced") },
 ]
 
 function selectedSection(value: string | undefined): SettingsSection {
-  return sections.some((section) => section.id === value) ? (value as SettingsSection) : "general"
+  return sections().some((section) => section.id === value) ? (value as SettingsSection) : "general"
 }
 
 export function SettingsPage() {
@@ -39,20 +40,20 @@ export function SettingsPage() {
       <header class="settings-header">
         <Button variant="ghost" onClick={returnFromSettings}>
           <ArrowLeft aria-hidden="true" />
-          返回
+          {tr("settings.return")}
         </Button>
-        <h1>设置</h1>
+        <h1>{tr("management.set-up")}</h1>
       </header>
       <div class="settings-layout">
-        <nav class="settings-navigation" aria-label="设置分类">
-          {sections.map((item) => (
+        <nav class="settings-navigation" aria-label={tr("settings.set-categories")}>
+          {sections().map((item) => (
             <A href={settingsHref(item.id, returnTo())} aria-current={section() === item.id ? "page" : undefined}>
               {item.label}
             </A>
           ))}
         </nav>
         <section class="settings-content" aria-labelledby="settings-section-title">
-          <h2 id="settings-section-title">{sections.find((item) => item.id === section())?.label}</h2>
+          <h2 id="settings-section-title">{sections().find((item) => item.id === section())?.label}</h2>
           <Show when={section() === "general"}>
             <GeneralSettings />
           </Show>

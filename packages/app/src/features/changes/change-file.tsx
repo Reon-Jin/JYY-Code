@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
 import { ChevronDown, ChevronRight, FileCode2 } from "lucide-solid"
 import { For, Show } from "solid-js"
@@ -42,7 +43,7 @@ export function ChangeFile(props: { change: VcsFileDiff; expanded: boolean; onTo
       <Show when={props.expanded}>
         <Show
           when={(diff()?.hunks.length ?? 0) > 0}
-          fallback={<p class="change-file__no-diff">二进制文件或无可显示文本 Diff</p>}
+          fallback={<p class="change-file__no-diff">{tr("changes.binary-file-or-no-text-to-display-diff")}</p>}
         >
           <pre class="change-file__diff" tabIndex={0} aria-label={`${props.change.file} Diff`}>
             <For each={diff()?.hunks ?? []}>

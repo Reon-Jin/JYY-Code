@@ -37,11 +37,24 @@ const retiredPalette = [
 
 describe("Codex-inspired desktop theme", () => {
   it("uses a neutral near-black palette", () => {
-    expect(themeSource).toContain("--color-bg: #181818")
-    expect(themeSource).toContain("--color-panel: #1f1f1f")
-    expect(themeSource).toContain("--color-surface: #262626")
+    expect(themeSource).toContain("--surface-solid: #181818")
+    expect(themeSource).toContain("--surface-raised-solid: #1f1f1f")
+    expect(themeSource).toContain("--surface-control-solid: #262626")
     expect(themeSource).toContain("--color-accent: #f2f2f2")
     expect(themeSource).toContain('"backgroundColor": "#181818"')
+  })
+
+  it("extends the Home primary glass recipe to controls and component surfaces", () => {
+    expect(themeSource).toContain("--glass-highlight:")
+    expect(themeSource).toContain("--glass-primary:")
+    expect(themeSource).toContain("--glass-control:")
+    expect(themeSource).toContain('url("#liquid-glass-refraction")')
+    expect(themeSource).toContain('.ui-button[data-variant="primary"]')
+    expect(themeSource).toContain('input:not([type="checkbox"])')
+    expect(themeSource).toContain(".settings-card")
+    expect(themeSource).toMatch(/data-theme="dark"\]\[data-glass="on"\][^{]*\{[^}]*--surface:/s)
+    expect(themeSource).toContain("--glass-primary-ink: #ffffff")
+    expect(themeSource).toContain("--glass-primary-ink: #202020")
   })
 
   it("does not retain the retired blue and green palette", () => {
@@ -71,6 +84,7 @@ describe("Codex-inspired desktop theme", () => {
       "color-border-strong",
       "color-danger",
       "color-danger-surface",
+      "color-danger-ink",
       "color-warning",
       "color-success",
       "color-overlay",

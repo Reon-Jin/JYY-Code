@@ -15,6 +15,29 @@ export type LastLocation = {
   sessionID?: string
 }
 
+export type DesktopCapabilityResult = {
+  supported: boolean
+  reason?: string
+}
+
+export type DesktopNotificationPermission = "granted" | "denied" | "default" | "unsupported"
+
+export type DesktopNotification = {
+  title: string
+  body: string
+}
+
+export type DesktopUpdateCheck = DesktopCapabilityResult & {
+  available: boolean
+  currentVersion?: string
+  version?: string
+  notes?: string
+}
+
+export type DesktopSaveResult = DesktopCapabilityResult & {
+  saved: boolean
+}
+
 export interface DesktopBridge {
   bootstrap(): Promise<DesktopBootstrap>
   restartBackend(): Promise<void>
@@ -26,6 +49,13 @@ export interface DesktopBridge {
   saveLastLocation(value: LastLocation): Promise<void>
   loadSettings(): Promise<DesktopSettings>
   saveSettings(value: DesktopSettings): Promise<void>
+  setWindowGlass(enabled: boolean, theme: "dark" | "light"): Promise<DesktopCapabilityResult>
+  getNotificationPermission?(): Promise<DesktopNotificationPermission>
+  requestNotificationPermission(): Promise<DesktopNotificationPermission>
+  sendNotification(notification: DesktopNotification): Promise<DesktopCapabilityResult>
+  checkForUpdate(): Promise<DesktopUpdateCheck>
+  installAvailableUpdate(): Promise<DesktopCapabilityResult>
+  saveTextFile(suggestedName: string, contents: string): Promise<DesktopSaveResult>
   revealConfigFile(path: string): Promise<void>
 }
 

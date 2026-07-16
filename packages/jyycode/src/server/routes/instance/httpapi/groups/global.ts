@@ -34,6 +34,23 @@ export const GlobalDefaultPermissionUpdate = Schema.Struct({
   mode: Schema.Literals(["auto", "request", "full"]),
 })
 
+const TailTurns = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 20 }))
+const TokenCount = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 131072 }))
+const TriggerRatio = Schema.Finite.check(Schema.isBetween({ minimum: 0.5, maximum: 0.98 }))
+const MicroCompactMaxChars = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100000 }))
+
+export const GlobalCompaction = Schema.Struct({
+  auto: Schema.Boolean,
+  prune: Schema.Boolean,
+  tailTurns: TailTurns,
+  preserveRecentTokens: Schema.optional(TokenCount),
+  reservedTokens: Schema.optional(TokenCount),
+  triggerRatio: TriggerRatio,
+  microCompact: Schema.Boolean,
+  microCompactMaxChars: MicroCompactMaxChars,
+  reactiveCompact: Schema.Boolean,
+}).annotate({ identifier: "GlobalCompaction" })
+
 const GlobalUpgradeResult = Schema.Union([
   Schema.Struct({
     success: Schema.Literal(true),
@@ -53,6 +70,7 @@ export const GlobalPaths = {
   upgrade: "/global/upgrade",
   managementContext: "/global/management-context",
   defaultPermission: "/global/default-permission",
+  compaction: "/global/compaction",
 } as const
 
 export const GlobalApi = HttpApi.make("global").add(
@@ -111,6 +129,35 @@ export const GlobalApi = HttpApi.make("global").add(
           identifier: "global.defaultPermission.update",
           summary: "Update default permission policy",
           description: "Set the default permission policy applied to new sessions.",
+        }),
+      ),
+      HttpApiEndpoint.get("compactionGet", GlobalPaths.compaction, {
+        success: described(GlobalCompaction, "Global compaction settings"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.compaction.get",
+          summary: "Get compaction settings",
+          description: "Return the safe global context compaction settings.",
+        }),
+      ),
+      HttpApiEndpoint.put("compactionUpdate", GlobalPaths.compaction, {
+        payload: GlobalCompaction,
+        success: described(GlobalCompaction, "Updated global compaction settings"),
+        error: HttpApiError.BadRequest,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.compaction.update",
+          summary: "Update compaction settings",
+          description: "Replace the safe global context compaction settings.",
+        }),
+      ),
+      HttpApiEndpoint.delete("compactionReset", GlobalPaths.compaction, {
+        success: described(GlobalCompaction, "Default global compaction settings"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.compaction.reset",
+          summary: "Reset compaction settings",
+          description: "Remove only the global compaction override and return defaults.",
         }),
       ),
       HttpApiEndpoint.patch("configUpdate", GlobalPaths.config, {

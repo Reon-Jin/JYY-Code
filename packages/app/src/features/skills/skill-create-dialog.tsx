@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { createEffect, createSignal, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
@@ -28,8 +29,8 @@ export function SkillCreateDialog(props: {
     event.preventDefault()
     const skillName = name().trim()
     const skillDescription = description().trim()
-    if (!skillName) return setError("请输入 Skill 名称")
-    if (!skillDescription) return setError("请输入 Skill 描述")
+    if (!skillName) return setError(tr("skills.please-enter-skill-name"))
+    if (!skillDescription) return setError(tr("skills.please-enter-skill-description"))
     const safeDescription = skillDescription.replace(/[\r\n]+/g, " ")
     const content = `---\nname: ${skillName}\ndescription: ${safeDescription}\n---\n\n${body()}`
     setBusy(true)
@@ -38,7 +39,7 @@ export function SkillCreateDialog(props: {
       await props.onCreate({ name: skillName, description: safeDescription, content })
       props.onClose()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "无法创建 Skill")
+      setError(cause instanceof Error ? cause.message : tr("skills.unable-to-create-skill"))
     } finally {
       setBusy(false)
     }
@@ -48,31 +49,31 @@ export function SkillCreateDialog(props: {
     <Dialog
       open={props.open}
       class="skill-dialog"
-      title="新建 Skill"
-      description="创建一个保存在全局配置目录中的 SKILL.md。"
+      title={tr("skills.new-skill")}
+      description={tr("skills.create-a-skill-md-that-is-saved-in")}
       onClose={props.onClose}
       footer={
         <>
           <Button variant="ghost" onClick={props.onClose}>
-            取消
+            {tr("github.cancel")}
           </Button>
-          <Button type="submit" form="skill-create-form" loading={busy()} loadingLabel="正在创建">
-            创建
+          <Button type="submit" form="skill-create-form" loading={busy()} loadingLabel={tr("projects.creating")}>
+            {tr("github.create")}
           </Button>
         </>
       }
     >
       <form id="skill-create-form" class="skill-form" onSubmit={submit}>
         <label>
-          名称
+          {tr("mcp.name")}
           <input autofocus value={name()} onInput={(event) => setName(event.currentTarget.value)} />
         </label>
         <label>
-          描述
+          {tr("skills.describe")}
           <input value={description()} onInput={(event) => setDescription(event.currentTarget.value)} />
         </label>
         <label>
-          正文
+          {tr("github.text")}
           <textarea rows={8} value={body()} onInput={(event) => setBody(event.currentTarget.value)} />
         </label>
         <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>

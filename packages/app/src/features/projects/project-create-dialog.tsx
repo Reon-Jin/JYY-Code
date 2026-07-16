@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { Show, createSignal } from "solid-js"
 import { FolderSearch, GitBranch } from "lucide-solid"
 import { Button } from "../../components/ui/button"
@@ -36,18 +37,18 @@ export function ProjectCreateDialog(props: ProjectCreateDialogProps) {
         queueMicrotask(() => nameInput?.focus())
       }
     } catch (cause) {
-      setError(errorMessage(cause, "无法选择父目录"))
+      setError(errorMessage(cause, tr("projects.unable-to-select-parent-directory")))
     }
   }
 
   function validate() {
     if (!parent().trim()) {
-      setError("请选择父目录")
+      setError(tr("projects.please-select-a-parent-directory"))
       queueMicrotask(() => parentInput?.focus())
       return false
     }
     if (!name().trim()) {
-      setError("请输入项目名称")
+      setError(tr("projects.please-enter-project-name"))
       queueMicrotask(() => nameInput?.focus())
       return false
     }
@@ -71,9 +72,9 @@ export function ProjectCreateDialog(props: ProjectCreateDialogProps) {
     } catch (cause) {
       if (cause instanceof GitInitializationError) {
         setGitFailure(cause)
-        setError(`Git 初始化失败：${errorMessage(cause.originalError)}`)
+        setError(tr("projects.git-initialization-failed", { reason: errorMessage(cause.originalError) }))
       } else {
-        setError(errorMessage(cause, "创建项目失败"))
+        setError(errorMessage(cause, tr("projects.failed-to-create-project")))
       }
     } finally {
       setBusy(false)
@@ -90,7 +91,7 @@ export function ProjectCreateDialog(props: ProjectCreateDialogProps) {
       const created = await projects.continueAfterGitFailure(failure)
       props.onCreated(created)
     } catch (cause) {
-      setError(`Git 初始化失败：${errorMessage(cause)}`)
+      setError(tr("projects.git-initialization-failed", { reason: errorMessage(cause) }))
     } finally {
       setBusy(false)
     }
@@ -99,49 +100,49 @@ export function ProjectCreateDialog(props: ProjectCreateDialogProps) {
   return (
     <Dialog
       open={props.open}
-      title="新建项目"
-      description="创建目录，并在本地 JYYCode 后端中开启第一个 Session。"
+      title={tr("projects.new-project")}
+      description={tr("projects.create-a-directory-and-open-the-first-session")}
       onClose={props.onClose}
       footer={
         <>
           <Button variant="ghost" disabled={busy()} onClick={props.onClose}>
-            取消
+            {tr("github.cancel")}
           </Button>
-          <Button type="submit" form="project-create-form" loading={busy()} loadingLabel="正在创建">
-            创建并进入
+          <Button type="submit" form="project-create-form" loading={busy()} loadingLabel={tr("projects.creating")}>
+            {tr("projects.create-and-enter")}
           </Button>
         </>
       }
     >
       <form id="project-create-form" class="project-create-form" onSubmit={submit} noValidate>
         <div class="project-field">
-          <label for="project-parent">父目录</label>
+          <label for="project-parent">{tr("projects.parent-directory")}</label>
           <div class="project-field__picker">
             <input
               ref={parentInput}
               id="project-parent"
               value={parent()}
-              placeholder="选择项目所在目录"
+              placeholder={tr("projects.select-the-directory-where-the-project-is-located")}
               readOnly
               aria-describedby="project-parent-hint"
             />
             <Button variant="secondary" onClick={chooseParent}>
               <FolderSearch aria-hidden="true" />
-              选择
+              {tr("projects.choose")}
             </Button>
           </div>
           <span id="project-parent-hint" class="project-field__hint">
-            将在该目录下创建新的项目文件夹
+            {tr("projects.a-new-project-folder-will-be-created-in")}
           </span>
         </div>
 
         <div class="project-field">
-          <label for="project-name">项目名称</label>
+          <label for="project-name">{tr("projects.project-name")}</label>
           <input
             ref={nameInput}
             id="project-name"
             value={name()}
-            placeholder="例如 my-agent-app"
+            placeholder={tr("projects.for-example-my-agent-app")}
             onInput={(event) => setName(event.currentTarget.value)}
             autocomplete="off"
           />
@@ -158,15 +159,15 @@ export function ProjectCreateDialog(props: ProjectCreateDialogProps) {
             <GitBranch />
           </span>
           <span>
-            <strong>初始化 Git</strong>
-            <small>在新目录中创建 Git 仓库</small>
+            <strong>{tr("projects.initialize-git")}</strong>
+            <small>{tr("projects.create-a-git-repository-in-a-new-directory")}</small>
           </span>
         </label>
 
         <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>
         <Show when={gitFailure()}>
           <Button class="project-create-form__retry" variant="secondary" disabled={busy()} onClick={retryGit}>
-            重试初始化 Git
+            {tr("projects.retry-initializing-git")}
           </Button>
         </Show>
       </form>

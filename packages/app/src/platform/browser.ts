@@ -10,6 +10,10 @@ function unsupported(operation: string): never {
   throw new Error(`${operation} is only available in the JYYCode desktop application`)
 }
 
+function unsupportedResult(operation: string) {
+  return { supported: false, reason: `${operation} is only available in the JYYCode desktop application` } as const
+}
+
 function readStorage(storage: Storage, key: string): unknown {
   const value = storage.getItem(key)
   if (value === null) return undefined
@@ -51,6 +55,34 @@ export function createBrowserBridge(storage: Storage = window.localStorage): Des
     },
     async saveSettings(value: DesktopSettings) {
       storage.setItem(SETTINGS_KEY, JSON.stringify(parseDesktopSettings(value)))
+    },
+    async setWindowGlass() {
+      return unsupportedResult("Window glass")
+    },
+    async getNotificationPermission() {
+      return "unsupported"
+    },
+    async requestNotificationPermission() {
+      return "unsupported"
+    },
+    async sendNotification() {
+      return unsupportedResult("System notifications")
+    },
+    async checkForUpdate() {
+      return { ...unsupportedResult("Automatic updates"), available: false }
+    },
+    async installAvailableUpdate() {
+      return unsupportedResult("Automatic updates")
+    },
+    async saveTextFile(suggestedName, contents) {
+      const blob = new Blob([contents], { type: "text/plain;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement("a")
+      anchor.href = url
+      anchor.download = suggestedName
+      anchor.click()
+      URL.revokeObjectURL(url)
+      return { supported: true, saved: true }
     },
     async revealConfigFile() {
       unsupported("Config file reveal")

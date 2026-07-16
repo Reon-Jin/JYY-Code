@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { QueryClient } from "@tanstack/solid-query"
 import { Settings2 } from "lucide-solid"
 import { createMemo, createSignal, Show } from "solid-js"
@@ -34,7 +35,7 @@ export function ClusterModelControl(props: ClusterModelControlProps) {
         size="small"
         variant="secondary"
         class="cluster-model-control__button"
-        aria-label={props.identityLocked ? `当前模型：${currentLabel()}` : `配置模型：${currentLabel()}`}
+        aria-label={props.identityLocked ? tr("multi-agent.current-model", { model: currentLabel() }) : tr("multi-agent.configure-model-value", { model: currentLabel() })}
         disabled={props.disabled || props.identityLocked}
         onClick={() => {
           setAnnouncement("")
@@ -42,7 +43,7 @@ export function ClusterModelControl(props: ClusterModelControlProps) {
         }}
       >
         <Settings2 aria-hidden="true" />
-        <span>主模型</span>
+        <span>{tr("multi-agent.master-model")}</span>
         <strong>{currentLabel()}</strong>
       </Button>
       <Show when={announcement()}>
@@ -59,7 +60,7 @@ export function ClusterModelControl(props: ClusterModelControlProps) {
         onClose={() => setOpen(false)}
         onSaved={(model) => {
           props.onModelChange(model)
-          setAnnouncement("已保存到全局配置")
+          setAnnouncement(tr("multi-agent.saved-to-global-configuration"))
         }}
       />
     </div>

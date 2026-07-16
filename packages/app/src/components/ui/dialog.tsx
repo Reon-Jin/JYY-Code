@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { X } from "lucide-solid"
 import { createEffect, createUniqueId, onCleanup, Show, type JSX, type ParentProps } from "solid-js"
 
@@ -63,7 +64,7 @@ export function Dialog(props: DialogProps) {
           </p>
         </Show>
         <Show when={props.showClose}>
-          <button type="button" class="ui-dialog__close" aria-label="关闭" onClick={props.onClose}>
+          <button type="button" class="ui-dialog__close" aria-label={tr("components.closure")} onClick={props.onClose}>
             <X aria-hidden="true" />
           </button>
         </Show>

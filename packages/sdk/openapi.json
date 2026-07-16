@@ -512,6 +512,129 @@
         ]
       }
     },
+    "/global/compaction": {
+      "get": {
+        "tags": ["global"],
+        "operationId": "global.compaction.get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Global compaction settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalCompaction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Return the safe global context compaction settings.",
+        "summary": "Get compaction settings",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.global.compaction.get({\n  ...\n})"
+          }
+        ]
+      },
+      "put": {
+        "tags": ["global"],
+        "operationId": "global.compaction.update",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Updated global compaction settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalCompaction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BadRequest | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Replace the safe global context compaction settings.",
+        "summary": "Update compaction settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlobalCompaction"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.global.compaction.update({\n  ...\n})"
+          }
+        ]
+      },
+      "delete": {
+        "tags": ["global"],
+        "operationId": "global.compaction.reset",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Default global compaction settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalCompaction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Remove only the global compaction override and return defaults.",
+        "summary": "Reset compaction settings",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.global.compaction.reset({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/global/dispose": {
       "post": {
         "tags": ["global"],
@@ -17434,6 +17557,58 @@
           }
         },
         "required": ["mode"],
+        "additionalProperties": false
+      },
+      "GlobalCompaction": {
+        "type": "object",
+        "properties": {
+          "auto": {
+            "type": "boolean"
+          },
+          "prune": {
+            "type": "boolean"
+          },
+          "tailTurns": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          },
+          "preserveRecentTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 131072
+          },
+          "reservedTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 131072
+          },
+          "triggerRatio": {
+            "type": "number",
+            "minimum": 0.5,
+            "maximum": 0.98
+          },
+          "microCompact": {
+            "type": "boolean"
+          },
+          "microCompactMaxChars": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000
+          },
+          "reactiveCompact": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "auto",
+          "prune",
+          "tailTurns",
+          "triggerRatio",
+          "microCompact",
+          "microCompactMaxChars",
+          "reactiveCompact"
+        ],
         "additionalProperties": false
       },
       "Model": {

@@ -80,6 +80,29 @@ describe("SessionList", () => {
     expect(screen.getByRole("link", { name: /Newer session/ })).toHaveAttribute("aria-current", "page")
   })
 
+  it("portals the action menu outside the glass Session card and anchors it to the trigger", async () => {
+    const user = userEvent.setup()
+    renderList()
+    const trigger = screen.getAllByRole("button").find((button) => button.getAttribute("aria-haspopup") === "menu")!
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+      top: 120,
+      right: 300,
+      bottom: 148,
+      left: 272,
+      width: 28,
+      height: 28,
+      x: 272,
+      y: 120,
+      toJSON: () => ({}),
+    })
+
+    await user.click(trigger)
+
+    const menu = screen.getByRole("menu")
+    expect(menu.closest(".session-list-item")).toBeNull()
+    expect(menu).toHaveStyle({ top: "152px", left: "136px" })
+  })
+
   it("shows the stable creation time instead of a recent metadata update", () => {
     vi.useFakeTimers()
     const now = new Date("2026-07-14T12:00:00+08:00").getTime()

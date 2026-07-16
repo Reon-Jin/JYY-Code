@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { JyycodeClient } from "@jyycode-ai/sdk/v2/client"
 import { QueryClientProvider, type QueryClient } from "@tanstack/solid-query"
 import { createContext, createResource, Match, Switch, useContext, type ParentProps } from "solid-js"
@@ -31,7 +32,7 @@ export function ManagementProvider(props: ParentProps<{ bootstrap: DesktopBootst
   const bootstrapClient = createDesktopClient(props.bootstrap)
   const [directory, { refetch }] = createResource(async () => {
     const response = await bootstrapClient.global.managementContext({ throwOnError: true })
-    if (!response.data?.directory) throw new Error("后端未返回全局管理目录")
+    if (!response.data?.directory) throw new Error(tr("management.backend-does-not-return-global-management-directory"))
     return response.data.directory
   })
 
@@ -39,9 +40,9 @@ export function ManagementProvider(props: ParentProps<{ bootstrap: DesktopBootst
     <Switch>
       <Match when={directory.error}>
         <main class="management-state">
-          <InlineError message={directory.error instanceof Error ? directory.error.message : "无法加载全局管理环境"} />
+          <InlineError message={directory.error instanceof Error ? directory.error.message : tr("management.unable-to-load-global-management-environment")} />
           <Button variant="secondary" onClick={() => void refetch()}>
-            重试
+            {tr("changes.try-again")}
           </Button>
         </main>
       </Match>
@@ -54,7 +55,7 @@ export function ManagementProvider(props: ParentProps<{ bootstrap: DesktopBootst
       </Match>
       <Match when={true}>
         <main class="management-state" role="status" aria-live="polite">
-          正在加载全局管理…
+          {tr("management.loading-global-management")}
         </main>
       </Match>
     </Switch>

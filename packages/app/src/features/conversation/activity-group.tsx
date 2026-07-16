@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { Part } from "@jyycode-ai/sdk/v2/client"
 import { ChevronDown, LoaderCircle } from "lucide-solid"
 import { createSignal, createUniqueId, Show, type ParentProps } from "solid-js"
@@ -63,7 +64,7 @@ export function ActivityGroup(
           <LoaderCircle class="activity-group__spinner" aria-hidden="true" />
         </Show>
         <span>{props.label}</span>
-        <small>{props.count} 项</small>
+        <small>{props.count} {tr("conversation.item")}</small>
         <ChevronDown aria-hidden="true" data-expanded={expanded() ? "true" : undefined} />
       </button>
       <Show when={expanded()}>

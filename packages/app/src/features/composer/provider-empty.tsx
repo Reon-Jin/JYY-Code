@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { Cable } from "lucide-solid"
 import type { DesktopClient } from "../../data/sdk"
 import { ProviderConnectButton } from "./provider-connect"
@@ -13,8 +14,8 @@ export function ProviderEmpty(props: {
     <section class="provider-empty" aria-labelledby="provider-empty-title">
       <Cable aria-hidden="true" />
       <div>
-        <strong id="provider-empty-title">没有可用的模型</strong>
-        <p>请连接并启用至少一个 Provider。</p>
+        <strong id="provider-empty-title">{tr("composer.no-model-available")}</strong>
+        <p>{tr("composer.please-connect-and-enable-at-least-one-provider")}</p>
         <code>{props.configPath}</code>
         <ProviderConnectButton
           client={props.client}

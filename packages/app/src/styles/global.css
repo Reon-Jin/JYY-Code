@@ -24,6 +24,198 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html[data-glass="on"] body {
+  background: transparent;
+}
+
+.liquid-glass-definitions {
+  position: fixed;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+html[data-glass="on"] :is(
+  .ui-dialog,
+  .management-rail,
+  .settings-header,
+  .settings-navigation,
+  .workspace-rail,
+  .workspace-conversation__header,
+  .workspace-drawer,
+  .workspace-activity-rail,
+  .request-panel
+) {
+  border-color: var(--glass-border);
+  background: var(--glass-surface);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+html[data-glass="on"] :is(
+  [role="dialog"],
+  [role="menu"],
+  [role="listbox"],
+  .settings-card,
+  .coming-soon-setting,
+  .recent-projects__item,
+  .session-list-item,
+  .composer,
+  .composer-queue,
+  .provider-empty,
+  .project-checkbox,
+  [class$="-card"],
+  [class*="__card"],
+  [class$="-menu"],
+  [class*="__menu"],
+  [class$="-popover"],
+  [class*="__popover"]
+) {
+  background-image: var(--glass-highlight);
+  background-clip: padding-box;
+  box-shadow: var(--glass-control-shadow);
+  backdrop-filter: var(--glass-control-blur);
+  -webkit-backdrop-filter: var(--glass-control-blur);
+}
+
+html[data-glass="on"] :is(
+  button,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select,
+  [role="button"]
+) {
+  border-color: var(--glass-border);
+  background-color: var(--glass-control);
+  background-image: var(--glass-control-highlight);
+  background-clip: padding-box;
+  box-shadow: var(--glass-control-shadow);
+  backdrop-filter: var(--glass-control-blur);
+  -webkit-backdrop-filter: var(--glass-control-blur);
+}
+
+html[data-glass="on"] .ui-button[data-variant="primary"] {
+  border-color: var(--glass-border-bright);
+  background-color: var(--glass-primary);
+  background-image: var(--glass-primary-highlight);
+  box-shadow: var(--glass-primary-shadow);
+  color: var(--glass-primary-ink);
+}
+
+html[data-glass="on"] body .ui-button:is([data-variant="secondary"], [data-variant="ghost"]) {
+  border-color: var(--glass-border);
+  background-color: var(--glass-control);
+  background-image: var(--glass-control-highlight);
+  box-shadow: var(--glass-control-shadow);
+  color: var(--color-text);
+}
+
+html[data-glass="on"] body .ui-button[data-variant="danger"] {
+  background-image: var(--glass-control-highlight);
+  box-shadow: var(--glass-control-shadow);
+}
+
+html[data-glass="on"] .ui-button[data-variant="primary"]:hover:not(:disabled) {
+  background-color: var(--glass-primary-hover);
+  transform: translateY(-1px);
+}
+
+html[data-glass="on"] :is(
+  button,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select,
+  [role="button"]
+):is(:hover, :focus-visible, [aria-current="page"], [aria-pressed="true"], [aria-selected="true"]):not(:disabled) {
+  border-color: var(--glass-border-bright);
+  background-color: var(--glass-control-hover);
+}
+
+html[data-glass="on"] :is(input[type="checkbox"], input[type="radio"], input[type="range"]) {
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 24%));
+}
+
+html[data-glass="on"] :is(.ui-dialog, .request-panel) {
+  border-color: var(--glass-border-bright);
+  background: var(--glass-surface-strong);
+}
+
+html[data-glass="on"] .workspace-rail-toggle {
+  border: 1px solid var(--glass-border-bright);
+  border-radius: 999px;
+  background: var(--glass-surface-strong);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+@supports (backdrop-filter: url("#liquid-glass-refraction")) {
+  html[data-glass="on"] :is(.ui-dialog, .request-panel, .workspace-rail-toggle) {
+    backdrop-filter: url("#liquid-glass-refraction") var(--glass-blur);
+    -webkit-backdrop-filter: url("#liquid-glass-refraction") var(--glass-blur);
+  }
+}
+
+html[data-glass="on"] :is(
+  .management-rail,
+  .settings-header,
+  .settings-navigation,
+  .workspace-rail,
+  .workspace-conversation__header,
+  .workspace-drawer,
+  .workspace-activity-rail,
+  .request-panel
+) {
+  isolation: isolate;
+}
+
+html[data-glass="on"] :is(
+  .management-rail,
+  .settings-header,
+  .settings-navigation,
+  .workspace-rail,
+  .workspace-conversation__header,
+  .workspace-drawer,
+  .workspace-activity-rail,
+  .request-panel
+)::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--glass-highlight);
+  content: "";
+  pointer-events: none;
+}
+
+html[data-glass="on"] :is(
+  .management-nav-link,
+  .settings-navigation a,
+  .workspace-settings-link,
+  .workspace-activity-rail button,
+  .ui-button
+):is(:hover, :focus-visible, [aria-current="page"], [aria-pressed="true"]):not(:disabled) {
+  border-color: var(--glass-border-bright);
+  background-color: var(--glass-control-hover);
+  background-image: var(--glass-control-highlight);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 22%), 0 7px 20px rgb(0 0 0 / 14%);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-glass="on"] body {
+    background: var(--surface-solid);
+  }
+
+  html[data-glass="on"] *,
+  html[data-glass="on"] *::before,
+  html[data-glass="on"] *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
 button,
 input,
 textarea,
@@ -94,7 +286,9 @@ button:disabled {
     background-color var(--motion-fast) ease-out,
     border-color var(--motion-fast) ease-out,
     color var(--motion-fast) ease-out,
-    opacity var(--motion-fast) ease-out;
+    opacity var(--motion-fast) ease-out,
+    transform var(--motion-fast) ease-out,
+    box-shadow var(--motion-fast) ease-out;
 }
 
 .ui-button[data-size="small"] {
@@ -136,7 +330,7 @@ button:disabled {
 .ui-button[data-variant="danger"] {
   border-color: rgb(248 113 113 / 26%);
   background: var(--color-danger-surface);
-  color: #fecaca;
+  color: var(--color-danger-ink);
 }
 
 .ui-button:disabled {
@@ -243,7 +437,7 @@ button:disabled {
   border-radius: var(--radius-md);
   padding: var(--space-3);
   background: var(--color-danger-surface);
-  color: #fecaca;
+  color: var(--color-danger-ink);
 }
 
 .ui-inline-error svg {

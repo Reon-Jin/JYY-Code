@@ -92,6 +92,13 @@ import type {
   GitHubPullRequestNumber,
   GithubStatusErrors,
   GithubStatusResponses,
+  GlobalCompaction,
+  GlobalCompactionGetErrors,
+  GlobalCompactionGetResponses,
+  GlobalCompactionResetErrors,
+  GlobalCompactionResetResponses,
+  GlobalCompactionUpdateErrors,
+  GlobalCompactionUpdateResponses,
   GlobalConfigGetErrors,
   GlobalConfigGetResponses,
   GlobalConfigUpdateErrors,
@@ -639,6 +646,61 @@ export class DefaultPermission extends HeyApiClient {
   }
 }
 
+export class Compaction extends HeyApiClient {
+  /**
+   * Reset compaction settings
+   *
+   * Remove only the global compaction override and return defaults.
+   */
+  public reset<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).delete<
+      GlobalCompactionResetResponses,
+      GlobalCompactionResetErrors,
+      ThrowOnError
+    >({ url: "/global/compaction", ...options })
+  }
+
+  /**
+   * Get compaction settings
+   *
+   * Return the safe global context compaction settings.
+   */
+  public get<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<GlobalCompactionGetResponses, GlobalCompactionGetErrors, ThrowOnError>({
+      url: "/global/compaction",
+      ...options,
+    })
+  }
+
+  /**
+   * Update compaction settings
+   *
+   * Replace the safe global context compaction settings.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters?: {
+      globalCompaction?: GlobalCompaction
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ key: "globalCompaction", map: "body" }] }])
+    return (options?.client ?? this.client).put<
+      GlobalCompactionUpdateResponses,
+      GlobalCompactionUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/global/compaction",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Global extends HeyApiClient {
   /**
    * Get health
@@ -721,6 +783,11 @@ export class Global extends HeyApiClient {
   private _defaultPermission?: DefaultPermission
   get defaultPermission(): DefaultPermission {
     return (this._defaultPermission ??= new DefaultPermission({ client: this.client }))
+  }
+
+  private _compaction?: Compaction
+  get compaction(): Compaction {
+    return (this._compaction ??= new Compaction({ client: this.client }))
   }
 }
 

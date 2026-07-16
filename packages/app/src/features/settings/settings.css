@@ -10,6 +10,8 @@
 }
 
 .settings-header {
+  position: relative;
+  z-index: 3;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -29,6 +31,8 @@
 }
 
 .settings-navigation {
+  position: relative;
+  z-index: 2;
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -84,6 +88,7 @@
 .settings-select-label select { min-height: 38px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0 var(--space-3); background: var(--color-surface); color: var(--color-text-muted); }
 .settings-disabled-check,
 .settings-placeholder-options label { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--color-text-muted); font-size: var(--text-sm); }
+.settings-card__hint { margin: var(--space-2) 0 0; color: var(--color-text-muted); font-size: var(--text-xs); }
 .settings-placeholder-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .settings-scope-note { max-width: 760px; margin: 0; border-left: 3px solid var(--color-border-strong); padding: var(--space-2) var(--space-3); color: var(--color-text-muted); font-size: var(--text-sm); }
 .settings-custom-permission { margin-top: var(--space-4); border: 1px solid var(--color-warning); border-radius: var(--radius-sm); padding: var(--space-3); background: var(--color-surface); }

@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { DesktopBridge } from "./platform/types"
+import { defaultDesktopSettings } from "./features/settings/settings-preferences"
 import { App } from "./app"
 
 function bridgeWith(bootstrap: DesktopBridge["bootstrap"]): DesktopBridge {
@@ -14,8 +15,14 @@ function bridgeWith(bootstrap: DesktopBridge["bootstrap"]): DesktopBridge {
     saveRecentProjects: vi.fn(),
     loadLastLocation: vi.fn(async () => ({})),
     saveLastLocation: vi.fn(),
-    loadSettings: vi.fn(async () => ({ startup: "restore" as const, theme: "dark" as const })),
+    loadSettings: vi.fn(async () => defaultDesktopSettings),
     saveSettings: vi.fn(),
+    setWindowGlass: vi.fn(),
+    requestNotificationPermission: vi.fn(),
+    sendNotification: vi.fn(),
+    checkForUpdate: vi.fn(),
+    installAvailableUpdate: vi.fn(),
+    saveTextFile: vi.fn(),
     revealConfigFile: vi.fn(),
   }
 }
@@ -56,7 +63,8 @@ describe("App", () => {
     expect(screen.getByRole("navigation", { name: "全局管理" })).toBeVisible()
     const actions = [screen.getByRole("button", { name: "打开目录" }), screen.getByRole("button", { name: /新建项目/ })]
     expect(actions).toHaveLength(2)
-    for (const action of actions) expect(action).toHaveAttribute("data-variant", "primary")
+    expect(actions[0]).toHaveAttribute("data-variant", "primary")
+    expect(actions[1]).toHaveAttribute("data-variant", "secondary")
   })
 
   it("navigates between management routes without changing project state", async () => {

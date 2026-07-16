@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { VcsBranch, VcsBranches } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
 import { GitBranch } from "lucide-solid"
@@ -33,7 +34,7 @@ function operationError(cause: unknown) {
   }
   const data = value?.data ?? value?.error?.data
   return {
-    message: data?.message ?? value?.message ?? "Git 操作失败",
+    message: data?.message ?? value?.message ?? tr("git.git-operation-failed"),
     reason: data?.reason,
     candidates: data?.candidates,
   }
@@ -71,9 +72,9 @@ export function BranchControlView(props: BranchControlViewProps) {
     } catch (cause) {
       const failure = operationError(cause)
       if (failure.reason === "ambiguous-remote" && failure.candidates?.length) {
-        setError("检测到多个远端，请选择 Push 目标后重试")
+        setError(tr("git.multiple-remote-ends-detected-please-select-the-push"))
       } else if (failure.reason === "conflict") {
-        setError(`${failure.message}。请先提交或暂存工作区变更后重试。`)
+        setError(tr("git.commit-or-stash-before-retry", { reason: failure.message }))
       } else {
         setError(failure.message)
       }
@@ -86,21 +87,21 @@ export function BranchControlView(props: BranchControlViewProps) {
     void run(
       "switch",
       () => props.actions.switchBranch({ name: branch.name, createLocal: branch.kind === "remote" }),
-      `已切换到 ${branch.name}`,
+      tr("git.switched-to-branch", { branch: branch.name }),
     )
   }
 
   function createBranch() {
     const name = newBranch().trim()
     if (!name) {
-      setError("请输入分支名称")
+      setError(tr("git.please-enter-a-branch-name"))
       return
     }
     if (!validBranchName(name)) {
-      setError("分支名称包含 Git 不允许的字符或路径片段")
+      setError(tr("git.branch-name-contains-characters-or-path-fragments-that"))
       return
     }
-    void run("create", () => props.actions.createBranch({ name, checkout: true }), `已创建并切换到 ${name}`).then(
+    void run("create", () => props.actions.createBranch({ name, checkout: true }), tr("git.created-and-switched", { branch: name })).then(
       () => {
         if (!error()) setNewBranch("")
       },
@@ -118,7 +119,7 @@ export function BranchControlView(props: BranchControlViewProps) {
         onClick={() => setOpen(true)}
       >
         <GitBranch aria-hidden="true" />
-        <span>{props.loading ? "正在检查版本库…" : (props.current ?? "未启用版本控制")}</span>
+        <span>{props.loading ? tr("git.checking-repository") : (props.current ?? tr("git.version-control-is-not-enabled"))}</span>
       </Button>
       <BranchDialog
         open={open()}
@@ -136,8 +137,8 @@ export function BranchControlView(props: BranchControlViewProps) {
         onRemote={(value) => setRemote(value || undefined)}
         onSwitch={switchBranch}
         onCreate={createBranch}
-        onFetch={() => void run("fetch", props.actions.fetch, "Fetch 完成")}
-        onPush={() => void run("push", () => props.actions.push(remote() ? { remote: remote() } : {}), "Push 完成")}
+        onFetch={() => void run("fetch", props.actions.fetch, tr("git.fetch-completed"))}
+        onPush={() => void run("push", () => props.actions.push(remote() ? { remote: remote() } : {}), tr("git.push-completed"))}
         onPullRequests={
           props.onPullRequests
             ? () => {
@@ -175,7 +176,7 @@ export function BranchControl(props: { directory: string; onPullRequests?: () =>
         current={branches.data?.current ?? info.data?.branch}
         branches={branches.data ?? { branches: [], remotes: [] }}
         loading={info.isPending || (Boolean(info.data?.branch) && branches.isPending)}
-        loadError={branches.error ? `无法加载分支：${operationError(branches.error).message}` : undefined}
+        loadError={branches.error ? tr("git.load-branches-failed", { reason: operationError(branches.error).message }) : undefined}
         actions={actions()}
         onPullRequests={props.onPullRequests ?? (() => setPullRequestsOpen(true))}
       />

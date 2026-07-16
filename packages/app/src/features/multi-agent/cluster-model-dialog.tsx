@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { QueryClient } from "@tanstack/solid-query"
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
@@ -76,7 +77,7 @@ export function ClusterModelDialog(props: ClusterModelDialogProps) {
             ) as SelectionValues
             setValues(next)
           })
-          .catch((cause) => setFailure(errorMessage(cause, "无法加载全局模型配置")))
+          .catch((cause) => setFailure(errorMessage(cause, tr("multi-agent.unable-to-load-global-model-configuration"))))
           .finally(() => setLoading(false))
       },
     ),
@@ -93,15 +94,15 @@ export function ClusterModelDialog(props: ClusterModelDialogProps) {
       props.onSaved(selections.planner_model)
       props.onClose()
     } catch (cause) {
-      setFailure(errorMessage(cause, "无法保存全局模型配置"))
+      setFailure(errorMessage(cause, tr("multi-agent.unable-to-save-global-model-configuration")))
     } finally {
       setSaving(false)
     }
   }
 
   const footer = () => (
-    <Button loading={saving()} loadingLabel="正在保存" disabled={loading() || !validSelections()} onClick={() => void save()}>
-      保存
+    <Button loading={saving()} loadingLabel={tr("multi-agent.saving")} disabled={loading() || !validSelections()} onClick={() => void save()}>
+      {tr("github.save")}
     </Button>
   )
 
@@ -109,14 +110,14 @@ export function ClusterModelDialog(props: ClusterModelDialogProps) {
     <Dialog
       open={props.open}
       class="cluster-model-dialog"
-      title="配置模型"
-      description="主模型用于普通单智能体对话，也负责多智能体的规划与汇总；另外三种模型用于对应的子任务。设置对所有项目生效，正在运行的任务不会切换模型。"
+      title={tr("multi-agent.configure-model")}
+      description={tr("multi-agent.the-main-model-is-used-for-ordinary-single")}
       footer={footer()}
       showClose
       onClose={props.onClose}
     >
       <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>
-      <Show when={!loading()} fallback={<p class="cluster-model-dialog__loading" role="status">正在加载全局模型配置</p>}>
+      <Show when={!loading()} fallback={<p class="cluster-model-dialog__loading" role="status">{tr("multi-agent.loading-global-model-configuration")}</p>}>
         <Show when={values()}>
           {(current) => (
             <div class="cluster-model-dialog__roles">
@@ -137,7 +138,7 @@ export function ClusterModelDialog(props: ClusterModelDialogProps) {
                         }
                       >
                         <Show when={unavailable()}>
-                          <option value={configured()}>当前配置不可用 · {configured()}</option>
+                          <option value={configured()}>{tr("multi-agent.the-current-configuration-is-not-available")} {configured()}</option>
                         </Show>
                         <For each={props.models}>
                           {(model) => (

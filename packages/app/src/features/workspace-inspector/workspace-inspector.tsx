@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { FileDiff, ListTodo, Network } from "lucide-solid"
 import { For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { IconButton } from "../../components/ui/button"
@@ -10,10 +11,13 @@ import {
 } from "./inspector-preferences"
 import "./workspace-inspector.css"
 
-const paneLabels: Record<InspectorPane, string> = {
-  todo: "待办",
-  "multi-agent": "多智能体",
-  changes: "工作区变更",
+function paneLabel(pane: InspectorPane) {
+  const labels: Record<InspectorPane, string> = {
+  todo: tr("workspace-inspector.to-do"),
+  "multi-agent": tr("multi-agent.multi-agent"),
+  changes: tr("changes.workspace-changes"),
+  }
+  return labels[pane]
 }
 
 function isNarrow() {
@@ -128,7 +132,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
     return (
       <IconButton
         class="workspace-activity-button"
-        label={paneLabels[buttonProps.pane]}
+        label={paneLabel(buttonProps.pane)}
         variant="ghost"
         aria-controls={active() ? "workspace-drawer" : undefined}
         aria-pressed={active()}
@@ -157,7 +161,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
         <button
           type="button"
           class="workspace-drawer-scrim"
-          aria-label="关闭工作栏页面"
+          aria-label={tr("workspace-inspector.close-the-taskbar-page")}
           onClick={() => update({ panes: [], ratios: [] })}
         />
       </Show>
@@ -166,7 +170,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
           <div
             class="workspace-drawer__width-handle"
             role="separator"
-            aria-label="调整工作栏宽度"
+            aria-label={tr("workspace-inspector.adjust-taskbar-width")}
             aria-orientation="vertical"
             aria-valuemin="280"
             aria-valuemax={Math.round(Math.max(280, window.innerWidth / 3))}
@@ -183,14 +187,14 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
             <For each={props.preferences.panes}>
               {(pane, index) => (
                 <>
-                  <div class="workspace-drawer__pane" role="group" aria-label={paneLabels[pane]}>
+                  <div class="workspace-drawer__pane" role="group" aria-label={paneLabel(pane)}>
                     {panel(pane)}
                   </div>
                   <Show when={index() < props.preferences.panes.length - 1}>
                     <div
                       class="workspace-drawer__row-handle"
                       role="separator"
-                      aria-label={`调整 ${paneLabels[pane]} 高度`}
+                      aria-label={tr("workspace-inspector.resize-pane", { pane: paneLabel(pane) })}
                       aria-orientation="horizontal"
                       tabIndex={0}
                       onPointerDown={(event) => startVerticalResize(event, index())}
@@ -207,7 +211,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
           </div>
         </div>
       </Show>
-      <nav class="workspace-activity-rail" aria-label="工作栏页面">
+      <nav class="workspace-activity-rail" aria-label={tr("workspace-inspector.taskbar-page")}>
         <ActivityButton pane="todo" icon={<ListTodo aria-hidden="true" />} badge={props.todoBadge} />
         <ActivityButton pane="multi-agent" icon={<Network aria-hidden="true" />} badge={props.multiAgentBadge} />
         <ActivityButton pane="changes" icon={<FileDiff aria-hidden="true" />} badge={props.changesBadge} />
@@ -232,8 +236,8 @@ export function WorkspaceInspector(props: {
       multiAgent={
         props.multiAgent ?? (
           <section class="workspace-drawer__placeholder" aria-labelledby="multi-agent-placeholder-title">
-            <h2 id="multi-agent-placeholder-title">多智能体</h2>
-            <p>选择会话后可在这里查看智能体计划与进度。</p>
+            <h2 id="multi-agent-placeholder-title">{tr("multi-agent.multi-agent")}</h2>
+            <p>{tr("workspace-inspector.after-selecting-a-session-you-can-view-the")}</p>
           </section>
         )
       }

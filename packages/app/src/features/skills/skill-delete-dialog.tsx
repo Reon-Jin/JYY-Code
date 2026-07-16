@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { createSignal, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
@@ -21,7 +22,7 @@ export function SkillDeleteDialog(props: {
       await props.onConfirm()
       props.onClose()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "操作失败")
+      setError(cause instanceof Error ? cause.message : tr("skills.operation-failed"))
     } finally {
       setBusy(false)
     }
@@ -30,24 +31,24 @@ export function SkillDeleteDialog(props: {
   return (
     <Dialog
       open={props.open}
-      title={props.sourceRemoval ? "移除 Skill 来源" : "删除 Skill"}
+      title={props.sourceRemoval ? tr("skills.remove-skill-source") : tr("skills.delete-skill")}
       description={`${props.skill.name} · ${props.skill.location}`}
       onClose={props.onClose}
       footer={
         <>
           <Button variant="ghost" onClick={props.onClose}>
-            取消
+            {tr("github.cancel")}
           </Button>
-          <Button variant="danger" loading={busy()} loadingLabel="正在处理" onClick={() => void confirm()}>
-            {props.sourceRemoval ? "确认移除" : "确认删除"}
+          <Button variant="danger" loading={busy()} loadingLabel={tr("skills.processing")} onClick={() => void confirm()}>
+            {props.sourceRemoval ? tr("skills.confirm-removal") : tr("mcp.confirm-deletion")}
           </Button>
         </>
       }
     >
       <p class="skill-dialog__warning">
         {props.sourceRemoval
-          ? "将从全局配置中移除此来源，缓存内容不会被直接编辑。"
-          : "该操作会删除显示位置中的 Skill。"}
+          ? tr("skills.this-source-will-be-removed-from-the-global")
+          : tr("skills.this-action-will-delete-the-skill-from-the")}
       </p>
       <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>
     </Dialog>

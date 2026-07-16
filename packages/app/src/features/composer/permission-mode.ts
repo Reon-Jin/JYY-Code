@@ -10,6 +10,7 @@ export function permissionRulesForMode(mode: AgentPermissionMode): PermissionRul
 export function permissionModeFromRules(rules: PermissionRuleset | undefined): AgentPermissionMode {
   for (let index = (rules?.length ?? 0) - 1; index >= 0; index -= 1) {
     const rule = rules![index]
+    if (!rule) continue
     if (rule.permission !== "*" || rule.pattern !== "*") continue
     if (rule.action === "ask") return "request"
     if (rule.action === "allow") return "full"

@@ -1,4 +1,5 @@
 .workspace-shell {
+  --workspace-header-height: 69px;
   position: relative;
   display: grid;
   height: 100%;
@@ -38,6 +39,7 @@
 
 .workspace-project {
   display: grid;
+  height: var(--workspace-header-height);
   min-width: 0;
   grid-template-columns: 30px minmax(0, 1fr) 36px;
   align-items: center;
@@ -114,7 +116,7 @@
   position: relative;
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) 36px;
+  grid-template-columns: minmax(0, 1fr) 32px;
   align-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -151,6 +153,8 @@
 
 .session-actions { position: relative; z-index: 4; }
 .session-actions > .ui-button { opacity: 0; }
+.session-actions > .ui-button[data-size="icon"] { width: 28px; min-height: 28px; border-radius: var(--radius-sm); }
+.session-actions > .ui-button[data-size="icon"] svg { width: 14px; height: 14px; }
 .session-list-item:hover .session-actions > .ui-button,
 .session-actions > .ui-button:focus-visible,
 .session-list-item[data-active="true"] .session-actions > .ui-button,
@@ -210,7 +214,7 @@
 
 .workspace-conversation { --conversation-content-width: min(1100px, calc(100% - 32px)); display: grid; width: 100%; height: 100%; min-height: 0; grid-template-rows: auto minmax(0, 1fr); justify-items: center; }
 .workspace-conversation__footer { display: grid; width: 100%; min-width: 0; }
-.workspace-conversation__header { display: grid; width: 100%; gap: 2px; border-bottom: 1px solid var(--color-border); padding: var(--space-3) var(--space-6) var(--space-3) 64px; background: var(--color-header-surface); backdrop-filter: blur(12px); }
+.workspace-conversation__header { display: grid; width: 100%; height: var(--workspace-header-height); align-content: center; gap: 2px; border-bottom: 1px solid var(--color-border); padding: var(--space-3) var(--space-6) var(--space-3) 64px; background: var(--color-header-surface); backdrop-filter: blur(12px); }
 .workspace-conversation__header span { color: var(--color-text-muted); font-family: var(--font-code); font-size: 0.64rem; letter-spacing: 0.06em; text-transform: uppercase; }
 .workspace-conversation__header h1 { margin: 0; overflow: hidden; font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
 .workspace-conversation__context { display: inline-flex; }

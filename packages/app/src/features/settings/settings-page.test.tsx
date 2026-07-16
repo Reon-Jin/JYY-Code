@@ -5,11 +5,14 @@ import { afterEach, describe, expect, it } from "vitest"
 import { SettingsPage } from "./settings-page"
 import { DesktopBridgeProvider } from "../../platform/context"
 import { createFakeDesktop } from "../../test/fake-desktop"
+import { I18nProvider } from "../../i18n/i18n-context"
 
 function SettingsTestPage() {
   return (
     <DesktopBridgeProvider bridge={createFakeDesktop().bridge}>
-      <SettingsPage />
+      <I18nProvider>
+        <SettingsPage />
+      </I18nProvider>
     </DesktopBridgeProvider>
   )
 }
@@ -27,7 +30,7 @@ describe("SettingsPage", () => {
       </MemoryRouter>
     ))
 
-    expect(screen.getByRole("heading", { name: "设置" })).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "设置" })).toBeVisible()
     expect(screen.queryByRole("navigation", { name: "全局管理" })).not.toBeInTheDocument()
     expect(screen.getByRole("navigation", { name: "设置分类" })).toBeVisible()
 
@@ -35,7 +38,7 @@ describe("SettingsPage", () => {
     expect(await screen.findByRole("heading", { name: "Restored Session" })).toBeVisible()
   })
 
-  it("preserves returnTo while switching sections", () => {
+  it("preserves returnTo while switching sections", async () => {
     const history = createMemoryHistory()
     history.set({ value: "/settings/general?returnTo=%2Fworkspace", replace: true, scroll: false })
     render(() => (
@@ -44,7 +47,7 @@ describe("SettingsPage", () => {
       </MemoryRouter>
     ))
 
-    expect(screen.getByRole("link", { name: "权限与安全" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "权限与安全" })).toHaveAttribute(
       "href",
       "/settings/security?returnTo=%2Fworkspace",
     )
