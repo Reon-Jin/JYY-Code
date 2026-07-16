@@ -9,6 +9,7 @@ const sources = [
   "src/features/sessions/sessions.css",
   "src/features/composer/composer.css",
   "src/features/conversation/conversation.css",
+  "src/features/workspace-inspector/workspace-inspector.css",
   "index.html",
   "../desktop/src-tauri/tauri.conf.json",
 ].map((path) => `${path}\n${readFileSync(path, "utf8")}`)
@@ -55,6 +56,12 @@ describe("Codex-inspired desktop theme", () => {
     expect(themeSource).toMatch(/data-theme="dark"\]\[data-glass="on"\][^{]*\{[^}]*--surface:/s)
     expect(themeSource).toContain("--glass-primary-ink: #ffffff")
     expect(themeSource).toContain("--glass-primary-ink: #202020")
+    expect(themeSource).toMatch(
+      /\.workspace-activity-button\.ui-button:not\(\[aria-pressed="true"\]\)[^{]*\{[^}]*background-color:\s*transparent;[^}]*background-image:\s*none;[^}]*box-shadow:\s*none;/s,
+    )
+    expect(themeSource).toMatch(
+      /\.workspace-activity-button\.ui-button\[aria-pressed="true"\][^{]*\{[^}]*background-color:\s*var\(--glass-control-hover\);[^}]*background-image:\s*var\(--glass-control-highlight\);/s,
+    )
   })
 
   it("does not retain the retired blue and green palette", () => {
