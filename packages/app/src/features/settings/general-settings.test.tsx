@@ -84,7 +84,6 @@ describe("GeneralSettings", () => {
     for (const label of ["回复完成", "等待权限", "Agent 提问"]) {
       expect(screen.getByLabelText(label)).toBeEnabled()
     }
-    expect(screen.queryByText("即将推出")).not.toBeInTheDocument()
   })
 
   it("requests permission only when enabling and keeps the choice after denial", async () => {

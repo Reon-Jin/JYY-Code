@@ -21,7 +21,7 @@ describe("Settings responsive CSS contract", () => {
 
   it("stacks option groups instead of squeezing controls", () => {
     expect(settings).toMatch(
-      /@media\s*\(max-width:\s*720px\)[\s\S]*?\.settings-options--inline,[\s\S]*?\.settings-placeholder-options\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
+      /@media\s*\(max-width:\s*720px\)[\s\S]*?\.settings-options--inline,[\s\S]*?\.settings-notification-options\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,
     )
     expect(settings).toMatch(
       /@media\s*\(max-width:\s*720px\)[\s\S]*?\.compaction-settings__grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/,

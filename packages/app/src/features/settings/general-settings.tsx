@@ -208,7 +208,7 @@ export function GeneralSettings() {
 
       <section class="settings-card" aria-labelledby="notifications-setting-title">
         <h3 id="notifications-setting-title">{tr("settings.windows-notifications")}</h3>
-        <fieldset class="settings-placeholder-options" disabled={saving()}>
+        <fieldset class="settings-notification-options" disabled={saving()}>
           <legend>{tr("settings.notification-trigger-conditions")}</legend>
           <label>
             <input
