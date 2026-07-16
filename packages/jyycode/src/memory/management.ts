@@ -39,6 +39,8 @@ export type Page = {
   nextCursor?: string
 }
 
+export type CompactionResult = Pick<Memory.CompactionResult, "removed" | "merged" | "retained">
+
 export interface Interface {
   readonly list: (input: {
     scope: Scope
@@ -54,8 +56,8 @@ export interface Interface {
       | ({ scope: "task"; id: string | null; sessionID: SessionID } & EntryInput),
   ) => Effect.Effect<Entry, Error>
   readonly remove: (input: { scope: Scope; id: string; sessionID?: SessionID }) => Effect.Effect<void, Error>
-  readonly clearTask: (input: { sessionID: SessionID }) => Effect.Effect<number, Error>
-  readonly compact: (input: { scope: Scope; sessionID?: SessionID }) => Effect.Effect<Memory.CompactionResult, Error>
+  readonly clearTask: (input: { sessionID?: SessionID }) => Effect.Effect<number, Error>
+  readonly compact: (input: { scope: Scope; sessionID?: SessionID }) => Effect.Effect<CompactionResult, Error>
   readonly exportStore: (input: { scope: Scope; sessionID?: SessionID }) => Effect.Effect<string, Error>
 }
 
@@ -118,12 +120,12 @@ export const layer = Layer.effect(
     }
 
     const entriesFor = Effect.fn("MemoryManagement.entriesFor")(function* (scope: Scope, sessionID?: SessionID) {
-      const writer = yield* Effect.try({ try: () => requireSession(scope, sessionID), catch: asError })
+      const writer = scope === "task" && !sessionID ? managementSessionID : yield* Effect.try({ try: () => requireSession(scope, sessionID), catch: asError })
       const store = yield* storage.read({ sessionID: writer, scope: storageScope(scope) })
       return store.entries.filter((entry) =>
         scope === "user"
           ? entry.scope === "user"
-          : entry.scope === "memory" && entry.sessionID === sessionID,
+          : entry.scope === "memory" && (!sessionID || entry.sessionID === sessionID),
       )
     })
 
@@ -221,16 +223,32 @@ export const layer = Layer.effect(
       yield* storage.remove({ sessionID, expected })
     })
 
-    const clearTask = Effect.fn("MemoryManagement.clearTask")(function* (input: { sessionID: SessionID }) {
-      return yield* storage.clearTask(input)
+    const clearTask = Effect.fn("MemoryManagement.clearTask")(function* (input: { sessionID?: SessionID }) {
+      if (input.sessionID) return yield* storage.clearTask({ sessionID: input.sessionID })
+      const sessions = [...new Set((yield* entriesFor("task")).flatMap((entry) => entry.scope === "memory" ? [entry.sessionID] : []))]
+      const removed = yield* Effect.forEach(sessions, (sessionID) => storage.clearTask({ sessionID }))
+      return removed.reduce((total, count) => total + count, 0)
     })
 
     const compact = Effect.fn("MemoryManagement.compact")(function* (input: {
       scope: Scope
       sessionID?: SessionID
     }) {
+      if (input.scope === "task" && !input.sessionID) {
+        const sessions = [...new Set((yield* entriesFor("task")).flatMap((entry) => entry.scope === "memory" ? [entry.sessionID] : []))]
+        const results = yield* Effect.forEach(sessions, (sessionID) => storage.compact({ sessionID, scope: "memory" }))
+        return results.reduce(
+          (total, result) => ({
+            removed: total.removed + result.removed,
+            merged: total.merged + result.merged,
+            retained: total.retained + result.retained,
+          }),
+          { removed: 0, merged: 0, retained: 0 },
+        )
+      }
       const sessionID = yield* Effect.try({ try: () => requireSession(input.scope, input.sessionID), catch: asError })
-      return yield* storage.compact({ sessionID, scope: storageScope(input.scope) })
+      const result = yield* storage.compact({ sessionID, scope: storageScope(input.scope) })
+      return { removed: result.removed, merged: result.merged, retained: result.retained }
     })
 
     const exportStore = Effect.fn("MemoryManagement.exportStore")(function* (input: {

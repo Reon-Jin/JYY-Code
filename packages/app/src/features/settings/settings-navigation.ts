@@ -9,3 +9,7 @@ export function sanitizeSettingsReturnTo(value: string | undefined | null) {
 export function settingsHref(section: SettingsSection, returnTo: string | undefined | null) {
   return `/settings/${section}?returnTo=${encodeURIComponent(sanitizeSettingsReturnTo(returnTo))}`
 }
+
+export function memorySettingsHref(scope: "user" | "task", returnTo: string | undefined | null) {
+  return `/settings/memory/${scope}?returnTo=${encodeURIComponent(sanitizeSettingsReturnTo(returnTo))}`
+}

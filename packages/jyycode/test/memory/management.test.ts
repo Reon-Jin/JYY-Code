@@ -64,6 +64,40 @@ describe("audited memory management storage", () => {
     expect(JSON.stringify({ user, task })).not.toContain(ctx.directory)
   })
 
+  test("lists and searches task memories across sessions when no session is specified", async () => {
+    const ctx = await fixture()
+    await ctx.run(
+      MemoryManagement.Service.use((management) =>
+        Effect.gen(function* () {
+          yield* management.update({
+            scope: "task",
+            id: null,
+            sessionID: SessionID.make("ses_first"),
+            importance: 6,
+            keywords: ["设置"],
+            content: "用户要求完成设置，我完成了设置实现。",
+          })
+          yield* management.update({
+            scope: "task",
+            id: null,
+            sessionID: SessionID.make("ses_second"),
+            importance: 7,
+            keywords: ["附件"],
+            content: "用户要求支持附件，我完成了文件上传。",
+          })
+        }),
+      ),
+    )
+
+    const all = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "task" })))
+    const searched = await ctx.run(
+      MemoryManagement.Service.use((management) => management.list({ scope: "task", query: "附件" })),
+    )
+    expect(all.entries.map((entry) => entry.scope === "task" ? String(entry.sessionID) : "")).toEqual(["ses_first", "ses_second"])
+    expect(searched.entries).toHaveLength(1)
+    expect(searched.entries[0]).toMatchObject({ scope: "task", sessionID: "ses_second", keywords: ["附件"] })
+  })
+
   test("updates and deletes only the exact id and compacts under the shared atomic lock", async () => {
     const ctx = await fixture()
     const created = await ctx.run(

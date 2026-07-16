@@ -228,9 +228,6 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       params: { scope: typeof GlobalMemoryScopeParams.scope.Type }
       query: typeof GlobalMemoryOperationQuery.Type
     }) {
-      if (ctx.params.scope === "task" && !ctx.query.sessionID) {
-        return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
-      }
       const result = yield* mapMemoryError(memory.compact({ scope: ctx.params.scope, sessionID: ctx.query.sessionID }))
       return { removed: result.removed, merged: result.merged, retained: result.retained }
     })
@@ -238,18 +235,12 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
     const memoryTaskClear = Effect.fn("GlobalHttpApi.memoryTaskClear")(function* (ctx: {
       query: typeof GlobalMemoryOperationQuery.Type
     }) {
-      if (!ctx.query.sessionID) {
-        return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
-      }
       return { removed: yield* mapMemoryError(memory.clearTask({ sessionID: ctx.query.sessionID })) }
     })
 
     const memoryExport = Effect.fn("GlobalHttpApi.memoryExport")(function* (ctx: {
       query: typeof GlobalMemoryListQuery.Type
     }) {
-      if (ctx.query.scope === "task" && !ctx.query.sessionID) {
-        return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
-      }
       const text = yield* mapMemoryError(memory.exportStore({ scope: ctx.query.scope, sessionID: ctx.query.sessionID }))
       return yield* Schema.decodeUnknownEffect(GlobalMemoryExport)(JSON.parse(text)).pipe(Effect.orDie)
     })

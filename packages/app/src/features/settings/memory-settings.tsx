@@ -1,5 +1,7 @@
 import type { GlobalMemoryEntry } from "@jyycode-ai/sdk/v2/client"
+import { A, useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
+import { ArrowLeft, ChevronRight, ClipboardList, UserRound } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
@@ -10,6 +12,8 @@ import type { ManagementContextValue } from "../management/management-context"
 import { useManagement } from "../management/management-context"
 import { MemoryConfirmDialog } from "./memory-confirm-dialog"
 import { MemoryEditor, type MemoryEditorValue } from "./memory-editor"
+import { memorySettingsHref, sanitizeSettingsReturnTo, settingsHref } from "./settings-navigation"
+import "./settings.css"
 
 type Scope = "user" | "task"
 type Confirmation =
@@ -17,11 +21,64 @@ type Confirmation =
   | { kind: "compact" }
   | { kind: "clear" }
 
-export function MemorySettings(props: { management?: ManagementContextValue }) {
+export function MemorySettings() {
+  const [search] = useSearchParams<{ returnTo?: string }>()
+  const returnTo = () => sanitizeSettingsReturnTo(search.returnTo)
+
+  return (
+    <section class="settings-card memory-settings-launcher" aria-labelledby="memory-settings-title">
+      <h3 id="memory-settings-title">{tr("settings.memory-management")}</h3>
+      <p class="settings-description">{tr("settings.memory-management-description")}</p>
+      <div class="memory-settings-launcher__links">
+        <A href={memorySettingsHref("user", returnTo())}>
+          <UserRound aria-hidden="true" />
+          <span>
+            <strong>{tr("settings.user-memory")}</strong>
+            <small>{tr("settings.user-memory-description")}</small>
+          </span>
+          <ChevronRight aria-hidden="true" />
+        </A>
+        <A href={memorySettingsHref("task", returnTo())}>
+          <ClipboardList aria-hidden="true" />
+          <span>
+            <strong>{tr("settings.task-memory")}</strong>
+            <small>{tr("settings.task-memory-description")}</small>
+          </span>
+          <ChevronRight aria-hidden="true" />
+        </A>
+      </div>
+    </section>
+  )
+}
+
+export function MemoryManagementPage(props: { management?: ManagementContextValue; scope?: Scope }) {
+  const params = useParams<{ scope?: string }>()
+  const [search] = useSearchParams<{ returnTo?: string }>()
+  const navigate = useNavigate()
+  const scope = (): Scope => props.scope ?? (params.scope === "task" ? "task" : "user")
+  const returnTo = () => sanitizeSettingsReturnTo(search.returnTo)
+
+  return (
+    <main class="settings-page memory-page">
+      <header class="settings-header">
+        <Button variant="ghost" onClick={() => navigate(settingsHref("advanced", returnTo()))}>
+          <ArrowLeft aria-hidden="true" />
+          {tr("settings.return")}
+        </Button>
+        <h1>{scope() === "user" ? tr("settings.user-memory") : tr("settings.task-memory")}</h1>
+      </header>
+      <section class="settings-content memory-page__body">
+        <div class="settings-sections">
+          <MemoryManager scope={scope()} management={props.management} />
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function MemoryManager(props: { scope: Scope; management?: ManagementContextValue }) {
   const management = props.management ?? useManagement()
   const desktop = useDesktopBridge()
-  const [scope, setScope] = createSignal<Scope>("user")
-  const [sessionID, setSessionID] = createSignal("")
   const [search, setSearch] = createSignal("")
   const [debouncedSearch, setDebouncedSearch] = createSignal("")
   const [editorOpen, setEditorOpen] = createSignal(false)
@@ -36,17 +93,13 @@ export function MemorySettings(props: { management?: ManagementContextValue }) {
     onCleanup(() => window.clearTimeout(timer))
   })
 
-  const ready = () => scope() === "user" || Boolean(sessionID().trim())
-  const queryKey = () => keys.globalMemory(scope(), sessionID().trim(), debouncedSearch())
   const query = createQuery(
     () => ({
-      queryKey: queryKey(),
-      enabled: ready(),
+      queryKey: keys.globalMemory(props.scope, "", debouncedSearch()),
       queryFn: async () => {
         const response = await management.client.global.memory.list(
           {
-            scope: scope(),
-            ...(scope() === "task" ? { sessionID: sessionID().trim() } : {}),
+            scope: props.scope,
             ...(debouncedSearch() ? { query: debouncedSearch() } : {}),
             limit: "100",
           },
@@ -59,23 +112,10 @@ export function MemorySettings(props: { management?: ManagementContextValue }) {
     () => management.queryClient,
   )
 
-  const invalidate = () => management.queryClient.invalidateQueries({ queryKey: keys.globalMemoryScope(scope(), sessionID().trim()) })
-
-  function changeScope(next: Scope) {
-    setScope(next)
-    setSearch("")
-    setDebouncedSearch("")
-    setFailure(undefined)
-    setNotice(undefined)
-  }
+  const invalidate = () => management.queryClient.invalidateQueries({ queryKey: keys.globalMemoryScope(props.scope) })
 
   function openCreate() {
     setEditing(undefined)
-    setEditorOpen(true)
-  }
-
-  function openEdit(entry: GlobalMemoryEntry) {
-    setEditing(entry)
     setEditorOpen(true)
   }
 
@@ -111,12 +151,9 @@ export function MemorySettings(props: { management?: ManagementContextValue }) {
         { throwOnError: true },
       )
     } else if (current.kind === "clear") {
-      await management.client.global.memory.task.clear({ sessionID: sessionID().trim() }, { throwOnError: true })
+      await management.client.global.memory.task.clear({}, { throwOnError: true })
     } else {
-      await management.client.global.memory.compact(
-        { scope: scope(), sessionID: scope() === "task" ? sessionID().trim() : undefined },
-        { throwOnError: true },
-      )
+      await management.client.global.memory.compact({ scope: props.scope }, { throwOnError: true })
     }
     await invalidate()
     setNotice(tr("settings.memory-operation-complete"))
@@ -126,16 +163,9 @@ export function MemorySettings(props: { management?: ManagementContextValue }) {
     setFailure(undefined)
     setNotice(undefined)
     try {
-      const response = await management.client.global.memory.export(
-        { scope: scope(), sessionID: scope() === "task" ? sessionID().trim() : undefined },
-        { throwOnError: true },
-      )
+      const response = await management.client.global.memory.export({ scope: props.scope }, { throwOnError: true })
       if (!response.data) throw new Error(tr("settings.memory-export-error"))
-      const date = localDate(new Date())
-      const taskName = sessionID().trim().replace(/[^A-Za-z0-9_-]/gu, "-")
-      const filename = scope() === "user"
-        ? `jyycode-memory-user-${date}.json`
-        : `jyycode-memory-task-${taskName}-${date}.json`
+      const filename = `jyycode-memory-${props.scope}-${localDate(new Date())}.json`
       const result = await desktop.saveTextFile(filename, `${JSON.stringify(response.data, null, 2)}\n`)
       if (!result.supported) throw new Error(result.reason ?? tr("settings.memory-export-error"))
       if (result.saved) setNotice(tr("settings.memory-exported"))
@@ -167,47 +197,36 @@ export function MemorySettings(props: { management?: ManagementContextValue }) {
   })
 
   return (
-    <section class="settings-card memory-settings" aria-labelledby="memory-settings-title">
+    <section class="settings-card memory-settings" aria-labelledby="memory-manager-title">
       <header class="memory-settings__header">
         <div>
-          <h3 id="memory-settings-title">{tr("settings.memory-management")}</h3>
-          <p class="settings-description">{tr("settings.memory-management-description")}</p>
+          <h3 id="memory-manager-title">{tr("settings.manage-memory")}</h3>
+          <p class="settings-description">
+            {props.scope === "user" ? tr("settings.user-memory-description") : tr("settings.task-memory-description")}
+          </p>
         </div>
         <span>{tr("settings.memory-entry-count", { count: query.data?.total ?? 0 })}</span>
       </header>
 
-      <div class="memory-settings__tabs" role="tablist" aria-label={tr("settings.memory-scope")}>
-        <Button variant={scope() === "user" ? "primary" : "ghost"} role="tab" aria-selected={scope() === "user"} onClick={() => changeScope("user")}>{tr("settings.user-memory")}</Button>
-        <Button variant={scope() === "task" ? "primary" : "ghost"} role="tab" aria-selected={scope() === "task"} onClick={() => changeScope("task")}>{tr("settings.task-memory")}</Button>
-      </div>
-
-      <Show when={scope() === "task"}>
-        <label class="memory-settings__session">
-          <span>{tr("settings.session-id")}</span>
-          <input aria-label={tr("settings.session-id")} value={sessionID()} onInput={(event) => setSessionID(event.currentTarget.value)} placeholder="ses_..." />
-        </label>
-      </Show>
-
       <label class="memory-settings__search">
         <span>{tr("settings.search-memory")}</span>
-        <input type="search" aria-label={tr("settings.search-memory")} value={search()} disabled={!ready()} onInput={(event) => setSearch(event.currentTarget.value)} />
+        <input type="search" aria-label={tr("settings.search-memory")} value={search()} onInput={(event) => setSearch(event.currentTarget.value)} />
       </label>
 
       <div class="memory-settings__actions">
-        <Show when={scope() === "user"}><Button onClick={openCreate}>{tr("settings.add-user-memory")}</Button></Show>
-        <Button variant="secondary" disabled={!ready()} onClick={() => setConfirmation({ kind: "compact" })}>{tr("settings.compact-memory")}</Button>
-        <Show when={scope() === "task"}><Button variant="danger" disabled={!ready()} onClick={() => setConfirmation({ kind: "clear" })}>{tr("settings.clear-task-memory")}</Button></Show>
-        <Button variant="secondary" disabled={!ready()} onClick={() => void exportMemory()}>{tr("settings.export-memory")}</Button>
+        <Show when={props.scope === "user"}><Button onClick={openCreate}>{tr("settings.add-user-memory")}</Button></Show>
+        <Button variant="secondary" onClick={() => setConfirmation({ kind: "compact" })}>{tr("settings.compact-memory")}</Button>
+        <Show when={props.scope === "task"}><Button variant="danger" onClick={() => setConfirmation({ kind: "clear" })}>{tr("settings.clear-task-memory")}</Button></Show>
+        <Button variant="secondary" onClick={() => void exportMemory()}>{tr("settings.export-memory")}</Button>
       </div>
 
-      <Show when={!ready()}><p class="memory-settings__empty">{tr("settings.enter-session-id-first")}</p></Show>
-      <Show when={ready() && query.isPending}><p class="settings-saving" role="status">{tr("settings.loading-memory")}</p></Show>
+      <Show when={query.isPending}><p class="settings-saving" role="status">{tr("settings.loading-memory")}</p></Show>
       <Show when={query.error}><InlineError message={query.error instanceof Error ? query.error.message : tr("settings.memory-load-error")} /></Show>
       <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>
       <Show when={notice()}>{(message) => <p class="compaction-settings__notice" role="status">{message()}</p>}</Show>
 
       <div class="memory-settings__list">
-        <For each={ready() ? query.data?.entries ?? [] : []}>
+        <For each={query.data?.entries ?? []}>
           {(entry) => (
             <article class="memory-settings__entry">
               <div class="memory-settings__entry-meta">
@@ -216,13 +235,13 @@ export function MemorySettings(props: { management?: ManagementContextValue }) {
               </div>
               <p>{entry.content}</p>
               <div class="memory-settings__entry-actions">
-                <Button size="small" variant="secondary" aria-label={tr("settings.edit-memory")} onClick={() => openEdit(entry)}>{tr("settings.edit-memory")}</Button>
+                <Button size="small" variant="secondary" aria-label={tr("settings.edit-memory")} onClick={() => { setEditing(entry); setEditorOpen(true) }}>{tr("settings.edit-memory")}</Button>
                 <Button size="small" variant="danger" aria-label={tr("settings.delete-memory")} onClick={() => setConfirmation({ kind: "delete", entry })}>{tr("settings.delete-memory")}</Button>
               </div>
             </article>
           )}
         </For>
-        <Show when={ready() && !query.isPending && !query.error && (query.data?.entries.length ?? 0) === 0}>
+        <Show when={!query.isPending && !query.error && (query.data?.entries.length ?? 0) === 0}>
           <p class="memory-settings__empty">{tr("settings.no-memory-entries")}</p>
         </Show>
       </div>

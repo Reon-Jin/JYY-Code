@@ -92,7 +92,7 @@ export function AdvancedSettings(props: { management?: ManagementContextValue })
         </label>
       </ComingSoonSetting>
       <CompactionSettings management={management} />
-      <MemorySettings management={management} />
+      <MemorySettings />
     </div>
   )
 }

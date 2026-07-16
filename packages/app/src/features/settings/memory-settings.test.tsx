@@ -1,4 +1,5 @@
 import { QueryClientProvider } from "@tanstack/solid-query"
+import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router"
 import { cleanup, render, screen, waitFor, within } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -6,7 +7,7 @@ import { createDesktopQueryClient } from "../../data/query-client"
 import { DesktopBridgeProvider } from "../../platform/context"
 import { createFakeDesktop } from "../../test/fake-desktop"
 import type { ManagementContextValue } from "../management/management-context"
-import { MemorySettings } from "./memory-settings"
+import { MemoryManagementPage, MemorySettings } from "./memory-settings"
 
 const userEntry = {
   id: "usr_language",
@@ -27,8 +28,8 @@ const taskEntry = {
 
 function management() {
   const memory = {
-    list: vi.fn(async ({ scope, sessionID }: { scope: "user" | "task"; sessionID?: string }) => ({
-      data: { entries: scope === "user" ? [userEntry] : sessionID ? [taskEntry] : [], total: 1 },
+    list: vi.fn(async ({ scope }: { scope: "user" | "task" }) => ({
+      data: { entries: scope === "user" ? [userEntry] : [taskEntry], total: 1 },
     })),
     update: vi.fn(async (input: Record<string, unknown>) => ({ data: { ...userEntry, ...input } })),
     remove: vi.fn(async () => ({ data: { removed: true } })),
@@ -45,15 +46,21 @@ function management() {
   return { value, memory }
 }
 
-function renderMemory() {
+function renderMemory(scope: "user" | "task" = "user") {
   const desktop = createFakeDesktop()
   const { value, memory } = management()
+  const history = createMemoryHistory()
+  history.set({ value: "/", replace: true, scroll: false })
   render(() => (
-    <DesktopBridgeProvider bridge={desktop.bridge}>
-      <QueryClientProvider client={value.queryClient}>
-        <MemorySettings management={value} />
-      </QueryClientProvider>
-    </DesktopBridgeProvider>
+    <MemoryRouter history={history}>
+      <Route path="/" component={() => (
+        <DesktopBridgeProvider bridge={desktop.bridge}>
+          <QueryClientProvider client={value.queryClient}>
+            <MemoryManagementPage management={value} scope={scope} />
+          </QueryClientProvider>
+        </DesktopBridgeProvider>
+      )} />
+    </MemoryRouter>
   ))
   return { desktop, value, memory }
 }
@@ -70,21 +77,37 @@ beforeEach(() => {
 })
 
 describe("MemorySettings", () => {
-  it("loads user memory by default and waits for a task Session before debounced search", async () => {
-    const { memory } = renderMemory()
-    const user = userEvent.setup()
-    expect(await screen.findByText("用户偏好简体中文。")).toBeVisible()
-    expect(memory.list).toHaveBeenCalledWith(expect.objectContaining({ scope: "user" }), { throwOnError: true })
+  it("links to separate user and task management pages", () => {
+    const history = createMemoryHistory()
+    history.set({ value: "/settings/advanced?returnTo=%2Fworkspace", replace: true, scroll: false })
+    render(() => (
+      <MemoryRouter history={history}>
+        <Route path="/settings/advanced" component={MemorySettings} />
+      </MemoryRouter>
+    ))
 
-    await user.click(screen.getByRole("tab", { name: "任务记忆" }))
-    expect(screen.getByText("请先输入 Session ID")).toBeVisible()
-    const session = screen.getByRole("textbox", { name: "Session ID" })
-    await user.type(session, "ses_settings")
+    expect(screen.getByRole("link", { name: /用户记忆/ })).toHaveAttribute(
+      "href",
+      "/settings/memory/user?returnTo=%2Fworkspace",
+    )
+    expect(screen.getByRole("link", { name: /任务记忆/ })).toHaveAttribute(
+      "href",
+      "/settings/memory/task?returnTo=%2Fworkspace",
+    )
+    expect(screen.queryByText("用户偏好简体中文。")).not.toBeInTheDocument()
+  })
+
+  it("loads and searches all task memories without asking for a Session ID", async () => {
+    const { memory } = renderMemory("task")
+    const user = userEvent.setup()
     expect(await screen.findByText("用户要求完成设置，我完成了设置。")).toBeVisible()
+    expect(screen.queryByRole("textbox", { name: "Session ID" })).not.toBeInTheDocument()
+    expect(memory.list).toHaveBeenCalledWith(expect.objectContaining({ scope: "task" }), { throwOnError: true })
+    expect(memory.list.mock.calls[0]?.[0]).not.toHaveProperty("sessionID")
 
     await user.type(screen.getByRole("searchbox", { name: "搜索记忆" }), "设置")
     await waitFor(() => expect(memory.list).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: "task", sessionID: "ses_settings", query: "设置" }),
+      expect.objectContaining({ scope: "task", query: "设置" }),
       { throwOnError: true },
     ))
   })
@@ -125,13 +148,13 @@ describe("MemorySettings", () => {
     await user.click(within(dialog).getByRole("button", { name: "确认压缩" }))
     await waitFor(() => expect(memory.compact).toHaveBeenCalledWith({ scope: "user", sessionID: undefined }, { throwOnError: true }))
 
-    await user.click(screen.getByRole("tab", { name: "任务记忆" }))
-    await user.type(screen.getByRole("textbox", { name: "Session ID" }), "ses_settings")
+    cleanup()
+    const task = renderMemory("task")
     await screen.findByText("用户要求完成设置，我完成了设置。")
     await user.click(screen.getByRole("button", { name: "清空任务记忆" }))
     dialog = screen.getByRole("dialog", { name: "清空任务记忆" })
     await user.click(within(dialog).getByRole("button", { name: "确认清空" }))
-    await waitFor(() => expect(memory.task.clear).toHaveBeenCalledWith({ sessionID: "ses_settings" }, { throwOnError: true }))
+    await waitFor(() => expect(task.memory.task.clear).toHaveBeenCalledWith({}, { throwOnError: true }))
   })
 
   it("exports normalized JSON with a scoped filename through the desktop bridge", async () => {
@@ -139,7 +162,7 @@ describe("MemorySettings", () => {
     const user = userEvent.setup()
     await screen.findByText("用户偏好简体中文。")
     await user.click(screen.getByRole("button", { name: "导出记忆" }))
-    await waitFor(() => expect(memory.export).toHaveBeenCalledWith({ scope: "user", sessionID: undefined }, { throwOnError: true }))
+    await waitFor(() => expect(memory.export).toHaveBeenCalledWith({ scope: "user" }, { throwOnError: true }))
     expect(desktop.bridge.saveTextFile).toHaveBeenCalledWith(
       expect.stringMatching(/^jyycode-memory-user-\d{8}\.json$/),
       expect.stringContaining('"schemaVersion": 3'),

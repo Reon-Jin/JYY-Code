@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { sanitizeSettingsReturnTo, settingsHref } from "./settings-navigation"
+import { memorySettingsHref, sanitizeSettingsReturnTo, settingsHref } from "./settings-navigation"
 
 describe("settings navigation", () => {
   it("accepts only supported internal return routes", () => {
@@ -15,5 +15,6 @@ describe("settings navigation", () => {
       "/settings/general?returnTo=%2Fsession%2Fses_1",
     )
     expect(settingsHref("security", "https://example.com")).toBe("/settings/security?returnTo=%2F")
+    expect(memorySettingsHref("task", "/workspace")).toBe("/settings/memory/task?returnTo=%2Fworkspace")
   })
 })

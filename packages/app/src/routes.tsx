@@ -11,6 +11,7 @@ import { ManagementShell } from "./features/management/management-shell"
 const SkillsRoute = lazy(() => import("./features/management/skills-route"))
 const McpRoute = lazy(() => import("./features/management/mcp-route"))
 const SettingsRoute = lazy(() => import("./features/settings/settings-route"))
+const MemorySettingsRoute = lazy(() => import("./features/settings/memory-settings-route"))
 
 type ProjectWorkspaceComponent = Component<{
   bootstrap: DesktopBootstrap
@@ -128,6 +129,7 @@ export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
       <Route path="/workspace" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
       <Route path="/session/:sessionID" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
       <Route path="/settings" component={SettingsRoute} />
+      <Route path="/settings/memory/:scope" component={MemorySettingsRoute} />
       <Route path="/settings/:section" component={SettingsRoute} />
     </HashRouter>
   )

@@ -314,7 +314,7 @@ export const GlobalApi = HttpApi.make("global").add(
         OpenApi.annotations({
           identifier: "global.memory.compact",
           summary: "Compact memories",
-          description: "Compact one memory scope using deterministic storage rules.",
+          description: "Compact one memory scope using deterministic storage rules, across all task sessions when omitted.",
         }),
       ),
       HttpApiEndpoint.post("memoryTaskClear", GlobalPaths.memoryTaskClear, {
@@ -325,7 +325,7 @@ export const GlobalApi = HttpApi.make("global").add(
         OpenApi.annotations({
           identifier: "global.memory.task.clear",
           summary: "Clear task memory",
-          description: "Clear task memory for one explicit session.",
+          description: "Clear task memory across all sessions, or one explicit session when provided.",
         }),
       ),
       HttpApiEndpoint.get("memoryExport", GlobalPaths.memoryExport, {
@@ -336,7 +336,7 @@ export const GlobalApi = HttpApi.make("global").add(
         OpenApi.annotations({
           identifier: "global.memory.export",
           summary: "Export memories",
-          description: "Export a normalized memory store for one scope.",
+          description: "Export a normalized memory store for one scope across all matching sessions.",
         }),
       ),
       HttpApiEndpoint.patch("configUpdate", GlobalPaths.config, {

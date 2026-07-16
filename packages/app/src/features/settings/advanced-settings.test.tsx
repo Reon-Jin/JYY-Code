@@ -1,4 +1,5 @@
 import { QueryClientProvider } from "@tanstack/solid-query"
+import { MemoryRouter, Route } from "@solidjs/router"
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -49,11 +50,15 @@ function management(shell = "cmd") {
 function renderAdvanced(value = management()) {
   const desktop = createFakeDesktop()
   render(() => (
-    <DesktopBridgeProvider bridge={desktop.bridge}>
-      <QueryClientProvider client={value.queryClient}>
-        <AdvancedSettings management={value} />
-      </QueryClientProvider>
-    </DesktopBridgeProvider>
+    <MemoryRouter>
+      <Route path="/" component={() => (
+        <DesktopBridgeProvider bridge={desktop.bridge}>
+          <QueryClientProvider client={value.queryClient}>
+            <AdvancedSettings management={value} />
+          </QueryClientProvider>
+        </DesktopBridgeProvider>
+      )} />
+    </MemoryRouter>
   ))
   return { value, desktop }
 }
@@ -87,6 +92,8 @@ describe("AdvancedSettings", () => {
     expect(screen.getByRole("heading", { name: "上下文压缩参数" })).toBeVisible()
     expect(screen.queryByRole("button", { name: "配置上下文压缩参数" })).not.toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "记忆管理" })).toBeVisible()
-    expect(screen.getByRole("button", { name: "新增用户记忆" })).toBeEnabled()
+    expect(screen.getByRole("link", { name: /用户记忆/ })).toBeVisible()
+    expect(screen.getByRole("link", { name: /任务记忆/ })).toBeVisible()
+    expect(screen.queryByText("用户偏好简体中文。")).not.toBeInTheDocument()
   })
 })

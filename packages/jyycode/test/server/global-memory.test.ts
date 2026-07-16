@@ -50,6 +50,14 @@ describe("authenticated global memory API", () => {
               keywords: ["设置"],
               content: "用户要求完成设置，我完成了设置。",
             },
+            {
+              scope: "memory",
+              sessionID: SessionID.make("ses_memory_api_second"),
+              importance: 7,
+              date: "20260716",
+              keywords: ["附件"],
+              content: "用户要求支持附件，我完成了文件上传。",
+            },
           ]),
         )
         await fs.writeFile(path.join(Memory.DIRECTORY, "USER.json"), Memory.serializeStore("user", []))
@@ -102,11 +110,11 @@ describe("authenticated global memory API", () => {
       })
       expect(conflict.status).toBe(400)
 
-      const taskList = yield* request("GET", "/global/memory?scope=task&sessionID=ses_memory_api")
+      const taskList = yield* request("GET", "/global/memory?scope=task")
       const taskPage = yield* json<{ entries: Array<{ id: string }> }>(taskList)
-      expect(taskPage.entries).toHaveLength(1)
-      expect((yield* request("GET", "/global/memory?scope=task")).status).toBe(400)
-      expect((yield* request("GET", "/global/memory/export?scope=task")).status).toBe(400)
+      expect(taskPage.entries).toHaveLength(2)
+      expect((yield* request("GET", "/global/memory/export?scope=task")).status).toBe(200)
+      expect((yield* request("POST", "/global/memory/task/compact")).status).toBe(200)
 
       const compact = yield* request("POST", "/global/memory/user/compact")
       expect(compact.status).toBe(200)
@@ -132,9 +140,9 @@ describe("authenticated global memory API", () => {
       expect(stale.status).toBe(200)
       expect((yield* request("DELETE", `/global/memory/task/${taskPage.entries[0]!.id}?sessionID=ses_memory_api`)).status).toBe(404)
 
-      const clear = yield* request("POST", "/global/memory/task/clear?sessionID=ses_memory_api")
+      const clear = yield* request("POST", "/global/memory/task/clear")
       expect(clear.status).toBe(200)
-      expect(yield* json(clear)).toEqual({ removed: 0 })
+      expect(yield* json(clear)).toEqual({ removed: 1 })
 
       expect((yield* request("DELETE", `/global/memory/user/${created.id}`)).status).toBe(200)
       expect((yield* request("GET", "/global/memory?scope=invalid")).status).toBe(400)
