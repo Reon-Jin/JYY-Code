@@ -16,9 +16,6 @@ jobs:
   release:
     runs-on: windows-2022
     timeout-minutes: 120
-    env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -35,6 +32,9 @@ jobs:
 
       - name: Validate release tag and secrets
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           $tag = "${{ github.ref_name }}"
           if ($tag -notmatch '^desktop-v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$') {
@@ -50,6 +50,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Stage backend sidecar for Rust validation
+        run: bun run --cwd packages/desktop stage:sidecar
+
       - name: Validate source
         run: |
           bun turbo typecheck
@@ -59,6 +62,9 @@ jobs:
 
       - name: Build signed updater artifacts
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: bun run --cwd packages/desktop build -- --target x86_64-pc-windows-msvc --config src-tauri/tauri.release.conf.json
 
       - name: Smoke-test and prepare artifacts
