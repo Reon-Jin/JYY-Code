@@ -207,11 +207,11 @@
 .reasoning-part__toggle {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   margin-inline: var(--space-1);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
-  padding: 4px var(--space-3);
+  padding: 2px var(--space-2);
   background: transparent;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
@@ -250,11 +250,11 @@ html[data-glass="on"] .reasoning-part__toggle {
   display: inline-flex;
   max-width: 100%;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   margin-inline: var(--space-1);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
-  padding: 4px var(--space-3);
+  padding: 2px var(--space-2);
   background: transparent;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
