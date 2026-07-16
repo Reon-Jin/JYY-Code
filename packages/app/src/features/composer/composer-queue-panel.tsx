@@ -51,7 +51,7 @@ export function ComposerQueuePanel(props: {
               onDragEnd={() => setDraggedID(undefined)}
             >
               <span class="composer-queue__index">{index() + 1}</span>
-              <p>{item.text}</p>
+              <p>{item.text || item.attachments.map((attachment) => attachment.filename).join(", ")}</p>
               <IconButton
                 label={tr("composer.steer-queued-message", { index: index() + 1 })}
                 variant="ghost"

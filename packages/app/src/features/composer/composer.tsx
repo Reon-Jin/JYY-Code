@@ -1,15 +1,15 @@
 import { tr } from "../../i18n/i18n-context"
 import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
-import { ListPlus, RotateCcw, Send, Square } from "lucide-solid"
-import { createEffect, createSignal, Show, type JSX } from "solid-js"
+import { File, ListPlus, Plus, RotateCcw, Send, Square, X } from "lucide-solid"
+import { createEffect, createSignal, For, Show, type JSX } from "solid-js"
 import { Button, IconButton } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import type { DesktopClient } from "../../data/sdk"
 import { ClusterModelControl } from "../multi-agent/cluster-model-control"
 import { errorMessage } from "../projects/project-controller"
 import { AgentSelect } from "./agent-select"
-import { createComposerController } from "./composer-controller"
+import { createComposerController, type ComposerAttachment } from "./composer-controller"
 import { createComposerQueue, type ComposerQueueStore } from "./composer-queue"
 import { ComposerQueuePanel } from "./composer-queue-panel"
 import { ComposerUsage } from "./composer-usage"
@@ -68,6 +68,21 @@ function resizeDraft(textarea: HTMLTextAreaElement) {
   textarea.style.overflowY = contentHeight > maximumHeight ? "auto" : "hidden"
 }
 
+function readAttachment(file: globalThis.File): Promise<ComposerAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error(`Unable to read ${file.name}`))
+    reader.onload = () =>
+      resolve({
+        type: "file",
+        mime: file.type || "application/octet-stream",
+        filename: file.name,
+        url: String(reader.result),
+      })
+    reader.readAsDataURL(file)
+  })
+}
+
 export function Composer(props: ComposerProps) {
   const controller = createComposerController({
     client: props.client,
@@ -86,7 +101,10 @@ export function Composer(props: ComposerProps) {
   const [guiding, setGuiding] = createSignal(false)
   const [focused, setFocused] = createSignal(false)
   const [autocompleteDismissed, setAutocompleteDismissed] = createSignal(false)
+  const [attachments, setAttachments] = createSignal<readonly ComposerAttachment[]>([])
+  const [draggingFiles, setDraggingFiles] = createSignal(false)
   let textarea!: HTMLTextAreaElement
+  let fileInput!: HTMLInputElement
   let skillAutocomplete: SkillAutocompleteHandle | undefined
   let composing = false
   const active = () => props.status.type !== "idle" || props.requestPending === true
@@ -117,25 +135,36 @@ export function Composer(props: ComposerProps) {
     const item = queue.shift()
     if (!item) return
     setQueuePhase("awaiting-busy")
-    void controller.send(item.text, { agent: item.agent, model: item.model }).catch(() => {
+    void controller.send(item.text, { agent: item.agent, model: item.model }, item.attachments).catch(() => {
       setQueuePhase("ready")
     })
   })
 
   function enqueueDraft() {
     const text = controller.draft()
-    if (!text.trim()) return
-    queue.enqueue({ text, agent: props.selectedAgent, model: props.selectedModel })
+    const files = attachments()
+    if (!text.trim() && files.length === 0) return
+    queue.enqueue({ text, agent: props.selectedAgent, model: props.selectedModel, attachments: files })
     controller.setDraft("")
+    setAttachments([])
   }
 
-  function submit() {
+  async function submit() {
     if (props.disabled) return
     if (active() || queuePhase() !== "ready" || queue.items().length > 0) {
       enqueueDraft()
       return
     }
-    void controller.send().catch(() => {})
+    const files = attachments()
+    try {
+      await controller.send(undefined, undefined, files)
+      setAttachments([])
+    } catch {}
+  }
+
+  async function addFiles(files: FileList | readonly globalThis.File[]) {
+    const next = await Promise.all(Array.from(files, readAttachment))
+    setAttachments((current) => [...current, ...next])
   }
 
   function stop() {
@@ -152,7 +181,7 @@ export function Composer(props: ComposerProps) {
       if (active()) await controller.stop()
       queue.remove(id)
       setQueuePhase("awaiting-busy")
-      await controller.send(item.text, { agent: item.agent, model: item.model })
+      await controller.send(item.text, { agent: item.agent, model: item.model }, item.attachments)
     } catch {
       setQueuePhase("ready")
       // The controller exposes the actionable failure beside the composer.
@@ -201,7 +230,29 @@ export function Composer(props: ComposerProps) {
           </div>
         </Show>
 
-        <div class="composer__input" data-active={active()}>
+        <div
+          class="composer__input"
+          data-active={active()}
+          data-dragging={draggingFiles()}
+          onDragEnter={(event) => {
+            if (!event.dataTransfer?.types.includes("Files")) return
+            event.preventDefault()
+            setDraggingFiles(true)
+          }}
+          onDragOver={(event) => {
+            if (!event.dataTransfer?.types.includes("Files")) return
+            event.preventDefault()
+            event.dataTransfer.dropEffect = "copy"
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingFiles(false)
+          }}
+          onDrop={(event) => {
+            event.preventDefault()
+            setDraggingFiles(false)
+            if (event.dataTransfer?.files.length) void addFiles(event.dataTransfer.files)
+          }}
+        >
           <SkillAutocomplete
             client={props.client}
             queryClient={props.queryClient}
@@ -225,6 +276,36 @@ export function Composer(props: ComposerProps) {
           <label class="composer__label" for="composer-message">
             {tr("composer.information")}
           </label>
+          <input
+            ref={fileInput}
+            class="composer__file-input"
+            type="file"
+            multiple
+            aria-label={tr("composer.choose-files")}
+            onChange={(event) => {
+              if (event.currentTarget.files?.length) void addFiles(event.currentTarget.files)
+              event.currentTarget.value = ""
+            }}
+          />
+          <Show when={attachments().length > 0}>
+            <ul class="composer__attachments" aria-label={tr("composer.attachments")}>
+              <For each={attachments()}>
+                {(attachment, index) => (
+                  <li>
+                    <File aria-hidden="true" />
+                    <span title={attachment.filename}>{attachment.filename}</span>
+                    <button
+                      type="button"
+                      aria-label={tr("composer.remove-attachment", { name: attachment.filename })}
+                      onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index()))}
+                    >
+                      <X aria-hidden="true" />
+                    </button>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
           <textarea
             ref={textarea}
             id="composer-message"
@@ -260,13 +341,24 @@ export function Composer(props: ComposerProps) {
             }}
           />
           <Show when={!props.minimal}>
+            <button
+              type="button"
+              class="composer__attach"
+              aria-label={tr("composer.add-attachment")}
+              disabled={props.disabled || controller.sending()}
+              onClick={() => fileInput.click()}
+            >
+              <Plus aria-hidden="true" />
+            </button>
+          </Show>
+          <Show when={!props.minimal}>
             <div class="composer__action">
             <Show
               when={active()}
               fallback={
                 <IconButton
                   label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
-                  disabled={props.disabled || !controller.draft().trim()}
+                  disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
                   loading={controller.sending()}
                   loadingLabel={tr("composer.sending")}
                   onClick={submit}
@@ -276,7 +368,7 @@ export function Composer(props: ComposerProps) {
               }
             >
               <div class="composer__active-actions">
-                <IconButton label={tr("composer.join-queue")} disabled={!controller.draft().trim()} onClick={submit}>
+                <IconButton label={tr("composer.join-queue")} disabled={!controller.draft().trim() && attachments().length === 0} onClick={submit}>
                   <ListPlus aria-hidden="true" />
                 </IconButton>
                 <Button

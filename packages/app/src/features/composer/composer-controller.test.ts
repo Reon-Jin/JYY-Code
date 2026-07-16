@@ -71,6 +71,23 @@ describe("createComposerController", () => {
     )
   })
 
+  it("submits file parts and allows an attachment-only prompt", async () => {
+    const { client, controller } = setup()
+    const attachment = {
+      type: "file" as const,
+      mime: "application/pdf",
+      filename: "report.pdf",
+      url: "data:application/pdf;base64,JVBERi0=",
+    }
+
+    await controller.send("", undefined, [attachment])
+
+    expect(client.session.promptAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: [attachment] }),
+      { throwOnError: true },
+    )
+  })
+
   it("executes a leading Skill slash as a Session command", async () => {
     const { client, controller } = setup()
 

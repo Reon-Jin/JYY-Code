@@ -97,6 +97,49 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "发送" })).not.toHaveTextContent("发送")
   })
 
+  it("adds files from the attachment picker and sends them with the message", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer()
+    const file = new File(["hello attachment"], "notes.txt", { type: "text/plain" })
+
+    await user.upload(screen.getByLabelText("选择文件"), file)
+    await waitFor(() => expect(screen.getByRole("list", { name: "附件" })).toHaveTextContent("notes.txt"))
+
+    await user.type(screen.getByRole("textbox", { name: "消息" }), "read this")
+    await user.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
+    expect((client.session.promptAsync.mock.calls[0]![0] as { parts: unknown }).parts).toEqual([
+      { type: "text", text: "read this" },
+      expect.objectContaining({
+        type: "file",
+        mime: "text/plain",
+        filename: "notes.txt",
+        url: expect.stringMatching(/^data:text\/plain;base64,/),
+      }),
+    ])
+    expect(screen.queryByRole("list", { name: "附件" })).not.toBeInTheDocument()
+  })
+
+  it("accepts dropped files and can send an attachment without text", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer()
+    const input = screen.getByRole("textbox", { name: "消息" }).parentElement!
+    const file = new File([new Uint8Array([1, 2, 3])], "archive.bin")
+
+    fireEvent.drop(input, {
+      dataTransfer: { files: [file], types: ["Files"], dropEffect: "none" },
+    })
+    await waitFor(() => expect(screen.getByRole("list", { name: "附件" })).toHaveTextContent("archive.bin"))
+    expect(screen.getByRole("button", { name: "发送" })).toBeEnabled()
+
+    await user.click(screen.getByRole("button", { name: "发送" }))
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
+    expect((client.session.promptAsync.mock.calls[0]![0] as { parts: unknown }).parts).toEqual([
+      expect.objectContaining({ type: "file", mime: "application/octet-stream", filename: "archive.bin" }),
+    ])
+  })
+
   it("grows with the draft, then scrolls after five lines", () => {
     renderComposer()
     const textbox = screen.getByRole("textbox", { name: "消息" }) as HTMLTextAreaElement
