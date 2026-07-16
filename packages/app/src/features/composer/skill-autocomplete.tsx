@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { QueryClient } from "@tanstack/solid-query"
 import { createQuery } from "@tanstack/solid-query"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
@@ -83,12 +84,12 @@ export function SkillAutocomplete(props: SkillAutocompleteProps) {
   return (
     <Show when={props.open}>
       <div id="composer-skill-listbox" class="composer-skill-menu" role="listbox" aria-label="Skills">
-        <Show when={!skills.isPending} fallback={<p class="composer-skill-menu__status">正在加载 Skills…</p>}>
+        <Show when={!skills.isPending} fallback={<p class="composer-skill-menu__status">{tr("composer.loading-skills")}</p>}>
           <Show
             when={!skills.error}
-            fallback={<InlineError message={errorMessage(skills.error, "无法加载 Skills")} />}
+            fallback={<InlineError message={errorMessage(skills.error, tr("composer.unable-to-load-skills"))} />}
           >
-            <Show when={options().length > 0} fallback={<p class="composer-skill-menu__status">没有匹配的 Skills</p>}>
+            <Show when={options().length > 0} fallback={<p class="composer-skill-menu__status">{tr("composer.no-matching-skills")}</p>}>
               <For each={options()}>
                 {(skill, index) => (
                   <button

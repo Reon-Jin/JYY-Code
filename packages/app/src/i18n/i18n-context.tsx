@@ -23,6 +23,7 @@ export type I18nContextValue = {
 
 const I18nContext = createContext<I18nContextValue>()
 const warnedKeys = new Set<string>()
+const [globalLocale, setGlobalLocale] = createSignal<AppLocale>(defaultDesktopSettings.locale)
 
 function missingMessage(locale: AppLocale, key: MessageKey) {
   if (import.meta.env.DEV) throw new Error(`Missing i18n message: ${locale}.${key}`)
@@ -34,6 +35,15 @@ function missingMessage(locale: AppLocale, key: MessageKey) {
   return zhCN[key]
 }
 
+function translate(locale: AppLocale, key: MessageKey, values?: MessageValues) {
+  const template = messages[locale][key] ?? missingMessage(locale, key)
+  return formatMessage(template, values)
+}
+
+export function tr(key: MessageKey, values?: MessageValues) {
+  return translate(globalLocale(), key, values)
+}
+
 export function I18nProvider(props: ParentProps) {
   const bridge = useDesktopBridge()
   const [locale, setLocaleSignal] = createSignal<AppLocale>(defaultDesktopSettings.locale)
@@ -42,10 +52,12 @@ export function I18nProvider(props: ParentProps) {
 
   const previousLang = document.documentElement.getAttribute("lang")
   const previousDataLocale = document.documentElement.getAttribute("data-locale")
+  const previousGlobalLocale = globalLocale()
 
   createEffect(() => {
     document.documentElement.lang = locale()
     document.documentElement.dataset.locale = locale()
+    setGlobalLocale(locale())
   })
 
   onCleanup(() => {
@@ -53,6 +65,7 @@ export function I18nProvider(props: ParentProps) {
     else document.documentElement.lang = previousLang
     if (previousDataLocale === null) document.documentElement.removeAttribute("data-locale")
     else document.documentElement.dataset.locale = previousDataLocale
+    setGlobalLocale(previousGlobalLocale)
   })
 
   onMount(async () => {
@@ -70,8 +83,7 @@ export function I18nProvider(props: ParentProps) {
     locale,
     isReady,
     t(key, values) {
-      const template = messages[locale()][key] ?? missingMessage(locale(), key)
-      return formatMessage(template, values)
+      return translate(locale(), key, values)
     },
     async setLocale(nextLocale) {
       const previousLocale = locale()

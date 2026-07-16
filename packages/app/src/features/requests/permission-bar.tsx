@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { PermissionRequest } from "@jyycode-ai/sdk/v2/client"
 import { ShieldAlert } from "lucide-solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
@@ -54,26 +55,26 @@ export function PermissionBar(props: PermissionBarProps) {
   }
 
   return (
-    <section class="request-panel" aria-label="权限请求" role="region">
+    <section class="request-panel" aria-label={tr("requests.permission-request")} role="region">
       <p class="request-panel__announcement" role="status" aria-live="polite">
-        Agent 发来了新的权限请求
+        {tr("requests.agent-sent-a-new-permission-request")}
       </p>
       <header class="request-panel__header">
         <span class="request-panel__icon" aria-hidden="true">
           <ShieldAlert />
         </span>
         <span class="request-panel__heading">
-          <strong>权限请求</strong>
+          <strong>{tr("requests.permission-request")}</strong>
           <small>{props.request.permission}</small>
         </span>
         <Button size="small" variant="ghost" disabled={disabled()} onClick={() => focusTarget?.focus()}>
-          处理请求
+          {tr("requests.handle-request")}
         </Button>
       </header>
 
       <div class="request-panel__body">
         <Show when={view() === "request"}>
-          <p>Agent 希望执行以下操作：</p>
+          <p>{tr("requests.the-agent-wants-to-do-the-following")}</p>
           <ul class="request-patterns">
             <For each={props.request.patterns}>{(pattern) => <li><code>{pattern}</code></li>}</For>
           </ul>
@@ -85,22 +86,22 @@ export function PermissionBar(props: PermissionBarProps) {
               size="small"
               disabled={disabled()}
               loading={submitting()}
-              loadingLabel="正在提交"
+              loadingLabel={tr("requests.submitting")}
               onClick={() => void reply("once")}
             >
-              仅本次允许
+              {tr("requests.only-allowed-this-time")}
             </Button>
             <Button size="small" variant="secondary" disabled={disabled()} onClick={() => show("always")}>
-              始终允许
+              {tr("requests.always-allowed")}
             </Button>
             <Button size="small" variant="ghost" disabled={disabled()} onClick={() => show("reject")}>
-              拒绝
+              {tr("requests.reject")}
             </Button>
           </div>
         </Show>
 
         <Show when={view() === "always"}>
-          <p>确认后，以下模式将持续获得允许：</p>
+          <p>{tr("requests.once-confirmed-the-following-modes-will-continue-to")}</p>
           <ul class="request-patterns">
             <For each={alwaysPatterns()}>{(pattern) => <li><code>{pattern}</code></li>}</For>
           </ul>
@@ -112,20 +113,20 @@ export function PermissionBar(props: PermissionBarProps) {
               size="small"
               disabled={disabled()}
               loading={submitting()}
-              loadingLabel="正在提交"
+              loadingLabel={tr("requests.submitting")}
               onClick={() => void reply("always")}
             >
-              确认始终允许
+              {tr("requests.confirm-always-allow")}
             </Button>
             <Button size="small" variant="ghost" disabled={disabled()} onClick={() => show("request")}>
-              取消
+              {tr("github.cancel")}
             </Button>
           </div>
         </Show>
 
         <Show when={view() === "reject"}>
           <label class="request-panel__field">
-            <span>拒绝原因（可选）</span>
+            <span>{tr("requests.reason-for-rejection-optional")}</span>
             <textarea
               ref={(element) => {
                 focusTarget = element
@@ -142,20 +143,20 @@ export function PermissionBar(props: PermissionBarProps) {
               variant="danger"
               disabled={disabled()}
               loading={submitting()}
-              loadingLabel="正在拒绝"
+              loadingLabel={tr("requests.rejecting")}
               onClick={() => void reply("reject")}
             >
-              确认拒绝
+              {tr("requests.confirm-rejection")}
             </Button>
             <Button size="small" variant="ghost" disabled={disabled()} onClick={() => show("request")}>
-              取消
+              {tr("github.cancel")}
             </Button>
           </div>
         </Show>
 
-        <Show when={failure()}>{(cause) => <InlineError message={errorMessage(cause(), "权限回复失败")} />}</Show>
-        <p class="request-panel__status" role="status" aria-label="权限请求状态" aria-live="polite">
-          {submitted() ? "已提交，等待服务端确认" : ""}
+        <Show when={failure()}>{(cause) => <InlineError message={errorMessage(cause(), tr("requests.permission-reply-failed"))} />}</Show>
+        <p class="request-panel__status" role="status" aria-label={tr("requests.permission-request-status")} aria-live="polite">
+          {submitted() ? tr("requests.submitted-waiting-for-confirmation-from-the-server") : ""}
         </p>
       </div>
     </section>

@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { QuestionRequest } from "@jyycode-ai/sdk/v2/client"
 import { CircleHelp } from "lucide-solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
@@ -97,28 +98,28 @@ export function QuestionPanel(props: QuestionPanelProps) {
         panel = element
       }}
       class="request-panel"
-      aria-label="Agent 提问"
+      aria-label={tr("requests.agent-asked-a-question")}
       role="region"
     >
       <p class="request-panel__announcement" role="status" aria-live="polite">
-        Agent 发来了新的问题
+        {tr("requests.agent-sent-a-new-question")}
       </p>
       <header class="request-panel__header">
         <span class="request-panel__icon" aria-hidden="true">
           <CircleHelp />
         </span>
         <span class="request-panel__heading">
-          <strong>Agent 提问</strong>
-          <small>{props.request.questions.length} 个问题</small>
+          <strong>{tr("requests.agent-asked-a-question")}</strong>
+          <small>{props.request.questions.length} {tr("requests.questions")}</small>
         </span>
         <Button size="small" variant="ghost" disabled={disabled()} onClick={focusFirstControl}>
-          处理请求
+          {tr("requests.handle-request")}
         </Button>
       </header>
 
       <div class="request-panel__body">
         <Show when={props.request.questions.length > 1}>
-          <div class="question-tabs" role="tablist" aria-label="问题列表">
+          <div class="question-tabs" role="tablist" aria-label={tr("requests.question-list")}>
             <For each={props.request.questions}>
               {(question, index) => (
                 <button
@@ -171,7 +172,7 @@ export function QuestionPanel(props: QuestionPanelProps) {
               </div>
               <Show when={question.custom}>
                 <label class="request-panel__field">
-                  <span>自定义回答</span>
+                  <span>{tr("requests.custom-answer")}</span>
                   <input
                     type="text"
                     value={custom()[questionIndex()] ?? ""}
@@ -191,18 +192,18 @@ export function QuestionPanel(props: QuestionPanelProps) {
             size="small"
             disabled={disabled() || !complete()}
             loading={submitting()}
-            loadingLabel="正在提交"
+            loadingLabel={tr("requests.submitting")}
             onClick={() => void submit()}
           >
-            提交回答
+            {tr("requests.submit-answer")}
           </Button>
           <Button size="small" variant="ghost" disabled={disabled()} onClick={() => void reject()}>
-            拒绝问题
+            {tr("requests.reject-question")}
           </Button>
         </div>
-        <Show when={failure()}>{(cause) => <InlineError message={errorMessage(cause(), "问题回复失败")} />}</Show>
-        <p class="request-panel__status" role="status" aria-label="问题请求状态" aria-live="polite">
-          {submitted() ? "已提交，等待服务端确认" : ""}
+        <Show when={failure()}>{(cause) => <InlineError message={errorMessage(cause(), tr("requests.question-reply-failed"))} />}</Show>
+        <p class="request-panel__status" role="status" aria-label={tr("requests.question-request-status")} aria-live="polite">
+          {submitted() ? tr("requests.submitted-waiting-for-confirmation-from-the-server") : ""}
         </p>
       </div>
     </section>

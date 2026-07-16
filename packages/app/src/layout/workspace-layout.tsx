@@ -1,3 +1,4 @@
+import { tr } from "../i18n/i18n-context"
 import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { A, useNavigate } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
@@ -89,11 +90,11 @@ export type WorkspaceLayoutViewProps = {
 function connectionLabel(connection: ConnectionState) {
   switch (connection) {
     case "connected":
-      return "后端已连接"
+      return tr("layout.backend-is-connected")
     case "disconnected":
-      return "连接已中断"
+      return tr("layout.the-connection-has-been-interrupted")
     default:
-      return "正在连接后端"
+      return tr("layout.connecting-backend")
   }
 }
 
@@ -138,7 +139,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
       <aside
         id="session-navigation"
         class="workspace-rail"
-        aria-label="项目与 Session 导航"
+        aria-label={tr("layout.project-and-session-navigation")}
         aria-hidden={railOpen() ? "false" : "true"}
         inert={!railOpen() ? true : undefined}
       >
@@ -151,7 +152,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
             <small>{props.projectDirectory}</small>
           </span>
           <IconButton
-            label="返回项目首页"
+            label={tr("layout.return-to-project-home-page")}
             variant="secondary"
             disabled={props.busy}
             onClick={() => void props.onReturnHome()}
@@ -163,14 +164,14 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
         <div class="workspace-rail__toolbar">
           <Button class="workspace-new-session" disabled={props.busy} onClick={() => void props.onCreate()}>
             <Plus aria-hidden="true" />
-            新建 Session
+            {tr("sessions.new-session")}
           </Button>
-          <div class="session-filter" aria-label="Session 显示范围">
+          <div class="session-filter" aria-label={tr("layout.session-display-range")}>
             <button type="button" aria-pressed={filter() === "active"} onClick={() => setFilter("active")}>
-              活动 <span>{props.activeSessions.length}</span>
+              {tr("layout.activity")} <span>{props.activeSessions.length}</span>
             </button>
             <button type="button" aria-pressed={filter() === "archived"} onClick={() => setFilter("archived")}>
-              归档 <span>{props.archivedSessions.length}</span>
+              {tr("sessions.archive")} <span>{props.archivedSessions.length}</span>
             </button>
           </div>
         </div>
@@ -201,7 +202,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
               "general",
               props.activeSessionID ? `/session/${encodeURIComponent(props.activeSessionID)}` : "/workspace",
             )}
-            aria-label="打开设置"
+            aria-label={tr("layout.open-settings")}
           >
             <Settings aria-hidden="true" />
           </A>
@@ -210,7 +211,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
 
       <IconButton
         class="workspace-rail-toggle"
-        label={railOpen() ? "收起 Session 导航" : "展开 Session 导航"}
+        label={railOpen() ? tr("layout.collapse-session-navigation") : tr("layout.expand-session-navigation")}
         variant="secondary"
         aria-controls="session-navigation"
         aria-expanded={railOpen()}
@@ -235,16 +236,16 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
                 when={selected()?.parentID}
                 fallback={
                   <span class="workspace-conversation__context">
-                    {props.multiAgentEnabled ? "多智能体模式" : "单智能体模式"}
+                    {props.multiAgentEnabled ? tr("layout.multi-agent-model") : tr("layout.single-agent-mode")}
                   </span>
                 }
               >
                 <div class="workspace-conversation__child-context">
-                  <button type="button" onClick={props.onReturnToRoot} aria-label="返回主 Session">
+                  <button type="button" onClick={props.onReturnToRoot} aria-label={tr("layout.return-to-main-session")}>
                     <ArrowLeft aria-hidden="true" />
-                    返回主 Session
+                    {tr("layout.return-to-main-session")}
                   </button>
-                  <span>子智能体 · {capitalize(childRole())}</span>
+                  <span>{tr("layout.subagent")} {capitalize(childRole())}</span>
                 </div>
               </Show>
               <h1 id="workspace-session-title">{selected()?.title ?? "Session"}</h1>
@@ -467,7 +468,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       const session = await api().create({})
       navigate(`/session/${encodeURIComponent(session.id)}`)
     } catch (cause) {
-      setOperationError(errorMessage(cause, "无法创建 Session"))
+      setOperationError(errorMessage(cause, tr("layout.unable-to-create-session")))
     } finally {
       setBusy(false)
     }
@@ -480,7 +481,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       await projects.returnToProjectSelection()
       navigate("/")
     } catch (cause) {
-      setOperationError(errorMessage(cause, "无法返回项目首页"))
+      setOperationError(errorMessage(cause, tr("layout.unable-to-return-to-project-home-page")))
     } finally {
       setBusy(false)
     }
@@ -516,8 +517,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     selectActiveRequest(permissionsQuery.data ?? [], questionsQuery.data ?? [], requestScope()),
   )
   const requestError = createMemo(() => {
-    if (permissionsQuery.error) return errorMessage(permissionsQuery.error, "无法加载权限请求")
-    if (questionsQuery.error) return errorMessage(questionsQuery.error, "无法加载 Agent 问题")
+    if (permissionsQuery.error) return errorMessage(permissionsQuery.error, tr("layout.unable-to-load-permission-request"))
+    if (questionsQuery.error) return errorMessage(questionsQuery.error, tr("layout.unable-to-load-agent-issue"))
     return undefined
   })
   let persistedLocation = ""
@@ -549,10 +550,10 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       activeLoading={activeQuery.isPending || (Boolean(props.activeSessionID) && sessionQuery.isPending)}
       archivedLoading={archivedQuery.isPending}
       conversationLoading={Boolean(props.activeSessionID) && conversationQuery.isPending}
-      activeError={activeQuery.error ? errorMessage(activeQuery.error, "无法加载活动 Session") : undefined}
-      archivedError={archivedQuery.error ? errorMessage(archivedQuery.error, "无法加载归档 Session") : undefined}
+      activeError={activeQuery.error ? errorMessage(activeQuery.error, tr("layout.unable-to-load-active-session")) : undefined}
+      archivedError={archivedQuery.error ? errorMessage(archivedQuery.error, tr("layout.unable-to-load-archived-session")) : undefined}
       conversationError={
-        conversationQuery.error ? errorMessage(conversationQuery.error, "无法加载 Session 消息") : undefined
+        conversationQuery.error ? errorMessage(conversationQuery.error, tr("layout.unable-to-load-session-message")) : undefined
       }
       planStatus={clusterPlanStatus()}
       operationError={operationError()}
@@ -572,9 +573,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
               <>
                 <Show when={pending.sourceSessionID !== activeSession()?.id}>
                   <p class="request-panel__source">
-                    来自子智能体 · {capitalize(
+                    {tr("layout.from-subagent")} {capitalize(
                       clusterSnapshot().tasks.find((task) => task.childSessionID === pending.sourceSessionID)?.role ??
-                        "智能体",
+                        tr("composer.agent"),
                     )}
                   </p>
                 </Show>
@@ -595,13 +596,13 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
               when={!catalogQuery.isPending}
               fallback={
                 <p class="composer__status" role="status">
-                  正在加载智能体和模型
+                  {tr("layout.loading-agents-and-models")}
                 </p>
               }
             >
               <Show
                 when={!catalogQuery.error}
-                fallback={<InlineError message={errorMessage(catalogQuery.error, "无法加载智能体和模型")} />}
+                fallback={<InlineError message={errorMessage(catalogQuery.error, tr("layout.unable-to-load-agents-and-models"))} />}
               >
                 <Show
                   when={composerModel()}

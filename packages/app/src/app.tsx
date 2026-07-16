@@ -1,3 +1,4 @@
+import { tr } from "./i18n/i18n-context"
 import { createEffect, ErrorBoundary, Match, onMount, Show, Switch } from "solid-js"
 import { Button } from "./components/ui/button"
 import { InlineError } from "./components/ui/inline-error"
@@ -43,7 +44,7 @@ function DesktopApplication() {
     <Switch fallback={<StartupLoading phase={loadingPhase()} />}>
       <Match when={lifecycle.phase() === "failed"}>
         <BackendUnavailable
-          reason={`JYYCode 本地后端启动失败：${lifecycle.failure() ?? "本地后端没有响应"}`}
+          reason={tr("app.backend-start-failed", { reason: lifecycle.failure() ?? tr("app.local-backend-is-not-responding") })}
           logPath={lifecycle.bootstrap()?.logPath}
           recovering={lifecycle.recovering()}
           recoveryAvailable={lifecycle.recoveryAvailable()}
@@ -73,10 +74,10 @@ export function App(props: AppProps) {
         <main class="startup-screen">
           <div class="startup-error">
             <InlineError
-              message={`JYYCode 界面运行失败：${error instanceof Error ? error.message : "未知错误"}`}
+              message={tr("app.interface-failed", { reason: error instanceof Error ? error.message : tr("app.unknown-error") })}
             />
             <Button variant="secondary" onClick={reset}>
-              重新加载界面
+              {tr("app.reload-interface")}
             </Button>
           </div>
         </main>

@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { GitHubAvailability } from "@jyycode-ai/sdk/v2/client"
 import { Check, Copy, RefreshCw } from "lucide-solid"
 import { createSignal, Show } from "solid-js"
@@ -5,28 +6,28 @@ import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
 
-const recovery = {
+const recovery = () => ({
   "missing-gh": {
-    title: "GitHub CLI 未安装",
-    detail: "安装 GitHub CLI 后重新检测，无需重启或重装 Desktop。",
+    title: tr("github.github-cli-is-not-installed"),
+    detail: tr("github.re-detect-after-installing-github-cli-without-restarting"),
     command: "winget install --id GitHub.cli",
   },
   "not-authenticated": {
-    title: "GitHub CLI 尚未登录",
-    detail: "请在终端完成浏览器登录。Desktop 不会要求你粘贴访问令牌。",
+    title: tr("github.github-cli-not-logged-in-yet"),
+    detail: tr("github.please-complete-the-browser-login-in-the-terminal"),
     command: "gh auth login",
   },
   "not-github-repo": {
-    title: "当前远端未关联 GitHub",
-    detail: "请确认 Git remote 指向 GitHub 仓库后重新检测。",
+    title: tr("github.the-remote-end-is-currently-not-associated-with"),
+    detail: tr("github.please-confirm-that-git-remote-points-to-the"),
     command: "git remote -v",
   },
   "command-failed": {
-    title: "GitHub CLI 检测失败",
-    detail: "检查网络与 GitHub CLI 状态后重试。",
+    title: tr("github.github-cli-detection-failed"),
+    detail: tr("github.check-network-and-github-cli-status-and-try"),
     command: "gh auth status",
   },
-} as const
+} as const)
 
 export function GitHubStatus(props: {
   status?: GitHubAvailability
@@ -35,7 +36,7 @@ export function GitHubStatus(props: {
   onRetry: () => void
 }) {
   const [copied, setCopied] = createSignal(false)
-  const unavailable = () => (props.status?.available === false ? recovery[props.status.reason] : undefined)
+  const unavailable = () => (props.status?.available === false ? recovery()[props.status.reason] : undefined)
 
   async function copyCommand() {
     const command = unavailable()?.command
@@ -49,7 +50,7 @@ export function GitHubStatus(props: {
       when={!props.loading}
       fallback={
         <p class="github-status__loading" role="status">
-          <Spinner /> 正在检测 GitHub 环境
+          <Spinner /> {tr("github.detecting-github-environment")}
         </p>
       }
     >
@@ -60,7 +61,7 @@ export function GitHubStatus(props: {
             <InlineError message={props.error!} />
             <Button size="small" variant="secondary" onClick={props.onRetry}>
               <RefreshCw aria-hidden="true" />
-              重新检测
+              {tr("github.retest")}
             </Button>
           </div>
         }
@@ -77,12 +78,12 @@ export function GitHubStatus(props: {
                   <Show when={copied()} fallback={<Copy aria-hidden="true" />}>
                     <Check aria-hidden="true" />
                   </Show>
-                  {copied() ? "已复制" : "复制命令"}
+                  {copied() ? tr("github.copied") : tr("github.copy-command")}
                 </Button>
               </div>
               <Button size="small" variant="secondary" onClick={props.onRetry}>
                 <RefreshCw aria-hidden="true" />
-                重新检测
+                {tr("github.retest")}
               </Button>
             </section>
           )}

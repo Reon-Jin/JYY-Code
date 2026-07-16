@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { Session } from "@jyycode-ai/sdk/v2/client"
 import { Archive, Ellipsis, Pencil, Trash2 } from "lucide-solid"
 import { createEffect, createSignal, Show } from "solid-js"
@@ -40,7 +41,7 @@ export function SessionActions(props: SessionActionsProps) {
       await props.onArchive()
       closeMenu()
     } catch (cause) {
-      setError(errorMessage(cause, "无法归档 Session"))
+      setError(errorMessage(cause, tr("sessions.unable-to-archive-session")))
     } finally {
       setBusy(undefined)
     }
@@ -53,7 +54,7 @@ export function SessionActions(props: SessionActionsProps) {
       await props.onDelete()
       setDeleteOpen(false)
     } catch (cause) {
-      setError(errorMessage(cause, "无法删除 Session"))
+      setError(errorMessage(cause, tr("sessions.unable-to-delete-session")))
     } finally {
       setBusy(undefined)
     }
@@ -70,7 +71,7 @@ export function SessionActions(props: SessionActionsProps) {
     >
       <IconButton
         ref={trigger}
-        label={`Session 操作：${props.session.title}`}
+        label={tr("sessions.actions-for-title", { title: props.session.title })}
         variant="ghost"
         disabled={props.disabled}
         aria-haspopup="menu"
@@ -96,7 +97,7 @@ export function SessionActions(props: SessionActionsProps) {
         <div
           class="session-actions__menu"
           role="menu"
-          aria-label={`${props.session.title} 操作`}
+          aria-label={tr("sessions.title-actions", { title: props.session.title })}
           style={{ top: `${menuPosition().top}px`, left: `${menuPosition().left}px` }}
         >
           <Button
@@ -110,7 +111,7 @@ export function SessionActions(props: SessionActionsProps) {
             }}
           >
             <Pencil aria-hidden="true" />
-            重命名
+            {tr("sessions.rename")}
           </Button>
           <Show when={!props.archived}>
             <Button
@@ -118,11 +119,11 @@ export function SessionActions(props: SessionActionsProps) {
               variant="ghost"
               size="small"
               loading={busy() === "archive"}
-              loadingLabel="正在归档"
+              loadingLabel={tr("sessions.archiving")}
               onClick={() => void archive()}
             >
               <Archive aria-hidden="true" />
-              归档
+              {tr("sessions.archive")}
             </Button>
           </Show>
           <Button
@@ -136,7 +137,7 @@ export function SessionActions(props: SessionActionsProps) {
             }}
           >
             <Trash2 aria-hidden="true" />
-            删除
+            {tr("mcp.delete")}
           </Button>
           <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>
         </div>
@@ -144,29 +145,29 @@ export function SessionActions(props: SessionActionsProps) {
 
       <Dialog
         open={deleteOpen()}
-        title="删除 Session"
-        description="此操作会永久删除该 Session 及其对话记录，无法撤销。"
+        title={tr("sessions.delete-session")}
+        description={tr("sessions.this-operation-will-permanently-delete-the-session-and")}
         onClose={() => {
           if (busy() !== "delete") setDeleteOpen(false)
         }}
         footer={
           <>
             <Button variant="ghost" disabled={busy() === "delete"} onClick={() => setDeleteOpen(false)}>
-              取消
+              {tr("github.cancel")}
             </Button>
             <Button
               variant="danger"
               loading={busy() === "delete"}
-              loadingLabel="正在删除"
+              loadingLabel={tr("sessions.deleting")}
               onClick={() => void remove()}
             >
-              永久删除
+              {tr("sessions.delete-permanently")}
             </Button>
           </>
         }
       >
         <p class="session-delete-copy">
-          即将删除 <strong>{props.session.title}</strong>
+          {tr("sessions.about-to-be-deleted")} <strong>{props.session.title}</strong>
         </p>
         <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>
       </Dialog>

@@ -48,7 +48,7 @@ describe("desktop accessibility contract", () => {
 
     expect(await screen.findAllByRole("main", {}, { timeout: 5_000 })).toHaveLength(1)
     expect(unnamedIconButtons(container)).toEqual([])
-    const trigger = screen.getByRole("button", { name: /新建项目/ })
+    const trigger = await screen.findByRole("button", { name: /新建项目/ })
     trigger.focus()
     await user.keyboard("{Enter}")
     expect(screen.getByRole("dialog", { name: "新建项目" })).toBeVisible()
@@ -72,7 +72,7 @@ describe("desktop accessibility contract", () => {
     const { container } = render(() => <App bridge={desktop.bridge} />)
 
     expect(await screen.findAllByRole("main", {}, { timeout: 5_000 })).toHaveLength(1)
-    const navigation = screen.getByRole("navigation", { name: "全局管理" })
+    const navigation = await screen.findByRole("navigation", { name: "全局管理" })
     expect(navigation).toBeVisible()
     expect(screen.getByRole("link", { name: "首页" })).toHaveAttribute("aria-current", "page")
     expect(unnamedIconButtons(container)).toEqual([])

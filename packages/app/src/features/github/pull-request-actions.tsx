@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { GitHubPullRequestDetail } from "@jyycode-ai/sdk/v2/client"
 import { GitMerge, GitPullRequestClosed, MessageSquare, RefreshCw } from "lucide-solid"
 import { createMemo, createSignal, Show } from "solid-js"
@@ -17,7 +18,7 @@ export type PullRequestActionHandlers = {
 
 function errorMessage(cause: unknown) {
   const value = cause as { message?: string; data?: { message?: string } }
-  return value?.data?.message ?? value?.message ?? "Pull Request 操作失败"
+  return value?.data?.message ?? value?.message ?? tr("github.pull-request-operation-failed")
 }
 
 export function PullRequestActions(props: { detail: GitHubPullRequestDetail; handlers: PullRequestActionHandlers }) {
@@ -38,11 +39,11 @@ export function PullRequestActions(props: { detail: GitHubPullRequestDetail; han
   )
   const mergeReason = createMemo(() =>
     props.detail.isDraft
-      ? "Draft PR 不能合并"
+      ? tr("github.draft-pr-cannot-be-merged")
       : failedChecks()
-        ? "Checks 未通过"
+        ? tr("github.checks-failed")
         : props.detail.mergeable.toUpperCase() !== "MERGEABLE"
-          ? `当前状态不可合并：${props.detail.mergeable}`
+          ? tr("github.cannot-merge-status", { status: props.detail.mergeable })
           : undefined,
   )
 
@@ -65,24 +66,24 @@ export function PullRequestActions(props: { detail: GitHubPullRequestDetail; han
 
   async function submitComment() {
     const body = comment().trim()
-    if (!body) return setError("评论不能为空")
-    if (await run("comment", () => props.handlers.comment(body), "评论已发布")) setComment("")
+    if (!body) return setError(tr("github.comment-cannot-be-empty"))
+    if (await run("comment", () => props.handlers.comment(body), tr("github.comment-posted"))) setComment("")
   }
 
   async function merge() {
     if (mergeBlocked()) return
-    if (await run("merge", () => props.handlers.merge(method(), deleteBranch()), "Pull Request 已合并"))
+    if (await run("merge", () => props.handlers.merge(method(), deleteBranch()), tr("github.pull-request-merged")))
       setMergeOpen(false)
   }
 
   return (
-    <section class="pull-actions" aria-label="Pull Request 操作">
+    <section class="pull-actions" aria-label={tr("github.pull-request-operation")}>
       <div class="pull-actions__commands">
         <Button
           size="small"
           variant="secondary"
           loading={pending() === "checkout"}
-          onClick={() => void run("checkout", props.handlers.checkout, `已 Checkout ${props.detail.headRefName}`)}
+          onClick={() => void run("checkout", props.handlers.checkout, tr("github.checked-out", { branch: props.detail.headRefName }))}
         >
           <RefreshCw aria-hidden="true" />
           Checkout {props.detail.headRefName}
@@ -92,7 +93,7 @@ export function PullRequestActions(props: { detail: GitHubPullRequestDetail; han
             size="small"
             variant="secondary"
             loading={pending() === "close"}
-            onClick={() => void run("close", props.handlers.close, "Pull Request 已关闭")}
+            onClick={() => void run("close", props.handlers.close, tr("github.pull-request-closed"))}
           >
             <GitPullRequestClosed aria-hidden="true" />
             Close
@@ -103,7 +104,7 @@ export function PullRequestActions(props: { detail: GitHubPullRequestDetail; han
             size="small"
             variant="secondary"
             loading={pending() === "reopen"}
-            onClick={() => void run("reopen", props.handlers.reopen, "Pull Request 已重新打开")}
+            onClick={() => void run("reopen", props.handlers.reopen, tr("github.pull-request-has-been-reopened"))}
           >
             Reopen
           </Button>
@@ -126,12 +127,12 @@ export function PullRequestActions(props: { detail: GitHubPullRequestDetail; han
         }}
       >
         <label>
-          <span>添加评论</span>
+          <span>{tr("github.add-comment")}</span>
           <textarea rows={3} value={comment()} onInput={(event) => setComment(event.currentTarget.value)} />
         </label>
         <Button type="submit" size="small" variant="secondary" loading={pending() === "comment"}>
           <MessageSquare aria-hidden="true" />
-          评论
+          {tr("github.comment")}
         </Button>
       </form>
       <Show when={success()}>
@@ -145,23 +146,23 @@ export function PullRequestActions(props: { detail: GitHubPullRequestDetail; han
 
       <Dialog
         open={mergeOpen()}
-        title={`合并 #${props.detail.number}`}
+        title={tr("github.merge-number", { number: props.detail.number })}
         description={`${props.detail.headRefName} → ${props.detail.baseRefName} · ${props.detail.title}`}
         onClose={() => setMergeOpen(false)}
         footer={
           <>
             <Button variant="ghost" onClick={() => setMergeOpen(false)}>
-              取消
+              {tr("github.cancel")}
             </Button>
             <Button loading={pending() === "merge"} onClick={() => void merge()}>
-              确认合并
+              {tr("github.confirm-merge")}
             </Button>
           </>
         }
       >
         <div class="merge-confirm">
           <fieldset>
-            <legend>合并方式</legend>
+            <legend>{tr("github.merge-method")}</legend>
             <label>
               <input
                 type="radio"
@@ -196,7 +197,7 @@ export function PullRequestActions(props: { detail: GitHubPullRequestDetail; han
               checked={deleteBranch()}
               onChange={(event) => setDeleteBranch(event.currentTarget.checked)}
             />
-            合并后删除远程分支
+            {tr("github.delete-remote-branch-after-merge")}
           </label>
           <Show when={error()}>
             <InlineError message={error()!} />

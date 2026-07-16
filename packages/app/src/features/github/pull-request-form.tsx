@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { createEffect, createSignal, on, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
@@ -35,7 +36,7 @@ export function PullRequestForm(props: {
   async function submit() {
     const value = { title: title().trim(), body: body(), head: head().trim(), base: base().trim(), draft: draft() }
     if (!value.title || (props.mode === "create" && (!value.head || !value.base))) {
-      setError(props.mode === "create" ? "标题、Head 和 Base 均为必填项" : "标题不能为空")
+      setError(props.mode === "create" ? tr("github.title-head-and-base-are-required") : tr("github.title-cannot-be-empty"))
       return
     }
     setPending(true)
@@ -43,7 +44,7 @@ export function PullRequestForm(props: {
     try {
       await props.onSubmit(value)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Pull Request 保存失败")
+      setError(cause instanceof Error ? cause.message : tr("github.pull-request-failed-to-save"))
     } finally {
       setPending(false)
     }
@@ -52,15 +53,15 @@ export function PullRequestForm(props: {
   return (
     <form
       class="pull-form"
-      aria-label={props.mode === "create" ? "创建 Pull Request" : "编辑 Pull Request"}
+      aria-label={props.mode === "create" ? tr("github.create-pull-request") : tr("github.edit-pull-request")}
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
       }}
     >
-      <h3>{props.mode === "create" ? "创建 Pull Request" : "编辑 Pull Request"}</h3>
+      <h3>{props.mode === "create" ? tr("github.create-pull-request") : tr("github.edit-pull-request")}</h3>
       <label>
-        <span>标题</span>
+        <span>{tr("github.title")}</span>
         <input value={title()} onInput={(event) => setTitle(event.currentTarget.value)} />
       </label>
       <Show when={props.mode === "create"}>
@@ -76,11 +77,11 @@ export function PullRequestForm(props: {
         </div>
         <label class="pull-form__checkbox">
           <input type="checkbox" checked={draft()} onChange={(event) => setDraft(event.currentTarget.checked)} />
-          <span>创建为 Draft</span>
+          <span>{tr("github.create-as-draft")}</span>
         </label>
       </Show>
       <label>
-        <span>正文</span>
+        <span>{tr("github.text")}</span>
         <textarea rows={8} value={body()} onInput={(event) => setBody(event.currentTarget.value)} />
       </label>
       <Show when={error()}>
@@ -88,10 +89,10 @@ export function PullRequestForm(props: {
       </Show>
       <div class="pull-form__actions">
         <Button variant="ghost" onClick={props.onCancel}>
-          取消
+          {tr("github.cancel")}
         </Button>
         <Button type="submit" loading={pending()}>
-          {props.mode === "create" ? "创建" : "保存"}
+          {props.mode === "create" ? tr("github.create") : tr("github.save")}
         </Button>
       </div>
     </form>

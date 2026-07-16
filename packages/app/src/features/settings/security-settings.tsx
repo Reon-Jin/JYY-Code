@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { createQuery } from "@tanstack/solid-query"
 import { createEffect, createSignal, For, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
@@ -11,10 +12,10 @@ import { GlobalConfigReveal } from "./global-config-reveal"
 
 type SimpleMode = Exclude<DefaultPermissionMode, "custom">
 
-const options: Array<{ mode: SimpleMode; description: string }> = [
-  { mode: "auto", description: "使用 JYYCode 的安全默认行为。" },
-  { mode: "request", description: "每次需要使用工具权限时都先询问。" },
-  { mode: "full", description: "允许工具直接执行，适合受信任的环境。" },
+const options = (): Array<{ mode: SimpleMode; description: string }> => [
+  { mode: "auto", description: tr("settings.use-the-safe-default-behavior-of-jyycode") },
+  { mode: "request", description: tr("settings.ask-first-every-time-you-need-permission-to") },
+  { mode: "full", description: tr("settings.allows-tools-to-execute-directly-suitable-for-trusted") },
 ]
 
 export function SecuritySettings(props: { management?: ManagementContextValue }) {
@@ -24,7 +25,7 @@ export function SecuritySettings(props: { management?: ManagementContextValue })
       queryKey: keys.globalDefaultPermission,
       queryFn: async () => {
         const response = await management.client.global.defaultPermission.get({ throwOnError: true })
-        if (!response.data) throw new Error("后端未返回默认权限")
+        if (!response.data) throw new Error(tr("settings.backend-not-returning-default-permissions"))
         return response.data
       },
     }),
@@ -53,7 +54,7 @@ export function SecuritySettings(props: { management?: ManagementContextValue })
       ])
     } catch (cause) {
       setSelected(previous)
-      setFailure(cause instanceof Error ? cause.message : "无法保存默认权限")
+      setFailure(cause instanceof Error ? cause.message : tr("settings.unable-to-save-default-permissions"))
     } finally {
       setSaving(false)
     }
@@ -69,20 +70,20 @@ export function SecuritySettings(props: { management?: ManagementContextValue })
 
   return (
     <div class="settings-sections">
-      <p class="settings-scope-note">仅应用于新建的 Session；现有 Session 保留各自的权限选择。</p>
+      <p class="settings-scope-note">{tr("settings.applies-only-to-newly-created-sessions-existing-sessions")}</p>
       <Show when={permission.isPending}>
-        <p role="status">正在读取默认权限…</p>
+        <p role="status">{tr("settings.reading-default-permissions")}</p>
       </Show>
       <Show when={permission.error}>
-        <InlineError message={permission.error instanceof Error ? permission.error.message : "无法读取默认权限"} />
+        <InlineError message={permission.error instanceof Error ? permission.error.message : tr("settings.unable-to-read-default-permissions")} />
       </Show>
       <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>
       <Show when={!permission.isPending && !permission.error}>
         <section class="settings-card" aria-labelledby="default-permission-title">
-          <h3 id="default-permission-title">新 Session 默认权限</h3>
+          <h3 id="default-permission-title">{tr("settings.new-session-default-permissions")}</h3>
           <fieldset class="settings-options" disabled={saving()}>
-            <legend>选择新 Session 的默认权限</legend>
-            <For each={options}>
+            <legend>{tr("settings.select-default-permissions-for-new-sessions")}</legend>
+            <For each={options()}>
               {(option) => (
                 <label>
                   <input
@@ -102,28 +103,28 @@ export function SecuritySettings(props: { management?: ManagementContextValue })
           </fieldset>
           <Show when={selected() === "custom"}>
             <div class="settings-custom-permission" role="status">
-              <strong>自定义配置</strong>
-              <p>当前全局配置包含细粒度规则。选择上方策略前需要确认替换。</p>
+              <strong>{tr("settings.custom-configuration")}</strong>
+              <p>{tr("settings.the-current-global-configuration-contains-fine-grained-rules")}</p>
               <GlobalConfigReveal management={management} />
             </div>
           </Show>
-          <Show when={saving()}><p class="settings-saving" role="status">正在保存…</p></Show>
+          <Show when={saving()}><p class="settings-saving" role="status">{tr("settings.saving")}</p></Show>
         </section>
       </Show>
 
       <Dialog
         open={Boolean(pendingMode())}
-        title="替换自定义权限"
-        description="继续后，现有细粒度权限规则将被所选的简单策略替换。"
+        title={tr("settings.replace-custom-permissions")}
+        description={tr("settings.once-you-proceed-the-existing-fine-grained-permissions")}
         onClose={() => setPendingMode(undefined)}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setPendingMode(undefined)}>取消</Button>
-            <Button onClick={() => { const mode = pendingMode(); if (mode) void save(mode) }}>替换并继续</Button>
+            <Button variant="ghost" onClick={() => setPendingMode(undefined)}>{tr("github.cancel")}</Button>
+            <Button onClick={() => { const mode = pendingMode(); if (mode) void save(mode) }}>{tr("settings.replace-and-continue")}</Button>
           </>
         }
       >
-        <p>此操作只改变新 Session 的默认权限，不会修改已经存在的 Session。</p>
+        <p>{tr("settings.this-operation-only-changes-the-default-permissions-of")}</p>
       </Dialog>
     </div>
   )

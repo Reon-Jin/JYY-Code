@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { McpLocalConfig, McpOAuthConfig, McpRemoteConfig } from "@jyycode-ai/sdk/v2/client"
 import { createSignal, Index, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
@@ -62,7 +63,7 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
           .map((value) => value.trim())
           .filter(Boolean),
       ]
-      if (!command[0]) throw new Error("请输入可执行命令")
+      if (!command[0]) throw new Error(tr("mcp.please-enter-the-executable-command"))
       const values = recordFromRows(environment())
       return {
         type: "local",
@@ -72,7 +73,7 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
       } satisfies McpLocalConfig
     }
 
-    if (!url().trim()) throw new Error("请输入远程服务器 URL")
+    if (!url().trim()) throw new Error(tr("mcp.please-enter-the-remote-server-url"))
     const values = recordFromRows(headers())
     let oauth: McpRemoteConfig["oauth"]
     if (oauthMode() === "disabled") oauth = false
@@ -101,7 +102,7 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
     setBusy(true)
     try {
       const serverName = name().trim()
-      if (!serverName) throw new Error("请输入 MCP 名称")
+      if (!serverName) throw new Error(tr("mcp.please-enter-mcp-name"))
       await props.onSave(serverName, buildConfig())
       props.onClose()
     } catch (cause) {
@@ -119,17 +120,17 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
     <Dialog
       open
       class="mcp-config-dialog"
-      title={props.initial ? `编辑 MCP ${props.initial.name}` : "添加 MCP"}
-      description="配置会保存到全局管理目录，并用于所有桌面项目。"
+      title={props.initial ? tr("mcp.edit-mcp-name", { name: props.initial.name }) : tr("mcp.add-mcp")}
+      description={tr("mcp.the-configuration-is-saved-to-the-global-management")}
       showClose
       onClose={props.onClose}
     >
       <form class="mcp-config-form" onSubmit={(event) => void submit(event)}>
         <Show when={failure()} keyed>
-          {(cause) => <InlineError message={errorMessage(cause, "无法保存 MCP 配置")} />}
+          {(cause) => <InlineError message={errorMessage(cause, tr("mcp.unable-to-save-mcp-configuration"))} />}
         </Show>
         <label>
-          <span>名称</span>
+          <span>{tr("mcp.name")}</span>
           <input
             value={name()}
             disabled={Boolean(props.initial)}
@@ -137,48 +138,48 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
           />
         </label>
         <label>
-          <span>类型</span>
+          <span>{tr("mcp.type")}</span>
           <select
             value={type()}
             disabled={Boolean(props.initial)}
             onChange={(event) => setType(event.currentTarget.value as "local" | "remote")}
           >
-            <option value="local">本地</option>
-            <option value="remote">远程</option>
+            <option value="local">{tr("mcp.local")}</option>
+            <option value="remote">{tr("mcp.remote")}</option>
           </select>
         </label>
 
         <Show when={type() === "local"}>
           <label>
-            <span>可执行命令</span>
+            <span>{tr("mcp.executable-commands")}</span>
             <input value={executable()} onInput={(event) => setExecutable(event.currentTarget.value)} />
           </label>
           <fieldset>
-            <legend>参数</legend>
+            <legend>{tr("mcp.parameter")}</legend>
             <Index each={argumentsList()}>
               {(argument, index) => (
                 <div class="mcp-config-form__argument">
                   <label>
-                    <span>参数 {index + 1}</span>
+                    <span>{tr("mcp.parameter")} {index + 1}</span>
                     <input value={argument()} onInput={(event) => updateArgument(index, event.currentTarget.value)} />
                   </label>
                   <button
                     type="button"
-                    aria-label={`删除参数 ${index + 1}`}
+                    aria-label={tr("mcp.delete-argument-index", { index: index + 1 })}
                     onClick={() => setArgumentsList((current) => current.filter((_, position) => position !== index))}
                   >
-                    删除
+                    {tr("mcp.delete")}
                   </button>
                 </div>
               )}
             </Index>
             <button type="button" onClick={() => setArgumentsList((current) => [...current, ""])}>
-              添加参数
+              {tr("mcp.add-parameters")}
             </button>
           </fieldset>
           <fieldset>
-            <legend>环境变量</legend>
-            <KeyValueEditor rows={environment()} name="环境变量" addLabel="添加环境变量" onChange={setEnvironment} />
+            <legend>{tr("mcp.environment-variables")}</legend>
+            <KeyValueEditor rows={environment()} name={tr("mcp.environment-variables")} addLabel={tr("mcp.add-environment-variables")} onChange={setEnvironment} />
           </fieldset>
         </Show>
 
@@ -188,29 +189,29 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
             <input type="url" value={url()} onInput={(event) => setUrl(event.currentTarget.value)} />
           </label>
           <fieldset>
-            <legend>请求头</legend>
-            <KeyValueEditor rows={headers()} name="请求头" addLabel="添加请求头" onChange={setHeaders} />
+            <legend>{tr("mcp.request-header")}</legend>
+            <KeyValueEditor rows={headers()} name={tr("mcp.request-header")} addLabel={tr("mcp.add-request-header")} onChange={setHeaders} />
           </fieldset>
           <label>
-            <span>OAuth 模式</span>
+            <span>{tr("mcp.oauth-pattern")}</span>
             <select value={oauthMode()} onChange={(event) => setOAuthMode(event.currentTarget.value as OAuthMode)}>
-              <option value="auto">自动检测</option>
-              <option value="disabled">禁用 OAuth</option>
-              <option value="configured">自定义 OAuth</option>
+              <option value="auto">{tr("mcp.automatic-detection")}</option>
+              <option value="disabled">{tr("mcp.disable-oauth")}</option>
+              <option value="configured">{tr("mcp.custom-oauth")}</option>
             </select>
           </label>
           <Show when={oauthMode() === "configured"}>
             <label>
-              <span>客户端 ID</span>
+              <span>{tr("mcp.client-id")}</span>
               <input value={clientId()} onInput={(event) => setClientId(event.currentTarget.value)} />
             </label>
             <label>
-              <span>客户端密钥</span>
+              <span>{tr("mcp.client-key")}</span>
               <input
                 type="password"
                 autocomplete="new-password"
                 value={clientSecret()}
-                placeholder={initialOAuthConfig()?.clientSecret ? "保留现有密钥" : undefined}
+                placeholder={initialOAuthConfig()?.clientSecret ? tr("mcp.keep-existing-keys") : undefined}
                 onInput={(event) => setClientSecret(event.currentTarget.value)}
               />
             </label>
@@ -219,7 +220,7 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
               <input value={scope()} onInput={(event) => setScope(event.currentTarget.value)} />
             </label>
             <label>
-              <span>回调端口</span>
+              <span>{tr("mcp.callback-port")}</span>
               <input
                 type="number"
                 min="1"
@@ -229,7 +230,7 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
               />
             </label>
             <label>
-              <span>重定向 URI</span>
+              <span>{tr("mcp.redirect-uri")}</span>
               <input type="url" value={redirectUri()} onInput={(event) => setRedirectUri(event.currentTarget.value)} />
             </label>
           </Show>
@@ -238,10 +239,10 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
         <div class="mcp-config-form__row">
           <label class="mcp-config-form__check">
             <input type="checkbox" checked={enabled()} onChange={(event) => setEnabled(event.currentTarget.checked)} />
-            <span>启用</span>
+            <span>{tr("mcp.enable")}</span>
           </label>
           <label>
-            <span>超时（毫秒）</span>
+            <span>{tr("mcp.timeout-milliseconds")}</span>
             <input
               type="number"
               min="0"
@@ -252,10 +253,10 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
         </div>
         <div class="mcp-config-form__actions">
           <Button variant="secondary" disabled={busy()} onClick={props.onClose}>
-            取消
+            {tr("github.cancel")}
           </Button>
-          <Button type="submit" loading={busy()} loadingLabel="保存中">
-            保存
+          <Button type="submit" loading={busy()} loadingLabel={tr("mcp.saving")}>
+            {tr("github.save")}
           </Button>
         </div>
       </form>

@@ -1,3 +1,4 @@
+import { tr } from "./i18n/i18n-context"
 import { HashRouter, Navigate, Route, useParams, type RouteSectionProps } from "@solidjs/router"
 import { createSignal, lazy, onMount, Show, type Component, type ParentProps } from "solid-js"
 import { Dynamic } from "solid-js/web"
@@ -27,7 +28,7 @@ function loadProjectWorkspace() {
 function WorkspaceLoading() {
   return (
     <main class="startup-screen" role="status" aria-live="polite">
-      正在加载工作区…
+      {tr("routes.loading-workspace")}
     </main>
   )
 }

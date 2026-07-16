@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { VcsBranch, VcsRemote } from "@jyycode-ai/sdk/v2/client"
 import { GitFork, Plus, RefreshCw, Search, Upload } from "lucide-solid"
 import { For, Show } from "solid-js"
@@ -46,12 +47,12 @@ export function formatBranchUpdatedAt(value?: string, now = Date.now()) {
   const minute = 60 * 1_000
   const hour = 60 * minute
   const day = 24 * hour
-  if (elapsed < minute) return "刚刚"
-  if (elapsed < hour) return `${Math.max(1, Math.round(elapsed / minute))} 分钟前`
-  if (elapsed < day) return `${Math.max(1, Math.round(elapsed / hour))} 小时前`
-  if (elapsed < 30 * day) return `${Math.max(1, Math.round(elapsed / day))} 天前`
-  if (elapsed < 365 * day) return `${Math.max(1, Math.round(elapsed / (30 * day)))} 个月前`
-  return `${Math.max(1, Math.round(elapsed / (365 * day)))} 年前`
+  if (elapsed < minute) return tr("git.just")
+  if (elapsed < hour) return tr("time.minutes-ago", { count: Math.max(1, Math.round(elapsed / minute)) })
+  if (elapsed < day) return tr("time.hours-ago", { count: Math.max(1, Math.round(elapsed / hour)) })
+  if (elapsed < 30 * day) return tr("time.days-ago", { count: Math.max(1, Math.round(elapsed / day)) })
+  if (elapsed < 365 * day) return tr("time.months-ago", { count: Math.max(1, Math.round(elapsed / (30 * day))) })
+  return tr("time.years-ago", { count: Math.max(1, Math.round(elapsed / (365 * day))) })
 }
 
 export function BranchDialog(props: BranchDialogProps) {
@@ -78,27 +79,27 @@ export function BranchDialog(props: BranchDialogProps) {
     <Dialog
       open={props.open}
       class="branch-dialog-modal"
-      title="Git 分支"
-      description="切换分支或同步远程仓库"
+      title={tr("git.git-branch")}
+      description={tr("git.switch-branches-or-synchronize-remote-repositories")}
       showClose
       onClose={props.onClose}
     >
       <div class="branch-dialog">
         <label class="branch-search">
           <Search aria-hidden="true" />
-          <span>搜索分支</span>
+          <span>{tr("git.search-branch")}</span>
           <input
             value={props.search}
-            placeholder="搜索分支"
+            placeholder={tr("git.search-branch")}
             onInput={(event) => props.onSearch(event.currentTarget.value)}
           />
         </label>
 
         <div class="branch-groups">
           <section aria-labelledby="branches-title">
-            <h3 id="branches-title">分支</h3>
+            <h3 id="branches-title">{tr("git.branch")}</h3>
             <ul>
-              <For each={branches()} fallback={<li class="branch-empty">没有匹配的分支</li>}>
+              <For each={branches()} fallback={<li class="branch-empty">{tr("git.no-matching-branch")}</li>}>
                 {(entry) => (
                   <li>
                     <button
@@ -118,7 +119,7 @@ export function BranchDialog(props: BranchDialogProps) {
                           )}
                         </Show>
                         <Show when={entry.branch.current}>
-                          <strong>当前</strong>
+                          <strong>{tr("git.current")}</strong>
                         </Show>
                       </span>
                     </button>
@@ -137,20 +138,20 @@ export function BranchDialog(props: BranchDialogProps) {
           }}
         >
           <label>
-            <span>新分支名称</span>
+            <span>{tr("git.new-branch-name")}</span>
             <input value={props.newBranch} onInput={(event) => props.onNewBranch(event.currentTarget.value)} />
           </label>
           <Button type="submit" size="small" variant="secondary" disabled={Boolean(props.pending)}>
             <Plus aria-hidden="true" />
-            新建分支
+            {tr("git.create-a-new-branch")}
           </Button>
         </form>
 
         <Show when={props.remotes.length > 1 || props.remote}>
           <label class="branch-remote">
-            <span>Push 远端</span>
+            <span>{tr("git.push-remote")}</span>
             <select value={props.remote ?? ""} onChange={(event) => props.onRemote(event.currentTarget.value)}>
-              <option value="">自动选择</option>
+              <option value="">{tr("git.automatic-selection")}</option>
               <For each={props.remotes}>{(item) => <option value={item.name}>{item.name}</option>}</For>
             </select>
           </label>

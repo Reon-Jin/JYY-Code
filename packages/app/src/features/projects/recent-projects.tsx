@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { For, Show } from "solid-js"
 import { Folder, Trash2 } from "lucide-solid"
 import { Button, IconButton } from "../../components/ui/button"
@@ -20,15 +21,15 @@ export function RecentProjects(props: RecentProjectsProps) {
   return (
     <section class="recent-projects" aria-labelledby="recent-projects-title">
       <div class="recent-projects__heading">
-        <h2 id="recent-projects-title">最近项目</h2>
-        <span class="recent-projects__count" aria-label={`${props.projects.length} 个最近项目`}>
+        <h2 id="recent-projects-title">{tr("projects.recent-projects")}</h2>
+        <span class="recent-projects__count" aria-label={tr("projects.recent-project-count", { count: props.projects.length })}>
           {props.projects.length}
         </span>
       </div>
 
       <Show
         when={props.projects.length > 0}
-        fallback={<p class="recent-projects__empty">打开或新建项目后，它会出现在这里。</p>}
+        fallback={<p class="recent-projects__empty">{tr("projects.after-opening-or-creating-a-new-project-it")}</p>}
       >
         <ul class="recent-projects__list">
           <For each={props.projects.slice(0, 10)}>
@@ -37,7 +38,7 @@ export function RecentProjects(props: RecentProjectsProps) {
                 <Button
                   class="recent-projects__open"
                   variant="ghost"
-                  aria-label={`打开 ${projectName(project.path)}`}
+                  aria-label={tr("projects.open-name", { name: projectName(project.path) })}
                   disabled={props.disabled}
                   onClick={() => props.onOpen(project.path)}
                 >
@@ -49,12 +50,12 @@ export function RecentProjects(props: RecentProjectsProps) {
                     <span class="recent-projects__path">{project.path}</span>
                   </span>
                   <Show when={props.isUnavailable(project.path)}>
-                    <span class="recent-projects__unavailable">不可用</span>
+                    <span class="recent-projects__unavailable">{tr("projects.not-available")}</span>
                   </Show>
                 </Button>
                 <IconButton
                   class="recent-projects__remove"
-                  label={`从最近项目中移除 ${project.path}`}
+                  label={tr("projects.remove-recent-path", { path: project.path })}
                   variant="ghost"
                   disabled={props.disabled}
                   onClick={() => props.onRemove(project.path)}

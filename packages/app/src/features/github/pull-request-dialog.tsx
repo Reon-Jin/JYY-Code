@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { GitHubAvailability, GitHubPullRequestDetail, GitHubPullRequestSummary } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
 import { createEffect, createMemo, createSignal, on, Show, type JSX } from "solid-js"
@@ -51,7 +52,7 @@ export function PullRequestDialogView(props: PullRequestDialogViewProps) {
       open={props.open}
       title="GitHub Pull Requests"
       description={
-        props.status?.available ? props.status.repository.nameWithOwner : "浏览与管理当前仓库的 Pull Requests"
+        props.status?.available ? props.status.repository.nameWithOwner : tr("github.browse-and-manage-pull-requests-for-the-current")
       }
       showClose
       onClose={props.onClose}
@@ -149,7 +150,7 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
 
   async function saveEdit(value: PullRequestFormValue) {
     const number = selected()
-    if (!number) throw new Error("未选择 Pull Request")
+    if (!number) throw new Error(tr("github.no-pull-request-selected"))
     await api().edit({ number, title: value.title, body: value.body })
     setEditor(undefined)
   }
@@ -212,15 +213,15 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
       open={props.open}
       status={statusData()}
       statusLoading={status.isPending}
-      statusError={status.error ? errorMessage(status.error, "无法检测 GitHub 环境") : undefined}
+      statusError={status.error ? errorMessage(status.error, tr("github.unable-to-detect-github-environment")) : undefined}
       pulls={pullsData() ?? []}
       pullsLoading={pulls.isPending}
-      pullsError={pulls.error ? errorMessage(pulls.error, "无法加载 Pull Requests") : undefined}
+      pullsError={pulls.error ? errorMessage(pulls.error, tr("github.unable-to-load-pull-requests")) : undefined}
       state={state()}
       selected={selected()}
       detail={detailData()}
       detailLoading={Boolean(selected()) && detail.isPending}
-      detailError={detail.error ? errorMessage(detail.error, "无法加载 Pull Request 详情") : undefined}
+      detailError={detail.error ? errorMessage(detail.error, tr("github.unable-to-load-pull-request-details")) : undefined}
       editor={editorContent()}
       diff={selected() ? <PullRequestDiff directory={props.directory} number={selected()!} /> : undefined}
       handlers={handlers()}

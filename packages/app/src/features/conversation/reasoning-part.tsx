@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { ReasoningPart } from "@jyycode-ai/sdk/v2/client"
 import { Brain, ChevronDown } from "lucide-solid"
 import { createSignal, createUniqueId, Show } from "solid-js"
@@ -16,7 +17,7 @@ export function ReasoningPartView(props: { part: ReasoningPart }) {
         onClick={() => setExpanded((value) => !value)}
       >
         <Brain aria-hidden="true" />
-        思考过程
+        {tr("conversation.thought-process")}
         <ChevronDown aria-hidden="true" data-expanded={expanded() ? "true" : undefined} />
       </button>
       <Show when={expanded()}>

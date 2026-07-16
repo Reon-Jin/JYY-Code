@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { Session } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import { ChevronDown, LoaderCircle, ShieldAlert, ShieldCheck, ShieldQuestion, UnlockKeyhole } from "lucide-solid"
@@ -11,10 +12,10 @@ import {
   type AgentPermissionMode,
 } from "./permission-mode"
 
-const choices: ReadonlyArray<{ mode: AgentPermissionMode; label: string; description: string }> = [
-  { mode: "request", label: "请求批准", description: "编辑文件和使用工具时需要批准" },
-  { mode: "auto", label: "自动模式", description: "仅在检测到风险操作时需要批准" },
-  { mode: "full", label: "所有权限", description: "无需批准即可执行操作" },
+const choices = (): ReadonlyArray<{ mode: AgentPermissionMode; label: string; description: string }> => [
+  { mode: "request", label: tr("composer.request-approval"), description: tr("composer.require-approval-when-editing-files-and-using-tools") },
+  { mode: "auto", label: tr("composer.automatic-mode"), description: tr("composer.approval-is-only-required-when-risky-actions-are") },
+  { mode: "full", label: tr("composer.all-permissions"), description: tr("composer.actions-can-be-performed-without-approval") },
 ]
 
 function ModeIcon(props: { mode: AgentPermissionMode }) {
@@ -46,7 +47,7 @@ export function AgentPermissionControl(props: AgentPermissionControlProps) {
   const [saving, setSaving] = createSignal(false)
   const [failure, setFailure] = createSignal<unknown>()
   const mode = createMemo(() => optimistic() ?? permissionModeFromRules(props.session.permission))
-  const current = createMemo(() => choices.find((choice) => choice.mode === mode())!)
+  const current = createMemo(() => choices().find((choice) => choice.mode === mode())!)
 
   async function select(next: AgentPermissionMode) {
     setOpen(false)
@@ -76,16 +77,16 @@ export function AgentPermissionControl(props: AgentPermissionControlProps) {
 
   return (
     <div class="agent-permission-control" data-mode={mode()}>
-      <span class="agent-permission-control__label">权限</span>
+      <span class="agent-permission-control__label">{tr("composer.permissions")}</span>
       <div class="agent-permission-control__select">
         <button
           type="button"
           class="agent-permission-control__trigger"
-          aria-label={`Agent 权限：${current().label}`}
+          aria-label={tr("composer.agent-permission-value", { value: current().label })}
           aria-haspopup="menu"
           aria-expanded={open()}
           disabled={props.disabled || saving()}
-          title={failure() ? errorMessage(failure(), "无法更新 Agent 权限") : current().description}
+          title={failure() ? errorMessage(failure(), tr("composer.unable-to-update-agent-permissions")) : current().description}
           onClick={() => setOpen((value) => !value)}
         >
           <Show when={saving()} fallback={<ModeIcon mode={mode()} />}>
@@ -95,8 +96,8 @@ export function AgentPermissionControl(props: AgentPermissionControlProps) {
           <ChevronDown class="agent-permission-control__chevron" aria-hidden="true" />
         </button>
         <Show when={open()}>
-          <div class="agent-permission-menu" role="menu" aria-label="选择 Agent 权限">
-            <For each={choices}>
+          <div class="agent-permission-menu" role="menu" aria-label={tr("composer.select-agent-permissions")}>
+            <For each={choices()}>
               {(choice) => (
                 <button
                   type="button"
@@ -123,7 +124,7 @@ export function AgentPermissionControl(props: AgentPermissionControlProps) {
         <ShieldAlert
           class="agent-permission-control__error"
           role="img"
-          aria-label={errorMessage(failure(), "无法更新 Agent 权限")}
+          aria-label={errorMessage(failure(), tr("composer.unable-to-update-agent-permissions"))}
         />
       </Show>
     </div>

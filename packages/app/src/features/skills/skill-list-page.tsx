@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { useNavigate } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { createMemo, createSignal, For, Show } from "solid-js"
@@ -9,7 +10,7 @@ import { SkillSourceDialog } from "./skill-source-dialog"
 import { managementSkillsQueryOptions, refreshManagementSkills } from "./skill-query"
 import "./skills.css"
 
-const originLabel = { built_in: "内置", managed: "已管理", path: "路径", url: "URL" } as const
+const originLabel = () => ({ built_in: tr("skills.built-in"), managed: tr("skills.managed"), path: tr("skills.path"), url: "URL" } as const)
 
 export function SkillListPage(props: { management?: ManagementContextValue }) {
   const management = props.management ?? useManagement()
@@ -47,16 +48,16 @@ export function SkillListPage(props: { management?: ManagementContextValue }) {
         <div class="skill-toolbar">
           <input
             type="search"
-            aria-label="搜索 Skill"
-            placeholder="搜索"
+            aria-label={tr("skills.search-skill")}
+            placeholder={tr("skills.search")}
             value={search()}
             onInput={(event) => setSearch(event.currentTarget.value)}
           />
           <Button size="small" variant="secondary" onClick={() => setCreateOpen(true)}>
-            新建
+            {tr("skills.new")}
           </Button>
           <Button size="small" variant="secondary" onClick={() => setSourceOpen(true)}>
-            来源
+            {tr("skills.source")}
           </Button>
         </div>
       </header>
@@ -64,7 +65,7 @@ export function SkillListPage(props: { management?: ManagementContextValue }) {
         when={!query.isPending}
         fallback={
           <p class="skill-state" role="status">
-            正在加载 Skill…
+            {tr("skills.loading-skills")}
           </p>
         }
       >
@@ -72,16 +73,16 @@ export function SkillListPage(props: { management?: ManagementContextValue }) {
           when={!query.error}
           fallback={
             <div class="skill-state">
-              <InlineError message={query.error instanceof Error ? query.error.message : "无法加载 Skill"} />
+              <InlineError message={query.error instanceof Error ? query.error.message : tr("skills.unable-to-load-skill")} />
               <Button size="small" variant="secondary" onClick={() => void query.refetch()}>
-                重试
+                {tr("changes.try-again")}
               </Button>
             </div>
           }
         >
           <Show
             when={filtered().length > 0}
-            fallback={<p class="skill-state">{search() ? "没有匹配的 Skill" : "还没有全局 Skill"}</p>}
+            fallback={<p class="skill-state">{search() ? tr("skills.no-matching-skill") : tr("skills.there-is-no-global-skill-yet")}</p>}
           >
             <ul class="skill-list">
               <For each={filtered()}>
@@ -90,15 +91,15 @@ export function SkillListPage(props: { management?: ManagementContextValue }) {
                     <button
                       type="button"
                       class="skill-list__row"
-                      aria-label={`打开 Skill ${skill.name}`}
+                      aria-label={tr("skills.open-skill-name", { name: skill.name })}
                       onClick={() => navigate(`/skills/${encodeURIComponent(skill.name)}`)}
                     >
                       <span class="skill-list__primary">
                         <strong>{skill.name}</strong>
-                        <small>{skill.description || "无描述"}</small>
+                        <small>{skill.description || tr("skills.no-description")}</small>
                       </span>
                       <span class="skill-origin" data-origin={skill.origin}>
-                        {originLabel[skill.origin]}
+                        {originLabel()[skill.origin]}
                       </span>
                       <span class="skill-list__location">{skill.source ?? skill.location}</span>
                     </button>

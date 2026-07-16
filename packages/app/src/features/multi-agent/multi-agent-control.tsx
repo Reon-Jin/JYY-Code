@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { AgentClusterConfig, Session } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import { createMemo, createSignal, Show } from "solid-js"
@@ -22,9 +23,9 @@ export function effectiveMultiAgent(session: Session, config?: AgentClusterConfi
 }
 
 function disabledReason(session: Session, config?: AgentClusterConfig) {
-  if (config?.enabled === false) return "多智能体已在全局配置中禁用"
-  if (session.parentID) return "子智能体不支持启动多智能体"
-  if (isMailSession(session)) return "邮件会话不支持多智能体"
+  if (config?.enabled === false) return tr("multi-agent.multi-agent-has-been-disabled-in-global-configuration")
+  if (session.parentID) return tr("multi-agent.sub-agent-does-not-support-starting-multi-agent")
+  if (isMailSession(session)) return tr("multi-agent.mail-conversations-do-not-support-multi-agent")
   return undefined
 }
 
@@ -83,17 +84,17 @@ export function MultiAgentControl(props: MultiAgentControlProps) {
         class="multi-agent-switch"
         data-active={checked() ? "true" : "false"}
         role="switch"
-        aria-label="多智能体"
+        aria-label={tr("multi-agent.multi-agent")}
         aria-checked={checked()}
         disabled={Boolean(reason()) || saving()}
         title={reason()}
         onClick={() => void toggle()}
       >
-        <span>多智能体</span>
+        <span>{tr("multi-agent.multi-agent")}</span>
       </button>
       <Show when={reason()}>{(message) => <span class="multi-agent-control__reason">{message()}</span>}</Show>
       <Show when={failure()}>
-        {(cause) => <InlineError message={errorMessage(cause(), "无法更新多智能体模式")} />}
+        {(cause) => <InlineError message={errorMessage(cause(), tr("multi-agent.unable-to-update-multi-agent-mode"))} />}
       </Show>
     </div>
   )

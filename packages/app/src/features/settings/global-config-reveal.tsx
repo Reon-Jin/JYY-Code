@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { createQuery } from "@tanstack/solid-query"
 import { createMemo, createSignal, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
@@ -18,7 +19,7 @@ export function GlobalConfigReveal(props: { management: ManagementContextValue }
           { directory: props.management.directory },
           { throwOnError: true },
         )
-        if (!response.data?.config) throw new Error("后端未返回全局配置目录")
+        if (!response.data?.config) throw new Error(tr("settings.the-backend-did-not-return-the-global-configuration"))
         return response.data
       },
     }),
@@ -33,17 +34,17 @@ export function GlobalConfigReveal(props: { management: ManagementContextValue }
     try {
       await desktop.revealConfigFile(target)
     } catch (cause) {
-      setFailure(cause instanceof Error ? cause.message : "无法打开全局配置文件")
+      setFailure(cause instanceof Error ? cause.message : tr("settings.unable-to-open-global-configuration-file"))
     }
   }
 
   return (
     <div class="settings-reveal-config">
       <Button variant="secondary" disabled={paths.isPending || Boolean(paths.error) || !path()} onClick={() => void reveal()}>
-        打开全局配置文件
+        {tr("settings.open-global-configuration-file")}
       </Button>
       <Show when={paths.error}>
-        <InlineError message={paths.error instanceof Error ? paths.error.message : "无法读取全局配置目录"} />
+        <InlineError message={paths.error instanceof Error ? paths.error.message : tr("settings.unable-to-read-global-configuration-directory")} />
       </Show>
       <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>
     </div>

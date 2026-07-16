@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { For, Show } from "solid-js"
 import type { CatalogModel, ModelSelection } from "./model-catalog"
 
@@ -13,9 +14,9 @@ export function ModelSelect(props: {
 }) {
   return (
     <label class="composer-select composer-select--model">
-      <span>模型</span>
+      <span>{tr("composer.model")}</span>
       <select
-        aria-label="模型"
+        aria-label={tr("composer.model")}
         value={valueOf(props.value)}
         disabled={props.disabled}
         onChange={(event) => {

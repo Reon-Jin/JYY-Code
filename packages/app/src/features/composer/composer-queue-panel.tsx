@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { Clock3, MessageSquareMore, Trash2 } from "lucide-solid"
 import { createSignal, For } from "solid-js"
 import { IconButton } from "../../components/ui/button"
@@ -12,13 +13,13 @@ export function ComposerQueuePanel(props: {
   const [draggedID, setDraggedID] = createSignal<string>()
 
   return (
-    <section class="composer-queue" aria-label="排队等待的消息">
+    <section class="composer-queue" aria-label={tr("composer.messages-waiting-in-queue")}>
       <header class="composer-queue__header">
         <span>
           <Clock3 aria-hidden="true" />
-          排队等待 · {props.items.length}
+          {tr("composer.waiting-in-line")} {props.items.length}
         </span>
-        <small>当前回复完成后将按顺序发送</small>
+        <small>{tr("composer.current-replies-will-be-sent-in-sequence-after")}</small>
       </header>
       <ol class="composer-queue__list">
         <For each={props.items}>
@@ -52,13 +53,13 @@ export function ComposerQueuePanel(props: {
               <span class="composer-queue__index">{index() + 1}</span>
               <p>{item.text}</p>
               <IconButton
-                label={`立即引导排队消息 ${index() + 1}`}
+                label={tr("composer.steer-queued-message", { index: index() + 1 })}
                 variant="ghost"
                 onClick={() => props.onGuide(item.id)}
               >
                 <MessageSquareMore aria-hidden="true" />
               </IconButton>
-              <IconButton label={`移除排队消息 ${index() + 1}`} variant="ghost" onClick={() => props.onRemove(item.id)}>
+              <IconButton label={tr("composer.remove-queued-message", { index: index() + 1 })} variant="ghost" onClick={() => props.onRemove(item.id)}>
                 <Trash2 aria-hidden="true" />
               </IconButton>
             </li>

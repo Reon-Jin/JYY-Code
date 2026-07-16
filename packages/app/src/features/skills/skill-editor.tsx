@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { useBeforeLeave } from "@solidjs/router"
 import { createEffect, createSignal, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
@@ -27,11 +28,11 @@ export function SkillEditor(props: {
   })
 
   useBeforeLeave((event) => {
-    if (dirty() && !window.confirm("放弃未保存的更改？")) event.preventDefault()
+    if (dirty() && !window.confirm(tr("skills.discard-unsaved-changes"))) event.preventDefault()
   })
 
   function cancel() {
-    if (dirty() && !window.confirm("放弃未保存的更改？")) return
+    if (dirty() && !window.confirm(tr("skills.discard-unsaved-changes"))) return
     props.onCancel()
   }
 
@@ -44,10 +45,10 @@ export function SkillEditor(props: {
     } catch (cause) {
       setError(
         isConflict(cause)
-          ? "Skill 已被其他操作修改；草稿已保留，请重新加载后再保存。"
+          ? tr("skills.skill-has-been-modified-by-other-operations-the")
           : cause instanceof Error
             ? cause.message
-            : "无法保存 Skill",
+            : tr("skills.unable-to-save-skill"),
       )
     } finally {
       setBusy(false)
@@ -55,7 +56,7 @@ export function SkillEditor(props: {
   }
 
   return (
-    <section class="skill-editor" aria-label="Skill 编辑器">
+    <section class="skill-editor" aria-label={tr("skills.skill-editor")}>
       <textarea
         aria-label="SKILL.md"
         value={draft()}
@@ -70,10 +71,10 @@ export function SkillEditor(props: {
       <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>
       <div class="skill-editor__actions">
         <Button variant="ghost" disabled={busy()} onClick={cancel}>
-          取消
+          {tr("github.cancel")}
         </Button>
-        <Button loading={busy()} loadingLabel="正在保存" onClick={() => void save()}>
-          保存
+        <Button loading={busy()} loadingLabel={tr("multi-agent.saving")} onClick={() => void save()}>
+          {tr("github.save")}
         </Button>
       </div>
     </section>

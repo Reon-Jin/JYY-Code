@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
 import { FileDiff, RefreshCw } from "lucide-solid"
@@ -41,9 +42,9 @@ export function ChangesPanelView(props: ChangesPanelViewProps) {
     <section class="changes-panel" aria-labelledby="changes-panel-title">
       <header class="changes-panel__header">
         <FileDiff aria-hidden="true" />
-        <h2 id="changes-panel-title">工作区变更</h2>
+        <h2 id="changes-panel-title">{tr("changes.workspace-changes")}</h2>
         <Show when={!props.loading && !props.error}>
-          <span class="changes-panel__summary">{changes().length} 个文件</span>
+          <span class="changes-panel__summary">{changes().length} {tr("changes.files")}</span>
           <span class="changes-panel__totals">
             +{additions()} -{deletions()}
           </span>
@@ -55,7 +56,7 @@ export function ChangesPanelView(props: ChangesPanelViewProps) {
           when={!props.loading}
           fallback={
             <p class="changes-panel__loading" role="status" aria-live="polite">
-              <Spinner /> 正在加载工作区变更
+              <Spinner /> {tr("changes.loading-workspace-changes")}
             </p>
           }
         >
@@ -67,13 +68,13 @@ export function ChangesPanelView(props: ChangesPanelViewProps) {
                 <Show when={props.onRetry}>
                   <Button size="small" variant="secondary" onClick={props.onRetry}>
                     <RefreshCw aria-hidden="true" />
-                    重试
+                    {tr("changes.try-again")}
                   </Button>
                 </Show>
               </div>
             }
           >
-            <Show when={changes().length > 0} fallback={<p class="changes-panel__empty">工作区没有未提交变更</p>}>
+            <Show when={changes().length > 0} fallback={<p class="changes-panel__empty">{tr("changes.the-workspace-has-no-uncommitted-changes")}</p>}>
               <ul class="changes-panel__files">
                 <For each={changes()}>
                   {(change) => (
@@ -94,7 +95,7 @@ export function ChangesPanelView(props: ChangesPanelViewProps) {
 }
 
 function errorMessage(cause: unknown) {
-  return cause instanceof Error && cause.message ? cause.message : "无法加载工作区变更"
+  return cause instanceof Error && cause.message ? cause.message : tr("changes.unable-to-load-workspace-changes")
 }
 
 export function ChangesPanel(props: { directory: string }) {

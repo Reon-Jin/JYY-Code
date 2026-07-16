@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { Agent } from "@jyycode-ai/sdk/v2/client"
 import { For, Show } from "solid-js"
 
@@ -9,9 +10,9 @@ export function AgentSelect(props: {
 }) {
   return (
     <label class="composer-select">
-      <span>智能体</span>
+      <span>{tr("composer.agent")}</span>
       <select
-        aria-label="智能体"
+        aria-label={tr("composer.agent")}
         value={props.value}
         disabled={props.disabled}
         onChange={(event) => props.onChange(event.currentTarget.value)}

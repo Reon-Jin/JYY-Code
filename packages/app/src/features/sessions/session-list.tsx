@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { For, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
@@ -33,12 +34,12 @@ export function SessionList(props: SessionListProps) {
     )
 
   return (
-    <nav class="session-list" aria-label={props.archived ? "归档 Session" : "活动 Session"}>
+    <nav class="session-list" aria-label={props.archived ? tr("sessions.archive-session") : tr("sessions.activity-session")}>
       <Show
         when={!props.loading}
         fallback={
           <div class="session-list__loading" role="status" aria-live="polite">
-            <Spinner /> 正在加载 Session
+            <Spinner /> {tr("sessions.loading-session")}
           </div>
         }
       >
@@ -74,7 +75,7 @@ function SessionListError(props: { message: string; onRetry?: () => void }) {
       <InlineError message={props.message} />
       <Show when={props.onRetry}>
         <Button size="small" variant="secondary" onClick={props.onRetry}>
-          重新加载
+          {tr("conversation.reload")}
         </Button>
       </Show>
     </div>

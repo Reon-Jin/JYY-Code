@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { Show, splitProps, type JSX, type ParentProps } from "solid-js"
 import { Spinner } from "./spinner"
 
@@ -38,7 +39,7 @@ export function Button(props: ButtonProps) {
       <Show when={local.loading}>
         <Spinner />
       </Show>
-      {local.loading ? (local.loadingLabel ?? "处理中") : local.children}
+      {local.loading ? (local.loadingLabel ?? tr("components.processing")) : local.children}
     </button>
   )
 }

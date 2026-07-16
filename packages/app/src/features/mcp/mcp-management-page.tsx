@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { McpStatus } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
 import { createMemo, createSignal, For, Show } from "solid-js"
@@ -33,7 +34,7 @@ function endpoint(config: McpConfig) {
 }
 
 function statusText(status: McpStatus) {
-  return mcpStatusLabel(status) ?? "已连接"
+  return mcpStatusLabel(status) ?? tr("mcp.connected")
 }
 
 export function McpManagementPage(props: McpManagementPageProps) {
@@ -98,20 +99,20 @@ export function McpManagementPage(props: McpManagementPageProps) {
       <header class="mcp-management__header">
         <div>
           <h1>MCP</h1>
-          <p>管理全局 Model Context Protocol 服务器。</p>
+          <p>{tr("mcp.manage-the-global-model-context-protocol-server")}</p>
         </div>
-        <Button onClick={() => setEditing("new")}>添加 MCP</Button>
+        <Button onClick={() => setEditing("new")}>{tr("mcp.add-mcp")}</Button>
       </header>
 
       <Show when={failure()} keyed>
-        {(cause) => <InlineError message={errorMessage(cause, "MCP 操作失败")} />}
+        {(cause) => <InlineError message={errorMessage(cause, tr("mcp.mcp-operation-failed"))} />}
       </Show>
 
       <Show
         when={!config.isPending && !status.isPending}
         fallback={
           <p class="mcp-management__state" role="status">
-            正在加载 MCP…
+            {tr("mcp.loading-mcp")}
           </p>
         }
       >
@@ -119,14 +120,14 @@ export function McpManagementPage(props: McpManagementPageProps) {
           when={!config.error && !status.error}
           fallback={
             <div class="mcp-management__error">
-              <InlineError message={errorMessage(config.error ?? status.error, "无法加载 MCP 配置")} />
+              <InlineError message={errorMessage(config.error ?? status.error, tr("mcp.unable-to-load-mcp-configuration"))} />
               <Button variant="secondary" onClick={() => void Promise.all([config.refetch(), status.refetch()])}>
-                重试
+                {tr("changes.try-again")}
               </Button>
             </div>
           }
         >
-          <Show when={entries().length} fallback={<p class="mcp-management__state">还没有全局 MCP 配置。</p>}>
+          <Show when={entries().length} fallback={<p class="mcp-management__state">{tr("mcp.there-is-no-global-mcp-configuration-yet")}</p>}>
             <div class="mcp-management__list">
               <For each={entries()}>
                 {(entry) => {
@@ -136,7 +137,7 @@ export function McpManagementPage(props: McpManagementPageProps) {
                     <article class="mcp-management__item" data-status={entry.status.status}>
                       <div class="mcp-management__identity">
                         <strong>{entry.name}</strong>
-                        <span class="mcp-management__type">{entry.config.type === "local" ? "本地" : "远程"}</span>
+                        <span class="mcp-management__type">{entry.config.type === "local" ? tr("mcp.local") : tr("mcp.remote")}</span>
                         <small>{endpoint(entry.config)}</small>
                       </div>
                       <span
@@ -149,7 +150,7 @@ export function McpManagementPage(props: McpManagementPageProps) {
                         type="button"
                         class="mcp-management__switch"
                         role="switch"
-                        aria-label={`启用 ${entry.name}`}
+                        aria-label={tr("mcp.enable-name", { name: entry.name })}
                         aria-checked={enabled()}
                         data-active={enabled() ? "true" : "false"}
                         disabled={busy()}
@@ -163,7 +164,7 @@ export function McpManagementPage(props: McpManagementPageProps) {
                         <Show when={entry.status.status === "failed"}>
                           <button
                             type="button"
-                            aria-label={`重试 ${entry.name}`}
+                            aria-label={tr("mcp.retry-name", { name: entry.name })}
                             disabled={busy()}
                             onClick={() =>
                               void run(entry.name, () =>
@@ -174,13 +175,13 @@ export function McpManagementPage(props: McpManagementPageProps) {
                               ).catch(() => undefined)
                             }
                           >
-                            重试
+                            {tr("changes.try-again")}
                           </button>
                         </Show>
                         <Show when={entry.config.type === "remote"}>
                           <button
                             type="button"
-                            aria-label={`认证 ${entry.name}`}
+                            aria-label={tr("mcp.authenticate-name", { name: entry.name })}
                             disabled={busy()}
                             onClick={() =>
                               void run(entry.name, () =>
@@ -191,11 +192,11 @@ export function McpManagementPage(props: McpManagementPageProps) {
                               ).catch(() => undefined)
                             }
                           >
-                            认证
+                            {tr("mcp.certification")}
                           </button>
                           <button
                             type="button"
-                            aria-label={`移除认证 ${entry.name}`}
+                            aria-label={tr("mcp.remove-auth-name", { name: entry.name })}
                             disabled={busy()}
                             onClick={() =>
                               void run(entry.name, () =>
@@ -206,24 +207,24 @@ export function McpManagementPage(props: McpManagementPageProps) {
                               ).catch(() => undefined)
                             }
                           >
-                            移除认证
+                            {tr("mcp.remove-certification")}
                           </button>
                         </Show>
                         <button
                           type="button"
-                          aria-label={`编辑 ${entry.name}`}
+                          aria-label={tr("mcp.edit-name", { name: entry.name })}
                           disabled={busy()}
                           onClick={() => setEditing(entry)}
                         >
-                          编辑
+                          {tr("github.edit")}
                         </button>
                         <button
                           type="button"
-                          aria-label={`删除 ${entry.name}`}
+                          aria-label={tr("mcp.delete-name", { name: entry.name })}
                           disabled={busy()}
                           onClick={() => setDeleting(entry.name)}
                         >
-                          删除
+                          {tr("mcp.delete")}
                         </button>
                       </div>
                     </article>

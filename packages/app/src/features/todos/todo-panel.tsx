@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { Todo } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
 import { CheckCircle2, Circle, CircleDot, CircleX, ListTodo, RefreshCw } from "lucide-solid"
@@ -31,13 +32,13 @@ function todoState(status: string): TodoState {
 function stateLabel(state: TodoState) {
   switch (state) {
     case "pending":
-      return "未开始"
+      return tr("todos.not-started")
     case "in_progress":
-      return "进行中"
+      return tr("todos.in-progress")
     case "completed":
-      return "已完成"
+      return tr("conversation.completed")
     case "cancelled":
-      return "已取消"
+      return tr("multi-agent.canceled")
   }
 }
 
@@ -67,9 +68,9 @@ export function TodoPanelView(props: TodoPanelViewProps) {
     <section class="todo-panel" data-collapsed={props.collapsed ? "true" : "false"} aria-labelledby="todo-panel-title">
       <header class="todo-panel__header">
         <ListTodo aria-hidden="true" />
-        <h2 id="todo-panel-title">计划</h2>
+        <h2 id="todo-panel-title">{tr("todos.plan")}</h2>
         <Show when={props.sessionID && !props.loading && !props.error}>
-          <span class="todo-panel__count" aria-label={`${todos().length} 个步骤`}>
+          <span class="todo-panel__count" aria-label={tr("todos.step-count", { count: todos().length })}>
             {todos().length}
           </span>
         </Show>
@@ -77,12 +78,12 @@ export function TodoPanelView(props: TodoPanelViewProps) {
 
       <Show when={!props.collapsed}>
         <div class="todo-panel__body">
-          <Show when={props.sessionID} fallback={<p class="todo-panel__empty">创建或选择会话后显示步骤</p>}>
+          <Show when={props.sessionID} fallback={<p class="todo-panel__empty">{tr("todos.show-steps-after-creating-or-selecting-a-session")}</p>}>
             <Show
               when={!props.loading}
               fallback={
                 <p class="todo-panel__loading" role="status" aria-live="polite">
-                  <Spinner /> 正在加载步骤
+                  <Spinner /> {tr("todos.loading-steps")}
                 </p>
               }
             >
@@ -94,13 +95,13 @@ export function TodoPanelView(props: TodoPanelViewProps) {
                     <Show when={props.onRetry}>
                       <Button size="small" variant="secondary" onClick={props.onRetry}>
                         <RefreshCw aria-hidden="true" />
-                        重试
+                        {tr("changes.try-again")}
                       </Button>
                     </Show>
                   </div>
                 }
               >
-                <Show when={todos().length > 0} fallback={<p class="todo-panel__empty">当前会话暂无步骤</p>}>
+                <Show when={todos().length > 0} fallback={<p class="todo-panel__empty">{tr("todos.there-are-no-steps-in-the-current-session")}</p>}>
                   <ol class="todo-panel__list">
                     <For each={todos()}>
                       {(todo) => {
@@ -131,7 +132,7 @@ export function TodoPanelView(props: TodoPanelViewProps) {
 }
 
 function errorMessage(cause: unknown) {
-  return cause instanceof Error && cause.message ? cause.message : "无法加载步骤"
+  return cause instanceof Error && cause.message ? cause.message : tr("todos.unable-to-load-steps")
 }
 
 export function TodoPanel(props: { directory: string; sessionID?: string; collapsed?: boolean }) {

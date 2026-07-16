@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { Index } from "solid-js"
 
 export type KeyValueRow = { key: string; value: string }
@@ -21,23 +22,23 @@ export function KeyValueEditor(props: KeyValueEditorProps) {
           <div class="mcp-kv__row">
             <label>
               <span>
-                {props.name}名称 {index + 1}
+                {props.name}{tr("mcp.name")} {index + 1}
               </span>
               <input value={row().key} onInput={(event) => update(index, "key", event.currentTarget.value)} />
             </label>
             <label>
               <span>
-                {props.name}值 {index + 1}
+                {props.name}{tr("mcp.value")} {index + 1}
               </span>
               <input value={row().value} onInput={(event) => update(index, "value", event.currentTarget.value)} />
             </label>
             <button
               type="button"
               class="mcp-kv__remove"
-              aria-label={`删除${props.name} ${index + 1}`}
+              aria-label={tr("mcp.delete-field-index", { field: props.name, index: index + 1 })}
               onClick={() => props.onChange(props.rows.filter((_, current) => current !== index))}
             >
-              删除
+              {tr("mcp.delete")}
             </button>
           </div>
         )}

@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import type { Provider } from "@jyycode-ai/sdk/v2/client"
 import { ArrowLeft, KeyRound, PlugZap, Search } from "lucide-solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
@@ -50,7 +51,7 @@ export function ProviderConnectButton(props: {
       const response = await props.client.provider.list({ directory: props.directory }, { throwOnError: true })
       setProviders(response.data?.all ?? [])
     } catch (cause) {
-      setFailure(cause instanceof Error ? cause.message : "无法加载模型提供商")
+      setFailure(cause instanceof Error ? cause.message : tr("composer.unable-to-load-model-provider"))
     } finally {
       setLoading(false)
     }
@@ -78,7 +79,7 @@ export function ProviderConnectButton(props: {
       await props.onConnected(provider.id)
       close()
     } catch (cause) {
-      setFailure(cause instanceof Error ? cause.message : "连接模型提供商失败")
+      setFailure(cause instanceof Error ? cause.message : tr("composer.failed-to-connect-to-model-provider"))
     } finally {
       setSaving(false)
     }
@@ -94,20 +95,20 @@ export function ProviderConnectButton(props: {
         onClick={() => void open()}
       >
         <PlugZap aria-hidden="true" />
-        连接
+        {tr("composer.connect")}
       </Button>
       <Dialog
         open={opened()}
         class="provider-connect-dialog"
-        title={selected() ? `连接 ${selected()!.name}` : "连接模型提供商"}
-        description={selected() ? "输入 API 密钥，凭据将安全保存在本机。" : "选择要连接的模型提供商。"}
+        title={selected() ? tr("composer.connect-provider-name", { name: selected()!.name }) : tr("composer.connect-model-provider")}
+        description={selected() ? tr("composer.enter-your-api-key-and-your-credentials-will") : tr("composer.select-the-model-provider-to-connect-to")}
         showClose
         onClose={close}
       >
         <Show when={selected()}>
           <Button class="provider-connect__back" size="small" variant="ghost" onClick={back}>
             <ArrowLeft aria-hidden="true" />
-            返回提供商列表
+            {tr("composer.return-to-provider-list")}
           </Button>
         </Show>
 
@@ -116,18 +117,18 @@ export function ProviderConnectButton(props: {
         <Show
           when={selected()}
           fallback={
-            <Show when={!loading()} fallback={<p class="provider-connect__status">正在加载模型提供商…</p>}>
+            <Show when={!loading()} fallback={<p class="provider-connect__status">{tr("composer.loading-model-providers")}</p>}>
               <label class="provider-connect__search">
                 <Search aria-hidden="true" />
                 <input
                   type="search"
-                  aria-label="搜索模型提供商"
-                placeholder="搜索提供商名称或 ID"
+                  aria-label={tr("composer.search-model-providers")}
+                placeholder={tr("composer.search-provider-name-or-id")}
                   value={search()}
                   onInput={(event) => setSearch(event.currentTarget.value)}
                 />
               </label>
-              <div class="provider-connect__list" aria-label="模型提供商">
+              <div class="provider-connect__list" aria-label={tr("composer.model-provider")}>
                 <For each={visibleProviders()}>
                   {(provider) => (
                     <button type="button" class="provider-connect__provider" onClick={() => setSelected(provider)}>
@@ -137,7 +138,7 @@ export function ProviderConnectButton(props: {
                   )}
                 </For>
                 <Show when={visibleProviders().length === 0}>
-                  <p class="provider-connect__status">没有匹配的模型提供商</p>
+                  <p class="provider-connect__status">{tr("composer.no-matching-model-provider")}</p>
                 </Show>
               </div>
             </Show>
@@ -151,7 +152,7 @@ export function ProviderConnectButton(props: {
                 void connect()
               }}
             >
-              <label for="provider-api-key">API 密钥</label>
+              <label for="provider-api-key">{tr("composer.api-key")}</label>
               <div class="provider-connect__key">
                 <KeyRound aria-hidden="true" />
                 <input
@@ -159,13 +160,13 @@ export function ProviderConnectButton(props: {
                   id="provider-api-key"
                   type="password"
                   autocomplete="off"
-                  placeholder={`${provider().name} API 密钥`}
+                  placeholder={tr("composer.provider-api-key", { name: provider().name })}
                   value={apiKey()}
                   onInput={(event) => setApiKey(event.currentTarget.value)}
                 />
               </div>
-              <Button type="submit" loading={saving()} loadingLabel="正在连接" disabled={!apiKey().trim()}>
-                连接
+              <Button type="submit" loading={saving()} loadingLabel={tr("composer.connecting")} disabled={!apiKey().trim()}>
+                {tr("composer.connect")}
               </Button>
             </form>
           )}

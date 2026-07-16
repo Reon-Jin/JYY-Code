@@ -1,14 +1,15 @@
+import { tr } from "../../i18n/i18n-context"
 import type { LifecyclePhase } from "./lifecycle-controller"
 import "./lifecycle.css"
 
 function phaseMessage(phase: Exclude<LifecyclePhase, "ready" | "failed">) {
   switch (phase) {
     case "backendReady":
-      return "正在读取上次位置…"
+      return tr("lifecycle.reading-last-location")
     case "projectLoading":
-      return "正在恢复项目与 Session…"
+      return tr("lifecycle.restoring-project-and-session")
     default:
-      return "正在启动 JYYCode…"
+      return tr("lifecycle.starting-jyycode")
   }
 }
 

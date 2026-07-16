@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { useNavigate } from "@solidjs/router"
 import { FolderOpen, Plus } from "lucide-solid"
 import { createSignal, onMount, Show } from "solid-js"
@@ -17,7 +18,7 @@ export function WelcomePage() {
   const [error, setError] = createSignal<string>()
 
   onMount(() => {
-    projects.loadRecentProjects().catch((cause) => setError(errorMessage(cause, "无法读取最近项目")))
+    projects.loadRecentProjects().catch((cause) => setError(errorMessage(cause, tr("projects.unable-to-read-recent-items"))))
   })
 
   async function openSelectedProject() {
@@ -27,7 +28,7 @@ export function WelcomePage() {
       const opened = await projects.chooseAndOpenProject()
       if (opened) navigate("/workspace")
     } catch (cause) {
-      setError(errorMessage(cause, "无法打开项目"))
+      setError(errorMessage(cause, tr("projects.unable-to-open-project")))
     } finally {
       setBusy(false)
     }
@@ -40,7 +41,7 @@ export function WelcomePage() {
       await projects.openProject(path)
       navigate("/workspace")
     } catch (cause) {
-      setError(errorMessage(cause, "无法打开项目"))
+      setError(errorMessage(cause, tr("projects.unable-to-open-project")))
     } finally {
       setBusy(false)
     }
@@ -51,7 +52,7 @@ export function WelcomePage() {
     try {
       await projects.removeRecentProject(path)
     } catch (cause) {
-      setError(errorMessage(cause, "无法移除最近项目"))
+      setError(errorMessage(cause, tr("projects.unable-to-remove-recent-items")))
     }
   }
 
@@ -61,14 +62,14 @@ export function WelcomePage() {
         <section class="welcome-intro" aria-labelledby="welcome-title">
           <h1 id="welcome-title">JYYCode</h1>
 
-          <div class="welcome-actions" aria-label="项目操作">
-            <Button class="welcome-action" loading={busy()} loadingLabel="正在打开" onClick={openSelectedProject}>
+          <div class="welcome-actions" aria-label={tr("projects.project-operations")}>
+            <Button class="welcome-action" loading={busy()} loadingLabel={tr("projects.opening")} onClick={openSelectedProject}>
               <FolderOpen aria-hidden="true" />
-              <strong>打开目录</strong>
+              <strong>{tr("projects.open-directory")}</strong>
             </Button>
             <Button class="welcome-action" disabled={busy()} onClick={() => setCreateOpen(true)}>
               <Plus aria-hidden="true" />
-              <strong>新建项目</strong>
+              <strong>{tr("projects.new-project")}</strong>
             </Button>
           </div>
 

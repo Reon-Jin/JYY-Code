@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { createEffect, createSignal, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
@@ -25,14 +26,14 @@ export function SkillSourceDialog(props: {
   async function submit(event: SubmitEvent) {
     event.preventDefault()
     const source = value().trim()
-    if (!source) return setError(type() === "path" ? "请输入本地路径" : "请输入 URL")
+    if (!source) return setError(type() === "path" ? tr("skills.please-enter-local-path") : tr("skills.please-enter-url"))
     setBusy(true)
     setError(undefined)
     try {
       await props.onAdd({ type: type(), value: source })
       props.onClose()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "无法添加 Skill 来源")
+      setError(cause instanceof Error ? cause.message : tr("skills.unable-to-add-skill-source"))
     } finally {
       setBusy(false)
     }
@@ -42,30 +43,30 @@ export function SkillSourceDialog(props: {
     <Dialog
       open={props.open}
       class="skill-dialog"
-      title="添加 Skill 来源"
-      description="添加一个包含 Skill 的本地目录或远程 URL。"
+      title={tr("skills.add-skill-source")}
+      description={tr("skills.add-a-local-directory-or-remote-url-that")}
       onClose={props.onClose}
       footer={
         <>
           <Button variant="ghost" onClick={props.onClose}>
-            取消
+            {tr("github.cancel")}
           </Button>
-          <Button type="submit" form="skill-source-form" loading={busy()} loadingLabel="正在添加">
-            添加
+          <Button type="submit" form="skill-source-form" loading={busy()} loadingLabel={tr("skills.adding")}>
+            {tr("skills.add-to")}
           </Button>
         </>
       }
     >
       <form id="skill-source-form" class="skill-form" onSubmit={submit}>
         <label>
-          类型
+          {tr("mcp.type")}
           <select value={type()} onChange={(event) => setType(event.currentTarget.value as "path" | "url")}>
-            <option value="path">本地路径</option>
+            <option value="path">{tr("skills.local-path")}</option>
             <option value="url">URL</option>
           </select>
         </label>
         <label>
-          {type() === "path" ? "路径" : "URL"}
+          {type() === "path" ? tr("skills.path") : "URL"}
           <input autofocus value={value()} onInput={(event) => setValue(event.currentTarget.value)} />
         </label>
         <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>

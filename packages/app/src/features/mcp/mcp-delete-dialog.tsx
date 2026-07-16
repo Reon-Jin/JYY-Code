@@ -1,3 +1,4 @@
+import { tr } from "../../i18n/i18n-context"
 import { createSignal, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
@@ -31,23 +32,23 @@ export function McpDeleteDialog(props: McpDeleteDialogProps) {
     <Dialog
       open
       class="mcp-delete-dialog"
-      title={`删除 MCP ${props.name}`}
-      description="这会断开服务器、移除 OAuth 凭据并删除全局配置。"
+      title={tr("mcp.delete-mcp-name", { name: props.name })}
+      description={tr("mcp.this-disconnects-the-server-removes-the-oauth-credentials")}
       showClose
       onClose={props.onClose}
       footer={
         <>
           <Button variant="secondary" disabled={busy()} onClick={props.onClose}>
-            取消
+            {tr("github.cancel")}
           </Button>
           <Button variant="danger" disabled={busy()} onClick={() => void remove()}>
-            确认删除
+            {tr("mcp.confirm-deletion")}
           </Button>
         </>
       }
     >
       <Show when={failure()} keyed>
-        {(cause) => <InlineError message={errorMessage(cause, "无法删除 MCP 配置")} />}
+        {(cause) => <InlineError message={errorMessage(cause, tr("mcp.unable-to-delete-mcp-configuration"))} />}
       </Show>
     </Dialog>
   )
