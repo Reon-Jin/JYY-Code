@@ -204,7 +204,6 @@ export function GeneralSettings() {
           />
           {tr("settings.apple-style-liquid-glass")}
         </label>
-        <p class="settings-card__hint">{tr("settings.requires-full-vision-system-and-windows-and-webview")}</p>
       </section>
 
       <section class="settings-card" aria-labelledby="notifications-setting-title">
