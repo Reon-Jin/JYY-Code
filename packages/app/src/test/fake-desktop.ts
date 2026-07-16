@@ -36,6 +36,7 @@ export function createFakeDesktop(input?: {
       settings = parseDesktopSettings(value)
     }),
     setWindowGlass: vi.fn(async () => ({ supported: true })),
+    getNotificationPermission: vi.fn(async () => "granted" as const),
     requestNotificationPermission: vi.fn(async () => "granted" as const),
     sendNotification: vi.fn(async () => ({ supported: true })),
     checkForUpdate: vi.fn(async () => ({ supported: true, available: false })),

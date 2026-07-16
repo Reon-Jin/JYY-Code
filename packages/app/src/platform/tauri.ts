@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification as sendNativeNotification,
+} from "@tauri-apps/plugin-notification"
 import { Store } from "@tauri-apps/plugin-store"
 import { normalizeRecentProjects } from "./recent-projects"
 import { parseDesktopSettings, type DesktopSettings } from "../features/settings/settings-preferences"
@@ -10,7 +15,6 @@ import {
   type DesktopCapabilityResult,
   type LastLocation,
   type DesktopNotification,
-  type DesktopNotificationPermission,
   type RecentProject,
   type DesktopSaveResult,
   type DesktopUpdateCheck,
@@ -72,11 +76,16 @@ export const tauriBridge: DesktopBridge = {
   setWindowGlass(enabled, theme) {
     return invoke<DesktopCapabilityResult>("set_window_glass", { enabled, theme })
   },
-  requestNotificationPermission() {
-    return invoke<DesktopNotificationPermission>("request_notification_permission")
+  async getNotificationPermission() {
+    return (await isPermissionGranted()) ? "granted" : "default"
   },
-  sendNotification(notification: DesktopNotification) {
-    return invoke<DesktopCapabilityResult>("send_notification", { notification })
+  requestNotificationPermission() {
+    return requestPermission()
+  },
+  async sendNotification(notification: DesktopNotification) {
+    if (!(await isPermissionGranted())) return { supported: false, reason: "Notification permission is not granted" }
+    sendNativeNotification(notification)
+    return { supported: true }
   },
   checkForUpdate() {
     return invoke<DesktopUpdateCheck>("check_for_update")

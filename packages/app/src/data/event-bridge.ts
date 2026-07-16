@@ -19,6 +19,7 @@ import {
   type ConversationSnapshot,
 } from "../features/conversation/conversation-state"
 import { keys, normalizeDirectory } from "./query-keys"
+import { publishDesktopNotificationEvent } from "../features/notifications/desktop-notifications"
 
 export type ConnectionState = "connecting" | "connected" | "disconnected"
 
@@ -309,6 +310,27 @@ function isConversationAction(action: CacheAction): action is ConversationAction
   return conversationKinds.has(action.kind)
 }
 
+function publishNotificationAction(action: CacheAction) {
+  if (action.kind === "status.set") {
+    const status = action.status.type
+    if (status === "idle" || status === "retry" || status === "busy") {
+      publishDesktopNotificationEvent({
+        kind: "status",
+        eventID: action.eventID,
+        sessionID: action.sessionID,
+        status: status === "busy" ? "running" : status,
+      })
+    }
+    return
+  }
+  if (action.kind === "permission.upsert") {
+    publishDesktopNotificationEvent({ kind: "permission", eventID: action.eventID })
+  }
+  if (action.kind === "question.upsert") {
+    publishDesktopNotificationEvent({ kind: "question", eventID: action.eventID })
+  }
+}
+
 function requestFrame(callback: FrameRequestCallback) {
   if (typeof requestAnimationFrame === "function") return requestAnimationFrame(callback)
   return window.setTimeout(() => callback(performance.now()), 16)
@@ -426,6 +448,7 @@ export class EventBridge {
 
     for (const event of events) {
       for (const action of routeEvent(this.#options.directory, event)) {
+        publishNotificationAction(action)
         if (action.kind === "server.connected") {
           await this.#connected()
           continue

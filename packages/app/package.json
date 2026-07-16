@@ -19,6 +19,7 @@
     "@tanstack/solid-query": "catalog:",
     "@tauri-apps/api": "catalog:",
     "@tauri-apps/plugin-dialog": "catalog:",
+    "@tauri-apps/plugin-notification": "catalog:",
     "@tauri-apps/plugin-store": "catalog:",
     "diff": "catalog:",
     "dompurify": "catalog:",

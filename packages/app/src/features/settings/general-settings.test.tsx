@@ -71,7 +71,7 @@ describe("GeneralSettings", () => {
     expect(screen.getByRole("combobox", { name: "语言" })).toHaveValue("zh-CN")
   })
 
-  it("persists supported glass and keeps notification controls disabled", async () => {
+  it("persists supported glass and exposes notification controls", async () => {
     const desktop = renderGeneral()
     const user = userEvent.setup()
 
@@ -82,8 +82,30 @@ describe("GeneralSettings", () => {
     await waitFor(() => expect(desktop.settings().glass).toBe("on"))
     expect(document.documentElement.dataset.glass).toBe("on")
     for (const label of ["回复完成", "等待权限", "Agent 提问"]) {
-      expect(screen.getByLabelText(label)).toBeDisabled()
+      expect(screen.getByLabelText(label)).toBeEnabled()
     }
-    expect(screen.getAllByText("即将推出")).toHaveLength(1)
+    expect(screen.queryByText("即将推出")).not.toBeInTheDocument()
+  })
+
+  it("requests permission only when enabling and keeps the choice after denial", async () => {
+    const desktop = createFakeDesktop()
+    vi.mocked(desktop.bridge.getNotificationPermission!).mockResolvedValue("default")
+    vi.mocked(desktop.bridge.requestNotificationPermission).mockResolvedValue("denied")
+    render(() => (
+      <DesktopBridgeProvider bridge={desktop.bridge}>
+        <I18nProvider><GeneralSettings /></I18nProvider>
+      </DesktopBridgeProvider>
+    ))
+    const user = userEvent.setup()
+    const completion = await screen.findByRole("checkbox", { name: "回复完成" })
+
+    await user.click(completion)
+    await waitFor(() => expect(desktop.settings().notifications.completion).toBe(false))
+    expect(desktop.bridge.requestNotificationPermission).not.toHaveBeenCalled()
+
+    await user.click(completion)
+    await waitFor(() => expect(desktop.settings().notifications.completion).toBe(true))
+    expect(desktop.bridge.requestNotificationPermission).toHaveBeenCalledOnce()
+    expect(screen.getByRole("status")).toHaveTextContent("已拒绝")
   })
 })

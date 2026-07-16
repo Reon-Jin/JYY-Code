@@ -59,6 +59,9 @@ export function createBrowserBridge(storage: Storage = window.localStorage): Des
     async setWindowGlass() {
       return unsupportedResult("Window glass")
     },
+    async getNotificationPermission() {
+      return "unsupported"
+    },
     async requestNotificationPermission() {
       return "unsupported"
     },

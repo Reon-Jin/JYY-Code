@@ -4,10 +4,18 @@ const state = vi.hoisted(() => ({
   values: new Map<string, unknown>(),
   save: vi.fn(async () => undefined),
   invoke: vi.fn(async () => undefined),
+  isPermissionGranted: vi.fn(async () => true),
+  requestPermission: vi.fn(async () => "granted" as const),
+  sendNotification: vi.fn(),
 }))
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: state.invoke }))
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }))
+vi.mock("@tauri-apps/plugin-notification", () => ({
+  isPermissionGranted: state.isPermissionGranted,
+  requestPermission: state.requestPermission,
+  sendNotification: state.sendNotification,
+}))
 vi.mock("@tauri-apps/plugin-store", () => ({
   Store: {
     load: vi.fn(async () => ({
@@ -26,6 +34,7 @@ describe("Tauri desktop settings persistence", () => {
     state.values.clear()
     state.save.mockClear()
     state.invoke.mockClear()
+    state.sendNotification.mockClear()
   })
 
   it("round-trips settings through desktop.json", async () => {
@@ -38,6 +47,7 @@ describe("Tauri desktop settings persistence", () => {
 
   it("uses serializable command payloads for native capabilities", async () => {
     await tauriBridge.setWindowGlass(true, "dark")
+    await tauriBridge.getNotificationPermission?.()
     await tauriBridge.requestNotificationPermission()
     await tauriBridge.sendNotification({ title: "JYYCode", body: "Ready" })
     await tauriBridge.checkForUpdate()
@@ -46,12 +56,12 @@ describe("Tauri desktop settings persistence", () => {
 
     expect(state.invoke.mock.calls).toEqual([
       ["set_window_glass", { enabled: true, theme: "dark" }],
-      ["request_notification_permission"],
-      ["send_notification", { notification: { title: "JYYCode", body: "Ready" } }],
       ["check_for_update"],
       ["install_available_update"],
       ["save_text_file", { suggestedName: "memory.json", contents: "{}" }],
     ])
+    expect(state.requestPermission).toHaveBeenCalledOnce()
+    expect(state.sendNotification).toHaveBeenCalledWith({ title: "JYYCode", body: "Ready" })
   })
 
   it("passes config reveal as a command argument", async () => {

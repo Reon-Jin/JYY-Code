@@ -164,7 +164,7 @@ describe("desktop GUI journey", () => {
     await waitFor(() => expect(desktop.settings().glass).toBe("on"))
     expect(document.documentElement).toHaveAttribute("data-glass", "on")
     for (const label of ["回复完成", "等待权限", "Agent 提问"]) {
-      expect(screen.getByRole("checkbox", { name: label })).toBeDisabled()
+      expect(screen.getByRole("checkbox", { name: label })).toBeEnabled()
     }
 
     await user.click(screen.getByRole("link", { name: "权限与安全" }))

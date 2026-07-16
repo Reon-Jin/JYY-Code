@@ -1,5 +1,5 @@
 import { tr } from "./i18n/i18n-context"
-import { createEffect, ErrorBoundary, Match, onMount, Show, Switch } from "solid-js"
+import { createEffect, ErrorBoundary, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { Button } from "./components/ui/button"
 import { InlineError } from "./components/ui/inline-error"
 import { ProjectProvider } from "./features/projects/project-context"
@@ -13,6 +13,7 @@ import { AppRoutes } from "./routes"
 import { applyTheme } from "./features/settings/theme"
 import { I18nProvider } from "./i18n/i18n-context"
 import { applyStoredGlass } from "./features/settings/glass-preference"
+import { createDesktopNotifications } from "./features/notifications/desktop-notifications"
 
 export type AppProps = {
   bridge?: DesktopBridge
@@ -33,11 +34,21 @@ function ProjectApplication(props: { bootstrap: DesktopBootstrap; controller: Pr
 function DesktopApplication() {
   const bridge = useDesktopBridge()
   const lifecycle = createLifecycleController({ bridge })
+  const notifications = createDesktopNotifications({ bridge, settings: lifecycle.settings })
   createEffect(() => applyTheme(lifecycle.settings().theme))
+  onCleanup(() => notifications.dispose())
   onMount(() => {
     void lifecycle
       .start()
-      .then(() => applyStoredGlass(bridge, lifecycle.settings()))
+      .then(async () => {
+        notifications.setPermission(
+          await (bridge.getNotificationPermission?.() ?? Promise.resolve("unsupported" as const)).catch(
+            () => "default" as const,
+          ),
+        )
+        notifications.start()
+        await applyStoredGlass(bridge, lifecycle.settings())
+      })
       .catch(() => {
         document.documentElement.dataset.glass = "off"
       })

@@ -50,6 +50,7 @@ export interface DesktopBridge {
   loadSettings(): Promise<DesktopSettings>
   saveSettings(value: DesktopSettings): Promise<void>
   setWindowGlass(enabled: boolean, theme: "dark" | "light"): Promise<DesktopCapabilityResult>
+  getNotificationPermission?(): Promise<DesktopNotificationPermission>
   requestNotificationPermission(): Promise<DesktopNotificationPermission>
   sendNotification(notification: DesktopNotification): Promise<DesktopCapabilityResult>
   checkForUpdate(): Promise<DesktopUpdateCheck>

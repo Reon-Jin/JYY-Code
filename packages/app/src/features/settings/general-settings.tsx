@@ -3,8 +3,9 @@ import { createSignal, onMount, Show } from "solid-js"
 import { InlineError } from "../../components/ui/inline-error"
 import { useDesktopBridge } from "../../platform/context"
 import { applyTheme } from "./theme"
-import { defaultDesktopSettings, type AppLocale, type DesktopSettings } from "./settings-preferences"
-import { ComingSoonSetting } from "./coming-soon-setting"
+import { defaultDesktopSettings, type AppLocale, type DesktopSettings, type NotificationPreferences } from "./settings-preferences"
+import type { DesktopNotificationPermission } from "../../platform/types"
+import { publishDesktopNotificationPermission } from "../notifications/desktop-notifications"
 import { reapplyGlassForTheme, setGlassPreference } from "./glass-preference"
 
 function message(cause: unknown) {
@@ -17,8 +18,12 @@ export function GeneralSettings() {
   const [settings, setSettings] = createSignal<DesktopSettings>({ ...defaultDesktopSettings })
   const [error, setError] = createSignal<string>()
   const [saving, setSaving] = createSignal(false)
+  const [notificationPermission, setNotificationPermission] = createSignal<DesktopNotificationPermission>("default")
 
   onMount(() => {
+    void (bridge.getNotificationPermission?.() ?? Promise.resolve("unsupported" as const))
+      .then(setNotificationPermission)
+      .catch(() => setNotificationPermission("unsupported"))
     void bridge
       .loadSettings()
       .then((value) => {
@@ -64,6 +69,35 @@ export function GeneralSettings() {
       setError(message(cause))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function changeNotification(kind: keyof NotificationPreferences, enabled: boolean) {
+    setError(undefined)
+    if (enabled && notificationPermission() !== "granted") {
+      setSaving(true)
+      try {
+        const permission = await bridge.requestNotificationPermission()
+        setNotificationPermission(permission)
+        publishDesktopNotificationPermission(permission)
+      } catch (cause) {
+        setError(message(cause))
+        setSaving(false)
+        return
+      }
+    }
+    await save({
+      ...settings(),
+      notifications: { ...settings().notifications, [kind]: enabled },
+    })
+  }
+
+  function notificationPermissionText() {
+    switch (notificationPermission()) {
+      case "granted": return tr("settings.notification-permission-granted")
+      case "denied": return tr("settings.notification-permission-denied")
+      case "unsupported": return tr("settings.notification-permission-unsupported")
+      default: return tr("settings.notification-permission-default")
     }
   }
 
@@ -173,14 +207,37 @@ export function GeneralSettings() {
         <p class="settings-card__hint">{tr("settings.requires-full-vision-system-and-windows-and-webview")}</p>
       </section>
 
-      <ComingSoonSetting title={tr("settings.windows-notifications")} reason={tr("settings.native-notification-capabilities-and-foreground-and-background-event")}>
-        <fieldset class="settings-placeholder-options" disabled>
+      <section class="settings-card" aria-labelledby="notifications-setting-title">
+        <h3 id="notifications-setting-title">{tr("settings.windows-notifications")}</h3>
+        <fieldset class="settings-placeholder-options" disabled={saving()}>
           <legend>{tr("settings.notification-trigger-conditions")}</legend>
-          {([tr("settings.reply-completed"), tr("settings.waiting-for-permission"), tr("requests.agent-asked-a-question")] as const).map((label) => (
-            <label><input type="checkbox" />{label}</label>
-          ))}
+          <label>
+            <input
+              type="checkbox"
+              checked={settings().notifications.completion}
+              onChange={(event) => void changeNotification("completion", event.currentTarget.checked)}
+            />
+            {tr("settings.reply-completed")}
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={settings().notifications.permission}
+              onChange={(event) => void changeNotification("permission", event.currentTarget.checked)}
+            />
+            {tr("settings.waiting-for-permission")}
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={settings().notifications.question}
+              onChange={(event) => void changeNotification("question", event.currentTarget.checked)}
+            />
+            {tr("requests.agent-asked-a-question")}
+          </label>
         </fieldset>
-      </ComingSoonSetting>
+        <p class="settings-card__hint" role="status" aria-live="polite">{notificationPermissionText()}</p>
+      </section>
     </div>
   )
 }
