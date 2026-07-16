@@ -10,3 +10,4 @@ if (!root) throw new Error("Missing #root")
 
 root.replaceChildren()
 render(() => <App />, root)
+window.dispatchEvent(new Event("jyycode:frontend-mounted"))
