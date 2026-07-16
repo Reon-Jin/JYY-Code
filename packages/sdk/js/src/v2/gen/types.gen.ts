@@ -1372,6 +1372,18 @@ export type GlobalDefaultPermission = {
   mode: "auto" | "request" | "full" | "custom"
 }
 
+export type GlobalCompaction = {
+  auto: boolean
+  prune: boolean
+  tailTurns: number
+  preserveRecentTokens?: number
+  reservedTokens?: number
+  triggerRatio: number
+  microCompact: boolean
+  microCompactMaxChars: number
+  reactiveCompact: boolean
+}
+
 export type Model = {
   id: string
   providerID: string
@@ -4492,6 +4504,81 @@ export type GlobalDefaultPermissionUpdateResponses = {
 
 export type GlobalDefaultPermissionUpdateResponse =
   GlobalDefaultPermissionUpdateResponses[keyof GlobalDefaultPermissionUpdateResponses]
+
+export type GlobalCompactionResetData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/compaction"
+}
+
+export type GlobalCompactionResetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalCompactionResetError = GlobalCompactionResetErrors[keyof GlobalCompactionResetErrors]
+
+export type GlobalCompactionResetResponses = {
+  /**
+   * Default global compaction settings
+   */
+  200: GlobalCompaction
+}
+
+export type GlobalCompactionResetResponse = GlobalCompactionResetResponses[keyof GlobalCompactionResetResponses]
+
+export type GlobalCompactionGetData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/compaction"
+}
+
+export type GlobalCompactionGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalCompactionGetError = GlobalCompactionGetErrors[keyof GlobalCompactionGetErrors]
+
+export type GlobalCompactionGetResponses = {
+  /**
+   * Global compaction settings
+   */
+  200: GlobalCompaction
+}
+
+export type GlobalCompactionGetResponse = GlobalCompactionGetResponses[keyof GlobalCompactionGetResponses]
+
+export type GlobalCompactionUpdateData = {
+  body?: GlobalCompaction
+  path?: never
+  query?: never
+  url: "/global/compaction"
+}
+
+export type GlobalCompactionUpdateErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type GlobalCompactionUpdateError = GlobalCompactionUpdateErrors[keyof GlobalCompactionUpdateErrors]
+
+export type GlobalCompactionUpdateResponses = {
+  /**
+   * Updated global compaction settings
+   */
+  200: GlobalCompaction
+}
+
+export type GlobalCompactionUpdateResponse = GlobalCompactionUpdateResponses[keyof GlobalCompactionUpdateResponses]
 
 export type GlobalDisposeData = {
   body?: never

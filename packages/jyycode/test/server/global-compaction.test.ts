@@ -93,7 +93,11 @@ describe("global compaction API", () => {
             expect(updated.status).toBe(200)
             expect(yield* json(updated)).toEqual(update)
 
-            const persisted = JSON.parse((yield* Effect.promise(() => fs.readFile(configFile, "utf8"))).replace(/\/\/.*$/gm, ""))
+            const configResponse = yield* Effect.promise(() =>
+              Promise.resolve(handler.handler(new Request("http://localhost/global/config"), context)),
+            )
+            expect(configResponse.status).toBe(200)
+            const persisted = yield* json<Record<string, any>>(configResponse)
             expect(persisted.compaction).toEqual({
               auto: false,
               prune: false,
@@ -110,6 +114,8 @@ describe("global compaction API", () => {
               permission: { "*": "ask" },
               mcp: { keep: expect.any(Object) },
             })
+            const persistedText = yield* Effect.promise(() => fs.readFile(configFile, "utf8"))
+            expect(persistedText).toContain("// keep unrelated settings")
 
             for (const invalid of [
               { ...update, tailTurns: -1 },
