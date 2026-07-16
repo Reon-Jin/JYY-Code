@@ -19,6 +19,20 @@ export type AppProps = {
   bridge?: DesktopBridge
 }
 
+function LiquidGlassFilters() {
+  return (
+    <svg class="liquid-glass-definitions" width="0" height="0" aria-hidden="true">
+      <defs>
+        <filter id="liquid-glass-refraction" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
+          <feTurbulence type="fractalNoise" baseFrequency="0.012 0.018" numOctaves="2" seed="17" result="noise" />
+          <feGaussianBlur in="noise" stdDeviation="1.8" result="softNoise" />
+          <feDisplacementMap in="SourceGraphic" in2="softNoise" scale="16" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+      </defs>
+    </svg>
+  )
+}
+
 function ProjectApplication(props: { bootstrap: DesktopBootstrap; controller: ProjectController; route: string }) {
   const target = `#${props.route}`
   if (window.location.hash !== target) {
@@ -102,6 +116,7 @@ export function App(props: AppProps) {
         </main>
       )}
     >
+      <LiquidGlassFilters />
       <DesktopBridgeProvider bridge={props.bridge}>
         <I18nProvider>
           <DesktopApplication />

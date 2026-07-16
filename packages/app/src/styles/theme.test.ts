@@ -44,6 +44,14 @@ describe("Codex-inspired desktop theme", () => {
     expect(themeSource).toContain('"backgroundColor": "#181818"')
   })
 
+  it("keeps content surfaces solid and reserves layered glass for navigation and floating controls", () => {
+    expect(themeSource).toContain("--glass-highlight:")
+    expect(themeSource).toContain('url("#liquid-glass-refraction")')
+    expect(themeSource).toContain(".settings-navigation")
+    expect(themeSource).toContain(".workspace-rail")
+    expect(themeSource).not.toMatch(/data-glass="on"[^}]*--surface:\s*rgb/s)
+  })
+
   it("does not retain the retired blue and green palette", () => {
     for (const color of retiredPalette) expect(themeSource.toLowerCase()).not.toContain(color)
   })

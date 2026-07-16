@@ -10,6 +10,8 @@
 }
 
 .settings-header {
+  position: relative;
+  z-index: 3;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -29,6 +31,8 @@
 }
 
 .settings-navigation {
+  position: relative;
+  z-index: 2;
   display: flex;
   min-height: 0;
   flex-direction: column;
