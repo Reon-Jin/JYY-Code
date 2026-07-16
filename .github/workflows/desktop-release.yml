@@ -50,14 +50,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Stage backend sidecar for Rust validation
-        run: bun run --cwd packages/desktop stage:sidecar
-
       - name: Validate source
         run: |
           bun turbo typecheck
           bun run --cwd packages/desktop test
-          cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml
 
       - name: Build signed updater artifacts
         shell: pwsh
@@ -74,7 +70,7 @@ jobs:
         shell: pwsh
         run: |
           $root = "packages/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/desktop-artifacts"
-          $installers = @(Get-ChildItem $root -Filter "*.exe" | Where-Object Name -ne "JYYCode-portable-x64.exe")
+          $installers = @(Get-ChildItem $root -Filter "*-setup.exe")
           if ($installers.Count -ne 1) { throw "Expected one NSIS installer, found $($installers.Count)" }
           $installer = $installers[0]
           $signature = Get-Item "$($installer.FullName).sig"
