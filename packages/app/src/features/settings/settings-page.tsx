@@ -3,6 +3,8 @@ import { ArrowLeft } from "lucide-solid"
 import { Button } from "../../components/ui/button"
 import { sanitizeSettingsReturnTo, settingsHref, type SettingsSection } from "./settings-navigation"
 import "./settings.css"
+import { GeneralSettings } from "./general-settings"
+import { Show } from "solid-js"
 
 const sections: Array<{ id: SettingsSection; label: string }> = [
   { id: "general", label: "常规" },
@@ -43,6 +45,9 @@ export function SettingsPage() {
         </nav>
         <section class="settings-content" aria-labelledby="settings-section-title">
           <h2 id="settings-section-title">{sections.find((item) => item.id === section())?.label}</h2>
+          <Show when={section() === "general"}>
+            <GeneralSettings />
+          </Show>
         </section>
       </div>
     </main>
