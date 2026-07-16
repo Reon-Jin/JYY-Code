@@ -108,6 +108,7 @@ export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
           </ManagementRoute>
         )}
       />
+      <Route path="/workspace" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
       <Route path="/session/:sessionID" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
     </HashRouter>
   )

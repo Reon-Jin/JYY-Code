@@ -24,7 +24,8 @@ export function WelcomePage() {
     setBusy(true)
     setError(undefined)
     try {
-      await projects.chooseAndOpenProject()
+      const opened = await projects.chooseAndOpenProject()
+      if (opened) navigate("/workspace")
     } catch (cause) {
       setError(errorMessage(cause, "无法打开项目"))
     } finally {
@@ -37,6 +38,7 @@ export function WelcomePage() {
     setError(undefined)
     try {
       await projects.openProject(path)
+      navigate("/workspace")
     } catch (cause) {
       setError(errorMessage(cause, "无法打开项目"))
     } finally {

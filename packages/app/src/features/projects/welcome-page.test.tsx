@@ -67,6 +67,7 @@ function createHarness(options?: { gitError?: Error; openError?: Error; recentPa
     <ProjectProvider controller={controller}>
       <MemoryRouter>
         <Route path="/" component={WelcomePage} />
+        <Route path="/workspace" component={() => <h1>Project workspace</h1>} />
         <Route path="/session/:sessionID" component={SessionResult} />
       </MemoryRouter>
     </ProjectProvider>
@@ -124,6 +125,18 @@ describe("WelcomePage", () => {
 
     await waitFor(() => expect(sdk.project.current).toHaveBeenCalledOnce())
     expect(bridge.chooseDirectory).toHaveBeenCalledOnce()
+    expect(await screen.findByRole("heading", { name: "Project workspace" })).toBeVisible()
+  })
+
+  it("opens a recent project into the project workspace", async () => {
+    const user = userEvent.setup()
+    const path = "C:\\work\\recent"
+    const { sdk } = createHarness({ recentPath: path })
+
+    await user.click(await screen.findByRole("button", { name: "打开 recent" }))
+
+    expect(sdk.project.current).toHaveBeenCalledWith({ directory: path }, { throwOnError: true })
+    expect(await screen.findByRole("heading", { name: "Project workspace" })).toBeVisible()
   })
 
   it("shows project errors as an alert", async () => {
