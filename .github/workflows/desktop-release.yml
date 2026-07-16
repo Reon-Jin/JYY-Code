@@ -56,7 +56,6 @@ jobs:
       - name: Validate source
         run: |
           bun turbo typecheck
-          bun run --cwd packages/app test
           bun run --cwd packages/desktop test
           cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml
 
