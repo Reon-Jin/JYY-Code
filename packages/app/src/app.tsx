@@ -10,6 +10,7 @@ import { DesktopBridgeProvider, useDesktopBridge } from "./platform/context"
 import type { DesktopBootstrap, DesktopBridge } from "./platform/types"
 import { AppRoutes } from "./routes"
 import { applyTheme } from "./features/settings/theme"
+import { I18nProvider } from "./i18n/i18n-context"
 
 export type AppProps = {
   bridge?: DesktopBridge
@@ -82,7 +83,9 @@ export function App(props: AppProps) {
       )}
     >
       <DesktopBridgeProvider bridge={props.bridge}>
-        <DesktopApplication />
+        <I18nProvider>
+          <DesktopApplication />
+        </I18nProvider>
       </DesktopBridgeProvider>
     </ErrorBoundary>
   )
