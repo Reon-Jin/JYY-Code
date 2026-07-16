@@ -1,4 +1,4 @@
-import { HashRouter, Navigate, Route, useParams } from "@solidjs/router"
+import { HashRouter, Navigate, Route, useParams, type RouteSectionProps } from "@solidjs/router"
 import { createSignal, lazy, onMount, Show, type Component, type ParentProps } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { DesktopBootstrap } from "./platform/types"
@@ -66,29 +66,36 @@ function WorkspaceRoute(props: { bootstrap: DesktopBootstrap }) {
   )
 }
 
-function ManagementRoute(props: ParentProps<{ bootstrap: DesktopBootstrap }>) {
+function ManagementRoute(props: ParentProps) {
+  return <ManagementShell>{props.children}</ManagementShell>
+}
+
+function isManagementPath(pathname: string) {
   return (
-    <ManagementProvider bootstrap={props.bootstrap}>
-      <ManagementShell>{props.children}</ManagementShell>
-    </ManagementProvider>
+    pathname === "/" ||
+    pathname.startsWith("/skills") ||
+    pathname.startsWith("/mcp") ||
+    pathname.startsWith("/settings")
   )
 }
 
-function SettingsProviderRoute(props: { bootstrap: DesktopBootstrap }) {
+function AppRouteRoot(props: RouteSectionProps & { bootstrap: DesktopBootstrap }) {
+  const management = () => isManagementPath(props.location.pathname)
+
   return (
-    <ManagementProvider bootstrap={props.bootstrap}>
-      <SettingsRoute />
-    </ManagementProvider>
+    <Show when={management()} fallback={props.children}>
+      <ManagementProvider bootstrap={props.bootstrap}>{props.children}</ManagementProvider>
+    </Show>
   )
 }
 
 export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
   return (
-    <HashRouter>
+    <HashRouter root={(route) => <AppRouteRoot {...route} bootstrap={props.bootstrap} />}>
       <Route
         path="/"
         component={() => (
-          <ManagementRoute bootstrap={props.bootstrap}>
+          <ManagementRoute>
             <WelcomePage />
           </ManagementRoute>
         )}
@@ -96,7 +103,7 @@ export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
       <Route
         path="/skills"
         component={() => (
-          <ManagementRoute bootstrap={props.bootstrap}>
+          <ManagementRoute>
             <SkillsRoute />
           </ManagementRoute>
         )}
@@ -104,7 +111,7 @@ export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
       <Route
         path="/skills/:name"
         component={() => (
-          <ManagementRoute bootstrap={props.bootstrap}>
+          <ManagementRoute>
             <SkillsRoute />
           </ManagementRoute>
         )}
@@ -112,15 +119,15 @@ export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
       <Route
         path="/mcp"
         component={() => (
-          <ManagementRoute bootstrap={props.bootstrap}>
+          <ManagementRoute>
             <McpRoute />
           </ManagementRoute>
         )}
       />
       <Route path="/workspace" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
       <Route path="/session/:sessionID" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
-      <Route path="/settings" component={() => <SettingsProviderRoute bootstrap={props.bootstrap} />} />
-      <Route path="/settings/:section" component={() => <SettingsProviderRoute bootstrap={props.bootstrap} />} />
+      <Route path="/settings" component={SettingsRoute} />
+      <Route path="/settings/:section" component={SettingsRoute} />
     </HashRouter>
   )
 }

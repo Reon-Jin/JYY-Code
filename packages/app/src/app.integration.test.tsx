@@ -136,6 +136,7 @@ describe("desktop GUI journey", () => {
     await user.click(await screen.findByRole("button", { name: "打开 demo" }))
     expect(await screen.findByRole("complementary", { name: "项目与 Session 导航" }, { timeout: 5_000 })).toBeVisible()
     expect(screen.queryByRole("navigation", { name: "全局管理" })).not.toBeInTheDocument()
+    expect(backend.requests.filter((request) => request.path === "/global/management-context")).toHaveLength(1)
   }, 20_000)
 
   it("completes the desktop Settings journey and returns to the same Session", async () => {
