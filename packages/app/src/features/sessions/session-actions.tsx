@@ -2,6 +2,7 @@ import { tr } from "../../i18n/i18n-context"
 import type { Session } from "@jyycode-ai/sdk/v2/client"
 import { Archive, Ellipsis, Pencil, Trash2 } from "lucide-solid"
 import { createEffect, createSignal, Show } from "solid-js"
+import { Portal } from "solid-js/web"
 import { Button, IconButton } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
 import { InlineError } from "../../components/ui/inline-error"
@@ -32,6 +33,12 @@ export function SessionActions(props: SessionActionsProps) {
   function closeMenu() {
     setMenuOpen(false)
     queueMicrotask(() => trigger?.focus())
+  }
+
+  function handleMenuKeyDown(event: KeyboardEvent) {
+    if (event.key !== "Escape") return
+    event.preventDefault()
+    closeMenu()
   }
 
   async function archive() {
@@ -94,53 +101,56 @@ export function SessionActions(props: SessionActionsProps) {
       </IconButton>
 
       <Show when={menuOpen()}>
-        <div
-          class="session-actions__menu"
-          role="menu"
-          aria-label={tr("sessions.title-actions", { title: props.session.title })}
-          style={{ top: `${menuPosition().top}px`, left: `${menuPosition().left}px` }}
-        >
-          <Button
-            ref={firstItem}
-            role="menuitem"
-            variant="ghost"
-            size="small"
-            onClick={() => {
-              closeMenu()
-              props.onRename()
-            }}
+        <Portal mount={document.body}>
+          <div
+            class="session-actions__menu"
+            role="menu"
+            aria-label={tr("sessions.title-actions", { title: props.session.title })}
+            style={{ top: `${menuPosition().top}px`, left: `${menuPosition().left}px` }}
+            onKeyDown={handleMenuKeyDown}
           >
-            <Pencil aria-hidden="true" />
-            {tr("sessions.rename")}
-          </Button>
-          <Show when={!props.archived}>
+            <Button
+              ref={firstItem}
+              role="menuitem"
+              variant="ghost"
+              size="small"
+              onClick={() => {
+                closeMenu()
+                props.onRename()
+              }}
+            >
+              <Pencil aria-hidden="true" />
+              {tr("sessions.rename")}
+            </Button>
+            <Show when={!props.archived}>
+              <Button
+                role="menuitem"
+                variant="ghost"
+                size="small"
+                loading={busy() === "archive"}
+                loadingLabel={tr("sessions.archiving")}
+                onClick={() => void archive()}
+              >
+                <Archive aria-hidden="true" />
+                {tr("sessions.archive")}
+              </Button>
+            </Show>
             <Button
               role="menuitem"
               variant="ghost"
               size="small"
-              loading={busy() === "archive"}
-              loadingLabel={tr("sessions.archiving")}
-              onClick={() => void archive()}
+              onClick={() => {
+                setMenuOpen(false)
+                setDeleteOpen(true)
+                setError(undefined)
+              }}
             >
-              <Archive aria-hidden="true" />
-              {tr("sessions.archive")}
+              <Trash2 aria-hidden="true" />
+              {tr("mcp.delete")}
             </Button>
-          </Show>
-          <Button
-            role="menuitem"
-            variant="ghost"
-            size="small"
-            onClick={() => {
-              setMenuOpen(false)
-              setDeleteOpen(true)
-              setError(undefined)
-            }}
-          >
-            <Trash2 aria-hidden="true" />
-            {tr("mcp.delete")}
-          </Button>
-          <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>
-        </div>
+            <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>
+          </div>
+        </Portal>
       </Show>
 
       <Dialog

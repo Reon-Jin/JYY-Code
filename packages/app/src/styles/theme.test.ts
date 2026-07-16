@@ -53,6 +53,8 @@ describe("Codex-inspired desktop theme", () => {
     expect(themeSource).toContain('input:not([type="checkbox"])')
     expect(themeSource).toContain(".settings-card")
     expect(themeSource).toMatch(/data-theme="dark"\]\[data-glass="on"\][^{]*\{[^}]*--surface:/s)
+    expect(themeSource).toContain("--glass-primary-ink: #ffffff")
+    expect(themeSource).toContain("--glass-primary-ink: #202020")
   })
 
   it("does not retain the retired blue and green palette", () => {
@@ -82,6 +84,7 @@ describe("Codex-inspired desktop theme", () => {
       "color-border-strong",
       "color-danger",
       "color-danger-surface",
+      "color-danger-ink",
       "color-warning",
       "color-success",
       "color-overlay",

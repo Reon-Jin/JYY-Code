@@ -114,7 +114,7 @@
   position: relative;
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) 36px;
+  grid-template-columns: minmax(0, 1fr) 32px;
   align-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
@@ -151,6 +151,8 @@
 
 .session-actions { position: relative; z-index: 4; }
 .session-actions > .ui-button { opacity: 0; }
+.session-actions > .ui-button[data-size="icon"] { width: 28px; min-height: 28px; border-radius: var(--radius-sm); }
+.session-actions > .ui-button[data-size="icon"] svg { width: 14px; height: 14px; }
 .session-list-item:hover .session-actions > .ui-button,
 .session-actions > .ui-button:focus-visible,
 .session-list-item[data-active="true"] .session-actions > .ui-button,

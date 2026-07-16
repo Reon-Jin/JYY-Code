@@ -38,15 +38,6 @@
   padding: var(--space-4);
 }
 
-.welcome-action.ui-button:nth-child(2) {
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
-.welcome-action.ui-button:nth-child(2):hover:not(:disabled) {
-  background: var(--color-surface-hover);
-}
-
 .welcome-action svg {
   width: 20px;
   height: 20px;

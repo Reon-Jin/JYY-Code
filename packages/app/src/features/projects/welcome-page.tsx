@@ -67,7 +67,7 @@ export function WelcomePage() {
               <FolderOpen aria-hidden="true" />
               <strong>{tr("projects.open-directory")}</strong>
             </Button>
-            <Button class="welcome-action" disabled={busy()} onClick={() => setCreateOpen(true)}>
+            <Button class="welcome-action" variant="secondary" disabled={busy()} onClick={() => setCreateOpen(true)}>
               <Plus aria-hidden="true" />
               <strong>{tr("projects.new-project")}</strong>
             </Button>

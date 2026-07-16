@@ -330,7 +330,7 @@ button:disabled {
 .ui-button[data-variant="danger"] {
   border-color: rgb(248 113 113 / 26%);
   background: var(--color-danger-surface);
-  color: #fecaca;
+  color: var(--color-danger-ink);
 }
 
 .ui-button:disabled {
@@ -437,7 +437,7 @@ button:disabled {
   border-radius: var(--radius-md);
   padding: var(--space-3);
   background: var(--color-danger-surface);
-  color: #fecaca;
+  color: var(--color-danger-ink);
 }
 
 .ui-inline-error svg {

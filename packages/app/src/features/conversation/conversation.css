@@ -293,7 +293,7 @@
 }
 
 .tool-call[data-status="error"] {
-  color: #fecaca;
+  color: var(--color-danger-ink);
 }
 .tool-call__icon {
   display: grid;
@@ -346,7 +346,7 @@
   animation: ui-spin 900ms linear infinite;
 }
 .tool-call[data-status="error"] .tool-call__status {
-  color: #fecaca;
+  color: var(--color-danger-ink);
 }
 .tool-call__activity {
   grid-column: 2 / -1;
