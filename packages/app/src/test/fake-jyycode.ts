@@ -244,6 +244,29 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     if (url.pathname === "/global/event") return sse(request)
     if (url.pathname === "/global/health") return json({ healthy: true, version: "test" })
     if (url.pathname === "/global/management-context") return json({ directory: "C:\\Users\\test" })
+    if (url.pathname === "/global/default-permission" && request.method === "GET") {
+      const permission = globalConfig.permission
+      const entries =
+        permission && typeof permission === "object" && !Array.isArray(permission)
+          ? Object.entries(permission as Record<string, unknown>)
+          : []
+      const mode =
+        permission === undefined
+          ? "auto"
+          : entries.length === 1 && entries[0]?.[0] === "*" && entries[0]?.[1] === "ask"
+            ? "request"
+            : entries.length === 1 && entries[0]?.[0] === "*" && entries[0]?.[1] === "allow"
+              ? "full"
+              : "custom"
+      return json({ mode })
+    }
+    if (url.pathname === "/global/default-permission" && request.method === "PUT") {
+      const mode = value.mode
+      if (mode === "auto") delete globalConfig.permission
+      if (mode === "request") globalConfig.permission = { "*": "ask" }
+      if (mode === "full") globalConfig.permission = { "*": "allow" }
+      return json({ mode })
+    }
     if (url.pathname === "/global/config" && request.method === "GET") return json(globalConfig)
     if (url.pathname === "/global/config" && request.method === "PATCH") {
       const nextAgentCluster =

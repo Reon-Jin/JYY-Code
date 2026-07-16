@@ -96,6 +96,10 @@ import type {
   GlobalConfigGetResponses,
   GlobalConfigUpdateErrors,
   GlobalConfigUpdateResponses,
+  GlobalDefaultPermissionGetErrors,
+  GlobalDefaultPermissionGetResponses,
+  GlobalDefaultPermissionUpdateErrors,
+  GlobalDefaultPermissionUpdateResponses,
   GlobalDisposeErrors,
   GlobalDisposeResponses,
   GlobalEventErrors,
@@ -592,6 +596,49 @@ export class Config extends HeyApiClient {
   }
 }
 
+export class DefaultPermission extends HeyApiClient {
+  /**
+   * Get default permission policy
+   *
+   * Return the default permission policy applied to new sessions.
+   */
+  public get<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+    return (options?.client ?? this.client).get<
+      GlobalDefaultPermissionGetResponses,
+      GlobalDefaultPermissionGetErrors,
+      ThrowOnError
+    >({ url: "/global/default-permission", ...options })
+  }
+
+  /**
+   * Update default permission policy
+   *
+   * Set the default permission policy applied to new sessions.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters?: {
+      mode?: "auto" | "request" | "full"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "body", key: "mode" }] }])
+    return (options?.client ?? this.client).put<
+      GlobalDefaultPermissionUpdateResponses,
+      GlobalDefaultPermissionUpdateErrors,
+      ThrowOnError
+    >({
+      url: "/global/default-permission",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Global extends HeyApiClient {
   /**
    * Get health
@@ -669,6 +716,11 @@ export class Global extends HeyApiClient {
   private _config?: Config
   get config(): Config {
     return (this._config ??= new Config({ client: this.client }))
+  }
+
+  private _defaultPermission?: DefaultPermission
+  get defaultPermission(): DefaultPermission {
+    return (this._defaultPermission ??= new DefaultPermission({ client: this.client }))
   }
 }
 

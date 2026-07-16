@@ -26,6 +26,14 @@ export const GlobalUpgradeInput = Schema.Struct({
   target: Schema.optional(Schema.String),
 })
 
+export const GlobalDefaultPermission = Schema.Struct({
+  mode: Schema.Literals(["auto", "request", "full", "custom"]),
+}).annotate({ identifier: "GlobalDefaultPermission" })
+
+export const GlobalDefaultPermissionUpdate = Schema.Struct({
+  mode: Schema.Literals(["auto", "request", "full"]),
+})
+
 const GlobalUpgradeResult = Schema.Union([
   Schema.Struct({
     success: Schema.Literal(true),
@@ -44,6 +52,7 @@ export const GlobalPaths = {
   dispose: "/global/dispose",
   upgrade: "/global/upgrade",
   managementContext: "/global/management-context",
+  defaultPermission: "/global/default-permission",
 } as const
 
 export const GlobalApi = HttpApi.make("global").add(
@@ -83,6 +92,25 @@ export const GlobalApi = HttpApi.make("global").add(
           identifier: "global.managementContext",
           summary: "Get management context",
           description: "Return the authenticated backend home directory used for global management queries.",
+        }),
+      ),
+      HttpApiEndpoint.get("defaultPermissionGet", GlobalPaths.defaultPermission, {
+        success: described(GlobalDefaultPermission, "Global default permission policy"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.defaultPermission.get",
+          summary: "Get default permission policy",
+          description: "Return the default permission policy applied to new sessions.",
+        }),
+      ),
+      HttpApiEndpoint.put("defaultPermissionUpdate", GlobalPaths.defaultPermission, {
+        payload: GlobalDefaultPermissionUpdate,
+        success: described(GlobalDefaultPermission, "Updated global default permission policy"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.defaultPermission.update",
+          summary: "Update default permission policy",
+          description: "Set the default permission policy applied to new sessions.",
         }),
       ),
       HttpApiEndpoint.patch("configUpdate", GlobalPaths.config, {

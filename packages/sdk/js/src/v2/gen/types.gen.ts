@@ -1368,6 +1368,10 @@ export type ManagementContext = {
   directory: string
 }
 
+export type GlobalDefaultPermission = {
+  mode: "auto" | "request" | "full" | "custom"
+}
+
 export type Model = {
   id: string
   providerID: string
@@ -4433,6 +4437,61 @@ export type GlobalManagementContextResponses = {
 }
 
 export type GlobalManagementContextResponse = GlobalManagementContextResponses[keyof GlobalManagementContextResponses]
+
+export type GlobalDefaultPermissionGetData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/default-permission"
+}
+
+export type GlobalDefaultPermissionGetErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalDefaultPermissionGetError = GlobalDefaultPermissionGetErrors[keyof GlobalDefaultPermissionGetErrors]
+
+export type GlobalDefaultPermissionGetResponses = {
+  /**
+   * Global default permission policy
+   */
+  200: GlobalDefaultPermission
+}
+
+export type GlobalDefaultPermissionGetResponse =
+  GlobalDefaultPermissionGetResponses[keyof GlobalDefaultPermissionGetResponses]
+
+export type GlobalDefaultPermissionUpdateData = {
+  body?: {
+    mode: "auto" | "request" | "full"
+  }
+  path?: never
+  query?: never
+  url: "/global/default-permission"
+}
+
+export type GlobalDefaultPermissionUpdateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalDefaultPermissionUpdateError =
+  GlobalDefaultPermissionUpdateErrors[keyof GlobalDefaultPermissionUpdateErrors]
+
+export type GlobalDefaultPermissionUpdateResponses = {
+  /**
+   * Updated global default permission policy
+   */
+  200: GlobalDefaultPermission
+}
+
+export type GlobalDefaultPermissionUpdateResponse =
+  GlobalDefaultPermissionUpdateResponses[keyof GlobalDefaultPermissionUpdateResponses]
 
 export type GlobalDisposeData = {
   body?: never

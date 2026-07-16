@@ -13,7 +13,8 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { RootHttpApi } from "../api"
-import { GlobalUpgradeInput } from "../groups/global"
+import { GlobalDefaultPermissionUpdate, GlobalUpgradeInput } from "../groups/global"
+import { isDeepStrictEqual } from "node:util"
 
 const log = Log.create({ service: "server" })
 
@@ -90,6 +91,26 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       return { directory: global.home }
     })
 
+    const defaultPermissionGet = Effect.fn("GlobalHttpApi.defaultPermissionGet")(function* () {
+      const permission = (yield* config.getGlobal()).permission
+      if (permission === undefined) return { mode: "auto" as const }
+      if (isDeepStrictEqual(permission, { "*": "ask" })) return { mode: "request" as const }
+      if (isDeepStrictEqual(permission, { "*": "allow" })) return { mode: "full" as const }
+      return { mode: "custom" as const }
+    })
+
+    const defaultPermissionUpdate = Effect.fn("GlobalHttpApi.defaultPermissionUpdate")(function* (ctx: {
+      payload: typeof GlobalDefaultPermissionUpdate.Type
+    }) {
+      const value =
+        ctx.payload.mode === "auto"
+          ? undefined
+          : { "*": ctx.payload.mode === "request" ? ("ask" as const) : ("allow" as const) }
+      const result = yield* config.updateGlobalPath(["permission"], value)
+      if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
+      return { mode: ctx.payload.mode }
+    })
+
     const configUpdate = Effect.fn("GlobalHttpApi.configUpdate")(function* (ctx) {
       const result = yield* config.updateGlobal(ctx.payload)
       if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
@@ -157,6 +178,8 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       .handleRaw("event", event)
       .handle("configGet", configGet)
       .handle("managementContext", managementContext)
+      .handle("defaultPermissionGet", defaultPermissionGet)
+      .handle("defaultPermissionUpdate", defaultPermissionUpdate)
       .handle("configUpdate", configUpdate)
       .handle("dispose", dispose)
       .handleRaw("upgrade", upgradeRaw)
