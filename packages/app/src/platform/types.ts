@@ -26,6 +26,7 @@ export interface DesktopBridge {
   saveLastLocation(value: LastLocation): Promise<void>
   loadSettings(): Promise<DesktopSettings>
   saveSettings(value: DesktopSettings): Promise<void>
+  revealConfigFile(path: string): Promise<void>
 }
 
 export function parseLastLocation(value: unknown): LastLocation {

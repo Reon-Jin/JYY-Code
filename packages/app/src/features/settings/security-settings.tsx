@@ -7,6 +7,7 @@ import { keys } from "../../data/query-keys"
 import type { ManagementContextValue } from "../management/management-context"
 import { useManagement } from "../management/management-context"
 import { displayDefaultPermission, type DefaultPermissionMode } from "./default-permission"
+import { GlobalConfigReveal } from "./global-config-reveal"
 
 type SimpleMode = Exclude<DefaultPermissionMode, "custom">
 
@@ -103,7 +104,7 @@ export function SecuritySettings(props: { management?: ManagementContextValue })
             <div class="settings-custom-permission" role="status">
               <strong>自定义配置</strong>
               <p>当前全局配置包含细粒度规则。选择上方策略前需要确认替换。</p>
-              <Button variant="secondary" disabled>打开全局配置</Button>
+              <GlobalConfigReveal management={management} />
             </div>
           </Show>
           <Show when={saving()}><p class="settings-saving" role="status">正在保存…</p></Show>

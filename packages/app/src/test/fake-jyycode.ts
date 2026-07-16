@@ -280,6 +280,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
           ? { ...globalConfig.agent_cluster, ...nextAgentCluster }
           : globalConfig.agent_cluster,
       }
+      if (value.shell === "") delete globalConfig.shell
       return json(globalConfig)
     }
     if (url.pathname === "/project/current") return json(project)

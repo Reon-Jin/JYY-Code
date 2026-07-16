@@ -12,7 +12,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backend::desktop_bootstrap,
             backend::restart_backend,
-            project_path::create_project_directory
+            project_path::create_project_directory,
+            project_path::reveal_config_file
         ])
         .setup(|app| {
             let supervisor = backend::BackendSupervisor::default();

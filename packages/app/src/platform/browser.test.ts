@@ -18,4 +18,10 @@ describe("browser desktop settings persistence", () => {
     localStorage.setItem("jyycode.desktop.settings", JSON.stringify({ startup: "bad", theme: "liquid" }))
     expect(await createBrowserBridge(localStorage).loadSettings()).toEqual({ startup: "restore", theme: "dark" })
   })
+
+  it("rejects native config reveal", async () => {
+    await expect(createBrowserBridge(localStorage).revealConfigFile("C:\\jyycode.jsonc")).rejects.toThrow(
+      "only available",
+    )
+  })
 })

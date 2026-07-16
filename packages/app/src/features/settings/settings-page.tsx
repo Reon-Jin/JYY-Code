@@ -6,6 +6,7 @@ import "./settings.css"
 import { GeneralSettings } from "./general-settings"
 import { Show } from "solid-js"
 import { SecuritySettings } from "./security-settings"
+import { AdvancedSettings } from "./advanced-settings"
 
 const sections: Array<{ id: SettingsSection; label: string }> = [
   { id: "general", label: "常规" },
@@ -51,6 +52,9 @@ export function SettingsPage() {
           </Show>
           <Show when={section() === "security"}>
             <SecuritySettings />
+          </Show>
+          <Show when={section() === "advanced"}>
+            <AdvancedSettings />
           </Show>
         </section>
       </div>

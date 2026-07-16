@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{fs, path::Path, process::Command};
 
 const WINDOWS_INVALID_CHARACTERS: [char; 9] = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
 
@@ -60,11 +60,43 @@ pub fn create_project_directory(parent: String, name: String) -> Result<String, 
         .ok_or_else(|| "created project directory is not valid UTF-8".into())
 }
 
+pub fn validate_global_config_file(path: &str) -> Result<&str, String> {
+    let path_value = Path::new(path);
+    if !path_value.is_absolute() {
+        return Err("global config path must be absolute".into());
+    }
+    let Some(name) = path_value.file_name().and_then(|value| value.to_str()) else {
+        return Err("global config path has no valid filename".into());
+    };
+    if !matches!(name, "jyycode.jsonc" | "jyycode.json") {
+        return Err("global config path must name jyycode.jsonc or jyycode.json".into());
+    }
+    Ok(path)
+}
+
+pub fn explorer_selection(path: &str) -> Result<(&'static str, [String; 2]), String> {
+    let path = validate_global_config_file(path)?;
+    Ok(("explorer.exe", ["/select,".into(), path.into()]))
+}
+
+#[tauri::command]
+pub fn reveal_config_file(path: String) -> Result<(), String> {
+    let (program, arguments) = explorer_selection(&path)?;
+    Command::new(program)
+        .args(arguments)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("could not reveal global config file: {error}"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
 
-    use super::{create_project_directory, validate_project_name};
+    use super::{
+        create_project_directory, explorer_selection, validate_global_config_file,
+        validate_project_name,
+    };
 
     #[test]
     fn rejects_unsafe_windows_project_names() {
@@ -92,5 +124,22 @@ mod tests {
         );
 
         fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn validates_only_absolute_jyycode_config_files() {
+        assert!(validate_global_config_file(r"C:\Users\dev\.config\jyycode\jyycode.jsonc").is_ok());
+        assert!(validate_global_config_file(r"C:\Users\dev\.config\jyycode\jyycode.json").is_ok());
+        assert!(validate_global_config_file(r"C:\Users\dev\.config\jyycode\other.json").is_err());
+        assert!(validate_global_config_file(r"jyycode.jsonc").is_err());
+    }
+
+    #[test]
+    fn explorer_selection_uses_a_fixed_executable_and_argument_array() {
+        let (program, arguments) =
+            explorer_selection(r"C:\Users\dev\.config\jyycode\jyycode.jsonc").unwrap();
+        assert_eq!(program, "explorer.exe");
+        assert_eq!(arguments[0], "/select,");
+        assert_eq!(arguments[1], r"C:\Users\dev\.config\jyycode\jyycode.jsonc");
     }
 }

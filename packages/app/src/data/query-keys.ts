@@ -39,4 +39,5 @@ export const keys = {
   mcp: (directory: string) => [...project(directory), "mcp"] as const,
   globalConfig: ["global", "config"] as const,
   globalDefaultPermission: ["global", "default-permission"] as const,
+  globalPath: (directory: string) => ["global", "path", normalizeDirectory(directory)] as const,
 }

@@ -6,6 +6,8 @@ import { createDesktopQueryClient } from "../../data/query-client"
 import type { ManagementContextValue } from "../management/management-context"
 import type { DefaultPermissionMode } from "./default-permission"
 import { SecuritySettings } from "./security-settings"
+import { DesktopBridgeProvider } from "../../platform/context"
+import { createFakeDesktop } from "../../test/fake-desktop"
 
 function installDialog() {
   Object.defineProperties(HTMLDialogElement.prototype, {
@@ -27,6 +29,7 @@ function management(initial: DefaultPermissionMode = "auto") {
       },
     },
     session: { update: vi.fn() },
+    path: { get: vi.fn(async () => ({ data: { config: "C:\\Users\\test\\.config\\jyycode" } })) },
   }
   return {
     client,
@@ -36,10 +39,13 @@ function management(initial: DefaultPermissionMode = "auto") {
 }
 
 function renderSecurity(value = management()) {
+  const desktop = createFakeDesktop()
   render(() => (
-    <QueryClientProvider client={value.queryClient}>
-      <SecuritySettings management={value} />
-    </QueryClientProvider>
+    <DesktopBridgeProvider bridge={desktop.bridge}>
+      <QueryClientProvider client={value.queryClient}>
+        <SecuritySettings management={value} />
+      </QueryClientProvider>
+    </DesktopBridgeProvider>
   ))
   return value
 }

@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const state = vi.hoisted(() => ({ values: new Map<string, unknown>(), save: vi.fn(async () => undefined) }))
+const state = vi.hoisted(() => ({
+  values: new Map<string, unknown>(),
+  save: vi.fn(async () => undefined),
+  invoke: vi.fn(async () => undefined),
+}))
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }))
+vi.mock("@tauri-apps/api/core", () => ({ invoke: state.invoke }))
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }))
 vi.mock("@tauri-apps/plugin-store", () => ({
   Store: {
@@ -20,6 +24,7 @@ describe("Tauri desktop settings persistence", () => {
   beforeEach(() => {
     state.values.clear()
     state.save.mockClear()
+    state.invoke.mockClear()
   })
 
   it("round-trips settings through desktop.json", async () => {
@@ -28,5 +33,13 @@ describe("Tauri desktop settings persistence", () => {
     expect(state.values.get("settings")).toEqual({ startup: "home", theme: "light" })
     expect(state.save).toHaveBeenCalledOnce()
     expect(await tauriBridge.loadSettings()).toEqual({ startup: "home", theme: "light" })
+  })
+
+  it("passes config reveal as a command argument", async () => {
+    await tauriBridge.revealConfigFile("C:\\Users\\dev\\.config\\jyycode\\jyycode.jsonc")
+
+    expect(state.invoke).toHaveBeenCalledWith("reveal_config_file", {
+      path: "C:\\Users\\dev\\.config\\jyycode\\jyycode.jsonc",
+    })
   })
 })

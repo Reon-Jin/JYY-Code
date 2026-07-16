@@ -35,6 +35,7 @@ export function createFakeDesktop(input?: {
     saveSettings: vi.fn(async (value) => {
       settings = parseDesktopSettings(value)
     }),
+    revealConfigFile: vi.fn(async () => undefined),
   }
 
   return {

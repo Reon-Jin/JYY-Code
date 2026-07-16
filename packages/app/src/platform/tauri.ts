@@ -64,4 +64,7 @@ export const tauriBridge: DesktopBridge = {
     await store.set(SETTINGS_KEY, parseDesktopSettings(value))
     await store.save()
   },
+  revealConfigFile(path: string) {
+    return invoke("reveal_config_file", { path })
+  },
 }

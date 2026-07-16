@@ -52,5 +52,8 @@ export function createBrowserBridge(storage: Storage = window.localStorage): Des
     async saveSettings(value: DesktopSettings) {
       storage.setItem(SETTINGS_KEY, JSON.stringify(parseDesktopSettings(value)))
     },
+    async revealConfigFile() {
+      unsupported("Config file reveal")
+    },
   }
 }

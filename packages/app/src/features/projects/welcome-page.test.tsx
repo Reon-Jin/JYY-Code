@@ -43,6 +43,7 @@ function createHarness(options?: { gitError?: Error; openError?: Error; recentPa
     saveLastLocation: vi.fn(async () => undefined),
     loadSettings: vi.fn(async () => ({ startup: "restore" as const, theme: "dark" as const })),
     saveSettings: vi.fn(async () => undefined),
+    revealConfigFile: vi.fn(async () => undefined),
   }
   const sdk = {
     project: {
