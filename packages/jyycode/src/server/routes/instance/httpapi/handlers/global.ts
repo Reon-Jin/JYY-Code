@@ -13,10 +13,40 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { RootHttpApi } from "../api"
-import { GlobalDefaultPermissionUpdate, GlobalUpgradeInput } from "../groups/global"
+import { GlobalCompaction, GlobalDefaultPermissionUpdate, GlobalUpgradeInput } from "../groups/global"
 import { isDeepStrictEqual } from "node:util"
 
 const log = Log.create({ service: "server" })
+
+type CompactionConfig = (typeof Config.Info.Type)["compaction"]
+
+function globalCompaction(value: CompactionConfig): typeof GlobalCompaction.Type {
+  return {
+    auto: value?.auto ?? true,
+    prune: value?.prune ?? true,
+    tailTurns: value?.tail_turns ?? 2,
+    ...(value?.preserve_recent_tokens === undefined ? {} : { preserveRecentTokens: value.preserve_recent_tokens }),
+    ...(value?.reserved === undefined ? {} : { reservedTokens: value.reserved }),
+    triggerRatio: value?.trigger_ratio ?? 0.92,
+    microCompact: value?.micro_compact ?? true,
+    microCompactMaxChars: value?.micro_compact_max_chars ?? 8000,
+    reactiveCompact: value?.reactive_compact ?? true,
+  }
+}
+
+function compactionConfig(value: typeof GlobalCompaction.Type): NonNullable<CompactionConfig> {
+  return {
+    auto: value.auto,
+    prune: value.prune,
+    tail_turns: value.tailTurns,
+    ...(value.preserveRecentTokens === undefined ? {} : { preserve_recent_tokens: value.preserveRecentTokens }),
+    ...(value.reservedTokens === undefined ? {} : { reserved: value.reservedTokens }),
+    trigger_ratio: value.triggerRatio,
+    micro_compact: value.microCompact,
+    micro_compact_max_chars: value.microCompactMaxChars,
+    reactive_compact: value.reactiveCompact,
+  }
+}
 
 function eventData(data: unknown): Sse.Event {
   return {
@@ -111,6 +141,24 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       return { mode: ctx.payload.mode }
     })
 
+    const compactionGet = Effect.fn("GlobalHttpApi.compactionGet")(function* () {
+      return globalCompaction((yield* config.getGlobal()).compaction)
+    })
+
+    const compactionUpdate = Effect.fn("GlobalHttpApi.compactionUpdate")(function* (ctx: {
+      payload: typeof GlobalCompaction.Type
+    }) {
+      const result = yield* config.updateGlobalPath(["compaction"], compactionConfig(ctx.payload))
+      if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
+      return globalCompaction(result.info.compaction)
+    })
+
+    const compactionReset = Effect.fn("GlobalHttpApi.compactionReset")(function* () {
+      const result = yield* config.updateGlobalPath(["compaction"], undefined)
+      if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
+      return globalCompaction(result.info.compaction)
+    })
+
     const configUpdate = Effect.fn("GlobalHttpApi.configUpdate")(function* (ctx) {
       const result = yield* config.updateGlobal(ctx.payload)
       if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
@@ -180,6 +228,9 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       .handle("managementContext", managementContext)
       .handle("defaultPermissionGet", defaultPermissionGet)
       .handle("defaultPermissionUpdate", defaultPermissionUpdate)
+      .handle("compactionGet", compactionGet)
+      .handle("compactionUpdate", compactionUpdate)
+      .handle("compactionReset", compactionReset)
       .handle("configUpdate", configUpdate)
       .handle("dispose", dispose)
       .handleRaw("upgrade", upgradeRaw)
