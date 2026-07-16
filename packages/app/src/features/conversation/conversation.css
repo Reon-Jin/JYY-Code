@@ -246,11 +246,16 @@
   max-width: 100%;
   align-items: center;
   gap: var(--space-2);
-  border: 0;
-  padding: 0;
+  margin-inline: var(--space-1);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 4px var(--space-3);
   background: transparent;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
+}
+html[data-glass="on"] .activity-group__toggle {
+  border-color: var(--glass-border);
 }
 .activity-group__toggle small {
   color: var(--color-text-muted);

@@ -72,6 +72,9 @@ describe("conversation layout CSS", () => {
       /\.conversation-message\[data-role="assistant"\]\s*\+\s*\.conversation-message\[data-role="assistant"\]\s*\{[^}]*margin-top:\s*calc\(-1 \* var\(--space-6\)\);/s,
     )
     expect(conversationCSS).toMatch(/\.reasoning-part__toggle\s*\{[^}]*padding:\s*0;/s)
+    expect(conversationCSS).toMatch(
+      /\.activity-group__toggle\s*\{[^}]*margin-inline:\s*var\(--space-1\);[^}]*border-radius:\s*var\(--radius-md\);[^}]*padding:\s*4px var\(--space-3\);/s,
+    )
     expect(conversationCSS).toMatch(/\.tool-call\s*\{[^}]*padding:\s*0;/s)
     expect(conversationCSS).not.toContain(".tool-call__details")
   })
