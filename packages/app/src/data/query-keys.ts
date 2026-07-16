@@ -39,6 +39,9 @@ export const keys = {
   mcp: (directory: string) => [...project(directory), "mcp"] as const,
   globalConfig: ["global", "config"] as const,
   globalCompaction: ["global", "compaction"] as const,
+  globalMemoryScope: (scope: "user" | "task", sessionID = "") => ["global", "memory", scope, sessionID] as const,
+  globalMemory: (scope: "user" | "task", sessionID = "", query = "") =>
+    [...keys.globalMemoryScope(scope, sessionID), query] as const,
   globalDefaultPermission: ["global", "default-permission"] as const,
   globalPath: (directory: string) => ["global", "path", normalizeDirectory(directory)] as const,
 }

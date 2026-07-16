@@ -157,7 +157,8 @@ describe("desktop accessibility contract", () => {
     expect(screen.getByLabelText("自动更新策略")).toBeDisabled()
     expect(await screen.findByRole("checkbox", { name: "自动压缩" })).toBeEnabled()
     expect(screen.getByRole("button", { name: "保存压缩参数" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "管理记忆" })).toBeDisabled()
+    expect(screen.getByRole("heading", { name: "记忆管理" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "新增用户记忆" })).toBeEnabled()
 
     const back = screen.getByRole("button", { name: "返回" })
     back.focus()

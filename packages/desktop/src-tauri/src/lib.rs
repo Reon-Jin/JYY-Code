@@ -2,6 +2,7 @@ use tauri::Manager;
 
 mod backend;
 mod project_path;
+mod text_file;
 mod window_effects;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -16,6 +17,7 @@ pub fn run() {
             backend::restart_backend,
             project_path::create_project_directory,
             project_path::reveal_config_file,
+            text_file::save_text_file,
             window_effects::set_window_glass
         ])
         .setup(|app| {

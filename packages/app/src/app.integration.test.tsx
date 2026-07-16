@@ -182,8 +182,9 @@ describe("desktop GUI journey", () => {
     expect(screen.getByLabelText("自动更新策略")).toBeDisabled()
     expect(await screen.findByRole("checkbox", { name: "自动压缩" })).toBeChecked()
     expect(screen.getByRole("button", { name: "保存压缩参数" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "管理记忆" })).toBeDisabled()
-    expect(screen.getAllByText("即将推出")).toHaveLength(2)
+    expect(screen.getByRole("heading", { name: "记忆管理" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "新增用户记忆" })).toBeEnabled()
+    expect(screen.getAllByText("即将推出")).toHaveLength(1)
 
     await user.click(screen.getByRole("button", { name: "返回" }))
     expect(await screen.findByRole("heading", { name: "JYYCode" })).toBeVisible()

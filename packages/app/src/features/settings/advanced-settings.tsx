@@ -9,6 +9,7 @@ import { useManagement } from "../management/management-context"
 import { ComingSoonSetting } from "./coming-soon-setting"
 import { CompactionSettings } from "./compaction-settings"
 import { GlobalConfigReveal } from "./global-config-reveal"
+import { MemorySettings } from "./memory-settings"
 
 const knownShells = ["pwsh", "powershell", "cmd", "bash"] as const
 
@@ -91,9 +92,7 @@ export function AdvancedSettings(props: { management?: ManagementContextValue })
         </label>
       </ComingSoonSetting>
       <CompactionSettings management={management} />
-      <ComingSoonSetting title={tr("settings.memory-management")} reason={tr("settings.the-backend-does-not-yet-provide-a-safe")}>
-        <Button variant="secondary" disabled aria-label={tr("settings.manage-memory")}>{tr("settings.view-clean-and-export-memories")}</Button>
-      </ComingSoonSetting>
+      <MemorySettings management={management} />
     </div>
   )
 }

@@ -108,6 +108,27 @@
 .compaction-settings__validation { margin: 0; color: var(--color-danger); font-size: var(--text-xs); }
 .compaction-settings__notice { margin: 0; color: var(--color-success); font-size: var(--text-sm); }
 .compaction-settings__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.memory-settings { display: grid; gap: var(--space-3); }
+.memory-settings__header { display: flex; align-items: start; justify-content: space-between; gap: var(--space-3); }
+.memory-settings__header h3 { margin: 0; }
+.memory-settings__header .settings-description { margin-bottom: 0; }
+.memory-settings__header > span { color: var(--color-text-muted); font-size: var(--text-xs); white-space: nowrap; }
+.memory-settings__tabs,
+.memory-settings__actions,
+.memory-settings__entry-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.memory-settings__session,
+.memory-settings__search,
+.memory-editor__fields label { display: grid; gap: var(--space-1); color: var(--color-text-muted); font-size: var(--text-xs); }
+.memory-settings input,
+.memory-editor input { min-height: 38px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); padding: 0 var(--space-3); background: var(--color-bg); color: var(--color-text); }
+.memory-settings__list { display: grid; gap: var(--space-2); }
+.memory-settings__entry { display: grid; gap: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3); background: var(--color-surface); }
+.memory-settings__entry p { margin: 0; overflow-wrap: anywhere; }
+.memory-settings__entry-meta { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--text-xs); }
+.memory-settings__entry-meta > span,
+.memory-settings__empty { color: var(--color-text-muted); }
+.memory-settings__empty { margin: 0; padding: var(--space-3); text-align: center; }
+.memory-editor__fields { display: grid; gap: var(--space-3); }
 
 @media (max-width: 720px) {
   .settings-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }

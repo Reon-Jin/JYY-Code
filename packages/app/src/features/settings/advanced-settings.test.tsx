@@ -28,6 +28,15 @@ function management(shell = "cmd") {
         update: vi.fn(),
         reset: vi.fn(),
       },
+      memory: {
+        list: vi.fn(async () => ({ data: { entries: [], total: 0 } })),
+        update: vi.fn(),
+        remove: vi.fn(),
+        compact: vi.fn(),
+        export: vi.fn(),
+        user: { create: vi.fn() },
+        task: { clear: vi.fn() },
+      },
     },
     path: {
       get: vi.fn(async () => ({ data: { config: "C:\\Users\\dev\\.config\\jyycode" } })),
@@ -77,6 +86,7 @@ describe("AdvancedSettings", () => {
     expect(screen.getByLabelText("自动更新策略")).toBeDisabled()
     expect(screen.getByRole("heading", { name: "上下文压缩参数" })).toBeVisible()
     expect(screen.queryByRole("button", { name: "配置上下文压缩参数" })).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "管理记忆" })).toBeDisabled()
+    expect(screen.getByRole("heading", { name: "记忆管理" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "新增用户记忆" })).toBeEnabled()
   })
 })
