@@ -71,14 +71,19 @@ describe("GeneralSettings", () => {
     expect(screen.getByRole("combobox", { name: "语言" })).toHaveValue("zh-CN")
   })
 
-  it("keeps later-phase controls disabled and coming soon", async () => {
-    renderGeneral()
+  it("persists supported glass and keeps notification controls disabled", async () => {
+    const desktop = renderGeneral()
+    const user = userEvent.setup()
 
     expect(await screen.findByRole("combobox", { name: "语言" })).toBeEnabled()
-    expect(screen.getByLabelText("Apple 风格液态玻璃")).toBeDisabled()
+    const glass = screen.getByRole("checkbox", { name: "Apple 风格液态玻璃" })
+    expect(glass).toBeEnabled()
+    await user.click(glass)
+    await waitFor(() => expect(desktop.settings().glass).toBe("on"))
+    expect(document.documentElement.dataset.glass).toBe("on")
     for (const label of ["回复完成", "等待权限", "Agent 提问"]) {
       expect(screen.getByLabelText(label)).toBeDisabled()
     }
-    expect(screen.getAllByText("即将推出").length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText("即将推出")).toHaveLength(1)
   })
 })

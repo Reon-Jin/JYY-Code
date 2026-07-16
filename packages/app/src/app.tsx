@@ -12,6 +12,7 @@ import type { DesktopBootstrap, DesktopBridge } from "./platform/types"
 import { AppRoutes } from "./routes"
 import { applyTheme } from "./features/settings/theme"
 import { I18nProvider } from "./i18n/i18n-context"
+import { applyStoredGlass } from "./features/settings/glass-preference"
 
 export type AppProps = {
   bridge?: DesktopBridge
@@ -33,7 +34,14 @@ function DesktopApplication() {
   const bridge = useDesktopBridge()
   const lifecycle = createLifecycleController({ bridge })
   createEffect(() => applyTheme(lifecycle.settings().theme))
-  onMount(() => void lifecycle.start())
+  onMount(() => {
+    void lifecycle
+      .start()
+      .then(() => applyStoredGlass(bridge, lifecycle.settings()))
+      .catch(() => {
+        document.documentElement.dataset.glass = "off"
+      })
+  })
 
   const loadingPhase = () => {
     const phase = lifecycle.phase()

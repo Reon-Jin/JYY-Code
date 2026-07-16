@@ -24,6 +24,22 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html[data-glass="on"] body {
+  background: transparent;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-glass="on"] body {
+    background: var(--surface-solid);
+  }
+
+  html[data-glass="on"] *,
+  html[data-glass="on"] *::before,
+  html[data-glass="on"] *::after {
+    backdrop-filter: none !important;
+  }
+}
+
 button,
 input,
 textarea,

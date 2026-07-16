@@ -37,9 +37,9 @@ const retiredPalette = [
 
 describe("Codex-inspired desktop theme", () => {
   it("uses a neutral near-black palette", () => {
-    expect(themeSource).toContain("--color-bg: #181818")
-    expect(themeSource).toContain("--color-panel: #1f1f1f")
-    expect(themeSource).toContain("--color-surface: #262626")
+    expect(themeSource).toContain("--surface-solid: #181818")
+    expect(themeSource).toContain("--surface-raised-solid: #1f1f1f")
+    expect(themeSource).toContain("--surface-control-solid: #262626")
     expect(themeSource).toContain("--color-accent: #f2f2f2")
     expect(themeSource).toContain('"backgroundColor": "#181818"')
   })

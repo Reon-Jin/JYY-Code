@@ -5,6 +5,7 @@ import { useDesktopBridge } from "../../platform/context"
 import { applyTheme } from "./theme"
 import { defaultDesktopSettings, type AppLocale, type DesktopSettings } from "./settings-preferences"
 import { ComingSoonSetting } from "./coming-soon-setting"
+import { reapplyGlassForTheme, setGlassPreference } from "./glass-preference"
 
 function message(cause: unknown) {
   return cause instanceof Error ? cause.message : tr("settings.unable-to-save-desktop-settings")
@@ -34,10 +35,32 @@ export function GeneralSettings() {
     if (next.theme !== previous.theme) applyTheme(next.theme)
     setSaving(true)
     try {
+      if (next.theme !== previous.theme) await reapplyGlassForTheme(bridge, previous, next.theme)
       await bridge.saveSettings(next)
     } catch (cause) {
       setSettings(previous)
       applyTheme(previous.theme)
+      if (next.theme !== previous.theme) {
+        await reapplyGlassForTheme(bridge, previous, previous.theme).catch(() => undefined)
+      }
+      setError(message(cause))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function changeGlass(enabled: boolean) {
+    setError(undefined)
+    setSaving(true)
+    try {
+      const next = await setGlassPreference({
+        bridge,
+        current: settings(),
+        enabled,
+        persist: (value) => bridge.saveSettings(value),
+      })
+      setSettings(next)
+    } catch (cause) {
       setError(message(cause))
     } finally {
       setSaving(false)
@@ -135,15 +158,20 @@ export function GeneralSettings() {
         </label>
       </section>
 
-      <ComingSoonSetting
-        title={tr("settings.apple-style-liquid-glass")}
-        reason={tr("settings.requires-full-vision-system-and-windows-and-webview")}
-      >
+      <section class="settings-card" aria-labelledby="glass-setting-title">
+        <h3 id="glass-setting-title">{tr("settings.apple-style-liquid-glass")}</h3>
         <label class="settings-disabled-check">
-          <input type="checkbox" aria-label={tr("settings.apple-style-liquid-glass")} disabled />
+          <input
+            type="checkbox"
+            aria-label={tr("settings.apple-style-liquid-glass")}
+            checked={settings().glass === "on"}
+            disabled={saving()}
+            onChange={(event) => void changeGlass(event.currentTarget.checked)}
+          />
           {tr("settings.apple-style-liquid-glass")}
         </label>
-      </ComingSoonSetting>
+        <p class="settings-card__hint">{tr("settings.requires-full-vision-system-and-windows-and-webview")}</p>
+      </section>
 
       <ComingSoonSetting title={tr("settings.windows-notifications")} reason={tr("settings.native-notification-capabilities-and-foreground-and-background-event")}>
         <fieldset class="settings-placeholder-options" disabled>

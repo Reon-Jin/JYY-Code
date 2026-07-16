@@ -2,6 +2,7 @@ use tauri::Manager;
 
 mod backend;
 mod project_path;
+mod window_effects;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -13,7 +14,8 @@ pub fn run() {
             backend::desktop_bootstrap,
             backend::restart_backend,
             project_path::create_project_directory,
-            project_path::reveal_config_file
+            project_path::reveal_config_file,
+            window_effects::set_window_glass
         ])
         .setup(|app| {
             let supervisor = backend::BackendSupervisor::default();
