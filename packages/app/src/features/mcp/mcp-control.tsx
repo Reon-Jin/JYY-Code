@@ -18,7 +18,7 @@ export type McpControlProps = {
   disabled?: boolean
 }
 
-function statusLabel(status: McpStatus) {
+export function mcpStatusLabel(status: McpStatus) {
   switch (status.status) {
     case "connected":
       return undefined
@@ -48,7 +48,9 @@ export function McpControl(props: McpControlProps) {
     }),
     () => props.queryClient,
   )
-  const entries = createMemo(() => Object.entries(status.data ?? {}).sort(([left], [right]) => left.localeCompare(right)))
+  const entries = createMemo(() =>
+    Object.entries(status.data ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+  )
 
   async function toggle(name: string, current: McpStatus) {
     if (busyName() || props.disabled) return
@@ -112,7 +114,7 @@ export function McpControl(props: McpControlProps) {
                       <div class="mcp-control__item">
                         <span>
                           <strong>{name}</strong>
-                          <Show when={statusLabel(current)}>
+                          <Show when={mcpStatusLabel(current)}>
                             {(label) => <small data-status={current.status}>{label()}</small>}
                           </Show>
                         </span>

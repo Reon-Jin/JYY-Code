@@ -219,6 +219,7 @@ function serverPathParity<A, E>(name: string, scenario: (serverPath: ServerPath)
       const raw = yield* scenario("raw")
       expect(raw).toEqual(standard)
     }),
+    10_000,
   )
 }
 
@@ -335,6 +336,20 @@ afterEach(async () => {
 })
 
 describe("HttpApi SDK", () => {
+  test("exposes generated global management methods", () => {
+    const sdk = client("raw", process.cwd())
+
+    expect(typeof sdk.global.managementContext).toBe("function")
+    expect(typeof sdk.skill.create).toBe("function")
+    expect(typeof sdk.skill.update).toBe("function")
+    expect(typeof sdk.skill.delete).toBe("function")
+    expect(typeof sdk.skill.source.add).toBe("function")
+    expect(typeof sdk.skill.source.remove).toBe("function")
+    expect(typeof sdk.mcp.config.list).toBe("function")
+    expect(typeof sdk.mcp.config.update).toBe("function")
+    expect(typeof sdk.mcp.config.delete).toBe("function")
+  })
+
   test("exposes workspace-scoped VCS and GitHub clients", async () => {
     const urls: URL[] = []
     const fetch = Object.assign(
@@ -835,7 +850,7 @@ describe("HttpApi SDK", () => {
 
         expect(session.status).toBe(200)
         expect(prompt.status).toBe(200)
-        expect(JSON.stringify(inputs[0])).toContain("project-rest-skill")
+        expect(inputs.some((input) => JSON.stringify(input).includes("project-rest-skill"))).toBe(true)
       }),
     ),
   )

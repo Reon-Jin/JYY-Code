@@ -46,6 +46,28 @@ tasks already running.
 Desktop and the TUI share the same Sessions, SQLite-backed state, HTTP API, and SSE events. Actions and progress remain
 authoritative in the shared backend and are visible from either interface.
 
+## Home, Skill, and MCP management
+
+The Home screen has a compact global navigation rail for Home, Skill, and MCP. Home can open a directory, create a
+project, reopen a recent project, or remove it from the recent list. Opening a project leaves the management shell and
+enters the project workspace; the global rail is not shown beside project Sessions.
+
+Skill management shows the effective global Skill set and renders each `SKILL.md`. Managed Skills are stored under
+`~/.jyycode/skills/<name>/SKILL.md`; additional local paths and synchronized URLs come from the `skills` section of the
+global configuration at `~/.config/jyycode/jyycode.jsonc`. Built-in Skills are read-only and cannot be deleted. Remote
+URL Skills are also not edited in place: removing one removes its configured source, not its cached files. Explicit
+local-path Skills may be edited, but deletion removes only their selected `SKILL.md`.
+
+MCP management edits the persisted global `mcp` entries in `~/.config/jyycode/jyycode.jsonc`, so its add, edit,
+enable/disable, and delete actions apply across projects. The Composer's MCP control remains project-scoped and only
+connects or disconnects the MCP servers effective for that project; it does not replace the global management page.
+Runtime status, retry, OAuth authentication, and removal of stored authentication are available from global MCP
+management.
+
+Treat MCP environment values, headers, OAuth client secrets, and the global configuration file as sensitive. The
+Desktop UI does not display an existing client secret and the backend does not log secret field values, but configured
+values remain local configuration data and should not be copied into bug reports or committed to source control.
+
 ## Build a Windows release
 
 ```powershell

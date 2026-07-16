@@ -9,6 +9,7 @@ type OpenApiResponse = {
   readonly content?: Record<string, { readonly schema?: OpenApiSchema }>
 }
 type OpenApiOperation = {
+  readonly operationId?: string
   readonly responses?: Record<string, OpenApiResponse>
   readonly security?: unknown
 }
@@ -43,6 +44,34 @@ function isBuiltInEndpointError(name: string) {
 }
 
 describe("PublicApi OpenAPI v2 errors", () => {
+  test("documents global Skill management operations", () => {
+    const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
+
+    for (const [method, path, operationId] of [
+      ["get", "/global/management-context", "global.managementContext"],
+      ["get", "/skill", "app.skills"],
+      ["post", "/skill", "skill.create"],
+      ["put", "/skill/{name}", "skill.update"],
+      ["delete", "/skill/{name}", "skill.delete"],
+      ["post", "/skill/source", "skill.source.add"],
+      ["delete", "/skill/source", "skill.source.remove"],
+    ] as const) {
+      expect(spec.paths[path]?.[method]?.operationId, `${method.toUpperCase()} ${path}`).toBe(operationId)
+    }
+  })
+
+  test("documents global MCP configuration operations", () => {
+    const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
+
+    for (const [method, path, operationId] of [
+      ["get", "/mcp/config", "mcp.config.list"],
+      ["put", "/mcp/{name}/config", "mcp.config.update"],
+      ["delete", "/mcp/{name}/config", "mcp.config.delete"],
+    ] as const) {
+      expect(spec.paths[path]?.[method]?.operationId, `${method.toUpperCase()} ${path}`).toBe(operationId)
+    }
+  })
+
   test("preserves /api auth responses", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 

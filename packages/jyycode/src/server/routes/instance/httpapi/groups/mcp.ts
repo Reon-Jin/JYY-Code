@@ -29,8 +29,20 @@ export class UnsupportedOAuthError extends Schema.ErrorClass<UnsupportedOAuthErr
   { httpApiStatus: 400 },
 ) {}
 
+export class McpConfigInvalidError extends Schema.ErrorClass<McpConfigInvalidError>("McpConfigInvalidError")(
+  {
+    name: Schema.Literal("McpConfigInvalidError"),
+    data: Schema.Struct({ message: Schema.String }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+export const ConfigMap = Schema.Record(Schema.String, ConfigMCP.Info)
+
 export const McpPaths = {
   status: "/mcp",
+  config: "/mcp/config",
+  configByName: "/mcp/:name/config",
   auth: "/mcp/:name/auth",
   authCallback: "/mcp/:name/auth/callback",
   authAuthenticate: "/mcp/:name/auth/authenticate",
@@ -50,6 +62,41 @@ export const McpApi = HttpApi.make("mcp")
             identifier: "mcp.status",
             summary: "Get MCP status",
             description: "Get the status of all Model Context Protocol (MCP) servers.",
+          }),
+        ),
+        HttpApiEndpoint.get("config", McpPaths.config, {
+          query: WorkspaceRoutingQuery,
+          success: described(ConfigMap, "Global MCP configuration"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "mcp.config.list",
+            summary: "List global MCP configuration",
+            description: "Return persisted global MCP server entries without runtime status.",
+          }),
+        ),
+        HttpApiEndpoint.put("configUpdate", McpPaths.configByName, {
+          params: { name: Schema.String },
+          query: WorkspaceRoutingQuery,
+          payload: ConfigMCP.Info,
+          success: described(ConfigMCP.Info, "Global MCP configuration updated"),
+          error: McpConfigInvalidError,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "mcp.config.update",
+            summary: "Update global MCP configuration",
+            description: "Create or replace one persisted global MCP server entry.",
+          }),
+        ),
+        HttpApiEndpoint.delete("configDelete", McpPaths.configByName, {
+          params: { name: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Global MCP configuration deleted"),
+          error: [McpConfigInvalidError, McpServerNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "mcp.config.delete",
+            summary: "Delete global MCP configuration",
+            description: "Disconnect, remove OAuth credentials, and delete one persisted global MCP entry.",
           }),
         ),
         HttpApiEndpoint.post("add", McpPaths.status, {

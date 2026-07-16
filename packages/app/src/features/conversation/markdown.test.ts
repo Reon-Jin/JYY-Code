@@ -44,4 +44,11 @@ $$`)
     expect(template.content.querySelector(".katex math")).not.toBeNull()
     expect(template.content.querySelector(".katex [style]")).not.toBeNull()
   })
+
+  it("renders Skill frontmatter as inert text without allowing raw HTML", () => {
+    const html = renderMarkdown('---\nname: demo\n---\n\n# Skill\n<div onclick="alert(1)">unsafe</div>')
+
+    expect(html).toContain("Skill")
+    expect(html).not.toMatch(/onclick|<div/i)
+  })
 })

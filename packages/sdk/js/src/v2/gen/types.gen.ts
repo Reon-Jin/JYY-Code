@@ -1364,6 +1364,10 @@ export type Config = {
   }
 }
 
+export type ManagementContext = {
+  directory: string
+}
+
 export type Model = {
   id: string
   providerID: string
@@ -1862,6 +1866,56 @@ export type Agent = {
   steps?: number
 }
 
+export type SkillInvalidError = {
+  name: "SkillInvalidError"
+  data: {
+    message: string
+  }
+}
+
+export type SkillUnsafePathError = {
+  name: "SkillUnsafePathError"
+  data: {
+    message: string
+    skill: string
+    path: string
+  }
+}
+
+export type SkillProtectedError = {
+  name: "SkillProtectedError"
+  data: {
+    message: string
+    skill: string
+  }
+}
+
+export type SkillNotFoundError = {
+  name: "SkillNotFoundError"
+  data: {
+    message: string
+    skill: string
+  }
+}
+
+export type SkillConflictError = {
+  name: "SkillConflictError"
+  data: {
+    message: string
+    skill: string
+    latestRevision: string
+  }
+}
+
+export type SkillDuplicateError = {
+  name: "SkillDuplicateError"
+  data: {
+    message: string
+    skill: string
+    location?: string
+  }
+}
+
 export type LspStatus = {
   id: string
   name: string
@@ -1904,14 +1958,21 @@ export type McpStatus =
   | McpStatusNeedsAuth
   | McpStatusNeedsClientRegistration
 
-export type McpUnsupportedOAuthError = {
-  error: string
+export type McpConfigInvalidError = {
+  name: "McpConfigInvalidError"
+  data: {
+    message: string
+  }
 }
 
 export type McpServerNotFoundError = {
   _tag: "McpServerNotFoundError"
   name: string
   message: string
+}
+
+export type McpUnsupportedOAuthError = {
+  error: string
 }
 
 export type ProjectNotFoundError = {
@@ -4348,6 +4409,31 @@ export type GlobalConfigUpdateResponses = {
 
 export type GlobalConfigUpdateResponse = GlobalConfigUpdateResponses[keyof GlobalConfigUpdateResponses]
 
+export type GlobalManagementContextData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/global/management-context"
+}
+
+export type GlobalManagementContextErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GlobalManagementContextError = GlobalManagementContextErrors[keyof GlobalManagementContextErrors]
+
+export type GlobalManagementContextResponses = {
+  /**
+   * Global management context
+   */
+  200: ManagementContext
+}
+
+export type GlobalManagementContextResponse = GlobalManagementContextResponses[keyof GlobalManagementContextResponses]
+
 export type GlobalDisposeData = {
   body?: never
   path?: never
@@ -5875,6 +5961,7 @@ export type AppSkillsData = {
   query?: {
     directory?: string
     workspace?: string
+    scope?: "global"
   }
   url: "/skill"
 }
@@ -5897,10 +5984,252 @@ export type AppSkillsResponses = {
     description?: string
     location: string
     content: string
+    origin: "built_in" | "managed" | "path" | "url"
+    source?: string
+    editable: boolean
+    deletable: boolean
+    revision: string
   }>
 }
 
 export type AppSkillsResponse = AppSkillsResponses[keyof AppSkillsResponses]
+
+export type SkillCreateData = {
+  body?: {
+    name: string
+    description?: string
+    content: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill"
+}
+
+export type SkillCreateErrors = {
+  /**
+   * SkillInvalidError | SkillUnsafePathError | InvalidRequestError
+   */
+  400: SkillInvalidError | SkillUnsafePathError | InvalidRequestError
+  /**
+   * SkillProtectedError
+   */
+  403: SkillProtectedError
+  /**
+   * SkillNotFoundError
+   */
+  404: SkillNotFoundError
+  /**
+   * SkillConflictError | SkillDuplicateError
+   */
+  409: SkillConflictError | SkillDuplicateError
+}
+
+export type SkillCreateError = SkillCreateErrors[keyof SkillCreateErrors]
+
+export type SkillCreateResponses = {
+  /**
+   * Skill created
+   */
+  200: {
+    name: string
+    description?: string
+    location: string
+    content: string
+    origin: "built_in" | "managed" | "path" | "url"
+    source?: string
+    editable: boolean
+    deletable: boolean
+    revision: string
+  }
+}
+
+export type SkillCreateResponse = SkillCreateResponses[keyof SkillCreateResponses]
+
+export type SkillDeleteData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/{name}"
+}
+
+export type SkillDeleteErrors = {
+  /**
+   * SkillInvalidError | SkillUnsafePathError | InvalidRequestError
+   */
+  400: SkillInvalidError | SkillUnsafePathError | InvalidRequestError
+  /**
+   * SkillProtectedError
+   */
+  403: SkillProtectedError
+  /**
+   * SkillNotFoundError
+   */
+  404: SkillNotFoundError
+  /**
+   * SkillConflictError | SkillDuplicateError
+   */
+  409: SkillConflictError | SkillDuplicateError
+}
+
+export type SkillDeleteError = SkillDeleteErrors[keyof SkillDeleteErrors]
+
+export type SkillDeleteResponses = {
+  /**
+   * Skill deleted
+   */
+  200: boolean
+}
+
+export type SkillDeleteResponse = SkillDeleteResponses[keyof SkillDeleteResponses]
+
+export type SkillUpdateData = {
+  body?: {
+    content: string
+    revision: string
+  }
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/{name}"
+}
+
+export type SkillUpdateErrors = {
+  /**
+   * SkillInvalidError | SkillUnsafePathError | InvalidRequestError
+   */
+  400: SkillInvalidError | SkillUnsafePathError | InvalidRequestError
+  /**
+   * SkillProtectedError
+   */
+  403: SkillProtectedError
+  /**
+   * SkillNotFoundError
+   */
+  404: SkillNotFoundError
+  /**
+   * SkillConflictError | SkillDuplicateError
+   */
+  409: SkillConflictError | SkillDuplicateError
+}
+
+export type SkillUpdateError = SkillUpdateErrors[keyof SkillUpdateErrors]
+
+export type SkillUpdateResponses = {
+  /**
+   * Skill updated
+   */
+  200: {
+    name: string
+    description?: string
+    location: string
+    content: string
+    origin: "built_in" | "managed" | "path" | "url"
+    source?: string
+    editable: boolean
+    deletable: boolean
+    revision: string
+  }
+}
+
+export type SkillUpdateResponse = SkillUpdateResponses[keyof SkillUpdateResponses]
+
+export type SkillSourceRemoveData = {
+  body?: {
+    type: "path" | "url"
+    value: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/source"
+}
+
+export type SkillSourceRemoveErrors = {
+  /**
+   * SkillInvalidError | SkillUnsafePathError | InvalidRequestError
+   */
+  400: SkillInvalidError | SkillUnsafePathError | InvalidRequestError
+  /**
+   * SkillProtectedError
+   */
+  403: SkillProtectedError
+  /**
+   * SkillNotFoundError
+   */
+  404: SkillNotFoundError
+  /**
+   * SkillConflictError | SkillDuplicateError
+   */
+  409: SkillConflictError | SkillDuplicateError
+}
+
+export type SkillSourceRemoveError = SkillSourceRemoveErrors[keyof SkillSourceRemoveErrors]
+
+export type SkillSourceRemoveResponses = {
+  /**
+   * Skill source removed
+   */
+  200: boolean
+}
+
+export type SkillSourceRemoveResponse = SkillSourceRemoveResponses[keyof SkillSourceRemoveResponses]
+
+export type SkillSourceAddData = {
+  body?: {
+    type: "path" | "url"
+    value: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/source"
+}
+
+export type SkillSourceAddErrors = {
+  /**
+   * SkillInvalidError | SkillUnsafePathError | InvalidRequestError
+   */
+  400: SkillInvalidError | SkillUnsafePathError | InvalidRequestError
+  /**
+   * SkillProtectedError
+   */
+  403: SkillProtectedError
+  /**
+   * SkillNotFoundError
+   */
+  404: SkillNotFoundError
+  /**
+   * SkillConflictError | SkillDuplicateError
+   */
+  409: SkillConflictError | SkillDuplicateError
+}
+
+export type SkillSourceAddError = SkillSourceAddErrors[keyof SkillSourceAddErrors]
+
+export type SkillSourceAddResponses = {
+  /**
+   * Skill source added
+   */
+  200: boolean
+}
+
+export type SkillSourceAddResponse = SkillSourceAddResponses[keyof SkillSourceAddResponses]
 
 export type LspStatusData = {
   body?: never
@@ -6020,6 +6349,100 @@ export type McpAddResponses = {
 }
 
 export type McpAddResponse = McpAddResponses[keyof McpAddResponses]
+
+export type McpConfigListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mcp/config"
+}
+
+export type McpConfigListErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type McpConfigListError = McpConfigListErrors[keyof McpConfigListErrors]
+
+export type McpConfigListResponses = {
+  /**
+   * Global MCP configuration
+   */
+  200: {
+    [key: string]: McpLocalConfig | McpRemoteConfig
+  }
+}
+
+export type McpConfigListResponse = McpConfigListResponses[keyof McpConfigListResponses]
+
+export type McpConfigDeleteData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mcp/{name}/config"
+}
+
+export type McpConfigDeleteErrors = {
+  /**
+   * McpConfigInvalidError | InvalidRequestError
+   */
+  400: McpConfigInvalidError | InvalidRequestError
+  /**
+   * McpServerNotFoundError
+   */
+  404: McpServerNotFoundError
+}
+
+export type McpConfigDeleteError = McpConfigDeleteErrors[keyof McpConfigDeleteErrors]
+
+export type McpConfigDeleteResponses = {
+  /**
+   * Global MCP configuration deleted
+   */
+  200: boolean
+}
+
+export type McpConfigDeleteResponse = McpConfigDeleteResponses[keyof McpConfigDeleteResponses]
+
+export type McpConfigUpdateData = {
+  body?: McpLocalConfig | McpRemoteConfig
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/mcp/{name}/config"
+}
+
+export type McpConfigUpdateErrors = {
+  /**
+   * McpConfigInvalidError | InvalidRequestError
+   */
+  400: McpConfigInvalidError | InvalidRequestError
+}
+
+export type McpConfigUpdateError = McpConfigUpdateErrors[keyof McpConfigUpdateErrors]
+
+export type McpConfigUpdateResponses = {
+  /**
+   * Global MCP configuration updated
+   */
+  200: McpLocalConfig | McpRemoteConfig
+}
+
+export type McpConfigUpdateResponse = McpConfigUpdateResponses[keyof McpConfigUpdateResponses]
 
 export type McpAuthRemoveData = {
   body?: never

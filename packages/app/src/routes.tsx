@@ -1,9 +1,14 @@
 import { HashRouter, Navigate, Route, useParams } from "@solidjs/router"
-import { createSignal, onMount, Show, type Component } from "solid-js"
+import { createSignal, lazy, onMount, Show, type Component, type ParentProps } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { DesktopBootstrap } from "./platform/types"
 import { useProjects } from "./features/projects/project-context"
 import { WelcomePage } from "./features/projects/welcome-page"
+import { ManagementProvider } from "./features/management/management-context"
+import { ManagementShell } from "./features/management/management-shell"
+
+const SkillsRoute = lazy(() => import("./features/management/skills-route"))
+const McpRoute = lazy(() => import("./features/management/mcp-route"))
 
 type ProjectWorkspaceComponent = Component<{
   bootstrap: DesktopBootstrap
@@ -38,7 +43,11 @@ function WorkspaceRoute(props: { bootstrap: DesktopBootstrap }) {
   return (
     <Show
       when={projects.activeProject()}
-      fallback={<Show when={!params.sessionID} fallback={<Navigate href="/" />}><WelcomePage /></Show>}
+      fallback={
+        <Show when={!params.sessionID} fallback={<Navigate href="/" />}>
+          <WelcomePage />
+        </Show>
+      }
     >
       {(project) => (
         <Show when={Workspace()} fallback={<WorkspaceLoading />}>
@@ -56,10 +65,51 @@ function WorkspaceRoute(props: { bootstrap: DesktopBootstrap }) {
   )
 }
 
+function ManagementRoute(props: ParentProps<{ bootstrap: DesktopBootstrap }>) {
+  return (
+    <ManagementProvider bootstrap={props.bootstrap}>
+      <ManagementShell>{props.children}</ManagementShell>
+    </ManagementProvider>
+  )
+}
+
 export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
   return (
     <HashRouter>
-      <Route path={["/", "/session/:sessionID"]} component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
+      <Route
+        path="/"
+        component={() => (
+          <ManagementRoute bootstrap={props.bootstrap}>
+            <WelcomePage />
+          </ManagementRoute>
+        )}
+      />
+      <Route
+        path="/skills"
+        component={() => (
+          <ManagementRoute bootstrap={props.bootstrap}>
+            <SkillsRoute />
+          </ManagementRoute>
+        )}
+      />
+      <Route
+        path="/skills/:name"
+        component={() => (
+          <ManagementRoute bootstrap={props.bootstrap}>
+            <SkillsRoute />
+          </ManagementRoute>
+        )}
+      />
+      <Route
+        path="/mcp"
+        component={() => (
+          <ManagementRoute bootstrap={props.bootstrap}>
+            <McpRoute />
+          </ManagementRoute>
+        )}
+      />
+      <Route path="/workspace" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
+      <Route path="/session/:sessionID" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
     </HashRouter>
   )
 }

@@ -67,25 +67,28 @@ export function fallbackSanitization(content: string): string {
   return content.replace(frontmatter, () => processed)
 }
 
-export async function parse(filePath: string) {
-  const template = await Filesystem.readText(filePath)
-
+export function parseContent(content: string, source: string) {
   try {
-    const md = matter(template)
-    return md
+    return matter(content, {})
   } catch {
     try {
-      return matter(fallbackSanitization(template))
-    } catch (err) {
+      return matter(fallbackSanitization(content), {})
+    } catch (cause) {
       throw new FrontmatterError(
         {
-          path: filePath,
-          message: `${filePath}: Failed to parse YAML frontmatter: ${err instanceof Error ? err.message : String(err)}`,
+          path: source,
+          message: `${source}: Failed to parse YAML frontmatter: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
         },
-        { cause: err },
+        { cause },
       )
     }
   }
+}
+
+export async function parse(filePath: string) {
+  return parseContent(await Filesystem.readText(filePath), filePath)
 }
 
 export const FrontmatterError = NamedError.create("ConfigFrontmatterError", {

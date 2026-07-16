@@ -1,6 +1,45 @@
 import { expect, test, describe } from "bun:test"
 import { ConfigMarkdown } from "@/config/markdown"
 
+describe("ConfigMarkdown: in-memory frontmatter parsing", () => {
+  test("parses valid frontmatter", () => {
+    const result = ConfigMarkdown.parseContent("---\nname: example\n---\n\n# Example\n", "memory://valid")
+
+    expect(result.data.name).toBe("example")
+    expect(result.content.trim()).toBe("# Example")
+  })
+
+  test("sanitizes unquoted values containing colons", () => {
+    const result = ConfigMarkdown.parseContent(
+      "---\nname: example\ndescription: Handles URLs: safely\n---\n\nBody\n",
+      "memory://colon",
+    )
+
+    expect(result.data.description).toBe("Handles URLs: safely")
+  })
+
+  test("accepts content without frontmatter", () => {
+    const result = ConfigMarkdown.parseContent("# Plain Markdown\n", "memory://plain")
+
+    expect(result.data).toEqual({})
+    expect(result.content).toBe("# Plain Markdown\n")
+  })
+
+  test("reports the supplied source for invalid YAML", () => {
+    const source = "memory://invalid-skill"
+
+    try {
+      ConfigMarkdown.parseContent('---\nname: "\\q"\n---\n', source)
+      throw new Error("expected parsing to fail")
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigMarkdown.FrontmatterError)
+      const frontmatterError = error as { data: { path: string; message: string } }
+      expect(frontmatterError.data.path).toBe(source)
+      expect(frontmatterError.data.message).toContain(source)
+    }
+  })
+})
+
 describe("ConfigMarkdown: normal template", () => {
   const template = `This is a @valid/path/to/a/file and it should also match at
   the beginning of a line:

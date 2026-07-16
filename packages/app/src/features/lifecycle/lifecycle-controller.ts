@@ -121,6 +121,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
     }
 
     if (!location.sessionID) {
+      setRoute("/workspace")
       await persist({ project: opened.directory })
       setPhase("ready")
       return
@@ -139,7 +140,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
       setRoute(`/session/${encodeURIComponent(result.data.id)}`)
       await persist({ project: opened.directory, sessionID: result.data.id })
     } catch {
-      setRoute("/")
+      setRoute("/workspace")
       await persist({ project: opened.directory })
     }
     setPhase("ready")

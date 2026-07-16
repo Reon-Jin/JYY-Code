@@ -85,6 +85,59 @@ describe("desktop GUI journey", () => {
     vi.unstubAllGlobals()
   })
 
+  it("manages global Skill and MCP state, then opens a recent project from Home", async () => {
+    const user = userEvent.setup()
+    const directory = "C:\\work\\demo"
+    const desktop = createFakeDesktop({ recentProjects: [{ path: directory, usedAt: 1 }] })
+    const backend = createFakeJyycode(desktop.directory)
+    vi.stubGlobal("fetch", backend.fetch)
+
+    render(() => <App bridge={desktop.bridge} />)
+
+    await user.click(await screen.findByRole("link", { name: "Skill" }, { timeout: 5_000 }))
+    await user.click(await screen.findByRole("button", { name: "打开 Skill desktop-helper" }))
+    expect(await screen.findByRole("heading", { name: "Desktop Helper" })).toBeVisible()
+
+    await user.click(screen.getByRole("button", { name: "编辑" }))
+    const editor = screen.getByRole("textbox", { name: "SKILL.md" })
+    fireEvent.input(editor, {
+      target: {
+        value:
+          "---\nname: desktop-helper\ndescription: Desktop management fixture\n---\n\n# Updated Helper\n\nSaved globally.",
+      },
+    })
+    await user.click(screen.getByRole("button", { name: "保存" }))
+    expect(await screen.findByRole("heading", { name: "Updated Helper" })).toBeVisible()
+    expect(backend.skills[0]?.content).toContain("Saved globally")
+
+    await user.click(screen.getByRole("link", { name: "首页" }))
+    expect(await screen.findByRole("heading", { name: "JYYCode" })).toBeVisible()
+    await user.click(screen.getByRole("link", { name: "MCP" }))
+    await user.click(await screen.findByRole("button", { name: "添加 MCP" }))
+    const add = screen.getByRole("dialog", { name: "添加 MCP" })
+    await user.type(within(add).getByLabelText("名称"), "docs")
+    await user.selectOptions(within(add).getByLabelText("类型"), "remote")
+    await user.type(within(add).getByLabelText("URL"), "https://mcp.example.test/api")
+    await user.click(within(add).getByRole("checkbox", { name: "启用" }))
+    await user.click(within(add).getByRole("button", { name: "保存" }))
+
+    const toggle = await screen.findByRole("switch", { name: "启用 docs" })
+    expect(toggle).toHaveAttribute("aria-checked", "false")
+    expect(backend.mcpConfigs.docs?.enabled).toBe(false)
+    await user.click(toggle)
+    await waitFor(() => expect(backend.mcpConfigs.docs?.enabled).toBe(true))
+
+    await user.click(screen.getByRole("button", { name: "删除 docs" }))
+    const remove = screen.getByRole("dialog", { name: "删除 MCP docs" })
+    await user.click(within(remove).getByRole("button", { name: "确认删除" }))
+    await waitFor(() => expect(screen.queryByRole("switch", { name: "启用 docs" })).not.toBeInTheDocument())
+
+    await user.click(screen.getByRole("link", { name: "首页" }))
+    await user.click(await screen.findByRole("button", { name: "打开 demo" }))
+    expect(await screen.findByRole("complementary", { name: "项目与 Session 导航" }, { timeout: 5_000 })).toBeVisible()
+    expect(screen.queryByRole("navigation", { name: "全局管理" })).not.toBeInTheDocument()
+  }, 20_000)
+
   it("creates, prompts, streams, answers, stops, and restores a single-Agent Session", async () => {
     const user = userEvent.setup()
     const desktop = createFakeDesktop()
@@ -160,7 +213,7 @@ describe("desktop GUI journey", () => {
 
     await new Promise((resolve) => window.setTimeout(resolve, 0))
     await user.click(screen.getByRole("button", { name: "返回项目首页" }))
-    expect(await screen.findByRole("heading", { name: /让代码保持流动/ })).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "JYYCode" })).toBeVisible()
     expect(desktop.lastLocation()).toEqual({})
   })
 
@@ -220,7 +273,8 @@ describe("desktop GUI journey", () => {
     await waitFor(() => expect(mode).toHaveAttribute("aria-checked", "true"))
     expect(
       backend.requests.some(
-        (request) => request.method === "PATCH" && request.path === "/session/ses_root" && request.body.multiAgent === true,
+        (request) =>
+          request.method === "PATCH" && request.path === "/session/ses_root" && request.body.multiAgent === true,
       ),
     ).toBe(true)
 
@@ -463,6 +517,7 @@ describe("desktop GUI journey", () => {
 
     await user.type(screen.getByRole("textbox", { name: "消息" }), "请先解释你的修改")
     await user.keyboard("{Enter}")
+    await user.click(screen.getByRole("button", { name: "仅本次允许" }))
     await waitFor(() =>
       expect(
         backend.requests.some(
@@ -483,7 +538,6 @@ describe("desktop GUI journey", () => {
 
     await user.click(screen.getByRole("button", { name: "返回主 Session" }))
     expect(await screen.findByRole("heading", { name: "Root Session" })).toBeVisible()
-    expect(screen.getByText("来自子智能体 · Coder")).toBeVisible()
-    expect(screen.getByText("child command")).toBeVisible()
+    expect(screen.queryByText("child command")).not.toBeInTheDocument()
   }, 20_000)
 })

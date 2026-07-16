@@ -6,6 +6,8 @@ import os from "os"
 import { mergeDeep } from "remeda"
 import { Global } from "@jyycode-ai/core/global"
 import fsNode from "fs/promises"
+import { randomUUID } from "crypto"
+import { isDeepStrictEqual } from "util"
 import { NamedError } from "@jyycode-ai/core/util/error"
 import { Flag } from "@jyycode-ai/core/flag/flag"
 import { Auth } from "../auth"
@@ -398,6 +400,10 @@ export interface Interface {
   readonly getGlobal: () => Effect.Effect<Info>
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<{ info: Info; changed: boolean }>
+  readonly updateGlobalPath: (
+    path: readonly string[],
+    value: unknown,
+  ) => Effect.Effect<{ info: Info; changed: boolean }>
   readonly invalidate: () => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
@@ -846,6 +852,15 @@ export const layer = Layer.effect(
       yield* invalidateGlobal
     })
 
+    const writeGlobalAtomic = Effect.fn("Config.writeGlobalAtomic")(function* (target: string, content: string) {
+      const temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomUUID()}.tmp`)
+      yield* fs.writeFileString(temp, content).pipe(
+        Effect.flatMap(() => fs.rename(temp, target)),
+        Effect.ensuring(fs.remove(temp, { force: true }).pipe(Effect.ignore)),
+        Effect.orDie,
+      )
+    })
+
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
       const file = globalConfigFile()
       const before = (yield* readConfigFile(file)) ?? "{}"
@@ -871,11 +886,47 @@ export const layer = Layer.effect(
       return { info: next, changed }
     })
 
+    const updateGlobalPath = Effect.fn("Config.updateGlobalPath")(function* (
+      configPath: readonly string[],
+      value: unknown,
+    ) {
+      const file = globalConfigFile()
+      const before = (yield* readConfigFile(file)) ?? "{}"
+      const parsed = ConfigParse.jsonc(before, file)
+      const current = configPath.reduce<unknown>(
+        (node, key) => (isRecord(node) ? node[key] : undefined),
+        parsed,
+      )
+      const existing = ConfigParse.schema(Info, parsed, file)
+
+      if (isDeepStrictEqual(current, value)) return { info: existing, changed: false }
+
+      const edits = modify(before, [...configPath], value, {
+        formattingOptions: {
+          insertSpaces: true,
+          tabSize: 2,
+        },
+      })
+
+      if (edits.length === 0) {
+        return { info: existing, changed: false }
+      }
+
+      const updated = applyEdits(before, edits)
+      const next = ConfigParse.schema(Info, ConfigParse.jsonc(updated, file), file)
+      const serialized = file.endsWith(".jsonc") ? updated : JSON.stringify(writableGlobal(next), null, 2)
+
+      yield* writeGlobalAtomic(file, serialized)
+      yield* invalidate()
+      return { info: next, changed: true }
+    })
+
     return Service.of({
       get,
       getGlobal,
       update,
       updateGlobal,
+      updateGlobalPath,
       invalidate,
       directories,
       waitForDependencies,

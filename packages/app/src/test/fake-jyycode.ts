@@ -1,9 +1,13 @@
 import type {
+  AppSkillsResponse,
   GitHubAvailability,
   GitHubPullRequestDetail,
   GitHubPullRequestSummary,
   GlobalEvent,
   Message,
+  McpLocalConfig,
+  McpRemoteConfig,
+  McpStatus,
   Part,
   PermissionRequest,
   Project,
@@ -65,6 +69,27 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   const todos = new Map<string, Todo[]>()
   const agentClusters = new Map<string, SessionAgentClusterResponse>()
   const permissions: PermissionRequest[] = []
+  const skills: AppSkillsResponse = [
+    {
+      name: "desktop-helper",
+      description: "Desktop management fixture",
+      location: "C:\\Users\\test\\.jyycode\\skills\\desktop-helper\\SKILL.md",
+      content:
+        "---\nname: desktop-helper\ndescription: Desktop management fixture\n---\n\n# Desktop Helper\n\nOriginal content.",
+      origin: "managed",
+      editable: true,
+      deletable: true,
+      revision: "revision-1",
+    },
+  ]
+  const skillSources = {
+    path: [] as string[],
+    url: [] as string[],
+  }
+  const mcpConfigs: Record<string, McpLocalConfig | McpRemoteConfig> = {}
+  const mcpStatuses: Record<string, McpStatus> = {}
+  const mcpOAuth = new Set<string>()
+  let skillRevision = 1
   const changes: VcsFileDiff[] = [
     { file: "src/app.tsx", status: "modified", additions: 4, deletions: 1, patch: "@@ -1 +1 @@" },
   ]
@@ -218,6 +243,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
 
     if (url.pathname === "/global/event") return sse(request)
     if (url.pathname === "/global/health") return json({ healthy: true, version: "test" })
+    if (url.pathname === "/global/management-context") return json({ directory: "C:\\Users\\test" })
     if (url.pathname === "/global/config" && request.method === "GET") return json(globalConfig)
     if (url.pathname === "/global/config" && request.method === "PATCH") {
       const nextAgentCluster =
@@ -278,6 +304,92 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     }
     if (url.pathname === "/config") return json({ default_agent: "build", model: "test/test-model" })
     if (url.pathname === "/path") return json({ home: "C:\\Users\\test", state: "state", config: "C:\\config" })
+
+    if (url.pathname === "/skill" && request.method === "GET") return json(skills)
+    if (url.pathname === "/skill" && request.method === "POST") {
+      skillRevision += 1
+      const name = String(value.name ?? "")
+      const content = String(value.content ?? "")
+      const created: AppSkillsResponse[number] = {
+        name,
+        description: typeof value.description === "string" ? value.description : undefined,
+        location: `C:\\Users\\test\\.jyycode\\skills\\${name}\\SKILL.md`,
+        content,
+        origin: "managed",
+        editable: true,
+        deletable: true,
+        revision: `revision-${skillRevision}`,
+      }
+      skills.push(created)
+      return json(created)
+    }
+    const skillName = decodeURIComponent(url.pathname.match(/^\/skill\/([^/]+)$/)?.[1] ?? "")
+    if (skillName && request.method === "PUT") {
+      const current = skills.find((skill) => skill.name === skillName)
+      if (!current) return json({ name: "SkillNotFoundError", message: "Skill not found" }, 404)
+      if (value.revision !== current.revision) {
+        return json({ name: "SkillConflictError", message: "Skill revision is stale", revision: current.revision }, 409)
+      }
+      skillRevision += 1
+      current.content = String(value.content ?? current.content)
+      current.revision = `revision-${skillRevision}`
+      return json(current)
+    }
+    if (skillName && request.method === "DELETE") {
+      const index = skills.findIndex((skill) => skill.name === skillName)
+      if (index < 0) return json({ name: "SkillNotFoundError", message: "Skill not found" }, 404)
+      skills.splice(index, 1)
+      return json(true)
+    }
+    if (url.pathname === "/skill/source" && request.method === "POST") {
+      const type = value.type === "url" ? "url" : "path"
+      const source = String(value.value ?? "").trim()
+      if (source && !skillSources[type].includes(source)) skillSources[type].push(source)
+      return json(true)
+    }
+    if (url.pathname === "/skill/source" && request.method === "DELETE") {
+      const type = value.type === "url" ? "url" : "path"
+      const source = String(value.value ?? "").trim()
+      skillSources[type] = skillSources[type].filter((item) => item !== source)
+      const index = skills.findIndex((skill) => skill.origin === type && skill.source === source)
+      if (index >= 0) skills.splice(index, 1)
+      return json(true)
+    }
+
+    if (url.pathname === "/mcp/config" && request.method === "GET") return json(mcpConfigs)
+    if (url.pathname === "/mcp" && request.method === "GET") return json(mcpStatuses)
+    const mcpName = decodeURIComponent(url.pathname.match(/^\/mcp\/([^/]+)(?:\/|$)/)?.[1] ?? "")
+    if (mcpName && url.pathname.endsWith("/config") && request.method === "PUT") {
+      const config = structuredClone(value) as McpLocalConfig | McpRemoteConfig
+      mcpConfigs[mcpName] = config
+      mcpStatuses[mcpName] = config.enabled === false ? { status: "disabled" } : { status: "connected" }
+      return json(config)
+    }
+    if (mcpName && url.pathname.endsWith("/config") && request.method === "DELETE") {
+      if (!mcpConfigs[mcpName]) return json({ name: "NotFoundError", message: "MCP not found" }, 404)
+      delete mcpConfigs[mcpName]
+      delete mcpStatuses[mcpName]
+      mcpOAuth.delete(mcpName)
+      return json(true)
+    }
+    if (mcpName && url.pathname.endsWith("/connect") && request.method === "POST") {
+      mcpStatuses[mcpName] = { status: "connected" }
+      return json(true)
+    }
+    if (mcpName && url.pathname.endsWith("/disconnect") && request.method === "POST") {
+      mcpStatuses[mcpName] = { status: "disabled" }
+      return json(true)
+    }
+    if (mcpName && url.pathname.endsWith("/auth/authenticate") && request.method === "POST") {
+      mcpOAuth.add(mcpName)
+      mcpStatuses[mcpName] = { status: "connected" }
+      return json(true)
+    }
+    if (mcpName && url.pathname.endsWith("/auth") && request.method === "DELETE") {
+      mcpOAuth.delete(mcpName)
+      mcpStatuses[mcpName] = { status: "needs_auth" }
+      return json(true)
+    }
 
     if (url.pathname === "/session" && request.method === "POST") {
       const overrides: Partial<Session> = {}
@@ -371,15 +483,17 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
         { info: userInfo, parts: [userPart] },
         { info: assistantInfo, parts: [textPart, toolPart] },
       ])
-      const permission: PermissionRequest = {
-        id: "per_1",
-        sessionID,
-        permission: "bash",
-        patterns: ["git status"],
-        metadata: {},
-        always: ["git status"],
-      }
-      permissions.push(permission)
+      const permission: PermissionRequest | undefined = promptText.includes("检查当前工作区")
+        ? {
+            id: "per_1",
+            sessionID,
+            permission: "bash",
+            patterns: ["git status"],
+            metadata: {},
+            always: ["git status"],
+          }
+        : undefined
+      if (permission) permissions.push(permission)
       const session = sessions.find((candidate) => candidate.id === sessionID)
       if (session) {
         session.title = "检查工作区状态"
@@ -392,7 +506,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       event("message.updated", { sessionID, info: assistantInfo })
       event("message.part.updated", { sessionID, part: textPart })
       event("message.part.updated", { sessionID, part: toolPart })
-      event("permission.asked", permission as unknown as Record<string, unknown>)
+      if (permission) event("permission.asked", permission as unknown as Record<string, unknown>)
       return json(true)
     }
     if (sessionID && url.pathname.endsWith("/abort") && request.method === "POST") {
@@ -549,6 +663,11 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   return {
     fetch: fetch as typeof globalThis.fetch,
     project,
+    skills,
+    skillSources,
+    mcpConfigs,
+    mcpStatuses,
+    mcpOAuth,
     sessions,
     addSession,
     messages,

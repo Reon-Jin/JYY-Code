@@ -8,10 +8,11 @@ import { Config } from "../../src/config/config"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { Global } from "@jyycode-ai/core/global"
-import { provideInstance, provideTmpdirInstance, tmpdir } from "../fixture/fixture"
+import { provideInstance, provideTmpdirInstance, TestInstance, tmpdir } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import path from "path"
 import fs from "fs/promises"
+import { createHash } from "crypto"
 
 const node = CrossSpawnSpawner.defaultLayer
 
@@ -25,6 +26,26 @@ const itWithoutExternalSkills = testEffect(
       Layer.provide(AppFileSystem.defaultLayer),
       Layer.provide(Global.layer),
       Layer.provide(RuntimeFlags.layer({ disableExternalSkills: true })),
+    ),
+    node,
+  ),
+)
+const provenanceIt = testEffect(
+  Layer.mergeAll(
+    Skill.layer.pipe(
+      Layer.provide(
+        Layer.mock(Discovery.Service, {
+          pull: (url) => {
+            const root = new URL(url).searchParams.get("root")
+            return Effect.succeed(root ? [root] : [])
+          },
+        }),
+      ),
+      Layer.provide(Config.defaultLayer),
+      Layer.provide(Bus.layer),
+      Layer.provide(AppFileSystem.defaultLayer),
+      Layer.provide(Global.layer),
+      Layer.provide(RuntimeFlags.defaultLayer),
     ),
     node,
   ),
@@ -62,6 +83,68 @@ const withHome = <A, E, R>(home: string, self: Effect.Effect<A, E, R>) =>
   )
 
 describe("skill", () => {
+  provenanceIt.instance(
+    "tracks built-in, managed, path, and URL provenance with revisions",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const suffix = path.basename(test.directory)
+        const managedName = `managed-${suffix}`
+        const pathName = `path-${suffix}`
+        const urlName = `url-${suffix}`
+        const managedDirectory = path.join(test.directory, ".jyycode", "skills", managedName)
+        const pathRoot = path.join(test.directory, "configured-path")
+        const urlRoot = path.join(test.directory, "remote-cache")
+        const url = `https://skills.example.test/?root=${encodeURIComponent(urlRoot)}`
+        const contents = {
+          [managedName]: `---\nname: ${managedName}\ndescription: Managed\n---\n\n# Managed\n`,
+          [pathName]: `---\nname: ${pathName}\ndescription: Path\n---\n\n# Path\n`,
+          [urlName]: `---\nname: ${urlName}\ndescription: URL\n---\n\n# URL\n`,
+        }
+
+        yield* Effect.promise(async () => {
+          await Promise.all([
+            fs.mkdir(managedDirectory, { recursive: true }),
+            fs.mkdir(path.join(pathRoot, pathName), { recursive: true }),
+            fs.mkdir(path.join(urlRoot, urlName), { recursive: true }),
+          ])
+          await Promise.all([
+            fs.writeFile(path.join(managedDirectory, "SKILL.md"), contents[managedName]),
+            fs.writeFile(path.join(pathRoot, pathName, "SKILL.md"), contents[pathName]),
+            fs.writeFile(path.join(urlRoot, urlName, "SKILL.md"), contents[urlName]),
+            fs.writeFile(
+              path.join(test.directory, "jyycode.json"),
+              JSON.stringify({ skills: { paths: [pathRoot], urls: [url] } }),
+            ),
+          ])
+        })
+        const skill = yield* Skill.Service
+        const records = yield* skill.all()
+        const byName = new Map(records.map((record) => [record.name, record]))
+
+        expect(byName.get("customize-jyycode")).toMatchObject({
+          origin: "built_in",
+          editable: false,
+          deletable: false,
+        })
+        expect(byName.get(managedName)).toMatchObject({ origin: "managed", editable: true, deletable: true })
+        expect(byName.get(pathName)).toMatchObject({
+          origin: "path",
+          source: pathRoot,
+          editable: true,
+          deletable: true,
+        })
+        expect(byName.get(urlName)).toMatchObject({ origin: "url", source: url, editable: false, deletable: true })
+
+        for (const name of [managedName, pathName, urlName]) {
+          expect(byName.get(name)?.revision).toBe(createHash("sha256").update(contents[name]).digest("hex"))
+        }
+        const builtIn = byName.get("customize-jyycode")!
+        expect(builtIn.revision).toBe(createHash("sha256").update(builtIn.content).digest("hex"))
+      }),
+    { git: true },
+  )
+
   it.live("discovers skills from .jyycode/skill/ directory", () =>
     provideTmpdirInstance(
       (dir) =>

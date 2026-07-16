@@ -15,7 +15,8 @@ describe("desktop startup shell", () => {
 
   it("keeps one mounted workspace route without a route-wide loading boundary", () => {
     expect(routesSource).toContain('import("./layout/project-workspace")')
-    expect(routesSource).toContain('path={["/", "/session/:sessionID"]}')
+    expect(routesSource).toContain('path="/workspace"')
+    expect(routesSource).toContain('path="/session/:sessionID"')
     expect(routesSource).not.toContain("Suspense")
   })
 })

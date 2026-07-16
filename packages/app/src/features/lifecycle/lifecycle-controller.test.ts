@@ -122,7 +122,7 @@ describe("createLifecycleController", () => {
     await started
 
     expect(controller.phase()).toBe("ready")
-    expect(controller.route()).toBe("/")
+    expect(controller.route()).toBe("/workspace")
     expect(bridge.saveLastLocation).toHaveBeenCalledWith({ project: directory })
   })
 
@@ -149,7 +149,7 @@ describe("createLifecycleController", () => {
     await controller.start()
 
     expect(controller.phase()).toBe("ready")
-    expect(controller.route()).toBe("/")
+    expect(controller.route()).toBe("/workspace")
     expect(controller.project()?.directory).toBe(directory)
     expect(bridge.saveLastLocation).toHaveBeenCalledWith({ project: directory })
   })

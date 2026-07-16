@@ -16,11 +16,13 @@ import * as Log from "@jyycode-ai/core/util/log"
 import { Discovery } from "./discovery"
 import CUSTOMIZE_JYYCODE_SKILL_BODY from "./prompt/customize-jyycode.md" with { type: "text" }
 import { isRecord } from "@/util/record"
+import { createHash } from "crypto"
 
 const log = Log.create({ service: "skill" })
 const JYYCODE_EXTERNAL_DIR = ".jyycode"
 const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
 const JYYCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
+const JYYCODE_INTERNAL_SKILL_PATTERN = "skill/**/SKILL.md"
 const SKILL_PATTERN = "**/SKILL.md"
 
 // Built-in skill that ships with jyycode. The model's intuition for what an
@@ -32,11 +34,19 @@ const CUSTOMIZE_JYYCODE_SKILL_NAME = "customize-jyycode"
 const CUSTOMIZE_JYYCODE_SKILL_DESCRIPTION =
   "Use ONLY when the user is editing or creating jyycode's own configuration: jyycode.json, jyycode.jsonc, files under .jyycode/, or files under ~/.config/jyycode/. Also use when creating or fixing jyycode agents, subagents, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring jyycode itself."
 
+export const Origin = Schema.Literals(["built_in", "managed", "path", "url"])
+export type Origin = Schema.Schema.Type<typeof Origin>
+
 export const Info = Schema.Struct({
   name: Schema.String,
   description: Schema.optional(Schema.String),
   location: Schema.String,
   content: Schema.String,
+  origin: Origin,
+  source: Schema.optional(Schema.String),
+  editable: Schema.Boolean,
+  deletable: Schema.Boolean,
+  revision: Schema.String,
 })
 export type Info = Schema.Schema.Type<typeof Info>
 
@@ -82,14 +92,31 @@ type State = {
   dirs: Set<string>
 }
 
+export type DiscoveredSkill = {
+  location: string
+  origin: Exclude<Origin, "built_in">
+  source?: string
+}
+
 type DiscoveryState = {
-  matches: string[]
+  matches: DiscoveredSkill[]
   dirs: string[]
 }
 
 type ScanState = {
-  matches: Set<string>
+  matches: Map<string, DiscoveredSkill>
   dirs: Set<string>
+}
+
+export const capability = {
+  built_in: { editable: false, deletable: false },
+  managed: { editable: true, deletable: true },
+  path: { editable: true, deletable: true },
+  url: { editable: false, deletable: true },
+} as const satisfies Record<Origin, { editable: boolean; deletable: boolean }>
+
+export function revision(content: string) {
+  return createHash("sha256").update(content).digest("hex")
 }
 
 export interface Interface {
@@ -100,19 +127,40 @@ export interface Interface {
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
 }
 
-const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.Interface) {
-  const md = yield* Effect.tryPromise({
-    try: () => ConfigMarkdown.parse(match),
+const add = Effect.fnUntraced(function* (
+  state: State,
+  discovered: DiscoveredSkill,
+  bus: Bus.Interface,
+  fsys: AppFileSystem.Interface,
+) {
+  const raw = yield* fsys.readFileString(discovered.location).pipe(
+    Effect.catch(
+      Effect.fnUntraced(function* (err) {
+        const message = ConfigMarkdown.FrontmatterError.isInstance(err)
+          ? err.data.message
+          : `Failed to read skill ${discovered.location}`
+        const { Session } = yield* Effect.promise(() => import("@/session/session"))
+        yield* bus.publish(Session.Event.Error, { error: new NamedError.Unknown({ message }).toObject() })
+        log.error("failed to load skill", { skill: discovered.location, err })
+        return undefined
+      }),
+    ),
+  )
+
+  if (raw === undefined) return
+
+  const md = yield* Effect.try({
+    try: () => ConfigMarkdown.parseContent(raw, discovered.location),
     catch: (err) => err,
   }).pipe(
     Effect.catch(
       Effect.fnUntraced(function* (err) {
         const message = ConfigMarkdown.FrontmatterError.isInstance(err)
           ? err.data.message
-          : `Failed to parse skill ${match}`
+          : `Failed to parse skill ${discovered.location}`
         const { Session } = yield* Effect.promise(() => import("@/session/session"))
         yield* bus.publish(Session.Event.Error, { error: new NamedError.Unknown({ message }).toObject() })
-        log.error("failed to load skill", { skill: match, err })
+        log.error("failed to load skill", { skill: discovered.location, err })
         return undefined
       }),
     ),
@@ -126,24 +174,31 @@ const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.I
     log.warn("duplicate skill name", {
       name: md.data.name,
       existing: state.skills[md.data.name].location,
-      duplicate: match,
+      duplicate: discovered.location,
     })
   }
 
-  state.dirs.add(path.dirname(match))
+  const capabilities = capability[discovered.origin]
+  state.dirs.add(path.dirname(discovered.location))
   state.skills[md.data.name] = {
     name: md.data.name,
     description: md.data.description,
-    location: match,
-    content: md.content,
+    location: discovered.location,
+    content: raw,
+    origin: discovered.origin,
+    source: discovered.source,
+    ...capabilities,
+    revision: revision(raw),
   }
 })
 
 const scan = Effect.fnUntraced(function* (
   state: ScanState,
+  fsys: AppFileSystem.Interface,
   root: string,
   pattern: string,
-  opts?: { dot?: boolean; scope?: string },
+  origin: DiscoveredSkill["origin"],
+  opts?: { dot?: boolean; scope?: string; source?: string },
 ) {
   const matches = yield* Effect.tryPromise({
     try: () =>
@@ -164,8 +219,10 @@ const scan = Effect.fnUntraced(function* (
   )
 
   for (const match of matches) {
-    state.matches.add(match)
-    state.dirs.add(path.dirname(match))
+    const location = yield* fsys.realPath(match).pipe(Effect.catch(() => Effect.succeed(path.resolve(match))))
+    const normalized = AppFileSystem.normalizePath(location)
+    state.matches.set(normalized, { location, origin, source: opts?.source })
+    state.dirs.add(path.dirname(location))
   }
 })
 
@@ -178,7 +235,7 @@ const discoverSkills = Effect.fnUntraced(function* (
   directory: string,
   worktree: string,
 ) {
-  const state: ScanState = { matches: new Set(), dirs: new Set() }
+  const state: ScanState = { matches: new Map(), dirs: new Set() }
 
   if (!disableExternalSkills) {
     const externalDirs = [JYYCODE_EXTERNAL_DIR]
@@ -186,7 +243,7 @@ const discoverSkills = Effect.fnUntraced(function* (
     for (const dir of externalDirs) {
       const root = path.join(global.home, dir)
       if (!(yield* fsys.isDir(root))) continue
-      yield* scan(state, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "global" })
+      yield* scan(state, fsys, root, EXTERNAL_SKILL_PATTERN, "managed", { dot: true, scope: "global" })
     }
 
     const upDirs = yield* fsys
@@ -194,13 +251,19 @@ const discoverSkills = Effect.fnUntraced(function* (
       .pipe(Effect.catch(() => Effect.succeed([] as string[])))
 
     for (const root of upDirs) {
-      yield* scan(state, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "project" })
+      yield* scan(state, fsys, root, EXTERNAL_SKILL_PATTERN, "managed", { dot: true, scope: "project" })
     }
   }
 
   const configDirs = yield* config.directories()
   for (const dir of configDirs) {
-    yield* scan(state, dir, JYYCODE_SKILL_PATTERN)
+    yield* scan(
+      state,
+      fsys,
+      dir,
+      disableExternalSkills ? JYYCODE_INTERNAL_SKILL_PATTERN : JYYCODE_SKILL_PATTERN,
+      "managed",
+    )
   }
 
   const cfg = yield* config.get()
@@ -212,27 +275,29 @@ const discoverSkills = Effect.fnUntraced(function* (
       continue
     }
 
-    yield* scan(state, dir, SKILL_PATTERN)
+    yield* scan(state, fsys, dir, SKILL_PATTERN, "path", { source: item })
   }
 
   for (const url of cfg.skills?.urls ?? []) {
     const pulledDirs = yield* discovery.pull(url)
     for (const dir of pulledDirs) {
-      yield* scan(state, dir, SKILL_PATTERN)
+      yield* scan(state, fsys, dir, SKILL_PATTERN, "url", { source: url })
     }
   }
 
   return {
-    matches: Array.from(state.matches),
+    matches: Array.from(state.matches.values()),
     dirs: Array.from(state.dirs),
   }
 })
 
-const loadSkills = Effect.fnUntraced(function* (state: State, discovered: DiscoveryState, bus: Bus.Interface) {
-  yield* Effect.forEach(discovered.matches, (match) => add(state, match, bus), {
-    concurrency: "unbounded",
-    discard: true,
-  })
+const loadSkills = Effect.fnUntraced(function* (
+  state: State,
+  discovered: DiscoveryState,
+  bus: Bus.Interface,
+  fsys: AppFileSystem.Interface,
+) {
+  yield* Effect.forEach(discovered.matches, (match) => add(state, match, bus, fsys), { discard: true })
 
   log.info("init", { count: Object.keys(state.skills).length })
 })
@@ -271,8 +336,11 @@ export const layer = Layer.effect(
           description: CUSTOMIZE_JYYCODE_SKILL_DESCRIPTION,
           location: "<built-in>",
           content: CUSTOMIZE_JYYCODE_SKILL_BODY,
+          origin: "built_in",
+          ...capability.built_in,
+          revision: revision(CUSTOMIZE_JYYCODE_SKILL_BODY),
         }
-        yield* loadSkills(s, yield* InstanceState.get(discovered), bus)
+        yield* loadSkills(s, yield* InstanceState.get(discovered), bus, fsys)
         return s
       }),
     )

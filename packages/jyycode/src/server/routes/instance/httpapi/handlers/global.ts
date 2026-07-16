@@ -5,6 +5,7 @@ import { Bus } from "@/bus"
 import { Installation } from "@/installation"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
 import { InstallationVersion } from "@jyycode-ai/core/installation/version"
+import { Global } from "@jyycode-ai/core/global"
 import * as Log from "@jyycode-ai/core/util/log"
 import { Effect, Queue, Schema } from "effect"
 import * as Stream from "effect/Stream"
@@ -70,6 +71,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
   Effect.gen(function* () {
     const config = yield* Config.Service
     const installation = yield* Installation.Service
+    const global = yield* Global.Service
     const bridge = yield* EffectBridge.make()
 
     const health = Effect.fn("GlobalHttpApi.health")(function* () {
@@ -82,6 +84,10 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
 
     const configGet = Effect.fn("GlobalHttpApi.configGet")(function* () {
       return yield* config.getGlobal()
+    })
+
+    const managementContext = Effect.fn("GlobalHttpApi.managementContext")(function* () {
+      return { directory: global.home }
     })
 
     const configUpdate = Effect.fn("GlobalHttpApi.configUpdate")(function* (ctx) {
@@ -150,6 +156,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       .handle("health", health)
       .handleRaw("event", event)
       .handle("configGet", configGet)
+      .handle("managementContext", managementContext)
       .handle("configUpdate", configUpdate)
       .handle("dispose", dispose)
       .handleRaw("upgrade", upgradeRaw)

@@ -37,9 +37,7 @@ function createHarness(options?: { gitError?: Error; openError?: Error; recentPa
     restartBackend: vi.fn(),
     chooseDirectory: vi.fn(async () => project.worktree),
     createProjectDirectory: vi.fn(async () => project.worktree),
-    loadRecentProjects: vi.fn(async () =>
-      options?.recentPath ? [{ path: options.recentPath, usedAt: 1 }] : [],
-    ),
+    loadRecentProjects: vi.fn(async () => (options?.recentPath ? [{ path: options.recentPath, usedAt: 1 }] : [])),
     saveRecentProjects: vi.fn(async () => undefined),
     loadLastLocation: vi.fn(async () => ({})),
     saveLastLocation: vi.fn(async () => undefined),
@@ -69,6 +67,7 @@ function createHarness(options?: { gitError?: Error; openError?: Error; recentPa
     <ProjectProvider controller={controller}>
       <MemoryRouter>
         <Route path="/" component={WelcomePage} />
+        <Route path="/workspace" component={() => <h1>Project workspace</h1>} />
         <Route path="/session/:sessionID" component={SessionResult} />
       </MemoryRouter>
     </ProjectProvider>
@@ -99,22 +98,51 @@ describe("WelcomePage", () => {
     })
   })
 
+  it("renders the compact Home contract", async () => {
+    createHarness({ recentPath: "C:\\work\\recent" })
+
+    expect(screen.getByRole("heading", { name: "JYYCode" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "打开目录" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "新建项目" })).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "最近项目" })).toBeVisible()
+    expect(screen.getByText("1")).toBeVisible()
+    expect(screen.getByRole("button", { name: /打开 recent/ })).toBeVisible()
+    expect(screen.getByRole("button", { name: /移除.*recent/ })).toBeVisible()
+    expect(screen.queryByText("Desktop Preview")).not.toBeInTheDocument()
+    expect(screen.queryByText(/让代码保持流动/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Windows 本地工作区/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/桌面端与 JYYCode TUI/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/凭据仅保留/)).not.toBeInTheDocument()
+  })
+
   it("opens an existing directory using the keyboard", async () => {
     const user = userEvent.setup()
     const { bridge, sdk } = createHarness()
-    const open = screen.getByRole("button", { name: /打开现有目录/ })
+    const open = screen.getByRole("button", { name: /打开目录/ })
 
     open.focus()
     await user.keyboard("{Enter}")
 
     await waitFor(() => expect(sdk.project.current).toHaveBeenCalledOnce())
     expect(bridge.chooseDirectory).toHaveBeenCalledOnce()
+    expect(await screen.findByRole("heading", { name: "Project workspace" })).toBeVisible()
+  })
+
+  it("opens a recent project into the project workspace", async () => {
+    const user = userEvent.setup()
+    const path = "C:\\work\\recent"
+    const { sdk } = createHarness({ recentPath: path })
+
+    await user.click(await screen.findByRole("button", { name: "打开 recent" }))
+
+    expect(sdk.project.current).toHaveBeenCalledWith({ directory: path }, { throwOnError: true })
+    expect(await screen.findByRole("heading", { name: "Project workspace" })).toBeVisible()
   })
 
   it("shows project errors as an alert", async () => {
     const user = userEvent.setup()
     createHarness({ openError: new Error("目录不存在") })
-    const open = screen.getByRole("button", { name: /打开现有目录/ })
+    const open = screen.getByRole("button", { name: /打开目录/ })
 
     open.focus()
     await user.keyboard("{Enter}")

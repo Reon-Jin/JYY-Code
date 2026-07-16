@@ -64,6 +64,36 @@ describe("desktop accessibility contract", () => {
     expect(screen.getByRole("textbox", { name: "父目录" })).toHaveFocus()
   })
 
+  it("keeps global management navigation and destructive dialogs accessible", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop()
+    const backend = createFakeJyycode(desktop.directory)
+    vi.stubGlobal("fetch", backend.fetch)
+    const { container } = render(() => <App bridge={desktop.bridge} />)
+
+    expect(await screen.findAllByRole("main", {}, { timeout: 5_000 })).toHaveLength(1)
+    const navigation = screen.getByRole("navigation", { name: "全局管理" })
+    expect(navigation).toBeVisible()
+    expect(screen.getByRole("link", { name: "首页" })).toHaveAttribute("aria-current", "page")
+    expect(unnamedIconButtons(container)).toEqual([])
+
+    const skillLink = screen.getByRole("link", { name: "Skill" })
+    skillLink.focus()
+    await user.keyboard("{Enter}")
+    expect(screen.getByRole("link", { name: "Skill" })).toHaveAttribute("aria-current", "page")
+    await user.click(await screen.findByRole("button", { name: "打开 Skill desktop-helper" }))
+
+    const trigger = await screen.findByRole("button", { name: "删除" })
+    trigger.focus()
+    await user.keyboard("{Enter}")
+    const dialog = screen.getByRole("dialog", { name: "删除 Skill" })
+    expect(dialog).toHaveAttribute("aria-describedby")
+    expect(screen.getByRole("button", { name: "确认删除" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "取消" }))
+    await waitFor(() => expect(trigger).toHaveFocus())
+    expect(unnamedIconButtons(container)).toEqual([])
+  })
+
   it("labels the project, Session, Agent, model, and Composer controls after restore", async () => {
     const desktop = createFakeDesktop({
       lastLocation: { project: "C:\\work\\demo", sessionID: "ses_1" },
@@ -82,9 +112,7 @@ describe("desktop accessibility contract", () => {
     vi.stubGlobal("fetch", backend.fetch)
     const { container } = render(() => <App bridge={desktop.bridge} />)
 
-    expect(
-      await screen.findByRole("complementary", { name: "项目与 Session 导航" }, { timeout: 5_000 }),
-    ).toBeVisible()
+    expect(await screen.findByRole("complementary", { name: "项目与 Session 导航" }, { timeout: 5_000 })).toBeVisible()
     expect(screen.getByRole("navigation", { name: "活动 Session" })).toBeVisible()
     expect(await screen.findByRole("combobox", { name: "智能体" }, { timeout: 5_000 })).toBeVisible()
     expect(screen.getByRole("button", { name: "配置模型：Test · Test Model" })).toBeVisible()

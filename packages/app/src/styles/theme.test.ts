@@ -5,6 +5,7 @@ const sources = [
   "src/styles/tokens.css",
   "src/styles/global.css",
   "src/features/projects/projects.css",
+  "src/features/management/management-shell.css",
   "src/features/sessions/sessions.css",
   "src/features/composer/composer.css",
   "src/features/conversation/conversation.css",
@@ -45,5 +46,12 @@ describe("Codex-inspired desktop theme", () => {
 
   it("does not retain the retired blue and green palette", () => {
     for (const color of retiredPalette) expect(themeSource.toLowerCase()).not.toContain(color)
+  })
+
+  it("defines the compact global management rail", () => {
+    expect(themeSource).toContain("--management-rail-width: 60px")
+    expect(themeSource).toContain("--management-nav-icon: 18px")
+    expect(themeSource).toContain("max-width: 720px")
+    expect(themeSource).toContain("--management-rail-width: 52px")
   })
 })
