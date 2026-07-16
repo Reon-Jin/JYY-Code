@@ -1,8 +1,10 @@
 import { normalizeRecentProjects } from "./recent-projects"
+import { parseDesktopSettings, type DesktopSettings } from "../features/settings/settings-preferences"
 import { parseLastLocation, type DesktopBridge, type LastLocation, type RecentProject } from "./types"
 
 const RECENT_PROJECTS_KEY = "jyycode.desktop.recent-projects"
 const LAST_LOCATION_KEY = "jyycode.desktop.last-location"
+const SETTINGS_KEY = "jyycode.desktop.settings"
 
 function unsupported(operation: string): never {
   throw new Error(`${operation} is only available in the JYYCode desktop application`)
@@ -43,6 +45,12 @@ export function createBrowserBridge(storage: Storage = window.localStorage): Des
     },
     async saveLastLocation(value: LastLocation) {
       storage.setItem(LAST_LOCATION_KEY, JSON.stringify(parseLastLocation(value)))
+    },
+    async loadSettings() {
+      return parseDesktopSettings(readStorage(storage, SETTINGS_KEY))
+    },
+    async saveSettings(value: DesktopSettings) {
+      storage.setItem(SETTINGS_KEY, JSON.stringify(parseDesktopSettings(value)))
     },
   }
 }

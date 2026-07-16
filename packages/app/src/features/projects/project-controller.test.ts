@@ -35,6 +35,8 @@ function createHarness() {
     saveRecentProjects: vi.fn(async () => undefined),
     loadLastLocation: vi.fn(async () => ({})),
     saveLastLocation: vi.fn(async () => undefined),
+    loadSettings: vi.fn(async () => ({ startup: "restore", theme: "dark" })),
+    saveSettings: vi.fn(async () => undefined),
   }
   const sdk = {
     project: {

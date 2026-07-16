@@ -14,6 +14,8 @@ function bridgeWith(bootstrap: DesktopBridge["bootstrap"]): DesktopBridge {
     saveRecentProjects: vi.fn(),
     loadLastLocation: vi.fn(async () => ({})),
     saveLastLocation: vi.fn(),
+    loadSettings: vi.fn(async () => ({ startup: "restore", theme: "dark" })),
+    saveSettings: vi.fn(),
   }
 }
 

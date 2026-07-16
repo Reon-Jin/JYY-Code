@@ -1,14 +1,17 @@
 import { vi } from "vitest"
 import type { DesktopBridge, LastLocation, RecentProject } from "../platform/types"
+import { parseDesktopSettings, type DesktopSettings } from "../features/settings/settings-preferences"
 
 export function createFakeDesktop(input?: {
   directory?: string
   lastLocation?: LastLocation
   recentProjects?: RecentProject[]
+  settings?: DesktopSettings
 }) {
   const directory = input?.directory ?? "C:\\work\\demo"
   let lastLocation = input?.lastLocation ?? {}
   let recentProjects = input?.recentProjects ?? []
+  let settings = parseDesktopSettings(input?.settings)
 
   const bridge: DesktopBridge = {
     bootstrap: vi.fn(async () => ({
@@ -28,6 +31,10 @@ export function createFakeDesktop(input?: {
     saveLastLocation: vi.fn(async (value) => {
       lastLocation = { ...value }
     }),
+    loadSettings: vi.fn(async () => ({ ...settings })),
+    saveSettings: vi.fn(async (value) => {
+      settings = parseDesktopSettings(value)
+    }),
   }
 
   return {
@@ -35,5 +42,6 @@ export function createFakeDesktop(input?: {
     directory,
     lastLocation: () => ({ ...lastLocation }),
     recentProjects: () => [...recentProjects],
+    settings: () => ({ ...settings }),
   }
 }

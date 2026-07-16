@@ -24,6 +24,8 @@ export interface DesktopBridge {
   saveRecentProjects(projects: RecentProject[]): Promise<void>
   loadLastLocation(): Promise<LastLocation>
   saveLastLocation(value: LastLocation): Promise<void>
+  loadSettings(): Promise<DesktopSettings>
+  saveSettings(value: DesktopSettings): Promise<void>
 }
 
 export function parseLastLocation(value: unknown): LastLocation {
@@ -35,3 +37,4 @@ export function parseLastLocation(value: unknown): LastLocation {
     ...(typeof candidate.sessionID === "string" ? { sessionID: candidate.sessionID } : {}),
   }
 }
+import type { DesktopSettings } from "../features/settings/settings-preferences"

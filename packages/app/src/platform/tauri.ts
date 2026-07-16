@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
 import { Store } from "@tauri-apps/plugin-store"
 import { normalizeRecentProjects } from "./recent-projects"
+import { parseDesktopSettings, type DesktopSettings } from "../features/settings/settings-preferences"
 import {
   parseLastLocation,
   type DesktopBootstrap,
@@ -13,6 +14,7 @@ import {
 const STORE_PATH = "desktop.json"
 const RECENT_PROJECTS_KEY = "recentProjects"
 const LAST_LOCATION_KEY = "lastLocation"
+const SETTINGS_KEY = "settings"
 
 let storePromise: Promise<Store> | undefined
 
@@ -51,6 +53,15 @@ export const tauriBridge: DesktopBridge = {
   async saveLastLocation(value: LastLocation) {
     const store = await desktopStore()
     await store.set(LAST_LOCATION_KEY, parseLastLocation(value))
+    await store.save()
+  },
+  async loadSettings() {
+    const store = await desktopStore()
+    return parseDesktopSettings(await store.get(SETTINGS_KEY))
+  },
+  async saveSettings(value: DesktopSettings) {
+    const store = await desktopStore()
+    await store.set(SETTINGS_KEY, parseDesktopSettings(value))
     await store.save()
   },
 }

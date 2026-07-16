@@ -32,6 +32,8 @@ function harness(location: LastLocation = { project: directory, sessionID: sessi
     saveRecentProjects: vi.fn(async () => undefined),
     loadLastLocation: vi.fn(async () => location),
     saveLastLocation: vi.fn(async () => undefined),
+    loadSettings: vi.fn(async () => ({ startup: "restore", theme: "dark" })),
+    saveSettings: vi.fn(async () => undefined),
   }
   const sdk = {
     project: {
