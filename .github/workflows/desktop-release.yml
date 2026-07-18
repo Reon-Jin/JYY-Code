@@ -1,74 +1,74 @@
 name: desktop-release
+run-name: Desktop v${{ inputs.version }}
 
 on:
-  push:
-    tags:
-      - "desktop-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, for example 1.0.1"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: desktop-release-${{ github.ref }}
+  group: desktop-release
   cancel-in-progress: false
 
 jobs:
   release:
     runs-on: windows-2022
-    timeout-minutes: 120
-    steps:
-      - name: Checkout tagged source
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ inputs.version }}
+      TAG: desktop-v${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
-      - name: Set up Bun
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.3.14
 
-      - name: Set up Rust
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-13
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Validate release tag and secrets
+      - name: Validate version and secrets
         shell: pwsh
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          $tag = "${{ github.ref_name }}"
-          if ($tag -notmatch '^desktop-v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$') {
-            throw "Invalid desktop release tag: $tag"
-          }
-          $version = $Matches[1]
-          $configured = (Get-Content packages/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-          if ($configured -ne $version) { throw "Tag version $version does not match Tauri version $configured" }
+          if ($env:VERSION -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw "Invalid version: $env:VERSION" }
           if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw "Missing TAURI_SIGNING_PRIVATE_KEY" }
           if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) { throw "Missing TAURI_SIGNING_PRIVATE_KEY_PASSWORD" }
-          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          if (gh release view $env:TAG --repo "${{ github.repository }}" 2>$null) { throw "Release $env:TAG already exists" }
+          if (git tag --list $env:TAG) { throw "Tag $env:TAG already exists" }
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Validate source
-        run: |
-          bun turbo typecheck
-          bun run --cwd packages/desktop test
-
-      - name: Build signed updater artifacts
+      - name: Set version and install dependencies
         shell: pwsh
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          bun packages/desktop/script/set-release-version.ts $env:VERSION
+          bun install --frozen-lockfile
+
+      - name: Run quick release checks
+        run: bun run --cwd packages/desktop test
+
+      - name: Build signed Windows artifacts
+        shell: pwsh
         run: bun run --cwd packages/desktop build -- --target x86_64-pc-windows-msvc --config src-tauri/tauri.release.conf.json
 
-      - name: Smoke-test and prepare artifacts
-        shell: pwsh
-        run: ./packages/desktop/script/smoke-windows.ps1 -ArtifactVersion $env:VERSION -RequireUpdaterSignatures
-
-      - name: Create update manifest and checksums
+      - name: Verify artifacts and create updater manifest
         shell: pwsh
         run: |
+          ./packages/desktop/script/smoke-windows.ps1 -ArtifactVersion $env:VERSION -RequireUpdaterSignatures
           $root = "packages/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/desktop-artifacts"
           $installers = @(Get-ChildItem $root -Filter "*-setup.exe")
           if ($installers.Count -ne 1) { throw "Expected one NSIS installer, found $($installers.Count)" }
@@ -77,7 +77,7 @@ jobs:
           bun packages/desktop/script/create-update-manifest.ts `
             --version "$env:VERSION" `
             --repository "${{ github.repository }}" `
-            --tag "${{ github.ref_name }}" `
+            --tag "$env:TAG" `
             --installer-name "$($installer.Name)" `
             --signature "$($signature.FullName)" `
             --notes "JYYCode Desktop $env:VERSION" `
@@ -89,40 +89,55 @@ jobs:
           }
           Set-Content "$root/SHA256SUMS.txt" $checksums -Encoding ascii
 
-      - name: Create immutable Desktop prerelease
+      - name: Publish Desktop release
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
+          $repo = "${{ github.repository }}"
           $root = Resolve-Path "packages/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/desktop-artifacts"
           $assets = Get-ChildItem $root -File | Select-Object -ExpandProperty FullName
-          gh release create "${{ github.ref_name }}" @assets `
-            --repo "${{ github.repository }}" `
-            --title "JYYCode Desktop $env:VERSION" `
-            --notes "Windows x64 prerelease. The updater artifacts are signed, but Windows Authenticode signing is not yet configured, so SmartScreen may show an unknown publisher warning." `
-            --prerelease `
-            --verify-tag
-
-      - name: Update rolling Desktop manifest
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $manifest = Resolve-Path "packages/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/desktop-artifacts/latest.json"
-          if (gh release view desktop-latest --repo "${{ github.repository }}" 2>$null) {
-            gh release upload desktop-latest $manifest --clobber --repo "${{ github.repository }}"
-          } else {
-            gh release create desktop-latest $manifest `
-              --repo "${{ github.repository }}" `
-              --title "JYYCode Desktop update channel" `
-              --notes "Rolling signed update manifest. Download installers from the versioned Desktop releases." `
-              --prerelease
+          $manifest = Join-Path $root "latest.json"
+          $backupDir = Join-Path $env:RUNNER_TEMP "desktop-latest-backup"
+          New-Item $backupDir -ItemType Directory -Force | Out-Null
+          gh release view desktop-latest --repo $repo 2>$null | Out-Null
+          $hadRollingRelease = $LASTEXITCODE -eq 0
+          if ($hadRollingRelease) {
+            gh release download desktop-latest --pattern latest.json --dir $backupDir --clobber --repo $repo
           }
 
-      - name: Upload workflow artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: JYYCode-desktop-${{ env.VERSION }}-windows-x64
-          path: packages/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/desktop-artifacts/*
-          if-no-files-found: error
-          retention-days: 30
+          $createdRollingRelease = $false
+          $PSNativeCommandUseErrorActionPreference = $true
+          try {
+            gh release create $env:TAG @assets `
+              --repo $repo `
+              --target "${{ github.sha }}" `
+              --title "JYYCode Desktop $env:VERSION" `
+              --notes "Windows x64 prerelease. Updater artifacts are signed; Windows Authenticode signing is not configured yet." `
+              --draft `
+              --prerelease
+
+            if ($hadRollingRelease) {
+              gh release upload desktop-latest $manifest --clobber --repo $repo
+            } else {
+              gh release create desktop-latest $manifest `
+                --repo $repo `
+                --title "JYYCode Desktop update channel" `
+                --notes "Rolling signed update manifest." `
+                --prerelease
+              $createdRollingRelease = $true
+            }
+
+            gh release edit $env:TAG --repo $repo --draft=false --prerelease
+          } catch {
+            $failure = $_
+            $PSNativeCommandUseErrorActionPreference = $false
+            if ($hadRollingRelease) {
+              gh release upload desktop-latest (Join-Path $backupDir "latest.json") --clobber --repo $repo
+            } elseif ($createdRollingRelease) {
+              gh release delete desktop-latest --yes --repo $repo
+            }
+            $isDraft = gh release view $env:TAG --repo $repo --json isDraft --jq .isDraft 2>$null
+            if ($isDraft -eq "true") {
+              gh release delete $env:TAG --cleanup-tag --yes --repo $repo
+            }
+            throw $failure
+          }

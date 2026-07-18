@@ -125,6 +125,11 @@ Normal local builds do not create updater artifacts. The `desktop-release` workf
 versioned artifacts, and replaces `desktop-latest/latest.json`. The private key must also be kept in an audited offline
 backup; losing it prevents future updates for existing installations.
 
+To publish a new Windows Desktop version, open **Actions > desktop-release > Run workflow**, select `main`, enter a
+semantic version such as `1.0.1`, and run it. The workflow injects that version into the build, performs quick
+release-script checks, creates signed installers, publishes `desktop-v1.0.1`, and updates the automatic-update channel.
+It rejects a version whose tag or Release already exists, so every version can be published only once.
+
 ## Clean-VM acceptance gate
 
 Before distributing a build, test it on clean Windows 10 and 11 x64 VMs with no Bun, Node.js, or JYYCode installation:
