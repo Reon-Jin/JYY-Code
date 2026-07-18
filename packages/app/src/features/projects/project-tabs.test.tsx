@@ -40,6 +40,33 @@ function opened(directory: string, running = false): OpenedProject {
 describe("ProjectTabs", () => {
   afterEach(cleanup)
 
+  it("keeps the active tab enabled so it can be dragged to a new position", () => {
+    const current = opened("C:\\work\\active-drag-source")
+    const other = opened("C:\\work\\active-drag-target")
+    const onReorder = vi.fn()
+    render(() => (
+      <ProjectTabs
+        projects={[other, current]}
+        activeDirectory={current.directory}
+        queryClient={createDesktopQueryClient()}
+        onSelect={vi.fn()}
+        onOpen={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={onReorder}
+      />
+    ))
+
+    const currentTab = screen.getByRole("tab", { name: /active-drag-source/ })
+    const otherTab = screen.getByRole("tab", { name: /active-drag-target/ })
+    expect(currentTab).not.toBeDisabled()
+
+    fireEvent.dragStart(currentTab)
+    fireEvent.dragOver(otherTab, { clientX: 0 })
+    fireEvent.drop(otherTab)
+
+    expect(onReorder).toHaveBeenCalledWith(current.directory, other.directory, "before")
+  })
+
   it("renders compact open-project tabs, running state, and direct selection", async () => {
     const current = opened("C:\\work\\demo")
     const other = opened("C:\\work\\other", true)

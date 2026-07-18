@@ -139,8 +139,10 @@ function ProjectTab(props: {
         aria-selected={props.active}
         aria-label={tr("projects.switch-to-project", { name: projectName(props.project) })}
         data-state={state()}
-        disabled={props.disabled || props.active}
-        onClick={props.onSelect}
+        disabled={props.disabled}
+        onClick={() => {
+          if (!props.active) props.onSelect()
+        }}
       >
         <span class="project-tab__dot" aria-hidden="true" />
         <strong>{projectName(props.project)}</strong>
