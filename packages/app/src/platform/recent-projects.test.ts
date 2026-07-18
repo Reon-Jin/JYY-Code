@@ -19,4 +19,21 @@ describe("recent projects", () => {
 
     expect(result).toEqual([{ path: "c:/work/jyycode", usedAt: 2 }])
   })
+
+  it("keeps POSIX paths case-sensitive and treats backslashes as filename characters", () => {
+    const result = touchRecentProject(
+      [
+        { path: "/Users/dev/Work", usedAt: 1 },
+        { path: String.raw`/Users/dev/a\b`, usedAt: 2 },
+      ],
+      "/Users/dev/work/",
+      3,
+    )
+
+    expect(result).toEqual([
+      { path: "/Users/dev/work/", usedAt: 3 },
+      { path: String.raw`/Users/dev/a\b`, usedAt: 2 },
+      { path: "/Users/dev/Work", usedAt: 1 },
+    ])
+  })
 })

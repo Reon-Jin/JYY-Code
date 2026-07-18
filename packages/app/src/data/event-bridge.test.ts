@@ -103,12 +103,7 @@ describe("desktop data boundary", () => {
     expect(keys.pullRequest("C:/A/", 12)).toEqual(["project", "c:\\a", "github", "pull", 12])
     expect(keys.pullRequestDiff("C:/A/", 12)).toEqual(["project", "c:\\a", "github", "pull", 12, "diff"])
     expect(keys.agentClustersScope("C:/A/")).toEqual(["project", "c:\\a", "agent-clusters"])
-    expect(keys.agentCluster("C:/A/", "ses_root")).toEqual([
-      "project",
-      "c:\\a",
-      "agent-clusters",
-      "ses_root",
-    ])
+    expect(keys.agentCluster("C:/A/", "ses_root")).toEqual(["project", "c:\\a", "agent-clusters", "ses_root"])
     expect(keys.globalConfig).toEqual(["global", "config"])
   })
 
@@ -298,6 +293,22 @@ describe("event routing", () => {
     expect(action).toEqual([])
   })
 
+  it("matches Windows directories case-insensitively but POSIX directories case-sensitively", () => {
+    const info = { ...session, directory: "C:\\Work\\Demo" }
+    expect(
+      routeEvent("c:/work/demo", {
+        directory: "C:\\Work\\Demo",
+        payload: { id: "evt_windows", type: "session.updated", properties: { sessionID: info.id, info } },
+      } as GlobalEvent),
+    ).toHaveLength(1)
+    expect(
+      routeEvent("/Users/dev/Work", {
+        directory: "/Users/dev/work",
+        payload: { id: "evt_macos", type: "session.updated", properties: { sessionID: info.id, info } },
+      } as GlobalEvent),
+    ).toEqual([])
+  })
+
   it("upserts asked requests and removes them only after server confirmation", () => {
     const permission: PermissionRequest = {
       id: "per_1",
@@ -475,9 +486,7 @@ describe("event routing", () => {
     bridge.start()
     await vi.waitFor(() => expect(requestFrame).toHaveBeenCalledTimes(1))
     scheduled?.(0)
-    await vi.waitFor(() =>
-      expect(invalidate).toHaveBeenCalledWith({ queryKey, exact: true }),
-    )
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey, exact: true }))
 
     const patched = queryClient.getQueryData<SessionAgentClusterResponse>(queryKey)
     expect(patched?.runs[0]).toMatchObject({ status: "completed", time_updated: 20, completed_at: 20 })

@@ -30,7 +30,9 @@ describe("GeneralSettings", () => {
 
     await user.click(await screen.findByRole("radio", { name: "启动时显示 Home" }))
     await waitFor(() =>
-      expect(desktop.bridge.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ startup: "home", theme: "dark" })),
+      expect(desktop.bridge.saveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ startup: "home", theme: "dark" }),
+      ),
     )
 
     await user.click(screen.getByRole("radio", { name: "浅色" }))
@@ -84,6 +86,8 @@ describe("GeneralSettings", () => {
     for (const label of ["回复完成", "等待权限", "Agent 提问"]) {
       expect(screen.getByLabelText(label)).toBeEnabled()
     }
+    expect(screen.getByRole("heading", { name: "系统通知" })).toBeVisible()
+    expect(screen.queryByText("即将推出")).not.toBeInTheDocument()
   })
 
   it("requests permission only when enabling and keeps the choice after denial", async () => {
@@ -92,7 +96,9 @@ describe("GeneralSettings", () => {
     vi.mocked(desktop.bridge.requestNotificationPermission).mockResolvedValue("denied")
     render(() => (
       <DesktopBridgeProvider bridge={desktop.bridge}>
-        <I18nProvider><GeneralSettings /></I18nProvider>
+        <I18nProvider>
+          <GeneralSettings />
+        </I18nProvider>
       </DesktopBridgeProvider>
     ))
     const user = userEvent.setup()

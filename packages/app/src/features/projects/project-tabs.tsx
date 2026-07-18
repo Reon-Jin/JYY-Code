@@ -4,6 +4,7 @@ import { createQuery } from "@tanstack/solid-query"
 import { Plus, X } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { keys, normalizeDirectory } from "../../data/query-keys"
+import { directoryName } from "../../platform/desktop-path"
 import { publishDesktopNotificationEvent } from "../notifications/desktop-notifications"
 import { tr } from "../../i18n/i18n-context"
 import type { OpenedProject } from "./project-controller"
@@ -50,7 +51,7 @@ export type ProjectTabsProps = {
 
 function projectName(project: OpenedProject) {
   if (project.info.name) return project.info.name
-  return project.directory.replaceAll("/", "\\").split("\\").filter(Boolean).at(-1) ?? project.directory
+  return directoryName(project.directory) || project.directory
 }
 
 function ProjectTab(props: {

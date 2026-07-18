@@ -1,9 +1,10 @@
 import type { RecentProject } from "./types"
+import { normalizeDirectory } from "./desktop-path"
 
 const MAX_RECENT_PROJECTS = 10
 
 function comparisonPath(path: string) {
-  return path.replaceAll("/", "\\").replace(/\\+$/, "").toLocaleLowerCase("en-US")
+  return normalizeDirectory(path)
 }
 
 function isRecentProject(value: unknown): value is RecentProject {

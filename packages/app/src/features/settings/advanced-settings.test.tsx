@@ -9,7 +9,7 @@ import { createFakeDesktop } from "../../test/fake-desktop"
 import type { ManagementContextValue } from "../management/management-context"
 import { AdvancedSettings } from "./advanced-settings"
 
-function management(shell = "cmd") {
+function management(shell = "cmd", directory = "C:\\Users\\dev", config = "C:\\Users\\dev\\.config\\jyycode") {
   const client = {
     global: {
       config: {
@@ -40,11 +40,16 @@ function management(shell = "cmd") {
       },
     },
     path: {
-      get: vi.fn(async () => ({ data: { config: "C:\\Users\\dev\\.config\\jyycode" } })),
+      get: vi.fn(async () => ({ data: { config } })),
     },
   }
-  return { client, queryClient: createDesktopQueryClient(), directory: "C:\\Users\\dev" } as unknown as
-    ManagementContextValue & { client: typeof client }
+  return { client, queryClient: createDesktopQueryClient(), directory } as unknown as ManagementContextValue & {
+    client: typeof client
+  }
+}
+
+function macManagement(shell = "zsh") {
+  return management(shell, "/Users/dev", "/Users/dev/.config/jyycode")
 }
 
 function renderAdvanced(value = management()) {
@@ -63,7 +68,10 @@ function renderAdvanced(value = management()) {
   return { value, desktop }
 }
 
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe("AdvancedSettings", () => {
   it("updates the default Shell and reveals the validated global config path", async () => {
@@ -73,15 +81,15 @@ describe("AdvancedSettings", () => {
     const shell = await screen.findByRole("combobox", { name: "默认 Shell" })
     await waitFor(() => expect(shell).toBeEnabled())
     await user.selectOptions(shell, "pwsh")
-    await waitFor(() => expect(value.client.global.config.update).toHaveBeenCalledWith(
-      { config: { shell: "pwsh" } },
-      { throwOnError: true },
-    ))
+    await waitFor(() =>
+      expect(value.client.global.config.update).toHaveBeenCalledWith(
+        { config: { shell: "pwsh" } },
+        { throwOnError: true },
+      ),
+    )
 
     await user.click(screen.getByRole("button", { name: "打开全局配置文件" }))
-    expect(desktop.bridge.revealConfigFile).toHaveBeenCalledWith(
-      "C:\\Users\\dev\\.config\\jyycode\\jyycode.jsonc",
-    )
+    expect(desktop.bridge.revealConfigFile).toHaveBeenCalledWith("C:\\Users\\dev\\.config\\jyycode\\jyycode.jsonc")
   })
 
   it("preserves an unrecognized existing Shell and exposes updater controls", async () => {
@@ -96,5 +104,18 @@ describe("AdvancedSettings", () => {
     expect(screen.getByRole("link", { name: /用户记忆/ })).toBeVisible()
     expect(screen.getByRole("link", { name: /任务记忆/ })).toBeVisible()
     expect(screen.queryByText("用户偏好简体中文。")).not.toBeInTheDocument()
+  })
+
+  it("offers macOS shells and reveals the Finder-compatible config path", async () => {
+    const { desktop } = renderAdvanced(macManagement())
+    const user = userEvent.setup()
+    await screen.findByRole("combobox", { name: "默认 Shell" })
+
+    expect(screen.getByRole("option", { name: "zsh" })).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: "bash" })).toBeInTheDocument()
+    expect(screen.queryByRole("option", { name: "cmd" })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "打开全局配置文件" }))
+    expect(desktop.bridge.revealConfigFile).toHaveBeenCalledWith("/Users/dev/.config/jyycode/jyycode.jsonc")
   })
 })

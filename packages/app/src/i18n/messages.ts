@@ -189,7 +189,8 @@ export const zhCN = {
   "github.no-description-filled-in": "未填写说明",
   "github.no-pull-request-selected": "未选择 Pull Request",
   "github.no-text-to-display-diff": "没有可显示的文本 Diff",
-  "github.please-complete-the-browser-login-in-the-terminal": "请在终端完成浏览器登录。Desktop 不会要求你粘贴访问令牌。",
+  "github.please-complete-the-browser-login-in-the-terminal":
+    "请在终端完成浏览器登录。Desktop 不会要求你粘贴访问令牌。",
   "github.please-confirm-that-git-remote-points-to-the": "请确认 Git remote 指向 GitHub 仓库后重新检测。",
   "github.pull-request-closed": "Pull Request 已关闭",
   "github.pull-request-details": "Pull Request 详情",
@@ -201,7 +202,8 @@ export const zhCN = {
   "github.pull-request-operation": "Pull Request 操作",
   "github.pull-request-operation-failed": "Pull Request 操作失败",
   "github.pull-request-status": "Pull Request 状态",
-  "github.re-detect-after-installing-github-cli-without-restarting": "安装 GitHub CLI 后重新检测，无需重启或重装 Desktop。",
+  "github.re-detect-after-installing-github-cli-without-restarting":
+    "安装 GitHub CLI 后重新检测，无需重启或重装 Desktop。",
   "github.refresh-pull-requests": "刷新 Pull Requests",
   "github.retest": "重新检测",
   "github.save": "保存",
@@ -242,7 +244,8 @@ export const zhCN = {
   "layout.unable-to-load-session-message": "无法加载 Session 消息",
   "layout.unable-to-return-to-project-home-page": "无法返回项目首页",
   "lifecycle.connecting-backend": "正在连接后端…",
-  "lifecycle.jyycode-cannot-connect-to-the-local-service-loaded": "JYYCode 无法连接到本地服务。已加载的数据不会在此页面显示敏感认证信息。",
+  "lifecycle.jyycode-cannot-connect-to-the-local-service-loaded":
+    "JYYCode 无法连接到本地服务。已加载的数据不会在此页面显示敏感认证信息。",
   "lifecycle.local-backend-is-not-available": "本地后端不可用",
   "lifecycle.log-location": "日志位置：",
   "lifecycle.reading-last-location": "正在读取上次位置…",
@@ -351,7 +354,8 @@ export const zhCN = {
   "multi-agent.submitted": "已提交",
   "multi-agent.summary-of-results": "结果摘要",
   "multi-agent.the-current-configuration-is-not-available": "当前配置不可用 ·",
-  "multi-agent.the-main-model-is-used-for-ordinary-single": "主模型用于普通单智能体对话，也负责多智能体的规划与汇总；另外三种模型用于对应的子任务。设置对所有项目生效，正在运行的任务不会切换模型。",
+  "multi-agent.the-main-model-is-used-for-ordinary-single":
+    "主模型用于普通单智能体对话，也负责多智能体的规划与汇总；另外三种模型用于对应的子任务。设置对所有项目生效，正在运行的任务不会切换模型。",
   "multi-agent.unable-to-load-global-model-configuration": "无法加载全局模型配置",
   "multi-agent.unable-to-load-multi-agent-task": "无法加载多智能体任务",
   "multi-agent.unable-to-save-global-model-configuration": "无法保存全局模型配置",
@@ -439,7 +443,8 @@ export const zhCN = {
   "sessions.rename": "重命名",
   "sessions.save-name": "保存名称",
   "sessions.start-a-new-conversation": "开始一次新的对话",
-  "sessions.this-operation-will-permanently-delete-the-session-and": "此操作会永久删除该 Session 及其对话记录，无法撤销。",
+  "sessions.this-operation-will-permanently-delete-the-session-and":
+    "此操作会永久删除该 Session 及其对话记录，无法撤销。",
   "sessions.unable-to-archive-session": "无法归档 Session",
   "sessions.unable-to-delete-session": "无法删除 Session",
   "sessions.unable-to-rename-session": "无法重命名 Session",
@@ -448,7 +453,8 @@ export const zhCN = {
   "settings.allows-tools-to-execute-directly-suitable-for-trusted": "允许工具直接执行，适合受信任的环境。",
   "settings.appearance": "外观",
   "settings.apple-style-liquid-glass": "Apple 风格液态玻璃",
-  "settings.applies-only-to-newly-created-sessions-existing-sessions": "仅应用于新建的 Session；现有 Session 保留各自的权限选择。",
+  "settings.applies-only-to-newly-created-sessions-existing-sessions":
+    "仅应用于新建的 Session；现有 Session 保留各自的权限选择。",
   "settings.ask-first-every-time-you-need-permission-to": "每次需要使用工具权限时都先询问。",
   "settings.automatic-updates": "自动更新",
   "settings.update-not-configured": "未配置",
@@ -562,7 +568,8 @@ export const zhCN = {
   "settings.new-session-default-permissions": "新 Session 默认权限",
   "settings.notification-trigger-conditions": "通知触发条件",
   "settings.on-startup": "启动时",
-  "settings.once-you-proceed-the-existing-fine-grained-permissions": "继续后，现有细粒度权限规则将被所选的简单策略替换。",
+  "settings.once-you-proceed-the-existing-fine-grained-permissions":
+    "继续后，现有细粒度权限规则将被所选的简单策略替换。",
   "settings.open-global-configuration-file": "打开全局配置文件",
   "settings.permissions-and-security": "权限与安全",
   "settings.reading-default-permissions": "正在读取默认权限…",
@@ -574,19 +581,24 @@ export const zhCN = {
   "settings.return-to-recently-used-projects-and-sessions": "回到最近使用的项目和 Session。",
   "settings.saving": "正在保存…",
   "settings.select-default-permissions-for-new-sessions": "选择新 Session 的默认权限",
-  "settings.select-the-jyycode-global-configuration-file-provided-by": "在资源管理器中选中后端提供的 JYYCode 全局配置文件。",
+  "settings.select-the-jyycode-global-configuration-file-provided-by":
+    "在资源管理器中选中后端提供的 JYYCode 全局配置文件。",
   "settings.set-categories": "设置分类",
   "settings.show-home-on-startup": "启动时显示 Home",
   "settings.simplified-chinese": "简体中文",
-  "settings.some-compression-mechanisms-are-still-placeholder-implementations-and": "部分压缩机制仍是占位实现，需要安全的产品默认值和参数验证。",
+  "settings.some-compression-mechanisms-are-still-placeholder-implementations-and":
+    "部分压缩机制仍是占位实现，需要安全的产品默认值和参数验证。",
   "settings.system-default": "系统默认",
   "settings.terminal-and-shell-tools-for-new-startups-use": "用于新启动的终端和 Shell 工具；留空时使用系统默认值。",
   "settings.the-backend-did-not-return-the-global-configuration": "后端未返回全局配置目录",
   "settings.the-backend-does-not-yet-provide-a-safe": "后端尚未提供适合桌面 UI 的安全、类型化记忆管理 API。",
-  "settings.the-current-global-configuration-contains-fine-grained-rules": "当前全局配置包含细粒度规则。选择上方策略前需要确认替换。",
+  "settings.the-current-global-configuration-contains-fine-grained-rules":
+    "当前全局配置包含细粒度规则。选择上方策略前需要确认替换。",
   "settings.the-desktop-package-has-not-yet-generated-an": "桌面包尚未生成更新产物，也没有签名更新端点。",
-  "settings.this-operation-only-changes-the-default-permissions-of": "此操作只改变新 Session 的默认权限，不会修改已经存在的 Session。",
-  "settings.true-language-switching-requires-establishing-a-centralized-message": "真正的语言切换需要先建立集中式消息目录。",
+  "settings.this-operation-only-changes-the-default-permissions-of":
+    "此操作只改变新 Session 的默认权限，不会修改已经存在的 Session。",
+  "settings.true-language-switching-requires-establishing-a-centralized-message":
+    "真正的语言切换需要先建立集中式消息目录。",
   "settings.unable-to-open-global-configuration-file": "无法打开全局配置文件",
   "settings.unable-to-read-default-permissions": "无法读取默认权限",
   "settings.unable-to-read-global-configuration": "无法读取全局配置",
@@ -597,7 +609,7 @@ export const zhCN = {
   "settings.use-the-safe-default-behavior-of-jyycode": "使用 JYYCode 的安全默认行为。",
   "settings.view-clean-and-export-memories": "查看、清理和导出记忆",
   "settings.waiting-for-permission": "等待权限",
-  "settings.windows-notifications": "Windows 通知",
+  "settings.windows-notifications": "系统通知",
   "notifications.reply-completed": "回复已完成，可以返回应用查看。",
   "notifications.permission-required": "任务需要你的权限处理。",
   "notifications.question-required": "任务需要你回答一个问题。",
@@ -728,16 +740,20 @@ export const enUS = {
   "composer.all-permissions": "All permissions",
   "composer.api-consumption": "API consumption",
   "composer.api-key": "API key",
-  "composer.approval-is-only-required-when-risky-actions-are": "Approval is only required when risky actions are detected",
+  "composer.approval-is-only-required-when-risky-actions-are":
+    "Approval is only required when risky actions are detected",
   "composer.automatic-mode": "automatic mode",
   "composer.connect": "connect",
   "composer.connect-model-provider": "Connect model provider",
   "composer.connecting": "Connecting",
-  "composer.current-replies-will-be-sent-in-sequence-after": "Current replies will be sent in sequence after completion",
+  "composer.current-replies-will-be-sent-in-sequence-after":
+    "Current replies will be sent in sequence after completion",
   "composer.enter": "enter",
-  "composer.enter-your-api-key-and-your-credentials-will": "Enter your API key and your credentials will be kept securely on your machine.",
+  "composer.enter-your-api-key-and-your-credentials-will":
+    "Enter your API key and your credentials will be kept securely on your machine.",
   "composer.failed-to-connect-to-model-provider": "Failed to connect to model provider",
-  "composer.included-in-input-output-provider-not-listed-separately": "Included in input/output, provider not listed separately",
+  "composer.included-in-input-output-provider-not-listed-separately":
+    "Included in input/output, provider not listed separately",
   "composer.information": "information",
   "composer.join-queue": "join queue",
   "composer.loading-model-providers": "Loading model providers...",
@@ -799,7 +815,8 @@ export const enUS = {
   "conversation.waiting-for-subtask-output": "Waiting for subtask output...",
   "git.automatic-selection": "automatic selection",
   "git.branch": "branch",
-  "git.branch-name-contains-characters-or-path-fragments-that": "Branch name contains characters or path fragments that Git does not allow",
+  "git.branch-name-contains-characters-or-path-fragments-that":
+    "Branch name contains characters or path fragments that Git does not allow",
   "git.checking-repository": "Checking repository...",
   "git.create-a-new-branch": "Create a new branch",
   "git.current": "current",
@@ -807,7 +824,8 @@ export const enUS = {
   "git.git-branch": "Git branch",
   "git.git-operation-failed": "Git operation failed",
   "git.just": "just",
-  "git.multiple-remote-ends-detected-please-select-the-push": "Multiple remote ends detected, please select the Push target and try again.",
+  "git.multiple-remote-ends-detected-please-select-the-push":
+    "Multiple remote ends detected, please select the Push target and try again.",
   "git.new-branch-name": "new branch name",
   "git.no-matching-branch": "No matching branch",
   "git.please-enter-a-branch-name": "Please enter a branch name",
@@ -817,7 +835,8 @@ export const enUS = {
   "git.switch-branches-or-synchronize-remote-repositories": "Switch branches or synchronize remote repositories",
   "git.version-control-is-not-enabled": "Version control is not enabled",
   "github.add-comment": "add comment",
-  "github.browse-and-manage-pull-requests-for-the-current": "Browse and manage Pull Requests for the current repository",
+  "github.browse-and-manage-pull-requests-for-the-current":
+    "Browse and manage Pull Requests for the current repository",
   "github.cancel": "Cancel",
   "github.check-network-and-github-cli-status-and-try": "Check network and GitHub CLI status and try again.",
   "github.checks-failed": "Checks failed",
@@ -852,8 +871,10 @@ export const enUS = {
   "github.no-description-filled-in": "No description filled in",
   "github.no-pull-request-selected": "No Pull Request selected",
   "github.no-text-to-display-diff": "No text to display Diff",
-  "github.please-complete-the-browser-login-in-the-terminal": "Please complete the browser login in the terminal. Desktop will not ask you to paste the access token.",
-  "github.please-confirm-that-git-remote-points-to-the": "Please confirm that Git remote points to the GitHub repository and recheck.",
+  "github.please-complete-the-browser-login-in-the-terminal":
+    "Please complete the browser login in the terminal. Desktop will not ask you to paste the access token.",
+  "github.please-confirm-that-git-remote-points-to-the":
+    "Please confirm that Git remote points to the GitHub repository and recheck.",
   "github.pull-request-closed": "Pull Request Closed",
   "github.pull-request-details": "Pull Request details",
   "github.pull-request-details-view": "Pull Request details view",
@@ -864,7 +885,8 @@ export const enUS = {
   "github.pull-request-operation": "Pull request operation",
   "github.pull-request-operation-failed": "Pull Request operation failed",
   "github.pull-request-status": "Pull request status",
-  "github.re-detect-after-installing-github-cli-without-restarting": "Re-detect after installing GitHub CLI without restarting or reinstalling Desktop.",
+  "github.re-detect-after-installing-github-cli-without-restarting":
+    "Re-detect after installing GitHub CLI without restarting or reinstalling Desktop.",
   "github.refresh-pull-requests": "Refresh Pull Requests",
   "github.retest": "Retest",
   "github.save": "save",
@@ -905,7 +927,8 @@ export const enUS = {
   "layout.unable-to-load-session-message": "Unable to load Session message",
   "layout.unable-to-return-to-project-home-page": "Unable to return to project home page",
   "lifecycle.connecting-backend": "Connecting backend...",
-  "lifecycle.jyycode-cannot-connect-to-the-local-service-loaded": "JYYCode cannot connect to the local service. Loaded data will not display sensitive authentication information on this page.",
+  "lifecycle.jyycode-cannot-connect-to-the-local-service-loaded":
+    "JYYCode cannot connect to the local service. Loaded data will not display sensitive authentication information on this page.",
   "lifecycle.local-backend-is-not-available": "Local backend is not available",
   "lifecycle.log-location": "Log location:",
   "lifecycle.reading-last-location": "Reading last location...",
@@ -915,7 +938,8 @@ export const enUS = {
   "lifecycle.return-to-project-selection": "Return to project selection",
   "lifecycle.starting-jyycode": "Starting JYYCode…",
   "lifecycle.the-connection-has-been-interrupted-reconnecting": "The connection has been interrupted, reconnecting...",
-  "management.backend-does-not-return-global-management-directory": "Backend does not return global management directory",
+  "management.backend-does-not-return-global-management-directory":
+    "Backend does not return global management directory",
   "management.front-page": "Home",
   "management.global-management": "Global management",
   "management.loading-global-management": "Loading global management...",
@@ -961,10 +985,12 @@ export const enUS = {
   "mcp.remove-certification": "Remove certification",
   "mcp.request-header": "Request header",
   "mcp.saving": "Saving",
-  "mcp.the-configuration-is-saved-to-the-global-management": "The configuration is saved to the global management directory and used for all desktop projects.",
+  "mcp.the-configuration-is-saved-to-the-global-management":
+    "The configuration is saved to the global management directory and used for all desktop projects.",
   "mcp.the-current-project-does-not-have-an-installed": "The current project does not have an installed MCP plug-in.",
   "mcp.there-is-no-global-mcp-configuration-yet": "There is no global MCP configuration yet.",
-  "mcp.this-disconnects-the-server-removes-the-oauth-credentials": "This disconnects the server, removes the OAuth credentials, and deletes the global configuration.",
+  "mcp.this-disconnects-the-server-removes-the-oauth-credentials":
+    "This disconnects the server, removes the OAuth credentials, and deletes the global configuration.",
   "mcp.timeout-milliseconds": "timeout (milliseconds)",
   "mcp.type": "type",
   "mcp.unable-to-delete-mcp-configuration": "Unable to delete MCP configuration",
@@ -989,7 +1015,8 @@ export const enUS = {
   "multi-agent.modification-requested": "Modification requested",
   "multi-agent.modifying": "Modifying",
   "multi-agent.multi-agent": "multi-agent",
-  "multi-agent.multi-agent-has-been-disabled-in-global-configuration": "Multi-agent has been disabled in global configuration",
+  "multi-agent.multi-agent-has-been-disabled-in-global-configuration":
+    "Multi-agent has been disabled in global configuration",
   "multi-agent.multi-agent-is-not-enabled-for-the-current": "Multi-agent is not enabled for the current session",
   "multi-agent.multi-agent-progress": "Multi-agent progress",
   "multi-agent.no": "No.",
@@ -1014,7 +1041,8 @@ export const enUS = {
   "multi-agent.submitted": "Submitted",
   "multi-agent.summary-of-results": "summary of results",
   "multi-agent.the-current-configuration-is-not-available": "The current configuration is not available ·",
-  "multi-agent.the-main-model-is-used-for-ordinary-single": "The main model is used for ordinary single-agent dialogue and is also responsible for the planning and summary of multi-agent; the other three models are used for corresponding subtasks. The settings take effect for all projects, running tasks will not switch models.",
+  "multi-agent.the-main-model-is-used-for-ordinary-single":
+    "The main model is used for ordinary single-agent dialogue and is also responsible for the planning and summary of multi-agent; the other three models are used for corresponding subtasks. The settings take effect for all projects, running tasks will not switch models.",
   "multi-agent.unable-to-load-global-model-configuration": "Unable to load global model configuration",
   "multi-agent.unable-to-load-multi-agent-task": "Unable to load multi-agent task",
   "multi-agent.unable-to-save-global-model-configuration": "Unable to save global model configuration",
@@ -1026,9 +1054,11 @@ export const enUS = {
   "multi-agent.waiting": "Waiting",
   "multi-agent.waiting-for-master-agent-to-generate-plan": "Waiting for master agent to generate plan",
   "projects.a-new-project-folder-will-be-created-in": "A new project folder will be created in this directory",
-  "projects.after-opening-or-creating-a-new-project-it": "After opening or creating a new project, it will appear here.",
+  "projects.after-opening-or-creating-a-new-project-it":
+    "After opening or creating a new project, it will appear here.",
   "projects.choose": "choose",
-  "projects.create-a-directory-and-open-the-first-session": "Create a directory and open the first Session in the local JYYCode backend.",
+  "projects.create-a-directory-and-open-the-first-session":
+    "Create a directory and open the first Session in the local JYYCode backend.",
   "projects.create-a-git-repository-in-a-new-directory": "Create a Git repository in a new directory",
   "projects.create-and-enter": "Create and enter",
   "projects.creating": "Creating",
@@ -1065,7 +1095,8 @@ export const enUS = {
   "requests.confirm-rejection": "Confirm rejection",
   "requests.custom-answer": "Custom answer",
   "requests.handle-request": "Handle request",
-  "requests.once-confirmed-the-following-modes-will-continue-to": "Once confirmed, the following modes will continue to be allowed:",
+  "requests.once-confirmed-the-following-modes-will-continue-to":
+    "Once confirmed, the following modes will continue to be allowed:",
   "requests.only-allowed-this-time": "Only allowed this time",
   "requests.permission-reply-failed": "Permission reply failed",
   "requests.permission-request": "permission request",
@@ -1087,9 +1118,11 @@ export const enUS = {
   "sessions.activity-session": "Activity Session",
   "sessions.archive": "Archive",
   "sessions.archive-session": "Archive Session",
-  "sessions.archived-sessions-will-appear-here-for-easy-reference": "Archived sessions will appear here for easy reference later.",
+  "sessions.archived-sessions-will-appear-here-for-easy-reference":
+    "Archived sessions will appear here for easy reference later.",
   "sessions.archiving": "Archiving",
-  "sessions.create-a-single-agent-session-to-continue-working": "Create a single Agent Session to continue working on the current project.",
+  "sessions.create-a-single-agent-session-to-continue-working":
+    "Create a single Agent Session to continue working on the current project.",
   "sessions.delete-permanently": "Delete permanently",
   "sessions.delete-session": "Delete session",
   "sessions.deleting": "Deleting",
@@ -1102,16 +1135,19 @@ export const enUS = {
   "sessions.rename": "Rename",
   "sessions.save-name": "save name",
   "sessions.start-a-new-conversation": "Start a new conversation",
-  "sessions.this-operation-will-permanently-delete-the-session-and": "This operation will permanently delete the Session and its conversation records and cannot be undone.",
+  "sessions.this-operation-will-permanently-delete-the-session-and":
+    "This operation will permanently delete the Session and its conversation records and cannot be undone.",
   "sessions.unable-to-archive-session": "Unable to archive session",
   "sessions.unable-to-delete-session": "Unable to delete Session",
   "sessions.unable-to-rename-session": "Unable to rename session",
   "sessions.waiting-for-retry": "Waiting for retry",
   "settings.advanced": "Advanced",
-  "settings.allows-tools-to-execute-directly-suitable-for-trusted": "Allows tools to execute directly, suitable for trusted environments.",
+  "settings.allows-tools-to-execute-directly-suitable-for-trusted":
+    "Allows tools to execute directly, suitable for trusted environments.",
   "settings.appearance": "Appearance",
   "settings.apple-style-liquid-glass": "Apple style liquid glass",
-  "settings.applies-only-to-newly-created-sessions-existing-sessions": "Applies only to newly created Sessions; existing Sessions retain their own permission selections.",
+  "settings.applies-only-to-newly-created-sessions-existing-sessions":
+    "Applies only to newly created Sessions; existing Sessions retain their own permission selections.",
   "settings.ask-first-every-time-you-need-permission-to": "Ask first every time you need permission to use a tool.",
   "settings.automatic-updates": "Automatic updates",
   "settings.update-not-configured": "Not configured",
@@ -1174,7 +1210,8 @@ export const enUS = {
   "settings.custom-configuration": "Custom configuration",
   "settings.dark": "Dark",
   "settings.default-shell": "Default Shell",
-  "settings.every-startup-starts-with-the-project-selection-page": "Every startup starts with the project selection page.",
+  "settings.every-startup-starts-with-the-project-selection-page":
+    "Every startup starts with the project selection page.",
   "settings.general.title": "General settings",
   "settings.global-configuration-file": "Global configuration file",
   "settings.language": "Language",
@@ -1225,7 +1262,8 @@ export const enUS = {
   "settings.new-session-default-permissions": "New Session default permissions",
   "settings.notification-trigger-conditions": "Notification trigger conditions",
   "settings.on-startup": "On startup",
-  "settings.once-you-proceed-the-existing-fine-grained-permissions": "Once you proceed, the existing fine-grained permissions rules will be replaced by the selected simple policy.",
+  "settings.once-you-proceed-the-existing-fine-grained-permissions":
+    "Once you proceed, the existing fine-grained permissions rules will be replaced by the selected simple policy.",
   "settings.open-global-configuration-file": "Open global configuration file",
   "settings.permissions-and-security": "Permissions and Security",
   "settings.reading-default-permissions": "Reading default permissions...",
@@ -1237,19 +1275,28 @@ export const enUS = {
   "settings.return-to-recently-used-projects-and-sessions": "Return to recently used projects and sessions.",
   "settings.saving": "Saving…",
   "settings.select-default-permissions-for-new-sessions": "Select default permissions for new Sessions",
-  "settings.select-the-jyycode-global-configuration-file-provided-by": "Select the JYYCode global configuration file provided by the backend in the explorer.",
+  "settings.select-the-jyycode-global-configuration-file-provided-by":
+    "Select the JYYCode global configuration file provided by the backend in the explorer.",
   "settings.set-categories": "Settings categories",
   "settings.show-home-on-startup": "Show Home on startup",
   "settings.simplified-chinese": "Simplified Chinese",
-  "settings.some-compression-mechanisms-are-still-placeholder-implementations-and": "Some compression mechanisms are still placeholder implementations and require safe product defaults and parameter validation.",
+  "settings.some-compression-mechanisms-are-still-placeholder-implementations-and":
+    "Some compression mechanisms are still placeholder implementations and require safe product defaults and parameter validation.",
   "settings.system-default": "System default",
-  "settings.terminal-and-shell-tools-for-new-startups-use": "Terminal and shell tools for new startups; use system defaults when left blank.",
-  "settings.the-backend-did-not-return-the-global-configuration": "The backend did not return the global configuration directory",
-  "settings.the-backend-does-not-yet-provide-a-safe": "The backend does not yet provide a safe, typed memory management API suitable for desktop UIs.",
-  "settings.the-current-global-configuration-contains-fine-grained-rules": "The current global configuration contains fine-grained rules. You need to confirm the substitution before selecting the strategy above.",
-  "settings.the-desktop-package-has-not-yet-generated-an": "The desktop package has not yet generated an update artifact and does not have a signed update endpoint.",
-  "settings.this-operation-only-changes-the-default-permissions-of": "This operation only changes the default permissions of the new Session and does not modify the existing Session.",
-  "settings.true-language-switching-requires-establishing-a-centralized-message": "True language switching requires establishing a centralized message catalog first.",
+  "settings.terminal-and-shell-tools-for-new-startups-use":
+    "Terminal and shell tools for new startups; use system defaults when left blank.",
+  "settings.the-backend-did-not-return-the-global-configuration":
+    "The backend did not return the global configuration directory",
+  "settings.the-backend-does-not-yet-provide-a-safe":
+    "The backend does not yet provide a safe, typed memory management API suitable for desktop UIs.",
+  "settings.the-current-global-configuration-contains-fine-grained-rules":
+    "The current global configuration contains fine-grained rules. You need to confirm the substitution before selecting the strategy above.",
+  "settings.the-desktop-package-has-not-yet-generated-an":
+    "The desktop package has not yet generated an update artifact and does not have a signed update endpoint.",
+  "settings.this-operation-only-changes-the-default-permissions-of":
+    "This operation only changes the default permissions of the new Session and does not modify the existing Session.",
+  "settings.true-language-switching-requires-establishing-a-centralized-message":
+    "True language switching requires establishing a centralized message catalog first.",
   "settings.unable-to-open-global-configuration-file": "Unable to open global configuration file",
   "settings.unable-to-read-default-permissions": "Unable to read default permissions",
   "settings.unable-to-read-global-configuration": "Unable to read global configuration",
@@ -1260,7 +1307,7 @@ export const enUS = {
   "settings.use-the-safe-default-behavior-of-jyycode": "Use the safe default behavior of JYYCode.",
   "settings.view-clean-and-export-memories": "View, clean and export memories",
   "settings.waiting-for-permission": "Waiting for permission",
-  "settings.windows-notifications": "Windows notifications",
+  "settings.windows-notifications": "System notifications",
   "notifications.reply-completed": "The reply is ready. Return to the app to review it.",
   "notifications.permission-required": "A task needs your permission.",
   "notifications.question-required": "A task needs you to answer a question.",
@@ -1299,11 +1346,13 @@ export const enUS = {
   "skills.search-skill": "Search Skill",
   "skills.skill-does-not-exist": "Skill does not exist",
   "skills.skill-editor": "Skill Editor",
-  "skills.skill-has-been-modified-by-other-operations-the": "Skill has been modified by other operations; the draft has been retained, please reload and save.",
+  "skills.skill-has-been-modified-by-other-operations-the":
+    "Skill has been modified by other operations; the draft has been retained, please reload and save.",
   "skills.source": "source",
   "skills.there-is-no-global-skill-yet": "There is no global Skill yet",
   "skills.this-action-will-delete-the-skill-from-the": "This action will delete the Skill from the display location.",
-  "skills.this-source-will-be-removed-from-the-global": "This source will be removed from the global configuration and the cached content will not be edited directly.",
+  "skills.this-source-will-be-removed-from-the-global":
+    "This source will be removed from the global configuration and the cached content will not be edited directly.",
   "skills.unable-to-add-skill-source": "Unable to add Skill source",
   "skills.unable-to-create-skill": "Unable to create Skill",
   "skills.unable-to-load-skill": "Unable to load skill",
@@ -1316,7 +1365,8 @@ export const enUS = {
   "todos.there-are-no-steps-in-the-current-session": "There are no steps in the current session.",
   "todos.unable-to-load-steps": "Unable to load steps",
   "workspace-inspector.adjust-taskbar-width": "Adjust taskbar width",
-  "workspace-inspector.after-selecting-a-session-you-can-view-the": "After selecting a session, you can view the agent plan and progress here.",
+  "workspace-inspector.after-selecting-a-session-you-can-view-the":
+    "After selecting a session, you can view the agent plan and progress here.",
   "workspace-inspector.close-the-taskbar-page": "Close the taskbar page",
   "workspace-inspector.taskbar-page": "Taskbar page",
   "workspace-inspector.to-do": "To-do",

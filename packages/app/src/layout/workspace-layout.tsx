@@ -9,6 +9,7 @@ import { InlineError } from "../components/ui/inline-error"
 import { useData } from "../data/context"
 import type { ConnectionState } from "../data/event-bridge"
 import { keys, normalizeDirectory } from "../data/query-keys"
+import { directoryName } from "../platform/desktop-path"
 import { errorMessage } from "../features/projects/project-controller"
 import { ReconnectBanner } from "../features/lifecycle/reconnect-banner"
 import { useProjects } from "../features/projects/project-context"
@@ -302,7 +303,9 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
                     <ArrowLeft aria-hidden="true" />
                     {tr("layout.return-to-main-session")}
                   </button>
-                  <span>{tr("layout.subagent")} {capitalize(childRole())}</span>
+                  <span>
+                    {tr("layout.subagent")} {capitalize(childRole())}
+                  </span>
                 </div>
               </Show>
               <h1 id="workspace-session-title">{selected()?.title ?? "Session"}</h1>
@@ -515,8 +518,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const projectName = createMemo(() => {
     const project = projects.activeProject()
     if (project?.info.name) return project.info.name
-    const parts = data.directory().replaceAll("/", "\\").split("\\").filter(Boolean)
-    return parts.at(-1) ?? "JYYCode"
+    return directoryName(data.directory()) || "JYYCode"
   })
 
   function nextActive(excluding: string) {
@@ -608,7 +610,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     selectActiveRequest(permissionsQuery.data ?? [], questionsQuery.data ?? [], requestScope()),
   )
   const requestError = createMemo(() => {
-    if (permissionsQuery.error) return errorMessage(permissionsQuery.error, tr("layout.unable-to-load-permission-request"))
+    if (permissionsQuery.error)
+      return errorMessage(permissionsQuery.error, tr("layout.unable-to-load-permission-request"))
     if (questionsQuery.error) return errorMessage(questionsQuery.error, tr("layout.unable-to-load-agent-issue"))
     return undefined
   })
@@ -647,10 +650,18 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       activeLoading={activeQuery.isPending || (Boolean(props.activeSessionID) && sessionQuery.isPending)}
       archivedLoading={archivedQuery.isPending}
       conversationLoading={Boolean(props.activeSessionID) && conversationQuery.isPending}
-      activeError={activeQuery.error ? errorMessage(activeQuery.error, tr("layout.unable-to-load-active-session")) : undefined}
-      archivedError={archivedQuery.error ? errorMessage(archivedQuery.error, tr("layout.unable-to-load-archived-session")) : undefined}
+      activeError={
+        activeQuery.error ? errorMessage(activeQuery.error, tr("layout.unable-to-load-active-session")) : undefined
+      }
+      archivedError={
+        archivedQuery.error
+          ? errorMessage(archivedQuery.error, tr("layout.unable-to-load-archived-session"))
+          : undefined
+      }
       conversationError={
-        conversationQuery.error ? errorMessage(conversationQuery.error, tr("layout.unable-to-load-session-message")) : undefined
+        conversationQuery.error
+          ? errorMessage(conversationQuery.error, tr("layout.unable-to-load-session-message"))
+          : undefined
       }
       planStatus={clusterPlanStatus()}
       operationError={operationError()}
@@ -682,7 +693,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
               <>
                 <Show when={pending.sourceSessionID !== activeSession()?.id}>
                   <p class="request-panel__source">
-                    {tr("layout.from-subagent")} {capitalize(
+                    {tr("layout.from-subagent")}{" "}
+                    {capitalize(
                       clusterSnapshot().tasks.find((task) => task.childSessionID === pending.sourceSessionID)?.role ??
                         tr("composer.agent"),
                     )}
@@ -711,7 +723,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
             >
               <Show
                 when={!catalogQuery.error}
-                fallback={<InlineError message={errorMessage(catalogQuery.error, tr("layout.unable-to-load-agents-and-models"))} />}
+                fallback={
+                  <InlineError
+                    message={errorMessage(catalogQuery.error, tr("layout.unable-to-load-agents-and-models"))}
+                  />
+                }
               >
                 <Show
                   when={composerModel()}

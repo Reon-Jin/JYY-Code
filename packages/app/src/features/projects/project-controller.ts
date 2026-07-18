@@ -2,6 +2,7 @@ import type { Project, Session } from "@jyycode-ai/sdk/v2/client"
 import { createSignal } from "solid-js"
 import { createDesktopClient, type DesktopClient } from "../../data/sdk"
 import { normalizeRecentProjects, touchRecentProject } from "../../platform/recent-projects"
+import { normalizeDirectory } from "../../platform/desktop-path"
 import type { DesktopBootstrap, DesktopBridge, RecentProject } from "../../platform/types"
 
 export type OpenedProject = {
@@ -40,7 +41,7 @@ export class GitInitializationError extends Error {
 }
 
 function pathKey(path: string) {
-  return path.replaceAll("/", "\\").replace(/\\+$/, "").toLocaleLowerCase("en-US")
+  return normalizeDirectory(path)
 }
 
 export function errorMessage(error: unknown, fallback = "操作失败") {
@@ -161,10 +162,7 @@ export function createProjectController(input: ProjectControllerInput) {
   }
 
   async function createInitialSession(opened: OpenedProject): Promise<CreatedProject> {
-    const result = await opened.client.session.create(
-      { directory: opened.directory },
-      { throwOnError: true },
-    )
+    const result = await opened.client.session.create({ directory: opened.directory }, { throwOnError: true })
     if (!result.data) throw new Error("创建 Session 失败")
     return { ...opened, session: result.data }
   }
@@ -183,10 +181,7 @@ export function createProjectController(input: ProjectControllerInput) {
   }
 
   async function continueAfterGitFailure(error: GitInitializationError) {
-    await error.opened.client.project.initGit(
-      { directory: error.opened.directory },
-      { throwOnError: true },
-    )
+    await error.opened.client.project.initGit({ directory: error.opened.directory }, { throwOnError: true })
     return createInitialSession(error.opened)
   }
 

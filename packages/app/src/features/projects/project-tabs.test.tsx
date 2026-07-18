@@ -40,6 +40,23 @@ function opened(directory: string, running = false): OpenedProject {
 describe("ProjectTabs", () => {
   afterEach(cleanup)
 
+  it("uses POSIX path semantics for macOS project titles", () => {
+    const project = opened("/Users/dev/项目\\保留")
+    render(() => (
+      <ProjectTabs
+        projects={[project]}
+        activeDirectory={project.directory}
+        queryClient={createDesktopQueryClient()}
+        onSelect={vi.fn()}
+        onOpen={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={vi.fn()}
+      />
+    ))
+
+    expect(screen.getByRole("tab", { name: /项目\\保留/ })).toBeVisible()
+  })
+
   it("keeps the active tab enabled so it can be dragged to a new position", () => {
     const current = opened("C:\\work\\active-drag-source")
     const other = opened("C:\\work\\active-drag-target")

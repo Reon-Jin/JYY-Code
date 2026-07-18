@@ -1,6 +1,5 @@
-export function normalizeDirectory(directory: string) {
-  return directory.replaceAll("/", "\\").replace(/\\+$/, "").toLocaleLowerCase("en-US")
-}
+import { normalizeDirectory } from "../platform/desktop-path"
+export { normalizeDirectory } from "../platform/desktop-path"
 
 const project = (directory: string) => ["project", normalizeDirectory(directory)] as const
 

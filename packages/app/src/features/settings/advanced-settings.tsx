@@ -1,7 +1,6 @@
 import { tr } from "../../i18n/i18n-context"
 import { createQuery } from "@tanstack/solid-query"
 import { createEffect, createSignal, Show } from "solid-js"
-import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { keys } from "../../data/query-keys"
 import type { ManagementContextValue } from "../management/management-context"
@@ -10,11 +9,11 @@ import { CompactionSettings } from "./compaction-settings"
 import { GlobalConfigReveal } from "./global-config-reveal"
 import { MemorySettings } from "./memory-settings"
 import { UpdateSettings } from "./update-settings"
-
-const knownShells = ["pwsh", "powershell", "cmd", "bash"] as const
+import { defaultShellOptions } from "../../platform/desktop-path"
 
 export function AdvancedSettings(props: { management?: ManagementContextValue }) {
   const management = props.management ?? useManagement()
+  const knownShells = () => defaultShellOptions(management.directory)
   const [shell, setShell] = createSignal("")
   const [saving, setSaving] = createSignal(false)
   const [failure, setFailure] = createSignal<string>()
@@ -52,7 +51,7 @@ export function AdvancedSettings(props: { management?: ManagementContextValue })
 
   const unknownShell = () => {
     const current = shell()
-    return current && !knownShells.includes(current as (typeof knownShells)[number]) ? current : undefined
+    return current && !knownShells().some((value) => value === current) ? current : undefined
   }
 
   return (
@@ -70,12 +69,25 @@ export function AdvancedSettings(props: { management?: ManagementContextValue })
             onChange={(event) => void save(event.currentTarget.value)}
           >
             <option value="">{tr("settings.system-default")}</option>
-            <Show when={unknownShell()}>{(value) => <option value={value()}>{tr("settings.current-value")}{value()}</option>}</Show>
-            {knownShells.map((value) => <option value={value}>{value}</option>)}
+            <Show when={unknownShell()}>
+              {(value) => (
+                <option value={value()}>
+                  {tr("settings.current-value")}
+                  {value()}
+                </option>
+              )}
+            </Show>
+            {knownShells().map((value) => (
+              <option value={value}>{value}</option>
+            ))}
           </select>
         </label>
         <Show when={config.error}>
-          <InlineError message={config.error instanceof Error ? config.error.message : tr("settings.unable-to-read-global-configuration")} />
+          <InlineError
+            message={
+              config.error instanceof Error ? config.error.message : tr("settings.unable-to-read-global-configuration")
+            }
+          />
         </Show>
       </section>
 
