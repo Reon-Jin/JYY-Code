@@ -4,9 +4,9 @@
   "version": "1.0.0",
   "identifier": "ai.jyycode.desktop",
   "build": {
-    "beforeDevCommand": "bun run --cwd ../app dev",
+    "beforeDevCommand": "bun run --bun --cwd ../app dev",
     "devUrl": "http://127.0.0.1:5173",
-    "beforeBuildCommand": "bun run --cwd ../app build",
+    "beforeBuildCommand": "bun run --bun --cwd ../app build",
     "frontendDist": "../../app/dist"
   },
   "app": {
@@ -29,7 +29,6 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
     "createUpdaterArtifacts": false,
     "icon": [
       "icons/32x32.png",
@@ -38,15 +37,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/jyycode-sidecar"],
-    "windows": {
-      "webviewInstallMode": {
-        "type": "downloadBootstrapper"
-      },
-      "nsis": {
-        "installMode": "currentUser"
-      }
-    }
+    "externalBin": ["binaries/jyycode-sidecar"]
   },
   "plugins": {
     "updater": {

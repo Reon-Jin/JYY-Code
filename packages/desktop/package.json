@@ -5,11 +5,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run stage:sidecar && tauri dev",
-    "build": "bun run stage:sidecar && tauri build",
+    "dev": "bun run stage:sidecar && bun run --bun tauri dev",
+    "build": "bun run stage:sidecar && bun script/build-desktop.ts",
     "stage:sidecar": "bun script/stage-sidecar.ts",
+    "smoke:macos": "bash script/smoke-macos.sh",
     "test": "bun test script",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "bun run --bun tsc --noEmit"
   },
   "devDependencies": {
     "@tauri-apps/cli": "catalog:",

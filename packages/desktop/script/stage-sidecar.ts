@@ -1,26 +1,57 @@
-import { copyFile, mkdir, stat } from "node:fs/promises"
+import { chmod, copyFile, mkdir, stat } from "node:fs/promises"
 import { resolve } from "node:path"
 
-type SupportedArchitecture = "x64"
+type SupportedTarget =
+  | {
+      platform: "win32"
+      architecture: "x64"
+      triple: "x86_64-pc-windows-msvc"
+      distribution: "jyycode-windows-x64"
+      executable: "jyycode.exe"
+    }
+  | {
+      platform: "darwin"
+      architecture: "arm64"
+      triple: "aarch64-apple-darwin"
+      distribution: "jyycode-darwin-arm64"
+      executable: "jyycode"
+    }
 
 const packageRoot = resolve(import.meta.dir, "..")
 const jyycodeRoot = resolve(packageRoot, "../jyycode")
 const binariesRoot = resolve(packageRoot, "src-tauri/binaries")
 
-function assertSupportedArchitecture(architecture: string): asserts architecture is SupportedArchitecture {
-  if (architecture !== "x64") {
-    throw new Error(`Unsupported architecture for phase 1: ${architecture}`)
+export function sidecarTarget(platform: string, architecture: string): SupportedTarget {
+  if (platform === "win32" && architecture === "x64") {
+    return {
+      platform,
+      architecture,
+      triple: "x86_64-pc-windows-msvc",
+      distribution: "jyycode-windows-x64",
+      executable: "jyycode.exe",
+    }
   }
+  if (platform === "darwin" && architecture === "arm64") {
+    return {
+      platform,
+      architecture,
+      triple: "aarch64-apple-darwin",
+      distribution: "jyycode-darwin-arm64",
+      executable: "jyycode",
+    }
+  }
+  throw new Error(`Unsupported desktop target: ${platform}/${architecture}`)
 }
 
-export function sidecarName(architecture: string) {
-  assertSupportedArchitecture(architecture)
-  return "jyycode-sidecar-x86_64-pc-windows-msvc.exe"
+export function sidecarName(platform: string, architecture: string) {
+  const target = sidecarTarget(platform, architecture)
+  const extension = target.platform === "win32" ? ".exe" : ""
+  return `jyycode-sidecar-${target.triple}${extension}`
 }
 
-export function sourceBinary(architecture: string) {
-  assertSupportedArchitecture(architecture)
-  return resolve(jyycodeRoot, "dist/jyycode-windows-x64/bin/jyycode.exe")
+export function sourceBinary(platform: string, architecture: string) {
+  const target = sidecarTarget(platform, architecture)
+  return resolve(jyycodeRoot, "dist", target.distribution, "bin", target.executable)
 }
 
 async function runBuild() {
@@ -48,16 +79,16 @@ async function verifyBinary(path: string) {
 }
 
 export async function stageSidecar(options: { skipBuild?: boolean } = {}) {
-  if (process.platform !== "win32") throw new Error(`Unsupported platform for phase 1: ${process.platform}`)
-  assertSupportedArchitecture(process.arch)
+  const target = sidecarTarget(process.platform, process.arch)
 
   if (!options.skipBuild) await runBuild()
-  const source = sourceBinary(process.arch)
+  const source = sourceBinary(target.platform, target.architecture)
   await verifyBinary(source)
   await mkdir(binariesRoot, { recursive: true })
 
-  const destination = resolve(binariesRoot, sidecarName(process.arch))
+  const destination = resolve(binariesRoot, sidecarName(target.platform, target.architecture))
   await copyFile(source, destination)
+  if (target.platform === "darwin") await chmod(destination, 0o755)
   return destination
 }
 

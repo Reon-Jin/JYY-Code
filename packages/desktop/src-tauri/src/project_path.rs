@@ -2,32 +2,69 @@ use std::{fs, path::Path, process::Command};
 
 const WINDOWS_INVALID_CHARACTERS: [char; 9] = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
 
-pub fn validate_project_name(name: &str) -> Result<&str, String> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PathPlatform {
+    Windows,
+    MacOS,
+}
+
+fn current_platform() -> PathPlatform {
+    #[cfg(target_os = "windows")]
+    {
+        PathPlatform::Windows
+    }
+    #[cfg(target_os = "macos")]
+    {
+        PathPlatform::MacOS
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        PathPlatform::MacOS
+    }
+}
+
+fn validate_project_name_for(name: &str, platform: PathPlatform) -> Result<&str, String> {
     if name.is_empty() || name == "." || name == ".." {
         return Err("project name is empty or reserved".into());
     }
-    if name.ends_with(['.', ' ']) {
-        return Err("project name cannot end with a dot or space".into());
-    }
-    if name
-        .chars()
-        .any(|character| character.is_control() || WINDOWS_INVALID_CHARACTERS.contains(&character))
-    {
-        return Err("project name contains an invalid Windows character".into());
-    }
 
-    let device_name = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
-    let numbered_device = device_name
-        .strip_prefix("COM")
-        .or_else(|| device_name.strip_prefix("LPT"))
-        .is_some_and(|suffix| {
-            matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
-        });
-    if matches!(device_name.as_str(), "CON" | "PRN" | "AUX" | "NUL") || numbered_device {
-        return Err("project name is reserved by Windows".into());
+    match platform {
+        PathPlatform::Windows => {
+            if name.ends_with(['.', ' ']) {
+                return Err("project name cannot end with a dot or space".into());
+            }
+            if name.chars().any(|character| {
+                character.is_control() || WINDOWS_INVALID_CHARACTERS.contains(&character)
+            }) {
+                return Err("project name contains an invalid Windows character".into());
+            }
+
+            let device_name = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
+            let numbered_device = device_name
+                .strip_prefix("COM")
+                .or_else(|| device_name.strip_prefix("LPT"))
+                .is_some_and(|suffix| {
+                    matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+                });
+            if matches!(device_name.as_str(), "CON" | "PRN" | "AUX" | "NUL") || numbered_device {
+                return Err("project name is reserved by Windows".into());
+            }
+        }
+        PathPlatform::MacOS => {
+            if name
+                .chars()
+                .any(|character| character.is_control() || matches!(character, '/' | ':'))
+            {
+                return Err("project name contains an invalid macOS character".into());
+            }
+        }
     }
 
     Ok(name)
+}
+
+pub fn validate_project_name(name: &str) -> Result<&str, String> {
+    validate_project_name_for(name, current_platform())
 }
 
 #[tauri::command]
@@ -60,12 +97,30 @@ pub fn create_project_directory(parent: String, name: String) -> Result<String, 
         .ok_or_else(|| "created project directory is not valid UTF-8".into())
 }
 
-pub fn validate_global_config_file(path: &str) -> Result<&str, String> {
+fn is_absolute_for(path: &str, platform: PathPlatform) -> bool {
+    match platform {
+        PathPlatform::Windows => {
+            let bytes = path.as_bytes();
+            (bytes.len() >= 3
+                && bytes[0].is_ascii_alphabetic()
+                && bytes[1] == b':'
+                && matches!(bytes[2], b'\\' | b'/'))
+                || path.starts_with(r"\\")
+        }
+        PathPlatform::MacOS => path.starts_with('/'),
+    }
+}
+
+fn validate_global_config_file_for(path: &str, platform: PathPlatform) -> Result<&str, String> {
     let path_value = Path::new(path);
-    if !path_value.is_absolute() {
+    if !is_absolute_for(path, platform) {
         return Err("global config path must be absolute".into());
     }
-    let Some(name) = path_value.file_name().and_then(|value| value.to_str()) else {
+    let name = match platform {
+        PathPlatform::Windows => path.rsplit(['\\', '/']).next(),
+        PathPlatform::MacOS => path_value.file_name().and_then(|value| value.to_str()),
+    };
+    let Some(name) = name else {
         return Err("global config path has no valid filename".into());
     };
     if !matches!(name, "jyycode.jsonc" | "jyycode.json") {
@@ -74,14 +129,24 @@ pub fn validate_global_config_file(path: &str) -> Result<&str, String> {
     Ok(path)
 }
 
-pub fn explorer_selection(path: &str) -> Result<(&'static str, [String; 2]), String> {
-    let path = validate_global_config_file(path)?;
-    Ok(("explorer.exe", ["/select,".into(), path.into()]))
+pub fn validate_global_config_file(path: &str) -> Result<&str, String> {
+    validate_global_config_file_for(path, current_platform())
+}
+
+fn reveal_command_for(
+    path: &str,
+    platform: PathPlatform,
+) -> Result<(&'static str, [String; 2]), String> {
+    let path = validate_global_config_file_for(path, platform)?;
+    match platform {
+        PathPlatform::Windows => Ok(("explorer.exe", ["/select,".into(), path.into()])),
+        PathPlatform::MacOS => Ok(("/usr/bin/open", ["-R".into(), path.into()])),
+    }
 }
 
 #[tauri::command]
 pub fn reveal_config_file(path: String) -> Result<(), String> {
-    let (program, arguments) = explorer_selection(&path)?;
+    let (program, arguments) = reveal_command_for(&path, current_platform())?;
     Command::new(program)
         .args(arguments)
         .spawn()
@@ -94,8 +159,8 @@ mod tests {
     use std::fs;
 
     use super::{
-        create_project_directory, explorer_selection, validate_global_config_file,
-        validate_project_name,
+        PathPlatform, create_project_directory, reveal_command_for,
+        validate_global_config_file_for, validate_project_name_for,
     };
 
     #[test]
@@ -104,9 +169,31 @@ mod tests {
             "", ".", "..", "a/b", "a\\b", "CON", "con.txt", "COM1", "lpt9.md", "name.", "name ",
             "a:b",
         ] {
-            assert!(validate_project_name(name).is_err(), "accepted {name}");
+            assert!(
+                validate_project_name_for(name, PathPlatform::Windows).is_err(),
+                "accepted {name}"
+            );
         }
-        assert_eq!(validate_project_name("my-project").unwrap(), "my-project");
+        assert_eq!(
+            validate_project_name_for("my-project", PathPlatform::Windows).unwrap(),
+            "my-project"
+        );
+    }
+
+    #[test]
+    fn applies_macos_project_name_rules() {
+        for name in ["", ".", "..", "a/b", "a:b", "line\nbreak"] {
+            assert!(
+                validate_project_name_for(name, PathPlatform::MacOS).is_err(),
+                "accepted {name:?}"
+            );
+        }
+        for name in ["my-project", r"a\b", "CON", "name.", "name "] {
+            assert_eq!(
+                validate_project_name_for(name, PathPlatform::MacOS).unwrap(),
+                name
+            );
+        }
     }
 
     #[test]
@@ -128,18 +215,63 @@ mod tests {
 
     #[test]
     fn validates_only_absolute_jyycode_config_files() {
-        assert!(validate_global_config_file(r"C:\Users\dev\.config\jyycode\jyycode.jsonc").is_ok());
-        assert!(validate_global_config_file(r"C:\Users\dev\.config\jyycode\jyycode.json").is_ok());
-        assert!(validate_global_config_file(r"C:\Users\dev\.config\jyycode\other.json").is_err());
-        assert!(validate_global_config_file(r"jyycode.jsonc").is_err());
+        assert!(
+            validate_global_config_file_for(
+                r"C:\Users\dev\.config\jyycode\jyycode.jsonc",
+                PathPlatform::Windows
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_global_config_file_for(
+                r"C:\Users\dev\.config\jyycode\jyycode.json",
+                PathPlatform::Windows
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_global_config_file_for(
+                r"C:\Users\dev\.config\jyycode\other.json",
+                PathPlatform::Windows
+            )
+            .is_err()
+        );
+        assert!(validate_global_config_file_for("jyycode.jsonc", PathPlatform::Windows).is_err());
+        assert!(
+            validate_global_config_file_for(
+                "/Users/dev/.config/jyycode/jyycode.jsonc",
+                PathPlatform::MacOS
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_global_config_file_for(
+                "/Users/dev/.config/jyycode/other.json",
+                PathPlatform::MacOS
+            )
+            .is_err()
+        );
+        assert!(validate_global_config_file_for("jyycode.jsonc", PathPlatform::MacOS).is_err());
     }
 
     #[test]
     fn explorer_selection_uses_a_fixed_executable_and_argument_array() {
-        let (program, arguments) =
-            explorer_selection(r"C:\Users\dev\.config\jyycode\jyycode.jsonc").unwrap();
+        let (program, arguments) = reveal_command_for(
+            r"C:\Users\dev\.config\jyycode\jyycode.jsonc",
+            PathPlatform::Windows,
+        )
+        .unwrap();
         assert_eq!(program, "explorer.exe");
         assert_eq!(arguments[0], "/select,");
         assert_eq!(arguments[1], r"C:\Users\dev\.config\jyycode\jyycode.jsonc");
+    }
+
+    #[test]
+    fn finder_selection_uses_a_fixed_executable_and_argument_array() {
+        let path = "/Users/dev/.config/jyycode/jyycode.jsonc";
+        let (program, arguments) = reveal_command_for(path, PathPlatform::MacOS).unwrap();
+        assert_eq!(program, "/usr/bin/open");
+        assert_eq!(arguments[0], "-R");
+        assert_eq!(arguments[1], path);
     }
 }
