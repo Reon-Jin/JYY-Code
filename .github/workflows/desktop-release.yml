@@ -122,8 +122,7 @@ jobs:
               --target "${{ github.sha }}" `
               --title "JYYCode Desktop $env:VERSION" `
               --notes $releaseNotes `
-              --draft `
-              --prerelease
+              --draft
 
             if ($hadRollingRelease) {
               gh release upload desktop-latest $manifest --clobber --repo $repo
@@ -142,7 +141,7 @@ jobs:
               $createdRollingRelease = $true
             }
 
-            gh release edit $env:TAG --repo $repo --draft=false --prerelease
+            gh release edit $env:TAG --repo $repo --draft=false
           } catch {
             $failure = $_
             $PSNativeCommandUseErrorActionPreference = $false
