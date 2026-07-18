@@ -1,7 +1,7 @@
 import type { SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import { createQuery } from "@tanstack/solid-query"
-import { Plus } from "lucide-solid"
+import { Plus, X } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { keys, normalizeDirectory } from "../../data/query-keys"
 import { publishDesktopNotificationEvent } from "../notifications/desktop-notifications"
@@ -44,6 +44,8 @@ export type ProjectTabsProps = {
   disabled?: boolean
   onSelect: (directory: string) => void
   onOpen: () => void
+  onClose: (directory: string) => void
+  onReorder: (sourceDirectory: string, targetDirectory: string, placement: "before" | "after") => void
 }
 
 function projectName(project: OpenedProject) {
@@ -57,6 +59,13 @@ function ProjectTab(props: {
   queryClient: QueryClient
   disabled?: boolean
   onSelect: () => void
+  onClose: () => void
+  dragging: boolean
+  dropPlacement?: "before" | "after"
+  onDragStart: (event: DragEvent) => void
+  onDragOver: (event: DragEvent) => void
+  onDrop: (event: DragEvent) => void
+  onDragEnd: () => void
 }) {
   const [unread, setUnread] = createSignal(0)
   const statusKey = () => normalizeDirectory(props.project.directory)
@@ -110,32 +119,65 @@ function ProjectTab(props: {
   const state = () => (running() > 0 ? "running" : unread() > 0 ? "complete" : "idle")
 
   return (
-    <button
-      type="button"
-      role="tab"
+    <div
       class="project-tab"
-      aria-selected={props.active}
-      aria-label={tr("projects.switch-to-project", { name: projectName(props.project) })}
       data-state={state()}
-      disabled={props.disabled || props.active}
+      data-active={props.active}
+      data-dragging={props.dragging || undefined}
+      data-drop-placement={props.dropPlacement}
+      draggable={!props.disabled}
       title={props.project.directory}
-      onClick={props.onSelect}
+      onDragStart={props.onDragStart}
+      onDragOver={props.onDragOver}
+      onDrop={props.onDrop}
+      onDragEnd={props.onDragEnd}
     >
-      <span class="project-tab__dot" aria-hidden="true" />
-      <strong>{projectName(props.project)}</strong>
-      <Show when={running() > 0}>
-        <small>{tr("projects.running-task-count", { count: running() })}</small>
-      </Show>
-      <Show when={unread() > 0}>
-        <span class="project-tab__badge" aria-label={tr("projects.completed-task-count", { count: unread() })}>
-          {unread()}
-        </span>
-      </Show>
-    </button>
+      <button
+        type="button"
+        role="tab"
+        class="project-tab__select"
+        aria-selected={props.active}
+        aria-label={tr("projects.switch-to-project", { name: projectName(props.project) })}
+        data-state={state()}
+        disabled={props.disabled || props.active}
+        onClick={props.onSelect}
+      >
+        <span class="project-tab__dot" aria-hidden="true" />
+        <strong>{projectName(props.project)}</strong>
+        <Show when={running() > 0}>
+          <small>{tr("projects.running-task-count", { count: running() })}</small>
+        </Show>
+        <Show when={unread() > 0}>
+          <span class="project-tab__badge" aria-label={tr("projects.completed-task-count", { count: unread() })}>
+            {unread()}
+          </span>
+        </Show>
+      </button>
+      <button
+        type="button"
+        class="project-tab__close"
+        aria-label={tr("projects.close-project", { name: projectName(props.project) })}
+        disabled={props.disabled}
+        onClick={props.onClose}
+      >
+        <X aria-hidden="true" />
+      </button>
+    </div>
   )
 }
 
 export function ProjectTabs(props: ProjectTabsProps) {
+  const [dragging, setDragging] = createSignal<string>()
+  const [dropTarget, setDropTarget] = createSignal<{
+    directory: string
+    placement: "before" | "after"
+  }>()
+
+  function clearDrag() {
+    setDragging(undefined)
+    setDropTarget(undefined)
+  }
+
   return (
     <nav class="project-tabs" aria-label={tr("projects.open-projects")}>
       <div class="project-tabs__list" role="tablist">
@@ -147,6 +189,35 @@ export function ProjectTabs(props: ProjectTabsProps) {
               queryClient={props.queryClient}
               disabled={props.disabled}
               onSelect={() => props.onSelect(project.directory)}
+              onClose={() => props.onClose(project.directory)}
+              dragging={dragging() === project.directory}
+              dropPlacement={
+                dropTarget()?.directory === project.directory ? dropTarget()?.placement : undefined
+              }
+              onDragStart={(event) => {
+                setDragging(project.directory)
+                event.dataTransfer?.setData("text/plain", project.directory)
+                if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"
+              }}
+              onDragOver={(event) => {
+                const source = dragging()
+                if (!source || source === project.directory) return
+                event.preventDefault()
+                const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
+                const placement = event.clientX > bounds.left + bounds.width / 2 ? "after" : "before"
+                setDropTarget({ directory: project.directory, placement })
+                if (event.dataTransfer) event.dataTransfer.dropEffect = "move"
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                const source = dragging() ?? event.dataTransfer?.getData("text/plain")
+                const target = dropTarget()
+                if (source && target?.directory === project.directory) {
+                  props.onReorder(source, project.directory, target.placement)
+                }
+                clearDrag()
+              }}
+              onDragEnd={clearDrag}
             />
           )}
         </For>

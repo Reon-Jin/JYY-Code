@@ -101,6 +101,25 @@ describe("project controller", () => {
     expect(sdk.project.current).toHaveBeenCalledOnce()
   })
 
+  it("reorders open projects and selects an adjacent project when the active one closes", async () => {
+    const { controller } = createHarness()
+    const demo = project.worktree
+    const other = "C:\\work\\other"
+    const third = "C:\\work\\third"
+    await controller.openProject(demo)
+    await controller.openProject(other)
+    await controller.openProject(third)
+
+    controller.reorderProjects(third, demo, "before")
+    expect(controller.openProjects().map((item) => item.directory)).toEqual([third, demo, other])
+
+    expect(controller.closeProject(third)?.directory).toBe(demo)
+    expect(controller.openProjects().map((item) => item.directory)).toEqual([demo, other])
+    expect(controller.closeProject(other)?.directory).toBe(demo)
+    expect(controller.closeProject(demo)).toBeUndefined()
+    expect(controller.openProjects()).toEqual([])
+  })
+
   it("creates the directory before asking the backend to initialize git", async () => {
     const { calls, controller, sdk } = createHarness()
 

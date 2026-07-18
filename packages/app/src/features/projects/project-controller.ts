@@ -134,6 +134,32 @@ export function createProjectController(input: ProjectControllerInput) {
     return lastSessionByProject.get(pathKey(directory))
   }
 
+  function reorderProjects(sourceDirectory: string, targetDirectory: string, placement: "before" | "after") {
+    const current = openProjects()
+    const sourceIndex = current.findIndex((project) => pathKey(project.directory) === pathKey(sourceDirectory))
+    if (sourceIndex < 0 || pathKey(sourceDirectory) === pathKey(targetDirectory)) return
+    const next = [...current]
+    const [moved] = next.splice(sourceIndex, 1)
+    const targetIndex = next.findIndex((project) => pathKey(project.directory) === pathKey(targetDirectory))
+    if (!moved || targetIndex < 0) return
+    next.splice(targetIndex + (placement === "after" ? 1 : 0), 0, moved)
+    setOpenProjects(next)
+  }
+
+  function closeProject(directory: string) {
+    const current = openProjects()
+    const index = current.findIndex((project) => pathKey(project.directory) === pathKey(directory))
+    if (index < 0) return activeProject()
+    const next = current.filter((_, projectIndex) => projectIndex !== index)
+    const active = activeProject()
+    const closingActive = active && pathKey(active.directory) === pathKey(directory)
+    const nextActive = closingActive ? (current[index + 1] ?? current[index - 1]) : active
+    lastSessionByProject.delete(pathKey(directory))
+    setOpenProjects(next)
+    if (closingActive) setActiveProject(nextActive)
+    return nextActive
+  }
+
   async function createInitialSession(opened: OpenedProject): Promise<CreatedProject> {
     const result = await opened.client.session.create(
       { directory: opened.directory },
@@ -197,6 +223,8 @@ export function createProjectController(input: ProjectControllerInput) {
     openProject,
     rememberSession,
     sessionFor,
+    reorderProjects,
+    closeProject,
     createProject,
     continueAfterGitFailure,
     removeRecentProject,

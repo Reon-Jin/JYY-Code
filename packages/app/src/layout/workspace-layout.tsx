@@ -565,6 +565,19 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }
   }
 
+  async function closeProject(directory: string) {
+    const closingActive = normalizeDirectory(directory) === normalizeDirectory(data.directory())
+    const next = projects.closeProject(directory)
+    if (!closingActive) return
+    if (!next) {
+      await projects.returnToProjectSelection()
+      navigate("/")
+      return
+    }
+    const sessionID = projects.sessionFor(next.directory)
+    navigate(sessionID ? `/session/${encodeURIComponent(sessionID)}` : "/workspace")
+  }
+
   async function rename(sessionID: string, title: string) {
     await api().rename(sessionID, title)
   }
@@ -649,6 +662,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           disabled={busy()}
           onSelect={(directory) => void switchProject(directory)}
           onOpen={() => void switchProject()}
+          onClose={(directory) => void closeProject(directory)}
+          onReorder={(source, target, placement) => projects.reorderProjects(source, target, placement)}
         />
       }
       multiAgentEnabled={rootMultiAgentEnabled()}

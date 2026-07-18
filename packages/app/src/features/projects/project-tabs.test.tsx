@@ -1,5 +1,5 @@
 import type { Project } from "@jyycode-ai/sdk/v2/client"
-import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createDesktopQueryClient } from "../../data/query-client"
 import type { DesktopClient } from "../../data/sdk"
@@ -45,6 +45,8 @@ describe("ProjectTabs", () => {
     const other = opened("C:\\work\\other", true)
     const onSelect = vi.fn()
     const onOpen = vi.fn()
+    const onClose = vi.fn()
+    const onReorder = vi.fn()
     render(() => (
       <ProjectTabs
         projects={[current, other]}
@@ -52,6 +54,8 @@ describe("ProjectTabs", () => {
         queryClient={createDesktopQueryClient()}
         onSelect={onSelect}
         onOpen={onOpen}
+        onClose={onClose}
+        onReorder={onReorder}
       />
     ))
 
@@ -62,6 +66,15 @@ describe("ProjectTabs", () => {
     expect(onSelect).toHaveBeenCalledWith(other.directory)
     screen.getByRole("button", { name: /打开目录/ }).click()
     expect(onOpen).toHaveBeenCalledOnce()
+    screen.getByRole("button", { name: /关闭项目 other/ }).click()
+    expect(onClose).toHaveBeenCalledWith(other.directory)
+    expect(onSelect).toHaveBeenCalledOnce()
+
+    fireEvent.dragStart(otherTab)
+    const currentTab = screen.getByRole("tab", { name: /demo/ })
+    fireEvent.dragOver(currentTab, { clientX: 0 })
+    fireEvent.drop(currentTab)
+    expect(onReorder).toHaveBeenCalledWith(other.directory, current.directory, "before")
   })
 
   it("keeps the last confirmed running state while a remounted query reconnects", async () => {
@@ -74,6 +87,8 @@ describe("ProjectTabs", () => {
         queryClient={createDesktopQueryClient()}
         onSelect={vi.fn()}
         onOpen={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={vi.fn()}
       />
     ))
     await waitFor(() => expect(screen.getByRole("tab", { name: /stable-status/ })).toHaveAttribute("data-state", "running"))
@@ -87,6 +102,8 @@ describe("ProjectTabs", () => {
         queryClient={createDesktopQueryClient()}
         onSelect={vi.fn()}
         onOpen={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={vi.fn()}
       />
     ))
 
