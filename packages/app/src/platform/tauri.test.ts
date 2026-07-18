@@ -8,9 +8,9 @@ const state = vi.hoisted(() => ({
   requestPermission: vi.fn(async () => "granted" as const),
   sendNotification: vi.fn(),
   checkUpdate: vi.fn(),
-  downloadAndInstall: vi.fn(async () => undefined),
+  downloadUpdate: vi.fn(async () => undefined),
+  installUpdate: vi.fn(async () => undefined),
   closeUpdate: vi.fn(async () => undefined),
-  relaunch: vi.fn(async () => undefined),
 }))
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: state.invoke }))
@@ -30,7 +30,6 @@ vi.mock("@tauri-apps/plugin-store", () => ({
   },
 }))
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: state.checkUpdate }))
-vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: state.relaunch }))
 
 import { tauriBridge } from "./tauri"
 import { defaultDesktopSettings } from "../features/settings/settings-preferences"
@@ -39,12 +38,12 @@ describe("Tauri desktop settings persistence", () => {
   beforeEach(() => {
     state.values.clear()
     state.save.mockClear()
-    state.invoke.mockClear()
+    state.invoke.mockReset()
     state.sendNotification.mockClear()
     state.checkUpdate.mockReset()
-    state.downloadAndInstall.mockClear()
+    state.downloadUpdate.mockReset()
+    state.installUpdate.mockReset()
     state.closeUpdate.mockClear()
-    state.relaunch.mockClear()
   })
 
   it("round-trips settings through desktop.json", async () => {
@@ -74,12 +73,20 @@ describe("Tauri desktop settings persistence", () => {
     expect(state.sendNotification).not.toHaveBeenCalled()
   })
 
-  it("checks, installs, closes, and relaunches a signed update", async () => {
+  it("downloads, stops the sidecar, and only then starts the signed installer", async () => {
+    const order: string[] = []
+    state.downloadUpdate.mockImplementation(async () => void order.push("download"))
+    state.invoke.mockImplementation(async (...args: unknown[]) => {
+      if (args[0] === "stop_backend_for_update") order.push("stop")
+      return undefined
+    })
+    state.installUpdate.mockImplementation(async () => void order.push("install"))
     state.checkUpdate.mockResolvedValueOnce({
       currentVersion: "1.0.0",
       version: "1.1.0",
       body: "New release",
-      downloadAndInstall: state.downloadAndInstall,
+      download: state.downloadUpdate,
+      install: state.installUpdate,
       close: state.closeUpdate,
     })
 
@@ -92,9 +99,45 @@ describe("Tauri desktop settings persistence", () => {
     })
     await expect(tauriBridge.installAvailableUpdate()).resolves.toEqual({ supported: true })
 
-    expect(state.downloadAndInstall).toHaveBeenCalledOnce()
+    expect(order).toEqual(["download", "stop", "install"])
+    expect(state.invoke).toHaveBeenCalledWith("stop_backend_for_update")
     expect(state.closeUpdate).toHaveBeenCalledOnce()
-    expect(state.relaunch).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the backend running when the update download fails", async () => {
+    state.downloadUpdate.mockRejectedValueOnce(new Error("network unavailable"))
+    state.checkUpdate.mockResolvedValueOnce({
+      currentVersion: "1.0.0",
+      version: "1.1.0",
+      download: state.downloadUpdate,
+      install: state.installUpdate,
+      close: state.closeUpdate,
+    })
+
+    await tauriBridge.checkForUpdate()
+    await expect(tauriBridge.installAvailableUpdate()).rejects.toThrow("network unavailable")
+
+    expect(state.invoke).not.toHaveBeenCalledWith("stop_backend_for_update")
+    expect(state.installUpdate).not.toHaveBeenCalled()
+  })
+
+  it("restarts the backend when the installer cannot start", async () => {
+    state.installUpdate.mockRejectedValueOnce(new Error("installer failed"))
+    state.checkUpdate.mockResolvedValueOnce({
+      currentVersion: "1.0.0",
+      version: "1.1.0",
+      download: state.downloadUpdate,
+      install: state.installUpdate,
+      close: state.closeUpdate,
+    })
+
+    await tauriBridge.checkForUpdate()
+    await expect(tauriBridge.installAvailableUpdate()).rejects.toThrow("installer failed")
+
+    expect(state.invoke.mock.calls).toEqual([
+      ["stop_backend_for_update"],
+      ["restart_backend"],
+    ])
   })
 
   it("reports when no update is available", async () => {

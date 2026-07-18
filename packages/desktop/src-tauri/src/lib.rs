@@ -12,12 +12,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             backend::desktop_bootstrap,
             backend::restart_backend,
+            backend::stop_backend_for_update,
             notifications::send_desktop_notification,
             project_path::create_project_directory,
             project_path::reveal_config_file,

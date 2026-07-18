@@ -8,7 +8,6 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "notification:default",
-    "process:allow-restart",
     "store:allow-load",
     "store:allow-get",
     "store:allow-set",

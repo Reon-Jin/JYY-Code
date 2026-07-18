@@ -93,12 +93,16 @@ impl BackendSupervisor {
             .map_err(|_| "backend process state is unavailable".into())
     }
 
-    fn kill_owned_child(&self) {
-        if let Ok(mut child) = self.child()
-            && let Some(child) = child.take()
-        {
-            let _ = child.kill();
-        }
+    fn kill_owned_child(&self) -> Result<Option<u32>, String> {
+        let mut child = self.child()?;
+        let Some(child) = child.take() else {
+            return Ok(None);
+        };
+        let pid = child.pid();
+        child
+            .kill()
+            .map_err(|error| format!("failed to stop JYYCode backend: {error}"))?;
+        Ok(Some(pid))
     }
 
     fn is_current_generation(&self, generation: u64) -> bool {
@@ -139,7 +143,7 @@ impl BackendSupervisor {
             )
             .is_ok()
         {
-            self.kill_owned_child();
+            let _ = self.kill_owned_child();
         }
     }
 
@@ -359,13 +363,25 @@ impl BackendSupervisor {
         self.wait_for_bootstrap().await
     }
 
-    pub fn stop(&self) {
+    fn stop_owned_child(&self) -> Result<Option<u32>, String> {
         self.inner.stopping.store(true, Ordering::SeqCst);
         self.inner.generation.fetch_add(1, Ordering::SeqCst);
-        self.kill_owned_child();
-        if let Ok(mut phase) = self.phase() {
-            *phase = BackendPhase::Stopped;
-        }
+        let pid = self.kill_owned_child()?;
+        *self.phase()? = BackendPhase::Stopped;
+        Ok(pid)
+    }
+
+    pub fn stop(&self) {
+        let _ = self.stop_owned_child();
+    }
+
+    async fn stop_for_update(&self) -> Result<(), String> {
+        let Some(pid) = self.stop_owned_child()? else {
+            return Ok(());
+        };
+        tauri::async_runtime::spawn_blocking(move || wait_for_process_exit(pid))
+            .await
+            .map_err(|error| format!("failed to wait for JYYCode backend shutdown: {error}"))?
     }
 
     async fn restart(&self, app: AppHandle) -> Result<(), String> {
@@ -436,6 +452,51 @@ pub async fn restart_backend(
     state: tauri::State<'_, BackendSupervisor>,
 ) -> Result<(), String> {
     state.inner().restart(app).await
+}
+
+#[tauri::command]
+pub async fn stop_backend_for_update(
+    state: tauri::State<'_, BackendSupervisor>,
+) -> Result<(), String> {
+    let supervisor = state.inner().clone();
+    supervisor.stop_for_update().await
+}
+
+#[cfg(windows)]
+fn wait_for_process_exit(pid: u32) -> Result<(), String> {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, WAIT_OBJECT_0, WAIT_TIMEOUT},
+        System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
+    };
+
+    let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+    if handle.is_null() {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(87) {
+            return Ok(());
+        }
+        return Err(format!(
+            "failed to observe JYYCode backend shutdown: {error}"
+        ));
+    }
+
+    let result = unsafe { WaitForSingleObject(handle, 5_000) };
+    unsafe {
+        CloseHandle(handle);
+    }
+    match result {
+        WAIT_OBJECT_0 => Ok(()),
+        WAIT_TIMEOUT => Err("JYYCode backend did not stop within 5 seconds".into()),
+        _ => Err(format!(
+            "failed while waiting for JYYCode backend shutdown: {}",
+            std::io::Error::last_os_error()
+        )),
+    }
+}
+
+#[cfg(not(windows))]
+fn wait_for_process_exit(_pid: u32) -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg(test)]

@@ -5,7 +5,6 @@ import {
   requestPermission,
 } from "@tauri-apps/plugin-notification"
 import { Store } from "@tauri-apps/plugin-store"
-import { relaunch } from "@tauri-apps/plugin-process"
 import { check, type Update } from "@tauri-apps/plugin-updater"
 import { normalizeRecentProjects } from "./recent-projects"
 import { parseDesktopSettings, type DesktopSettings } from "../features/settings/settings-preferences"
@@ -107,10 +106,16 @@ export const tauriBridge: DesktopBridge = {
   async installAvailableUpdate() {
     if (!pendingUpdate) return { supported: false, reason: "No update is available" }
     const update = pendingUpdate
-    await update.downloadAndInstall()
+    await update.download()
+    await invoke("stop_backend_for_update")
+    try {
+      await update.install()
+    } catch (cause) {
+      await invoke("restart_backend").catch(() => undefined)
+      throw cause
+    }
     pendingUpdate = undefined
     await update.close().catch(() => undefined)
-    await relaunch()
     return { supported: true }
   },
   saveTextFile(suggestedName, contents) {
