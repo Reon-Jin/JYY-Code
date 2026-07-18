@@ -114,6 +114,9 @@ describe("AdvancedSettings", () => {
     expect(screen.getByRole("option", { name: "zsh" })).toBeInTheDocument()
     expect(screen.getByRole("option", { name: "bash" })).toBeInTheDocument()
     expect(screen.queryByRole("option", { name: "cmd" })).not.toBeInTheDocument()
+    expect(screen.getByLabelText("自动更新策略")).toBeDisabled()
+    expect(screen.getByRole("button", { name: "立即检查" })).toBeDisabled()
+    expect(screen.getByText("macOS 预览版暂不提供自动更新")).toBeVisible()
 
     await user.click(screen.getByRole("button", { name: "打开全局配置文件" }))
     expect(desktop.bridge.revealConfigFile).toHaveBeenCalledWith("/Users/dev/.config/jyycode/jyycode.jsonc")

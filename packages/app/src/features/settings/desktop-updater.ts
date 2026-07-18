@@ -6,7 +6,7 @@ export async function runDesktopUpdater(bridge: DesktopBridge, settings: Desktop
   if (settings.updatePolicy === "off") return
   try {
     const update = await bridge.checkForUpdate()
-    if (!update.available) return
+    if (!update.supported || !update.available) return
     if (settings.updatePolicy === "install") {
       await bridge.installAvailableUpdate()
       return

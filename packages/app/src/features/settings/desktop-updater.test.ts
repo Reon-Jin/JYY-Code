@@ -12,6 +12,20 @@ describe("runDesktopUpdater", () => {
     expect(desktop.bridge.checkForUpdate).not.toHaveBeenCalled()
   })
 
+  it("does not notify or install when the platform does not support updates", async () => {
+    const desktop = createFakeDesktop()
+    vi.mocked(desktop.bridge.checkForUpdate).mockResolvedValueOnce({
+      supported: false,
+      available: false,
+      reason: "macOS preview",
+    })
+
+    await runDesktopUpdater(desktop.bridge, { ...defaultDesktopSettings, updatePolicy: "install" })
+
+    expect(desktop.bridge.sendNotification).not.toHaveBeenCalled()
+    expect(desktop.bridge.installAvailableUpdate).not.toHaveBeenCalled()
+  })
+
   it("notifies when the selected policy finds an update", async () => {
     const desktop = createFakeDesktop()
     vi.mocked(desktop.bridge.checkForUpdate).mockResolvedValueOnce({

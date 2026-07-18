@@ -16,9 +16,28 @@ function renderUpdates() {
   return desktop
 }
 
+function renderUnsupportedUpdates() {
+  const desktop = createFakeDesktop()
+  render(() => (
+    <DesktopBridgeProvider bridge={desktop.bridge}>
+      <I18nProvider><UpdateSettings supported={false} /></I18nProvider>
+    </DesktopBridgeProvider>
+  ))
+  return desktop
+}
+
 afterEach(cleanup)
 
 describe("UpdateSettings", () => {
+  it("disables the Windows update channel in the macOS preview", async () => {
+    const desktop = renderUnsupportedUpdates()
+
+    expect(await screen.findByRole("combobox", { name: "自动更新策略" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "立即检查" })).toBeDisabled()
+    expect(screen.getByText("macOS 预览版暂不提供自动更新")).toBeVisible()
+    expect(desktop.bridge.checkForUpdate).not.toHaveBeenCalled()
+  })
+
   it("persists the automatic update policy", async () => {
     const desktop = renderUpdates()
     const policy = await screen.findByRole("combobox", { name: "自动更新策略" })

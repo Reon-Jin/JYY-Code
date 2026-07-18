@@ -12,8 +12,9 @@ function failureMessage(cause: unknown) {
   return cause instanceof Error ? cause.message : tr("settings.update-failed")
 }
 
-export function UpdateSettings() {
+export function UpdateSettings(props: { supported?: boolean }) {
   const bridge = useDesktopBridge()
+  const supported = () => props.supported !== false
   const [settings, setSettings] = createSignal<DesktopSettings>({ ...defaultDesktopSettings })
   const [phase, setPhase] = createSignal<UpdatePhase>("idle")
   const [update, setUpdate] = createSignal<DesktopUpdateCheck>()
@@ -25,6 +26,7 @@ export function UpdateSettings() {
   })
 
   async function changePolicy(policy: UpdatePolicy) {
+    if (!supported()) return
     const previous = settings()
     const next = { ...previous, updatePolicy: policy }
     setSettings(next)
@@ -41,6 +43,7 @@ export function UpdateSettings() {
   }
 
   async function checkNow() {
+    if (!supported()) return
     setPhase("checking")
     setError(undefined)
     try {
@@ -54,6 +57,7 @@ export function UpdateSettings() {
   }
 
   async function install() {
+    if (!supported()) return
     setPhase("installing")
     setError(undefined)
     try {
@@ -66,6 +70,7 @@ export function UpdateSettings() {
   }
 
   const status = () => {
+    if (!supported()) return tr("settings.update-unavailable-macos-preview")
     switch (phase()) {
       case "checking": return tr("settings.update-checking")
       case "current": return tr("settings.update-current")
@@ -87,7 +92,7 @@ export function UpdateSettings() {
         <select
           aria-label={tr("settings.update-policy")}
           value={settings().updatePolicy}
-          disabled={saving() || phase() === "installing"}
+          disabled={!supported() || saving() || phase() === "installing"}
           onChange={(event) => void changePolicy(event.currentTarget.value as UpdatePolicy)}
         >
           <option value="install">{tr("settings.update-policy-install")}</option>
@@ -104,7 +109,7 @@ export function UpdateSettings() {
           variant="secondary"
           loading={phase() === "checking"}
           loadingLabel={tr("settings.update-checking")}
-          disabled={phase() === "installing"}
+          disabled={!supported() || phase() === "installing"}
           onClick={() => void checkNow()}
         >
           {tr("settings.update-check-now")}

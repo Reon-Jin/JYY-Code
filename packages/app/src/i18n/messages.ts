@@ -464,6 +464,7 @@ export const zhCN = {
   "settings.update-policy-off": "关闭自动检查",
   "settings.update-description": "通过签名的 GitHub Release 安全检查更新。你也可以随时手动检查。",
   "settings.update-ready": "已就绪",
+  "settings.update-unavailable-macos-preview": "macOS 预览版暂不提供自动更新",
   "settings.update-check-now": "立即检查",
   "settings.update-checking": "正在检查",
   "settings.update-current": "当前已是最新版本",
@@ -582,7 +583,7 @@ export const zhCN = {
   "settings.saving": "正在保存…",
   "settings.select-default-permissions-for-new-sessions": "选择新 Session 的默认权限",
   "settings.select-the-jyycode-global-configuration-file-provided-by":
-    "在资源管理器中选中后端提供的 JYYCode 全局配置文件。",
+    "在系统文件管理器中选中后端提供的 JYYCode 全局配置文件。",
   "settings.set-categories": "设置分类",
   "settings.show-home-on-startup": "启动时显示 Home",
   "settings.simplified-chinese": "简体中文",
@@ -1157,6 +1158,7 @@ export const enUS = {
   "settings.update-policy-off": "Turn off automatic checks",
   "settings.update-description": "Securely check signed GitHub Releases. You can also check manually at any time.",
   "settings.update-ready": "Ready",
+  "settings.update-unavailable-macos-preview": "Automatic updates are unavailable in the macOS preview",
   "settings.update-check-now": "Check now",
   "settings.update-checking": "Checking",
   "settings.update-current": "You're up to date",
@@ -1276,7 +1278,7 @@ export const enUS = {
   "settings.saving": "Saving…",
   "settings.select-default-permissions-for-new-sessions": "Select default permissions for new Sessions",
   "settings.select-the-jyycode-global-configuration-file-provided-by":
-    "Select the JYYCode global configuration file provided by the backend in the explorer.",
+    "Select the JYYCode global configuration file provided by the backend in the system file manager.",
   "settings.set-categories": "Settings categories",
   "settings.show-home-on-startup": "Show Home on startup",
   "settings.simplified-chinese": "Simplified Chinese",

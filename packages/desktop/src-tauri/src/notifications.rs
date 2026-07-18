@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_os = "macos")]
+use tauri_plugin_notification::NotificationExt;
+
+#[cfg(any(windows, test))]
 const APP_USER_MODEL_ID: &str = "ai.jyycode.desktop";
 
 #[derive(Debug, Deserialize)]
@@ -18,9 +22,13 @@ pub struct DesktopCapabilityResult {
 }
 
 #[tauri::command]
-pub fn send_desktop_notification(notification: DesktopNotification) -> DesktopCapabilityResult {
+pub fn send_desktop_notification(
+    app: tauri::AppHandle,
+    notification: DesktopNotification,
+) -> DesktopCapabilityResult {
     #[cfg(windows)]
     {
+        let _ = app;
         return match notify_rust::Notification::new()
             .app_id(APP_USER_MODEL_ID)
             .summary(&notification.title)
@@ -38,12 +46,33 @@ pub fn send_desktop_notification(notification: DesktopNotification) -> DesktopCa
         };
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     {
+        return match app
+            .notification()
+            .builder()
+            .title(notification.title)
+            .body(notification.body)
+            .show()
+        {
+            Ok(()) => DesktopCapabilityResult {
+                supported: true,
+                reason: None,
+            },
+            Err(error) => DesktopCapabilityResult {
+                supported: false,
+                reason: Some(error.to_string()),
+            },
+        };
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = app;
         let _ = notification;
         DesktopCapabilityResult {
             supported: false,
-            reason: Some("Native desktop notifications are only supported on Windows".into()),
+            reason: Some("Native desktop notifications are not supported on this platform".into()),
         }
     }
 }

@@ -31,7 +31,7 @@ vi.mock("@tauri-apps/plugin-store", () => ({
 }))
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: state.checkUpdate }))
 
-import { tauriBridge } from "./tauri"
+import { automaticUpdatesSupported, tauriBridge } from "./tauri"
 import { defaultDesktopSettings } from "../features/settings/settings-preferences"
 
 describe("Tauri desktop settings persistence", () => {
@@ -52,6 +52,11 @@ describe("Tauri desktop settings persistence", () => {
     expect(state.values.get("settings")).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
     expect(state.save).toHaveBeenCalledOnce()
     expect(await tauriBridge.loadSettings()).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
+  })
+
+  it("disables the Windows update channel for macOS WebViews", () => {
+    expect(automaticUpdatesSupported("Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0)")).toBe(false)
+    expect(automaticUpdatesSupported("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe(true)
   })
 
   it("uses serializable command payloads for native capabilities", async () => {

@@ -1,5 +1,4 @@
 use serde::Serialize;
-use std::path::Path;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
@@ -9,21 +8,45 @@ pub struct SaveTextFileResult {
     saved: bool,
 }
 
-fn json_filename(value: &str) -> Result<String, String> {
+#[derive(Clone, Copy)]
+enum FilenamePlatform {
+    Windows,
+    MacOS,
+}
+
+fn current_platform() -> FilenamePlatform {
+    #[cfg(target_os = "windows")]
+    {
+        FilenamePlatform::Windows
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        FilenamePlatform::MacOS
+    }
+}
+
+fn json_filename_for(value: &str, platform: FilenamePlatform) -> Result<String, String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return Err("Suggested file name cannot be empty".into());
     }
-    let path = Path::new(trimmed);
-    if path.file_name().and_then(|name| name.to_str()) != Some(trimmed) {
+    if trimmed.chars().any(|character| {
+        character.is_control()
+            || character == '/'
+            || (matches!(platform, FilenamePlatform::Windows)
+                && matches!(character, '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*'))
+    }) {
         return Err("Suggested file name must not contain a directory".into());
     }
-    let stem = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| "Suggested file name is invalid".to_string())?;
+    let stem = trimmed.rsplit_once('.').map_or(trimmed, |(stem, _)| stem);
+    if stem.is_empty() || matches!(stem, "." | "..") {
+        return Err("Suggested file name is invalid".into());
+    }
     Ok(format!("{stem}.json"))
+}
+
+fn json_filename(value: &str) -> Result<String, String> {
+    json_filename_for(value, current_platform())
 }
 
 #[tauri::command]
@@ -61,7 +84,7 @@ pub async fn save_text_file(
 
 #[cfg(test)]
 mod tests {
-    use super::json_filename;
+    use super::{FilenamePlatform, json_filename, json_filename_for};
 
     #[test]
     fn forces_json_extension() {
@@ -73,6 +96,14 @@ mod tests {
     fn rejects_empty_or_directory_suggestions() {
         assert!(json_filename("").is_err());
         assert!(json_filename("folder/memory.json").is_err());
-        assert!(json_filename(r"folder\memory.json").is_err());
+    }
+
+    #[test]
+    fn applies_platform_separator_rules_to_suggested_names() {
+        assert!(json_filename_for(r"folder\memory.json", FilenamePlatform::Windows).is_err());
+        assert_eq!(
+            json_filename_for(r"folder\memory.json", FilenamePlatform::MacOS).unwrap(),
+            r"folder\memory.json"
+        );
     }
 }
