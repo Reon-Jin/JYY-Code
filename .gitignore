@@ -54,3 +54,4 @@ tsconfig.tsbuildinfo
 
 /packages/*/.artifacts/
 /.build
+/.pnpm-store
