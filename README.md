@@ -168,13 +168,13 @@ This shows the active database, release channel, migrations, and session counts 
 
 If a session appears missing, confirm the active database with `jyycode db status`, then open `/sessions` from the same project or worktree.
 
-## Windows Desktop Preview
+## Desktop Preview
 
-The phase-1 Windows desktop app provides a single-Agent GUI over the same authenticated local backend used by the TUI.
-Projects, Sessions, messages, Provider configuration, permission requests, and Agent questions remain shared, so the
-same directory can be opened in either interface. Windows x64 builds produce NSIS, MSI, and portable artifacts; see
-[`packages/desktop/README.md`](packages/desktop/README.md) for prerequisites, development commands, output paths, and
-WebView2 behavior. Multi-Agent/Agent Cluster controls remain TUI-only in this preview.
+The desktop app uses the same authenticated local backend as the TUI. Projects, Sessions, messages, Provider
+configuration, permission requests, Agent questions, and Multi-Agent state remain shared, so the same directory can be
+opened in either interface. Windows x64 has automated NSIS, MSI, and portable artifacts. Apple Silicon macOS supports
+source development and local app/DMG builds, but has no uploaded, Developer ID-signed, or notarized distribution yet.
+See [`packages/desktop/README.md`](packages/desktop/README.md) for platform prerequisites and commands.
 
 ## Develop From Source
 
@@ -192,7 +192,7 @@ packages/llm/       LLM protocol and runtime adapters
 packages/plugin/    Plugin SDK and extension interfaces
 packages/sdk/       JYY-Code API client
 packages/app/       Desktop web UI
-packages/desktop/   Tauri Windows shell and sidecar packaging
+packages/desktop/   Tauri desktop shell and sidecar packaging
 .jyycode/           Project agents, skills, commands, themes, and config
 memory/             Structured persistent memory
 ```

@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "test": "bun test --timeout 30000",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "bun run --bun tsgo --noEmit"
   },
   "exports": {
     ".": "./src/index.ts",

@@ -5,11 +5,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "dev": "bun run --bun vite --host 127.0.0.1",
+    "build": "bun run --bun vite build",
+    "typecheck": "bun run --bun tsc --noEmit",
+    "test": "bun run --bun vitest run",
+    "test:watch": "bun run --bun vitest"
   },
   "dependencies": {
     "@fontsource-variable/inter": "catalog:",

@@ -65,6 +65,21 @@ credentials, certificate access is restricted and audited, CI signs the main exe
 and portable executable, and signature verification is added to the release gate. Until then Desktop releases must be
 marked as prereleases and warn users that SmartScreen may identify the publisher as unknown.
 
+## Apple Silicon desktop local preview
+
+Apple Silicon macOS supports source development and local `app`/`dmg` builds on macOS 13 or newer. The local bundle
+uses ad-hoc signing and does not enable hardened runtime because the embedded Bun sidecar requires JIT execution and no
+production entitlements are configured. Validate it with:
+
+```bash
+bun run --cwd packages/desktop build -- --target aarch64-apple-darwin
+bash packages/desktop/script/smoke-macos.sh
+```
+
+This is not a release channel: no macOS CI artifacts are uploaded, and Developer ID signing, notarization, automatic
+updates, Intel builds, Universal binaries, and App Store distribution remain out of scope. Windows remains the only
+automatically packaged desktop preview.
+
 ## Database rollback
 
 Do not run an older binary against a database already migrated by an unverified release candidate. If migration,

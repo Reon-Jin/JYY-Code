@@ -1,32 +1,46 @@
-# JYYCode Desktop (Windows Preview)
+# JYYCode Desktop Preview
 
-JYYCode Desktop is the Windows GUI for the same local backend, project database, Sessions, messages,
+JYYCode Desktop is the Tauri GUI for the same local backend, project database, Sessions, messages,
 permissions, questions, tools, and Provider configuration used by the JYYCode TUI. The GUI does not open SQLite or
 import backend internals; the Tauri host owns an authenticated loopback sidecar and the web UI uses the generated SDK.
 
 ## Prerequisites
 
-- Windows 10 or 11 x64
 - Bun 1.3.14 for source development
-- Rust stable with the `x86_64-pc-windows-msvc` target
+- Rust stable with the target for the current desktop platform
+
+Windows development requires:
+
+- Windows 10 or 11 x64
+- Rust target `x86_64-pc-windows-msvc`
 - Visual Studio 2022 Build Tools with Desktop development with C++ and the Windows SDK
 - WebView2 Runtime (normally present on supported Windows versions)
+
+Apple Silicon development requires:
+
+- macOS 13 or newer on Apple Silicon
+- Xcode Command Line Tools (`xcode-select --install`)
+- Rust target `aarch64-apple-darwin`
 
 Install repository dependencies from the root with `bun install --frozen-lockfile`.
 
 ## Develop and test
 
-```powershell
+```text
 bun run --cwd packages/desktop dev
 bun turbo typecheck
 bun run --cwd packages/app test
 bun run --cwd packages/desktop test
+bun run --cwd packages/desktop stage:sidecar
 cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml
 ```
 
 Development starts Vite and the Tauri shell. The Rust supervisor launches exactly one `jyycode-sidecar`, waits for its
 authenticated loopback ready event, and terminates it when the desktop process exits. Backend credentials stay in the
-desktop process and are not persisted by the web UI.
+desktop process and are not persisted by the web UI. On macOS, the Tauri host restores the login-shell `PATH` before
+starting the backend so apps launched from Finder can still discover Git, language servers, and Homebrew tools.
+Tauri validates configured external binaries during its Cargo build script, so a clean checkout must stage the sidecar
+before running `cargo test`.
 
 ## Multi-Agent workflow
 
@@ -78,15 +92,17 @@ Startup location and dark/light theme are desktop-only preferences persisted by 
 policy and default Shell are stored in JYYCode's global backend configuration and therefore apply across projects. A
 permission-policy change affects only newly created Sessions; existing Sessions keep their current permission choices.
 
-The Advanced page can ask Windows Explorer to select the backend-provided global `jyycode.jsonc` file. The Tauri
+The Advanced page can ask Windows Explorer or macOS Finder to select the backend-provided global `jyycode.jsonc` file. The Tauri
 command accepts only an absolute path whose file name is exactly `jyycode.jsonc` or `jyycode.json`, and launches
-Explorer with an argument array rather than a shell command. It does not accept an arbitrary executable or command.
+the fixed platform file manager with an argument array rather than a shell command. It does not accept an arbitrary
+executable or command.
 
 Language switching between Simplified Chinese and English applies immediately and is persisted with the other desktop
-preferences. The optional liquid-glass appearance uses Windows 11 Mica, Windows 10 Acrylic, and a solid semantic-color
-fallback when composition or transparency is unavailable. Notification categories for completed replies, permission
-requests, and Agent questions can be enabled independently; notifications are emitted only while the window is not
-focused and use generic text so prompt or response content is not exposed in the Windows notification center.
+preferences. The optional liquid-glass appearance uses Windows 11 Mica, Windows 10 Acrylic, macOS's native
+under-window background material, and a solid semantic-color fallback when composition or transparency is unavailable.
+Notification categories for completed replies, permission requests, and Agent questions can be enabled independently;
+notifications are emitted only while the window is not focused and use generic text so prompt or response content is
+not exposed in the system notification center.
 
 Context-compression thresholds are validated before they are saved and apply to newly created Sessions. Memory
 management opens dedicated User and Task memory pages instead of expanding records in Settings. Both pages support
@@ -94,12 +110,13 @@ search, editing, deletion, compression, and export; Task memories are listed acr
 to know a Session ID. Exported memory files can contain sensitive conversation-derived information and should be
 handled accordingly.
 
-Automatic updating uses Tauri's signed updater with the rolling `desktop-latest` GitHub Release manifest. Settings
-offers three policies: automatically install and restart, check and notify, or turn off automatic checks. Manual
-checking and installation remain available for every policy. Update failures never block application startup.
+On Windows, automatic updating uses Tauri's signed updater with the rolling `desktop-latest` GitHub Release manifest.
+Settings offers three policies: automatically install and restart, check and notify, or turn off automatic checks.
+Manual checking and installation remain available for every policy, and update failures never block application
+startup. macOS local previews do not use that Windows-only update channel.
 
 Updater signatures verify artifact integrity and publisher continuity, but they are separate from Windows
-Authenticode. The 1.0.0 release remains a prerelease until the EXE, sidecar, NSIS installer, and MSI installer are
+Authenticode. The 1.0.0 Windows release remains a prerelease until the EXE, sidecar, NSIS installer, and MSI installer are
 signed with the production Windows certificate and verified on clean Windows 10 and 11 machines.
 
 ## Build a Windows release
@@ -130,6 +147,33 @@ semantic version such as `1.0.1`, and run it. The workflow injects that version 
 release-script checks, creates signed installers, publishes `desktop-v1.0.1`, and updates the automatic-update channel.
 It rejects a version whose tag or Release already exists, so every version can be published only once.
 
+## Build locally on Apple Silicon
+
+```bash
+xcode-select --install
+rustup target add aarch64-apple-darwin
+bun install --frozen-lockfile
+
+bun run --cwd packages/desktop stage:sidecar
+bun run --cwd packages/app build
+bun run --cwd packages/desktop build -- --target aarch64-apple-darwin
+bash packages/desktop/script/smoke-macos.sh
+```
+
+Outputs are under `packages/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle`:
+
+- `macos/JYYCode.app` — ad-hoc-signed local application bundle.
+- `dmg/*.dmg` — local Apple Silicon disk image.
+
+The desktop build wrapper sets `CI=true` only for macOS packaging. Tauri then skips the optional Finder AppleScript
+that positions DMG icons, so local builds do not require Automation permission to control Finder. Windows builds keep
+their existing environment and installer behavior.
+
+These artifacts are for local development only. The repository does not upload macOS artifacts, notarize them, provide
+Developer ID signing, or support Intel/Universal builds in this phase. Tauri's macOS platform configuration disables
+hardened runtime because the embedded Bun sidecar needs JIT execution and the local build does not carry production
+entitlements.
+
 ## Clean-VM acceptance gate
 
 Before distributing a build, test it on clean Windows 10 and 11 x64 VMs with no Bun, Node.js, or JYYCode installation:
@@ -142,10 +186,15 @@ Before distributing a build, test it on clean Windows 10 and 11 x64 VMs with no 
 6. Check 100%, 125%, and 150% DPI at 1024x720 and 1440x900.
 7. Exit the app and confirm its owned sidecar process is gone.
 
+For Apple Silicon local acceptance, run the same workflow from both Terminal and Finder, verify Git and user-installed
+tools are found, exercise paths containing spaces and non-ASCII characters, reveal the global configuration in Finder,
+and confirm the owned sidecar exits with the application.
+
 ## Runtime data and troubleshooting
 
 Provider and model configuration is reused from the JYYCode backend in phase 1; configure it with the TUI (`/connect`)
 or the existing JYYCode configuration file. Backend logs are stored in JYYCode's data `log` directory (normally
-`%LOCALAPPDATA%\jyycode\log` on Windows), while startup failures also surface the sidecar's recent sanitized stderr in
-the recovery screen. If startup fails, inspect those logs, confirm WebView2 is installed, and verify that endpoint
-security software did not block the bundled sidecar.
+`%LOCALAPPDATA%\jyycode\log` on Windows and `~/.local/share/jyycode/log` on macOS when XDG variables are unset), while
+startup failures also surface the sidecar's recent sanitized stderr in the recovery screen. If startup fails, inspect
+those logs, confirm the platform webview is available, and verify that endpoint security software did not block the
+bundled sidecar.

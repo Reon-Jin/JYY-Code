@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "bun run --cwd packages/jyycode --conditions=browser src/index.ts",
     "lint": "oxlint",
+    "turbo": "bun run --bun ./node_modules/turbo/bin/turbo",
     "typecheck": "bun turbo typecheck",
     "postinstall": "node ./script/postinstall.cjs",
     "prepare": "node ./script/prepare.cjs",

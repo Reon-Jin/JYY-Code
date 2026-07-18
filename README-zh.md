@@ -168,13 +168,13 @@ jyycode db status
 
 如果会话看起来“丢失”，先用 `jyycode db status` 确认当前数据库，再从同一项目或 worktree 打开 `/sessions`。
 
-## Windows 桌面预览版
+## 桌面预览版
 
-第一阶段的 Windows 桌面端提供单 Agent GUI，并复用 TUI 的认证本地后端。项目、Session、消息、Provider
-配置、权限请求和 Agent 提问都保持共享，因此同一个目录可以在两种界面中打开。Windows x64 构建会产出
-NSIS、MSI 和 portable 三类包；开发依赖、命令、产物路径与 WebView2 行为见
-[`packages/desktop/README.md`](packages/desktop/README.md)。当前预览版不在 GUI 中提供 Multi-Agent/Agent
-Cluster 控件，这部分仍由 TUI 使用。
+桌面端复用 TUI 的认证本地后端。项目、Session、消息、Provider 配置、权限请求、Agent 提问和
+Multi-Agent 状态都保持共享，因此同一个目录可以在两种界面中打开。Windows x64 已有自动构建的 NSIS、
+MSI 和 portable 产物；Apple Silicon macOS 支持源码开发以及本地 app/DMG 构建，但目前不上传产物，也不
+提供 Developer ID 签名或公证。各平台开发依赖和命令见
+[`packages/desktop/README.md`](packages/desktop/README.md)。
 
 ## 从源码开发
 
@@ -192,7 +192,7 @@ packages/llm/       LLM 协议与运行时适配
 packages/plugin/    插件 SDK 与扩展接口
 packages/sdk/       JYY-Code API 客户端
 packages/app/       桌面端 Web UI
-packages/desktop/   Tauri Windows 外壳与 sidecar 打包
+packages/desktop/   Tauri 桌面外壳与 sidecar 打包
 .jyycode/           项目 Agent、技能、命令、主题和配置
 memory/             结构化持久记忆
 ```
