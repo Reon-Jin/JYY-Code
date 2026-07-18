@@ -56,8 +56,10 @@ export function createProjectController(input: ProjectControllerInput) {
     })
   const now = input.now ?? Date.now
   const [activeProject, setActiveProject] = createSignal<OpenedProject>()
+  const [openProjects, setOpenProjects] = createSignal<OpenedProject[]>([])
   const [recentProjects, setRecentProjects] = createSignal<RecentProject[]>([])
   const [unavailableProjectKeys, setUnavailableProjectKeys] = createSignal<ReadonlySet<string>>(new Set())
+  const lastSessionByProject = new Map<string, string>()
   let recentProjectsPromise: Promise<RecentProject[]> | undefined
 
   async function loadRecentProjects() {
@@ -94,6 +96,12 @@ export function createProjectController(input: ProjectControllerInput) {
   }
 
   async function openProject(directory: string): Promise<OpenedProject> {
+    const existing = openProjects().find((project) => pathKey(project.directory) === pathKey(directory))
+    if (existing) {
+      setActiveProject(existing)
+      return existing
+    }
+
     const client = clientFor(directory)
     let result: Awaited<ReturnType<DesktopClient["project"]["current"]>>
     try {
@@ -110,8 +118,20 @@ export function createProjectController(input: ProjectControllerInput) {
     const opened = { directory, info: result.data, client }
     await persistRecent(directory)
     markUnavailable(directory, false)
+    setOpenProjects((current) => {
+      const key = pathKey(directory)
+      return current.some((project) => pathKey(project.directory) === key) ? current : [...current, opened]
+    })
     setActiveProject(opened)
     return opened
+  }
+
+  function rememberSession(directory: string, sessionID: string) {
+    lastSessionByProject.set(pathKey(directory), sessionID)
+  }
+
+  function sessionFor(directory: string) {
+    return lastSessionByProject.get(pathKey(directory))
   }
 
   async function createInitialSession(opened: OpenedProject): Promise<CreatedProject> {
@@ -166,6 +186,7 @@ export function createProjectController(input: ProjectControllerInput) {
 
   return {
     activeProject,
+    openProjects,
     recentProjects,
     unavailableProjectKeys,
     isUnavailable: (directory: string) => unavailableProjectKeys().has(pathKey(directory)),
@@ -174,6 +195,8 @@ export function createProjectController(input: ProjectControllerInput) {
     chooseAndOpenProject,
     returnToProjectSelection,
     openProject,
+    rememberSession,
+    sessionFor,
     createProject,
     continueAfterGitFailure,
     removeRecentProject,

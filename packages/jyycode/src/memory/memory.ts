@@ -3,7 +3,6 @@ export * as Memory from "./memory"
 import path from "path"
 import { randomUUID } from "crypto"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
-import { Global } from "@jyycode-ai/core/global"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Session } from "@/session/session"
@@ -15,7 +14,7 @@ const log = Log.create({ service: "memory" })
 const MEMORY_FILE = "MEMORY.json"
 const USER_FILE = "USER.json"
 export const LEGACY_DIRECTORY = path.normalize("D:/jyycode/memory")
-export const DIRECTORY = path.join(Global.Path.data, "memory")
+export const DIRECTORY = LEGACY_DIRECTORY
 const MEMORY_CHAR_LIMIT = 10_000
 const USER_CHAR_LIMIT = 2_000
 const ENTRY_LIMIT = 50
@@ -42,6 +41,7 @@ export type TaskMemoryEntry = {
 export type UserMemoryEntry = {
   scope: "user"
   importance: Importance
+  date?: string
   keywords: string[]
   content: string
 }
@@ -122,7 +122,12 @@ export function serializeStore(
           keywords: entry.keywords,
           content: entry.content,
         }
-      : { importance: entry.importance, keywords: entry.keywords, content: entry.content },
+      : {
+          importance: entry.importance,
+          ...(entry.date ? { date: entry.date } : {}),
+          keywords: entry.keywords,
+          content: entry.content,
+        },
   )
   return JSON.stringify({ schemaVersion: 3, lastCompactedAt, entries: stored }, null, 2) + "\n"
 }
@@ -140,10 +145,15 @@ function parseEntryObject(scope: Scope, value: unknown, index: number): MemoryEn
       content: expectString(entry.content, "memory entry content"),
     })
   }
-  assertExactFields(entry, ["importance", "keywords", "content"], `user entry ${index}`)
+  assertExactFields(
+    entry,
+    ["importance", ...(entry.date === undefined ? [] : ["date"]), "keywords", "content"],
+    `user entry ${index}`,
+  )
   return normalizeEntry({
     scope,
     importance: parseImportance(entry.importance),
+    ...(entry.date === undefined ? {} : { date: expectString(entry.date, "user entry date") }),
     keywords: expectStringArray(entry.keywords, "user entry keywords"),
     content: expectString(entry.content, "user entry content"),
   })
@@ -159,7 +169,8 @@ function normalizeEntry(entry: MemoryEntry): MemoryEntry {
     if (!sessionID || /\s/u.test(sessionID)) throw new Error("Invalid memory entry sessionID")
     return { scope: "memory", sessionID: SessionID.make(sessionID), importance, date: entry.date, keywords, content }
   }
-  return { scope: "user", importance, keywords, content }
+  if (entry.date !== undefined && !isCalendarDate(entry.date)) throw new Error(`Invalid user entry date: ${entry.date}`)
+  return { scope: "user", importance, ...(entry.date ? { date: entry.date } : {}), keywords, content }
 }
 
 function expectRecord(value: unknown, label: string): Record<string, unknown> {
@@ -663,6 +674,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         return yield* upsertStructured(input.sessionID, {
           scope: "user",
           importance: input.importance,
+          date: localDate(new Date()),
           keywords: input.keywords,
           content: input.content,
         })
@@ -1146,7 +1158,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
     }),
   ).pipe(Layer.provide(EffectFlock.defaultLayer))
 
-export const layer = layerWithDirectory(DIRECTORY, { legacyDirectory: LEGACY_DIRECTORY })
+export const layer = layerWithDirectory(DIRECTORY)
 
 export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer), Layer.provide(Session.defaultLayer))
 
@@ -1433,6 +1445,7 @@ function scoreEntry(tokens: string[], entry: MemoryEntry) {
 function formatEntry(entry: MemoryEntry) {
   const fields = [`importance=${entry.importance}`, `keywords=${entry.keywords.join(", ")}`, `content=${entry.content}`]
   if (entry.scope === "memory") fields.splice(1, 0, `date=${entry.date}`, `sessionID=${entry.sessionID}`)
+  else if (entry.date) fields.splice(1, 0, `date=${entry.date}`)
   return fields.join(" | ")
 }
 

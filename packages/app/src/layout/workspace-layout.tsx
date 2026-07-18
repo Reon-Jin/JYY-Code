@@ -3,15 +3,16 @@ import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { A, useNavigate } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { ArrowLeft, House, PanelLeftClose, PanelLeftOpen, Plus, Radio, Settings } from "lucide-solid"
-import { createEffect, createMemo, createSignal, on, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { Button, IconButton } from "../components/ui/button"
 import { InlineError } from "../components/ui/inline-error"
 import { useData } from "../data/context"
 import type { ConnectionState } from "../data/event-bridge"
-import { keys } from "../data/query-keys"
+import { keys, normalizeDirectory } from "../data/query-keys"
 import { errorMessage } from "../features/projects/project-controller"
 import { ReconnectBanner } from "../features/lifecycle/reconnect-banner"
 import { useProjects } from "../features/projects/project-context"
+import { ProjectTabs } from "../features/projects/project-tabs"
 import { conversationQueryOptions } from "../features/conversation/conversation-query"
 import type { ConversationSnapshot } from "../features/conversation/conversation-state"
 import { MessageTimeline } from "../features/conversation/message-timeline"
@@ -52,6 +53,7 @@ type AsyncSessionAction = (sessionID: string) => Promise<void>
 export type WorkspaceLayoutViewProps = {
   projectName: string
   projectDirectory: string
+  openProjectDirectories?: readonly string[]
   connection: ConnectionState
   activeSessions: readonly Session[]
   archivedSessions: readonly Session[]
@@ -68,6 +70,7 @@ export type WorkspaceLayoutViewProps = {
   conversationError?: string
   planStatus?: "planning" | "ready"
   operationError?: string
+  projectTabs?: JSX.Element
   requestArea?: JSX.Element
   composer?: JSX.Element
   inspector?: JSX.Element
@@ -80,6 +83,7 @@ export type WorkspaceLayoutViewProps = {
   onRetryArchived?: () => void
   onRetryConversation?: () => void
   onReturnHome: () => Promise<void>
+  onSwitchProject?: (directory: string) => Promise<void>
   onCreate: () => Promise<void>
   onRename: (sessionID: string, title: string) => Promise<void>
   onArchive: AsyncSessionAction
@@ -106,6 +110,34 @@ function startsNarrow() {
   return typeof window !== "undefined" && window.matchMedia?.("(max-width: 960px)").matches === true
 }
 
+function isTypingOrNavigating(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(target.closest("input, textarea, select, button, a, [contenteditable='true'], [role='dialog'], [role='menu']"))
+  )
+}
+
+export function projectShortcutIndex(
+  event: Pick<KeyboardEvent, "key" | "ctrlKey" | "altKey" | "metaKey" | "shiftKey" | "target">,
+  activeIndex: number,
+  count: number,
+) {
+  if (count < 2 || event.altKey || event.metaKey) return undefined
+  if (event.ctrlKey && /^[1-9]$/u.test(event.key)) {
+    const index = Number(event.key) - 1
+    return index < count ? index : undefined
+  }
+  if (event.key !== "Tab") return undefined
+  if (
+    !event.ctrlKey &&
+    event.target instanceof HTMLElement &&
+    event.target.closest("[role='dialog'], [role='menu']")
+  ) {
+    return undefined
+  }
+  return (activeIndex + (event.shiftKey ? count - 1 : 1)) % count
+}
+
 export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
   const [filter, setFilter] = createSignal<"active" | "archived">("active")
   const [railOpen, setRailOpen] = createSignal(!startsNarrow())
@@ -128,6 +160,23 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
   function closeNarrowRail() {
     if (startsNarrow()) setRailOpen(false)
   }
+
+  onMount(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (props.busy) return
+      const projects = props.openProjectDirectories ?? []
+      const activeIndex = projects.findIndex(
+        (directory) => normalizeDirectory(directory) === normalizeDirectory(props.projectDirectory),
+      )
+      if (activeIndex < 0) return
+      const nextIndex = projectShortcutIndex(event, activeIndex, projects.length)
+      if (nextIndex === undefined || nextIndex === activeIndex) return
+      event.preventDefault()
+      void props.onSwitchProject?.(projects[nextIndex]!)
+    }
+    document.addEventListener("keydown", onKeyDown)
+    onCleanup(() => document.removeEventListener("keydown", onKeyDown))
+  })
 
   return (
     <div
@@ -209,6 +258,8 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
         </footer>
       </aside>
 
+      {props.projectTabs}
+
       <IconButton
         class="workspace-rail-toggle"
         label={railOpen() ? tr("layout.collapse-session-navigation") : tr("layout.expand-session-navigation")}
@@ -222,7 +273,13 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
         </Show>
       </IconButton>
 
-      <main class="workspace-main">
+      <main
+        class="workspace-main"
+        tabIndex={-1}
+        onPointerDown={(event) => {
+          if (!isTypingOrNavigating(event.target)) event.currentTarget.focus({ preventScroll: true })
+        }}
+      >
         <Show when={props.operationError}>{(message) => <InlineError message={message()} />}</Show>
         <Show
           when={props.activeSessionID}
@@ -284,6 +341,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const [inspectorPreferences, setInspectorPreferences] = createSignal<InspectorPreferences>(
     loadInspectorPreferences(data.directory()),
   )
+  onMount(() => {
+    projects.loadRecentProjects().catch((cause) =>
+      setOperationError(errorMessage(cause, tr("projects.unable-to-read-recent-items"))),
+    )
+  })
   const api = createMemo(() =>
     createSessionApi({ client: data.client(), directory: data.directory(), queryClient: data.queryClient() }),
   )
@@ -487,6 +549,22 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }
   }
 
+  async function switchProject(directory?: string) {
+    setBusy(true)
+    setOperationError(undefined)
+    try {
+      const opened = directory ? await projects.openProject(directory) : await projects.chooseAndOpenProject()
+      if (opened) {
+        const sessionID = projects.sessionFor(opened.directory)
+        navigate(sessionID ? `/session/${encodeURIComponent(sessionID)}` : "/workspace")
+      }
+    } catch (cause) {
+      setOperationError(errorMessage(cause, tr("projects.unable-to-open-project")))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function rename(sessionID: string, title: string) {
     await api().rename(sessionID, title)
   }
@@ -526,6 +604,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     if (activeQuery.isPending || archivedQuery.isPending || activeQuery.error || archivedQuery.error) return
     const sessionID = props.activeSessionID
     if (sessionID && sessionQuery.data?.id !== sessionID) return
+    if (sessionID) projects.rememberSession(data.directory(), sessionID)
     const location = { project: data.directory(), ...(sessionID ? { sessionID } : {}) }
     const signature = JSON.stringify(location)
     if (signature === persistedLocation) return
@@ -539,6 +618,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     <WorkspaceLayoutView
       projectName={projectName()}
       projectDirectory={data.directory()}
+      openProjectDirectories={projects.openProjects().map((project) => project.directory)}
       connection={data.connection()}
       activeSessions={activeQuery.data ?? []}
       archivedSessions={archivedQuery.data ?? []}
@@ -557,6 +637,16 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       }
       planStatus={clusterPlanStatus()}
       operationError={operationError()}
+      projectTabs={
+        <ProjectTabs
+          projects={projects.openProjects()}
+          activeDirectory={data.directory()}
+          queryClient={data.queryClient()}
+          disabled={busy()}
+          onSelect={(directory) => void switchProject(directory)}
+          onOpen={() => void switchProject()}
+        />
+      }
       multiAgentEnabled={rootMultiAgentEnabled()}
       childRole={activeChildTask()?.role}
       requestArea={
@@ -708,6 +798,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       onRetryArchived={() => void archivedQuery.refetch()}
       onRetryConversation={() => void conversationQuery.refetch()}
       onReturnHome={returnHome}
+      onSwitchProject={(directory) => switchProject(directory)}
       onCreate={createNewSession}
       onRename={rename}
       onArchive={archive}

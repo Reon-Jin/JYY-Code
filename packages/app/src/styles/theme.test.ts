@@ -115,4 +115,13 @@ describe("Codex-inspired desktop theme", () => {
     expect(sessions).toContain("background: var(--color-header-surface)")
     expect(sessions).not.toContain("background: rgb(24 24 24 / 88%)")
   })
+
+  it("uses the activity-rail button size for project tabs", () => {
+    const sessions = readFileSync("src/features/sessions/sessions.css", "utf8")
+    const inspector = readFileSync("src/features/workspace-inspector/workspace-inspector.css", "utf8")
+
+    expect(sessions).toContain("--workspace-activity-button-size: 36px")
+    expect(sessions).toMatch(/\.project-tab,[\s\S]*?height:\s*var\(--workspace-activity-button-size\)/)
+    expect(inspector).toMatch(/\.workspace-activity-button\.ui-button[\s\S]*?height:\s*var\(--workspace-activity-button-size\)/)
+  })
 })

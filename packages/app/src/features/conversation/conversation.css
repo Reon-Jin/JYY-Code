@@ -183,7 +183,8 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: var(--space-4);
-  background: #101010;
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
 }
 .conversation-markdown blockquote {
   margin-inline: 0;

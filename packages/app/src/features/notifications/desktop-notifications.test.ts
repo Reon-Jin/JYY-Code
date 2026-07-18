@@ -20,9 +20,13 @@ function createHarness(input?: { focused?: boolean; permission?: "granted" | "de
 }
 
 describe("desktop notifications", () => {
-  it("does not notify while focused, in the browser, or without permission", async () => {
-    for (const permission of ["granted", "denied", "unsupported"] as const) {
-      const harness = createHarness({ focused: permission === "granted", permission })
+  it("does not notify while focused or without permission", async () => {
+    const focused = createHarness({ focused: true, permission: "granted" })
+    await focused.notifications.handle({ kind: "permission", eventID: "permission-focused" })
+    expect(focused.desktop.bridge.sendNotification).not.toHaveBeenCalled()
+
+    for (const permission of ["denied", "unsupported"] as const) {
+      const harness = createHarness({ permission })
       await harness.notifications.handle({ kind: "permission", eventID: `permission-${permission}` })
       expect(harness.desktop.bridge.sendNotification).not.toHaveBeenCalled()
     }
@@ -66,7 +70,6 @@ describe("desktop notifications", () => {
     const desktop = createFakeDesktop()
     const notifications = createDesktopNotifications({
       bridge: desktop.bridge,
-      focused: () => false,
       permission: "granted",
       settings: () => ({
         ...defaultDesktopSettings,
@@ -83,7 +86,6 @@ describe("desktop notifications", () => {
     const desktop = createFakeDesktop()
     const notifications = createDesktopNotifications({
       bridge: desktop.bridge,
-      focused: () => false,
       permission: "default",
       settings: () => defaultDesktopSettings,
     })

@@ -301,6 +301,14 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "发送" })).toBeEnabled()
   })
 
+  it("keeps next-turn Agent, provider, and model controls available while a turn is running", () => {
+    renderComposer({ status: { type: "busy" } })
+
+    expect(screen.getByLabelText("智能体")).toBeEnabled()
+    expect(screen.getByRole("button", { name: "连接" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: /配置模型/ })).toBeEnabled()
+  })
+
   it("renders child Sessions as a message-only Composer that still sends with Enter", async () => {
     const user = userEvent.setup()
     const client = renderComposer({

@@ -64,6 +64,28 @@ describe("audited memory management storage", () => {
     expect(JSON.stringify({ user, task })).not.toContain(ctx.directory)
   })
 
+  test("dates new user memories and lists dated entries from newest to oldest", async () => {
+    const ctx = await fixture()
+    const created = await ctx.run(
+      MemoryManagement.Service.use((management) =>
+        management.createUser({ importance: 7, keywords: ["prof"], content: "User prefers compact layouts" }),
+      ),
+    )
+    expect(created.date).toMatch(/^\d{8}$/)
+
+    await fs.writeFile(
+      path.join(ctx.directory, "MEMORY.json"),
+      Memory.serializeStore("memory", [
+        { scope: "memory", sessionID: SessionID.make("ses_old"), importance: 5, date: "20260701", keywords: ["old"], content: "Old task" },
+        { scope: "memory", sessionID: SessionID.make("ses_new"), importance: 5, date: "20260718", keywords: ["new"], content: "New task" },
+      ]),
+      "utf8",
+    )
+
+    const page = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "task" })))
+    expect(page.entries.map((entry) => entry.scope === "task" ? entry.date : "")).toEqual(["20260718", "20260701"])
+  })
+
   test("lists and searches task memories across sessions when no session is specified", async () => {
     const ctx = await fixture()
     await ctx.run(
@@ -93,7 +115,7 @@ describe("audited memory management storage", () => {
     const searched = await ctx.run(
       MemoryManagement.Service.use((management) => management.list({ scope: "task", query: "附件" })),
     )
-    expect(all.entries.map((entry) => entry.scope === "task" ? String(entry.sessionID) : "")).toEqual(["ses_first", "ses_second"])
+    expect(all.entries.map((entry) => entry.scope === "task" ? String(entry.sessionID) : "")).toEqual(["ses_second", "ses_first"])
     expect(searched.entries).toHaveLength(1)
     expect(searched.entries[0]).toMatchObject({ scope: "task", sessionID: "ses_second", keywords: ["附件"] })
   })
@@ -186,5 +208,18 @@ describe("audited memory management storage", () => {
     await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
     expect(await fs.readFile(path.join(ctx.directory, "USER.json"), "utf8")).toBe(text)
     expect(await fs.readFile(source, "utf8")).toBe(text)
+  })
+
+  test("reflects direct JSON edits in desktop management reads", async () => {
+    const ctx = await fixture()
+    await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
+    const text = Memory.serializeStore("user", [
+      { scope: "user", importance: 8, keywords: ["外部编辑"], content: "用户直接编辑了本地 JSON 文件。" },
+    ])
+    await fs.writeFile(path.join(ctx.directory, "USER.json"), text, "utf8")
+
+    const page = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
+    expect(page.entries).toHaveLength(1)
+    expect(page.entries[0]).toMatchObject({ content: "用户直接编辑了本地 JSON 文件。" })
   })
 })

@@ -1389,6 +1389,7 @@ export type GlobalMemoryEntry =
       id: string
       scope: "user"
       importance: number
+      date?: string
       keywords: Array<string>
       content: string
     }
@@ -1443,6 +1444,7 @@ export type GlobalMemoryExport = {
   entries: Array<
     | {
         importance: number
+        date?: string
         keywords: Array<string>
         content: string
       }

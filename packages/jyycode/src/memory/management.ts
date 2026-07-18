@@ -11,6 +11,7 @@ export type UserEntry = {
   id: string
   scope: "user"
   importance: Memory.Importance
+  date?: string
   keywords: string[]
   content: string
 }
@@ -153,7 +154,12 @@ export const layer = Layer.effect(
         .filter((entry) =>
           !query ? true : `${entry.keywords.join(" ")} ${entry.content}`.normalize("NFKC").toLowerCase().includes(query),
         )
-        .map(managed)
+        .map((entry, index) => ({ entry, index }))
+        .sort(
+          (left, right) =>
+            (right.entry.date ?? "").localeCompare(left.entry.date ?? "") || right.index - left.index,
+        )
+        .map(({ entry }) => managed(entry))
       const offset = input.cursor ? Number.parseInt(input.cursor, 10) : 0
       if (!Number.isInteger(offset) || offset < 0) return yield* Effect.fail(new Error("Invalid memory cursor"))
       const limit = Math.min(100, Math.max(1, input.limit ?? 25))
@@ -169,7 +175,13 @@ export const layer = Layer.effect(
     const createUser = Effect.fn("MemoryManagement.createUser")(function* (input: EntryInput) {
       const entry = yield* storage.create({
         sessionID: managementSessionID,
-        entry: { scope: "user", ...input, importance: input.importance as Memory.Importance, keywords: [...input.keywords] },
+        entry: {
+          scope: "user",
+          ...input,
+          date: localDate(new Date()),
+          importance: input.importance as Memory.Importance,
+          keywords: [...input.keywords],
+        },
       })
       return managed(entry) as UserEntry
     })
@@ -206,6 +218,7 @@ export const layer = Layer.effect(
             }
           : {
               scope: "user",
+              date: localDate(new Date()),
               importance: input.importance as Memory.Importance,
               keywords: [...input.keywords],
               content: input.content,

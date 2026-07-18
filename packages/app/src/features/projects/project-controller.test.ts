@@ -82,8 +82,23 @@ describe("project controller", () => {
     const opened = await controller.openProject(project.worktree)
 
     expect(opened.info.id).toBe("p1")
+    expect(controller.openProjects().map((item) => item.directory)).toEqual([project.worktree])
     expect(bridge.saveRecentProjects).toHaveBeenCalledOnce()
     expect(bridge.saveRecentProjects).toHaveBeenCalledWith([{ path: project.worktree, usedAt: 42 }])
+  })
+
+  it("remembers the active Session per project and reuses an already-open project", async () => {
+    const { controller, sdk } = createHarness()
+    const opened = await controller.openProject(project.worktree)
+
+    controller.rememberSession(project.worktree, "ses_demo")
+    controller.rememberSession("C:/work/other/", "ses_other")
+    const reopened = await controller.openProject("C:/work/demo/")
+
+    expect(controller.sessionFor("C:\\work\\demo")).toBe("ses_demo")
+    expect(controller.sessionFor("C:\\work\\other")).toBe("ses_other")
+    expect(reopened).toBe(opened)
+    expect(sdk.project.current).toHaveBeenCalledOnce()
   })
 
   it("creates the directory before asking the backend to initialize git", async () => {

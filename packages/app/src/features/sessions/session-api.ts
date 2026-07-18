@@ -63,7 +63,6 @@ export function createSessionApi(input: SessionApiInput) {
     const result = await input.client.session.list(
       {
         directory: input.directory,
-        scope: "project",
         roots: true,
         ...(archived ? { archived: true as const } : {}),
       },
@@ -74,7 +73,7 @@ export function createSessionApi(input: SessionApiInput) {
 
   async function listAll() {
     const result = await input.client.session.list(
-      { directory: input.directory, scope: "project", roots: false },
+      { directory: input.directory, roots: false },
       { throwOnError: true },
     )
     return result.data ?? []

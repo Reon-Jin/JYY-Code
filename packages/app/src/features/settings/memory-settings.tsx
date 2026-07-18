@@ -1,9 +1,9 @@
 import type { GlobalMemoryEntry } from "@jyycode-ai/sdk/v2/client"
 import { A, useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
-import { ArrowLeft, ChevronRight, ClipboardList, UserRound } from "lucide-solid"
+import { ArrowLeft, ChevronRight, ClipboardList, Pencil, Trash2, UserRound } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
-import { Button } from "../../components/ui/button"
+import { Button, IconButton } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { keys } from "../../data/query-keys"
 import { tr } from "../../i18n/i18n-context"
@@ -108,8 +108,12 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
         if (!response.data) throw new Error(tr("settings.memory-load-error"))
         return response.data
       },
+      refetchInterval: 1_000,
     }),
     () => management.queryClient,
+  )
+  const entries = createMemo(() =>
+    [...(query.data?.entries ?? [])].sort((left, right) => (right.date ?? "").localeCompare(left.date ?? "")),
   )
 
   const invalidate = () => management.queryClient.invalidateQueries({ queryKey: keys.globalMemoryScope(props.scope) })
@@ -226,18 +230,41 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
       <Show when={notice()}>{(message) => <p class="compaction-settings__notice" role="status">{message()}</p>}</Show>
 
       <div class="memory-settings__list">
-        <For each={query.data?.entries ?? []}>
+        <For each={entries()}>
           {(entry) => (
             <article class="memory-settings__entry">
-              <div class="memory-settings__entry-meta">
+              <header class="memory-settings__entry-header">
                 <strong>{entry.keywords.join(" · ")}</strong>
-                <span>{tr("settings.memory-importance-value", { value: entry.importance })}</span>
-              </div>
+                <div class="memory-settings__entry-aside">
+                  <span class="memory-settings__entry-date">
+                    <Show when={entry.date} fallback={tr("settings.memory-date-unknown")}>
+                      {(date) => <time dateTime={date()}>{formatMemoryDate(date())}</time>}
+                    </Show>
+                  </span>
+                  <span>{tr("settings.memory-importance-value", { value: entry.importance })}</span>
+                  <div class="memory-settings__entry-actions">
+                    <IconButton
+                      class="memory-settings__entry-action"
+                      variant="ghost"
+                      label={tr("settings.edit-memory")}
+                      title={tr("settings.edit-memory")}
+                      onClick={() => { setEditing(entry); setEditorOpen(true) }}
+                    >
+                      <Pencil aria-hidden="true" />
+                    </IconButton>
+                    <IconButton
+                      class="memory-settings__entry-action memory-settings__entry-action--danger"
+                      variant="ghost"
+                      label={tr("settings.delete-memory")}
+                      title={tr("settings.delete-memory")}
+                      onClick={() => setConfirmation({ kind: "delete", entry })}
+                    >
+                      <Trash2 aria-hidden="true" />
+                    </IconButton>
+                  </div>
+                </div>
+              </header>
               <p>{entry.content}</p>
-              <div class="memory-settings__entry-actions">
-                <Button size="small" variant="secondary" aria-label={tr("settings.edit-memory")} onClick={() => { setEditing(entry); setEditorOpen(true) }}>{tr("settings.edit-memory")}</Button>
-                <Button size="small" variant="danger" aria-label={tr("settings.delete-memory")} onClick={() => setConfirmation({ kind: "delete", entry })}>{tr("settings.delete-memory")}</Button>
-              </div>
             </article>
           )}
         </For>
@@ -262,4 +289,9 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
 
 function localDate(date: Date) {
   return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`
+}
+
+function formatMemoryDate(value: string) {
+  if (!/^\d{8}$/u.test(value)) return value
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`
 }

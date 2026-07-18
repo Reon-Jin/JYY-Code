@@ -44,7 +44,7 @@ describe("session api", () => {
     await api.list(false)
 
     expect(client.session.list).toHaveBeenCalledWith(
-      { directory, scope: "project", roots: true },
+      { directory, roots: true },
       { throwOnError: true },
     )
   })
@@ -55,7 +55,7 @@ describe("session api", () => {
     await api.listAll()
 
     expect(client.session.list).toHaveBeenCalledWith(
-      { directory, scope: "project", roots: false },
+      { directory, roots: false },
       { throwOnError: true },
     )
   })

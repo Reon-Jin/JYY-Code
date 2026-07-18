@@ -13,6 +13,7 @@ const userEntry = {
   id: "usr_language",
   scope: "user" as const,
   importance: 8,
+  date: "20260718",
   keywords: ["语言"],
   content: "用户偏好简体中文。",
 }
@@ -26,10 +27,10 @@ const taskEntry = {
   sessionID: "ses_settings",
 }
 
-function management() {
+function management(entries?: typeof userEntry[]) {
   const memory = {
     list: vi.fn(async ({ scope }: { scope: "user" | "task" }) => ({
-      data: { entries: scope === "user" ? [userEntry] : [taskEntry], total: 1 },
+      data: { entries: scope === "user" ? (entries ?? [userEntry]) : [taskEntry], total: scope === "user" ? (entries?.length ?? 1) : 1 },
     })),
     update: vi.fn(async (input: Record<string, unknown>) => ({ data: { ...userEntry, ...input } })),
     remove: vi.fn(async () => ({ data: { removed: true } })),
@@ -46,9 +47,9 @@ function management() {
   return { value, memory }
 }
 
-function renderMemory(scope: "user" | "task" = "user") {
+function renderMemory(scope: "user" | "task" = "user", entries?: typeof userEntry[]) {
   const desktop = createFakeDesktop()
-  const { value, memory } = management()
+  const { value, memory } = management(entries)
   const history = createMemoryHistory()
   history.set({ value: "/", replace: true, scroll: false })
   render(() => (
@@ -110,6 +111,23 @@ describe("MemorySettings", () => {
       expect.objectContaining({ scope: "task", query: "设置" }),
       { throwOnError: true },
     ))
+  })
+
+  it("shows memory dates newest first and uses compact header actions", async () => {
+    const older = { ...userEntry, id: "usr_old", date: "20260701", content: "Older memory" }
+    renderMemory("user", [older, userEntry])
+
+    await screen.findByText(userEntry.content)
+    const cards = [...document.querySelectorAll<HTMLElement>(".memory-settings__entry")]
+    expect(cards).toHaveLength(2)
+    expect(cards[0]).toHaveTextContent(userEntry.content)
+    expect(cards[0]).toHaveTextContent("2026-07-18")
+    const actions = cards[0]!.querySelector(".memory-settings__entry-actions")!
+    const actionButtons = actions.querySelectorAll("button")
+    expect(actionButtons).toHaveLength(2)
+    expect(actionButtons[0]).toHaveAttribute("data-size", "icon")
+    expect(actionButtons[1]).toHaveAttribute("data-size", "icon")
+    expect(actions).toHaveTextContent("")
   })
 
   it("edits schema fields and refreshes the active query", async () => {

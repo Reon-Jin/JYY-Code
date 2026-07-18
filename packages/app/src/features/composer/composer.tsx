@@ -275,13 +275,13 @@ export function Composer(props: ComposerProps) {
           <AgentSelect
             agents={props.agents}
             value={props.selectedAgent}
-            disabled={props.identityLocked || controller.sending() || active()}
+            disabled={props.identityLocked || controller.sending() || props.disabled}
             onChange={props.onAgentChange}
           />
           <ProviderConnectButton
             client={props.client}
             directory={props.directory}
-            disabled={controller.sending() || active() || props.disabled}
+            disabled={controller.sending() || props.disabled}
             onConnected={props.onProviderConnected}
           />
           <ClusterModelControl
@@ -289,7 +289,7 @@ export function Composer(props: ComposerProps) {
             queryClient={props.queryClient}
             models={props.models}
             currentModel={props.selectedModel}
-            disabled={props.identityLocked || controller.sending() || active()}
+            disabled={props.identityLocked || controller.sending() || props.disabled}
             identityLocked={props.identityLocked}
             onModelChange={props.onModelChange}
           />

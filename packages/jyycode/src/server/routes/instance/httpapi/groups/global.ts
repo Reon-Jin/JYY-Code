@@ -64,6 +64,7 @@ const GlobalUserMemoryEntry = Schema.Struct({
   id: Schema.String,
   scope: Schema.Literal("user"),
   importance: MemoryImportance,
+  date: Schema.optional(Schema.String),
   keywords: MemoryKeywords,
   content: Schema.String,
 })
@@ -99,6 +100,7 @@ export const GlobalMemoryScopeParams = { scope: GlobalMemoryScope }
 export const GlobalMemoryEntryInput = MemoryEntryInput
 const StoredUserMemoryEntry = Schema.Struct({
   importance: MemoryImportance,
+  date: Schema.optional(Schema.String),
   keywords: MemoryKeywords,
   content: Schema.String,
 })
