@@ -53,3 +53,4 @@ tsconfig.tsbuildinfo
 /docs
 
 /packages/*/.artifacts/
+/.build
