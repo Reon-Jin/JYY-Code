@@ -25,4 +25,5 @@ tauri-plugin-updater = "=2.10.1"
 tokio = { version = "1", features = ["sync", "time"] }
 
 [target.'cfg(windows)'.dependencies]
+notify-rust = "=4.18.0"
 windows-version = "=0.1.7"

@@ -45,7 +45,7 @@ function harness(location: LastLocation = { project: directory, sessionID: sessi
   }
   const sdk = {
     project: {
-      current: vi.fn(async () => ({ data: project })),
+      current: vi.fn(async (_input: { directory: string }, _options: { throwOnError: boolean }) => ({ data: project })),
     },
     session: {
       get: vi.fn(async () => ({ data: session })),
@@ -145,7 +145,10 @@ describe("createLifecycleController", () => {
 
     expect(controller.phase()).toBe("ready")
     expect(controller.route()).toBe("/workspace")
-    expect(bridge.saveLastLocation).toHaveBeenCalledWith({ project: directory })
+    expect(bridge.saveLastLocation).toHaveBeenCalledWith({
+      project: directory,
+      openProjects: [{ path: directory }],
+    })
   })
 
   it("restores a valid last project and Session", async () => {
@@ -161,7 +164,30 @@ describe("createLifecycleController", () => {
       { directory, sessionID: session.id },
       { throwOnError: true },
     )
-    expect(bridge.saveLastLocation).toHaveBeenCalledWith({ project: directory, sessionID: session.id })
+    expect(bridge.saveLastLocation).toHaveBeenCalledWith({
+      project: directory,
+      sessionID: session.id,
+      openProjects: [{ path: directory, sessionID: session.id }],
+    })
+  })
+
+  it("restores every open project in order and reselects the previous active project", async () => {
+    const other = "C:\\work\\other"
+    const { controller, sdk } = harness({
+      project: directory,
+      sessionID: session.id,
+      openProjects: [
+        { path: directory, sessionID: session.id },
+        { path: other, sessionID: "ses_other" },
+      ],
+    })
+
+    await controller.start()
+
+    expect(controller.projects()?.openProjects().map((item) => item.directory)).toEqual([directory, other])
+    expect(controller.project()?.directory).toBe(directory)
+    expect(controller.projects()?.sessionFor(other)).toBe("ses_other")
+    expect(sdk.project.current.mock.calls.map(([input]) => input.directory)).toEqual([directory, other])
   })
 
   it("falls back to the project empty state when the Session was deleted", async () => {
@@ -173,7 +199,10 @@ describe("createLifecycleController", () => {
     expect(controller.phase()).toBe("ready")
     expect(controller.route()).toBe("/workspace")
     expect(controller.project()?.directory).toBe(directory)
-    expect(bridge.saveLastLocation).toHaveBeenCalledWith({ project: directory })
+    expect(bridge.saveLastLocation).toHaveBeenCalledWith({
+      project: directory,
+      openProjects: [{ path: directory }],
+    })
   })
 
   it("returns to project selection when the stored project is unavailable", async () => {

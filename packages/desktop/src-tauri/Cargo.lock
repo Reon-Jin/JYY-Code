@@ -1936,6 +1936,7 @@ dependencies = [
 name = "jyycode-desktop"
 version = "1.0.0"
 dependencies = [
+ "notify-rust",
  "rand 0.10.2",
  "serde",
  "serde_json",

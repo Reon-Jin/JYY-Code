@@ -13,6 +13,10 @@ export type RecentProject = {
 export type LastLocation = {
   project?: string
   sessionID?: string
+  openProjects?: Array<{
+    path: string
+    sessionID?: string
+  }>
 }
 
 export type DesktopCapabilityResult = {
@@ -63,9 +67,20 @@ export function parseLastLocation(value: unknown): LastLocation {
   if (!value || typeof value !== "object") return {}
 
   const candidate = value as Record<string, unknown>
+  const openProjects = Array.isArray(candidate.openProjects)
+    ? candidate.openProjects.flatMap((value) => {
+        if (!value || typeof value !== "object") return []
+        const project = value as Record<string, unknown>
+        if (typeof project.path !== "string" || !project.path.trim()) return []
+        return [
+          { path: project.path, ...(typeof project.sessionID === "string" ? { sessionID: project.sessionID } : {}) },
+        ]
+      })
+    : []
   return {
     ...(typeof candidate.project === "string" ? { project: candidate.project } : {}),
     ...(typeof candidate.sessionID === "string" ? { sessionID: candidate.sessionID } : {}),
+    ...(openProjects.length ? { openProjects } : {}),
   }
 }
 import type { DesktopSettings } from "../features/settings/settings-preferences"

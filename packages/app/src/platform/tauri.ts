@@ -3,7 +3,6 @@ import { open } from "@tauri-apps/plugin-dialog"
 import {
   isPermissionGranted,
   requestPermission,
-  sendNotification as sendNativeNotification,
 } from "@tauri-apps/plugin-notification"
 import { Store } from "@tauri-apps/plugin-store"
 import { relaunch } from "@tauri-apps/plugin-process"
@@ -87,8 +86,7 @@ export const tauriBridge: DesktopBridge = {
   },
   async sendNotification(notification: DesktopNotification) {
     if (!(await isPermissionGranted())) return { supported: false, reason: "Notification permission is not granted" }
-    sendNativeNotification(notification)
-    return { supported: true }
+    return invoke<DesktopCapabilityResult>("send_desktop_notification", { notification })
   },
   async checkForUpdate() {
     if (pendingUpdate) {

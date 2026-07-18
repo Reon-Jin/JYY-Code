@@ -4,10 +4,38 @@ import { createQuery } from "@tanstack/solid-query"
 import { Plus } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { keys, normalizeDirectory } from "../../data/query-keys"
+import { publishDesktopNotificationEvent } from "../notifications/desktop-notifications"
 import { tr } from "../../i18n/i18n-context"
 import type { OpenedProject } from "./project-controller"
 
 const statusCache = new Map<string, Record<string, SessionStatus>>()
+let statusEventSequence = 0
+
+type ProjectStatusTransition = {
+  sessionID: string
+  status: "running" | "retry" | "idle"
+}
+
+function notificationStatus(status: SessionStatus | undefined): ProjectStatusTransition["status"] {
+  if (status?.type === "busy") return "running"
+  if (status?.type === "retry") return "retry"
+  return "idle"
+}
+
+export function projectStatusTransitions(
+  previous: Record<string, SessionStatus>,
+  current: Record<string, SessionStatus>,
+): ProjectStatusTransition[] {
+  const sessionIDs = new Set([...Object.keys(previous), ...Object.keys(current)])
+  const transitions: ProjectStatusTransition[] = []
+  for (const sessionID of sessionIDs) {
+    const before = notificationStatus(previous[sessionID])
+    const after = notificationStatus(current[sessionID])
+    if (before === after) continue
+    transitions.push({ sessionID, status: after })
+  }
+  return transitions
+}
 
 export type ProjectTabsProps = {
   projects: readonly OpenedProject[]
@@ -32,6 +60,7 @@ function ProjectTab(props: {
 }) {
   const [unread, setUnread] = createSignal(0)
   const statusKey = () => normalizeDirectory(props.project.directory)
+  let notificationStatuses = statusCache.get(statusKey()) ?? {}
   const status = createQuery(
     () => ({
       queryKey: keys.status(props.project.directory),
@@ -46,6 +75,7 @@ function ProjectTab(props: {
       },
       initialData: statusCache.get(statusKey()),
       refetchInterval: 3_000,
+      refetchIntervalInBackground: true,
     }),
     () => props.queryClient,
   )
@@ -53,6 +83,20 @@ function ProjectTab(props: {
     () => Object.values(status.data ?? {}).filter((item) => item.type === "busy" || item.type === "retry").length,
   )
   let previousRunning: number | undefined
+
+  createEffect(() => {
+    const current = status.data
+    if (!current) return
+    for (const transition of projectStatusTransitions(notificationStatuses, current)) {
+      publishDesktopNotificationEvent({
+        kind: "status",
+        eventID: `project-status:${statusKey()}:${transition.sessionID}:${transition.status}:${++statusEventSequence}`,
+        sessionID: transition.sessionID,
+        status: transition.status,
+      })
+    }
+    notificationStatuses = current
+  })
 
   createEffect(() => {
     const current = running()

@@ -121,7 +121,9 @@ describe("Codex-inspired desktop theme", () => {
     const inspector = readFileSync("src/features/workspace-inspector/workspace-inspector.css", "utf8")
 
     expect(sessions).toContain("--workspace-activity-button-size: 36px")
+    expect(sessions).toContain("--project-tab-width: 148px")
     expect(sessions).toMatch(/\.project-tab,[\s\S]*?height:\s*var\(--workspace-activity-button-size\)/)
+    expect(sessions).toMatch(/\.project-tab\s*\{[^}]*width:\s*var\(--project-tab-width\)/)
     expect(inspector).toMatch(/\.workspace-activity-button\.ui-button[\s\S]*?height:\s*var\(--workspace-activity-button-size\)/)
   })
 })

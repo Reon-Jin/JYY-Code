@@ -4,7 +4,23 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createDesktopQueryClient } from "../../data/query-client"
 import type { DesktopClient } from "../../data/sdk"
 import type { OpenedProject } from "./project-controller"
-import { ProjectTabs } from "./project-tabs"
+import { projectStatusTransitions, ProjectTabs } from "./project-tabs"
+
+describe("projectStatusTransitions", () => {
+  it("reports lifecycle changes and treats a missing running session as complete", () => {
+    expect(projectStatusTransitions({}, { ses_1: { type: "busy" } })).toEqual([
+      { sessionID: "ses_1", status: "running" },
+    ])
+    const retry = { type: "retry" as const, attempt: 1, message: "retrying", next: 1 }
+    expect(projectStatusTransitions({ ses_1: { type: "busy" } }, { ses_1: retry })).toEqual([
+      { sessionID: "ses_1", status: "retry" },
+    ])
+    expect(projectStatusTransitions({ ses_1: retry }, {})).toEqual([
+      { sessionID: "ses_1", status: "idle" },
+    ])
+    expect(projectStatusTransitions({ ses_1: { type: "busy" } }, { ses_1: { type: "busy" } })).toEqual([])
+  })
+})
 
 function opened(directory: string, running = false): OpenedProject {
   const info: Project = {

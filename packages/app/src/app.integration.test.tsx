@@ -202,7 +202,11 @@ describe("desktop GUI journey", () => {
     expect(await screen.findByRole("heading", { name: "设置" })).toBeVisible()
     await user.click(screen.getByRole("button", { name: "返回" }))
     expect(await screen.findByRole("heading", { name: "Settings Session" })).toBeVisible()
-    expect(desktop.lastLocation()).toEqual({ project: directory, sessionID: "ses_settings" })
+    expect(desktop.lastLocation()).toEqual({
+      project: directory,
+      sessionID: "ses_settings",
+      openProjects: [{ path: directory, sessionID: "ses_settings" }],
+    })
   }, 20_000)
 
   it("creates, prompts, streams, answers, stops, and restores a single-Agent Session", async () => {
@@ -261,7 +265,11 @@ describe("desktop GUI journey", () => {
     stop.focus()
     await user.keyboard("{Enter}")
     await waitFor(() => expect(screen.getByRole("button", { name: "发送" })).toBeVisible())
-    expect(desktop.lastLocation()).toEqual({ project: desktop.directory, sessionID: "ses_1" })
+    expect(desktop.lastLocation()).toEqual({
+      project: desktop.directory,
+      sessionID: "ses_1",
+      openProjects: [{ path: desktop.directory, sessionID: "ses_1" }],
+    })
 
     cleanup()
     window.history.replaceState(null, "", "/")
@@ -451,7 +459,13 @@ describe("desktop GUI journey", () => {
     )
 
     await user.click(screen.getByRole("button", { name: "审阅：Implement feature" }))
-    await waitFor(() => expect(desktop.lastLocation()).toEqual({ project: desktop.directory, sessionID: "ses_child" }))
+    await waitFor(() =>
+      expect(desktop.lastLocation()).toEqual({
+        project: desktop.directory,
+        sessionID: "ses_child",
+        openProjects: [{ path: desktop.directory, sessionID: "ses_child" }],
+      }),
+    )
     cleanup()
     window.history.replaceState(null, "", "/")
     render(() => <App bridge={desktop.bridge} />)
@@ -595,7 +609,13 @@ describe("desktop GUI journey", () => {
         ),
       ).toBe(true),
     )
-    await waitFor(() => expect(desktop.lastLocation()).toEqual({ project: desktop.directory, sessionID: "ses_child" }))
+    await waitFor(() =>
+      expect(desktop.lastLocation()).toEqual({
+        project: desktop.directory,
+        sessionID: "ses_child",
+        openProjects: [{ path: desktop.directory, sessionID: "ses_child" }],
+      }),
+    )
 
     cleanup()
     window.history.replaceState(null, "", "/")

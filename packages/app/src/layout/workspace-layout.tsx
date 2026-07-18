@@ -605,7 +605,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     const sessionID = props.activeSessionID
     if (sessionID && sessionQuery.data?.id !== sessionID) return
     if (sessionID) projects.rememberSession(data.directory(), sessionID)
-    const location = { project: data.directory(), ...(sessionID ? { sessionID } : {}) }
+    const openProjects = projects.openProjects().map((project) => {
+      const rememberedSessionID = projects.sessionFor(project.directory)
+      return { path: project.directory, ...(rememberedSessionID ? { sessionID: rememberedSessionID } : {}) }
+    })
+    const location = { project: data.directory(), ...(sessionID ? { sessionID } : {}), openProjects }
     const signature = JSON.stringify(location)
     if (signature === persistedLocation) return
     persistedLocation = signature

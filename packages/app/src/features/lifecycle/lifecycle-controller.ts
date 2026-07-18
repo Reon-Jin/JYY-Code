@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js"
 import { createDesktopClient, type DesktopClient } from "../../data/sdk"
-import type { DesktopBootstrap, DesktopBridge } from "../../platform/types"
+import type { DesktopBootstrap, DesktopBridge, LastLocation } from "../../platform/types"
 import { defaultDesktopSettings, type DesktopSettings } from "../settings/settings-preferences"
 import {
   createProjectController,
@@ -20,6 +20,12 @@ export type LifecycleControllerInput = {
 
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 22_000
 const DEFAULT_RESTORE_TIMEOUT_MS = 10_000
+
+function sameDirectory(left: string, right: string) {
+  const normalize = (value: string) =>
+    value.replaceAll("/", "\\").replace(/\\+$/, "").toLocaleLowerCase("en-US")
+  return normalize(left) === normalize(right)
+}
 
 export function withTimeout<T>(promise: Promise<T>, milliseconds: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -61,12 +67,20 @@ export function createLifecycleController(input: LifecycleControllerInput) {
     setPhase("failed")
   }
 
-  async function persist(value: { project?: string; sessionID?: string }) {
+  async function persist(value: LastLocation) {
     try {
       await withTimeout(input.bridge.saveLastLocation(value), restoreTimeoutMs, "保存启动位置超时")
     } catch {
       // Persistence must not block an otherwise valid workspace.
     }
+  }
+
+  function persistedWorkspace(controller: ProjectController, project: string, sessionID?: string): LastLocation {
+    const openProjects = controller.openProjects().map((opened) => {
+      const rememberedSessionID = controller.sessionFor(opened.directory)
+      return { path: opened.directory, ...(rememberedSessionID ? { sessionID: rememberedSessionID } : {}) }
+    })
+    return { project, ...(sessionID ? { sessionID } : {}), openProjects }
   }
 
   async function boot(allowRecovery: boolean) {
@@ -124,18 +138,48 @@ export function createLifecycleController(input: LifecycleControllerInput) {
     }
 
     setPhase("projectLoading")
+    const storedProjects = location.openProjects?.length
+      ? [...location.openProjects]
+      : [{ path: location.project, ...(location.sessionID ? { sessionID: location.sessionID } : {}) }]
+    if (!storedProjects.some((project) => sameDirectory(project.path, location.project!))) {
+      storedProjects.push({
+        path: location.project,
+        ...(location.sessionID ? { sessionID: location.sessionID } : {}),
+      })
+    }
+
+    let activeOpened: OpenedProject | undefined
+    for (const stored of storedProjects) {
+      try {
+        const restored = await withTimeout(controller.openProject(stored.path), restoreTimeoutMs, "恢复上次项目超时")
+        if (sameDirectory(stored.path, location.project)) activeOpened = restored
+        if (stored.sessionID && !sameDirectory(stored.path, location.project)) {
+          controller.rememberSession(stored.path, stored.sessionID)
+        }
+      } catch {
+        // One unavailable project must not prevent the remaining tabs from restoring.
+      }
+    }
+
     let opened: OpenedProject
-    try {
-      opened = await withTimeout(controller.openProject(location.project), restoreTimeoutMs, "恢复上次项目超时")
-    } catch {
-      await persist({})
+    if (activeOpened) {
+      opened = await controller.openProject(activeOpened.directory)
+    } else {
+      const fallback = controller.activeProject()
+      if (!fallback) {
+        await persist({})
+        setPhase("ready")
+        return
+      }
+      setRoute("/workspace")
+      await persist(persistedWorkspace(controller, fallback.directory))
       setPhase("ready")
       return
     }
 
     if (!location.sessionID) {
       setRoute("/workspace")
-      await persist({ project: opened.directory })
+      await persist(persistedWorkspace(controller, opened.directory))
       setPhase("ready")
       return
     }
@@ -150,11 +194,12 @@ export function createLifecycleController(input: LifecycleControllerInput) {
         "恢复上次 Session 超时",
       )
       if (!result.data) throw new Error("Session 不存在")
+      controller.rememberSession(opened.directory, result.data.id)
       setRoute(`/session/${encodeURIComponent(result.data.id)}`)
-      await persist({ project: opened.directory, sessionID: result.data.id })
+      await persist(persistedWorkspace(controller, opened.directory, result.data.id))
     } catch {
       setRoute("/workspace")
-      await persist({ project: opened.directory })
+      await persist(persistedWorkspace(controller, opened.directory))
     }
     setPhase("ready")
   }

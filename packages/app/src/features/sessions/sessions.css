@@ -1,6 +1,7 @@
 .workspace-shell {
   --workspace-header-height: 69px;
   --workspace-activity-button-size: 36px;
+  --project-tab-width: 148px;
   --project-tabs-height: 45px;
   position: relative;
   display: grid;
@@ -103,7 +104,7 @@
   color: var(--color-text-muted);
   font-size: 0.7rem;
 }
-.project-tab { max-width: 210px; }
+.project-tab { width: var(--project-tab-width); }
 .project-tab:hover:not(:disabled),
 .project-tabs__open:hover:not(:disabled) { background: var(--color-surface); color: var(--color-text); }
 .project-tab:focus-visible,

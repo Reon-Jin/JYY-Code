@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod backend;
+mod notifications;
 mod project_path;
 mod text_file;
 mod window_effects;
@@ -17,6 +18,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             backend::desktop_bootstrap,
             backend::restart_backend,
+            notifications::send_desktop_notification,
             project_path::create_project_directory,
             project_path::reveal_config_file,
             text_file::save_text_file,

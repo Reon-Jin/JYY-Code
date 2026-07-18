@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const state = vi.hoisted(() => ({
   values: new Map<string, unknown>(),
   save: vi.fn(async () => undefined),
-  invoke: vi.fn(async () => undefined),
+  invoke: vi.fn(async (..._args: unknown[]): Promise<unknown> => undefined),
   isPermissionGranted: vi.fn(async () => true),
   requestPermission: vi.fn(async () => "granted" as const),
   sendNotification: vi.fn(),
@@ -56,18 +56,22 @@ describe("Tauri desktop settings persistence", () => {
   })
 
   it("uses serializable command payloads for native capabilities", async () => {
+    state.invoke.mockImplementation(async (...args: unknown[]) =>
+      args[0] === "send_desktop_notification" ? { supported: true } : undefined,
+    )
     await tauriBridge.setWindowGlass(true, "dark")
     await tauriBridge.getNotificationPermission?.()
     await tauriBridge.requestNotificationPermission()
-    await tauriBridge.sendNotification({ title: "JYYCode", body: "Ready" })
+    await expect(tauriBridge.sendNotification({ title: "JYYCode", body: "Ready" })).resolves.toEqual({ supported: true })
     await tauriBridge.saveTextFile("memory.json", "{}")
 
     expect(state.invoke.mock.calls).toEqual([
       ["set_window_glass", { enabled: true, theme: "dark" }],
+      ["send_desktop_notification", { notification: { title: "JYYCode", body: "Ready" } }],
       ["save_text_file", { suggestedName: "memory.json", contents: "{}" }],
     ])
     expect(state.requestPermission).toHaveBeenCalledOnce()
-    expect(state.sendNotification).toHaveBeenCalledWith({ title: "JYYCode", body: "Ready" })
+    expect(state.sendNotification).not.toHaveBeenCalled()
   })
 
   it("checks, installs, closes, and relaunches a signed update", async () => {

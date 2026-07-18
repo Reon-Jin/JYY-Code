@@ -12,6 +12,22 @@ describe("browser desktop settings persistence", () => {
     expect(await bridge.loadSettings()).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
   })
 
+  it("round-trips the ordered open-project workspace", async () => {
+    const bridge = createBrowserBridge(localStorage)
+    const location = {
+      project: "C:\\work\\demo",
+      sessionID: "ses_demo",
+      openProjects: [
+        { path: "C:\\work\\demo", sessionID: "ses_demo" },
+        { path: "C:\\work\\other", sessionID: "ses_other" },
+      ],
+    }
+
+    await bridge.saveLastLocation(location)
+
+    expect(await bridge.loadLastLocation()).toEqual(location)
+  })
+
   it("recovers from malformed storage", async () => {
     localStorage.setItem("jyycode.desktop.settings", "{not json")
     expect(await createBrowserBridge(localStorage).loadSettings()).toEqual(defaultDesktopSettings)
