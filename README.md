@@ -197,6 +197,18 @@ packages/desktop/   Tauri Windows shell and sidecar packaging
 memory/             Structured persistent memory
 ```
 
+## Downloads
+
+Official Windows installers, portable builds, checksums, and update manifests are published on the [GitHub Releases page](https://github.com/Reon-Jin/JYY-Code/releases).
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). SignPath signing is not active yet; current Windows artifacts are not Authenticode-signed. See the [Code signing policy](CODE_SIGNING_POLICY.md) and the signing status in each release.
+
+## Privacy
+
+JYY-Code stores application data locally and connects to services that you configure or invoke. See the [Privacy Policy](PRIVACY.md) for details.
+
 ## License
 
 MIT © [JYYCode](https://github.com/Reon-Jin/JYY-Code)

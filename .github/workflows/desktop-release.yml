@@ -107,21 +107,37 @@ jobs:
           $createdRollingRelease = $false
           $PSNativeCommandUseErrorActionPreference = $true
           try {
+            $releaseNotes = @"
+          Windows x64 release. Tauri updater artifacts are signed; Windows Authenticode signing is not configured yet, so Windows may show an unknown publisher warning.
+
+          ## Code signing policy
+
+          Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). SignPath signing is not active yet; the artifacts attached to this release are not Authenticode-signed.
+
+          - Code signing policy: https://github.com/${{ github.repository }}/blob/main/CODE_SIGNING_POLICY.md
+          - Privacy policy: https://github.com/${{ github.repository }}/blob/main/PRIVACY.md
+          "@
             gh release create $env:TAG @assets `
               --repo $repo `
               --target "${{ github.sha }}" `
               --title "JYYCode Desktop $env:VERSION" `
-              --notes "Windows x64 prerelease. Updater artifacts are signed; Windows Authenticode signing is not configured yet." `
+              --notes $releaseNotes `
               --draft `
               --prerelease
 
             if ($hadRollingRelease) {
               gh release upload desktop-latest $manifest --clobber --repo $repo
             } else {
+              $channelNotes = @"
+          Rolling updater manifest for JYYCode Desktop.
+
+          Code signing policy: https://github.com/${{ github.repository }}/blob/main/CODE_SIGNING_POLICY.md
+          Privacy policy: https://github.com/${{ github.repository }}/blob/main/PRIVACY.md
+          "@
               gh release create desktop-latest $manifest `
                 --repo $repo `
                 --title "JYYCode Desktop update channel" `
-                --notes "Rolling signed update manifest." `
+                --notes $channelNotes `
                 --prerelease
               $createdRollingRelease = $true
             }

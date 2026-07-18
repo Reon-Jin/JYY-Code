@@ -197,6 +197,18 @@ packages/desktop/   Tauri Windows 外壳与 sidecar 打包
 memory/             结构化持久记忆
 ```
 
+## 下载
+
+Windows 安装包、便携版、校验和与更新清单统一发布在 [GitHub Releases 页面](https://github.com/Reon-Jin/JYY-Code/releases)。
+
+## 代码签名政策
+
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). SignPath 签名目前尚未启用；现有 Windows 产物尚未进行 Authenticode 签名。详情见[代码签名政策](CODE_SIGNING_POLICY.md)，每个 Release 也会单独注明其签名状态。
+
+## 隐私
+
+JYY-Code 在本地保存应用数据，并会连接你主动配置或调用的服务。详情见[隐私政策](PRIVACY.md)。
+
 ## License
 
 MIT © [JYYCode](https://github.com/Reon-Jin/JYY-Code)
