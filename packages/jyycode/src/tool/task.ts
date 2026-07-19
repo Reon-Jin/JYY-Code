@@ -772,6 +772,7 @@ export const TaskTool = Tool.define(
             modelID: model.modelID,
             providerID: model.providerID,
           },
+          ...(preparedDispatch?.variant ? { variant: preparedDispatch.variant } : {}),
           agent: next.name,
           tools: {
             ...(next.permission.some((rule) => rule.permission === "todowrite" && rule.action === "allow")

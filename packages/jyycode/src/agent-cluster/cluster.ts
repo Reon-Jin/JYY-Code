@@ -24,6 +24,7 @@ import type { Plan, PlannedTask, RunID, RunStatus, TaskID, TaskStatus } from "./
 type ModelRef = {
   providerID: ProviderID
   modelID: ModelID
+  variant?: string
 }
 
 type ClusterModels = {
@@ -150,19 +151,30 @@ export function canUseAgentCluster(input: {
   return (input.requested ?? input.session.multiAgent ?? config.default_on) === true
 }
 
-export const resolveModelRef = Effect.fn("AgentCluster.resolveModelRef")(function* (model: string) {
+export const resolveModelRef = Effect.fn("AgentCluster.resolveModelRef")(function* (model: string, variant?: string) {
   const provider = yield* Provider.Service
+  const normalizedVariant = variant?.trim() || undefined
   if (model.includes("/")) {
     const parsed = Provider.parseModel(model)
-    yield* provider.getModel(parsed.providerID, parsed.modelID)
-    return parsed
+    const info = yield* provider.getModel(parsed.providerID, parsed.modelID)
+    if (normalizedVariant && !info.variants?.[normalizedVariant]) {
+      return yield* Effect.fail(new Error(`Agent cluster model variant not found: ${model}/${normalizedVariant}`))
+    }
+    return normalizedVariant ? { ...parsed, variant: normalizedVariant } : parsed
   }
 
   const providers = yield* provider.list()
   const matches = Object.values(providers)
     .filter((item) => item.models[model])
     .map((item) => ({ providerID: item.id, modelID: ModelID.make(model) }))
-  if (matches.length === 1) return matches[0]!
+  if (matches.length === 1) {
+    const parsed = matches[0]!
+    const info = yield* provider.getModel(parsed.providerID, parsed.modelID)
+    if (normalizedVariant && !info.variants?.[normalizedVariant]) {
+      return yield* Effect.fail(new Error(`Agent cluster model variant not found: ${model}/${normalizedVariant}`))
+    }
+    return normalizedVariant ? { ...parsed, variant: normalizedVariant } : parsed
+  }
   if (matches.length > 1) {
     return yield* Effect.fail(new Error(`Agent cluster model "${model}" is ambiguous; use provider/${model}`))
   }
@@ -173,10 +185,10 @@ export const resolveModels = Effect.fn("AgentCluster.resolveModels")(function* (
   const resolved = ConfigAgentCluster.resolve(config)
   return yield* Effect.all(
     {
-      planner: resolveModelRef(resolved.planner_model),
-      simple: resolveModelRef(resolved.simple_model),
-      complex: resolveModelRef(resolved.complex_model),
-      visual: resolveModelRef(resolved.visual_model),
+      planner: resolveModelRef(resolved.planner_model, resolved.planner_variant),
+      simple: resolveModelRef(resolved.simple_model, resolved.simple_variant),
+      complex: resolveModelRef(resolved.complex_model, resolved.complex_variant),
+      visual: resolveModelRef(resolved.visual_model, resolved.visual_variant),
     },
     { concurrency: "unbounded" },
   )
@@ -213,6 +225,11 @@ export function decoratePromptInput(input: {
   return {
     ...input.prompt,
     agent: "cluster",
+    ...(input.prompt.variant || input.prompt.model
+      ? {}
+      : input.models.planner.variant
+        ? { variant: input.models.planner.variant }
+        : {}),
     model: plannerModel,
     parts: [
       ...input.prompt.parts,
@@ -248,9 +265,7 @@ export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (inpu
       .where(eq(AgentClusterRunTable.id, input.runID))
       .get(),
   )
-  const history = run
-    ? (yield* getSessionState(run.sessionID)).tasks.filter((task) => task.run_id !== input.runID)
-    : []
+  const history = run ? (yield* getSessionState(run.sessionID)).tasks.filter((task) => task.run_id !== input.runID) : []
   const plan = incrementalPlan(input.plan, history)
   if (plan.tasks.length === 0) return
   const inserted = yield* Database.query((db) =>
@@ -460,6 +475,7 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
       taskID: undefined as TaskID | undefined,
       childSessionID: undefined as SessionID | undefined,
       model: undefined as string | undefined,
+      variant: undefined as string | undefined,
     }
   }
   const runID = input.runID as RunID
@@ -528,7 +544,8 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
         )
       if (revisions.length)
         instructions.push(`resume revision-requested tasks (${revisions.map((row) => row.id).join(", ")})`)
-      if (gate.rejected.length) instructions.push(`rejected tasks must be replaced with new tasks or the run must be failed`)
+      if (gate.rejected.length)
+        instructions.push(`rejected tasks must be replaced with new tasks or the run must be failed`)
       return yield* Effect.fail(
         new Error(
           [
@@ -537,9 +554,7 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
               ? `Undispatched: ${undispatched.map((row) => `${row.id}(${row.status})`).join(", ")}.`
               : undefined,
             running.length ? `Running: ${running.map((row) => row.id).join(", ")}.` : undefined,
-            awaitingReview.length
-              ? `Awaiting review: ${awaitingReview.map((row) => row.id).join(", ")}.`
-              : undefined,
+            awaitingReview.length ? `Awaiting review: ${awaitingReview.map((row) => row.id).join(", ")}.` : undefined,
             revisions.length ? `Revision requested: ${revisions.map((row) => row.id).join(", ")}.` : undefined,
             gate.rejected.length ? `Rejected: ${gate.rejected.join(", ")}.` : undefined,
             instructions.length ? `Next action: ${instructions.join("; ")}.` : undefined,
@@ -563,6 +578,14 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
           visualModel: config.visual_model,
         })
       : task.model
+  const variant =
+    task.model !== "-"
+      ? undefined
+      : task.role === "picture_searcher" || task.role === "chart" || task.role === "pdf"
+        ? config.visual_variant || undefined
+        : task.complexity === "simple"
+          ? config.simple_variant || undefined
+          : config.complex_variant || undefined
   const tasks = rows.map(plannedTaskFromRow)
   const predecessors = rows
     .filter(
@@ -607,6 +630,7 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
     taskID: target.id,
     childSessionID: resumedSessionID ?? target.child_session_id ?? undefined,
     model,
+    variant,
   }
 })
 

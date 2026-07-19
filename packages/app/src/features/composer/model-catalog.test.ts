@@ -168,6 +168,22 @@ describe("loadModelCatalog", () => {
     expect(catalog.selectedModel).toEqual({ providerID: "openai", modelID: "gpt-4.1" })
   })
 
+  it("exposes and selects the configured planner reasoning variant", async () => {
+    const openai = provider("openai", ["gpt-4.1", "gpt-5"])
+    openai.models["gpt-5"]!.variants = { low: {}, high: {} }
+    const catalog = await loadModelCatalog({
+      client: createClient({
+        providers: [openai],
+        configuredProviders: [openai],
+        agentCluster: { planner_model: "openai/gpt-5", planner_variant: "high" },
+      }) as never,
+      directory,
+    })
+
+    expect(catalog.models.find((model) => model.modelID === "gpt-5")?.variants).toEqual(["low", "high"])
+    expect(catalog.selectedModel).toEqual({ providerID: "openai", modelID: "gpt-5", variant: "high" })
+  })
+
   it("accepts a unique bare global planner ID and excludes deprecated models", async () => {
     const openai = provider("openai", ["planner", "legacy"])
     openai.models.legacy!.status = "deprecated"

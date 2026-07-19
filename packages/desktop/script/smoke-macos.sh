@@ -6,6 +6,8 @@ release_root="${1:-$(cd "$(dirname "$0")/../src-tauri/target/aarch64-apple-darwi
 bundle_root="$release_root/bundle"
 app_bundle="$(find "$bundle_root/macos" -maxdepth 1 -type d -name '*.app' -print -quit)"
 dmg_path="$(find "$bundle_root/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+updater_path="$(find "$bundle_root/macos" -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+updater_signature="${updater_path}.sig"
 
 if [[ -z "$app_bundle" || ! -d "$app_bundle" ]]; then
   echo "macOS app bundle does not exist under $bundle_root/macos" >&2
@@ -13,6 +15,10 @@ if [[ -z "$app_bundle" || ! -d "$app_bundle" ]]; then
 fi
 if [[ -z "$dmg_path" || ! -s "$dmg_path" ]]; then
   echo "macOS DMG does not exist or is empty under $bundle_root/dmg" >&2
+  exit 1
+fi
+if [[ -z "$updater_path" || ! -s "$updater_path" || ! -s "$updater_signature" ]]; then
+  echo "macOS updater artifact or signature does not exist under $bundle_root/macos" >&2
   exit 1
 fi
 
@@ -102,6 +108,18 @@ if kill -0 "$sidecar_pid" 2>/dev/null; then
   exit 1
 fi
 
+artifact_root="$release_root/desktop-artifacts"
+rm -rf "$artifact_root"
+mkdir -p "$artifact_root"
+cp "$dmg_path" "$artifact_root/JYYCode-macos-aarch64.dmg"
+cp "$updater_path" "$artifact_root/JYYCode-macos-aarch64.app.tar.gz"
+cp "$updater_signature" "$artifact_root/JYYCode-macos-aarch64.app.tar.gz.sig"
+
+(
+  cd "$artifact_root"
+  shasum -a 256 JYYCode-macos-aarch64.dmg JYYCode-macos-aarch64.app.tar.gz JYYCode-macos-aarch64.app.tar.gz.sig > SHA256SUMS.txt
+)
+
 desktop_pid=""
 sidecar_pid=""
 trap - EXIT
@@ -109,3 +127,4 @@ trap - EXIT
 echo "macOS desktop smoke test passed."
 echo "$app_bundle"
 echo "$dmg_path"
+echo "$artifact_root"

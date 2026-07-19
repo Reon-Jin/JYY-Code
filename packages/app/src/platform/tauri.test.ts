@@ -54,8 +54,8 @@ describe("Tauri desktop settings persistence", () => {
     expect(await tauriBridge.loadSettings()).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
   })
 
-  it("disables the Windows update channel for macOS WebViews", () => {
-    expect(automaticUpdatesSupported("Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0)")).toBe(false)
+  it("supports automatic updates on macOS and Windows WebViews", () => {
+    expect(automaticUpdatesSupported("Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0)")).toBe(true)
     expect(automaticUpdatesSupported("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe(true)
   })
 
@@ -66,7 +66,9 @@ describe("Tauri desktop settings persistence", () => {
     await tauriBridge.setWindowGlass(true, "dark")
     await tauriBridge.getNotificationPermission?.()
     await tauriBridge.requestNotificationPermission()
-    await expect(tauriBridge.sendNotification({ title: "JYYCode", body: "Ready" })).resolves.toEqual({ supported: true })
+    await expect(tauriBridge.sendNotification({ title: "JYYCode", body: "Ready" })).resolves.toEqual({
+      supported: true,
+    })
     await tauriBridge.saveTextFile("memory.json", "{}")
 
     expect(state.invoke.mock.calls).toEqual([
@@ -139,10 +141,7 @@ describe("Tauri desktop settings persistence", () => {
     await tauriBridge.checkForUpdate()
     await expect(tauriBridge.installAvailableUpdate()).rejects.toThrow("installer failed")
 
-    expect(state.invoke.mock.calls).toEqual([
-      ["stop_backend_for_update"],
-      ["restart_backend"],
-    ])
+    expect(state.invoke.mock.calls).toEqual([["stop_backend_for_update"], ["restart_backend"]])
   })
 
   it("reports when no update is available", async () => {

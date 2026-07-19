@@ -71,19 +71,35 @@ describe("MultiAgentPanelView states", () => {
     unmount()
 
     const disabled = render(() => (
-      <MultiAgentPanelView sessionID="ses_root" enabled={false} snapshot={snapshot({ runs: [], tasks: [] })} onOpenChild={vi.fn()} />
+      <MultiAgentPanelView
+        sessionID="ses_root"
+        enabled={false}
+        snapshot={snapshot({ runs: [], tasks: [] })}
+        onOpenChild={vi.fn()}
+      />
     ))
     expect(screen.getByText("当前会话未启用多智能体")).toBeVisible()
     disabled.unmount()
 
     const waiting = render(() => (
-      <MultiAgentPanelView sessionID="ses_root" enabled snapshot={snapshot({ runs: [], tasks: [] })} onOpenChild={vi.fn()} />
+      <MultiAgentPanelView
+        sessionID="ses_root"
+        enabled
+        snapshot={snapshot({ runs: [], tasks: [] })}
+        onOpenChild={vi.fn()}
+      />
     ))
     expect(screen.getByText("正在等待主智能体生成计划")).toBeVisible()
     waiting.unmount()
 
     const loading = render(() => (
-      <MultiAgentPanelView sessionID="ses_root" enabled loading snapshot={snapshot({ runs: [], tasks: [] })} onOpenChild={vi.fn()} />
+      <MultiAgentPanelView
+        sessionID="ses_root"
+        enabled
+        loading
+        snapshot={snapshot({ runs: [], tasks: [] })}
+        onOpenChild={vi.fn()}
+      />
     ))
     expect(screen.getByRole("status")).toHaveTextContent("正在加载多智能体任务")
     loading.unmount()
@@ -151,7 +167,14 @@ describe("MultiAgentPanelView plan and task interactions", () => {
       runs: [run({ id: "run_2", time_created: 10 }), run({ id: "run_1", time_created: 1 })],
       tasks: [
         task({ id: "queued", title: "Queued task", run_id: "run_1", status: "queued", child_session_id: "", step: 1 }),
-        task({ id: "review", title: "Review task", run_id: "run_1", status: "revision_requested", child_session_id: "", step: 2 }),
+        task({
+          id: "review",
+          title: "Review task",
+          run_id: "run_1",
+          status: "revision_requested",
+          child_session_id: "",
+          step: 2,
+        }),
         task({ id: "done", title: "Done task", run_id: "run_1", status: "accepted", child_session_id: "", step: 3 }),
         task({ id: "failed", title: "Failed task", run_id: "run_1", status: "failed", child_session_id: "", step: 4 }),
         task({ run_id: "run_2", status: "revising", step: 1 }),
@@ -177,13 +200,13 @@ describe("MultiAgentPanelView plan and task interactions", () => {
     expect(within(disclosure).getByText("编码")).toBeVisible()
     expect(within(disclosure).getByText("test/coder")).toBeVisible()
     expect(within(disclosure).getAllByText("修改中")[0]).toBeVisible()
-    expect(within(disclosure).getByText("Revision started")).toBeVisible()
-    expect(within(disclosure).getByText("research")).toBeVisible()
-    expect(within(disclosure).getByText("All tests pass")).toBeVisible()
-    expect(within(disclosure).getByText("Panel implemented")).toBeVisible()
-    expect(within(disclosure).getByText("Improve focus state")).toBeVisible()
-    expect(within(disclosure).getByText("src/panel.tsx")).toBeVisible()
-    expect(within(disclosure).getByText("第 2 轮复核")).toBeVisible()
+    expect(within(disclosure).queryByText("Revision started")).not.toBeInTheDocument()
+    expect(within(disclosure).queryByText("research")).not.toBeInTheDocument()
+    expect(within(disclosure).queryByText("All tests pass")).not.toBeInTheDocument()
+    expect(within(disclosure).queryByText("Panel implemented")).not.toBeInTheDocument()
+    expect(within(disclosure).queryByText("Improve focus state")).not.toBeInTheDocument()
+    expect(within(disclosure).queryByText("src/panel.tsx")).not.toBeInTheDocument()
+    expect(within(disclosure).queryByText("第 2 轮复核")).not.toBeInTheDocument()
   })
 
   it("opens only tasks with child Sessions and highlights the selected child", async () => {

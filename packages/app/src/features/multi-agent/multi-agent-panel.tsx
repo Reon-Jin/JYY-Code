@@ -18,11 +18,11 @@ import "./multi-agent.css"
 
 function toneLabel(tone: MultiAgentTaskTone) {
   const labels: Record<MultiAgentTaskTone, string> = {
-  queued: tr("multi-agent.waiting"),
-  running: tr("multi-agent.running"),
-  review: tr("multi-agent.under-review"),
-  done: tr("conversation.completed"),
-  failed: tr("multi-agent.fail"),
+    queued: tr("multi-agent.waiting"),
+    running: tr("multi-agent.running"),
+    review: tr("multi-agent.under-review"),
+    done: tr("conversation.completed"),
+    failed: tr("multi-agent.fail"),
   }
   return labels[tone]
 }
@@ -36,35 +36,6 @@ function roleLabel(value: string) {
     planner: tr("multi-agent.planning"),
   }
   return labels[value.toLowerCase()] ?? value
-}
-
-function eventLabel(value: string) {
-  const labels: Record<string, string> = {
-    planned: tr("multi-agent.planned"),
-    queued: tr("multi-agent.already-queued"),
-    running: tr("multi-agent.running-2"),
-    revising: tr("multi-agent.modifying"),
-    submitted: tr("multi-agent.submitted"),
-    reviewing: tr("multi-agent.under-review-2"),
-    revision_requested: tr("multi-agent.modification-requested"),
-    accepted: tr("multi-agent.passed"),
-    failed: tr("multi-agent.fail"),
-    cancelled: tr("multi-agent.canceled"),
-  }
-  return labels[value.toLowerCase()] ?? value
-}
-
-function DetailList(props: { label: string; values: readonly string[] }) {
-  return (
-    <Show when={props.values.length > 0}>
-      <div class="multi-agent-task__field">
-        <strong>{props.label}</strong>
-        <ul>
-          <For each={props.values}>{(value) => <li>{value}</li>}</For>
-        </ul>
-      </div>
-    </Show>
-  )
 }
 
 function TaskDetails(props: { task: MultiAgentTaskView }) {
@@ -84,25 +55,6 @@ function TaskDetails(props: { task: MultiAgentTaskView }) {
           <dd>{props.task.statusLabel}</dd>
         </div>
       </dl>
-      <Show when={props.task.reviewRound > 0}>
-        <p>{tr("multi-agent.no")} {props.task.reviewRound} {tr("multi-agent.round-review")}</p>
-      </Show>
-      <Show when={props.task.lastEvent}>
-        <div class="multi-agent-task__field">
-          <strong>{tr("multi-agent.recent-events")}</strong>
-          <p>{eventLabel(props.task.lastEvent!)}</p>
-        </div>
-      </Show>
-      <DetailList label={tr("multi-agent.dependent-tasks")} values={props.task.dependencies} />
-      <DetailList label={tr("multi-agent.acceptance-criteria")} values={props.task.acceptanceCriteria} />
-      <Show when={props.task.resultSummary}>
-        <div class="multi-agent-task__field">
-          <strong>{tr("multi-agent.summary-of-results")}</strong>
-          <p>{props.task.resultSummary}</p>
-        </div>
-      </Show>
-      <DetailList label={tr("multi-agent.review-question")} values={props.task.reviewIssues} />
-      <DetailList label={tr("multi-agent.product")} values={props.task.artifactPaths} />
     </div>
   )
 }
@@ -127,7 +79,8 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
         <Bot aria-hidden="true" />
         <h2 id="multi-agent-panel-title">{tr("multi-agent.multi-agent")}</h2>
         <span class="multi-agent-panel__counts">
-          {props.snapshot.runningAgents} {tr("multi-agent.run")} {props.snapshot.doneAgents} {tr("multi-agent.finish")} {props.snapshot.failedAgents} {tr("multi-agent.fail")}
+          {props.snapshot.runningAgents} {tr("multi-agent.run")} {props.snapshot.doneAgents} {tr("multi-agent.finish")}{" "}
+          {props.snapshot.failedAgents} {tr("multi-agent.fail")}
         </span>
       </header>
 
@@ -153,12 +106,21 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
             </div>
           }
         >
-          <Show when={props.sessionID} fallback={<p class="multi-agent-panel__empty">{tr("multi-agent.view-multi-agent-tasks-after-selecting-a-session")}</p>}>
+          <Show
+            when={props.sessionID}
+            fallback={
+              <p class="multi-agent-panel__empty">
+                {tr("multi-agent.view-multi-agent-tasks-after-selecting-a-session")}
+              </p>
+            }
+          >
             <Show
               when={run()}
               fallback={
                 <p class="multi-agent-panel__empty">
-                  {props.enabled ? tr("multi-agent.waiting-for-master-agent-to-generate-plan") : tr("multi-agent.multi-agent-is-not-enabled-for-the-current")}
+                  {props.enabled
+                    ? tr("multi-agent.waiting-for-master-agent-to-generate-plan")
+                    : tr("multi-agent.multi-agent-is-not-enabled-for-the-current")}
                 </p>
               }
             >
@@ -170,7 +132,11 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                     </span>
                     <Show
                       when={props.snapshot.totalAgents > 0}
-                      fallback={<p class="multi-agent-panel__empty">{tr("multi-agent.waiting-for-master-agent-to-generate-plan")}</p>}
+                      fallback={
+                        <p class="multi-agent-panel__empty">
+                          {tr("multi-agent.waiting-for-master-agent-to-generate-plan")}
+                        </p>
+                      }
                     >
                       <div
                         class="multi-agent-progress"
@@ -187,7 +153,8 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                         />
                       </div>
                       <p class="multi-agent-summary__counts">
-                        {tr("multi-agent.step")} {props.snapshot.currentStep}/{props.snapshot.totalSteps} · {props.snapshot.completedSteps} {tr("multi-agent.finish-2")}
+                        {tr("multi-agent.step")} {props.snapshot.currentStep}/{props.snapshot.totalSteps} ·{" "}
+                        {props.snapshot.completedSteps} {tr("multi-agent.finish-2")}
                       </p>
                     </Show>
                   </div>
@@ -197,7 +164,9 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                       {(step) => (
                         <section class="multi-agent-step" aria-labelledby={`multi-agent-step-${step.index}`}>
                           <header>
-                            <h3 id={`multi-agent-step-${step.index}`}>{tr("multi-agent.step")} {step.index}</h3>
+                            <h3 id={`multi-agent-step-${step.index}`}>
+                              {tr("multi-agent.step")} {step.index}
+                            </h3>
                             <span data-tone={step.tone}>{toneLabel(step.tone)}</span>
                           </header>
                           <ol aria-label={tr("multi-agent.tasks-for-step", { index: step.index })}>

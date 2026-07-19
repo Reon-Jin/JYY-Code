@@ -7,6 +7,7 @@ const PREFERENCE_KEY = "jyycode.desktop.composer-preference"
 export type ModelSelection = {
   providerID: string
   modelID: string
+  variant?: string
 }
 
 export type ComposerPreference = {
@@ -18,6 +19,7 @@ export type CatalogModel = ModelSelection & {
   providerName: string
   modelName: string
   contextWindow: number
+  variants: string[]
 }
 
 export type ModelCatalog = {
@@ -42,7 +44,11 @@ function parseModel(value: string | undefined): ModelSelection | undefined {
 function isModelSelection(value: unknown): value is ModelSelection {
   if (!value || typeof value !== "object") return false
   const candidate = value as Record<string, unknown>
-  return typeof candidate.providerID === "string" && typeof candidate.modelID === "string"
+  return (
+    typeof candidate.providerID === "string" &&
+    typeof candidate.modelID === "string" &&
+    (candidate.variant === undefined || typeof candidate.variant === "string")
+  )
 }
 
 export function parseComposerPreference(value: unknown): ComposerPreference {
@@ -101,7 +107,17 @@ function modelKey(model: ModelSelection) {
 function chooseModel(candidates: Array<ModelSelection | undefined>, models: readonly CatalogModel[]) {
   const available = new Set(models.map(modelKey))
   const selected = candidates.find((candidate) => candidate && available.has(modelKey(candidate)))
-  return selected ? { providerID: selected.providerID, modelID: selected.modelID } : undefined
+  return selected
+    ? {
+        providerID: selected.providerID,
+        modelID: selected.modelID,
+        ...(selected.variant ? { variant: selected.variant } : {}),
+      }
+    : undefined
+}
+
+function configuredVariant(value: string | undefined, model: CatalogModel | undefined) {
+  return value && model?.variants.includes(value) ? value : undefined
 }
 
 export async function loadModelCatalog(input: {
@@ -112,13 +128,13 @@ export async function loadModelCatalog(input: {
   const options = { throwOnError: true } as const
   const [agentsResponse, configuredResponse, providersResponse, configResponse, pathResponse, globalResponse] =
     await Promise.all([
-    input.client.app.agents({ directory: input.directory }, options),
-    input.client.config.providers({ directory: input.directory }, options),
-    input.client.provider.list({ directory: input.directory }, options),
-    input.client.config.get({ directory: input.directory }, options),
-    input.client.path.get({ directory: input.directory }, options),
-    input.client.global.config.get(options),
-  ])
+      input.client.app.agents({ directory: input.directory }, options),
+      input.client.config.providers({ directory: input.directory }, options),
+      input.client.provider.list({ directory: input.directory }, options),
+      input.client.config.get({ directory: input.directory }, options),
+      input.client.path.get({ directory: input.directory }, options),
+      input.client.global.config.get(options),
+    ])
   const allAgents = dataOrThrow(agentsResponse, "app.agents")
   const configured = dataOrThrow(configuredResponse, "config.providers")
   const providers = dataOrThrow(providersResponse, "provider.list")
@@ -152,6 +168,7 @@ export async function loadModelCatalog(input: {
         modelID: model.id,
         modelName: model.name,
         contextWindow: model.limit.context,
+        variants: Object.keys(model.variants ?? {}).filter((variant) => variant !== "default"),
       })),
   )
   const agentModel = agents.find((candidate) => candidate.name === selectedAgent)?.model
@@ -161,15 +178,16 @@ export async function loadModelCatalog(input: {
       : undefined,
     providers.default[provider.id] ? { providerID: provider.id, modelID: providers.default[provider.id]! } : undefined,
   ])
+  const configuredPlanner = resolveClusterModel(globalConfig.agent_cluster?.planner_model, models)
+  const plannerCandidate = configuredPlanner
+    ? {
+        providerID: configuredPlanner.providerID,
+        modelID: configuredPlanner.modelID,
+        variant: configuredVariant(globalConfig.agent_cluster?.planner_variant, configuredPlanner),
+      }
+    : undefined
   const selectedModel = chooseModel(
-    [
-      resolveClusterModel(globalConfig.agent_cluster?.planner_model, models),
-      preference.model,
-      agentModel,
-      parseModel(config.model),
-      ...defaultModels,
-      models[0],
-    ],
+    [plannerCandidate, preference.model, agentModel, parseModel(config.model), ...defaultModels, models[0]],
     models,
   )
 

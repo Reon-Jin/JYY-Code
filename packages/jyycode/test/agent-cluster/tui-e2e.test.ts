@@ -13,8 +13,10 @@ import type { RunID, TaskID } from "@/agent-cluster/schema"
 const it = testEffect(Session.defaultLayer)
 const dispatchConfig = {
   simple_model: "test/simple",
+  simple_variant: "low",
   complex_model: "test/complex",
   visual_model: "test/visual",
+  visual_variant: "high",
 }
 
 /**
@@ -562,6 +564,7 @@ describe("Multi-agent E2E lifecycle", () => {
       expect(byPlanID.taskID).toBe("my-task" as TaskID)
       expect(byPlanID.prompt).toContain("Do the research")
       expect(byPlanID.model).toBe("test/simple")
+      expect(byPlanID.variant).toBe("low")
 
       // Lookup by child session ID (what the planner does for revisions)
       const byChildID = yield* AgentCluster.prepareTaskDispatch({
@@ -572,6 +575,7 @@ describe("Multi-agent E2E lifecycle", () => {
       })
       expect(byChildID.taskID).toBe("my-task" as TaskID)
       expect(byChildID.model).toBe("test/simple")
+      expect(byChildID.variant).toBe("low")
 
       Database.use((db) =>
         db
@@ -602,6 +606,7 @@ describe("Multi-agent E2E lifecycle", () => {
         config: dispatchConfig,
       })
       expect(visualModel.model).toBe("test/visual")
+      expect(visualModel.variant).toBe("high")
 
       // Unknown task ID should fail
       const unknownResult = yield* AgentCluster.prepareTaskDispatch({
@@ -923,17 +928,21 @@ describe("Multi-agent E2E lifecycle", () => {
       Database.use((db) => {
         db.update(AgentClusterTaskTable)
           .set({ status: "accepted", time_updated: Date.now() })
-          .where(Database.and(
+          .where(
+            Database.and(
               Database.eq(AgentClusterTaskTable.run_id, runID),
               Database.eq(AgentClusterTaskTable.id, "research-market" as any),
-          ))
+            ),
+          )
           .run()
         db.update(AgentClusterTaskTable)
           .set({ status: "accepted", time_updated: Date.now() })
-          .where(Database.and(
+          .where(
+            Database.and(
               Database.eq(AgentClusterTaskTable.run_id, runID),
               Database.eq(AgentClusterTaskTable.id, "research-competitors" as any),
-          ))
+            ),
+          )
           .run()
       })
 
@@ -972,12 +981,15 @@ describe("Multi-agent E2E lifecycle", () => {
 
       // Accept writer task
       Database.use((db) =>
-        db.update(AgentClusterTaskTable)
+        db
+          .update(AgentClusterTaskTable)
           .set({ status: "accepted", time_updated: Date.now() })
-          .where(Database.and(
+          .where(
+            Database.and(
               Database.eq(AgentClusterTaskTable.run_id, runID),
               Database.eq(AgentClusterTaskTable.id, "write-report" as any),
-          ))
+            ),
+          )
           .run(),
       )
 

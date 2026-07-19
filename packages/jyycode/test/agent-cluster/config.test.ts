@@ -69,6 +69,13 @@ describe("ConfigAgentCluster.resolve", () => {
     expect(result.complex_model).toBe("claude-opus-4-7")
   })
 
+  test("preserves configured reasoning variants", () => {
+    const result = ConfigAgentCluster.resolve({ simple_variant: "low", complex_variant: "high" })
+    expect(result.simple_variant).toBe("low")
+    expect(result.complex_variant).toBe("high")
+    expect(result.visual_variant).toBeUndefined()
+  })
+
   test("overrides max_subagents", () => {
     const result = ConfigAgentCluster.resolve({ max_subagents: 50 })
     expect(result.max_subagents).toBe(50)

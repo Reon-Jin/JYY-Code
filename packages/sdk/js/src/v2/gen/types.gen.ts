@@ -1043,10 +1043,15 @@ export type AgentClusterConfig = {
   default_on?: boolean
   disable_for_routes?: Array<string>
   planner_model?: string
+  planner_variant?: string
   reviewer_model?: string
+  reviewer_variant?: string
   complex_model?: string
+  complex_variant?: string
   simple_model?: string
+  simple_variant?: string
   visual_model?: string
+  visual_variant?: string
   max_subagents?: number
   max_concurrency?: number
   max_review_rounds?: number

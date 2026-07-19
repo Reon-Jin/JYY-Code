@@ -16,11 +16,46 @@ import {
 import { ClusterModelControl } from "./cluster-model-control"
 
 const models: CatalogModel[] = [
-  { providerID: "test", providerName: "Test", modelID: "planner", modelName: "Planner", contextWindow: 100_000 },
-  { providerID: "test", providerName: "Test", modelID: "simple", modelName: "Simple", contextWindow: 100_000 },
-  { providerID: "test", providerName: "Test", modelID: "complex", modelName: "Complex", contextWindow: 100_000 },
-  { providerID: "test", providerName: "Test", modelID: "visual", modelName: "Visual", contextWindow: 100_000 },
-  { providerID: "other", providerName: "Other", modelID: "planner", modelName: "Planner 2", contextWindow: 100_000 },
+  {
+    providerID: "test",
+    providerName: "Test",
+    modelID: "planner",
+    modelName: "Planner",
+    contextWindow: 100_000,
+    variants: ["low", "high"],
+  },
+  {
+    providerID: "test",
+    providerName: "Test",
+    modelID: "simple",
+    modelName: "Simple",
+    contextWindow: 100_000,
+    variants: [],
+  },
+  {
+    providerID: "test",
+    providerName: "Test",
+    modelID: "complex",
+    modelName: "Complex",
+    contextWindow: 100_000,
+    variants: ["high"],
+  },
+  {
+    providerID: "test",
+    providerName: "Test",
+    modelID: "visual",
+    modelName: "Visual",
+    contextWindow: 100_000,
+    variants: [],
+  },
+  {
+    providerID: "other",
+    providerName: "Other",
+    modelID: "planner",
+    modelName: "Planner 2",
+    contextWindow: 100_000,
+    variants: [],
+  },
 ]
 
 const config: AgentClusterConfig = {
@@ -142,17 +177,29 @@ describe("ClusterModelControl", () => {
     const selects = await within(dialog).findAllByRole("combobox")
     expect(selects.map((select) => select.getAttribute("aria-label"))).toEqual([
       "主模型",
+      "主模型 · 思考深度",
       "简单任务",
+      "简单任务 · 思考深度",
       "复杂任务",
+      "复杂任务 · 思考深度",
       "视觉与文档",
+      "视觉与文档 · 思考深度",
     ])
     expect(selects.map((select) => (select as HTMLSelectElement).value)).toEqual([
       "test/planner",
+      "",
       "test/simple",
+      "",
       "test/complex",
+      "",
       "test/visual",
+      "",
     ])
-    expect(within(selects[0]!).getAllByRole("option").map((option) => option.textContent)).toContain("Other · Planner 2")
+    expect(
+      within(selects[0]!)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toContain("Other · Planner 2")
   })
 
   it("saves one nested partial update, refreshes global config, announces, closes, and restores focus", async () => {
@@ -168,9 +215,13 @@ describe("ClusterModelControl", () => {
         config: {
           agent_cluster: {
             planner_model: "test/planner",
+            planner_variant: "",
             simple_model: "test/simple",
+            simple_variant: "",
             complex_model: "test/complex",
+            complex_variant: "",
             visual_model: "test/visual",
+            visual_variant: "",
           },
         },
       },
@@ -183,6 +234,32 @@ describe("ClusterModelControl", () => {
       expect(trigger).toHaveFocus()
     })
     expect(screen.getByRole("status")).toHaveTextContent("已保存到全局配置")
+  })
+
+  it("offers provider variants and saves the selected main thinking depth", async () => {
+    const user = userEvent.setup()
+    const { update, onModelChange } = renderControl()
+    await user.click(screen.getByRole("button", { name: /配置模型/ }))
+    const dialog = screen.getByRole("dialog", { name: "配置模型" })
+    const depth = await within(dialog).findByRole("combobox", { name: "主模型 · 思考深度" })
+
+    expect(
+      within(depth)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["默认", "low", "high"])
+    await user.selectOptions(depth, "high")
+    await user.click(within(dialog).getByRole("button", { name: "保存" }))
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          agent_cluster: expect.objectContaining({ planner_variant: "high" }),
+        }),
+      }),
+      { throwOnError: true },
+    )
+    expect(onModelChange).toHaveBeenCalledWith({ providerID: "test", modelID: "planner", variant: "high" })
   })
 
   it("keeps an unavailable configured model visible until the user changes it", async () => {

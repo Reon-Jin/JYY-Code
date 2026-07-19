@@ -5,7 +5,7 @@ import { createMemo, createSignal, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import type { DesktopClient } from "../../data/sdk"
 import type { CatalogModel, ModelSelection } from "../composer/model-catalog"
-import { clusterModelLabel } from "./cluster-model-config"
+import { clusterModelSelectionLabel } from "./cluster-model-config"
 import { ClusterModelDialog } from "./cluster-model-dialog"
 import "./multi-agent.css"
 
@@ -24,9 +24,12 @@ export function ClusterModelControl(props: ClusterModelControlProps) {
   const [announcement, setAnnouncement] = createSignal("")
   const currentLabel = createMemo(() => {
     const model = props.models.find(
-      (candidate) => candidate.providerID === props.currentModel.providerID && candidate.modelID === props.currentModel.modelID,
+      (candidate) =>
+        candidate.providerID === props.currentModel.providerID && candidate.modelID === props.currentModel.modelID,
     )
-    return model ? clusterModelLabel(model) : `${props.currentModel.providerID}/${props.currentModel.modelID}`
+    return model
+      ? clusterModelSelectionLabel(model, props.currentModel.variant)
+      : `${props.currentModel.providerID}/${props.currentModel.modelID}${props.currentModel.variant ? ` · ${props.currentModel.variant}` : ""}`
   })
 
   return (
@@ -35,7 +38,11 @@ export function ClusterModelControl(props: ClusterModelControlProps) {
         size="small"
         variant="secondary"
         class="cluster-model-control__button"
-        aria-label={props.identityLocked ? tr("multi-agent.current-model", { model: currentLabel() }) : tr("multi-agent.configure-model-value", { model: currentLabel() })}
+        aria-label={
+          props.identityLocked
+            ? tr("multi-agent.current-model", { model: currentLabel() })
+            : tr("multi-agent.configure-model-value", { model: currentLabel() })
+        }
         disabled={props.disabled || props.identityLocked}
         onClick={() => {
           setAnnouncement("")

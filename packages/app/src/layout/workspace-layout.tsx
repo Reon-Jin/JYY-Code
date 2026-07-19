@@ -114,7 +114,9 @@ function startsNarrow() {
 function isTypingOrNavigating(target: EventTarget | null) {
   return (
     target instanceof HTMLElement &&
-    Boolean(target.closest("input, textarea, select, button, a, [contenteditable='true'], [role='dialog'], [role='menu']"))
+    Boolean(
+      target.closest("input, textarea, select, button, a, [contenteditable='true'], [role='dialog'], [role='menu']"),
+    )
   )
 }
 
@@ -129,11 +131,7 @@ export function projectShortcutIndex(
     return index < count ? index : undefined
   }
   if (event.key !== "Tab") return undefined
-  if (
-    !event.ctrlKey &&
-    event.target instanceof HTMLElement &&
-    event.target.closest("[role='dialog'], [role='menu']")
-  ) {
+  if (!event.ctrlKey && event.target instanceof HTMLElement && event.target.closest("[role='dialog'], [role='menu']")) {
     return undefined
   }
   return (activeIndex + (event.shiftKey ? count - 1 : 1)) % count
@@ -345,9 +343,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     loadInspectorPreferences(data.directory()),
   )
   onMount(() => {
-    projects.loadRecentProjects().catch((cause) =>
-      setOperationError(errorMessage(cause, tr("projects.unable-to-read-recent-items"))),
-    )
+    projects
+      .loadRecentProjects()
+      .catch((cause) => setOperationError(errorMessage(cause, tr("projects.unable-to-read-recent-items"))))
   })
   const api = createMemo(() =>
     createSessionApi({ client: data.client(), directory: data.directory(), queryClient: data.queryClient() }),
@@ -474,7 +472,13 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   )
   const composerModel = createMemo<ModelSelection | undefined>(() => {
     const stored = activeSession()?.model
-    if (isChildSession() && stored) return { providerID: stored.providerID, modelID: stored.id }
+    if (isChildSession() && stored) {
+      return {
+        providerID: stored.providerID,
+        modelID: stored.id,
+        ...(stored.variant ? { variant: stored.variant } : {}),
+      }
+    }
     return selectedModel() ?? catalogQuery.data?.selectedModel
   })
   const composerUsage = createMemo(() => {

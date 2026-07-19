@@ -6,23 +6,43 @@ import type { CatalogModel, ModelSelection } from "../composer/model-catalog"
 export const clusterModelRoles = [
   {
     key: "planner_model",
-    get label() { return tr("multi-agent.model-role-main") },
-    get description() { return tr("multi-agent.model-role-main-description") },
+    variantKey: "planner_variant",
+    get label() {
+      return tr("multi-agent.model-role-main")
+    },
+    get description() {
+      return tr("multi-agent.model-role-main-description")
+    },
   },
   {
     key: "simple_model",
-    get label() { return tr("multi-agent.model-role-simple") },
-    get description() { return tr("multi-agent.model-role-simple-description") },
+    variantKey: "simple_variant",
+    get label() {
+      return tr("multi-agent.model-role-simple")
+    },
+    get description() {
+      return tr("multi-agent.model-role-simple-description")
+    },
   },
   {
     key: "complex_model",
-    get label() { return tr("multi-agent.model-role-complex") },
-    get description() { return tr("multi-agent.model-role-complex-description") },
+    variantKey: "complex_variant",
+    get label() {
+      return tr("multi-agent.model-role-complex")
+    },
+    get description() {
+      return tr("multi-agent.model-role-complex-description")
+    },
   },
   {
     key: "visual_model",
-    get label() { return tr("multi-agent.model-role-visual") },
-    get description() { return tr("multi-agent.model-role-visual-description") },
+    variantKey: "visual_variant",
+    get label() {
+      return tr("multi-agent.model-role-visual")
+    },
+    get description() {
+      return tr("multi-agent.model-role-visual-description")
+    },
   },
 ] as const
 
@@ -46,13 +66,15 @@ export function clusterModelLabel(model: CatalogModel) {
   return `${model.providerName} · ${model.modelName}`
 }
 
+export function clusterModelSelectionLabel(model: CatalogModel, variant?: string) {
+  return variant ? `${clusterModelLabel(model)} · ${variant}` : clusterModelLabel(model)
+}
+
 export function resolveClusterModel(value: string | undefined, models: readonly CatalogModel[]) {
   if (!value) return undefined
   const explicit = parseClusterModelValue(value)
   if (explicit) {
-    return models.find(
-      (model) => model.providerID === explicit.providerID && model.modelID === explicit.modelID,
-    )
+    return models.find((model) => model.providerID === explicit.providerID && model.modelID === explicit.modelID)
   }
   const matches = models.filter((model) => model.modelID === value)
   return matches.length === 1 ? matches[0] : undefined
@@ -70,8 +92,11 @@ export async function loadClusterModelConfig(client: GlobalConfigClient) {
 
 export async function saveClusterModelConfig(client: GlobalConfigClient, selections: ClusterModelSelections) {
   const agentCluster = Object.fromEntries(
-    clusterModelRoles.map((role) => [role.key, formatClusterModelValue(selections[role.key])]),
-  ) as Record<ClusterModelRoleKey, string>
+    clusterModelRoles.flatMap((role) => [
+      [role.key, formatClusterModelValue(selections[role.key])],
+      [role.variantKey, selections[role.key].variant ?? ""],
+    ]),
+  ) as Record<string, string>
   const response = await client.global.config.update(
     { config: { agent_cluster: agentCluster } },
     { throwOnError: true },

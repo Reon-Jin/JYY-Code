@@ -21,7 +21,16 @@ vi.mock("@tauri-apps/api/webview", () => ({
 const directory = "C:\\work\\demo"
 const sessionID = "ses_1"
 const agents: Agent[] = [{ name: "build", mode: "primary", permission: [], options: {} }]
-const models: CatalogModel[] = [{ providerID: "openai", providerName: "OpenAI", modelID: "gpt-5", modelName: "GPT-5", contextWindow: 128_000 }]
+const models: CatalogModel[] = [
+  {
+    providerID: "openai",
+    providerName: "OpenAI",
+    modelID: "gpt-5",
+    modelName: "GPT-5",
+    contextWindow: 128_000,
+    variants: [],
+  },
+]
 
 function deferred() {
   let resolve!: () => void

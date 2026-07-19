@@ -10,7 +10,9 @@ function renderUpdates() {
   const desktop = createFakeDesktop()
   render(() => (
     <DesktopBridgeProvider bridge={desktop.bridge}>
-      <I18nProvider><UpdateSettings /></I18nProvider>
+      <I18nProvider>
+        <UpdateSettings />
+      </I18nProvider>
     </DesktopBridgeProvider>
   ))
   return desktop
@@ -20,7 +22,9 @@ function renderUnsupportedUpdates() {
   const desktop = createFakeDesktop()
   render(() => (
     <DesktopBridgeProvider bridge={desktop.bridge}>
-      <I18nProvider><UpdateSettings supported={false} /></I18nProvider>
+      <I18nProvider>
+        <UpdateSettings supported={false} />
+      </I18nProvider>
     </DesktopBridgeProvider>
   ))
   return desktop
@@ -29,12 +33,12 @@ function renderUnsupportedUpdates() {
 afterEach(cleanup)
 
 describe("UpdateSettings", () => {
-  it("disables the Windows update channel in the macOS preview", async () => {
+  it("disables update controls when the current platform is unsupported", async () => {
     const desktop = renderUnsupportedUpdates()
 
     expect(await screen.findByRole("combobox", { name: "自动更新策略" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "立即检查" })).toBeDisabled()
-    expect(screen.getByText("macOS 预览版暂不提供自动更新")).toBeVisible()
+    expect(screen.getByText("当前平台暂不提供自动更新")).toBeVisible()
     expect(desktop.bridge.checkForUpdate).not.toHaveBeenCalled()
   })
 

@@ -16,17 +16,32 @@ export const Info = Schema.Struct({
   planner_model: Schema.optional(Schema.String).annotate({
     description: "Model used by the cluster primary agent for planning.",
   }),
+  planner_variant: Schema.optional(Schema.String).annotate({
+    description: "Reasoning variant used by the cluster primary agent for planning.",
+  }),
   reviewer_model: Schema.optional(Schema.String).annotate({
     description: "Deprecated compatibility setting. Review is performed by the cluster primary model.",
+  }),
+  reviewer_variant: Schema.optional(Schema.String).annotate({
+    description: "Deprecated compatibility setting. Review uses the cluster primary variant.",
   }),
   complex_model: Schema.optional(Schema.String).annotate({
     description: "Default model for complex cluster tasks.",
   }),
+  complex_variant: Schema.optional(Schema.String).annotate({
+    description: "Reasoning variant used for complex cluster tasks.",
+  }),
   simple_model: Schema.optional(Schema.String).annotate({
     description: "Default model for simple cluster tasks.",
   }),
+  simple_variant: Schema.optional(Schema.String).annotate({
+    description: "Reasoning variant used for simple cluster tasks.",
+  }),
   visual_model: Schema.optional(Schema.String).annotate({
     description: "Model used for visual, layout, image-search, chart, and document production tasks.",
+  }),
+  visual_variant: Schema.optional(Schema.String).annotate({
+    description: "Reasoning variant used for visual and document tasks.",
   }),
   max_subagents: Schema.optional(PositiveInt).annotate({
     description: "Maximum number of subagents a cluster run may dispatch.",
@@ -56,7 +71,10 @@ export const Default = {
   max_concurrency: 10,
   max_review_rounds: 2,
   artifact_dir: ".",
-} satisfies Omit<Required<Info>, "reviewer_model">
+} satisfies Omit<
+  Required<Info>,
+  "reviewer_model" | "reviewer_variant" | "planner_variant" | "complex_variant" | "simple_variant" | "visual_variant"
+>
 
 export function resolve(input: Info | undefined) {
   const { reviewer_model: _legacyReviewerModel, ...overrides } = input ?? {}

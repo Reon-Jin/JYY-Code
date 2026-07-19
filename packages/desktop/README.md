@@ -110,10 +110,11 @@ search, editing, deletion, compression, and export; Task memories are listed acr
 to know a Session ID. Exported memory files can contain sensitive conversation-derived information and should be
 handled accordingly.
 
-On Windows, automatic updating uses Tauri's signed updater with the rolling `desktop-latest` GitHub Release manifest.
-Settings offers three policies: automatically install and restart, check and notify, or turn off automatic checks.
+On Windows and Apple Silicon macOS, automatic updating uses Tauri's signed updater with the rolling `desktop-latest`
+GitHub Release manifest. Settings offers three policies: automatically install and restart, check and notify, or turn
+off automatic checks.
 Manual checking and installation remain available for every policy, and update failures never block application
-startup. macOS local previews do not use that Windows-only update channel.
+startup. The same channel contains a platform-specific updater entry for each supported target.
 
 Updater signatures verify artifact integrity and publisher continuity, but they are separate from Windows
 Authenticode. The 1.0.0 Windows release remains a prerelease until the EXE, sidecar, NSIS installer, and MSI installer are
@@ -142,10 +143,10 @@ Normal local builds do not create updater artifacts. The `desktop-release` workf
 versioned artifacts, and replaces `desktop-latest/latest.json`. The private key must also be kept in an audited offline
 backup; losing it prevents future updates for existing installations.
 
-To publish a new Windows Desktop version, open **Actions > desktop-release > Run workflow**, select `main`, enter a
-semantic version such as `1.0.1`, and run it. The workflow injects that version into the build, performs quick
-release-script checks, creates signed installers, publishes `desktop-v1.0.1`, and updates the automatic-update channel.
-It rejects a version whose tag or Release already exists, so every version can be published only once.
+To publish a new Desktop version, open **Actions > desktop-release > Run workflow**, select `main`, enter a semantic
+version such as `1.0.1`, and run it. The workflow builds and smoke-tests Windows x64 and Apple Silicon macOS in parallel,
+creates signed updater artifacts, publishes `desktop-v1.0.1`, and updates the automatic-update channel with both
+platforms. It rejects a version whose tag or Release already exists, so every version can be published only once.
 
 ## Build locally on Apple Silicon
 
@@ -169,10 +170,11 @@ The desktop build wrapper sets `CI=true` only for macOS packaging. Tauri then sk
 that positions DMG icons, so local builds do not require Automation permission to control Finder. Windows builds keep
 their existing environment and installer behavior.
 
-These artifacts are for local development only. The repository does not upload macOS artifacts, notarize them, provide
-Developer ID signing, or support Intel/Universal builds in this phase. Tauri's macOS platform configuration disables
-hardened runtime because the embedded Bun sidecar needs JIT execution and the local build does not carry production
-entitlements.
+The GitHub release currently uploads Apple Silicon artifacts but does not provide Apple Developer ID signing or
+notarization, and it does not support Intel/Universal builds. Tauri's macOS platform configuration disables hardened
+runtime because the embedded Bun sidecar needs JIT execution and the current build does not carry production
+entitlements. These are intentional distribution differences; the shared Desktop UI, backend, model configuration,
+Multi-Agent behavior, and updater flow are otherwise the same.
 
 ## Clean-VM acceptance gate
 

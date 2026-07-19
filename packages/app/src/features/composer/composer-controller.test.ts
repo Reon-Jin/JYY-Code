@@ -82,10 +82,9 @@ describe("createComposerController", () => {
 
     await controller.send("", undefined, [attachment])
 
-    expect(client.session.promptAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ parts: [attachment] }),
-      { throwOnError: true },
-    )
+    expect(client.session.promptAsync).toHaveBeenCalledWith(expect.objectContaining({ parts: [attachment] }), {
+      throwOnError: true,
+    })
   })
 
   it("executes a leading Skill slash as a Session command", async () => {
@@ -135,11 +134,16 @@ describe("createComposerController", () => {
 
   it("sends a queued prompt with its captured Agent and model", async () => {
     const { client, controller } = setup()
-    const queuedModel = { providerID: "deepseek", modelID: "deepseek-reasoner" }
+    const queuedModel = { providerID: "deepseek", modelID: "deepseek-reasoner", variant: "high" }
     await controller.send("queued", { agent: "plan", model: queuedModel })
 
     expect(client.session.promptAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ agent: "plan", model: queuedModel, parts: [{ type: "text", text: "queued" }] }),
+      expect.objectContaining({
+        agent: "plan",
+        model: { providerID: "deepseek", modelID: "deepseek-reasoner" },
+        variant: "high",
+        parts: [{ type: "text", text: "queued" }],
+      }),
       { throwOnError: true },
     )
   })

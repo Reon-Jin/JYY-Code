@@ -1,9 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
-import {
-  isPermissionGranted,
-  requestPermission,
-} from "@tauri-apps/plugin-notification"
+import { isPermissionGranted, requestPermission } from "@tauri-apps/plugin-notification"
 import { Store } from "@tauri-apps/plugin-store"
 import { check, type Update } from "@tauri-apps/plugin-updater"
 import { normalizeRecentProjects } from "./recent-projects"
@@ -28,12 +25,8 @@ const SETTINGS_KEY = "settings"
 let storePromise: Promise<Store> | undefined
 let pendingUpdate: Update | undefined
 
-export function automaticUpdatesSupported(userAgent: string) {
-  return !/(?:Macintosh|Mac OS X)/iu.test(userAgent)
-}
-
-function supportsAutomaticUpdates() {
-  return automaticUpdatesSupported(globalThis.navigator?.userAgent ?? "")
+export function automaticUpdatesSupported(_userAgent: string) {
+  return true
 }
 
 function desktopStore() {
@@ -96,9 +89,6 @@ export const tauriBridge: DesktopBridge = {
     return invoke<DesktopCapabilityResult>("send_desktop_notification", { notification })
   },
   async checkForUpdate() {
-    if (!supportsAutomaticUpdates()) {
-      return { supported: false, available: false, reason: "Automatic updates are not available in the macOS preview" }
-    }
     if (pendingUpdate) {
       await pendingUpdate.close().catch(() => undefined)
       pendingUpdate = undefined
@@ -115,9 +105,6 @@ export const tauriBridge: DesktopBridge = {
     }
   },
   async installAvailableUpdate() {
-    if (!supportsAutomaticUpdates()) {
-      return { supported: false, reason: "Automatic updates are not available in the macOS preview" }
-    }
     if (!pendingUpdate) return { supported: false, reason: "No update is available" }
     const update = pendingUpdate
     await update.download()

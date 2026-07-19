@@ -22,7 +22,10 @@ export function UpdateSettings(props: { supported?: boolean }) {
   const [saving, setSaving] = createSignal(false)
 
   onMount(() => {
-    void bridge.loadSettings().then(setSettings).catch((cause) => setError(failureMessage(cause)))
+    void bridge
+      .loadSettings()
+      .then(setSettings)
+      .catch((cause) => setError(failureMessage(cause)))
   })
 
   async function changePolicy(policy: UpdatePolicy) {
@@ -70,13 +73,18 @@ export function UpdateSettings(props: { supported?: boolean }) {
   }
 
   const status = () => {
-    if (!supported()) return tr("settings.update-unavailable-macos-preview")
+    if (!supported()) return tr("settings.update-unavailable-platform")
     switch (phase()) {
-      case "checking": return tr("settings.update-checking")
-      case "current": return tr("settings.update-current")
-      case "available": return tr("settings.update-available", { version: update()?.version ?? "" })
-      case "installing": return tr("settings.update-installing")
-      default: return tr("settings.update-ready")
+      case "checking":
+        return tr("settings.update-checking")
+      case "current":
+        return tr("settings.update-current")
+      case "available":
+        return tr("settings.update-available", { version: update()?.version ?? "" })
+      case "installing":
+        return tr("settings.update-installing")
+      default:
+        return tr("settings.update-ready")
     }
   }
 
@@ -84,7 +92,9 @@ export function UpdateSettings(props: { supported?: boolean }) {
     <section class="settings-card update-settings" aria-labelledby="update-settings-title">
       <header>
         <h3 id="update-settings-title">{tr("settings.automatic-updates")}</h3>
-        <span class="settings-badge" data-phase={phase()}>{status()}</span>
+        <span class="settings-badge" data-phase={phase()}>
+          {status()}
+        </span>
       </header>
       <p>{tr("settings.update-description")}</p>
       <label class="settings-select-label settings-select-label--active">
