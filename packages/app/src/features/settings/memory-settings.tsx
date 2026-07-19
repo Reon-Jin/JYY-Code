@@ -268,7 +268,7 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
             </article>
           )}
         </For>
-        <Show when={!query.isPending && !query.error && (query.data?.entries.length ?? 0) === 0}>
+        <Show when={!query.isPending && !query.error && (query.data?.entries?.length ?? 0) === 0}>
           <p class="memory-settings__empty">{tr("settings.no-memory-entries")}</p>
         </Show>
       </div>

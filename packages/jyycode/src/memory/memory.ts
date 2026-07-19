@@ -3,6 +3,7 @@ export * as Memory from "./memory"
 import path from "path"
 import { randomUUID } from "crypto"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
+import { Global } from "@jyycode-ai/core/global"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Session } from "@/session/session"
@@ -14,7 +15,7 @@ const log = Log.create({ service: "memory" })
 const MEMORY_FILE = "MEMORY.json"
 const USER_FILE = "USER.json"
 export const LEGACY_DIRECTORY = path.normalize("D:/jyycode/memory")
-export const DIRECTORY = LEGACY_DIRECTORY
+export const DIRECTORY = path.join(Global.Path.data, "memory")
 const MEMORY_CHAR_LIMIT = 10_000
 const USER_CHAR_LIMIT = 2_000
 const ENTRY_LIMIT = 50
@@ -442,19 +443,28 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           const target = yield* filePath(sessionID, scope)
           const exists = yield* fs.existsSafe(target).pipe(Effect.orDie)
           if (!exists) {
-            const legacyText = legacyDirectory
-              ? yield* fs.readFileStringSafe(path.join(legacyDirectory, filenames[scope])).pipe(Effect.orDie)
+            const legacyTarget = legacyDirectory ? path.join(legacyDirectory, filenames[scope]) : undefined
+            const legacyText = legacyTarget
+              ? yield* fs.readFileStringSafe(legacyTarget).pipe(Effect.orDie)
               : undefined
-            const initial = legacyText
-              ? yield* Effect.try({
-                  try: () => {
-                    const store = parseStore(scope, legacyText)
-                    return serializeStore(scope, store.entries, store.lastCompactedAt)
-                  },
-                  catch: (error) => asError(error),
-                })
-              : templates[scope]
+            let initial = templates[scope]
+            let removeLegacy = false
+            if (legacyText !== undefined && legacyText.trim() !== "") {
+              const store = yield* Effect.try({
+                try: () => parseStore(scope, legacyText),
+                catch: (error) => asError(error),
+              })
+              initial = serializeStore(scope, store.entries, store.lastCompactedAt)
+              removeLegacy = true
+            } else if (legacyText !== undefined) {
+              removeLegacy = true
+            }
             yield* fs.writeWithDirs(target, initial).pipe(Effect.orDie)
+            if (removeLegacy && legacyTarget && path.resolve(legacyTarget) !== path.resolve(target)) {
+              yield* fs.remove(legacyTarget, { force: true }).pipe(Effect.ignore)
+            }
+          } else if ((yield* fs.readFileStringSafe(target).pipe(Effect.orDie))?.trim() === "") {
+            yield* fs.writeWithDirs(target, templates[scope]).pipe(Effect.orDie)
           }
         }
         // Clean up legacy .md files from the old memory system.
@@ -1158,7 +1168,9 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
     }),
   ).pipe(Layer.provide(EffectFlock.defaultLayer))
 
-export const layer = layerWithDirectory(DIRECTORY)
+export const layer = layerWithDirectory(DIRECTORY, {
+  legacyDirectory: process.platform === "win32" ? LEGACY_DIRECTORY : undefined,
+})
 
 export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer), Layer.provide(Session.defaultLayer))
 

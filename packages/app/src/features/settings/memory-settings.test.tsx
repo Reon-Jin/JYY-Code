@@ -113,6 +113,13 @@ describe("MemorySettings", () => {
     ))
   })
 
+  it("shows an empty memory store without throwing", async () => {
+    renderMemory("user", [])
+
+    await waitFor(() => expect(document.querySelector(".memory-settings__empty")).toBeInTheDocument())
+    expect(document.querySelector(".memory-settings__entry")).not.toBeInTheDocument()
+  })
+
   it("shows memory dates newest first and uses compact header actions", async () => {
     const older = { ...userEntry, id: "usr_old", date: "20260701", content: "Older memory" }
     renderMemory("user", [older, userEntry])

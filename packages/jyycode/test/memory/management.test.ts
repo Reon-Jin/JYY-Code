@@ -35,6 +35,21 @@ async function fixture(input?: { legacy?: boolean }) {
 }
 
 describe("audited memory management storage", () => {
+  test("repairs blank stores before listing memories", async () => {
+    const ctx = await fixture()
+    await fs.writeFile(path.join(ctx.directory, "MEMORY.json"), "\n", "utf8")
+    await fs.writeFile(path.join(ctx.directory, "USER.json"), "", "utf8")
+
+    const page = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
+
+    expect(page).toEqual({ entries: [], total: 0 })
+    expect(JSON.parse(await fs.readFile(path.join(ctx.directory, "USER.json"), "utf8"))).toEqual({
+      schemaVersion: 3,
+      lastCompactedAt: null,
+      entries: [],
+    })
+  })
+
   test("lists user and task entries with opaque ids and no filesystem paths", async () => {
     const ctx = await fixture()
     await ctx.run(
@@ -197,7 +212,7 @@ describe("audited memory management storage", () => {
     expect(await fs.readFile(path.join(ctx.directory, "audit.jsonl"), "utf8")).toContain('"writerKind":"desktop-management"')
   })
 
-  test("migrates a valid legacy store idempotently without deleting the source", async () => {
+  test("migrates a valid legacy store and removes the source after copying", async () => {
     const ctx = await fixture({ legacy: true })
     const source = path.join(ctx.legacyDirectory!, "USER.json")
     const text = Memory.serializeStore("user", [
@@ -207,7 +222,7 @@ describe("audited memory management storage", () => {
     await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
     await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
     expect(await fs.readFile(path.join(ctx.directory, "USER.json"), "utf8")).toBe(text)
-    expect(await fs.readFile(source, "utf8")).toBe(text)
+    expect(await fs.stat(source).then(() => true, () => false)).toBe(false)
   })
 
   test("reflects direct JSON edits in desktop management reads", async () => {
