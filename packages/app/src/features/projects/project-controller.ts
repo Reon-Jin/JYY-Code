@@ -63,6 +63,7 @@ export function createProjectController(input: ProjectControllerInput) {
   const [unavailableProjectKeys, setUnavailableProjectKeys] = createSignal<ReadonlySet<string>>(new Set())
   const lastSessionByProject = new Map<string, string>()
   let recentProjectsPromise: Promise<RecentProject[]> | undefined
+  let recentProjectsMutation: Promise<void> = Promise.resolve()
 
   async function loadRecentProjects() {
     recentProjectsPromise ??= input.bridge
@@ -198,12 +199,17 @@ export function createProjectController(input: ProjectControllerInput) {
   }
 
   async function removeRecentProject(directory: string) {
-    const current = await loadRecentProjects()
-    const key = pathKey(directory)
-    const next = current.filter((project) => pathKey(project.path) !== key)
-    await input.bridge.saveRecentProjects(next)
-    setRecentProjects(next)
-    markUnavailable(directory, false)
+    const mutation = recentProjectsMutation.then(async () => {
+      await loadRecentProjects()
+      const current = recentProjects()
+      const key = pathKey(directory)
+      const next = current.filter((project) => pathKey(project.path) !== key)
+      await input.bridge.saveRecentProjects(next)
+      setRecentProjects(next)
+      markUnavailable(directory, false)
+    })
+    recentProjectsMutation = mutation.catch(() => undefined)
+    await mutation
   }
 
   return {

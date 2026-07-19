@@ -18,6 +18,8 @@ function projectName(path: string) {
 }
 
 export function RecentProjects(props: RecentProjectsProps) {
+  const projectPaths = () => props.projects.slice(0, 10).map((project) => project.path)
+
   return (
     <section class="recent-projects" aria-labelledby="recent-projects-title">
       <div class="recent-projects__heading">
@@ -32,33 +34,33 @@ export function RecentProjects(props: RecentProjectsProps) {
         fallback={<p class="recent-projects__empty">{tr("projects.after-opening-or-creating-a-new-project-it")}</p>}
       >
         <ul class="recent-projects__list">
-          <For each={props.projects.slice(0, 10)}>
-            {(project) => (
-              <li class="recent-projects__item" data-unavailable={props.isUnavailable(project.path) || undefined}>
+          <For each={projectPaths()}>
+            {(path) => (
+              <li class="recent-projects__item" data-unavailable={props.isUnavailable(path) || undefined}>
                 <Button
                   class="recent-projects__open"
                   variant="ghost"
-                  aria-label={tr("projects.open-name", { name: projectName(project.path) })}
+                  aria-label={tr("projects.open-name", { name: projectName(path) })}
                   disabled={props.disabled}
-                  onClick={() => props.onOpen(project.path)}
+                  onClick={() => props.onOpen(path)}
                 >
                   <span class="recent-projects__icon" aria-hidden="true">
                     <Folder />
                   </span>
                   <span class="recent-projects__details">
-                    <span class="recent-projects__name">{projectName(project.path)}</span>
-                    <span class="recent-projects__path">{project.path}</span>
+                    <span class="recent-projects__name">{projectName(path)}</span>
+                    <span class="recent-projects__path">{path}</span>
                   </span>
-                  <Show when={props.isUnavailable(project.path)}>
+                  <Show when={props.isUnavailable(path)}>
                     <span class="recent-projects__unavailable">{tr("projects.not-available")}</span>
                   </Show>
                 </Button>
                 <IconButton
                   class="recent-projects__remove"
-                  label={tr("projects.remove-recent-path", { path: project.path })}
+                  label={tr("projects.remove-recent-path", { path })}
                   variant="ghost"
                   disabled={props.disabled}
-                  onClick={() => props.onRemove(project.path)}
+                  onClick={() => props.onRemove(path)}
                 >
                   <Trash2 aria-hidden="true" />
                 </IconButton>

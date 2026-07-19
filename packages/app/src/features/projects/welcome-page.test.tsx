@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-li
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { DesktopClient } from "../../data/sdk"
-import type { DesktopBridge } from "../../platform/types"
+import type { DesktopBridge, RecentProject } from "../../platform/types"
 import { createProjectController } from "./project-controller"
 import { ProjectProvider } from "./project-context"
 import { WelcomePage } from "./welcome-page"
@@ -32,13 +32,20 @@ function SessionResult() {
   return <h1>Session {params.sessionID}</h1>
 }
 
-function createHarness(options?: { gitError?: Error; openError?: Error; recentPath?: string }) {
+function createHarness(options?: {
+  gitError?: Error
+  openError?: Error
+  recentPath?: string
+  recentProjects?: RecentProject[]
+}) {
   const bridge: DesktopBridge = {
     bootstrap: vi.fn(),
     restartBackend: vi.fn(),
     chooseDirectory: vi.fn(async () => project.worktree),
     createProjectDirectory: vi.fn(async () => project.worktree),
-    loadRecentProjects: vi.fn(async () => (options?.recentPath ? [{ path: options.recentPath, usedAt: 1 }] : [])),
+    loadRecentProjects: vi.fn(async () =>
+      options?.recentProjects ?? (options?.recentPath ? [{ path: options.recentPath, usedAt: 1 }] : []),
+    ),
     saveRecentProjects: vi.fn(async () => undefined),
     loadLastLocation: vi.fn(async () => ({})),
     saveLastLocation: vi.fn(async () => undefined),
@@ -147,6 +154,25 @@ describe("WelcomePage", () => {
 
     expect(sdk.project.current).toHaveBeenCalledWith({ directory: path }, { throwOnError: true })
     expect(await screen.findByRole("heading", { name: "Project workspace" })).toBeVisible()
+  })
+
+  it("removes only the selected recent project without opening another one", async () => {
+    const user = userEvent.setup()
+    const first = "C:\\work\\first"
+    const second = "C:\\work\\second"
+    const { bridge, sdk } = createHarness({
+      recentProjects: [
+        { path: first, usedAt: 2 },
+        { path: second, usedAt: 1 },
+      ],
+    })
+
+    await user.click(await screen.findByRole("button", { name: `从最近项目中移除 ${second}` }))
+
+    await waitFor(() => expect(screen.queryByText(second)).not.toBeInTheDocument())
+    expect(screen.getByText(first)).toBeVisible()
+    expect(sdk.project.current).not.toHaveBeenCalled()
+    expect(bridge.saveRecentProjects).toHaveBeenCalledWith([{ path: first, usedAt: 2 }])
   })
 
   it("shows project errors as an alert", async () => {

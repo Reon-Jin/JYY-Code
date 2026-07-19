@@ -48,11 +48,14 @@ export function WelcomePage() {
   }
 
   async function removeRecentProject(path: string) {
+    setBusy(true)
     setError(undefined)
     try {
       await projects.removeRecentProject(path)
     } catch (cause) {
       setError(errorMessage(cause, tr("projects.unable-to-remove-recent-items")))
+    } finally {
+      setBusy(false)
     }
   }
 

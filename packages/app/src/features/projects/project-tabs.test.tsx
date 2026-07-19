@@ -37,6 +37,37 @@ function opened(directory: string, running = false): OpenedProject {
   return { directory, info, client }
 }
 
+function dragProjectTab(source: HTMLElement, target: HTMLElement, clientX: number, release = true) {
+  const sourceContainer = source.closest<HTMLElement>("[data-project-directory]")!
+  const targetContainer = target.closest<HTMLElement>("[data-project-directory]")!
+  vi.spyOn(sourceContainer, "getBoundingClientRect").mockReturnValue({
+    bottom: 40,
+    height: 40,
+    left: 100,
+    right: 200,
+    top: 0,
+    width: 100,
+    x: 100,
+    y: 0,
+    toJSON: () => ({}),
+  })
+  vi.spyOn(targetContainer, "getBoundingClientRect").mockReturnValue({
+    bottom: 40,
+    height: 40,
+    left: 0,
+    right: 100,
+    top: 0,
+    width: 100,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  })
+
+  fireEvent.pointerDown(source, { button: 0, clientX: 10, clientY: 10, isPrimary: true, pointerId: 1 })
+  fireEvent.pointerMove(source, { clientX, clientY: 10, isPrimary: true, pointerId: 1 })
+  if (release) fireEvent.pointerUp(source, { clientX, clientY: 10, isPrimary: true, pointerId: 1 })
+}
+
 describe("ProjectTabs", () => {
   afterEach(cleanup)
 
@@ -76,10 +107,15 @@ describe("ProjectTabs", () => {
     const currentTab = screen.getByRole("tab", { name: /active-drag-source/ })
     const otherTab = screen.getByRole("tab", { name: /active-drag-target/ })
     expect(currentTab).not.toBeDisabled()
+    expect(currentTab.closest("[data-project-directory]")).toHaveAttribute("data-project-directory", current.directory)
 
-    fireEvent.dragStart(currentTab)
-    fireEvent.dragOver(otherTab, { clientX: 0 })
-    fireEvent.drop(otherTab)
+    dragProjectTab(currentTab, otherTab, 0, false)
+
+    const currentContainer = currentTab.closest<HTMLElement>("[data-project-directory]")!
+    const otherContainer = otherTab.closest<HTMLElement>("[data-project-directory]")!
+    expect(currentContainer.style.transform).toContain("translateX(calc(-1")
+    expect(otherContainer.style.transform).toContain("translateX(calc(1")
+    fireEvent.pointerUp(currentTab, { clientX: 0, clientY: 10, isPrimary: true, pointerId: 1 })
 
     expect(onReorder).toHaveBeenCalledWith(current.directory, other.directory, "before")
   })
@@ -114,10 +150,8 @@ describe("ProjectTabs", () => {
     expect(onClose).toHaveBeenCalledWith(other.directory)
     expect(onSelect).toHaveBeenCalledOnce()
 
-    fireEvent.dragStart(otherTab)
     const currentTab = screen.getByRole("tab", { name: /demo/ })
-    fireEvent.dragOver(currentTab, { clientX: 0 })
-    fireEvent.drop(currentTab)
+    dragProjectTab(otherTab, currentTab, 0)
     expect(onReorder).toHaveBeenCalledWith(other.directory, current.directory, "before")
   })
 
