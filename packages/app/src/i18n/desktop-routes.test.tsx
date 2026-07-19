@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@solidjs/testing-library"
+import { cleanup, render, screen, within } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { App } from "../app"
@@ -56,6 +56,13 @@ describe("localized desktop routes", () => {
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeVisible()
     expect(screen.getByRole("combobox", { name: "Language" })).toHaveValue("en-US")
 
+    await user.click(screen.getByRole("link", { name: "Permissions and Security" }))
+    const permissionCard = await screen.findByRole("region", { name: "New Session default permissions" })
+    expect(within(permissionCard).getByRole("radio", { name: "Automatic" })).toBeVisible()
+    expect(within(permissionCard).getByRole("radio", { name: "Ask every time" })).toBeVisible()
+    expect(within(permissionCard).getByRole("radio", { name: "Full access" })).toBeVisible()
+    expect(permissionCard.textContent).not.toMatch(/\p{Script=Han}/u)
+
     await user.click(screen.getByRole("link", { name: "Advanced" }))
     expect(await screen.findByRole("heading", { name: "Advanced" })).toBeVisible()
 
@@ -64,5 +71,20 @@ describe("localized desktop routes", () => {
     expect(
       await screen.findByRole("complementary", { name: "Project and Session Navigation" }, { timeout: 10_000 }),
     ).toBeVisible()
+  }, 15_000)
+
+  it("relocalizes permission policy labels after switching to English", async () => {
+    const user = userEvent.setup()
+    renderDesktop("zh-CN")
+
+    await user.click(await screen.findByRole("link", { name: "设置" }))
+    await user.selectOptions(await screen.findByRole("combobox", { name: "语言" }), "en-US")
+    await user.click(await screen.findByRole("link", { name: "Permissions and Security" }))
+
+    const permissionCard = await screen.findByRole("region", { name: "New Session default permissions" })
+    expect(within(permissionCard).getByRole("radio", { name: "Automatic" })).toBeVisible()
+    expect(within(permissionCard).getByRole("radio", { name: "Ask every time" })).toBeVisible()
+    expect(within(permissionCard).getByRole("radio", { name: "Full access" })).toBeVisible()
+    expect(permissionCard.textContent).not.toMatch(/\p{Script=Han}/u)
   }, 15_000)
 })

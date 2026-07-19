@@ -1,16 +1,29 @@
 import type { AgentClusterConfig, Config } from "@jyycode-ai/sdk/v2/client"
 import type { DesktopClient } from "../../data/sdk"
+import { tr } from "../../i18n/i18n-context"
 import type { CatalogModel, ModelSelection } from "../composer/model-catalog"
 
 export const clusterModelRoles = [
   {
     key: "planner_model",
-    label: "主模型",
-    description: "单智能体对话，以及多智能体的规划、调度、复核和最终汇总",
+    get label() { return tr("multi-agent.model-role-main") },
+    get description() { return tr("multi-agent.model-role-main-description") },
   },
-  { key: "simple_model", label: "简单任务", description: "收集、摘要和普通草稿" },
-  { key: "complex_model", label: "复杂任务", description: "复杂分析与实现任务" },
-  { key: "visual_model", label: "视觉与文档", description: "图片、图表、PDF 和文档制作" },
+  {
+    key: "simple_model",
+    get label() { return tr("multi-agent.model-role-simple") },
+    get description() { return tr("multi-agent.model-role-simple-description") },
+  },
+  {
+    key: "complex_model",
+    get label() { return tr("multi-agent.model-role-complex") },
+    get description() { return tr("multi-agent.model-role-complex-description") },
+  },
+  {
+    key: "visual_model",
+    get label() { return tr("multi-agent.model-role-visual") },
+    get description() { return tr("multi-agent.model-role-visual-description") },
+  },
 ] as const
 
 export type ClusterModelRoleKey = (typeof clusterModelRoles)[number]["key"]

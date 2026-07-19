@@ -1,12 +1,14 @@
+import { tr } from "../../i18n/i18n-context"
+
 export type DefaultPermissionMode = "auto" | "request" | "full" | "custom"
 
-const labels: Record<DefaultPermissionMode, string> = {
-  auto: "自动",
-  request: "每次询问",
-  full: "完全访问",
-  custom: "自定义配置",
-}
+const labelKeys = {
+  auto: "settings.permission-mode-auto",
+  request: "settings.permission-mode-request",
+  full: "settings.permission-mode-full",
+  custom: "settings.permission-mode-custom",
+} as const satisfies Record<DefaultPermissionMode, Parameters<typeof tr>[0]>
 
 export function displayDefaultPermission(input: { mode: DefaultPermissionMode }) {
-  return { label: labels[input.mode], editable: input.mode !== "custom" }
+  return { label: tr(labelKeys[input.mode]), editable: input.mode !== "custom" }
 }

@@ -70,7 +70,6 @@ export function SecuritySettings(props: { management?: ManagementContextValue })
 
   return (
     <div class="settings-sections">
-      <p class="settings-scope-note">{tr("settings.applies-only-to-newly-created-sessions-existing-sessions")}</p>
       <Show when={permission.isPending}>
         <p role="status">{tr("settings.reading-default-permissions")}</p>
       </Show>
@@ -81,6 +80,9 @@ export function SecuritySettings(props: { management?: ManagementContextValue })
       <Show when={!permission.isPending && !permission.error}>
         <section class="settings-card" aria-labelledby="default-permission-title">
           <h3 id="default-permission-title">{tr("settings.new-session-default-permissions")}</h3>
+          <p class="settings-description">
+            {tr("settings.applies-only-to-newly-created-sessions-existing-sessions")}
+          </p>
           <fieldset class="settings-options" disabled={saving()}>
             <legend>{tr("settings.select-default-permissions-for-new-sessions")}</legend>
             <For each={options()}>
@@ -108,7 +110,6 @@ export function SecuritySettings(props: { management?: ManagementContextValue })
               <GlobalConfigReveal management={management} />
             </div>
           </Show>
-          <Show when={saving()}><p class="settings-saving" role="status">{tr("settings.saving")}</p></Show>
         </section>
       </Show>
 

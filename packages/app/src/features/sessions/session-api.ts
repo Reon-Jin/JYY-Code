@@ -2,6 +2,7 @@ import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import type { DesktopClient } from "../../data/sdk"
 import { keys } from "../../data/query-keys"
+import { tr } from "../../i18n/i18n-context"
 
 export type CreateSessionInput = {
   title?: string
@@ -27,7 +28,7 @@ export async function loadSession(input: SessionQueryInput) {
     { directory: input.directory, sessionID: input.sessionID },
     input.signal ? { throwOnError: true, signal: input.signal } : { throwOnError: true },
   )
-  if (!result.data) throw new Error("无法加载 Session")
+  if (!result.data) throw new Error(tr("sessions.unable-to-load-session"))
   return result.data
 }
 
@@ -97,7 +98,7 @@ export function createSessionApi(input: SessionApiInput) {
       { throwOnError: true },
     )
     await invalidateLists()
-    if (!result.data) throw new Error("创建 Session 失败")
+    if (!result.data) throw new Error(tr("sessions.create-failed"))
     return result.data
   }
 

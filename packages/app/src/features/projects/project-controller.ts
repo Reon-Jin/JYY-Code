@@ -3,6 +3,7 @@ import { createSignal } from "solid-js"
 import { createDesktopClient, type DesktopClient } from "../../data/sdk"
 import { normalizeRecentProjects, touchRecentProject } from "../../platform/recent-projects"
 import { normalizeDirectory } from "../../platform/desktop-path"
+import { tr } from "../../i18n/i18n-context"
 import type { DesktopBootstrap, DesktopBridge, RecentProject } from "../../platform/types"
 
 export type OpenedProject = {
@@ -33,7 +34,7 @@ export class GitInitializationError extends Error {
   readonly originalError: unknown
 
   constructor(opened: OpenedProject, originalError: unknown) {
-    super("Git 初始化失败")
+    super(tr("projects.git-initialization-failed-title"))
     this.name = "GitInitializationError"
     this.opened = opened
     this.originalError = originalError
@@ -44,7 +45,7 @@ function pathKey(path: string) {
   return normalizeDirectory(path)
 }
 
-export function errorMessage(error: unknown, fallback = "操作失败") {
+export function errorMessage(error: unknown, fallback = tr("projects.operation-failed")) {
   return error instanceof Error && error.message.trim() ? error.message : fallback
 }
 
@@ -52,7 +53,7 @@ export function createProjectController(input: ProjectControllerInput) {
   const clientFor =
     input.clientFor ??
     ((directory: string) => {
-      if (!input.bootstrap) throw new Error("桌面后端尚未启动")
+      if (!input.bootstrap) throw new Error(tr("projects.desktop-backend-not-started"))
       return createDesktopClient(input.bootstrap, directory)
     })
   const now = input.now ?? Date.now
@@ -113,7 +114,7 @@ export function createProjectController(input: ProjectControllerInput) {
     }
     if (!result.data) {
       markUnavailable(directory, true)
-      throw new Error("项目后端未返回项目信息")
+      throw new Error(tr("projects.backend-did-not-return-project-information"))
     }
 
     const opened = { directory, info: result.data, client }
@@ -163,7 +164,7 @@ export function createProjectController(input: ProjectControllerInput) {
 
   async function createInitialSession(opened: OpenedProject): Promise<CreatedProject> {
     const result = await opened.client.session.create({ directory: opened.directory }, { throwOnError: true })
-    if (!result.data) throw new Error("创建 Session 失败")
+    if (!result.data) throw new Error(tr("sessions.create-failed"))
     return { ...opened, session: result.data }
   }
 

@@ -1,6 +1,7 @@
 import type { JyycodeClient, McpLocalConfig, McpRemoteConfig, McpStatus } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import { keys } from "../../data/query-keys"
+import { tr } from "../../i18n/i18n-context"
 
 export type McpConfig = McpLocalConfig | McpRemoteConfig
 
@@ -36,7 +37,7 @@ export function mergeManagedMcp(configs: Record<string, McpConfig>, statuses: Re
       config,
       status:
         statuses[name] ??
-        ({ status: config.enabled === false ? "disabled" : "failed", error: "状态未知" } as McpStatus),
+        ({ status: config.enabled === false ? "disabled" : "failed", error: tr("mcp.status-unknown") } as McpStatus),
     }))
     .sort((left, right) => left.name.localeCompare(right.name))
 }

@@ -54,6 +54,24 @@ beforeEach(installDialog)
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe("SecuritySettings", () => {
+  it("keeps permission controls locked while saving without exposing a saving message", async () => {
+    const value = management()
+    let finish!: (result: { data: { mode: "request" } }) => void
+    value.client.global.defaultPermission.update.mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve }),
+    )
+    renderSecurity(value)
+
+    const request = await screen.findByRole("radio", { name: "每次询问" })
+    await userEvent.setup().click(request)
+
+    await waitFor(() => expect(request).toBeDisabled())
+    expect(screen.queryByText("正在保存…")).not.toBeInTheDocument()
+
+    finish({ data: { mode: "request" } })
+    await waitFor(() => expect(request).toBeEnabled())
+  })
+
   it("updates the default for new Sessions without touching the current Session", async () => {
     const value = renderSecurity()
 
@@ -66,7 +84,8 @@ describe("SecuritySettings", () => {
       ),
     )
     expect(value.client.session.update).not.toHaveBeenCalled()
-    expect(screen.getByText(/仅应用于新建的 Session/)).toBeVisible()
+    const card = screen.getByRole("region", { name: "新 Session 默认权限" })
+    expect(within(card).getByText(/仅应用于新建的 Session/)).toBeVisible()
   })
 
   it("rolls back the selected policy when saving fails", async () => {

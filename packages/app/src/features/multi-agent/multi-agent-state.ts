@@ -1,4 +1,5 @@
 import type { SessionAgentClusterResponse } from "@jyycode-ai/sdk/v2/client"
+import { tr } from "../../i18n/i18n-context"
 import type { AgentClusterState } from "./multi-agent-query"
 
 type ClusterRun = SessionAgentClusterResponse["runs"][number]
@@ -60,30 +61,27 @@ export type MultiAgentSnapshot = {
   completedSteps: number
 }
 
-const runStatusLabels: Record<ClusterRun["status"], string> = {
-  planning: "规划中",
-  dispatching: "派发中",
-  reviewing: "复核中",
-  synthesizing: "汇总中",
-  completed: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-}
+const runStatusLabelKeys = {
+  planning: "multi-agent.run-status-planning",
+  dispatching: "multi-agent.run-status-dispatching",
+  reviewing: "multi-agent.run-status-reviewing",
+  synthesizing: "multi-agent.run-status-synthesizing",
+  completed: "multi-agent.run-status-completed",
+  failed: "multi-agent.run-status-failed",
+  cancelled: "multi-agent.run-status-cancelled",
+} as const satisfies Record<ClusterRun["status"], Parameters<typeof tr>[0]>
 
-const taskStatusPresentation: Record<
-  ClusterTask["status"],
-  { tone: MultiAgentTaskTone; label: string }
-> = {
-  planned: { tone: "queued", label: "已规划" },
-  queued: { tone: "queued", label: "排队中" },
-  running: { tone: "running", label: "运行中" },
-  revising: { tone: "running", label: "修改中" },
-  submitted: { tone: "review", label: "已提交" },
-  reviewing: { tone: "review", label: "复核中" },
-  revision_requested: { tone: "review", label: "需要修改" },
-  accepted: { tone: "done", label: "已通过" },
-  failed: { tone: "failed", label: "失败" },
-  cancelled: { tone: "failed", label: "已取消" },
+const taskStatusPresentation: Record<ClusterTask["status"], { tone: MultiAgentTaskTone; labelKey: Parameters<typeof tr>[0] }> = {
+  planned: { tone: "queued", labelKey: "multi-agent.task-status-planned" },
+  queued: { tone: "queued", labelKey: "multi-agent.task-status-queued" },
+  running: { tone: "running", labelKey: "multi-agent.task-status-running" },
+  revising: { tone: "running", labelKey: "multi-agent.task-status-revising" },
+  submitted: { tone: "review", labelKey: "multi-agent.task-status-submitted" },
+  reviewing: { tone: "review", labelKey: "multi-agent.task-status-reviewing" },
+  revision_requested: { tone: "review", labelKey: "multi-agent.task-status-revision-requested" },
+  accepted: { tone: "done", labelKey: "multi-agent.task-status-accepted" },
+  failed: { tone: "failed", labelKey: "multi-agent.task-status-failed" },
+  cancelled: { tone: "failed", labelKey: "multi-agent.task-status-cancelled" },
 }
 
 function numeric(value: number | string) {
@@ -108,7 +106,7 @@ export function projectAgentClusterState(state: AgentClusterState): MultiAgentSn
   const runs: MultiAgentRunView[] = orderedRuns.map((item) => ({
     id: item.id,
     status: item.status,
-    statusLabel: runStatusLabels[item.status],
+    statusLabel: tr(runStatusLabelKeys[item.status]),
     goal: item.goal,
     timeCreated: numeric(item.time_created),
     timeUpdated: numeric(item.time_updated),
@@ -157,7 +155,7 @@ export function projectAgentClusterState(state: AgentClusterState): MultiAgentSn
         model: item.model,
         status: item.status,
         tone: presentation.tone,
-        statusLabel: presentation.label,
+        statusLabel: tr(presentation.labelKey),
         dependencies: item.dependencies.map((dependency) => qualifyTaskID(item.run_id, dependency)),
         acceptanceCriteria: [...item.acceptance_criteria],
         artifactPaths: [...item.artifact_paths],

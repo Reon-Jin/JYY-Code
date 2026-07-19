@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js"
 import { createDesktopClient, type DesktopClient } from "../../data/sdk"
+import { tr } from "../../i18n/i18n-context"
 import type { DesktopBootstrap, DesktopBridge, LastLocation } from "../../platform/types"
 import { defaultDesktopSettings, type DesktopSettings } from "../settings/settings-preferences"
 import {
@@ -44,10 +45,10 @@ export function withTimeout<T>(promise: Promise<T>, milliseconds: number, messag
 }
 
 export function safeFailureMessage(cause: unknown) {
-  const message = typeof cause === "string" && cause.trim() ? cause : errorMessage(cause, "本地后端没有响应")
+  const message = typeof cause === "string" && cause.trim() ? cause : errorMessage(cause, tr("app.local-backend-is-not-responding"))
   return message
-    .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, "Basic [已隐藏]")
-    .replace(/\b([A-Z][A-Z0-9_]{2,})=([^\s]+)/g, "$1=[已隐藏]")
+    .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, `Basic [${tr("lifecycle.redacted")}]`)
+    .replace(/\b([A-Z][A-Z0-9_]{2,})=([^\s]+)/g, `$1=[${tr("lifecycle.redacted")}]`)
 }
 
 export function createLifecycleController(input: LifecycleControllerInput) {
@@ -69,7 +70,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
 
   async function persist(value: LastLocation) {
     try {
-      await withTimeout(input.bridge.saveLastLocation(value), restoreTimeoutMs, "保存启动位置超时")
+      await withTimeout(input.bridge.saveLastLocation(value), restoreTimeoutMs, tr("lifecycle.save-startup-location-timeout"))
     } catch {
       // Persistence must not block an otherwise valid workspace.
     }
@@ -94,7 +95,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
       nextBootstrap = await withTimeout(
         input.bridge.bootstrap(),
         input.bootstrapTimeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS,
-        "JYYCode 后端启动超时，请重新启动后端",
+        tr("lifecycle.backend-start-timeout"),
       )
     } catch (cause) {
       setBootstrap(undefined)
@@ -115,7 +116,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
     setProjects(controller)
 
     try {
-      setSettings(await withTimeout(input.bridge.loadSettings(), restoreTimeoutMs, "读取桌面设置超时"))
+      setSettings(await withTimeout(input.bridge.loadSettings(), restoreTimeoutMs, tr("lifecycle.read-settings-timeout")))
     } catch {
       setSettings({ ...defaultDesktopSettings })
     }
@@ -127,7 +128,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
 
     let location: Awaited<ReturnType<DesktopBridge["loadLastLocation"]>> = {}
     try {
-      location = await withTimeout(input.bridge.loadLastLocation(), restoreTimeoutMs, "读取上次位置超时")
+      location = await withTimeout(input.bridge.loadLastLocation(), restoreTimeoutMs, tr("lifecycle.read-last-location-timeout"))
     } catch {
       location = {}
     }
@@ -151,7 +152,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
     let activeOpened: OpenedProject | undefined
     for (const stored of storedProjects) {
       try {
-        const restored = await withTimeout(controller.openProject(stored.path), restoreTimeoutMs, "恢复上次项目超时")
+        const restored = await withTimeout(controller.openProject(stored.path), restoreTimeoutMs, tr("lifecycle.restore-project-timeout"))
         if (sameDirectory(stored.path, location.project)) activeOpened = restored
         if (stored.sessionID && !sameDirectory(stored.path, location.project)) {
           controller.rememberSession(stored.path, stored.sessionID)
@@ -191,9 +192,9 @@ export function createLifecycleController(input: LifecycleControllerInput) {
           { throwOnError: true },
         ),
         restoreTimeoutMs,
-        "恢复上次 Session 超时",
+        tr("lifecycle.restore-session-timeout"),
       )
-      if (!result.data) throw new Error("Session 不存在")
+      if (!result.data) throw new Error(tr("lifecycle.session-not-found"))
       controller.rememberSession(opened.directory, result.data.id)
       setRoute(`/session/${encodeURIComponent(result.data.id)}`)
       await persist(persistedWorkspace(controller, opened.directory, result.data.id))
