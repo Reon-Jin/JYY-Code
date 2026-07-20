@@ -8,6 +8,7 @@ import { Auth } from "../auth"
 import { ProviderTransform } from "@/provider/transform"
 import { ClusterPrimaryPrompt } from "@/agent-cluster/planner"
 import { SubagentDescriptions, subagentPrompt } from "@/agent-cluster/dispatcher"
+import { primarySkillPermission, roleSkillPermission, roleSystemPrompt } from "@/agent-cluster/role-skills"
 import type { TaskRole } from "@/agent-cluster/schema"
 
 import PROMPT_GENERATE from "./generate.txt"
@@ -140,6 +141,7 @@ export const layer = Layer.effect(
               task: "deny",
             }),
             user,
+            Permission.fromConfig({ skill: roleSkillPermission(role) }),
           ),
           options: {},
           mode: "subagent",
@@ -158,6 +160,7 @@ export const layer = Layer.effect(
                 plan_enter: "allow",
               }),
               user,
+              Permission.fromConfig({ skill: primarySkillPermission() }),
             ),
             mode: "primary",
             native: true,
@@ -181,6 +184,7 @@ export const layer = Layer.effect(
                 },
               }),
               user,
+              Permission.fromConfig({ skill: primarySkillPermission() }),
             ),
             mode: "primary",
             native: true,
@@ -211,6 +215,7 @@ export const layer = Layer.effect(
                 write: "allow",
                 edit: "allow",
                 multi_edit: "allow",
+                skill: { "*": "deny" },
               }),
             ),
             mode: "primary",
@@ -220,12 +225,15 @@ export const layer = Layer.effect(
           general: {
             name: "general",
             description: `General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.`,
+            prompt: subagentPrompt("general"),
             permission: Permission.merge(
               defaults,
               Permission.fromConfig({
                 todowrite: "deny",
+                skill: roleSkillPermission("general"),
               }),
               user,
+              Permission.fromConfig({ skill: roleSkillPermission("general") }),
             ),
             options: {},
             mode: "subagent",
@@ -253,11 +261,13 @@ export const layer = Layer.effect(
                 websearch: "allow",
                 read: "allow",
                 external_directory: readonlyExternalDirectory,
+                skill: roleSkillPermission("explore"),
               }),
               user,
+              Permission.fromConfig({ skill: roleSkillPermission("explore") }),
             ),
             description: `Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions.`,
-            prompt: PROMPT_EXPLORE,
+            prompt: [roleSystemPrompt("explore"), PROMPT_EXPLORE].join("\n\n"),
             options: {},
             mode: "subagent",
             native: true,
@@ -275,6 +285,7 @@ export const layer = Layer.effect(
                       webfetch: "allow",
                       websearch: "allow",
                       read: "allow",
+                      skill: roleSkillPermission("scout"),
                       repo_clone: "allow",
                       repo_overview: "allow",
                       external_directory: {
@@ -283,9 +294,10 @@ export const layer = Layer.effect(
                       },
                     }),
                     user,
+                    Permission.fromConfig({ skill: roleSkillPermission("scout") }),
                   ),
                   description: `Docs and dependency-source specialist. Use this when you need to inspect external documentation, clone dependency repositories into the managed cache, and research library implementation details without modifying the user's workspace.`,
-                  prompt: PROMPT_SCOUT,
+                  prompt: [roleSystemPrompt("scout"), PROMPT_SCOUT].join("\n\n"),
                   options: {},
                   mode: "subagent" as const,
                   native: true,

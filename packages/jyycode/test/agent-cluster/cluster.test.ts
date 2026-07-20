@@ -9,6 +9,7 @@ import { Event as AgentClusterEvent } from "../../src/agent-cluster/event"
 import { Bus } from "../../src/bus"
 import type { Plan, RunID } from "../../src/agent-cluster/schema"
 import { ClusterPrimaryPrompt, runInstructions } from "../../src/agent-cluster/planner"
+import { RoleSkillDefinitions } from "../../src/agent-cluster/role-skills"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 import { ConfigAgentCluster } from "../../src/config/agent-cluster"
 import { ModelID, ProviderID } from "../../src/provider/schema"
@@ -29,6 +30,10 @@ describe("AgentCluster planner instructions", () => {
     expect(ClusterPrimaryPrompt).toContain("Step 1 has no prior results")
     expect(ClusterPrimaryPrompt).toContain("Steps are strict gates")
     expect(ClusterPrimaryPrompt).toContain("agent_cluster_review")
+    expect(ClusterPrimaryPrompt).toContain("ROLE CAPABILITY CATALOG")
+    expect(ClusterPrimaryPrompt).toContain("chart:")
+    expect(ClusterPrimaryPrompt).not.toContain(RoleSkillDefinitions.chart.skillName)
+    expect(ClusterPrimaryPrompt).not.toContain("# Chart specialist skill")
     expect(ClusterPrimaryPrompt).not.toContain("ANTI-PATTERN")
   })
 

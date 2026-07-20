@@ -74,8 +74,12 @@ export function MultiAgentPanel(props: { sessionID: string; enabled: boolean; di
                     }}
                   >
                     <span style={{ fg: theme.textMuted }}>{String(row.index).padStart(2, " ")} </span>
-                    {Locale.titlecase(row.role).padEnd(10, " ").slice(0, 10)} {row.model.padEnd(24, " ").slice(0, 24)}{" "}
-                    {row.status.padEnd(10, " ").slice(0, 10)} {Locale.truncate(row.task, 48)}
+                    {Locale.titlecase(row.role).padEnd(10, " ").slice(0, 10)}{" "}
+                    <span style={{ fg: theme.textMuted }}>
+                      {Locale.truncate(row.skillNames?.join(", ") ?? row.skillName ?? "role-skill", 28).padEnd(28, " ")}
+                    </span>{" "}
+                    {row.model.padEnd(20, " ").slice(0, 20)} {row.status.padEnd(10, " ").slice(0, 10)}{" "}
+                    {Locale.truncate(row.task, 40)}
                   </text>
                 )
               }}

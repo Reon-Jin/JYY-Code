@@ -1,4 +1,5 @@
 import type { Complexity, PlannedTask, TaskRole, TaskStatus } from "./schema"
+import { roleCapabilitySummary, roleSkillName, roleSkillNames, roleSystemPrompt, RoleSkillDefinitions } from "./role-skills"
 
 export function modelForComplexity(input: {
   complexity: Complexity
@@ -14,15 +15,15 @@ export function modelForComplexity(input: {
 }
 
 export const SubagentDescriptions = {
-  researcher: "Research specialist for source collection, citation extraction, and evidence notes.",
-  picture_searcher: "Image research specialist for finding relevant images, diagrams, and visual assets.",
-  analyst: "Analysis specialist for data interpretation, tradeoff comparison, and insight synthesis.",
-  writer: "Writing specialist for polished sections, concise summaries, and narrative assembly.",
-  chart: "Chart specialist for chart data, visualization specs, and generated chart artifacts.",
-  pdf: "Document production specialist for final Markdown, DOCX, PDF, and export-ready artifacts.",
-  coder: "Coding specialist for implementation, refactoring, and code changes.",
-  tester: "Testing specialist for verification, regression checks, and test evidence.",
-  general: "General specialist for tasks that do not fit a narrower cluster role.",
+  researcher: RoleSkillDefinitions.researcher.description,
+  picture_searcher: RoleSkillDefinitions.picture_searcher.description,
+  analyst: RoleSkillDefinitions.analyst.description,
+  writer: RoleSkillDefinitions.writer.description,
+  chart: RoleSkillDefinitions.chart.description,
+  pdf: RoleSkillDefinitions.pdf.description,
+  coder: RoleSkillDefinitions.coder.description,
+  tester: RoleSkillDefinitions.tester.description,
+  general: RoleSkillDefinitions.general.description,
 } satisfies Record<TaskRole, string>
 
 const RETURN_FORMAT = [
@@ -41,9 +42,12 @@ const RETURN_FORMAT = [
 
 export function subagentPrompt(role: TaskRole) {
   return [
-    SubagentDescriptions[role],
+    roleSystemPrompt(role),
     "",
     "You are working inside a Multi-Agent cluster. Complete only the delegated task.",
+    `Primary role profile: ${roleSkillName(role)} (${roleCapabilitySummary(role)}).`,
+    `Assigned skills available through the role-scoped skill catalog: ${roleSkillNames(role).join(", ")}.`,
+    "Load only a listed skill when its description matches the delegated task. Do not load, imitate, or claim access to another role's specialist skill.",
     "Follow the acceptance criteria exactly, write requested artifacts to the specified paths, and return a concise report containing status, artifact paths, key findings, and any blockers.",
     "Do not claim completion for artifacts you did not create or verify.",
     RETURN_FORMAT,
@@ -71,6 +75,9 @@ export function buildTaskBrief(input: {
     `- step: ${input.task.step}`,
     `- task_id: ${input.task.id}`,
     `- title: ${input.task.title}`,
+    `- role: ${input.task.role}`,
+    `- active capability: ${roleCapabilitySummary(input.task.role)}`,
+    `- assigned skills: ${roleSkillNames(input.task.role).join(", ")}`,
     `- 唯一职责: ${input.task.prompt}`,
     "- 禁止越界: 只完成本任务职责，不重复同一步协作者的工作，不提前完成后续任务。",
     "",

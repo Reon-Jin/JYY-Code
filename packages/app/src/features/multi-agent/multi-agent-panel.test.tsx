@@ -198,6 +198,9 @@ describe("MultiAgentPanelView plan and task interactions", () => {
     await user.click(taskSummary)
     const disclosure = taskSummary.closest("details")!
     expect(within(disclosure).getByText("编码")).toBeVisible()
+    expect(within(disclosure).getByText("cluster-safe-implementation")).toBeVisible()
+    expect(within(disclosure).getByText("incremental-implementation")).toBeVisible()
+    expect(within(disclosure).getByText(/implementation · security review · verification/)).toBeVisible()
     expect(within(disclosure).getByText("test/coder")).toBeVisible()
     expect(within(disclosure).getAllByText("修改中")[0]).toBeVisible()
     expect(within(disclosure).getByText("Revision started")).toBeVisible()

@@ -555,6 +555,11 @@ describe("agent cluster TUI plan parsing", () => {
 
     expect(snapshot.runningAgents).toBe(1)
     expect(snapshot.steps[0]?.tasks[0]?.status).toBe("running")
+    expect(snapshot.plan?.tasks[0]?.skillName).toBe("cluster-research-evidence")
+    expect(snapshot.plan?.tasks[0]?.skillNames).toContain("literature-review")
+    expect(snapshot.plan?.tasks[0]?.capabilitySummary).toContain("sources")
+    expect(snapshot.rows[0]?.skillName).toBe("cluster-research-evidence")
+    expect(snapshot.rows[0]?.skillNames).toContain("research-lookup")
   })
 
   test("projects every cluster run in a session onto continuous steps", () => {

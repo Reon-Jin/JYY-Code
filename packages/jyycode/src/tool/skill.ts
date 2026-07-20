@@ -39,16 +39,17 @@ export const SkillTool = Tool.define(
             metadata: {},
           })
 
-          const dir = path.dirname(info.location)
-          const base = pathToFileURL(dir).href
-          const limit = 10
-          const files = yield* rg.files({ cwd: dir, follow: false, hidden: true, signal: ctx.abort }).pipe(
-            Stream.filter((file) => !file.includes("SKILL.md")),
-            Stream.map((file) => path.resolve(dir, file)),
-            Stream.take(limit),
-            Stream.runCollect,
-            Effect.map((chunk) => [...chunk].map((file) => `<file>${file}</file>`).join("\n")),
-          )
+          const dir = info.origin === "built_in" ? undefined : path.dirname(info.location)
+          const base = dir ? pathToFileURL(dir).href : `builtin://${info.name}`
+          const files = dir
+            ? yield* rg.files({ cwd: dir, follow: false, hidden: true, signal: ctx.abort }).pipe(
+                Stream.filter((file) => !file.includes("SKILL.md")),
+                Stream.map((file) => path.resolve(dir, file)),
+                Stream.take(10),
+                Stream.runCollect,
+                Effect.map((chunk) => [...chunk].map((file) => `<file>${file}</file>`).join("\n")),
+              )
+            : "(built-in skill has no external resource directory)"
 
           return {
             title: `Loaded skill: ${info.name}`,
@@ -59,7 +60,9 @@ export const SkillTool = Tool.define(
               info.content.trim(),
               "",
               `Base directory for this skill: ${base}`,
-              "Relative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.",
+              dir
+                ? "Relative paths in this skill (e.g., scripts/, reference/) are relative to this base directory."
+                : "This built-in skill has no bundled external resource directory.",
               "Note: file list is sampled.",
               "",
               "<skill_files>",
@@ -69,7 +72,7 @@ export const SkillTool = Tool.define(
             ].join("\n"),
             metadata: {
               name: info.name,
-              dir,
+              dir: dir ?? "<built-in>",
             },
           }
         }).pipe(Effect.orDie),

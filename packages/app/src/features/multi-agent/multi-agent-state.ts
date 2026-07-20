@@ -1,5 +1,6 @@
 import type { SessionAgentClusterResponse } from "@jyycode-ai/sdk/v2/client"
 import { tr } from "../../i18n/i18n-context"
+import { roleCapability } from "./role-capabilities"
 import type { AgentClusterState } from "./multi-agent-query"
 
 type ClusterRun = SessionAgentClusterResponse["runs"][number]
@@ -14,6 +15,9 @@ export type MultiAgentTaskView = {
   step: number
   localStep: number
   role: string
+  skillName: string
+  skillNames: string[]
+  capabilitySummary: string
   title: string
   model: string
   status: ClusterTask["status"]
@@ -151,6 +155,9 @@ export function projectAgentClusterState(state: AgentClusterState): MultiAgentSn
         step: globalStep,
         localStep: group.localStep,
         role: item.role,
+        skillName: roleCapability(item.role).skill,
+        skillNames: [...roleCapability(item.role).skills],
+        capabilitySummary: roleCapability(item.role).summary,
         title: item.title,
         model: item.model,
         status: item.status,

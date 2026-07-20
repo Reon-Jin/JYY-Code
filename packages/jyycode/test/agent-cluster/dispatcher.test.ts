@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { buildTaskBrief, modelForComplexity, SubagentDescriptions, subagentPrompt } from "../../src/agent-cluster/dispatcher"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
+import { RoleSkillDefinitions, roleSkillName, roleSkillNames, roleSystemPrompt } from "../../src/agent-cluster/role-skills"
 
 describe("modelForComplexity", () => {
   const models = {
@@ -47,6 +48,28 @@ describe("SubagentDescriptions", () => {
     for (const role of roles) {
       expect(SubagentDescriptions[role as keyof typeof SubagentDescriptions]).toBeTruthy()
     }
+  })
+
+  test("has one isolated built-in skill for every role", () => {
+    const roles = Object.keys(RoleSkillDefinitions)
+    expect(new Set(roles.map((role) => roleSkillName(role))).size).toBe(roles.length)
+    for (const role of roles) {
+      expect(RoleSkillDefinitions[role as keyof typeof RoleSkillDefinitions].skillContent).toContain("---")
+      expect(RoleSkillDefinitions[role as keyof typeof RoleSkillDefinitions].capabilitySummary).toBeTruthy()
+    }
+  })
+
+  test("maps curated upstream skills to exactly one role catalog", () => {
+    expect(roleSkillNames("researcher")).toContain("literature-review")
+    expect(roleSkillNames("analyst")).toContain("statistical-analysis")
+    expect(roleSkillNames("coder")).toContain("security-and-hardening")
+    expect(roleSkillNames("tester")).toContain("webapp-testing")
+    expect(roleSkillNames("chart")).toContain("scientific-visualization")
+    expect(roleSkillNames("pdf")).toContain("pdf")
+    expect(roleSkillNames("picture_searcher")).toContain("images-search")
+    expect(roleSkillNames("explore")).toContain("acquire-codebase-knowledge")
+    expect(roleSkillNames("scout")).toContain("source-driven-development")
+    expect(roleSkillNames("coder")).not.toContain("literature-review")
   })
 })
 
@@ -106,15 +129,28 @@ describe("buildTaskBrief", () => {
 describe("subagentPrompt", () => {
   test("returns multi-line prompt for researcher role", () => {
     const prompt = subagentPrompt("researcher")
-    expect(prompt).toContain("Research specialist")
+    expect(prompt).toContain('role="researcher"')
+    expect(prompt).toContain("cluster-research-evidence")
+    expect(prompt).toContain("literature-review")
     expect(prompt).toContain("Multi-Agent cluster")
     expect(prompt).toContain("acceptance criteria")
   })
 
   test("returns multi-line prompt for coder role", () => {
     const prompt = subagentPrompt("coder")
-    expect(prompt).toContain("Coding specialist")
+    expect(prompt).toContain('role="coder"')
+    expect(prompt).toContain("cluster-safe-implementation")
+    expect(prompt).toContain("security-and-hardening")
     expect(prompt).toContain("Multi-Agent cluster")
+  })
+
+  test("does not cross-load another role's skill content", () => {
+    const chart = roleSystemPrompt("chart")
+    const coder = roleSystemPrompt("coder")
+    expect(chart).toContain("cluster-chart-visualization")
+    expect(chart).not.toContain("cluster-safe-implementation")
+    expect(coder).toContain("cluster-safe-implementation")
+    expect(coder).not.toContain("cluster-chart-visualization")
   })
 
   test("subagent prompt requires structured final status", () => {

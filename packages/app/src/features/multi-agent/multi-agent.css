@@ -515,6 +515,38 @@
   color: var(--color-text);
 }
 
+.multi-agent-task__role,
+.multi-agent-task__capability {
+  display: block;
+}
+
+.multi-agent-task__capability {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: 0.65rem;
+}
+
+.multi-agent-skill-chip {
+  display: inline-flex;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: color-mix(in srgb, var(--color-accent) 9%, var(--color-surface));
+  color: var(--color-accent);
+  font-family: var(--font-code);
+  font-size: 0.62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multi-agent-task__skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .multi-agent-task__field {
   display: grid;
   gap: var(--space-1);

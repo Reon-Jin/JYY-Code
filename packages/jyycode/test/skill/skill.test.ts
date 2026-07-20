@@ -83,6 +83,19 @@ const withHome = <A, E, R>(home: string, self: Effect.Effect<A, E, R>) =>
   )
 
 describe("skill", () => {
+  it.instance("registers curated role skills as built-ins", () =>
+    Effect.gen(function* () {
+      const skill = yield* Skill.Service
+      const records = new Map((yield* skill.all()).map((record) => [record.name, record]))
+
+      expect(records.get("literature-review")).toMatchObject({ origin: "built_in", source: expect.stringContaining("K-Dense") })
+      expect(records.get("code-review-and-quality")).toMatchObject({ origin: "built_in", source: expect.stringContaining("addyosmani") })
+      expect(records.get("images-search")).toMatchObject({ origin: "built_in", source: expect.stringContaining("brave") })
+      expect(records.get("pdf")).toMatchObject({ origin: "built_in", source: expect.stringContaining("openai") })
+      expect(records.get("literature-review")?.content).toContain("# Literature Review")
+    }),
+  )
+
   provenanceIt.instance(
     "tracks built-in, managed, path, and URL provenance with revisions",
     () =>

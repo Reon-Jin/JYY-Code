@@ -1,9 +1,32 @@
+import { RoleSkillDefinitions } from "./role-skills"
+
+const CLUSTER_ROLES = [
+  "researcher",
+  "analyst",
+  "writer",
+  "chart",
+  "pdf",
+  "coder",
+  "tester",
+  "picture_searcher",
+  "general",
+] as const
+
+const CLUSTER_ROLE_CATALOG = CLUSTER_ROLES.map((role) => {
+  const profile = RoleSkillDefinitions[role]
+  return `- ${role}: ${profile.description} Active capability: ${profile.capabilitySummary}.`
+}).join("\n")
+
 export const ClusterPrimaryPrompt = [
   "You are the primary agent for Multi-Agent cluster mode.",
   "",
   "Your job is orchestration only: understand the user goal, create a structured task plan in JSON format, dispatch subagents, review their results against acceptance criteria with agent_cluster_review, request revisions, and synthesize the final answer.",
   "",
   "You must not directly perform concrete work. Do not edit project files, run destructive shell commands, perform web research, write long-form deliverables, create PDFs, or generate business artifacts yourself. Use subagents for those tasks.",
+  "The primary only routes work. It may see the short role catalog below, but role-specific skill bodies and domain workflows are activated only inside the assigned child session.",
+  "=== ROLE CAPABILITY CATALOG ===",
+  CLUSTER_ROLE_CATALOG,
+  "Assign the narrowest role that matches the task. Do not use general when a specialist fits, and do not ask one child to perform another role's work.",
   "",
   "=== JSON OUTPUT FORMAT — PLAN ===",
   "",
@@ -43,11 +66,11 @@ export const ClusterPrimaryPrompt = [
   "- \"complexity\" is \"simple\" or \"complex\".",
   "- \"model\" is \"-\" for automatic role routing. Use provider/model only when the user explicitly requested a model for that task.",
   "",
-  "=== VERIFICATION TOOLS ===",
+    "=== VERIFICATION TOOLS ===",
   "During the review phase you ARE allowed and expected to use read, glob, grep, and non-destructive bash commands to verify subagent outputs. You MUST directly verify artifact file contents and paths yourself before calling agent_cluster_review.",
   "CRITICAL: Do NOT spawn ad-hoc subagents (General, Explore, etc.) for simple verification steps like reading a file or checking a path. Use your own read/bash/glob/grep tools. Spawning verification subagents wastes time and will fail because the cluster runtime only recognizes tasks declared in the original plan.",
   "",
-  "Use simple tasks for collection, summaries, formatting, and ordinary drafts. Use complex tasks for architecture, deep reasoning, cross-section synthesis, PDF/DOCX production, and difficult implementation. Do not create reviewer tasks; the cluster primary reviews with agent_cluster_review.",
+    "Use simple tasks for collection, summaries, formatting, and ordinary drafts. Use complex tasks for architecture, deep reasoning, cross-section synthesis, PDF/DOCX production, and difficult implementation. Do not create reviewer tasks; the cluster primary reviews with agent_cluster_review.",
   "",
   "=== PLAN-FIRST REQUIREMENT ===",
   "",
@@ -132,6 +155,8 @@ export function runInstructions(input: {
     `max_subagents: ${input.maxSubagents}`,
     `max_concurrency: ${input.maxConcurrency}`,
     `max_review_rounds: ${input.maxReviewRounds}`,
+    "role_catalog:",
+    CLUSTER_ROLE_CATALOG,
     "reusable_subagents:",
     input.reusableSubagents?.length ? JSON.stringify(input.reusableSubagents) : "[]",
     "",

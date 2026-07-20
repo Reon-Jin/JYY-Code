@@ -1,4 +1,5 @@
 import type { AssistantMessage, Message, Part, ToolPart } from "@jyycode-ai/sdk/v2"
+import { roleCapabilitySummary, roleSkillName, roleSkillNames } from "@/agent-cluster/role-skills"
 
 export type AgentClusterTaskStatus = "queued" | "running" | "done" | "failed"
 
@@ -12,6 +13,9 @@ export type AgentClusterPlanTask = {
   dependencies: string[]
   acceptanceCriteria: string[]
   expectedArtifacts: string[]
+  skillName?: string
+  skillNames?: string[]
+  capabilitySummary?: string
   status: AgentClusterTaskStatus
 }
 
@@ -40,6 +44,9 @@ export type AgentClusterTaskRun = {
   status: AgentClusterTaskStatus
   task: string
   sessionID?: string
+  skillName?: string
+  skillNames?: string[]
+  capabilitySummary?: string
 }
 
 export type AgentClusterSnapshot = {
@@ -530,14 +537,18 @@ function taskRuns(input: SnapshotInput, statuses: Map<string, AgentClusterTaskSt
           const cluster = record(metadata(part)?.agentCluster)
           const runID = text(cluster?.runID)
           const clusterTaskID = text(cluster?.taskID)
+          const role = text(state?.subagent_type) ?? "general"
           return {
             id: clusterTaskID ?? text(state?.task_id),
             runID,
-            role: text(state?.subagent_type) ?? "general",
+            role,
             model: modelLabel(part),
             status: taskStatus(part, childStatus(input, sessionID, statuses)),
             task: text(state?.description) ?? text(state?.prompt) ?? "",
             sessionID,
+            skillName: roleSkillName(role),
+            skillNames: [...roleSkillNames(role)],
+            capabilitySummary: roleCapabilitySummary(role),
           }
         }),
     )
@@ -618,6 +629,9 @@ function clusterPlan(cluster: AgentClusterRowState | undefined): AgentClusterPla
       dependencies: [...(task.dependencies ?? [])],
       acceptanceCriteria: [...(task.acceptance_criteria ?? [])],
       expectedArtifacts: [...(task.artifact_paths ?? [])],
+      skillName: roleSkillName(task.role),
+      skillNames: [...roleSkillNames(task.role)],
+      capabilitySummary: roleCapabilitySummary(task.role),
       status: clusterTaskStatus(task.status),
     })),
   }
@@ -635,6 +649,9 @@ function clusterTaskRuns(cluster: AgentClusterRowState | undefined): AgentCluste
     status: clusterTaskStatus(task.status),
     task: task.title,
     sessionID: task.child_session_id ?? undefined,
+    skillName: roleSkillName(task.role),
+    skillNames: [...roleSkillNames(task.role)],
+    capabilitySummary: roleCapabilitySummary(task.role),
   }))
 }
 

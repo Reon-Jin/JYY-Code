@@ -31,7 +31,15 @@ function roleLabel(value: string) {
   const labels: Record<string, string> = {
     general: tr("multi-agent.universal"),
     researcher: tr("multi-agent.research"),
+    analyst: tr("multi-agent.role-analyst"),
+    writer: tr("multi-agent.role-writer"),
     coder: tr("multi-agent.coding"),
+    tester: tr("multi-agent.role-tester"),
+    chart: tr("multi-agent.role-chart"),
+    pdf: tr("multi-agent.role-pdf"),
+    picture_searcher: tr("multi-agent.role-picture-searcher"),
+    explore: tr("multi-agent.role-explore"),
+    scout: tr("multi-agent.role-scout"),
     reviewer: tr("multi-agent.review"),
     planner: tr("multi-agent.planning"),
   }
@@ -73,7 +81,16 @@ function TaskDetails(props: { task: MultiAgentTaskView }) {
       <dl>
         <div>
           <dt>{tr("multi-agent.role")}</dt>
-          <dd>{roleLabel(props.task.role)}</dd>
+          <dd>
+            <span class="multi-agent-task__role">{roleLabel(props.task.role)}</span>
+            <span class="multi-agent-task__capability">{props.task.capabilitySummary}</span>
+          </dd>
+        </div>
+        <div>
+          <dt>{tr("multi-agent.active-skills")}</dt>
+          <dd class="multi-agent-task__skills">
+            <For each={props.task.skillNames}>{(skill) => <span class="multi-agent-skill-chip">{skill}</span>}</For>
+          </dd>
         </div>
         <div>
           <dt>{tr("composer.model")}</dt>

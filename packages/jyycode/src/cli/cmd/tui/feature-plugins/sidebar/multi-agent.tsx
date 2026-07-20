@@ -86,7 +86,8 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
                   <For each={step.tasks}>
                     {(task) => (
                       <text fg={statusColor(task.status, theme())}>
-                        {marker(task.status)} {Locale.truncate(task.title, 29)}
+                        {marker(task.status)} {Locale.titlecase(task.role)} · {Locale.truncate(task.skillNames?.join(", ") ?? task.skillName ?? "role-skill", 22)}{" "}
+                        {Locale.truncate(task.title, 29)}
                       </text>
                     )}
                   </For>

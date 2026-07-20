@@ -30,6 +30,36 @@ const node = CrossSpawnSpawner.defaultLayer
 const it = testEffect(Layer.mergeAll(ToolRegistry.defaultLayer, node))
 
 describe("tool.skill", () => {
+  it.live("loads a built-in role skill without a filesystem resource directory", () =>
+    provideTmpdirInstance((dir) =>
+      Effect.gen(function* () {
+        const home = process.env.JYYCODE_TEST_HOME
+        process.env.JYYCODE_TEST_HOME = dir
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            process.env.JYYCODE_TEST_HOME = home
+          }),
+        )
+
+        const registry = yield* ToolRegistry.Service
+        const agent = { name: "researcher", mode: "subagent" as const, permission: [], options: {} }
+        const tool = (yield* registry.tools({
+          providerID: "jyycode" as any,
+          modelID: "gpt-5" as any,
+          agent,
+        })).find((tool) => tool.id === SkillTool.id)
+        if (!tool) throw new Error("Skill tool not found")
+
+        const result = yield* tool.execute({ name: "literature-review" }, { ...baseCtx, agent: "researcher", ask: () => Effect.void })
+
+        expect(result.metadata.dir).toBe("<built-in>")
+        expect(result.output).toContain(`<skill_content name="literature-review">`)
+        expect(result.output).toContain("# Literature Review")
+        expect(result.output).toContain("(built-in skill has no external resource directory)")
+      }),
+    ),
+  )
+
   it.live("execute returns skill content block with files", () =>
     provideTmpdirInstance((dir) =>
       Effect.gen(function* () {
