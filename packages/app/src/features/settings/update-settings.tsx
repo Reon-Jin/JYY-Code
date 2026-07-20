@@ -9,7 +9,16 @@ import { defaultDesktopSettings, type DesktopSettings, type UpdatePolicy } from 
 type UpdatePhase = "idle" | "checking" | "current" | "available" | "installing"
 
 function failureMessage(cause: unknown) {
-  return cause instanceof Error ? cause.message : tr("settings.update-failed")
+  if (cause instanceof Error) return cause.message
+  if (typeof cause === "string" && cause) return cause
+  if (cause != null) {
+    try {
+      return JSON.stringify(cause)
+    } catch {
+      // fall through to the generic message
+    }
+  }
+  return tr("settings.update-failed")
 }
 
 export function UpdateSettings(props: { supported?: boolean }) {

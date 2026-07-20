@@ -200,8 +200,24 @@ jobs:
           $manifest = Join-Path $root "latest.json"
           $backupDir = Join-Path $env:RUNNER_TEMP "desktop-latest-backup"
           New-Item $backupDir -ItemType Directory -Force | Out-Null
-          gh release view desktop-latest --repo $repo 2>$null | Out-Null
-          $hadRollingRelease = $LASTEXITCODE -eq 0
+
+          # Clean up leftover draft releases from previous failed runs. Drafts have no
+          # tag ref, so "gh release view" cannot see them, but "gh release create"
+          # still collides with them ("a release with the same tag name already exists").
+          $drafts = gh api "repos/$repo/releases?per_page=100" --jq '[.[] | select(.draft) | {id, tag_name}]' | ConvertFrom-Json
+          foreach ($draft in @($drafts)) {
+            if ($draft -and ($draft.tag_name -eq "desktop-latest" -or $draft.tag_name -eq $env:TAG)) {
+              Write-Host "Deleting leftover draft release: $($draft.tag_name) (id $($draft.id))"
+              gh api -X DELETE "repos/$repo/releases/$($draft.id)"
+            }
+          }
+
+          # Detect the rolling channel release via the REST API instead of
+          # "gh release view": a spurious detection failure sends the script down
+          # the create path, which then collides with the existing release
+          # ("a release with the same tag name already exists").
+          $rollingRelease = gh api "repos/$repo/releases/tags/desktop-latest" 2>$null
+          $hadRollingRelease = $LASTEXITCODE -eq 0 -and $rollingRelease -and (($rollingRelease | ConvertFrom-Json).tag_name -eq "desktop-latest")
           if ($hadRollingRelease) {
             gh release download desktop-latest --pattern latest.json --dir $backupDir --clobber --repo $repo
           }
@@ -235,12 +251,20 @@ jobs:
           Code signing policy: https://github.com/${{ github.repository }}/blob/main/CODE_SIGNING_POLICY.md
           Privacy policy: https://github.com/${{ github.repository }}/blob/main/PRIVACY.md
           "@
-              gh release create desktop-latest $manifest `
-                --repo $repo `
-                --title "JYYCode Desktop update channel" `
-                --notes $channelNotes `
-                --prerelease
-              $createdRollingRelease = $true
+              try {
+                gh release create desktop-latest $manifest `
+                  --repo $repo `
+                  --title "JYYCode Desktop update channel" `
+                  --notes $channelNotes `
+                  --prerelease
+                $createdRollingRelease = $true
+              } catch {
+                # Detection missed an existing channel release (e.g. transient API
+                # error) — overwrite its manifest asset instead of failing the run.
+                Write-Host "desktop-latest already exists; updating its manifest asset instead"
+                gh release upload desktop-latest $manifest --clobber --repo $repo
+                $hadRollingRelease = $true
+              }
             }
 
             gh release edit $env:TAG --repo $repo --draft=false
