@@ -1756,4 +1756,217 @@ describe("tool.task", () => {
       expect((yield* jobs.get(grandchild.id))?.status).toBe("cancelled")
     }),
   )
+
+  function seedClusterTask(input: { runID: string; taskID: string; sessionID: SessionID; parentMessageID: MessageID }) {
+    const now = Date.now()
+    Database.use((db) => {
+      db.insert(AgentClusterRunTable)
+        .values({
+          id: input.runID as any,
+          session_id: input.sessionID,
+          parent_message_id: input.parentMessageID,
+          enabled: true,
+          status: "dispatching",
+          goal: "Produce charts",
+          planner_model: "test/planner",
+          reviewer_model: "test/reviewer",
+          time_created: now,
+          time_updated: now,
+        })
+        .run()
+      db.insert(AgentClusterTaskTable)
+        .values({
+          id: input.taskID as any,
+          run_id: input.runID as any,
+          role: "chart",
+          title: "Make charts",
+          prompt: "Create the charts",
+          complexity: "simple",
+          model: "test/test-model",
+          status: "planned",
+          acceptance_criteria: ["charts created"],
+          artifact_paths: [],
+          time_created: now,
+          time_updated: now,
+        })
+        .run()
+    })
+  }
+
+  function clusterTaskRow(runID: string, taskID: string) {
+    return Database.use((db) =>
+      db
+        .select()
+        .from(AgentClusterTaskTable)
+        .where(
+          Database.and(
+            Database.eq(AgentClusterTaskTable.run_id, runID as any),
+            Database.eq(AgentClusterTaskTable.id, taskID as any),
+          ),
+        )
+        .get(),
+    )
+  }
+
+  background.instance("cluster subagent ending with an error marks the task failed instead of submitted", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const { chat, assistant } = yield* seed()
+      const runID = "run_child_error"
+      const taskID = "task-chart"
+      seedClusterTask({ runID, taskID, sessionID: chat.id, parentMessageID: assistant.parentID! })
+      const messages = yield* (yield* Session.Service).messages({ sessionID: chat.id })
+      const def = yield* (yield* TaskTool).init()
+
+      const result = yield* def.execute(
+        {
+          description: "make charts",
+          prompt: "Create the charts",
+          subagent_type: "chart",
+          task_id: taskID,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "cluster",
+          abort: new AbortController().signal,
+          extra: {
+            agentClusterRunID: runID,
+            promptOps: {
+              ...stubOps(),
+              prompt: (input) =>
+                Effect.sync(() => {
+                  const base = reply(input, "partial output before the stream died")
+                  return {
+                    ...base,
+                    info: {
+                      ...base.info,
+                      error: { name: "APIError", data: { message: "provider exploded" } } as any,
+                    },
+                  }
+                }),
+            } satisfies TaskPromptOps,
+          },
+          messages,
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const waited = yield* jobs.wait({ id: result.metadata.sessionId, timeout: 1_000 })
+      expect(waited.timedOut).toBe(false)
+      expect(waited.info?.status).toBe("error")
+      expect(waited.info?.error).toContain("provider exploded")
+      const row = clusterTaskRow(runID, taskID)
+      expect(row?.status).toBe("failed")
+      expect((row?.review_issues as string[] | null)?.[0]).toContain("provider exploded")
+    }),
+  )
+
+  background.instance("cluster subagent without a final report gets one recovery turn to deliver", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const { chat, assistant } = yield* seed()
+      const runID = "run_child_recovery"
+      const taskID = "task-chart"
+      seedClusterTask({ runID, taskID, sessionID: chat.id, parentMessageID: assistant.parentID! })
+      const messages = yield* (yield* Session.Service).messages({ sessionID: chat.id })
+      const def = yield* (yield* TaskTool).init()
+      const prompts: SessionPrompt.PromptInput[] = []
+
+      const result = yield* def.execute(
+        {
+          description: "make charts",
+          prompt: "Create the charts",
+          subagent_type: "chart",
+          task_id: taskID,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "cluster",
+          abort: new AbortController().signal,
+          extra: {
+            agentClusterRunID: runID,
+            promptOps: {
+              ...stubOps(),
+              prompt: (input) =>
+                Effect.sync(() => {
+                  prompts.push(input)
+                  const recovery =
+                    input.sessionID !== chat.id &&
+                    input.parts.some((part) => part.type === "text" && part.synthetic)
+                  return reply(
+                    input,
+                    recovery
+                      ? "**Status**: success\n**Summary**: charts created\n\nDeliverable."
+                      : "still working on chart 3 of 4",
+                  )
+                }),
+            } satisfies TaskPromptOps,
+          },
+          messages,
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const waited = yield* jobs.wait({ id: result.metadata.sessionId, timeout: 1_000 })
+      expect(waited.timedOut).toBe(false)
+      expect(waited.info?.status).toBe("completed")
+      expect(waited.info?.output).toContain("**Status**: success")
+      const recovery = prompts.find(
+        (input) =>
+          input.sessionID !== chat.id && input.parts.some((part) => part.type === "text" && part.synthetic),
+      )
+      expect(recovery).toBeDefined()
+      const reminder = recovery?.parts.find((part) => part.type === "text")
+      expect(reminder && "text" in reminder ? reminder.text : "").toContain("final report")
+      const row = clusterTaskRow(runID, taskID)
+      expect(row?.status).toBe("submitted")
+      expect(row?.result_summary).toBe("charts created")
+    }),
+  )
+
+  background.instance("cluster subagent still missing its final report after recovery fails the task", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const { chat, assistant } = yield* seed()
+      const runID = "run_child_no_report"
+      const taskID = "task-chart"
+      seedClusterTask({ runID, taskID, sessionID: chat.id, parentMessageID: assistant.parentID! })
+      const messages = yield* (yield* Session.Service).messages({ sessionID: chat.id })
+      const def = yield* (yield* TaskTool).init()
+
+      const result = yield* def.execute(
+        {
+          description: "make charts",
+          prompt: "Create the charts",
+          subagent_type: "chart",
+          task_id: taskID,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "cluster",
+          abort: new AbortController().signal,
+          extra: {
+            agentClusterRunID: runID,
+            promptOps: stubOps({ text: "still working on chart 3 of 4" }),
+          },
+          messages,
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const waited = yield* jobs.wait({ id: result.metadata.sessionId, timeout: 1_000 })
+      expect(waited.timedOut).toBe(false)
+      expect(waited.info?.status).toBe("error")
+      expect(waited.info?.error).toContain("final report")
+      const row = clusterTaskRow(runID, taskID)
+      expect(row?.status).toBe("failed")
+      expect((row?.review_issues as string[] | null)?.[0]).toContain("final report")
+    }),
+  )
 })

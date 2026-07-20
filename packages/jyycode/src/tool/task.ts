@@ -787,8 +787,7 @@ export const TaskTool = Tool.define(
               },
             ]
           : [...extraParts, ...resolved]
-        const result = yield* ops.prompt({
-          messageID: MessageID.ascending(),
+        const promptInput = {
           sessionID: nextSession.id,
           model: {
             modelID: model.modelID,
@@ -805,9 +804,46 @@ export const TaskTool = Tool.define(
               : { task: false }),
             ...Object.fromEntries((cfg.experimental?.primary_tools ?? []).map((item) => [item, false])),
           },
+        }
+        const result = yield* ops.prompt({
+          messageID: MessageID.ascending(),
+          ...promptInput,
           parts,
         })
-        return result.parts.findLast((item) => item.type === "text")?.text ?? ""
+        const resultError = result.info.role === "assistant" ? result.info.error : undefined
+        if (resultError) {
+          // Preserve the cancellation contract: a user-stopped subagent must
+          // surface as an interrupt so the caller routes it to cancelTaskResult.
+          if (MessageV2.AbortedError.isInstance(resultError)) return yield* Effect.interrupt
+          return yield* Effect.fail(new Error(`Subagent stopped with an error: ${assistantErrorText(resultError)}`))
+        }
+        let text = result.parts.findLast((item) => item.type === "text")?.text ?? ""
+        const clusterTask = clusterRunID !== undefined && clusterPlanTaskID !== undefined
+        if (clusterTask && !hasFinalReport(text)) {
+          // The child loop can exit early (provider errors swallowed downstream,
+          // the repeated-tool-turn guard, ...) before the subagent writes the
+          // final report the cluster contract requires. Give it one tool-free
+          // turn to deliver instead of silently reporting success upstream.
+          const recovered = yield* ops.prompt({
+            ...promptInput,
+            messageID: MessageID.ascending(),
+            parts: [{ type: "text" as const, synthetic: true, text: FINAL_REPORT_REMINDER }],
+          })
+          const recoveredError = recovered.info.role === "assistant" ? recovered.info.error : undefined
+          if (recoveredError && MessageV2.AbortedError.isInstance(recoveredError)) {
+            return yield* Effect.interrupt
+          }
+          if (!recoveredError) {
+            text = recovered.parts.findLast((item) => item.type === "text")?.text || text
+          }
+        }
+        if (clusterTask && !hasFinalReport(text)) {
+          const tail = text.trim() ? text.trim().slice(-500) : "(no output)"
+          return yield* Effect.fail(
+            new Error(`Subagent finished without producing its final report (no **Status** line). Last output: ${tail}`),
+          )
+        }
+        return text
       })
 
       const reviewAndMerge = Effect.fn("TaskTool.reviewAndMerge")(function* () {
