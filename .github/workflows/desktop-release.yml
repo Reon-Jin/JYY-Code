@@ -242,6 +242,12 @@ jobs:
               --notes $releaseNotes `
               --draft
 
+            # Publish the versioned release BEFORE updating the rolling channel
+            # manifest. Otherwise there is a window where desktop-latest already
+            # points at assets that are still inside a private draft, and updater
+            # downloads fail immediately with 404.
+            gh release edit $env:TAG --repo $repo --draft=false
+
             if ($hadRollingRelease) {
               gh release upload desktop-latest $manifest --clobber --repo $repo
             } else {
@@ -266,8 +272,6 @@ jobs:
                 $hadRollingRelease = $true
               }
             }
-
-            gh release edit $env:TAG --repo $repo --draft=false
           } catch {
             $failure = $_
             $PSNativeCommandUseErrorActionPreference = $false
