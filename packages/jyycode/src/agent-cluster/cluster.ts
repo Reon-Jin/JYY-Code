@@ -407,6 +407,36 @@ export const failTaskResult = Effect.fn("AgentCluster.failTaskResult")(function*
   yield* finishRunFromTaskStates(input.runID as RunID)
 })
 
+export const cancelTaskResult = Effect.fn("AgentCluster.cancelTaskResult")(function* (input: {
+  runID?: string
+  taskID?: string
+  childSessionID: SessionID
+  reason: string
+}) {
+  if (!input.runID || !input.taskID) return
+  yield* Database.query((db) =>
+    db
+      .update(AgentClusterTaskTable)
+      .set({
+        child_session_id: input.childSessionID,
+        status: "cancelled" as const,
+        review_issues: [input.reason],
+        last_event: "cancelled",
+        time_updated: Date.now(),
+      })
+      .where(
+        and(
+          eq(AgentClusterTaskTable.run_id, input.runID as RunID),
+          eq(AgentClusterTaskTable.id, input.taskID as TaskID),
+          inArray(AgentClusterTaskTable.status, ["planned", "queued", "running", "revising"]),
+        ),
+      )
+      .run(),
+  )
+  yield* publishTaskState({ runID: input.runID as RunID, taskID: input.taskID as TaskID })
+  yield* finishRunFromTaskStates(input.runID as RunID)
+})
+
 export const finishRunFromTaskStates = Effect.fn("AgentCluster.finishRunFromTaskStates")(function* (runID: RunID) {
   const tasks = (yield* Database.query((db) =>
     db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.run_id, runID)).all(),

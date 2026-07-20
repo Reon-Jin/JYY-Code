@@ -154,6 +154,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     modelID: ModelID.make(input.model.api.id),
     providerID: input.model.providerID,
     agent: input.agent,
+    includeMemory: input.session.parentID === undefined,
   })
   const mcpDefs = yield* mcp.toolDefs()
   for (const item of [...registryDefs, ...mcpDefs]) {

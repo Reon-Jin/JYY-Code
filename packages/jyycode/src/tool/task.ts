@@ -1008,7 +1008,12 @@ export const TaskTool = Tool.define(
             Effect.tap((text) => inject("completed", text).pipe(Effect.ignore)),
             Effect.catchCause((cause) =>
               (Cause.hasInterruptsOnly(cause)
-                ? Effect.void
+                ? AgentCluster.cancelTaskResult({
+                    runID: clusterRunID,
+                    taskID: clusterPlanTaskID,
+                    childSessionID: nextSession.id,
+                    reason: "Child Agent was stopped by the user.",
+                  }).pipe(Effect.andThen(inject("error", "Child Agent was stopped by the user.").pipe(Effect.ignore)))
                 : AgentCluster.failTaskResult({
                     runID: clusterRunID,
                     taskID: clusterPlanTaskID,

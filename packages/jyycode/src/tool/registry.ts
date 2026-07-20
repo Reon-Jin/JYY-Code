@@ -115,7 +115,13 @@ export interface Interface {
   readonly ids: () => Effect.Effect<string[]>
   readonly all: () => Effect.Effect<Tool.Def[]>
   readonly named: () => Effect.Effect<{ task: TaskDef; read: ReadDef }>
-  readonly tools: (model: { providerID: ProviderID; modelID: ModelID; agent: Agent.Info }) => Effect.Effect<Tool.Def[]>
+  readonly tools: (model: {
+    providerID: ProviderID
+    modelID: ModelID
+    agent: Agent.Info
+    /** Persistent memory is only available to root sessions. */
+    includeMemory?: boolean
+  }) => Effect.Effect<Tool.Def[]>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/ToolRegistry") {}
@@ -403,7 +409,7 @@ export const layer: Layer.Layer<
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
       const s = yield* InstanceState.get(state)
       const available = [
-        ...s.builtin,
+        ...s.builtin.filter((tool) => input.includeMemory !== false || tool.id !== MemoryTool.id),
         ...(input.agent.name === "cluster" && !s.builtin.some((tool) => tool.id === TaskStatusTool.id)
           ? [s.taskStatus]
           : []),

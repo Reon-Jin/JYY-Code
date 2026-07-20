@@ -408,6 +408,16 @@ describe("Composer", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
   })
 
+  it("shows Stop in a minimal child composer while the child session is active", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer({ minimal: true, status: { type: "busy" } })
+
+    expect(screen.queryByRole("button", { name: "发送" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "停止" }))
+
+    expect(client.session.abort).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
+  })
+
   it("queues prompts while busy and drains one per busy-to-idle cycle", async () => {
     const user = userEvent.setup()
     const client = renderComposer({ status: { type: "busy" } })

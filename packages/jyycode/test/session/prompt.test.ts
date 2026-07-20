@@ -659,6 +659,34 @@ withMemory.instance("loop injects automatic memory retrieval results into model 
   }),
 )
 
+withMemory.instance("does not inject persistent memory into child sessions", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const parent = yield* sessions.create({ title: "Parent" })
+    const child = yield* sessions.create({ parentID: parent.id, title: "Child" })
+
+    yield* prompt.prompt({
+      sessionID: child.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "鐢ㄦ埛" }],
+    })
+    yield* llm.text("done")
+
+    yield* prompt.loop({ sessionID: child.id })
+
+    const inputs = yield* llm.inputs
+    const request = inputs.at(-1)
+    const payload = JSON.stringify(request?.messages)
+    expect(payload).not.toContain("Relevant persistent memory")
+    expect(payload).not.toContain("Persistent memory is stored")
+    expect(payload).not.toContain("# Memory")
+    expect(JSON.stringify(request?.tools)).not.toContain('"name":"memory"')
+  }),
+)
+
 withMemoryLifecycle.instance("updates memory while busy and before returning the final answer", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
@@ -921,6 +949,31 @@ it.instance("loop continues when finish is stop but assistant has tool parts", (
       expect(result.parts.some((part) => part.type === "text" && part.text === "second")).toBe(true)
       expect(result.info.finish).toBe("stop")
     }
+  }),
+)
+
+it.instance("cuts off repeated child-agent tool turns", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const parent = yield* sessions.create({ title: "Parent" })
+    const child = yield* sessions.create({ parentID: parent.id, title: "Child" })
+
+    yield* prompt.prompt({
+      sessionID: child.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "repeat this tool call" }],
+    })
+    for (let index = 0; index < 4; index++) {
+      yield* llm.push(reply().tool("first", { value: "same" }).stop())
+    }
+
+    const result = yield* prompt.loop({ sessionID: child.id })
+    expect(yield* llm.calls).toBe(3)
+    expect(result.info.role).toBe("assistant")
+    if (result.info.role === "assistant") expect(result.info.finish).toBe("stop")
   }),
 )
 

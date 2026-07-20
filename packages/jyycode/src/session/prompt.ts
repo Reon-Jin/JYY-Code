@@ -360,8 +360,9 @@ export const layer = Layer.effect(
       sessionID: SessionID
       messages: MessageV2.WithParts[]
       lastUser: MessageV2.User
+      enabled: boolean
     }) {
-      if (!memory) return input.messages
+      if (!memory || !input.enabled) return input.messages
       const source = latestRealUserText(input.messages)
       const query = memoryRetrievalQuery(source)
       if (!query) return input.messages
@@ -1456,6 +1457,9 @@ export const layer = Layer.effect(
         let latestMemoryUserText = ""
         let step = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
+        const canUsePersistentMemory = session.parentID === undefined
+        let previousToolTurnSignature: string | undefined
+        let repeatedToolTurnCount = 0
         const clusterDispatchReminderKind = "agent_cluster_dispatch_reminder"
         const clusterSynthesisReminderKind = "agent_cluster_synthesis_gate"
 
@@ -1609,7 +1613,7 @@ export const layer = Layer.effect(
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
 
-          if (step === 0 && memory && (!lastAssistant || lastUser.id > lastAssistant.id)) {
+          if (step === 0 && canUsePersistentMemory && memory && (!lastAssistant || lastUser.id > lastAssistant.id)) {
             const updated = yield* memory
               .updateStepBegin(sessionID, evaluateMemoryDecision, { userText: latestMemoryUserText })
               .pipe(
@@ -1627,12 +1631,49 @@ export const layer = Layer.effect(
           const lastAssistantMsg = msgs.findLast(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
           )
-          // Some providers return "stop" even when the assistant message contains tool calls.
-          // Keep the loop running so tool results can be sent back to the model.
+          // Some providers return "stop" while a non-provider tool result still
+          // needs to be replayed to the model. Child sessions also guard against
+          // repeating the same tool turn without making progress.
           // Skip provider-executed tool parts �?those were fully handled within the
           // provider's stream (e.g. DWS Agent Platform) and don't need a re-loop.
           const hasToolCalls =
-            lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
+            lastAssistantMsg?.parts.some(
+              (part) => part.type === "tool" && !part.metadata?.providerExecuted,
+            ) ?? false
+
+          if (session.parentID !== undefined && hasToolCalls && lastAssistantMsg) {
+            const signature = [
+              lastAssistantMsg.parts
+                .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic)
+                .map((part) => part.text.trim())
+                .filter(Boolean)
+                .join("\n"),
+              lastAssistantMsg.parts
+                .filter((part): part is MessageV2.ToolPart => part.type === "tool" && !part.metadata?.providerExecuted)
+                .map((part) => `${part.tool}:${part.state.status}`)
+                .join(","),
+            ].join("|")
+            if (signature === previousToolTurnSignature) repeatedToolTurnCount++
+            else {
+              previousToolTurnSignature = signature
+              repeatedToolTurnCount = 0
+            }
+            if (repeatedToolTurnCount >= 2 && lastAssistantMsg.info.role === "assistant") {
+              yield* slog.warn("stopping repeated child-agent tool turns", {
+                repetitions: repeatedToolTurnCount + 1,
+                finish: lastAssistantMsg.info.finish,
+              })
+              yield* sessions.updateMessage({
+                ...lastAssistantMsg.info,
+                finish: "stop",
+                time: { ...lastAssistantMsg.info.time, completed: lastAssistantMsg.info.time.completed ?? Date.now() },
+              })
+              break
+            }
+          } else {
+            previousToolTurnSignature = undefined
+            repeatedToolTurnCount = 0
+          }
 
           if (
             lastAssistant?.finish &&
@@ -1871,10 +1912,15 @@ export const layer = Layer.effect(
             }
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-            msgs = yield* applyMemoryRetrieval({ sessionID, messages: msgs, lastUser })
+            msgs = yield* applyMemoryRetrieval({
+              sessionID,
+              messages: msgs,
+              lastUser,
+              enabled: canUsePersistentMemory,
+            })
 
             const memorySnapshot =
-              step === 1 && memory
+              step === 1 && canUsePersistentMemory && memory
                 ? yield* memory.formatWithHeader(sessionID, "memory").pipe(
                     Effect.andThen((mem) =>
                       memory!.formatWithHeader(sessionID, "user").pipe(Effect.map((user) => [mem, user].join("\n"))),
@@ -1885,7 +1931,7 @@ export const layer = Layer.effect(
 
             const [skills, env, instructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
-              sys.environment(model),
+              sys.environment(model, { includeMemory: canUsePersistentMemory }),
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
@@ -1998,7 +2044,7 @@ export const layer = Layer.effect(
 
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
         const result = yield* lastAssistant(sessionID)
-        if (memory) {
+        if (canUsePersistentMemory && memory) {
           const curated = yield* memory
             .updateAfterTurn(sessionID, evaluateMemoryDecision, {
               userText: latestMemoryUserText,

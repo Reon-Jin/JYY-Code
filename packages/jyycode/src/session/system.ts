@@ -16,24 +16,35 @@ import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
 
-export function provider(model: Provider.Model) {
-  if (model.api.id.includes("gpt-4") || model.api.id.includes("o1") || model.api.id.includes("o3"))
-    return [PROMPT_BEAST]
-  if (model.api.id.includes("gpt")) {
-    if (model.api.id.includes("codex")) {
-      return [PROMPT_CODEX]
+function withoutPersistentMemoryPrompt(prompt: string) {
+  const start = prompt.indexOf("# Memory")
+  if (start === -1) return prompt
+  const end = prompt.indexOf("# Reading Files and Folders", start)
+  return end === -1 ? prompt.slice(0, start).trimEnd() : `${prompt.slice(0, start)}${prompt.slice(end)}`
+}
+
+export function provider(model: Provider.Model, options?: { includeMemory?: boolean }) {
+  const prompts = (() => {
+    if (model.api.id.includes("gpt-4") || model.api.id.includes("o1") || model.api.id.includes("o3"))
+      return [PROMPT_BEAST]
+    if (model.api.id.includes("gpt")) {
+      if (model.api.id.includes("codex")) {
+        return [PROMPT_CODEX]
+      }
+      return [PROMPT_GPT]
     }
-    return [PROMPT_GPT]
-  }
-  if (model.api.id.includes("gemini-")) return [PROMPT_GEMINI]
-  if (model.api.id.includes("claude")) return [PROMPT_ANTHROPIC]
-  if (model.api.id.toLowerCase().includes("trinity")) return [PROMPT_TRINITY]
-  if (model.api.id.toLowerCase().includes("kimi")) return [PROMPT_KIMI]
-  return [PROMPT_DEFAULT]
+    if (model.api.id.includes("gemini-")) return [PROMPT_GEMINI]
+    if (model.api.id.includes("claude")) return [PROMPT_ANTHROPIC]
+    if (model.api.id.toLowerCase().includes("trinity")) return [PROMPT_TRINITY]
+    if (model.api.id.toLowerCase().includes("kimi")) return [PROMPT_KIMI]
+    return [PROMPT_DEFAULT]
+  })()
+
+  return options?.includeMemory === false ? prompts.map(withoutPersistentMemoryPrompt) : prompts
 }
 
 export interface Interface {
-  readonly environment: (model: Provider.Model) => Effect.Effect<string[]>
+  readonly environment: (model: Provider.Model, options?: { includeMemory?: boolean }) => Effect.Effect<string[]>
   readonly skills: (agent: Agent.Info) => Effect.Effect<string | undefined>
 }
 
@@ -45,7 +56,10 @@ export const layer = Layer.effect(
     const skill = yield* Skill.Service
 
     return Service.of({
-      environment: Effect.fn("SystemPrompt.environment")(function* (model: Provider.Model) {
+      environment: Effect.fn("SystemPrompt.environment")(function* (
+        model: Provider.Model,
+        options?: { includeMemory?: boolean },
+      ) {
         const ctx = yield* InstanceState.context
         return [
           [
@@ -60,7 +74,11 @@ export const layer = Layer.effect(
             `  Today's date: ${new Date().toDateString()}`,
             `</env>`,
             ``,
-            `Persistent memory is stored as structured JSON entries in D:/jyycode/memory/: MEMORY.json contains exactly one cumulatively updated task entry per session (limit 10,000 chars), and USER.json contains stable user facts keyed by normalized keywords (limit 2,000 chars). The primary agent (the Planner in Multi-Agent mode) is the only writer and the runtime automatically updates task memory twice per turn: after the user prompt with semantic content in the exact form "用户要求A", then before returning the answer with "用户要求A，我用了B，最终学会了C". Do not call the memory tool for these routine per-turn updates; doing so duplicates the automatic lifecycle. A and C are each limited to 20 Unicode characters and B is limited to 50 Unicode characters, excluding prefixes and separator punctuation. The LLM summarizes A, B, and C; each update semantically recompresses the prior entry plus the new turn. Never truncate by slicing or use ellipses as a truncation marker. Stable user facts may also be stored in USER.json but never replace the mandatory task entry. Subagents are read-only. Every keyword must contain 2-4 characters. A formatted top-10 snapshot from each store (20 entries maximum) is injected at session start; raw JSON files are not injected. Use the memory tool only when the user explicitly asks to manage, remove, replace, or compact stored memories. old_text matches entry content only and must identify exactly one entry. When usage exceeds 80%, consolidate entries before adding new ones. Never store secrets, credentials, or unsupported guesses. NEVER create .md files in the memory directory — only use the memory tool for JSON.`,
+            ...(options?.includeMemory === false
+              ? []
+              : [
+                  `Persistent memory is stored as structured JSON entries in D:/jyycode/memory/: MEMORY.json contains exactly one cumulatively updated task entry per session (limit 10,000 chars), and USER.json contains stable user facts keyed by normalized keywords (limit 2,000 chars). The primary agent (the Planner in Multi-Agent mode) is the only writer and the runtime automatically updates task memory twice per turn: after the user prompt with semantic content in the exact form "用户要求A", then before returning the answer with "用户要求A，我用了B，最终学会了C". Do not call the memory tool for these routine per-turn updates; doing so duplicates the automatic lifecycle. A and C are each limited to 20 Unicode characters and B is limited to 50 Unicode characters, excluding prefixes and separator punctuation. The LLM summarizes A, B, and C; each update semantically recompresses the prior entry plus the new turn. Never truncate by slicing or use ellipses as a truncation marker. Stable user facts may also be stored in USER.json but never replace the mandatory task entry. Subagents are read-only. Every keyword must contain 2-4 characters. A formatted top-10 snapshot from each store (20 entries maximum) is injected at session start; raw JSON files are not injected. Use the memory tool only when the user explicitly asks to manage, remove, replace, or compact stored memories. old_text matches entry content only and must identify exactly one entry. When usage exceeds 80%, consolidate entries before adding new ones. Never store secrets, credentials, or unsupported guesses. NEVER create .md files in the memory directory — only use the memory tool for JSON.`,
+                ]),
           ].join("\n"),
         ]
       }),

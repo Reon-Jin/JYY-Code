@@ -421,26 +421,34 @@ export function Composer(props: ComposerProps) {
               <Plus aria-hidden="true" />
             </button>
           </Show>
-          <Show when={!props.minimal}>
+          <Show when={!props.minimal || active()}>
             <div class="composer__action">
             <Show
               when={active()}
               fallback={
-                <IconButton
-                  label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
-                  disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
-                  loading={controller.sending()}
-                  loadingLabel={tr("composer.sending")}
-                  onClick={submit}
-                >
-                  <Send aria-hidden="true" />
-                </IconButton>
+                <Show when={!props.minimal}>
+                  <IconButton
+                    label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
+                    disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
+                    loading={controller.sending()}
+                    loadingLabel={tr("composer.sending")}
+                    onClick={submit}
+                  >
+                    <Send aria-hidden="true" />
+                  </IconButton>
+                </Show>
               }
             >
               <div class="composer__active-actions">
-                <IconButton label={tr("composer.join-queue")} disabled={!controller.draft().trim() && attachments().length === 0} onClick={submit}>
-                  <ListPlus aria-hidden="true" />
-                </IconButton>
+                <Show when={!props.minimal}>
+                  <IconButton
+                    label={tr("composer.join-queue")}
+                    disabled={!controller.draft().trim() && attachments().length === 0}
+                    onClick={submit}
+                  >
+                    <ListPlus aria-hidden="true" />
+                  </IconButton>
+                </Show>
                 <Button
                   size="small"
                   variant="secondary"

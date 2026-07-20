@@ -438,6 +438,10 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   )
   const clusterSnapshot = createMemo(() => projectAgentClusterState(clusterQuery.data ?? { runs: [], tasks: [] }))
   const activeChildTask = createMemo(() => findTaskByChildSessionID(clusterSnapshot(), activeSession()?.id))
+  const childTaskRunning = createMemo(() => {
+    const task = activeChildTask()
+    return task?.status === "running" || task?.status === "revising"
+  })
   const rootMultiAgentEnabled = createMemo(() =>
     rootSession() ? effectiveMultiAgent(rootSession()!, catalogQuery.data?.agentCluster) : false,
   )
@@ -760,7 +764,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                       activeSession() ? effectiveMultiAgent(activeSession()!, catalogQuery.data?.agentCluster) : false
                     }
                     status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
-                    requestPending={Boolean(activeRequest())}
+                    requestPending={Boolean(activeRequest()) || childTaskRunning()}
                     disabled={data.connection() !== "connected"}
                     identityLocked={isChildSession()}
                     minimal={isChildSession()}
