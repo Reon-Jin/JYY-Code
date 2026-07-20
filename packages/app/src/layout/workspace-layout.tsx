@@ -614,8 +614,12 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     saveComposerPreference({ agent: selectedAgent(), model })
   }
 
-  const activeRequest = createMemo(() =>
-    selectActiveRequest(permissionsQuery.data ?? [], questionsQuery.data ?? [], requestScope()),
+  const activeRequest = createMemo(
+    () => selectActiveRequest(permissionsQuery.data ?? [], questionsQuery.data ?? [], requestScope()),
+    undefined,
+    // Keep the previous object while the same request stays active so the keyed
+    // request panel does not remount (and lose its state) on unrelated refetches.
+    { equals: (previous, next) => previous?.type === next?.type && previous?.request.id === next?.request.id },
   )
   const requestError = createMemo(() => {
     if (permissionsQuery.error)

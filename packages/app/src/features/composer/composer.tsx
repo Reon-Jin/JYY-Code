@@ -220,7 +220,8 @@ export function Composer(props: ComposerProps) {
 
   async function submit() {
     if (props.disabled) return
-    if (active() || queuePhase() !== "ready" || queue.items().length > 0) {
+    // Minimal child composers have no queue UI, so steering always sends directly.
+    if (!props.minimal && (active() || queuePhase() !== "ready" || queue.items().length > 0)) {
       enqueueDraft()
       return
     }

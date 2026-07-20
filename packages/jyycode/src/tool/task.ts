@@ -228,6 +228,28 @@ function errorText(error: unknown) {
   return String(error)
 }
 
+function assistantErrorText(error: NonNullable<MessageV2.Assistant["error"]>) {
+  const data = Reflect.get(error, "data")
+  const message = data && typeof data === "object" ? Reflect.get(data, "message") : undefined
+  if (typeof message === "string" && message) return message
+  return error.name
+}
+
+const FINAL_REPORT_PATTERN = /\*\*Status\*\*:\s*(success|partial|failed|blocked)\b/i
+
+function hasFinalReport(text: string) {
+  return FINAL_REPORT_PATTERN.test(text)
+}
+
+const FINAL_REPORT_REMINDER = [
+  "You ended your turn without the required final report. Do not call any more tools.",
+  "Reply immediately with your final report. It must start with:",
+  "**Status**: success | partial | failed | blocked",
+  "**Summary**: one sentence describing the result",
+  "Then include the deliverable. If the work is incomplete, report partial or failed and list",
+  "what was actually produced, including any file paths already written.",
+].join("\n")
+
 function partSummary(part: MessageV2.Part) {
   if (part.type === "text") return part.text
   if (part.type === "file") return `[Attached file: ${part.filename ?? part.mime}]`
