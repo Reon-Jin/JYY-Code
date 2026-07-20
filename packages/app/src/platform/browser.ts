@@ -26,6 +26,7 @@ function readStorage(storage: Storage, key: string): unknown {
 
 export function createBrowserBridge(storage: Storage = window.localStorage): DesktopBridge {
   return {
+    supportsAutomaticUpdates: false,
     async bootstrap() {
       return unsupported("Backend startup")
     },

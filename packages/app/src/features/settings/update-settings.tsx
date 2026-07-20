@@ -14,7 +14,7 @@ function failureMessage(cause: unknown) {
 
 export function UpdateSettings(props: { supported?: boolean }) {
   const bridge = useDesktopBridge()
-  const supported = () => props.supported !== false
+  const supported = () => props.supported !== false && bridge.supportsAutomaticUpdates !== false
   const [settings, setSettings] = createSignal<DesktopSettings>({ ...defaultDesktopSettings })
   const [phase, setPhase] = createSignal<UpdatePhase>("idle")
   const [update, setUpdate] = createSignal<DesktopUpdateCheck>()

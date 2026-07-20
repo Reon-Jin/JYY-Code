@@ -43,6 +43,7 @@ export type DesktopSaveResult = DesktopCapabilityResult & {
 }
 
 export interface DesktopBridge {
+  supportsAutomaticUpdates?: boolean
   bootstrap(): Promise<DesktopBootstrap>
   restartBackend(): Promise<void>
   chooseDirectory(): Promise<string | undefined>

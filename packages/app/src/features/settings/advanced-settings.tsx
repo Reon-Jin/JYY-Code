@@ -9,7 +9,7 @@ import { CompactionSettings } from "./compaction-settings"
 import { GlobalConfigReveal } from "./global-config-reveal"
 import { MemorySettings } from "./memory-settings"
 import { UpdateSettings } from "./update-settings"
-import { defaultShellOptions, desktopPathStyle } from "../../platform/desktop-path"
+import { defaultShellOptions } from "../../platform/desktop-path"
 
 export function AdvancedSettings(props: { management?: ManagementContextValue }) {
   const management = props.management ?? useManagement()
@@ -97,7 +97,7 @@ export function AdvancedSettings(props: { management?: ManagementContextValue })
         <GlobalConfigReveal management={management} />
       </section>
 
-      <UpdateSettings supported={desktopPathStyle(management.directory) === "windows"} />
+      <UpdateSettings />
       <CompactionSettings management={management} />
       <MemorySettings />
     </div>

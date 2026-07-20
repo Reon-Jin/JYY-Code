@@ -263,7 +263,7 @@ describe("desktop accessibility contract", () => {
     await user.keyboard("{Enter}")
     const modelDialog = screen.getByRole("dialog", { name: "配置模型" })
     const selects = await modelDialog.querySelectorAll("select")
-    expect(selects).toHaveLength(4)
+    expect(selects).toHaveLength(8)
     for (const select of selects) {
       select.focus()
       expect(select).toHaveFocus()

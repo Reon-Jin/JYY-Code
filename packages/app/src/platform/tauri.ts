@@ -35,6 +35,7 @@ function desktopStore() {
 }
 
 export const tauriBridge: DesktopBridge = {
+  supportsAutomaticUpdates: true,
   bootstrap() {
     return invoke<DesktopBootstrap>("desktop_bootstrap")
   },
