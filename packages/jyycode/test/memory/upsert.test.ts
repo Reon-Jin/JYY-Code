@@ -64,19 +64,19 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["赛车游戏"],
-            content: "用户要求完成赛车游戏，我完成了赛车游戏基础建模。",
+            content: "用户要求赛车游戏，我用了基础建模，最终学会了碰撞结构",
           })
           const updated = yield* memory.upsertTaskMemory({
             sessionID: firstSession,
             importance: 8,
             keywords: ["赛车游戏", "地图"],
-            content: "用户要求完善赛车游戏，我完成了赛车建模并加入地图绘制。",
+            content: "用户要求赛车地图，我用了模块拆分与绘制，最终学会了地图组织",
           })
           const second = yield* memory.upsertTaskMemory({
             sessionID: secondSession,
             importance: 4,
             keywords: ["文档"],
-            content: "用户要求编写部署文档，我完成了部署文档。",
+            content: "用户要求部署文档，我用了结构化整理，最终学会了交付规范",
           })
           return { created, updated, second }
         }),
@@ -92,7 +92,7 @@ describe("structured memory upserts", () => {
     expect(stored.find((entry) => entry.sessionID === firstSession)).toMatchObject({
       importance: 8,
       keywords: ["赛车游戏", "地图"],
-      content: "用户要求完善赛车游戏，我完成了赛车建模并加入地图绘制。",
+      content: "用户要求赛车地图，我用了模块拆分与绘制，最终学会了地图组织",
     })
     expect(stored[0]!.date).toMatch(/^\d{8}$/u)
   })
@@ -311,17 +311,19 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["格式"],
-            content: "完成但没有记录用户要求。",
+            content: "用户要求旧格式，我完成了旧结果",
           }),
         ),
       ),
-    ).rejects.toThrow('expected "用户要求..." or "用户要求...，我完成了..."')
+    ).rejects.toThrow('expected "用户要求..." or "用户要求...，我用了...，最终学会了..."')
   })
 
-  test("limits both semantic task sections to 30 characters", async () => {
+  test("limits request and learned sections to 20 characters and method to 50 characters", async () => {
     const { run } = fixture()
-    const thirty = "甲".repeat(30)
-    const thirtyOne = "甲".repeat(31)
+    const twenty = "甲".repeat(20)
+    const twentyOne = "甲".repeat(21)
+    const fifty = "甲".repeat(50)
+    const fiftyOne = "甲".repeat(51)
 
     const accepted = await run(
       Memory.Service.use((memory) =>
@@ -330,13 +332,13 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${thirty}`,
+            content: `用户要求${twenty}`,
           }),
           memory.upsertTaskMemory({
             sessionID: secondSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${thirty}，我完成了${thirty}`,
+            content: `用户要求${twenty}，我用了${fifty}，最终学会了${twenty}`,
           }),
         ]),
       ),
@@ -350,11 +352,11 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${thirtyOne}`,
+            content: `用户要求${twentyOne}`,
           }),
         ),
       ),
-    ).rejects.toThrow("用户要求 must not exceed 30 characters")
+    ).rejects.toThrow("用户要求 must not exceed 20 characters")
 
     await expect(
       run(
@@ -363,10 +365,23 @@ describe("structured memory upserts", () => {
             sessionID: secondSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${thirty}，我完成了${thirtyOne}`,
+            content: `用户要求${twenty}，我用了${fiftyOne}，最终学会了${twenty}`,
           }),
         ),
       ),
-    ).rejects.toThrow("我完成了 must not exceed 30 characters")
+    ).rejects.toThrow("我用了 must not exceed 50 characters")
+
+    await expect(
+      run(
+        Memory.Service.use((memory) =>
+          memory.upsertTaskMemory({
+            sessionID: secondSession,
+            importance: 5,
+            keywords: ["边界"],
+            content: `用户要求${twenty}，我用了${fifty}，最终学会了${twentyOne}`,
+          }),
+        ),
+      ),
+    ).rejects.toThrow("最终学会了 must not exceed 20 characters")
   })
 })

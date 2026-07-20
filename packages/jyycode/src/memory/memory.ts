@@ -23,7 +23,8 @@ const CAPACITY_WARN_THRESHOLD = 0.8
 const COMPACTION_TARGET = 0.7
 const COMPACTION_ENTRY_TARGET = 45
 const SNAPSHOT_ENTRY_LIMIT = 10
-const TASK_SECTION_CHAR_LIMIT = 30
+const TASK_SUMMARY_CHAR_LIMIT = 20
+const TASK_METHOD_CHAR_LIMIT = 50
 
 export type Scope = "memory" | "user"
 type Confidence = "low" | "medium" | "high"
@@ -1582,36 +1583,51 @@ function parseCandidate(value: unknown, label: string): MemoryCandidate {
 function validateTaskContent(input: string) {
   const content = parseContent(input)
   const prefix = "用户要求"
-  const completionMarker = "，我完成了"
+  const methodMarker = "，我用了"
+  const learnedMarker = "，最终学会了"
+  const formatError = 'Invalid task memory content: expected "用户要求..." or "用户要求...，我用了...，最终学会了..."'
   if (!content.startsWith(prefix)) {
-    throw new Error('Invalid task memory content: expected "用户要求..." or "用户要求...，我完成了..."')
+    throw new Error(formatError)
   }
   const body = content.slice(prefix.length)
-  const markerIndex = body.indexOf(completionMarker)
-  if ((markerIndex === -1 && body.includes("我完成了")) || body.indexOf(completionMarker, markerIndex + 1) !== -1) {
-    throw new Error('Invalid task memory content: expected "用户要求..." or "用户要求...，我完成了..."')
+  const methodIndex = body.indexOf(methodMarker)
+  const learnedIndex = body.indexOf(learnedMarker)
+  const hasMethod = methodIndex !== -1
+  const hasLearned = learnedIndex !== -1
+  if (
+    body.includes("我完成了") ||
+    hasMethod !== hasLearned ||
+    (hasMethod && learnedIndex < methodIndex) ||
+    (hasMethod && body.indexOf(methodMarker, methodIndex + methodMarker.length) !== -1) ||
+    (hasLearned && body.indexOf(learnedMarker, learnedIndex + learnedMarker.length) !== -1)
+  ) {
+    throw new Error(formatError)
   }
-  const request = markerIndex === -1 ? body : body.slice(0, markerIndex)
-  const completion = markerIndex === -1 ? undefined : body.slice(markerIndex + completionMarker.length)
-  if (!request || completion === "") {
-    throw new Error('Invalid task memory content: expected "用户要求..." or "用户要求...，我完成了..."')
+  const request = hasMethod ? body.slice(0, methodIndex) : body
+  const method = hasMethod ? body.slice(methodIndex + methodMarker.length, learnedIndex) : undefined
+  const learned = hasLearned ? body.slice(learnedIndex + learnedMarker.length) : undefined
+  if (!request || (hasMethod && (!method || !learned))) {
+    throw new Error(formatError)
   }
-  if ([...request].length > TASK_SECTION_CHAR_LIMIT) {
-    throw new Error(`Task memory 用户要求 must not exceed ${TASK_SECTION_CHAR_LIMIT} characters`)
+  if ([...request].length > TASK_SUMMARY_CHAR_LIMIT) {
+    throw new Error(`Task memory 用户要求 must not exceed ${TASK_SUMMARY_CHAR_LIMIT} characters`)
   }
-  if (completion !== undefined && [...completion].length > TASK_SECTION_CHAR_LIMIT) {
-    throw new Error(`Task memory 我完成了 must not exceed ${TASK_SECTION_CHAR_LIMIT} characters`)
+  if (method !== undefined && [...method].length > TASK_METHOD_CHAR_LIMIT) {
+    throw new Error(`Task memory 我用了 must not exceed ${TASK_METHOD_CHAR_LIMIT} characters`)
+  }
+  if (learned !== undefined && [...learned].length > TASK_SUMMARY_CHAR_LIMIT) {
+    throw new Error(`Task memory 最终学会了 must not exceed ${TASK_SUMMARY_CHAR_LIMIT} characters`)
   }
   return content
 }
 
 function validateTaskContentForPhase(input: string, phase: MemoryUpdatePhase) {
   const content = validateTaskContent(input)
-  if (phase === "user" && /，我完成了/u.test(content)) {
+  if (phase === "user" && /，我用了/u.test(content)) {
     throw new Error('Invalid user-phase task memory content: expected "用户要求..." without a completion')
   }
-  if (phase === "assistant" && !/^用户要求.+，我完成了.+$/u.test(content)) {
-    throw new Error('Invalid assistant-phase task memory content: expected "用户要求...，我完成了..."')
+  if (phase === "assistant" && !/^用户要求.+，我用了.+，最终学会了.+$/u.test(content)) {
+    throw new Error('Invalid assistant-phase task memory content: expected "用户要求...，我用了...，最终学会了..."')
   }
   return content
 }

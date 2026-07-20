@@ -62,7 +62,7 @@ describe("audited memory management storage", () => {
             sessionID: SessionID.make("ses_task"),
             importance: 6,
             keywords: ["任务"],
-            content: "用户要求完成设置，我完成了设置实现。",
+            content: "用户要求完成设置，我用了分步配置，最终学会了设置校验",
           })
         }),
       ),
@@ -112,7 +112,7 @@ describe("audited memory management storage", () => {
             sessionID: SessionID.make("ses_first"),
             importance: 6,
             keywords: ["设置"],
-            content: "用户要求完成设置，我完成了设置实现。",
+            content: "用户要求完成设置，我用了分步配置，最终学会了设置校验",
           })
           yield* management.update({
             scope: "task",
@@ -120,7 +120,7 @@ describe("audited memory management storage", () => {
             sessionID: SessionID.make("ses_second"),
             importance: 7,
             keywords: ["附件"],
-            content: "用户要求支持附件，我完成了文件上传。",
+            content: "用户要求支持附件，我用了分块上传，最终学会了文件校验",
           })
         }),
       ),
@@ -172,10 +172,10 @@ describe("audited memory management storage", () => {
     )
     const task = await ctx.run(
       management.use((service) =>
-        service.update({ scope: "task", id: null, sessionID: SessionID.make("ses_task"), importance: 5, keywords: ["任务"], content: "用户要求实现任务，我完成了任务。" }),
+        service.update({ scope: "task", id: null, sessionID: SessionID.make("ses_task"), importance: 5, keywords: ["任务"], content: "用户要求实现任务，我用了步骤拆解，最终学会了任务规划" }),
       ),
     )
-    await ctx.run(management.use((service) => service.update({ ...task, content: "用户要求更新任务，我完成了更新。" })))
+    await ctx.run(management.use((service) => service.update({ ...task, content: "用户要求更新任务，我用了回归检查，最终学会了变更验证" })))
     if (task.scope !== "task") throw new Error("Expected task memory")
     const stale = await ctx.run(Effect.exit(management.use((service) => service.remove({ scope: "task", id: task.id, sessionID: task.sessionID }))))
     const overflow = await ctx.run(

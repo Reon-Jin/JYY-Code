@@ -179,9 +179,9 @@ export const layer = Layer.effect(
           "This is semantic compression: preserve intent, constraints, decisions, and outcomes in concise natural language. Never shorten by slicing text and never use ellipses as a truncation marker.",
           "Merge the previous task memory, the full conversation history, and the current turn. The returned task is a complete replacement, not a delta.",
           isUserPhase
-            ? 'This update runs immediately after a user prompt. task.content must have exactly the form "用户要求<累积语义概括>" and must not contain "我完成了".'
-            : 'This update runs immediately before the assistant answer is returned. task.content must have exactly the form "用户要求<累积语义概括>，我完成了<累积完成结果>".',
-          'The semantic text after "用户要求" and the semantic text after "我完成了" must each be at most 30 Unicode characters. Prefixes and punctuation do not count. Rephrase semantically to fit; never truncate or add ellipses.',
+            ? 'This update runs immediately after a user prompt. Summarize the request as A and task.content must have exactly the form "用户要求<A>"; do not include method or learned knowledge because the assistant has not answered yet.'
+            : 'This update runs immediately before the assistant answer is returned. Summarize the request as A, the method/steps used as B, and the learned knowledge or reusable experience as C. task.content must have exactly the form "用户要求<A>，我用了<B>，最终学会了<C>".',
+          "A and C must each be at most 20 Unicode characters, and B must be at most 50 Unicode characters. Prefixes and punctuation do not count. Rephrase semantically to fit; never truncate or add ellipses. The LLM must summarize A, B, and C from the previous memory, conversation, and current turn; the runtime does not construct these sections.",
           "A task entry is mandatory on every phase, including greetings and prompts containing stable user facts. Always set shouldUpdate to true and always return task.",
           "Put explicit stable user identity facts or long-term preferences in user as well; this never replaces the mandatory task entry.",
           "Every keyword must contain 2 to 4 characters. Return one to three keywords per candidate.",
@@ -194,7 +194,7 @@ export const layer = Layer.effect(
           '  "task": {',
           '    "importance": 7,',
           '    "keywords": ["编程"],',
-          `    "content": "${isUserPhase ? "用户要求修复认证缺陷" : "用户要求修复认证缺陷，我完成了中间件修复"}"`,
+          `    "content": "${isUserPhase ? "用户要求修复认证缺陷" : "用户要求修复认证缺陷，我用了中间件测试，最终学会了边界隔离"}"`,
           "  },",
           '  "user": [',
           "    {",

@@ -235,7 +235,7 @@ const memoryFailureLayer = Layer.succeed(
     compact: () => Effect.die("unexpected memory compact"),
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
-    updateStepBegin: () => Effect.fail(new Error("Task memory 用户要求 must not exceed 30 characters")),
+    updateStepBegin: () => Effect.fail(new Error("Task memory 用户要求 must not exceed 20 characters")),
     updateAfterTurn: () => Effect.fail(new Error("memory completion update failed")),
   }),
 )

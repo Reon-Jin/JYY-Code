@@ -52,7 +52,7 @@ describe("memory mutation concurrency", () => {
               sessionID,
               importance: 5,
               keywords: [`任务${index}`],
-              content: `用户要求执行并发任务 ${index}，我完成了并发任务 ${index}。`,
+              content: `用户要求并发任务${index}，我用了锁与原子写入，最终学会了一致性`,
             }),
           ),
           { concurrency: "unbounded" },
@@ -76,7 +76,7 @@ describe("memory mutation concurrency", () => {
           sessionID,
           importance: 3,
           keywords: ["原始"],
-          content: "用户要求记录原始内容，我完成了原始内容。",
+          content: "用户要求记录内容，我用了初始写入，最终学会了稳定存储",
         }),
       ),
     )
@@ -86,12 +86,12 @@ describe("memory mutation concurrency", () => {
           sessionID,
           importance: 8,
           keywords: ["更新"],
-          content: "用户要求更新内容，我完成了更新后的内容。",
+          content: "用户要求更新内容，我用了原子替换，最终学会了无损更新",
         }),
       ),
     )
 
-    expect(await fs.readFile(path.join(dir, "MEMORY.json"), "utf8")).toContain("更新后的内容。")
+    expect(await fs.readFile(path.join(dir, "MEMORY.json"), "utf8")).toContain("无损更新")
     expect((await fs.readdir(dir)).filter((name) => name.includes(".tmp"))).toEqual([])
   })
 
@@ -108,7 +108,7 @@ describe("memory mutation concurrency", () => {
             sessionID: SessionID.make("ses_failed_commit"),
             importance: 6,
             keywords: ["失败"],
-            content: "用户要求验证失败提交，我完成了该内容不应提交。",
+            content: "用户要求失败提交，我用了错误模拟，最终学会了不应覆盖",
           }),
         ),
       ),
@@ -132,7 +132,7 @@ describe("memory mutation concurrency", () => {
             sessionID: SessionID.make("ses_invalid_store"),
             importance: 6,
             keywords: ["无效文件"],
-            content: "用户要求验证无效文件，我完成了该内容不应覆盖无效文件。",
+            content: "用户要求无效文件，我用了解析校验，最终学会了保护原文",
           }),
         ),
       ),

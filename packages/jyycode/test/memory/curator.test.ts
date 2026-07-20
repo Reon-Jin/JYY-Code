@@ -164,7 +164,7 @@ describe("two-phase semantic memory curator", () => {
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(sessionID, (input) => {
           received = input
-          return Effect.succeed(decision("用户要求完成赛车游戏，我完成了基础建模"))
+          return Effect.succeed(decision("用户要求赛车碰撞，我用了分层调试与测试，最终学会了状态隔离"))
         }),
       ),
     )
@@ -178,7 +178,7 @@ describe("two-phase semantic memory curator", () => {
     })
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries as Memory.TaskMemoryEntry[]
     expect(entries).toHaveLength(1)
-    expect(entries[0]?.content).toBe("用户要求完成赛车游戏，我完成了基础建模")
+    expect(entries[0]?.content).toBe("用户要求赛车碰撞，我用了分层调试与测试，最终学会了状态隔离")
   })
 
   test("cumulatively recompresses prompt1 and prompt2 into the same entry", async () => {
@@ -191,7 +191,9 @@ describe("two-phase semantic memory curator", () => {
     )
     await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("用户要求完成赛车游戏，我完成了基础建模"))),
+        memory.updateAfterTurn(sessionID, () =>
+          Effect.succeed(decision("用户要求赛车碰撞，我用了分层调试，最终学会了状态隔离")),
+        ),
       ),
     )
 
@@ -207,7 +209,7 @@ describe("two-phase semantic memory curator", () => {
     )
     expect(secondPromptInput).toMatchObject({
       phase: "user",
-      previousTaskContent: "用户要求完成赛车游戏，我完成了基础建模",
+      previousTaskContent: "用户要求赛车碰撞，我用了分层调试，最终学会了状态隔离",
       userText: "继续优化碰撞性能",
     })
     let secondAnswerInput: Memory.DecisionInput | undefined
@@ -215,7 +217,7 @@ describe("two-phase semantic memory curator", () => {
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(sessionID, (input) => {
           secondAnswerInput = input
-          return Effect.succeed(decision("用户要求完成赛车游戏并继续优化碰撞性能，我完成了基础建模和碰撞性能优化"))
+          return Effect.succeed(decision("用户要求赛车碰撞与性能，我用了瓶颈分析与基准测试，最终学会了性能优化"))
         }),
       ),
     )
@@ -228,7 +230,7 @@ describe("two-phase semantic memory curator", () => {
     })
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
     expect(entries).toHaveLength(1)
-    expect(entries[0]?.content).toBe("用户要求完成赛车游戏并继续优化碰撞性能，我完成了基础建模和碰撞性能优化")
+    expect(entries[0]?.content).toBe("用户要求赛车碰撞与性能，我用了瓶颈分析与基准测试，最终学会了性能优化")
   })
 
   test("uses supplied turn text before message projections are available", async () => {
@@ -246,7 +248,7 @@ describe("two-phase semantic memory curator", () => {
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(
           sessionID,
-          () => Effect.succeed(decision("用户要求修复记忆写入，我完成了修复并验证写入")),
+          () => Effect.succeed(decision("用户要求修复记忆，我用了回归测试，最终学会了边界校验")),
           { userText: "修复记忆写入", assistantText: "已修复并通过测试。" },
         ),
       ),
@@ -254,7 +256,7 @@ describe("two-phase semantic memory curator", () => {
 
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
     expect(entries).toHaveLength(1)
-    expect(entries[0]?.content).toBe("用户要求修复记忆写入，我完成了修复并验证写入")
+    expect(entries[0]?.content).toBe("用户要求修复记忆，我用了回归测试，最终学会了边界校验")
   })
 
   test("fails mandatory writes when the evaluator fails or returns invalid content", async () => {
@@ -281,7 +283,7 @@ describe("two-phase semantic memory curator", () => {
           memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("用户要求生成部署报告"))),
         ),
       ),
-    ).rejects.toThrow('expected "用户要求...，我完成了..."')
+    ).rejects.toThrow('expected "用户要求...，我用了...，最终学会了..."')
     const [entry] = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
     expect(entry?.content).toBe("用户要求生成部署报告")
   })
@@ -299,13 +301,16 @@ describe("two-phase semantic memory curator", () => {
     await ctx.run(
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(sessionID, () =>
-          Effect.succeed(decision("用户要求记住其姓名为金毅阳，我完成了记录", [userFact])),
+          Effect.succeed(decision("用户要求记住姓名，我用了事实抽取，最终学会了偏好识别", [userFact])),
         ),
       ),
     )
 
     expect(Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries).toHaveLength(1)
-    expect(Memory.parseStore("user", ctx.files.get(ctx.userPath)!).entries).toEqual([{ scope: "user", ...userFact }])
+    const userEntries = Memory.parseStore("user", ctx.files.get(ctx.userPath)!).entries
+    expect(userEntries).toHaveLength(1)
+    expect(userEntries[0]).toMatchObject({ scope: "user", ...userFact })
+    expect(userEntries[0]?.date).toMatch(/^\d{8}$/u)
   })
 
   test("coalesces equivalent user candidates returned by one evaluator call", async () => {
@@ -338,7 +343,7 @@ describe("two-phase semantic memory curator", () => {
     let calls = 0
     const evaluator: Memory.DecisionEvaluator = () => {
       calls++
-      return Effect.succeed(decision("用户要求不应写入，我完成了不应写入"))
+      return Effect.succeed(decision("用户要求不应写入，我用了错误路径，最终学会了不应写入"))
     }
     const before = { memory: ctx.files.get(ctx.memoryPath), user: ctx.files.get(ctx.userPath) }
 
@@ -364,7 +369,7 @@ describe("two-phase semantic memory curator", () => {
     const completed = await ctx.run(
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(sessionID, () =>
-          Effect.succeed(decision("用户要求修复记忆系统，我完成了修复并验证记忆系统")),
+          Effect.succeed(decision("用户要求修复记忆系统，我用了回归测试，最终学会了生命周期校验")),
         ),
       ),
     )
@@ -373,6 +378,6 @@ describe("two-phase semantic memory curator", () => {
     expect(completed).toMatchObject({ status: "updated", taskUpdated: true })
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
     expect(entries).toHaveLength(1)
-    expect(entries[0]?.content).toBe("用户要求修复记忆系统，我完成了修复并验证记忆系统")
+    expect(entries[0]?.content).toBe("用户要求修复记忆系统，我用了回归测试，最终学会了生命周期校验")
   })
 })

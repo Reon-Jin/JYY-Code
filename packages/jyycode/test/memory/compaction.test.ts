@@ -117,7 +117,7 @@ describe("bounded deterministic memory compaction", () => {
           sessionID: SessionID.make("ses_50"),
           importance: 8,
           keywords: ["最新项目"],
-          content: "用户要求交付最新项目，我完成了最新项目交付。",
+          content: "用户要求交付项目，我用了容量压缩，最终学会了保留高价值条目",
         }),
       ),
     )
