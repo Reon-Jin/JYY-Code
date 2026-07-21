@@ -108,21 +108,14 @@ export const AgentClusterReviewTool = Tool.define(
         return yield* Effect.fail(new Error(`Cluster task ${task.id} cannot be reviewed from status ${task.status}`))
       }
 
-      const now = Date.now()
       const clusterRun = (yield* Database.query((db) =>
         db.select().from(AgentClusterRunTable).where(eq(AgentClusterRunTable.id, task.run_id)).get(),
       )) as RunRow | undefined
       if (!clusterRun) return yield* Effect.fail(new Error(`Cluster run not found: ${task.run_id}`))
-      if (task.status === "submitted") {
-        yield* Database.query((db) =>
-          db
-            .update(AgentClusterTaskTable)
-            .set({ status: "reviewing" as const, last_event: "reviewing", time_updated: now })
-            .where(and(eq(AgentClusterTaskTable.run_id, task.run_id), eq(AgentClusterTaskTable.id, task.id)))
-            .run(),
-        )
-      }
 
+      // NOTE: every validation below runs BEFORE any status mutation. A rejected
+      // review must leave the task in its prior (retryable) status — previously the
+      // task was moved to "reviewing" first and a failed validation stranded it there.
       const cfg = ConfigAgentCluster.resolve((yield* config.get()).agent_cluster)
       const issues = params.issues.filter((issue) => issue.trim())
       if (params.decision === "accepted") {

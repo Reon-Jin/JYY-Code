@@ -242,8 +242,10 @@ function hasFinalReport(text: string) {
 }
 
 const FINAL_REPORT_REMINDER = [
-  "You ended your turn without the required final report. Do not call any more tools.",
-  "Reply immediately with your final report. It must start with:",
+  "You ended your turn without the required final report.",
+  "If your deliverables are not yet written to disk, write them now (file tools are still allowed for finishing pending writes).",
+  "Do not start new research or new work; only finish pending writes, then reply with your final report.",
+  "Your final report must start with:",
   "**Status**: success | partial | failed | blocked",
   "**Summary**: one sentence describing the result",
   "Then include the deliverable. If the work is incomplete, report partial or failed and list",
@@ -822,8 +824,9 @@ export const TaskTool = Tool.define(
         if (clusterTask && !hasFinalReport(text)) {
           // The child loop can exit early (provider errors swallowed downstream,
           // the repeated-tool-turn guard, ...) before the subagent writes the
-          // final report the cluster contract requires. Give it one tool-free
-          // turn to deliver instead of silently reporting success upstream.
+          // final report the cluster contract requires. Give it one recovery
+          // turn to finish pending file writes and deliver the report instead
+          // of silently reporting success upstream.
           const recovered = yield* ops.prompt({
             ...promptInput,
             messageID: MessageID.ascending(),

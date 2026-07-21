@@ -194,6 +194,38 @@ describe("agent_cluster_review", () => {
     }),
   )
 
+  it.instance("leaves the task in submitted status when acceptance validation fails", () =>
+    Effect.gen(function* () {
+      const seeded = yield* seed({ artifactPaths: ["missing.txt"] })
+      const def = yield* (yield* AgentClusterReviewTool).init()
+
+      const exit = yield* def
+        .execute(
+          {
+            task_id: seeded.taskID,
+            decision: "accepted",
+            checks: [
+              { criterion: "tests pass", passed: true, evidence: "bun test: pass" },
+              { criterion: "artifact exists", passed: true, evidence: "reported missing.txt" },
+            ],
+            issues: [],
+          },
+          ctx(seeded),
+        )
+        .pipe(Effect.exit)
+      const row = Database.use((db) =>
+        db
+          .select()
+          .from(AgentClusterTaskTable)
+          .where(Database.eq(AgentClusterTaskTable.id, seeded.taskID as any))
+          .get(),
+      )
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(row?.status).toBe("submitted")
+    }),
+  )
+
   it.instance("accepts submitted work with complete evidence and existing artifacts", () =>
     Effect.gen(function* () {
       const bus = yield* Bus.Service

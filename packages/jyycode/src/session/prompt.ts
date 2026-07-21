@@ -1650,7 +1650,13 @@ export const layer = Layer.effect(
                 .join("\n"),
               lastAssistantMsg.parts
                 .filter((part): part is MessageV2.ToolPart => part.type === "tool" && !part.metadata?.providerExecuted)
-                .map((part) => `${part.tool}:${part.state.status}`)
+                .map((part) => {
+                  // Include a truncated input fingerprint: identical tool names with
+                  // different arguments (e.g. a researcher issuing many distinct
+                  // searches) are progress, not a stuck loop.
+                  const input = "input" in part.state ? JSON.stringify(part.state.input) : undefined
+                  return `${part.tool}:${part.state.status}:${input?.slice(0, 200) ?? ""}`
+                })
                 .join(","),
             ].join("|")
             if (signature === previousToolTurnSignature) repeatedToolTurnCount++
