@@ -48,25 +48,11 @@ const planJson = JSON.stringify({
 describe("agent cluster TUI plan parsing", () => {
   test("agent cluster HTTP payload preserves persisted step topology", () => {
     const encoded = Schema.encodeUnknownSync(AgentClusterStatePayload)({
-      runs: [
-        {
-          id: "run_1",
-          session_id: "ses_parent",
-          parent_message_id: "msg_user",
-          enabled: true,
-          status: "dispatching",
-          goal: "Three-step plan",
-          planner_model: "test/planner",
-          reviewer_model: "test/reviewer",
-          time_created: 1,
-          time_updated: 1,
-          completed_at: null,
-        },
-      ],
       tasks: [
         {
           id: "copy-2",
-          run_id: "run_1",
+          session_id: "ses_parent",
+          origin_message_id: null,
           parent_task_id: null,
           child_session_id: null,
           role: "coder",
@@ -116,25 +102,11 @@ describe("agent cluster TUI plan parsing", () => {
 
   test("agent_cluster.event updates task status by task id", () => {
     const initial: AgentClusterState = {
-      runs: [
-        {
-          id: "run_1",
-          session_id: "ses_parent",
-          parent_message_id: "msg_user",
-          enabled: true,
-          status: "dispatching",
-          goal: "goal",
-          planner_model: "test/planner",
-          reviewer_model: "test/reviewer",
-          time_created: 1,
-          time_updated: 1,
-          completed_at: null,
-        },
-      ],
       tasks: [
         {
           id: "inspect",
-          run_id: "run_1",
+          session_id: "ses_parent",
+          origin_message_id: "msg_user",
           parent_task_id: null,
           child_session_id: null,
           role: "researcher",
@@ -162,7 +134,6 @@ describe("agent cluster TUI plan parsing", () => {
       type: "agent_cluster.event",
       properties: {
         sessionID: "ses_parent",
-        runID: "run_1",
         taskID: "inspect",
         type: "task",
         status: "running",
