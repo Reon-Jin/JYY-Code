@@ -27,8 +27,8 @@ const withCleanGlobalConfig = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 test("models session-scoped tasks with provenance and interrupted terminal state", () => {
   const task = Schema.decodeUnknownSync(AgentClusterSchema.TaskRecord)({
     id: "task-build-ui",
-    sessionID: "ses_root",
-    originMessageID: "msg_plan",
+    sessionID: "ses_root" as any,
+    originMessageID: "msg_plan" as any,
     role: "coder",
     title: "Build UI",
     prompt: "Implement the panel",
@@ -43,10 +43,10 @@ test("models session-scoped tasks with provenance and interrupted terminal state
     reviewIssues: [],
     createdAt: 1,
     updatedAt: 1,
-  })
+  } as any)
 
-  expect(task.sessionID).toBe("ses_root")
-  expect(task.originMessageID).toBe("msg_plan")
+  expect(task.sessionID).toBe("ses_root" as any)
+  expect(task.originMessageID).toBe("msg_plan" as any)
   expect(task.status).toBe("interrupted")
   expect("runID" in task).toBe(false)
 })

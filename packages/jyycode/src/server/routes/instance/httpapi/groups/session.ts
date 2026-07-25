@@ -1,14 +1,7 @@
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
-import {
-  Complexity,
-  RunID,
-  RunStatus,
-  TaskID,
-  TaskRole,
-  TaskStatus,
-} from "@/agent-cluster/schema"
+import { Complexity, TaskID, TaskRole, TaskStatus } from "@/agent-cluster/schema"
 import { Session } from "@/session/session"
 import { WorkspaceID } from "@/control-plane/schema"
 import { MessageV2 } from "@/session/message-v2"
@@ -98,22 +91,10 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: Permission.Reply,
 })
-const AgentClusterRunRow = Schema.Struct({
-  id: RunID,
-  session_id: SessionID,
-  parent_message_id: MessageID,
-  enabled: Schema.Boolean,
-  status: RunStatus,
-  goal: Schema.String,
-  planner_model: Schema.String,
-  reviewer_model: Schema.String,
-  time_created: Schema.Number,
-  time_updated: Schema.Number,
-  completed_at: Schema.NullOr(Schema.Number),
-})
 const AgentClusterTaskRow = Schema.Struct({
   id: TaskID,
-  run_id: RunID,
+  session_id: SessionID,
+  origin_message_id: Schema.NullOr(MessageID),
   parent_task_id: Schema.NullOr(TaskID),
   child_session_id: Schema.NullOr(SessionID),
   role: TaskRole,
@@ -134,7 +115,6 @@ const AgentClusterTaskRow = Schema.Struct({
   time_updated: Schema.Number,
 })
 export const AgentClusterStatePayload = Schema.Struct({
-  runs: Schema.Array(AgentClusterRunRow),
   tasks: Schema.Array(AgentClusterTaskRow),
 })
 export const ContextPayload = Schema.Struct({
@@ -237,8 +217,7 @@ export const SessionApi = HttpApi.make("session")
           OpenApi.annotations({
             identifier: "session.context",
             summary: "Get active context estimate",
-            description:
-              "Retrieve a media-aware active context estimate for a session, including decoded media bytes.",
+            description: "Retrieve a media-aware active context estimate for a session, including decoded media bytes.",
           }),
         ),
         HttpApiEndpoint.get("agentCluster", SessionPaths.agentCluster, {
@@ -250,7 +229,7 @@ export const SessionApi = HttpApi.make("session")
           OpenApi.annotations({
             identifier: "session.agentCluster",
             summary: "Get session agent cluster state",
-            description: "Retrieve persisted agent cluster runs and tasks for a specific session.",
+            description: "Retrieve the durable session task graph for a specific session.",
           }),
         ),
         HttpApiEndpoint.get("todo", SessionPaths.todo, {

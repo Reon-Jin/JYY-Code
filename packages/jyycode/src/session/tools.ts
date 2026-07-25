@@ -32,7 +32,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   bypassAgentCheck: boolean
   messages: MessageV2.WithParts[]
   promptOps: TaskPromptOps
-  agentClusterRunID?: string
+  agentClusterSessionID?: string
 }) {
   using _ = log.time("resolveTools")
   const tools: Record<string, AITool> = {}
@@ -51,7 +51,12 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     abort: options.abortSignal!,
     messageID: input.processor.message.id,
     callID: options.toolCallId,
-    extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck, promptOps: input.promptOps, ...(input.agentClusterRunID ? { agentClusterRunID: input.agentClusterRunID } : {}) },
+    extra: {
+      model: input.model,
+      bypassAgentCheck: input.bypassAgentCheck,
+      promptOps: input.promptOps,
+      ...(input.agentClusterSessionID ? { agentClusterSessionID: input.agentClusterSessionID } : {}),
+    },
     agent: input.agent.name,
     messages: input.messages,
     metadata: (val) =>

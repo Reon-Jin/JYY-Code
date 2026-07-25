@@ -28,7 +28,6 @@ import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
 import { ConfigAgentCluster } from "@/config/agent-cluster"
-import { AgentClusterRunTable } from "@/agent-cluster/cluster.sql"
 import { ConfigMarkdown } from "@/config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@jyycode-ai/core/util/error"
@@ -66,9 +65,7 @@ import { SessionTools } from "./tools"
 import { LLMEvent } from "@jyycode-ai/llm"
 import { AgentCluster } from "@/agent-cluster/cluster"
 import { AgentClusterRuntime } from "@/agent-cluster/runtime"
-import type { RunID } from "@/agent-cluster/schema"
 import { Memory } from "@/memory/memory"
-import { storeClusterPlanText } from "@/agent-cluster/plan-cache"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1387,8 +1384,7 @@ export const layer = Layer.effect(
         const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
         const cfg = yield* config.get()
         // noReply messages are synthetic injections (for example, background
-        // subagent completion). They continue an existing run and must never
-        // decorate the message with a fresh, unpersisted cluster run ID.
+        // subagent completion). They must not start a new cluster planner turn.
         const useCluster =
           input.noReply !== true &&
           AgentCluster.canUseAgentCluster({
@@ -1399,13 +1395,12 @@ export const layer = Layer.effect(
         const clusterModels = useCluster
           ? yield* AgentCluster.resolveModels(cfg.agent_cluster ?? {}).pipe(Effect.orDie)
           : undefined
-        const runID = useCluster ? AgentCluster.createRunID() : undefined
         const reusableSubagents = useCluster ? yield* AgentCluster.reusableSubagents(session.id) : undefined
         const promptInput =
-          useCluster && clusterModels && runID
+          useCluster && clusterModels
             ? AgentCluster.decoratePromptInput({
                 prompt: input,
-                runID,
+                sessionID: session.id,
                 session,
                 config: cfg.agent_cluster ?? {},
                 models: clusterModels,
@@ -1426,15 +1421,14 @@ export const layer = Layer.effect(
         }
 
         if (promptInput.noReply === true) return message
-        if (useCluster && clusterModels && runID) {
+        if (useCluster && clusterModels) {
           return yield* AgentCluster.run({
-            runID,
             session,
             message,
             config: cfg.agent_cluster ?? {},
             models: clusterModels,
             runLoop: loop({ sessionID: input.sessionID }),
-          })
+          }).pipe(Effect.orDie)
         }
         return yield* loop({ sessionID: input.sessionID })
       })
@@ -1475,20 +1469,6 @@ export const layer = Layer.effect(
           if (message.info.agent !== "cluster" && message.info.mode !== "cluster") return false
           const text = message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
           return AgentClusterRuntime.extractPlanFromText(text)
-        }
-
-        function clusterRunID(messages: MessageV2.WithParts[]) {
-          function metadataOf(part: MessageV2.Part): Record<string, unknown> | undefined {
-            return "metadata" in part ? part.metadata : undefined
-          }
-
-          for (const message of [...messages].reverse()) {
-            for (const part of [...message.parts].reverse()) {
-              const metadata = metadataOf(part) as { kind?: string; runID?: string } | undefined
-              if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID as RunID
-            }
-          }
-          return undefined
         }
 
         function isClusterDispatchReminder(message: MessageV2.WithParts | undefined) {
@@ -1565,9 +1545,9 @@ export const layer = Layer.effect(
         )
 
         const createClusterSynthesisReminder = Effect.fn("SessionPrompt.createClusterSynthesisReminder")(
-          function* (input: { lastUser: MessageV2.User; runID: RunID }) {
+          function* (input: { lastUser: MessageV2.User }) {
             const state = yield* AgentCluster.getSessionState(sessionID)
-            const tasks = state.tasks.filter((task) => task.run_id === input.runID)
+            const tasks = state.tasks
             const notAccepted = tasks.filter((task) => task.status !== "accepted")
             const failed = notAccepted.filter((task) => task.status === "failed" || task.status === "cancelled")
             const userMsg: MessageV2.User = {
@@ -1637,9 +1617,7 @@ export const layer = Layer.effect(
           // Skip provider-executed tool parts �?those were fully handled within the
           // provider's stream (e.g. DWS Agent Platform) and don't need a re-loop.
           const hasToolCalls =
-            lastAssistantMsg?.parts.some(
-              (part) => part.type === "tool" && !part.metadata?.providerExecuted,
-            ) ?? false
+            lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
 
           if (session.parentID !== undefined && hasToolCalls && lastAssistantMsg) {
             const signature = [
@@ -1694,9 +1672,8 @@ export const layer = Layer.effect(
                 maxSubagents: clusterConfig.max_subagents,
                 maxConcurrency: clusterConfig.max_concurrency,
               })
-              const persistedRunID = clusterRunID(msgs)
-              if (validation.valid && persistedRunID) {
-                yield* AgentCluster.persistPlan({ runID: persistedRunID, plan })
+              if (validation.valid) {
+                yield* AgentCluster.persistPlan({ sessionID, originMessageID: lastUser.id, plan }).pipe(Effect.orDie)
               }
               if (
                 !hasTaskToolAfter(msgs, lastUser.id) &&
@@ -1707,15 +1684,17 @@ export const layer = Layer.effect(
                 continue
               }
             }
-            const persistedRunID = lastUser.agent === "cluster" ? clusterRunID(msgs) : undefined
-            if (persistedRunID && !isClusterSynthesisReminder(msgs.find((msg) => msg.info.id === lastUser.id))) {
+            if (
+              lastUser.agent === "cluster" &&
+              !isClusterSynthesisReminder(msgs.find((msg) => msg.info.id === lastUser.id))
+            ) {
               const state = yield* AgentCluster.getSessionState(sessionID)
-              const tasks = state.tasks.filter((task) => task.run_id === persistedRunID)
+              const tasks = state.tasks
               if (tasks.length > 0 && tasks.some((task) => task.status !== "accepted")) {
                 yield* slog.info(
                   "cluster attempted final response before all tasks were accepted; requesting continuation",
                 )
-                yield* createClusterSynthesisReminder({ lastUser, runID: persistedRunID })
+                yield* createClusterSynthesisReminder({ lastUser })
                 continue
               }
             }
@@ -1834,35 +1813,12 @@ export const layer = Layer.effect(
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
             const promptOps: TaskPromptOps = yield* ops()
 
-            // Resolve the cluster run ID for the current session if in cluster mode.
-            let clusterRunID: string | undefined
-            // 1. Try to find it in the message parts (synthetic planner prompt)
-            for (const m of [...msgs].reverse()) {
-              for (const part of m.parts) {
-                const meta =
-                  "metadata" in part ? (part.metadata as { kind?: string; runID?: string } | undefined) : undefined
-                if (meta?.kind === "agent_cluster" && meta.runID) {
-                  clusterRunID = meta.runID as string
-                  break
-                }
-              }
-              if (clusterRunID) break
-            }
-            // 2. Fall back to querying the database for the most recent open run
-            if (!clusterRunID) {
-              const rows = yield* Database.query((db) =>
-                db
-                  .select({ id: AgentClusterRunTable.id, time: AgentClusterRunTable.time_created })
-                  .from(AgentClusterRunTable)
-                  .where(Database.eq(AgentClusterRunTable.session_id, sessionID))
-                  .all(),
-              )
-              clusterRunID = rows.toSorted((a, b) => b.time - a.time)[0]?.id
-            }
+            // Cluster task routing is rooted in this durable parent session.
+            const clusterSessionID = lastUser.agent === "cluster" ? sessionID : undefined
             // Tools execute inside handle.process(), so wire the live text
             // accessor before SessionTools.resolve() creates AI SDK callbacks.
-            if (clusterRunID) {
-              promptOps.agentClusterRunID = clusterRunID
+            if (clusterSessionID) {
+              promptOps.agentClusterSessionID = clusterSessionID
               promptOps.currentAssistantText = handle.allText
             }
 
@@ -1874,7 +1830,7 @@ export const layer = Layer.effect(
               bypassAgentCheck,
               messages: msgs,
               promptOps,
-              agentClusterRunID: clusterRunID,
+              agentClusterSessionID: clusterSessionID,
             }).pipe(
               Effect.provideService(Plugin.Service, plugin),
               Effect.provideService(Permission.Service, permission),
@@ -1970,14 +1926,9 @@ export const layer = Layer.effect(
             // Without this early persist, every task tool independently
             // tries to extract the plan from DB sources that may be empty,
             // exhausting retries and failing silently.
-            if (lastUser.agent === "cluster" && clusterRunID) {
+            if (lastUser.agent === "cluster" && clusterSessionID) {
               yield* Effect.gen(function* () {
                 const combined = handle.allText()
-                // ALWAYS store in the in-memory cache so persistCurrentClusterPlan()
-                // in task.ts can read the plan text without any DB round-trip.
-                // This eliminates the race between SyncEvent projector commits and
-                // concurrent tool execution in both CLI and TUI modes.
-                storeClusterPlanText(clusterRunID, combined)
                 const plan = AgentClusterRuntime.extractPlanFromText(combined)
                 if (plan) {
                   const clusterCfg = ConfigAgentCluster.resolve((yield* config.get()).agent_cluster)
@@ -1986,9 +1937,13 @@ export const layer = Layer.effect(
                     maxConcurrency: clusterCfg.max_concurrency,
                   })
                   if (validation.valid) {
-                    yield* AgentCluster.persistPlan({ runID: clusterRunID as RunID, plan })
+                    yield* AgentCluster.persistPlan({
+                      sessionID: clusterSessionID,
+                      originMessageID: lastUser.id,
+                      plan,
+                    }).pipe(Effect.orDie)
                     yield* slog.info("cluster plan pre-persisted from in-memory text accumulator", {
-                      runID: clusterRunID,
+                      sessionID: clusterSessionID,
                       taskCount: plan.tasks.length,
                       textLen: combined.length,
                     })
@@ -1997,7 +1952,7 @@ export const layer = Layer.effect(
                   }
                 } else {
                   yield* slog.warn("cluster plan not found in in-memory text accumulator", {
-                    runID: clusterRunID,
+                    sessionID: clusterSessionID,
                     textLen: combined.length,
                     preview: combined.slice(0, 200),
                   })

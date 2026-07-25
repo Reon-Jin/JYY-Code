@@ -3,7 +3,6 @@ import DESCRIPTION from "./task.txt"
 import { ToolJsonSchema } from "./json-schema"
 import { BackgroundJob } from "@/background/job"
 import { AgentCluster } from "@/agent-cluster/cluster"
-import { getClusterPlanText } from "@/agent-cluster/plan-cache"
 import { AgentClusterRuntime } from "@/agent-cluster/runtime"
 import { Bus } from "@/bus"
 import { Session } from "@/session/session"
@@ -26,15 +25,14 @@ import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import path from "path"
 import { pathToFileURL } from "url"
-import type { RunID } from "@/agent-cluster/schema"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
   loop(input: SessionPrompt.LoopInput): Effect.Effect<MessageV2.WithParts>
-  /** Set when running in Agent Cluster mode; the active run id. */
-  agentClusterRunID?: string
+  /** Set when running in Agent Cluster mode; the durable root session id. */
+  agentClusterSessionID?: SessionID
   /** Live text accumulated for the current assistant step before tool execution. */
   currentAssistantText?: () => string
 }
@@ -63,49 +61,13 @@ const BACKGROUND_DESCRIPTION = [
 const FORK_CONTEXT_MAX_CHARS = 20_000
 
 // Note: duplicated in tool/agent-cluster-review.ts — keep in sync.
-function agentClusterRunID(ctx: Tool.Context): string | undefined {
-  // Check extra.agentClusterRunID (set by session/tools.ts in cluster mode)
-  // and promptOps.agentClusterRunID (set by session/prompt.ts)
-  const extraRunID =
-    typeof ctx.extra?.agentClusterRunID === "string"
-      ? (ctx.extra.agentClusterRunID as string)
-      : (ctx.extra?.promptOps as TaskPromptOps | undefined)?.agentClusterRunID
-  if (typeof extraRunID === "string") return extraRunID
-  // Search message parts for the run ID (embedded in synthetic <agent-cluster-run>)
-  return agentClusterRunIDFromMessages(undefined, ctx.messages)
+function agentClusterSessionID(ctx: Tool.Context): SessionID | undefined {
+  const extra =
+    ctx.extra?.agentClusterSessionID ?? (ctx.extra?.promptOps as TaskPromptOps | undefined)?.agentClusterSessionID
+  return typeof extra === "string" ? (extra as SessionID) : undefined
 }
 
 // Regex to extract run_id from <agent-cluster-run> text injected into prompts
-const RUN_ID_RE = /\brun_id:\s*(\w{20,})\b/
-
-function extractRunIDFromText(text: string): string | undefined {
-  const match = RUN_ID_RE.exec(text)
-  return match?.[1]
-}
-
-// Exported so agent-cluster-review.ts can reuse the same logic.
-export function agentClusterRunIDFromMessages(
-  extraRunID: unknown,
-  messages: readonly MessageV2.WithParts[],
-): string | undefined {
-  if (typeof extraRunID === "string") return extraRunID as string
-  for (const message of [...messages].reverse()) {
-    for (const part of [...message.parts].reverse()) {
-      // Check explicit metadata first
-      const metadata = "metadata" in part ? (part.metadata as { kind?: string; runID?: string } | undefined) : undefined
-      if (metadata?.kind === "agent_cluster" && metadata.runID) return metadata.runID as string
-      // Some providers flatten metadata onto the part object directly
-      const direct = part as { kind?: string; runID?: string } | undefined
-      if (direct?.kind === "agent_cluster" && direct.runID) return direct.runID as string
-      // Search text content for run_id: XXXX (embedded in synthetic prompt)
-      if ("text" in part && typeof part.text === "string") {
-        const id = extractRunIDFromText(part.text)
-        if (id) return id
-      }
-    }
-  }
-  return undefined
-}
 
 const BaseParameters = Schema.Struct({
   description: Schema.String.annotate({ description: "A short (3-5 words) description of the task" }),
@@ -422,27 +384,23 @@ export const TaskTool = Tool.define(
       const cfg = yield* config.get()
       const clusterBackground = ctx.agent === "cluster"
       const runInBackground = params.background === true || clusterBackground
-      const clusterRunID = clusterBackground ? agentClusterRunID(ctx) : undefined
+      const clusterSessionID = clusterBackground ? agentClusterSessionID(ctx) : undefined
       if (params.resume_session_id && !clusterBackground) {
         return yield* Effect.fail(new Error("resume_session_id is only available in cluster mode"))
       }
-      if (params.resume_session_id && !clusterRunID) {
-        return yield* Effect.fail(new Error("resume_session_id requires an active cluster run"))
+      if (params.resume_session_id && !clusterSessionID) {
+        return yield* Effect.fail(new Error("resume_session_id requires an active session task graph"))
       }
       const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
       const persistCurrentClusterPlan = Effect.fn("TaskTool.persistCurrentClusterPlan")(function* () {
-        if (!clusterRunID) return false
+        if (!clusterSessionID) return false
         const texts: string[] = []
         // AI SDK executes tools inside handle.process(), before prompt.ts can
         // perform its post-process cache write. The processor accumulator is
         // therefore the only race-free source for the first TUI dispatch.
         const live = (ctx.extra?.promptOps as TaskPromptOps | undefined)?.currentAssistantText?.()
         if (live) texts.push(live)
-        // Run-level cache populated after prior LLM steps. This keeps the
-        // original plan available to later dispatch waves.
-        const cached = getClusterPlanText(clusterRunID)
-        if (cached && !texts.includes(cached)) texts.push(cached)
         // 1. Read text parts from the current assistant message using the
         //    ASYNC DB connection.  The legacy parts() function uses a
         //    separate better-sqlite3 connection that may not see parts
@@ -488,7 +446,6 @@ export const TaskTool = Tool.define(
                 `Output the JSON plan as a \`\`\`json code block ` +
                 `with "goal" and "tasks" BEFORE calling the task tool. ` +
                 `Live text: ${live ? "yes" : "no"}. ` +
-                `Cache hit: ${cached ? "yes" : "no"}. ` +
                 `Scanned ${texts.length} text parts (${asyncParts.length} from current msg partsAsync, ` +
                 `${dbMessages.length} db msgs, ${ctx.messages.length} ctx msgs). ` +
                 `Last 500 chars: ${preview}`,
@@ -503,15 +460,17 @@ export const TaskTool = Tool.define(
         if (!validation.valid) {
           return yield* Effect.fail(new Error(`Invalid cluster plan: ${validation.errors.join("; ")}`))
         }
-        yield* AgentCluster.persistPlan({ runID: clusterRunID as RunID, plan })
+        yield* AgentCluster.persistPlan({ sessionID: clusterSessionID, originMessageID: ctx.messageID, plan })
         return true
       })
-      if (clusterBackground && clusterRunID && !params.task_id) {
-        return yield* Effect.fail(new Error("Cluster task_id is required for every task in an active cluster run"))
+      if (clusterBackground && clusterSessionID && !params.task_id) {
+        return yield* Effect.fail(
+          new Error("Cluster task_id is required for every task in an active session task graph"),
+        )
       }
       const prepareClusterDispatch = () =>
         AgentCluster.prepareTaskDispatch({
-          runID: clusterRunID,
+          sessionID: clusterSessionID,
           requestedTaskID: params.task_id,
           resumeSessionID: params.resume_session_id,
           prompt: params.prompt,
@@ -544,7 +503,7 @@ export const TaskTool = Tool.define(
           // still try to dispatch — the rows may have been pre-seeded by
           // the runLoop (pre-persist in prompt.ts), a direct DB insert
           // (tests), or an earlier run.
-          if (clusterRunID) {
+          if (clusterSessionID) {
             const persistResult = yield* persistCurrentClusterPlan().pipe(Effect.exit)
             if (Exit.isFailure(persistResult)) {
               const err = Cause.squash(persistResult.cause)
@@ -736,8 +695,8 @@ export const TaskTool = Tool.define(
           : {}),
         ...(runInBackground ? { background: true } : {}),
         ...(params.resume_session_id ? { reusedSession: true } : {}),
-        ...(clusterRunID && clusterPlanTaskID
-          ? { agentCluster: { runID: clusterRunID, taskID: clusterPlanTaskID } }
+        ...(clusterSessionID && clusterPlanTaskID
+          ? { agentCluster: { sessionID: clusterSessionID, taskID: clusterPlanTaskID } }
           : {}),
       }
 
@@ -820,7 +779,7 @@ export const TaskTool = Tool.define(
           return yield* Effect.fail(new Error(`Subagent stopped with an error: ${assistantErrorText(resultError)}`))
         }
         let text = result.parts.findLast((item) => item.type === "text")?.text ?? ""
-        const clusterTask = clusterRunID !== undefined && clusterPlanTaskID !== undefined
+        const clusterTask = clusterSessionID !== undefined && clusterPlanTaskID !== undefined
         if (clusterTask && !hasFinalReport(text)) {
           // The child loop can exit early (provider errors swallowed downstream,
           // the repeated-tool-turn guard, ...) before the subagent writes the
@@ -843,7 +802,9 @@ export const TaskTool = Tool.define(
         if (clusterTask && !hasFinalReport(text)) {
           const tail = text.trim() ? text.trim().slice(-500) : "(no output)"
           return yield* Effect.fail(
-            new Error(`Subagent finished without producing its final report (no **Status** line). Last output: ${tail}`),
+            new Error(
+              `Subagent finished without producing its final report (no **Status** line). Last output: ${tail}`,
+            ),
           )
         }
         return text
@@ -1060,7 +1021,7 @@ export const TaskTool = Tool.define(
           run: runTaskWithMerge().pipe(
             Effect.tap((text) =>
               AgentCluster.submitTaskResult({
-                runID: clusterRunID,
+                sessionID: clusterSessionID,
                 taskID: clusterPlanTaskID,
                 childSessionID: nextSession.id,
                 summary: AgentCluster.summarizeTaskResult(text),
@@ -1070,13 +1031,13 @@ export const TaskTool = Tool.define(
             Effect.catchCause((cause) =>
               (Cause.hasInterruptsOnly(cause)
                 ? AgentCluster.cancelTaskResult({
-                    runID: clusterRunID,
+                    sessionID: clusterSessionID,
                     taskID: clusterPlanTaskID,
                     childSessionID: nextSession.id,
                     reason: "Child Agent was stopped by the user.",
                   }).pipe(Effect.andThen(inject("error", "Child Agent was stopped by the user.").pipe(Effect.ignore)))
                 : AgentCluster.failTaskResult({
-                    runID: clusterRunID,
+                    sessionID: clusterSessionID,
                     taskID: clusterPlanTaskID,
                     childSessionID: nextSession.id,
                     error: errorText(Cause.squash(cause)),
@@ -1096,7 +1057,7 @@ export const TaskTool = Tool.define(
         }
         if (clusterPlanTaskID) {
           yield* AgentCluster.markTaskRunning({
-            runID: clusterRunID,
+            sessionID: clusterSessionID,
             taskID: clusterPlanTaskID,
             childSessionID: nextSession.id,
             model: `${model.providerID}/${model.modelID}`,

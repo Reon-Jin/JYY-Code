@@ -3,7 +3,7 @@ import DESCRIPTION from "./agent-cluster-review.txt"
 import { AgentCluster } from "@/agent-cluster/cluster"
 import { Event as AgentClusterEvent } from "@/agent-cluster/event"
 import { Bus } from "@/bus"
-import { AgentClusterEventTable, AgentClusterRunTable, AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
+import { AgentClusterEventTable, AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
 import { Config } from "@/config/config"
 import { ConfigAgentCluster } from "@/config/agent-cluster"
 import { Session } from "@/session/session"
@@ -14,12 +14,9 @@ import { and, eq } from "@/storage/db"
 import path from "path"
 import { ulid } from "ulid"
 import { Effect, Schema } from "effect"
-import type { RunID, TaskStatus } from "@/agent-cluster/schema"
-// Use the shared runID-search function from task.ts (kept in sync)
-import { agentClusterRunIDFromMessages } from "./task"
+import type { TaskStatus } from "@/agent-cluster/schema"
 
 type TaskRow = typeof AgentClusterTaskTable.$inferSelect
-type RunRow = typeof AgentClusterRunTable.$inferSelect
 
 const Check = Schema.Struct({
   criterion: Schema.String,
@@ -46,14 +43,10 @@ const Parameters = Schema.Struct({
   }),
 })
 
-function agentClusterRunID(ctx: Tool.Context): string | undefined {
-  // 1. Check ctx.extra (set by tools.ts in cluster mode)
-  if (typeof ctx.extra?.agentClusterRunID === "string") return ctx.extra.agentClusterRunID as string
-  // 2. Check promptOps (set by prompt.ts as a fallback)
-  const promptOps = ctx.extra?.promptOps as { agentClusterRunID?: string } | undefined
-  if (typeof promptOps?.agentClusterRunID === "string") return promptOps.agentClusterRunID
-  // 3. Search all messages (metadata + text content) for the run ID
-  return agentClusterRunIDFromMessages(undefined, ctx.messages)
+function agentClusterSessionID(ctx: Tool.Context): SessionID | undefined {
+  const promptOps = ctx.extra?.promptOps as { agentClusterSessionID?: SessionID } | undefined
+  const sessionID = ctx.extra?.agentClusterSessionID ?? promptOps?.agentClusterSessionID
+  return typeof sessionID === "string" ? (sessionID as SessionID) : undefined
 }
 
 function nonEmpty(value: string | undefined) {
@@ -80,17 +73,17 @@ export const AgentClusterReviewTool = Tool.define(
         return yield* Effect.fail(new Error("agent_cluster_review is only available to the cluster primary agent"))
       }
 
-      const runID = agentClusterRunID(ctx) as RunID | undefined
-      if (!runID) {
+      const sessionID = agentClusterSessionID(ctx)
+      if (!sessionID) {
         return yield* Effect.fail(
           new Error(
-            "Agent cluster run ID not found. The review tool must be called within an active cluster session. " +
+            "Agent cluster session task graph not found. The review tool must be called within an active cluster session. " +
               "If you are reviewing tasks from a plan, make sure the plan was persisted by dispatching tasks with valid task_id values first.",
           ),
         )
       }
       const rows = (yield* Database.query((db) =>
-        db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.run_id, runID)).all(),
+        db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.session_id, sessionID)).all(),
       )) as TaskRow[]
       const matches = rows.filter((row) => row.id === params.task_id || row.child_session_id === params.task_id)
       if (matches.length !== 1) {
@@ -98,8 +91,8 @@ export const AgentClusterReviewTool = Tool.define(
         return yield* Effect.fail(
           new Error(
             matches.length === 0
-              ? `Cluster task not found in run ${runID}: ${params.task_id}. Known task IDs in this run: [${knownIDs || "(none)"}]. Use the exact plan task id.`
-              : `Cluster task id is ambiguous: ${params.task_id} matches ${matches.length} tasks in run ${runID}.`,
+              ? `Cluster task not found in session ${sessionID}: ${params.task_id}. Known task IDs: [${knownIDs || "(none)"}]. Use the exact plan task id.`
+              : `Cluster task id is ambiguous: ${params.task_id} matches ${matches.length} tasks in session ${sessionID}.`,
           ),
         )
       }
@@ -107,11 +100,6 @@ export const AgentClusterReviewTool = Tool.define(
       if (task.status !== "submitted" && task.status !== "reviewing") {
         return yield* Effect.fail(new Error(`Cluster task ${task.id} cannot be reviewed from status ${task.status}`))
       }
-
-      const clusterRun = (yield* Database.query((db) =>
-        db.select().from(AgentClusterRunTable).where(eq(AgentClusterRunTable.id, task.run_id)).get(),
-      )) as RunRow | undefined
-      if (!clusterRun) return yield* Effect.fail(new Error(`Cluster run not found: ${task.run_id}`))
 
       // NOTE: every validation below runs BEFORE any status mutation. A rejected
       // review must leave the task in its prior (retryable) status — previously the
@@ -147,7 +135,7 @@ export const AgentClusterReviewTool = Tool.define(
             ),
           )
         }
-        const session = yield* sessions.get(clusterRun.session_id).pipe(Effect.orDie)
+        const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
         const missingArtifacts: string[] = []
         for (const artifact of task.artifact_paths) {
           const artifactPath = path.isAbsolute(artifact) ? artifact : path.resolve(session.directory, artifact)
@@ -210,7 +198,7 @@ export const AgentClusterReviewTool = Tool.define(
             last_event: params.decision,
             time_updated: Date.now(),
           })
-          .where(and(eq(AgentClusterTaskTable.run_id, task.run_id), eq(AgentClusterTaskTable.id, task.id)))
+          .where(and(eq(AgentClusterTaskTable.session_id, sessionID), eq(AgentClusterTaskTable.id, task.id)))
           .run(),
       )
       yield* Database.query((db) =>
@@ -218,7 +206,8 @@ export const AgentClusterReviewTool = Tool.define(
           .insert(AgentClusterEventTable)
           .values({
             id: ulid(),
-            run_id: task.run_id,
+            session_id: sessionID,
+            origin_message_id: task.origin_message_id,
             task_id: task.id,
             type: "review",
             message: `Review for task ${task.id}: ${status}`,
@@ -234,21 +223,8 @@ export const AgentClusterReviewTool = Tool.define(
           })
           .run(),
       )
-      if (status === "failed") {
-        yield* Database.query((db) =>
-          db
-            .update(AgentClusterRunTable)
-            .set({ status: "failed" as const, completed_at: Date.now(), time_updated: Date.now() })
-            .where(eq(AgentClusterRunTable.id, task.run_id))
-            .run(),
-        )
-      }
-      if (status === "accepted") {
-        yield* AgentCluster.finishRunFromTaskStates(task.run_id)
-      }
       yield* bus.publish(AgentClusterEvent, {
-        sessionID: clusterRun.session_id,
-        runID: task.run_id,
+        sessionID,
         taskID: task.id,
         type: "review",
         status,

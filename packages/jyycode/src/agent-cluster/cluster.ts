@@ -7,19 +7,19 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import type { Session } from "@/session/session"
 import type { MessageV2 } from "@/session/message-v2"
 import type { PromptInput } from "@/session/prompt"
-import type { SessionID } from "@/session/schema"
+import type { MessageID, SessionID } from "@/session/schema"
 import { Bus } from "@/bus"
 import * as Database from "@/storage/db"
 import { and, eq, inArray } from "@/storage/db"
 import { Cause, Effect, Option } from "effect"
 import path from "path"
 import { ulid } from "ulid"
-import { AgentClusterRunTable, AgentClusterEventTable, AgentClusterTaskTable } from "./cluster.sql"
+import { AgentClusterEventTable, AgentClusterTaskTable } from "./cluster.sql"
 import { Event } from "./event"
 import { runInstructions } from "./planner"
 import { buildTaskBrief, modelForComplexity } from "./dispatcher"
 import { stepGate } from "./runtime"
-import type { Plan, PlannedTask, RunID, RunStatus, TaskID, TaskStatus } from "./schema"
+import type { Plan, PlannedTask, TaskID, TaskStatus } from "./schema"
 
 type ModelRef = {
   providerID: ProviderID
@@ -59,20 +59,17 @@ export function incrementalPlan(plan: Plan, history: readonly TaskRow[]): Plan {
       .map((task) => task.id),
   )
   const remaining = plan.tasks.filter((task) => !completed.has(task.id))
-  const steps = [...new Set(remaining.map((task) => task.step))].sort((a, b) => a - b)
-  const compactStep = new Map(steps.map((step, index) => [step, index + 1]))
   return {
     ...plan,
     tasks: remaining.map((task) => ({
       ...task,
-      step: compactStep.get(task.step)!,
       dependencies: task.dependencies.filter((dependency) => !completed.has(dependency)),
     })),
   }
 }
 
 const publishTaskState = Effect.fn("AgentCluster.publishTaskState")(function* (input: {
-  runID: RunID
+  sessionID: SessionID
   taskID: TaskID
   message?: string
 }) {
@@ -81,16 +78,10 @@ const publishTaskState = Effect.fn("AgentCluster.publishTaskState")(function* (i
       const task = (yield* db
         .select()
         .from(AgentClusterTaskTable)
-        .where(and(eq(AgentClusterTaskTable.run_id, input.runID), eq(AgentClusterTaskTable.id, input.taskID)))
+        .where(and(eq(AgentClusterTaskTable.session_id, input.sessionID), eq(AgentClusterTaskTable.id, input.taskID)))
         .get()) as TaskRow | undefined
       if (!task) return
-      const run = (yield* db
-        .select({ sessionID: AgentClusterRunTable.session_id })
-        .from(AgentClusterRunTable)
-        .where(eq(AgentClusterRunTable.id, input.runID))
-        .get()) as { sessionID: SessionID } | undefined
-      if (!run) return
-      return { task, run }
+      return { task }
     }),
   )
   if (!state) return
@@ -106,7 +97,8 @@ const publishTaskState = Effect.fn("AgentCluster.publishTaskState")(function* (i
       .insert(AgentClusterEventTable)
       .values({
         id: ulid(),
-        run_id: input.runID,
+        session_id: input.sessionID,
+        origin_message_id: state.task.origin_message_id,
         task_id: input.taskID,
         type: "task",
         message,
@@ -118,8 +110,7 @@ const publishTaskState = Effect.fn("AgentCluster.publishTaskState")(function* (i
   const bus = Option.getOrUndefined(yield* Effect.serviceOption(Bus.Service))
   if (!bus) return
   yield* bus.publish(Event, {
-    sessionID: state.run.sessionID,
-    runID: input.runID,
+    sessionID: input.sessionID,
     taskID: input.taskID,
     type: "task",
     status: state.task.status,
@@ -133,10 +124,6 @@ export function isMailSession(session: Pick<Session.Info, "title" | "agent" | "p
   if (MailSession.isMailSessionTitle(session.title)) return true
   if (session.agent === "mail") return true
   return session.path === "mail"
-}
-
-export function createRunID() {
-  return ulid()
 }
 
 export function canUseAgentCluster(input: {
@@ -206,7 +193,7 @@ export function artifactDir(input: { session: Pick<Session.Info, "directory">; c
 
 export function decoratePromptInput(input: {
   prompt: PromptInput
-  runID: string
+  sessionID: SessionID
   session: Pick<Session.Info, "directory">
   config: ConfigAgentCluster.Info
   models: ClusterModels
@@ -237,7 +224,7 @@ export function decoratePromptInput(input: {
         type: "text" as const,
         synthetic: true,
         text: runInstructions({
-          runID: input.runID,
+          sessionID: input.sessionID,
           artifactDir: artifactDir({ session: input.session, config }),
           simpleModel: formatModel(input.models.simple),
           complexModel: formatModel(input.models.complex),
@@ -249,39 +236,57 @@ export function decoratePromptInput(input: {
         }),
         metadata: {
           kind: "agent_cluster",
-          runID: input.runID,
+          sessionID: input.sessionID,
         },
       },
     ],
   }
 }
 
-export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (input: { runID: RunID; plan: Plan }) {
+export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (input: {
+  sessionID: SessionID
+  originMessageID?: MessageID
+  plan: Plan
+}) {
   const now = Date.now()
-  const run = yield* Database.query((db) =>
-    db
-      .select({ sessionID: AgentClusterRunTable.session_id })
-      .from(AgentClusterRunTable)
-      .where(eq(AgentClusterRunTable.id, input.runID))
-      .get(),
-  )
-  const history = run ? (yield* getSessionState(run.sessionID)).tasks.filter((task) => task.run_id !== input.runID) : []
+  const history = (yield* getSessionState(input.sessionID)).tasks
   const plan = incrementalPlan(input.plan, history)
   if (plan.tasks.length === 0) return
+  const existingByID = new Map(history.map((task) => [task.id, task]))
+  const duplicate = plan.tasks.find((task) => {
+    const existing = existingByID.get(task.id)
+    return (
+      existing &&
+      (normalizeTaskTitle(existing.title) !== normalizeTaskTitle(task.title) ||
+        existing.prompt !== task.prompt ||
+        !sameStrings(existing.artifact_paths, task.expectedArtifacts))
+    )
+  })
+  if (duplicate) {
+    return yield* Effect.fail(
+      new Error(
+        `Cluster task id ${duplicate.id} is already used by a distinct task in this session. Choose a new task id.`,
+      ),
+    )
+  }
+  const newTasks = plan.tasks.filter((task) => !existingByID.has(task.id))
+  if (newTasks.length === 0) return
+  const stepOffset = history.reduce((highest, task) => Math.max(highest, task.step), 0)
   const inserted = yield* Database.query((db) =>
     db
       .insert(AgentClusterTaskTable)
       .values(
-        plan.tasks.map((task) => ({
+        newTasks.map((task) => ({
           id: task.id,
-          run_id: input.runID,
+          session_id: input.sessionID,
+          ...(input.originMessageID ? { origin_message_id: input.originMessageID } : {}),
           role: task.role,
           title: task.title,
           prompt: task.prompt,
           complexity: task.complexity,
           model: task.model,
           status: "planned" as const,
-          step: task.step,
+          step: stepOffset + task.step,
           dependencies: [...task.dependencies],
           acceptance_criteria: [...task.acceptanceCriteria],
           artifact_paths: [...task.expectedArtifacts],
@@ -295,17 +300,18 @@ export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (inpu
       .all(),
   )
   yield* Effect.forEach(inserted, (task) =>
-    publishTaskState({ runID: input.runID, taskID: task.id, message: `task ${task.id}: planned` }),
+    publishTaskState({ sessionID: input.sessionID, taskID: task.id, message: `task ${task.id}: planned` }),
   )
 })
 
 export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(function* (input: {
-  runID?: string
+  sessionID?: SessionID
   taskID?: string
   childSessionID: SessionID
   model?: string
 }) {
-  if (!input.runID || !input.taskID) return
+  if (!input.sessionID || !input.taskID) return
+  const sessionID = input.sessionID
   const now = Date.now()
   // Transition from "revision_requested" → "revising"
   yield* Database.query((db) =>
@@ -319,7 +325,7 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
       })
       .where(
         and(
-          eq(AgentClusterTaskTable.run_id, input.runID as RunID),
+          eq(AgentClusterTaskTable.session_id, sessionID),
           eq(AgentClusterTaskTable.id, input.taskID as TaskID),
           eq(AgentClusterTaskTable.status, "revision_requested"),
         ),
@@ -340,23 +346,24 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
       })
       .where(
         and(
-          eq(AgentClusterTaskTable.run_id, input.runID as RunID),
+          eq(AgentClusterTaskTable.session_id, sessionID),
           eq(AgentClusterTaskTable.id, input.taskID as TaskID),
           inArray(AgentClusterTaskTable.status, ["planned", "queued"]),
         ),
       )
       .run(),
   )
-  yield* publishTaskState({ runID: input.runID as RunID, taskID: input.taskID as TaskID })
+  yield* publishTaskState({ sessionID, taskID: input.taskID as TaskID })
 })
 
 export const submitTaskResult = Effect.fn("AgentCluster.submitTaskResult")(function* (input: {
-  runID?: string
+  sessionID?: SessionID
   taskID?: string
   childSessionID: SessionID
   summary: string
 }) {
-  if (!input.runID || !input.taskID) return
+  if (!input.sessionID || !input.taskID) return
+  const sessionID = input.sessionID
   yield* Database.query((db) =>
     db
       .update(AgentClusterTaskTable)
@@ -367,24 +374,20 @@ export const submitTaskResult = Effect.fn("AgentCluster.submitTaskResult")(funct
         last_event: "submitted",
         time_updated: Date.now(),
       })
-      .where(
-        and(
-          eq(AgentClusterTaskTable.run_id, input.runID as RunID),
-          eq(AgentClusterTaskTable.id, input.taskID as TaskID),
-        ),
-      )
+      .where(and(eq(AgentClusterTaskTable.session_id, sessionID), eq(AgentClusterTaskTable.id, input.taskID as TaskID)))
       .run(),
   )
-  yield* publishTaskState({ runID: input.runID as RunID, taskID: input.taskID as TaskID })
+  yield* publishTaskState({ sessionID, taskID: input.taskID as TaskID })
 })
 
 export const failTaskResult = Effect.fn("AgentCluster.failTaskResult")(function* (input: {
-  runID?: string
+  sessionID?: SessionID
   taskID?: string
   childSessionID: SessionID
   error: string
 }) {
-  if (!input.runID || !input.taskID) return
+  if (!input.sessionID || !input.taskID) return
+  const sessionID = input.sessionID
   yield* Database.query((db) =>
     db
       .update(AgentClusterTaskTable)
@@ -395,25 +398,20 @@ export const failTaskResult = Effect.fn("AgentCluster.failTaskResult")(function*
         last_event: "failed",
         time_updated: Date.now(),
       })
-      .where(
-        and(
-          eq(AgentClusterTaskTable.run_id, input.runID as RunID),
-          eq(AgentClusterTaskTable.id, input.taskID as TaskID),
-        ),
-      )
+      .where(and(eq(AgentClusterTaskTable.session_id, sessionID), eq(AgentClusterTaskTable.id, input.taskID as TaskID)))
       .run(),
   )
-  yield* publishTaskState({ runID: input.runID as RunID, taskID: input.taskID as TaskID })
-  yield* finishRunFromTaskStates(input.runID as RunID)
+  yield* publishTaskState({ sessionID, taskID: input.taskID as TaskID })
 })
 
 export const cancelTaskResult = Effect.fn("AgentCluster.cancelTaskResult")(function* (input: {
-  runID?: string
+  sessionID?: SessionID
   taskID?: string
   childSessionID: SessionID
   reason: string
 }) {
-  if (!input.runID || !input.taskID) return
+  if (!input.sessionID || !input.taskID) return
+  const sessionID = input.sessionID
   yield* Database.query((db) =>
     db
       .update(AgentClusterTaskTable)
@@ -426,44 +424,35 @@ export const cancelTaskResult = Effect.fn("AgentCluster.cancelTaskResult")(funct
       })
       .where(
         and(
-          eq(AgentClusterTaskTable.run_id, input.runID as RunID),
+          eq(AgentClusterTaskTable.session_id, sessionID),
           eq(AgentClusterTaskTable.id, input.taskID as TaskID),
           inArray(AgentClusterTaskTable.status, ["planned", "queued", "running", "revising"]),
         ),
       )
       .run(),
   )
-  yield* publishTaskState({ runID: input.runID as RunID, taskID: input.taskID as TaskID })
-  yield* finishRunFromTaskStates(input.runID as RunID)
+  yield* publishTaskState({ sessionID, taskID: input.taskID as TaskID })
 })
 
-export const finishRunFromTaskStates = Effect.fn("AgentCluster.finishRunFromTaskStates")(function* (runID: RunID) {
+export const sessionTaskStatus = Effect.fn("AgentCluster.sessionTaskStatus")(function* (sessionID: SessionID) {
   const tasks = (yield* Database.query((db) =>
-    db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.run_id, runID)).all(),
+    db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.session_id, sessionID)).all(),
   )) as TaskRow[]
-  const now = Date.now()
   const status: "open" | "completed" | "failed" = tasks.some(
-    (task) => task.status === "failed" || task.status === "cancelled",
+    (task) => task.status === "failed" || task.status === "cancelled" || task.status === "interrupted",
   )
     ? "failed"
     : tasks.length > 0 && tasks.every((task) => task.status === "accepted")
       ? "completed"
       : "open"
 
-  if (status === "open") return status
-
-  yield* Database.query((db) =>
-    db
-      .update(AgentClusterRunTable)
-      .set({ status, completed_at: now, time_updated: now })
-      .where(eq(AgentClusterRunTable.id, runID))
-      .run(),
-  )
   return status
 })
 
-export const finalizeRunIfTerminal = Effect.fn("AgentCluster.finalizeRunIfTerminal")(function* (runID: RunID) {
-  return (yield* finishRunFromTaskStates(runID)) === "completed"
+export const finalizeSessionIfTerminal = Effect.fn("AgentCluster.finalizeSessionIfTerminal")(function* (
+  sessionID: SessionID,
+) {
+  return (yield* sessionTaskStatus(sessionID)) === "completed"
 })
 
 function plannedTaskFromRow(row: TaskRow): PlannedTask {
@@ -493,13 +482,13 @@ export function summarizeTaskResult(text: string) {
 }
 
 export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")(function* (input: {
-  runID?: string
+  sessionID?: SessionID
   requestedTaskID?: string
   resumeSessionID?: string
   prompt: string
   config: ConfigAgentCluster.Info
 }) {
-  if (!input.runID || !input.requestedTaskID) {
+  if (!input.sessionID || !input.requestedTaskID) {
     return {
       prompt: input.prompt,
       taskID: undefined as TaskID | undefined,
@@ -508,16 +497,16 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
       variant: undefined as string | undefined,
     }
   }
-  const runID = input.runID as RunID
+  const sessionID = input.sessionID
   const rows = (yield* Database.query((db) =>
-    db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.run_id, runID)).all(),
+    db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.session_id, sessionID)).all(),
   )) as TaskRow[]
   const target = rows.find((row) => row.id === input.requestedTaskID || row.child_session_id === input.requestedTaskID)
   if (!target) {
     const knownIDs = rows.map((r) => `${r.id}(step=${r.step},status=${r.status})`).join(", ")
     return yield* Effect.fail(
       new Error(
-        `Unknown cluster task for run ${runID}: ${input.requestedTaskID}. ` +
+        `Unknown cluster task for session ${input.sessionID}: ${input.requestedTaskID}. ` +
           `Known tasks in this run: [${knownIDs || "(none — plan may not have been persisted yet)"}]. ` +
           `Hint: make sure the plan JSON was output before dispatching tasks, and that task_id matches exactly.`,
       ),
@@ -528,14 +517,7 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   }
   const resumedSessionID = input.resumeSessionID as SessionID | undefined
   if (resumedSessionID) {
-    const run = (yield* Database.query((db) =>
-      db
-        .select({ sessionID: AgentClusterRunTable.session_id })
-        .from(AgentClusterRunTable)
-        .where(eq(AgentClusterRunTable.id, runID))
-        .get(),
-    )) as { sessionID: SessionID } | undefined
-    const sessionState = run ? yield* getSessionState(run.sessionID) : undefined
+    const sessionState = yield* getSessionState(sessionID)
     let latestTask: TaskRow | undefined
     for (const task of sessionState?.tasks ?? []) {
       if (task.child_session_id !== resumedSessionID) continue
@@ -543,7 +525,9 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
     }
     const reusable =
       latestTask &&
-      (latestTask.status === "accepted" || latestTask.status === "failed" || latestTask.status === "cancelled")
+      latestTask.status !== "running" &&
+      latestTask.status !== "queued" &&
+      latestTask.status !== "revising"
     if (!reusable) {
       return yield* Effect.fail(
         new Error(
@@ -629,16 +613,7 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   const peers = tasks.filter((item) => item.step === task.step && item.id !== task.id)
   const consumers = tasks.filter((item) => item.dependencies.includes(task.id))
   const brief = buildTaskBrief({
-    goal:
-      (
-        (yield* Database.query((db) =>
-          db
-            .select({ goal: AgentClusterRunTable.goal })
-            .from(AgentClusterRunTable)
-            .where(eq(AgentClusterRunTable.id, runID))
-            .get(),
-        )) as { goal: string } | undefined
-      )?.goal ?? "Multi-Agent cluster run",
+    goal: "Multi-Agent session task graph",
     task,
     peers,
     predecessors,
@@ -651,7 +626,7 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
       db
         .update(AgentClusterTaskTable)
         .set({ status: "revising" as const, time_updated: Date.now() })
-        .where(and(eq(AgentClusterTaskTable.run_id, runID), eq(AgentClusterTaskTable.id, target.id)))
+        .where(and(eq(AgentClusterTaskTable.session_id, sessionID), eq(AgentClusterTaskTable.id, target.id)))
         .run(),
     )
   }
@@ -667,37 +642,16 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
 export const getSessionState = Effect.fn("AgentCluster.getSessionState")(function* (sessionID: SessionID) {
   return yield* Database.query((db) =>
     Effect.gen(function* () {
-      const runs = (yield* db
+      const tasks = (yield* db
         .select()
-        .from(AgentClusterRunTable)
-        .where(eq(AgentClusterRunTable.session_id, sessionID))
-        .all()) as (typeof AgentClusterRunTable.$inferSelect)[]
-      const tasks =
-        runs.length === 0
-          ? []
-          : ((yield* db
-              .select()
-              .from(AgentClusterTaskTable)
-              .where(
-                inArray(
-                  AgentClusterTaskTable.run_id,
-                  runs.map((run) => run.id),
-                ),
-              )
-              .all()) as TaskRow[])
-      const orderedRuns = [...runs].sort(
-        (left, right) => left.time_created - right.time_created || left.id.localeCompare(right.id),
-      )
-      const runOrder = new Map(orderedRuns.map((run, index) => [run.id, index]))
+        .from(AgentClusterTaskTable)
+        .where(eq(AgentClusterTaskTable.session_id, sessionID))
+        .all()) as TaskRow[]
       const orderedTasks = [...tasks].sort(
         (left, right) =>
-          (runOrder.get(left.run_id) ?? Number.MAX_SAFE_INTEGER) -
-            (runOrder.get(right.run_id) ?? Number.MAX_SAFE_INTEGER) ||
-          left.step - right.step ||
-          left.time_created - right.time_created ||
-          left.id.localeCompare(right.id),
+          left.step - right.step || left.time_created - right.time_created || left.id.localeCompare(right.id),
       )
-      return { runs: orderedRuns, tasks: orderedTasks }
+      return { tasks: orderedTasks }
     }),
   )
 })
@@ -711,7 +665,13 @@ export const reusableSubagents = Effect.fn("AgentCluster.reusableSubagents")(fun
     if (!previous || previous.time_updated <= task.time_updated) latestBySession.set(task.child_session_id, task)
   }
   return [...latestBySession.values()]
-    .filter((task) => task.status === "accepted" || task.status === "failed" || task.status === "cancelled")
+    .filter(
+      (task) =>
+        task.status === "accepted" ||
+        task.status === "failed" ||
+        task.status === "cancelled" ||
+        task.status === "interrupted",
+    )
     .sort((left, right) => right.time_updated - left.time_updated)
     .map((task) => ({
       sessionID: task.child_session_id!,
@@ -723,7 +683,6 @@ export const reusableSubagents = Effect.fn("AgentCluster.reusableSubagents")(fun
 })
 
 export const run = Effect.fn("AgentCluster.run")(function* (input: {
-  runID: string
   session: Session.Info
   message: MessageV2.WithParts
   config: ConfigAgentCluster.Info
@@ -731,8 +690,7 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
   runLoop: Effect.Effect<MessageV2.WithParts>
 }) {
   const bus = yield* Bus.Service
-  const runID = input.runID as RunID
-  const publish = (status: RunStatus, message: string) =>
+  const publish = (message: string, phase: "planning" | "completed" | "failed") =>
     Effect.gen(function* () {
       const createdAt = Date.now()
       yield* Database.query((db) =>
@@ -740,69 +698,39 @@ export const run = Effect.fn("AgentCluster.run")(function* (input: {
           .insert(AgentClusterEventTable)
           .values({
             id: ulid(),
-            run_id: runID,
-            type: "run",
+            session_id: input.session.id,
+            origin_message_id: input.message.info.id,
+            type: "task",
             message,
-            metadata: { status },
+            metadata: { phase },
           })
           .run(),
       )
       yield* bus.publish(Event, {
         sessionID: input.session.id,
-        runID,
         type: "run",
-        status,
         message,
+        metadata: { phase },
         createdAt,
       })
     })
 
-  const now = Date.now()
-  yield* Database.query((db) =>
-    db
-      .insert(AgentClusterRunTable)
-      .values({
-        id: runID,
-        session_id: input.session.id,
-        parent_message_id: input.message.info.id,
-        enabled: true,
-        status: "planning",
-        goal:
-          input.message.parts
-            .flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : []))
-            .join("\n")
-            .slice(0, 2000) || "Multi-Agent cluster run",
-        planner_model: formatModel(input.models.planner),
-        // Legacy storage column retained for database compatibility. Review is
-        // performed by the cluster primary, so no separate model is routed.
-        reviewer_model: formatModel(input.models.planner),
-        time_created: now,
-        time_updated: now,
-      })
-      .run(),
-  )
-  yield* publish("planning", "main: planning")
+  yield* publish("main: planning", "planning")
 
   return yield* input.runLoop.pipe(
     Effect.tap(() =>
-      finishRunFromTaskStates(runID).pipe(
+      sessionTaskStatus(input.session.id).pipe(
         Effect.andThen((status) =>
           status === "completed"
-            ? publish("completed", "main: completed")
+            ? publish("main: completed", "completed")
             : status === "failed"
-              ? publish("failed", "main: failed")
+              ? publish("main: failed", "failed")
               : Effect.void,
         ),
       ),
     ),
     Effect.catchCause((cause) =>
-      Database.query((db) =>
-        db
-          .update(AgentClusterRunTable)
-          .set({ status: "failed", completed_at: Date.now(), time_updated: Date.now() })
-          .where(eq(AgentClusterRunTable.id, runID))
-          .run(),
-      ).pipe(Effect.andThen(publish("failed", Cause.pretty(cause))), Effect.andThen(Effect.failCause(cause))),
+      publish(`main: failed: ${Cause.pretty(cause)}`, "failed").pipe(Effect.andThen(Effect.failCause(cause))),
     ),
   )
 })

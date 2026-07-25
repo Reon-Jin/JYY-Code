@@ -2,8 +2,7 @@ import { afterEach, describe, expect } from "bun:test"
 import path from "path"
 import { Effect, Exit, Layer } from "effect"
 import { Agent } from "@/agent/agent"
-import { AgentClusterRunTable, AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
-import { AgentCluster } from "@/agent-cluster/cluster"
+import { AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
 import { Event as AgentClusterEvent } from "@/agent-cluster/event"
 import { AgentClusterReviewTool } from "@/tool/agent-cluster-review"
 import { Bus } from "@/bus"
@@ -50,7 +49,6 @@ const seed = Effect.fn("AgentClusterReviewTest.seed")(function* (input?: {
 }) {
   const sessions = yield* Session.Service
   const chat = yield* sessions.create({ title: "Cluster review" })
-  const runID = AgentCluster.createRunID()
   const taskID = `api-${ulid()}`
   const childSessionID = `ses_${ulid()}`
   const user = yield* sessions.updateMessage({
@@ -81,29 +79,16 @@ const seed = Effect.fn("AgentClusterReviewTest.seed")(function* (input?: {
     sessionID: chat.id,
     type: "text",
     synthetic: true,
-    metadata: { kind: "agent_cluster", runID },
+    metadata: { kind: "agent_cluster", sessionID: chat.id },
     text: "cluster",
   })
   const now = Date.now()
   Database.use((db) => {
-    db.insert(AgentClusterRunTable)
-      .values({
-        id: runID as any,
-        session_id: chat.id,
-        parent_message_id: user.id,
-        enabled: true,
-        status: "reviewing",
-        goal: "Ship feature",
-        planner_model: "test/planner",
-        reviewer_model: "test/reviewer",
-        time_created: now,
-        time_updated: now,
-      })
-      .run()
     db.insert(AgentClusterTaskTable)
       .values({
         id: taskID as any,
-        run_id: runID as any,
+        session_id: chat.id,
+        origin_message_id: user.id,
         child_session_id: childSessionID as any,
         role: "coder",
         title: "API",
@@ -119,16 +104,16 @@ const seed = Effect.fn("AgentClusterReviewTest.seed")(function* (input?: {
       })
       .run()
   })
-  return { chat, assistant, runID, taskID, childSessionID }
+  return { chat, assistant, taskID, childSessionID }
 })
 
-function ctx(input: { chat: Session.Info; assistant: any; runID: string }) {
+function ctx(input: { chat: Session.Info; assistant: any }) {
   return {
     sessionID: input.chat.id,
     messageID: input.assistant.id,
     agent: "cluster",
     abort: new AbortController().signal,
-    extra: { agentClusterRunID: input.runID },
+    extra: { agentClusterSessionID: input.chat.id },
     messages: [],
     metadata: () => Effect.void,
     ask: () => Effect.void,
@@ -286,18 +271,10 @@ describe("agent_cluster_review", () => {
           .where(Database.eq(AgentClusterTaskTable.id, seeded.taskID as any))
           .get(),
       )
-      const run = Database.use((db) =>
-        db
-          .select()
-          .from(AgentClusterRunTable)
-          .where(Database.eq(AgentClusterRunTable.id, seeded.runID as any))
-          .get(),
-      )
 
       expect(result.output).toContain("maximum review rounds reached")
       expect(task?.status).toBe("failed")
       expect(task?.review_round).toBe(2)
-      expect(run?.status).toBe("failed")
     }),
   )
 })
