@@ -508,7 +508,11 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     if (sessionID && url.pathname.endsWith("/todo") && request.method === "GET") {
       return json(todos.get(sessionID) ?? [])
     }
-    if (sessionID && url.pathname.endsWith("/prompt_async") && request.method === "POST") {
+    if (
+      sessionID &&
+      (url.pathname.endsWith("/prompt_async") || url.pathname.endsWith("/interrupt-prompt")) &&
+      request.method === "POST"
+    ) {
       const promptText = Array.isArray(value.parts)
         ? String((value.parts[0] as Record<string, unknown> | undefined)?.text ?? "")
         : ""

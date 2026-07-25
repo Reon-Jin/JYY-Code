@@ -67,7 +67,7 @@ describe("MultiAgentPanelView", () => {
     expect(screen.queryByText("Implement Mission Control")).not.toBeInTheDocument()
     await user.click(toggle)
     expect(screen.getByText("Implement Mission Control")).toBeVisible()
-    expect(screen.getByText("已中断")).toBeVisible()
+    expect(screen.getByText("已中断", { selector: ".multi-agent-task__matrix" })).toBeVisible()
     await user.click(screen.getByRole("button", { name: "审阅：Implement Mission Control" }))
     expect(onOpenChild).toHaveBeenCalledWith("ses_child")
   })

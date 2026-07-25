@@ -356,7 +356,7 @@ describe("desktop GUI journey", () => {
       createdAt: 3,
     })
     expect(await screen.findByRole("progressbar", { name: "多智能体进度" })).toHaveAttribute("aria-valuenow", "0")
-    expect(screen.getAllByText("运行中").length).toBeGreaterThan(0)
+    expect(screen.getByText(/1 TASKS.*1 ACTIVE/)).toBeVisible()
 
     const railButton = screen.getByRole("button", { name: "多智能体" })
     await user.click(railButton)
@@ -579,9 +579,10 @@ describe("desktop GUI journey", () => {
       expect(
         backend.requests.some(
           (request) =>
-            request.path === "/session/ses_child/prompt_async" &&
+            request.path === "/session/ses_child/interrupt-prompt" &&
             request.body.agent === "coder" &&
-            JSON.stringify(request.body.model) === JSON.stringify({ providerID: "test", modelID: "coder-model" }),
+            JSON.stringify(request.body.model) === JSON.stringify({ providerID: "test", modelID: "coder-model" }) &&
+            JSON.stringify(request.body.agentCluster) === JSON.stringify({ enabled: false }),
         ),
       ).toBe(true),
       { timeout: 4_000 },
