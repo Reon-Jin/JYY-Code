@@ -559,6 +559,8 @@ describe("desktop GUI journey", () => {
     expect(screen.getByText("child command")).toBeVisible()
     expect(screen.queryByText("sibling command")).not.toBeInTheDocument()
     expect(await screen.findByRole("button", { name: "发送并中断" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "仅本次允许" }))
+    await waitFor(() => expect(backend.permissions.some((permission) => permission.id === "per_child")).toBe(false))
     await waitFor(() =>
       expect(desktop.lastLocation()).toEqual({
         project: desktop.directory,
