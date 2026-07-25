@@ -470,10 +470,23 @@ export class EventBridge {
     const directory = this.#options.directory
     switch (action.kind) {
       case "session.upsert": {
-        const listKey = keys.sessions(directory)
-        const sessions = this.#options.queryClient.getQueryData<Session[]>(listKey)
-        if (sessions) this.#options.queryClient.setQueryData(listKey, upsertByID(sessions, action.info))
-        else this.#invalidate(listKey)
+        const patchRootList = (archived: boolean) => {
+          const listKey = keys.sessions(directory, archived)
+          const sessions = this.#options.queryClient.getQueryData<Session[]>(listKey)
+          const belongs =
+            action.info.parentID === undefined &&
+            (archived ? action.info.time.archived !== undefined : action.info.time.archived === undefined)
+          if (sessions) {
+            this.#options.queryClient.setQueryData(
+              listKey,
+              belongs ? upsertByID(sessions, action.info) : sessions.filter((session) => session.id !== action.info.id),
+            )
+          } else if (belongs) {
+            this.#invalidate(listKey)
+          }
+        }
+        patchRootList(false)
+        patchRootList(true)
 
         const allKey = keys.sessionsAll(directory)
         const allSessions = this.#options.queryClient.getQueryData<Session[]>(allKey)
@@ -489,15 +502,17 @@ export class EventBridge {
         break
       }
       case "session.remove": {
-        const listKey = keys.sessions(directory)
-        const sessions = this.#options.queryClient.getQueryData<Session[]>(listKey)
-        if (!sessions || !sessions.some((session) => session.id === action.sessionID)) {
-          this.#invalidate(listKey)
-        } else {
-          this.#options.queryClient.setQueryData(
-            listKey,
-            sessions.filter((session) => session.id !== action.sessionID),
-          )
+        for (const archived of [false, true]) {
+          const listKey = keys.sessions(directory, archived)
+          const sessions = this.#options.queryClient.getQueryData<Session[]>(listKey)
+          if (!sessions || !sessions.some((session) => session.id === action.sessionID)) {
+            this.#invalidate(listKey)
+          } else {
+            this.#options.queryClient.setQueryData(
+              listKey,
+              sessions.filter((session) => session.id !== action.sessionID),
+            )
+          }
         }
         this.#options.queryClient.removeQueries({ queryKey: keys.session(directory, action.sessionID), exact: true })
         const allKey = keys.sessionsAll(directory)

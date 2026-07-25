@@ -145,7 +145,9 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
       props.activeSession ??
       [...props.activeSessions, ...props.archivedSessions].find((session) => session.id === props.activeSessionID),
   )
-  const list = () => (filter() === "active" ? props.activeSessions : props.archivedSessions)
+  const rootActiveSessions = () => props.activeSessions.filter((session) => session.parentID === undefined)
+  const rootArchivedSessions = () => props.archivedSessions.filter((session) => session.parentID === undefined)
+  const list = () => (filter() === "active" ? rootActiveSessions() : rootArchivedSessions())
   const listLoading = () => (filter() === "active" ? props.activeLoading : props.archivedLoading)
   const listError = () => (filter() === "active" ? props.activeError : props.archivedError)
   const retry = () => (filter() === "active" ? props.onRetryActive : props.onRetryArchived)
@@ -216,10 +218,10 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
           </Button>
           <div class="session-filter" aria-label={tr("layout.session-display-range")}>
             <button type="button" aria-pressed={filter() === "active"} onClick={() => setFilter("active")}>
-              {tr("layout.activity")} <span>{props.activeSessions.length}</span>
+              {tr("layout.activity")} <span>{rootActiveSessions().length}</span>
             </button>
             <button type="button" aria-pressed={filter() === "archived"} onClick={() => setFilter("archived")}>
-              {tr("sessions.archive")} <span>{props.archivedSessions.length}</span>
+              {tr("sessions.archive")} <span>{rootArchivedSessions().length}</span>
             </button>
           </div>
         </div>
