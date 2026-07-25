@@ -187,6 +187,8 @@ export type MultiAgentPanelViewProps = {
 
 export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
   const [collapsedSteps, setCollapsedSteps] = createSignal<ReadonlySet<number>>(new Set())
+  const completionPercent = () =>
+    props.snapshot.totalAgents > 0 ? Math.round((props.snapshot.doneAgents / props.snapshot.totalAgents) * 100) : 0
 
   function toggleStep(index: number) {
     setCollapsedSteps((current) => {
@@ -206,6 +208,8 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
           {props.snapshot.totalAgents} TASKS · {props.snapshot.doneAgents} DONE · {props.snapshot.runningAgents} ACTIVE ·{" "}
           {props.snapshot.interruptedAgents} INTERRUPTED
         </span>
+      </header>
+      <div class="multi-agent-panel__progress-row">
         <progress
           class="multi-agent-panel__progress"
           aria-label={tr("multi-agent.multi-agent-progress")}
@@ -215,7 +219,8 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
           max={Math.max(props.snapshot.totalAgents, 1)}
           value={props.snapshot.doneAgents}
         />
-      </header>
+        <span class="multi-agent-panel__progress-value" aria-hidden="true">{completionPercent()}%</span>
+      </div>
 
       <Show
         when={!props.loading}
