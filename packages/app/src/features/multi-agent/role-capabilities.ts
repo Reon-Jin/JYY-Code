@@ -4,6 +4,22 @@ export type MultiAgentRoleCapability = {
   summary: string
 }
 
+/** Stable, monochrome avatars for the Mission Control task rail. */
+export type MultiAgentRoleAvatar =
+  | "bot"
+  | "search"
+  | "grid"
+  | "pen"
+  | "code"
+  | "bug"
+  | "chart"
+  | "file"
+  | "image"
+  | "folder"
+  | "compass"
+  | "shield"
+  | "map"
+
 export const multiAgentRoleCapabilities: Record<string, MultiAgentRoleCapability> = {
   researcher: {
     skill: "cluster-research-evidence",
@@ -82,4 +98,23 @@ const UNKNOWN_ROLE_CAPABILITY: MultiAgentRoleCapability = {
 
 export function roleCapability(role: string) {
   return multiAgentRoleCapabilities[role.toLowerCase()] ?? UNKNOWN_ROLE_CAPABILITY
+}
+
+export function roleAvatar(role: string): MultiAgentRoleAvatar {
+  const avatars: Record<string, MultiAgentRoleAvatar> = {
+    general: "bot",
+    researcher: "search",
+    analyst: "grid",
+    writer: "pen",
+    coder: "code",
+    tester: "bug",
+    chart: "chart",
+    pdf: "file",
+    picture_searcher: "image",
+    explore: "folder",
+    scout: "compass",
+    reviewer: "shield",
+    planner: "map",
+  }
+  return avatars[role.toLowerCase()] ?? "bot"
 }
