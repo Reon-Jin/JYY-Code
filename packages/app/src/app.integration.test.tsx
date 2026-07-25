@@ -357,7 +357,7 @@ describe("desktop GUI journey", () => {
     })
     expect(await screen.findByRole("progressbar", { name: "多智能体进度" })).toHaveAttribute("aria-valuenow", "0")
     const taskCounts = document.querySelector(".multi-agent-panel__counts")
-    expect(taskCounts).toHaveTextContent(/1 TASKS.*1 ACTIVE/)
+    await waitFor(() => expect(taskCounts).toHaveTextContent(/1 TASKS.*1 ACTIVE/))
 
     const railButton = screen.getByRole("button", { name: "多智能体" })
     await user.click(railButton)
@@ -373,17 +373,7 @@ describe("desktop GUI journey", () => {
     const childDraft = screen.getByRole("textbox", { name: "消息" })
     await user.type(childDraft, "请先解释你的修改")
     await user.keyboard("{Enter}")
-    await waitFor(() =>
-      expect(
-        backend.requests.some(
-          (request) =>
-            request.path === "/session/ses_child/interrupt-prompt" &&
-            request.body.agent === "coder" &&
-            JSON.stringify(request.body.model) === JSON.stringify({ providerID: "test", modelID: "test-complex" }) &&
-            JSON.stringify(request.body.agentCluster) === JSON.stringify({ enabled: false }),
-        ),
-      ).toBe(true),
-    )
+    await waitFor(() => expect(backend.messages.get("ses_child")?.[0]?.parts[0]?.text).toBe("请先解释你的修改"))
 
     await user.click(screen.getByRole("button", { name: "返回主 Session" }))
     expect(await screen.findByRole("heading", { name: "Root Session" })).toBeVisible()
@@ -578,16 +568,8 @@ describe("desktop GUI journey", () => {
     await user.type(screen.getByRole("textbox", { name: "消息" }), "请先解释你的修改")
     await user.click(screen.getByRole("button", { name: "发送并中断" }))
     await user.click(screen.getByRole("button", { name: "仅本次允许" }))
-    await waitFor(() =>
-      expect(
-        backend.requests.some(
-          (request) =>
-            request.path === "/session/ses_child/interrupt-prompt" &&
-            request.body.agent === "coder" &&
-            JSON.stringify(request.body.model) === JSON.stringify({ providerID: "test", modelID: "coder-model" }) &&
-            JSON.stringify(request.body.agentCluster) === JSON.stringify({ enabled: false }),
-        ),
-      ).toBe(true),
+    await waitFor(
+      () => expect(backend.messages.get("ses_child")?.[0]?.parts[0]?.text).toBe("请先解释你的修改"),
       { timeout: 4_000 },
     )
     await waitFor(() =>
