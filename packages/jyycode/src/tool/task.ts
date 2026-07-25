@@ -74,7 +74,7 @@ const BaseParameters = Schema.Struct({
   prompt: Schema.String.annotate({ description: "The task for the agent to perform" }),
   resume_session_id: Schema.optional(Schema.String).annotate({
     description:
-      "In cluster mode, resume an existing completed subagent session for a new planned task while task_id remains the new plan task id",
+      "In cluster mode, reuse any existing child session for a new planned task while task_id remains the new plan task id; an active child is interrupted first",
   }),
   subagent_type: Schema.String.annotate({ description: "The type of specialized agent to use for this task" }),
   task_id: Schema.optional(Schema.String).annotate({
@@ -112,7 +112,7 @@ export const Parameters = Schema.Struct({
   prompt: Schema.String.annotate({ description: "The task for the agent to perform" }),
   resume_session_id: Schema.optional(Schema.String).annotate({
     description:
-      "In cluster mode, resume an existing completed subagent session for a new planned task while task_id remains the new plan task id",
+      "In cluster mode, reuse any existing child session for a new planned task while task_id remains the new plan task id; an active child is interrupted first",
   }),
   subagent_type: Schema.String.annotate({ description: "The type of specialized agent to use for this task" }),
   task_id: Schema.optional(Schema.String).annotate({
@@ -1005,7 +1005,20 @@ export const TaskTool = Tool.define(
         yield* continueIfIdle({ userID: message.info.id, state })
       })
 
-      const existing = yield* background.get(nextSession.id)
+      let existing = yield* background.get(nextSession.id)
+      if (existing?.status === "running" && clusterSessionID && clusterPlanTaskID) {
+        const interrupted = yield* AgentCluster.interruptActiveChildAssignment({
+          sessionID: clusterSessionID,
+          childSessionID: nextSession.id,
+          reason: `Reassigned by cluster primary to ${clusterPlanTaskID}`,
+        })
+        if (!interrupted.interrupted) {
+          return yield* Effect.fail(
+            new Error(`Subagent ${nextSession.id} is running an assignment that could not be safely interrupted.`),
+          )
+        }
+        existing = yield* background.get(nextSession.id)
+      }
       if (existing?.status === "running") {
         return yield* Effect.fail(
           new Error(`Task ${nextSession.id} is already running. Use task_status to check progress.`),

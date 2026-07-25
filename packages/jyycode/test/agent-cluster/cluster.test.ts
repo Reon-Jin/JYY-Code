@@ -8,6 +8,7 @@ import {
 } from "../../src/agent-cluster/cluster.sql"
 import { Event as AgentClusterEvent } from "../../src/agent-cluster/event"
 import { Bus } from "../../src/bus"
+import { BackgroundJob } from "../../src/background/job"
 import type { Plan, RunID } from "../../src/agent-cluster/schema"
 import { ClusterPrimaryPrompt, runInstructions } from "../../src/agent-cluster/planner"
 import { RoleSkillDefinitions } from "../../src/agent-cluster/role-skills"
@@ -23,6 +24,7 @@ import { testEffect } from "../lib/effect"
 
 const it = testEffect(Session.defaultLayer)
 const eventIt = testEffect(Layer.mergeAll(Session.defaultLayer, Bus.defaultLayer))
+const interruptIt = testEffect(Layer.mergeAll(Session.defaultLayer, BackgroundJob.defaultLayer))
 
 describe("AgentCluster planner instructions", () => {
   test("describe dependency steps as parallel dispatch waves", () => {
@@ -1286,6 +1288,67 @@ describe("AgentCluster session task graph", () => {
         plan: { goal: "Second", tasks: [{ ...task, title: "Different task", prompt: "Do something else" }] },
       }).pipe(Effect.exit)
       expect(result._tag).toBe("Failure")
+    }),
+  )
+
+  interruptIt.instance("interrupts an active worker before reassigning it", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Reassign worker" })
+      const plan = {
+        goal: "Reuse a worker",
+        tasks: [
+          {
+            id: AgentClusterRuntime.coerceTaskID("old-work"),
+            step: 1,
+            title: "Old work",
+            role: "coder" as const,
+            complexity: "simple" as const,
+            model: "test/simple",
+            dependencies: [],
+            prompt: "Do old work",
+            acceptanceCriteria: [],
+            expectedArtifacts: [],
+          },
+          {
+            id: AgentClusterRuntime.coerceTaskID("new-work"),
+            step: 1,
+            title: "New work",
+            role: "coder" as const,
+            complexity: "simple" as const,
+            model: "test/simple",
+            dependencies: [],
+            prompt: "Do new work",
+            acceptanceCriteria: [],
+            expectedArtifacts: [],
+          },
+        ],
+      }
+      yield* AgentCluster.persistPlan({ sessionID: chat.id, plan })
+      yield* AgentCluster.markTaskRunning({
+        sessionID: chat.id,
+        taskID: "old-work",
+        childSessionID: "ses_worker" as any,
+      })
+      const jobs = yield* BackgroundJob.Service
+      yield* jobs.start({ id: "ses_worker", type: "task", run: Effect.never as Effect.Effect<string> })
+      const result = yield* AgentCluster.interruptChildAssignment({
+        sessionID: chat.id,
+        taskID: "old-work" as any,
+        reason: "Reassigned by cluster primary to new-work",
+      })
+      const dispatch = yield* AgentCluster.prepareTaskDispatch({
+        sessionID: chat.id,
+        requestedTaskID: "new-work",
+        resumeSessionID: "ses_worker" as any,
+        prompt: "Start new work",
+        config: { simple_model: "test/simple", complex_model: "test/complex", visual_model: "test/visual" },
+      })
+      const state = yield* AgentCluster.getSessionState(chat.id)
+      expect(result.interrupted).toBe(true)
+      expect(state.tasks.find((task) => task.id === "old-work")?.status).toBe("interrupted")
+      expect((yield* jobs.get("ses_worker"))?.status).toBe("cancelled")
+      expect(dispatch.childSessionID).toBe("ses_worker" as any)
     }),
   )
 })

@@ -9,6 +9,7 @@ import type { MessageV2 } from "@/session/message-v2"
 import type { PromptInput } from "@/session/prompt"
 import type { MessageID, SessionID } from "@/session/schema"
 import { Bus } from "@/bus"
+import { BackgroundJob } from "@/background/job"
 import * as Database from "@/storage/db"
 import { and, eq, inArray } from "@/storage/db"
 import { Cause, Effect, Option } from "effect"
@@ -35,6 +36,20 @@ type ClusterModels = {
 }
 
 type TaskRow = typeof AgentClusterTaskTable.$inferSelect
+
+export const ACTIVE_TASK_STATUSES = [
+  "planned",
+  "queued",
+  "running",
+  "submitted",
+  "reviewing",
+  "revision_requested",
+  "revising",
+] as const satisfies readonly TaskStatus[]
+
+function isActiveTaskStatus(status: TaskStatus) {
+  return (ACTIVE_TASK_STATUSES as readonly string[]).includes(status)
+}
 
 function sameStrings(left: readonly string[], right: readonly string[]) {
   return [...left].sort().join("\u0000") === [...right].sort().join("\u0000")
@@ -374,7 +389,13 @@ export const submitTaskResult = Effect.fn("AgentCluster.submitTaskResult")(funct
         last_event: "submitted",
         time_updated: Date.now(),
       })
-      .where(and(eq(AgentClusterTaskTable.session_id, sessionID), eq(AgentClusterTaskTable.id, input.taskID as TaskID)))
+      .where(
+        and(
+          eq(AgentClusterTaskTable.session_id, sessionID),
+          eq(AgentClusterTaskTable.id, input.taskID as TaskID),
+          inArray(AgentClusterTaskTable.status, ["running", "revising"]),
+        ),
+      )
       .run(),
   )
   yield* publishTaskState({ sessionID, taskID: input.taskID as TaskID })
@@ -398,7 +419,13 @@ export const failTaskResult = Effect.fn("AgentCluster.failTaskResult")(function*
         last_event: "failed",
         time_updated: Date.now(),
       })
-      .where(and(eq(AgentClusterTaskTable.session_id, sessionID), eq(AgentClusterTaskTable.id, input.taskID as TaskID)))
+      .where(
+        and(
+          eq(AgentClusterTaskTable.session_id, sessionID),
+          eq(AgentClusterTaskTable.id, input.taskID as TaskID),
+          inArray(AgentClusterTaskTable.status, ["planned", "queued", "running", "revising"]),
+        ),
+      )
       .run(),
   )
   yield* publishTaskState({ sessionID, taskID: input.taskID as TaskID })
@@ -433,6 +460,70 @@ export const cancelTaskResult = Effect.fn("AgentCluster.cancelTaskResult")(funct
   )
   yield* publishTaskState({ sessionID, taskID: input.taskID as TaskID })
 })
+
+/**
+ * Stops one active child assignment. It is deliberately idempotent so late
+ * background callbacks cannot turn an interrupted task into cancelled or failed.
+ */
+export const interruptChildAssignment = Effect.fn("AgentCluster.interruptChildAssignment")(function* (input: {
+  sessionID: SessionID
+  taskID: TaskID
+  reason: string
+}) {
+  const task = (yield* Database.query((db) =>
+    db
+      .select()
+      .from(AgentClusterTaskTable)
+      .where(and(eq(AgentClusterTaskTable.session_id, input.sessionID), eq(AgentClusterTaskTable.id, input.taskID)))
+      .get(),
+  )) as TaskRow | undefined
+  if (!task || !isActiveTaskStatus(task.status)) return { task, interrupted: false }
+
+  const updated = yield* Database.query((db) =>
+    db
+      .update(AgentClusterTaskTable)
+      .set({
+        status: "interrupted" as const,
+        review_issues: [...task.review_issues, input.reason],
+        last_event: "interrupted",
+        time_updated: Date.now(),
+      })
+      .where(
+        and(
+          eq(AgentClusterTaskTable.session_id, input.sessionID),
+          eq(AgentClusterTaskTable.id, input.taskID),
+          inArray(AgentClusterTaskTable.status, [...ACTIVE_TASK_STATUSES]),
+        ),
+      )
+      .returning()
+      .get(),
+  )
+  if (!updated) return { task, interrupted: false }
+
+  yield* publishTaskState({
+    sessionID: input.sessionID,
+    taskID: input.taskID,
+    message: `task ${input.taskID}: interrupted`,
+  })
+  if (updated.child_session_id) {
+    const jobs = Option.getOrUndefined(yield* Effect.serviceOption(BackgroundJob.Service))
+    if (jobs) yield* jobs.cancel(updated.child_session_id)
+  }
+  return { task: updated as TaskRow, interrupted: true }
+})
+
+export const interruptActiveChildAssignment = Effect.fn("AgentCluster.interruptActiveChildAssignment")(
+  function* (input: { sessionID: SessionID; childSessionID: SessionID; reason: string }) {
+    const rows = (yield* Database.query((db) =>
+      db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.session_id, input.sessionID)).all(),
+    )) as TaskRow[]
+    const active = rows.find(
+      (task) => task.child_session_id === input.childSessionID && isActiveTaskStatus(task.status),
+    )
+    if (!active) return { interrupted: false }
+    return yield* interruptChildAssignment({ sessionID: input.sessionID, taskID: active.id, reason: input.reason })
+  },
+)
 
 export const sessionTaskStatus = Effect.fn("AgentCluster.sessionTaskStatus")(function* (sessionID: SessionID) {
   const tasks = (yield* Database.query((db) =>
@@ -523,16 +614,10 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
       if (task.child_session_id !== resumedSessionID) continue
       if (!latestTask || latestTask.time_updated <= task.time_updated) latestTask = task
     }
-    const reusable =
-      latestTask &&
-      latestTask.status !== "running" &&
-      latestTask.status !== "queued" &&
-      latestTask.status !== "revising"
+    const reusable = latestTask
     if (!reusable) {
       return yield* Effect.fail(
-        new Error(
-          `Cannot resume subagent ${resumedSessionID}: it is not a completed child task from this parent session.`,
-        ),
+        new Error(`Cannot resume subagent ${resumedSessionID}: it does not belong to this session task graph.`),
       )
     }
   }
