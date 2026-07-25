@@ -26,5 +26,6 @@ export const migrations = (
     import("./migration/20260702000000_normalize_storage_paths"),
     import("./migration/20260706090000_agent_cluster_pipeline_context"),
     import("./migration/20260706120000_agent_cluster_task_scope"),
+    import("./migration/20260725100000_session_task_graph"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

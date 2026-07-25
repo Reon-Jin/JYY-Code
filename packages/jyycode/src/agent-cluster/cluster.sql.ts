@@ -4,6 +4,10 @@ import { Timestamps } from "@/storage/schema.sql"
 import type { MessageID, SessionID } from "@/session/schema"
 import type { RunID, RunStatus, TaskID, TaskRole, TaskStatus, Complexity } from "./schema"
 
+/**
+ * Transitional query shape retained while callers are moved to the durable
+ * session task graph. The migration no longer creates this table.
+ */
 export const AgentClusterRunTable = sqliteTable(
   "agent_cluster_run",
   {
@@ -34,10 +38,11 @@ export const AgentClusterTaskTable = sqliteTable(
   "agent_cluster_task",
   {
     id: text().$type<TaskID>().notNull(),
-    run_id: text()
-      .$type<RunID>()
+    session_id: text()
+      .$type<SessionID>()
       .notNull()
-      .references(() => AgentClusterRunTable.id, { onDelete: "cascade" }),
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    origin_message_id: text().$type<MessageID>(),
     parent_task_id: text().$type<TaskID>(),
     child_session_id: text().$type<SessionID>(),
     role: text().$type<TaskRole>().notNull(),
@@ -57,8 +62,8 @@ export const AgentClusterTaskTable = sqliteTable(
     ...Timestamps,
   },
   (table) => [
-    primaryKey({ columns: [table.run_id, table.id] }),
-    index("agent_cluster_task_run_idx").on(table.run_id),
+    primaryKey({ columns: [table.session_id, table.id] }),
+    index("agent_cluster_task_session_idx").on(table.session_id),
     index("agent_cluster_task_child_session_idx").on(table.child_session_id),
   ],
 )
@@ -67,10 +72,11 @@ export const AgentClusterEventTable = sqliteTable(
   "agent_cluster_event",
   {
     id: text().primaryKey(),
-    run_id: text()
-      .$type<RunID>()
+    session_id: text()
+      .$type<SessionID>()
       .notNull()
-      .references(() => AgentClusterRunTable.id, { onDelete: "cascade" }),
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    origin_message_id: text().$type<MessageID>(),
     task_id: text().$type<TaskID>(),
     type: text().notNull(),
     message: text().notNull(),
@@ -78,7 +84,7 @@ export const AgentClusterEventTable = sqliteTable(
     ...Timestamps,
   },
   (table) => [
-    index("agent_cluster_event_run_idx").on(table.run_id),
+    index("agent_cluster_event_session_idx").on(table.session_id),
     index("agent_cluster_event_task_idx").on(table.task_id),
   ],
 )

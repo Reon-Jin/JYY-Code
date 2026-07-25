@@ -1,7 +1,9 @@
-import { expect } from "bun:test"
+import { expect, test } from "bun:test"
 import { Global } from "@jyycode-ai/core/global"
 import { Config } from "@/config/config"
+import { AgentClusterSchema } from "@/agent-cluster/schema"
 import { Effect } from "effect"
+import { Schema } from "effect"
 import fs from "fs/promises"
 import path from "path"
 import { testEffect } from "../lib/effect"
@@ -21,6 +23,33 @@ const withCleanGlobalConfig = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     () => effect,
     () => cleanGlobalConfig,
   )
+
+test("models session-scoped tasks with provenance and interrupted terminal state", () => {
+  const task = Schema.decodeUnknownSync(AgentClusterSchema.TaskRecord)({
+    id: "task-build-ui",
+    sessionID: "ses_root",
+    originMessageID: "msg_plan",
+    role: "coder",
+    title: "Build UI",
+    prompt: "Implement the panel",
+    complexity: "complex",
+    model: "test/model",
+    status: "interrupted",
+    step: 2,
+    dependencies: ["task-research"],
+    reviewRound: 0,
+    acceptanceCriteria: [],
+    artifactPaths: [],
+    reviewIssues: [],
+    createdAt: 1,
+    updatedAt: 1,
+  })
+
+  expect(task.sessionID).toBe("ses_root")
+  expect(task.originMessageID).toBe("msg_plan")
+  expect(task.status).toBe("interrupted")
+  expect("runID" in task).toBe(false)
+})
 
 it.instance(
   "persists cluster role models globally for a fresh session",

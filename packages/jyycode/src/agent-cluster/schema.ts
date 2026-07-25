@@ -36,6 +36,7 @@ export const TaskStatus = Schema.Literals([
   "revising",
   "failed",
   "cancelled",
+  "interrupted",
 ])
 export type TaskStatus = Schema.Schema.Type<typeof TaskStatus>
 
@@ -70,6 +71,32 @@ export const PlannedTask = Schema.Struct({
   expectedArtifacts: Schema.Array(Schema.String),
 })
 export type PlannedTask = Schema.Schema.Type<typeof PlannedTask>
+
+/** The durable task-graph record persisted for a root session. */
+export const TaskRecord = Schema.Struct({
+  id: TaskID,
+  sessionID: SessionID,
+  originMessageID: Schema.optional(MessageID),
+  parentTaskID: Schema.optional(TaskID),
+  childSessionID: Schema.optional(SessionID),
+  role: TaskRole,
+  title: Schema.String,
+  prompt: Schema.String,
+  complexity: Complexity,
+  model: Schema.String,
+  status: TaskStatus,
+  step: Schema.Number,
+  dependencies: Schema.Array(TaskID),
+  reviewRound: Schema.Number,
+  acceptanceCriteria: Schema.Array(Schema.String),
+  artifactPaths: Schema.Array(Schema.String),
+  resultSummary: Schema.optional(Schema.String),
+  reviewIssues: Schema.Array(Schema.String),
+  lastEvent: Schema.optional(Schema.String),
+  createdAt: Schema.Number,
+  updatedAt: Schema.Number,
+})
+export type TaskRecord = Schema.Schema.Type<typeof TaskRecord>
 
 export const Plan = Schema.Struct({
   goal: Schema.String,

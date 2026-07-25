@@ -10,6 +10,7 @@ import { DatabaseMigration } from "../src/database/migration"
 import { migrations } from "../src/database/migration.gen"
 import pipelineContext from "../src/database/migration/20260706090000_agent_cluster_pipeline_context"
 import taskScope from "../src/database/migration/20260706120000_agent_cluster_task_scope"
+import sessionTaskGraph from "../src/database/migration/20260725100000_session_task_graph"
 
 async function cleanup(directory: string, attempts = 20): Promise<void> {
   Bun.gc(true)
@@ -35,7 +36,9 @@ describe("database migrations", () => {
         filename,
         Database.Service.use(({ db }) =>
           Effect.all({
-            session: db.get<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session'`),
+            session: db.get<{ name: string }>(
+              sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session'`,
+            ),
             applied: db.all<{ id: string }>(sql`SELECT id FROM migration ORDER BY id`),
           }),
         ),
@@ -74,7 +77,8 @@ describe("database migrations", () => {
     const input: DatabaseMigration.Migration[] = [
       {
         id: "one",
-        up: (tx) => tx.run(sql`CREATE TABLE one (id INTEGER)`).pipe(Effect.tap(() => Effect.sync(() => calls.push("one")))),
+        up: (tx) =>
+          tx.run(sql`CREATE TABLE one (id INTEGER)`).pipe(Effect.tap(() => Effect.sync(() => calls.push("one")))),
       },
       {
         id: "two",
@@ -132,7 +136,9 @@ describe("database migrations", () => {
     native.run(
       "INSERT INTO session (id, project_id, slug, directory, title, version, cost, tokens_input, tokens_output, tokens_reasoning, tokens_cache_read, tokens_cache_write, time_created, time_updated) VALUES ('session', 'project', 'slug', 'C:/repo', 'title', 'test', 0, 0, 0, 0, 0, 0, 1, 1)",
     )
-    native.run("INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES ('message', 'session', 1, 1, '{}')")
+    native.run(
+      "INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES ('message', 'session', 1, 1, '{}')",
+    )
     native.run(
       "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES ('part', 'message', 'session', 1, 1, '{}')",
     )
@@ -146,9 +152,9 @@ describe("database migrations", () => {
         filename,
         Database.Service.use(({ db }) =>
           Effect.forEach(["project", "session", "message", "part"], (table) =>
-            db.get<{ count: number }>(sql.raw(`SELECT count(*) AS count FROM ${table}`)).pipe(
-              Effect.map((row) => row?.count ?? 0),
-            ),
+            db
+              .get<{ count: number }>(sql.raw(`SELECT count(*) AS count FROM ${table}`))
+              .pipe(Effect.map((row) => row?.count ?? 0)),
           ),
         ),
       )
@@ -212,6 +218,98 @@ describe("database migrations", () => {
         { id: "task-research", run_id: "run-1", step: 1, dependencies: "[]" },
         { id: "task-research", run_id: "run-2", step: 1, dependencies: "[]" },
       ])
+    } finally {
+      await cleanup(dir)
+    }
+  })
+
+  test("preserves completed and active run history in the session task graph", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "jyycode-session-task-graph-migration-"))
+    const filename = join(dir, "cluster.db")
+    const native = new BunDatabase(filename)
+    native.exec(`
+      CREATE TABLE session (id TEXT PRIMARY KEY);
+      INSERT INTO session(id) VALUES ('ses_root');
+      CREATE TABLE agent_cluster_run (
+        id TEXT PRIMARY KEY, session_id TEXT NOT NULL, parent_message_id TEXT NOT NULL,
+        status TEXT NOT NULL, goal TEXT NOT NULL
+      );
+      CREATE TABLE agent_cluster_task (
+        id TEXT NOT NULL, run_id TEXT NOT NULL, parent_task_id TEXT, child_session_id TEXT,
+        role TEXT NOT NULL, title TEXT NOT NULL, prompt TEXT NOT NULL, complexity TEXT NOT NULL,
+        model TEXT NOT NULL, status TEXT NOT NULL, step INTEGER NOT NULL DEFAULT 1,
+        dependencies TEXT NOT NULL DEFAULT '[]', review_round INTEGER NOT NULL DEFAULT 0,
+        acceptance_criteria TEXT NOT NULL, artifact_paths TEXT NOT NULL, result_summary TEXT,
+        review_issues TEXT NOT NULL DEFAULT '[]', last_event TEXT, time_created INTEGER NOT NULL,
+        time_updated INTEGER NOT NULL, PRIMARY KEY (run_id, id)
+      );
+      CREATE TABLE agent_cluster_event (
+        id TEXT PRIMARY KEY, run_id TEXT NOT NULL, task_id TEXT, type TEXT NOT NULL,
+        message TEXT NOT NULL, metadata TEXT, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL
+      );
+      INSERT INTO agent_cluster_run(id, session_id, parent_message_id, status, goal)
+      VALUES ('run-complete', 'ses_root', 'msg_complete', 'completed', 'Completed run'),
+             ('run-active', 'ses_root', 'msg_active', 'dispatching', 'Active run');
+      INSERT INTO agent_cluster_task(id, run_id, role, title, prompt, complexity, model, status, step, dependencies, acceptance_criteria, artifact_paths, time_created, time_updated)
+      VALUES ('summarize', 'run-complete', 'writer', 'Summarize', 'Summarize results', 'simple', 'test/model', 'accepted', 1, '[]', '[]', '[]', 1, 2),
+             ('build', 'run-active', 'coder', 'Build', 'Build the feature', 'complex', 'test/model', 'running', 2, '["summarize"]', '[]', '[]', 3, 4);
+      INSERT INTO agent_cluster_event(id, run_id, task_id, type, message, time_created, time_updated)
+      VALUES ('evt-complete', 'run-complete', 'summarize', 'task', 'Accepted', 2, 2),
+             ('evt-active', 'run-active', 'build', 'task', 'Started', 4, 4);
+    `)
+    native.close()
+
+    try {
+      const result = await withDatabase(
+        filename,
+        Database.Service.use(({ db }) =>
+          Effect.gen(function* () {
+            yield* DatabaseMigration.applyOnly(db, [sessionTaskGraph])
+            return {
+              tasks: yield* db.all<{
+                id: string
+                session_id: string
+                origin_message_id: string | null
+                status: string
+                dependencies: string
+              }>(
+                sql`SELECT id, session_id, origin_message_id, status, dependencies FROM agent_cluster_task ORDER BY time_created`,
+              ),
+              events: yield* db.all<{
+                id: string
+                session_id: string
+                origin_message_id: string | null
+                task_id: string | null
+              }>(sql`SELECT id, session_id, origin_message_id, task_id FROM agent_cluster_event ORDER BY id`),
+              runTable: yield* db.get<{ name: string }>(
+                sql`SELECT name FROM sqlite_master WHERE name = 'agent_cluster_run'`,
+              ),
+            }
+          }),
+        ),
+        Database.noMigrations,
+      )
+      expect(result.tasks).toEqual([
+        {
+          id: "summarize",
+          session_id: "ses_root",
+          origin_message_id: "msg_complete",
+          status: "accepted",
+          dependencies: "[]",
+        },
+        {
+          id: "build",
+          session_id: "ses_root",
+          origin_message_id: "msg_active",
+          status: "running",
+          dependencies: '["summarize"]',
+        },
+      ])
+      expect(result.events).toEqual([
+        { id: "evt-active", session_id: "ses_root", origin_message_id: "msg_active", task_id: "build" },
+        { id: "evt-complete", session_id: "ses_root", origin_message_id: "msg_complete", task_id: "summarize" },
+      ])
+      expect(result.runTable).toBeUndefined()
     } finally {
       await cleanup(dir)
     }
