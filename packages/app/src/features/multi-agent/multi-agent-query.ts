@@ -16,7 +16,7 @@ export async function loadAgentCluster(input: AgentClusterQueryInput) {
     { directory: input.directory, sessionID: input.sessionID },
     input.signal ? { throwOnError: true, signal: input.signal } : { throwOnError: true },
   )
-  return result.data ?? { runs: [], tasks: [] }
+  return result.data ?? { tasks: [] }
 }
 
 export function agentClusterQueryOptions(input: AgentClusterQueryInput) {

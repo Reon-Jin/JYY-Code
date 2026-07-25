@@ -1,4 +1,5 @@
 export const zhCN = {
+  "multi-agent.task-status-interrupted": "已中断",
   "composer.send-and-interrupt": "发送并中断",
   "composer.interrupt-assignment-warning": "发送此消息会中断当前任务。",
   "mcp.edit-mcp-name": "编辑 MCP {name}",
@@ -733,6 +734,7 @@ export const zhCN = {
 export type MessageKey = keyof typeof zhCN
 
 export const enUS = {
+  "multi-agent.task-status-interrupted": "Interrupted",
   "mcp.edit-mcp-name": "Edit MCP {name}",
   "mcp.status-unknown": "Status unknown",
   "settings.english": "English",

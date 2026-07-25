@@ -239,6 +239,8 @@ import type {
   SessionGetResponses,
   SessionInitErrors,
   SessionInitResponses,
+  SessionInterruptPromptErrors,
+  SessionInterruptPromptResponses,
   SessionListErrors,
   SessionListResponses,
   SessionMessageErrors,
@@ -762,7 +764,7 @@ export class Task extends HeyApiClient {
   /**
    * Clear task memory
    *
-   * Clear task memory for one explicit session.
+   * Clear task memory across all sessions, or one explicit session when provided.
    */
   public clear<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -900,7 +902,7 @@ export class Memory extends HeyApiClient {
   /**
    * Compact memories
    *
-   * Compact one memory scope using deterministic storage rules.
+   * Compact one memory scope using deterministic storage rules, across all task sessions when omitted.
    */
   public compact<ThrowOnError extends boolean = false>(
     parameters: {
@@ -932,7 +934,7 @@ export class Memory extends HeyApiClient {
   /**
    * Export memories
    *
-   * Export a normalized memory store for one scope.
+   * Export a normalized memory store for one scope across all matching sessions.
    */
   public export<ThrowOnError extends boolean = false>(
     parameters: {
@@ -4642,7 +4644,7 @@ export class Session2 extends HeyApiClient {
   /**
    * Get session agent cluster state
    *
-   * Retrieve persisted agent cluster runs and tasks for a specific session.
+   * Retrieve the durable session task graph for a specific session.
    */
   public agentCluster<ThrowOnError extends boolean = false>(
     parameters: {
@@ -4977,6 +4979,74 @@ export class Session2 extends HeyApiClient {
       url: "/session/{sessionID}/abort",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Interrupt child assignment and send message
+   *
+   * Stop a running cluster child assignment before sending a steering message to that child session.
+   */
+  public interruptPrompt<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      messageID?: string
+      model?: {
+        providerID: string
+        modelID: string
+      }
+      agent?: string
+      noReply?: boolean
+      tools?: {
+        [key: string]: boolean
+      }
+      format?: OutputFormat
+      system?: string
+      variant?: string
+      agentCluster?: {
+        enabled?: boolean
+      }
+      parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "messageID" },
+            { in: "body", key: "model" },
+            { in: "body", key: "agent" },
+            { in: "body", key: "noReply" },
+            { in: "body", key: "tools" },
+            { in: "body", key: "format" },
+            { in: "body", key: "system" },
+            { in: "body", key: "variant" },
+            { in: "body", key: "agentCluster" },
+            { in: "body", key: "parts" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionInterruptPromptResponses,
+      SessionInterruptPromptErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/interrupt-prompt",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 

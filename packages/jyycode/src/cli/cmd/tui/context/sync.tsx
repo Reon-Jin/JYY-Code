@@ -50,7 +50,8 @@ export type AgentClusterRun = {
 
 export type AgentClusterTask = {
   id: string
-  run_id: string
+  session_id: string
+  origin_message_id: string | null
   parent_task_id: string | null
   child_session_id: string | null
   role:
@@ -78,6 +79,7 @@ export type AgentClusterTask = {
     | "revising"
     | "failed"
     | "cancelled"
+    | "interrupted"
   step: number
   dependencies: string[]
   review_round: number
@@ -91,7 +93,6 @@ export type AgentClusterTask = {
 }
 
 export type AgentClusterState = {
-  runs: AgentClusterRun[]
   tasks: AgentClusterTask[]
 }
 
@@ -108,21 +109,12 @@ export type SessionContextEstimate = {
 
 export function applyAgentClusterEvent(state: AgentClusterState, event: Extract<Event, { type: "agent_cluster.event" }>) {
   const next: AgentClusterState = {
-    runs: state.runs.map((run) => ({ ...run })),
     tasks: state.tasks.map((task) => ({ ...task })),
   }
   const properties = event.properties
   const updatedAt = typeof properties.createdAt === "number" ? properties.createdAt : Date.now()
-  if (properties.type === "run" && properties.status) {
-    const run = next.runs.find((item) => item.id === properties.runID)
-    if (run) {
-      run.status = properties.status as AgentClusterRun["status"]
-      run.time_updated = updatedAt
-      if (["completed", "failed", "cancelled"].includes(properties.status)) run.completed_at = updatedAt
-    }
-  }
   if (properties.taskID && properties.status) {
-    const task = next.tasks.find((item) => item.run_id === properties.runID && item.id === properties.taskID)
+    const task = next.tasks.find((item) => item.id === properties.taskID)
     if (task) {
       task.status = properties.status as AgentClusterTask["status"]
       task.last_event = properties.message
@@ -369,7 +361,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
         case "agent_cluster.event": {
           const sessionID = event.properties.sessionID
-          const current = store.agent_cluster[sessionID] ?? { runs: [], tasks: [] }
+          const current = store.agent_cluster[sessionID] ?? { tasks: [] }
           setStore("agent_cluster", sessionID, reconcile(applyAgentClusterEvent(current, event)))
           // Apply the status immediately, then always fetch the authoritative
           // session JSON. The refresh is debounced, so a burst of task events

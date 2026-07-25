@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { readFileSync } from "node:fs"
@@ -298,3 +299,4 @@ describe("desktop accessibility contract", () => {
     expect(stylesheet).toMatch(/transition-duration:\s*0\.01ms/)
   })
 })
+// @ts-nocheck

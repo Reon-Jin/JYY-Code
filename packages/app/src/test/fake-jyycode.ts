@@ -500,7 +500,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       return json(session)
     }
     if (sessionID && url.pathname.endsWith("/agent-cluster") && request.method === "GET") {
-      return json(agentClusters.get(sessionID) ?? { runs: [], tasks: [] })
+      return json(agentClusters.get(sessionID) ?? { tasks: [] })
     }
     if (sessionID && url.pathname.endsWith("/message") && request.method === "GET") {
       return json(messages.get(sessionID) ?? [])

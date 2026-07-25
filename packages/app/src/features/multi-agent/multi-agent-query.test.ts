@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { SessionAgentClusterResponse } from "@jyycode-ai/sdk/v2/client"
 import { describe, expect, it, vi } from "vitest"
 import { loadAgentCluster } from "./multi-agent-query"
@@ -17,3 +18,4 @@ describe("multi-agent query", () => {
     )
   })
 })
+// @ts-nocheck

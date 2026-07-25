@@ -563,3 +563,16 @@
   margin: 0;
   padding-left: var(--space-4);
 }
+
+/* Mission Control: status is communicated through line, icon, and copy—not color. */
+.multi-agent-progress { display: none; }
+.multi-agent-step > header span[data-tone] { color: var(--color-text-muted); }
+.multi-agent-step ol { position: relative; }
+.multi-agent-step ol::before { position: absolute; top: 0; bottom: 0; left: 7px; width: 1px; background: var(--color-border-strong); content: ""; }
+.multi-agent-task { position: relative; }
+.multi-agent-task[data-selected="true"], .multi-agent-task[data-tone="running"] { border-color: var(--color-text); box-shadow: none; }
+.multi-agent-task[data-tone="running"]::after { position: absolute; inset: -1px; border: 1px solid transparent; border-top-color: var(--color-text); border-radius: inherit; pointer-events: none; content: ""; animation: multi-agent-active-edge 2.4s linear infinite; }
+.multi-agent-task summary .multi-agent-task__matrix { color: var(--color-text-muted); font-family: var(--font-code); font-size: 0.62rem; font-weight: 500; }
+.multi-agent-skill-chip { border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-muted); }
+@keyframes multi-agent-active-edge { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: reduce) { .multi-agent-task[data-tone="running"]::after { animation: none; } }

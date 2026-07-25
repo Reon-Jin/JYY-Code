@@ -232,16 +232,6 @@ const conversationKinds = new Set<CacheAction["kind"]>([
 
 type AgentClusterAction = Extract<CacheAction, { kind: "agent-cluster.event" }>
 
-const runStatuses = new Set([
-  "planning",
-  "dispatching",
-  "reviewing",
-  "synthesizing",
-  "completed",
-  "failed",
-  "cancelled",
-] as const)
-
 const taskStatuses = new Set([
   "planned",
   "queued",
@@ -253,45 +243,22 @@ const taskStatuses = new Set([
   "revising",
   "failed",
   "cancelled",
+  "interrupted",
 ] as const)
 
-type RunStatus = SessionAgentClusterResponse["runs"][number]["status"]
 type TaskStatus = SessionAgentClusterResponse["tasks"][number]["status"]
-
-function isRunStatus(status: AgentClusterAction["event"]["properties"]["status"]): status is RunStatus {
-  return status !== undefined && runStatuses.has(status as RunStatus)
-}
 
 function isTaskStatus(status: AgentClusterAction["event"]["properties"]["status"]): status is TaskStatus {
   return status !== undefined && taskStatuses.has(status as TaskStatus)
 }
 
 function patchAgentClusterState(state: SessionAgentClusterResponse, actions: AgentClusterAction[]) {
-  let runs = state.runs
   let tasks = state.tasks
 
   for (const action of actions) {
     const properties = action.event.properties
-    if (properties.type === "run") {
-      const index = runs.findIndex((run) => run.id === properties.runID)
-      if (index === -1) continue
-      const current = runs[index]!
-      const status = isRunStatus(properties.status) ? properties.status : current.status
-      const completedAt = ["completed", "failed", "cancelled"].includes(status)
-        ? properties.createdAt
-        : current.completed_at
-      runs = [...runs]
-      runs[index] = {
-        ...current,
-        status,
-        time_updated: properties.createdAt,
-        completed_at: completedAt,
-      }
-      continue
-    }
-
     if (!properties.taskID) continue
-    const index = tasks.findIndex((task) => task.run_id === properties.runID && task.id === properties.taskID)
+    const index = tasks.findIndex((task) => task.id === properties.taskID)
     if (index === -1) continue
     const current = tasks[index]!
     tasks = [...tasks]
@@ -303,7 +270,7 @@ function patchAgentClusterState(state: SessionAgentClusterResponse, actions: Age
     }
   }
 
-  return runs === state.runs && tasks === state.tasks ? state : { runs, tasks }
+  return tasks === state.tasks ? state : { tasks }
 }
 
 function isConversationAction(action: CacheAction): action is ConversationAction {

@@ -2160,10 +2160,6 @@ export type NotFoundError = {
   }
 }
 
-export type EffectHttpApiErrorInternalServerError = {
-  _tag: "InternalServerError"
-}
-
 export type TextPartInput = {
   id?: string
   type: "text"
@@ -2210,6 +2206,10 @@ export type SubtaskPartInput = {
     modelID: string
   }
   command?: string
+}
+
+export type EffectHttpApiErrorInternalServerError = {
+  _tag: "InternalServerError"
 }
 
 export type SessionBusyError = {
@@ -2879,24 +2879,21 @@ export type EventAgentClusterEvent = {
   type: "agent_cluster.event"
   properties: {
     sessionID: string
-    runID: string
+    originMessageID?: string
     taskID?: string
     type: "run" | "task" | "review" | "artifact"
     status?:
-      | "planning"
-      | "dispatching"
-      | "reviewing"
-      | "synthesizing"
-      | "completed"
-      | "failed"
-      | "cancelled"
       | "planned"
       | "queued"
       | "running"
       | "submitted"
+      | "reviewing"
       | "accepted"
       | "revision_requested"
       | "revising"
+      | "failed"
+      | "cancelled"
+      | "interrupted"
     message: string
     metadata?: {
       [key: string]: unknown
@@ -4125,24 +4122,21 @@ export type EventAgentClusterEvent1 = {
   type: "agent_cluster.event"
   properties: {
     sessionID: string
-    runID: string
+    originMessageID?: string
     taskID?: string
     type: "run" | "task" | "review" | "artifact"
     status?:
-      | "planning"
-      | "dispatching"
-      | "reviewing"
-      | "synthesizing"
-      | "completed"
-      | "failed"
-      | "cancelled"
       | "planned"
       | "queued"
       | "running"
       | "submitted"
+      | "reviewing"
       | "accepted"
       | "revision_requested"
       | "revising"
+      | "failed"
+      | "cancelled"
+      | "interrupted"
     message: string
     metadata?: {
       [key: string]: unknown
@@ -8148,22 +8142,10 @@ export type SessionAgentClusterResponses = {
    * Agent cluster state
    */
   200: {
-    runs: Array<{
-      id: string
-      session_id: string
-      parent_message_id: string
-      enabled: boolean
-      status: "planning" | "dispatching" | "reviewing" | "synthesizing" | "completed" | "failed" | "cancelled"
-      goal: string
-      planner_model: string
-      reviewer_model: string
-      time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      time_updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      completed_at: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    }>
     tasks: Array<{
       id: string
-      run_id: string
+      session_id: string
+      origin_message_id: string
       parent_task_id: string
       child_session_id: string
       role: "researcher" | "analyst" | "writer" | "chart" | "pdf" | "coder" | "tester" | "picture_searcher" | "general"
@@ -8182,6 +8164,7 @@ export type SessionAgentClusterResponses = {
         | "revising"
         | "failed"
         | "cancelled"
+        | "interrupted"
       step: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       dependencies: Array<string>
       review_round: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -8499,6 +8482,58 @@ export type SessionAbortResponses = {
 }
 
 export type SessionAbortResponse = SessionAbortResponses[keyof SessionAbortResponses]
+
+export type SessionInterruptPromptData = {
+  body?: {
+    messageID?: string
+    model?: {
+      providerID: string
+      modelID: string
+    }
+    agent?: string
+    noReply?: boolean
+    tools?: {
+      [key: string]: boolean
+    }
+    format?: OutputFormat
+    system?: string
+    variant?: string
+    agentCluster?: {
+      enabled?: boolean
+    }
+    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/interrupt-prompt"
+}
+
+export type SessionInterruptPromptErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionInterruptPromptError = SessionInterruptPromptErrors[keyof SessionInterruptPromptErrors]
+
+export type SessionInterruptPromptResponses = {
+  /**
+   * Interrupted assignment and accepted prompt
+   */
+  204: void
+}
+
+export type SessionInterruptPromptResponse = SessionInterruptPromptResponses[keyof SessionInterruptPromptResponses]
 
 export type SessionInitData = {
   body?: {

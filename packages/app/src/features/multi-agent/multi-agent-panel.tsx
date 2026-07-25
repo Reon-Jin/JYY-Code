@@ -23,6 +23,7 @@ function toneLabel(tone: MultiAgentTaskTone) {
     review: tr("multi-agent.under-review"),
     done: tr("conversation.completed"),
     failed: tr("multi-agent.fail"),
+    interrupted: tr("multi-agent.task-status-interrupted"),
   }
   return labels[tone]
 }
@@ -58,6 +59,7 @@ function eventLabel(value: string) {
     accepted: tr("multi-agent.passed"),
     failed: tr("multi-agent.fail"),
     cancelled: tr("multi-agent.canceled"),
+    interrupted: tr("multi-agent.task-status-interrupted"),
   }
   return labels[value.toLowerCase()] ?? value
 }
@@ -138,8 +140,6 @@ export type MultiAgentPanelViewProps = {
 }
 
 export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
-  const run = () => props.snapshot.latestRun
-
   return (
     <section class="multi-agent-panel" aria-labelledby="multi-agent-panel-title">
       <header class="multi-agent-panel__header">
@@ -182,7 +182,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
             }
           >
             <Show
-              when={run()}
+              when={props.snapshot.tasks.length > 0}
               fallback={
                 <p class="multi-agent-panel__empty">
                   {props.enabled
@@ -191,12 +191,10 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                 </p>
               }
             >
-              {(latest) => (
+              <>
                 <div class="multi-agent-panel__body">
                   <div class="multi-agent-summary">
-                    <span class="multi-agent-summary__status" data-status={latest().status}>
-                      {latest().statusLabel}
-                    </span>
+                    <span class="multi-agent-summary__status">{props.snapshot.runningAgents} {tr("multi-agent.running")}</span>
                     <Show
                       when={props.snapshot.totalAgents > 0}
                       fallback={
@@ -205,20 +203,6 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                         </p>
                       }
                     >
-                      <div
-                        class="multi-agent-progress"
-                        role="progressbar"
-                        aria-label={tr("multi-agent.multi-agent-progress")}
-                        aria-valuemin="0"
-                        aria-valuemax={props.snapshot.totalAgents}
-                        aria-valuenow={props.snapshot.doneAgents}
-                      >
-                        <span
-                          style={{
-                            width: `${Math.round((props.snapshot.doneAgents / props.snapshot.totalAgents) * 100)}%`,
-                          }}
-                        />
-                      </div>
                       <p class="multi-agent-summary__counts">
                         {tr("multi-agent.step")} {props.snapshot.currentStep}/{props.snapshot.totalSteps} ·{" "}
                         {props.snapshot.completedSteps} {tr("multi-agent.finish-2")}
@@ -229,7 +213,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                   <div class="multi-agent-steps">
                     <For each={props.snapshot.steps}>
                       {(step) => (
-                        <section class="multi-agent-step" aria-labelledby={`multi-agent-step-${step.index}`}>
+                        <section class="multi-agent-step" data-collapsed={step.collapsed} aria-labelledby={`multi-agent-step-${step.index}`}>
                           <header>
                             <h3 id={`multi-agent-step-${step.index}`}>
                               {tr("multi-agent.step")} {step.index}
@@ -251,6 +235,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                                   <details>
                                     <summary>
                                       <span>{task.title}</span>
+                                      <span class="multi-agent-task__matrix">{task.statusLabel}</span>
                                       <Show when={task.childSessionID}>
                                         {(childSessionID) => (
                                           <Button
@@ -279,7 +264,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                     </For>
                   </div>
                 </div>
-              )}
+              </>
             </Show>
           </Show>
         </Show>
@@ -307,7 +292,7 @@ export function MultiAgentPanel(props: {
     }),
     data.queryClient,
   )
-  const snapshot = createMemo(() => projectAgentClusterState(query.data ?? { runs: [], tasks: [] }))
+  const snapshot = createMemo(() => projectAgentClusterState(query.data ?? { tasks: [] }))
 
   return (
     <MultiAgentPanelView

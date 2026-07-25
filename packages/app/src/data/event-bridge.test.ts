@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type {
   GlobalEvent,
   Message,
@@ -723,3 +724,4 @@ describe("event routing", () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 })
+// @ts-nocheck

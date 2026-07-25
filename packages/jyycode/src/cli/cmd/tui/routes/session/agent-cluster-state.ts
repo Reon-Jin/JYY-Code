@@ -75,7 +75,7 @@ type SessionStatusLike = {
 }
 
 type AgentClusterRowState = {
-  runs: readonly {
+  runs?: readonly {
     id: string
     status?: string
     goal?: string
@@ -565,7 +565,7 @@ function clusterTaskStatus(status: string): AgentClusterTaskStatus {
 function projectSessionCluster(cluster: AgentClusterRowState | undefined): AgentClusterRowState | undefined {
   if (!cluster?.tasks.length) return cluster
 
-  const runs = cluster.runs
+  const runs = (cluster.runs ?? [])
     .map((run, index) => ({ run, index }))
     .sort((a, b) => {
       if (a.run.time_created !== undefined && b.run.time_created !== undefined) {
@@ -618,7 +618,7 @@ function clusterPlan(cluster: AgentClusterRowState | undefined): AgentClusterPla
   cluster = projectSessionCluster(cluster)
   if (!cluster?.tasks.length) return
   return {
-    goal: cluster.runs.at(-1)?.goal ?? "Multi-Agent cluster run",
+    goal: "Multi-Agent session",
     tasks: cluster.tasks.map((task) => ({
       id: task.id,
       step: Math.max(1, Math.trunc(task.step ?? 1)),
@@ -657,7 +657,7 @@ function clusterTaskRuns(cluster: AgentClusterRowState | undefined): AgentCluste
 
 function boundLiveTaskRuns(cluster: AgentClusterRowState | undefined, rows: AgentClusterTaskRun[]) {
   if (!cluster?.tasks.length) return rows
-  const runIDs = new Set(cluster.runs.map((run) => run.id))
+  const runIDs = new Set((cluster.runs ?? []).map((run) => run.id))
   const duplicateIDs = new Map<string, number>()
   for (const task of cluster.tasks) duplicateIDs.set(task.id, (duplicateIDs.get(task.id) ?? 0) + 1)
 

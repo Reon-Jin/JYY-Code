@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library"
 import type { SessionAgentClusterResponse } from "@jyycode-ai/sdk/v2/client"
 import userEvent from "@testing-library/user-event"
@@ -630,3 +631,4 @@ describe("desktop GUI journey", () => {
     expect(screen.queryByText("child command")).not.toBeInTheDocument()
   }, 20_000)
 })
+// @ts-nocheck

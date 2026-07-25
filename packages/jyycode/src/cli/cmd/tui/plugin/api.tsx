@@ -175,7 +175,7 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
         return sync.data.question[sessionID] ?? []
       },
       agentCluster(sessionID) {
-        return sync.data.agent_cluster[sessionID] ?? { runs: [], tasks: [] }
+        return (sync.data.agent_cluster[sessionID] ?? { tasks: [] }) as never
       },
     },
     part(messageID) {

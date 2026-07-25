@@ -436,7 +436,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }),
     data.queryClient,
   )
-  const clusterSnapshot = createMemo(() => projectAgentClusterState(clusterQuery.data ?? { runs: [], tasks: [] }))
+  const clusterSnapshot = createMemo(() => projectAgentClusterState(clusterQuery.data ?? { tasks: [] }))
   const activeChildTask = createMemo(() => findTaskByChildSessionID(clusterSnapshot(), activeSession()?.id))
   const childTaskRunning = createMemo(() => {
     const task = activeChildTask()
@@ -450,7 +450,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     const snapshot = clusterSnapshot()
     const rootStatus = statusQuery.data?.[rootSessionID() ?? ""]
     const active = rootStatus?.type === "busy" || rootStatus?.type === "retry"
-    return snapshot.totalAgents === 0 && (active || snapshot.latestRun?.status === "planning") ? "planning" : "ready"
+    return snapshot.totalAgents === 0 && active ? "planning" : "ready"
   })
   const multiAgentBadge = createMemo(() => {
     const snapshot = clusterSnapshot()
