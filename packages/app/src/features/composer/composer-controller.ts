@@ -113,6 +113,57 @@ export function createComposerController(input: ComposerControllerInput) {
     return task
   }
 
+  function interruptAndSend(
+    text = draft(),
+    selection?: { agent: string; model: ModelSelection },
+    attachments: readonly ComposerAttachment[] = [],
+  ): Promise<void> {
+    if (inFlight) return inFlight
+    setDraft(text)
+    if (!text.trim() && attachments.length === 0) return Promise.resolve()
+
+    setFailure(undefined)
+    setSending(true)
+    const task = Promise.resolve().then(async () => {
+      try {
+        const directory = resolve(input.directory)
+        const sessionID = resolve(input.sessionID)
+        const agent = selection?.agent ?? resolve(input.agent)
+        const model = selection?.model ?? resolve(input.model)
+        const interruptPrompt = (input.client.session as typeof input.client.session & {
+          interruptPrompt?: (parameters: unknown, options?: { throwOnError: boolean }) => Promise<unknown>
+        }).interruptPrompt
+        if (!interruptPrompt) throw new Error("This server does not support interrupting a child assignment")
+        await interruptPrompt(
+          {
+            directory,
+            sessionID,
+            agent,
+            model: { providerID: model.providerID, modelID: model.modelID },
+            ...(model.variant ? { variant: model.variant } : {}),
+            agentCluster: { enabled: false },
+            parts: [...(text ? [{ type: "text" as const, text }] : []), ...attachments],
+          },
+          { throwOnError: true },
+        )
+        setDraft("")
+        setLastFailedDraft(undefined)
+        lastFailedAttachments = []
+      } catch (cause) {
+        setDraft(text)
+        setLastFailedDraft(text)
+        lastFailedAttachments = attachments
+        setFailure(cause)
+        throw cause
+      } finally {
+        inFlight = undefined
+        setSending(false)
+      }
+    })
+    inFlight = task
+    return task
+  }
+
   function retry() {
     const text = lastFailedDraft()
     if (text === undefined) return Promise.resolve()
@@ -142,7 +193,7 @@ export function createComposerController(input: ComposerControllerInput) {
     return task
   }
 
-  return { draft, setDraft, sending, stopping, failure, lastFailedDraft, send, retry, stop }
+  return { draft, setDraft, sending, stopping, failure, lastFailedDraft, send, interruptAndSend, retry, stop }
 }
 
 export type ComposerController = ReturnType<typeof createComposerController>

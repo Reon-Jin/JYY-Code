@@ -1,4 +1,6 @@
 export const zhCN = {
+  "composer.send-and-interrupt": "发送并中断",
+  "composer.interrupt-assignment-warning": "发送此消息会中断当前任务。",
   "mcp.edit-mcp-name": "编辑 MCP {name}",
   "mcp.status-unknown": "状态未知",
   "settings.english": "English",
@@ -745,6 +747,8 @@ export const enUS = {
   "composer.provider-api-key": "{name} API key",
   "composer.remove-queued-message": "Remove queued message {index}",
   "composer.steer-queued-message": "Steer queued message {index} now",
+  "composer.send-and-interrupt": "Send and interrupt",
+  "composer.interrupt-assignment-warning": "Sending this message interrupts the current assignment.",
   "conversation.tool-call-name": "Tool call: {name}",
   "git.commit-or-stash-before-retry": "{reason}. Commit or stash workspace changes and try again.",
   "git.created-and-switched": "Created and switched to {branch}",

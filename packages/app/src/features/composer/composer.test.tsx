@@ -43,6 +43,7 @@ function deferred() {
 function renderComposer(input?: {
   status?: SessionStatus
   requestPending?: boolean
+  childSteering?: boolean
   disabled?: boolean
   branchControl?: JSX.Element
   multiAgentControl?: JSX.Element
@@ -70,6 +71,7 @@ function renderComposer(input?: {
       promptAsync: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
       command: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
       abort: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: true })),
+      interruptPrompt: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
     },
   }
   const [status, setStatus] = createSignal<SessionStatus>(input?.status ?? { type: "idle" })
@@ -85,6 +87,7 @@ function renderComposer(input?: {
       selectedModel={input?.selectedModel ?? { providerID: "openai", modelID: "gpt-5" }}
       status={status()}
       requestPending={input?.requestPending}
+      childSteering={input?.childSteering}
       disabled={input?.disabled}
       branchControl={input?.branchControl}
       multiAgentControl={input?.multiAgentControl}
@@ -111,6 +114,18 @@ afterEach(() => {
 })
 
 describe("Composer", () => {
+  it("keeps a child steering action visible while its assignment is running", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer({ minimal: true, childSteering: true, status: { type: "busy" } })
+
+    await user.type(screen.getByRole("textbox", { name: "娑堟伅" }), "stop and explain")
+    await user.click(screen.getByRole("button", { name: "发送并中断" }))
+
+    await waitFor(() => expect(client.session.interruptPrompt).toHaveBeenCalledOnce())
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(screen.getByText("发送此消息会中断当前任务。")).toBeVisible()
+  })
+
   it("converts native desktop file paths into prompt attachments", () => {
     expect(attachmentFromPath("C:\\Users\\dev\\My report.pdf")).toEqual({
       type: "file",

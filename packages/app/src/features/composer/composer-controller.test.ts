@@ -19,6 +19,7 @@ function setup(draftStore = new Map<string, string>(), agentClusterEnabled = tru
       promptAsync: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
       command: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
       abort: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: true })),
+      interruptPrompt: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
     },
   }
   const controller = createComposerController({
@@ -152,6 +153,24 @@ describe("createComposerController", () => {
     const { client, controller } = setup()
     await controller.stop()
     expect(client.session.abort).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
+  })
+
+  it("interrupts the current child assignment before steering it", async () => {
+    const { client, controller } = setup()
+
+    await controller.interruptAndSend("Please stop and explain the blocker")
+
+    expect(client.session.interruptPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        directory,
+        sessionID,
+        agent: "build",
+        agentCluster: { enabled: false },
+        parts: [{ type: "text", text: "Please stop and explain the blocker" }],
+      }),
+      { throwOnError: true },
+    )
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
 
   it("keeps an unsent draft in process memory across controller recreation", () => {

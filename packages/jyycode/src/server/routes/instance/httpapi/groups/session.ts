@@ -144,6 +144,7 @@ export const SessionPaths = {
   update: `${root}/:sessionID`,
   fork: `${root}/:sessionID/fork`,
   abort: `${root}/:sessionID/abort`,
+  interruptPrompt: `${root}/:sessionID/interrupt-prompt`,
   share: `${root}/:sessionID/share`,
   init: `${root}/:sessionID/init`,
   summarize: `${root}/:sessionID/summarize`,
@@ -339,6 +340,19 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.abort",
             summary: "Abort session",
             description: "Abort an active session and stop any ongoing AI processing or command execution.",
+          }),
+        ),
+        HttpApiEndpoint.post("interruptPrompt", SessionPaths.interruptPrompt, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          payload: PromptPayload,
+          success: described(HttpApiSchema.NoContent, "Interrupted assignment and accepted prompt"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.interrupt_prompt",
+            summary: "Interrupt child assignment and send message",
+            description: "Stop a running cluster child assignment before sending a steering message to that child session.",
           }),
         ),
         HttpApiEndpoint.post("init", SessionPaths.init, {

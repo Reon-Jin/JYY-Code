@@ -278,6 +278,35 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return true
     })
 
+    const interruptPrompt = Effect.fn("SessionHttpApi.interruptPrompt")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: typeof PromptPayload.Type
+    }) {
+      const child = yield* requireSession(ctx.params.sessionID)
+      if (child.parentID) {
+        yield* AgentCluster.interruptActiveChildAssignment({
+          sessionID: child.parentID,
+          childSessionID: child.id,
+          reason: "Interrupted by a user steering message.",
+        })
+      }
+      yield* promptSvc.prompt({ ...ctx.payload, sessionID: child.id }).pipe(
+        Effect.catchCause((cause) =>
+          Effect.gen(function* () {
+            yield* Effect.logError("interrupt_prompt failed").pipe(
+              Effect.annotateLogs({ sessionID: child.id, cause }),
+            )
+            yield* bus.publish(Session.Event.Error, {
+              sessionID: child.id,
+              error: new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(),
+            })
+          }),
+        ),
+        Effect.forkIn(scope, { startImmediately: true }),
+      )
+      return HttpApiSchema.NoContent.make()
+    })
+
     const init = Effect.fn("SessionHttpApi.init")(function* (ctx: {
       params: { sessionID: SessionID }
       payload: typeof InitPayload.Type
@@ -472,6 +501,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("update", update)
       .handleRaw("fork", forkRaw)
       .handle("abort", abort)
+      .handle("interruptPrompt", interruptPrompt)
       .handle("init", init)
       .handle("share", share)
       .handle("unshare", unshare)
