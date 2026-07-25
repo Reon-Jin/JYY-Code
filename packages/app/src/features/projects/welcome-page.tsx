@@ -18,7 +18,9 @@ export function WelcomePage() {
   const [error, setError] = createSignal<string>()
 
   onMount(() => {
-    projects.loadRecentProjects().catch((cause) => setError(errorMessage(cause, tr("projects.unable-to-read-recent-items"))))
+    projects
+      .loadRecentProjects()
+      .catch((cause) => setError(errorMessage(cause, tr("projects.unable-to-read-recent-items"))))
   })
 
   async function openSelectedProject() {
@@ -66,7 +68,12 @@ export function WelcomePage() {
           <h1 id="welcome-title">JYYCode</h1>
 
           <div class="welcome-actions" aria-label={tr("projects.project-operations")}>
-            <Button class="welcome-action" loading={busy()} loadingLabel={tr("projects.opening")} onClick={openSelectedProject}>
+            <Button
+              class="welcome-action"
+              loading={busy()}
+              loadingLabel={tr("projects.opening")}
+              onClick={openSelectedProject}
+            >
               <FolderOpen aria-hidden="true" />
               <strong>{tr("projects.open-directory")}</strong>
             </Button>

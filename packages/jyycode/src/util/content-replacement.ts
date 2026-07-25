@@ -53,10 +53,7 @@ export function reconstructContentReplacementState(
  * Check if a tool result exceeds the persistence threshold and should be
  * replaced with a disk-backed preview.
  */
-export function shouldPersistToolResult(
-  content: string,
-  maxChars: number = DEFAULT_MAX_RESULT_SIZE_CHARS,
-): boolean {
+export function shouldPersistToolResult(content: string, maxChars: number = DEFAULT_MAX_RESULT_SIZE_CHARS): boolean {
   return content.length > maxChars
 }
 
@@ -157,11 +154,7 @@ export function enforceToolResultBudget(
  * Detect if the content was previously replaced and restore the preview.
  * Used when replaying/resuming conversations.
  */
-export function applyReplacementState(
-  toolUseId: string,
-  content: string,
-  state: ContentReplacementState,
-): string {
+export function applyReplacementState(toolUseId: string, content: string, state: ContentReplacementState): string {
   if (state.replacements.has(toolUseId)) {
     return state.replacements.get(toolUseId)!
   }

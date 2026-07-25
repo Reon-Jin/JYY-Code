@@ -101,11 +101,13 @@ export function BranchControlView(props: BranchControlViewProps) {
       setError(tr("git.branch-name-contains-characters-or-path-fragments-that"))
       return
     }
-    void run("create", () => props.actions.createBranch({ name, checkout: true }), tr("git.created-and-switched", { branch: name })).then(
-      () => {
-        if (!error()) setNewBranch("")
-      },
-    )
+    void run(
+      "create",
+      () => props.actions.createBranch({ name, checkout: true }),
+      tr("git.created-and-switched", { branch: name }),
+    ).then(() => {
+      if (!error()) setNewBranch("")
+    })
   }
 
   return (
@@ -119,7 +121,9 @@ export function BranchControlView(props: BranchControlViewProps) {
         onClick={() => setOpen(true)}
       >
         <GitBranch aria-hidden="true" />
-        <span>{props.loading ? tr("git.checking-repository") : (props.current ?? tr("git.version-control-is-not-enabled"))}</span>
+        <span>
+          {props.loading ? tr("git.checking-repository") : (props.current ?? tr("git.version-control-is-not-enabled"))}
+        </span>
       </Button>
       <BranchDialog
         open={open()}
@@ -138,7 +142,9 @@ export function BranchControlView(props: BranchControlViewProps) {
         onSwitch={switchBranch}
         onCreate={createBranch}
         onFetch={() => void run("fetch", props.actions.fetch, tr("git.fetch-completed"))}
-        onPush={() => void run("push", () => props.actions.push(remote() ? { remote: remote() } : {}), tr("git.push-completed"))}
+        onPush={() =>
+          void run("push", () => props.actions.push(remote() ? { remote: remote() } : {}), tr("git.push-completed"))
+        }
         onPullRequests={
           props.onPullRequests
             ? () => {
@@ -176,7 +182,11 @@ export function BranchControl(props: { directory: string; onPullRequests?: () =>
         current={branches.data?.current ?? info.data?.branch}
         branches={branches.data ?? { branches: [], remotes: [] }}
         loading={info.isPending || (Boolean(info.data?.branch) && branches.isPending)}
-        loadError={branches.error ? tr("git.load-branches-failed", { reason: operationError(branches.error).message }) : undefined}
+        loadError={
+          branches.error
+            ? tr("git.load-branches-failed", { reason: operationError(branches.error).message })
+            : undefined
+        }
         actions={actions()}
         onPullRequests={props.onPullRequests ?? (() => setPullRequestsOpen(true))}
       />

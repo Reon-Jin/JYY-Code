@@ -52,7 +52,9 @@ export function PullRequestDialogView(props: PullRequestDialogViewProps) {
       open={props.open}
       title="GitHub Pull Requests"
       description={
-        props.status?.available ? props.status.repository.nameWithOwner : tr("github.browse-and-manage-pull-requests-for-the-current")
+        props.status?.available
+          ? props.status.repository.nameWithOwner
+          : tr("github.browse-and-manage-pull-requests-for-the-current")
       }
       showClose
       onClose={props.onClose}
@@ -132,14 +134,11 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
   const detailData = () => (detail.isPending ? undefined : detail.data)
 
   createEffect(
-    on(
-      pullsData,
-      (items) => {
-        if (!items?.length) return setSelected(undefined)
-        if (!selected() || !items.some((pull) => Number(pull.number) === selected()))
-          setSelected(Number(items[0]!.number))
-      },
-    ),
+    on(pullsData, (items) => {
+      if (!items?.length) return setSelected(undefined)
+      if (!selected() || !items.some((pull) => Number(pull.number) === selected()))
+        setSelected(Number(items[0]!.number))
+    }),
   )
 
   async function saveCreate(value: PullRequestFormValue) {
@@ -213,7 +212,9 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
       open={props.open}
       status={statusData()}
       statusLoading={status.isPending}
-      statusError={status.error ? errorMessage(status.error, tr("github.unable-to-detect-github-environment")) : undefined}
+      statusError={
+        status.error ? errorMessage(status.error, tr("github.unable-to-detect-github-environment")) : undefined
+      }
       pulls={pullsData() ?? []}
       pullsLoading={pulls.isPending}
       pullsError={pulls.error ? errorMessage(pulls.error, tr("github.unable-to-load-pull-requests")) : undefined}
@@ -221,7 +222,9 @@ export function PullRequestDialog(props: { directory: string; open: boolean; onC
       selected={selected()}
       detail={detailData()}
       detailLoading={Boolean(selected()) && detail.isPending}
-      detailError={detail.error ? errorMessage(detail.error, tr("github.unable-to-load-pull-request-details")) : undefined}
+      detailError={
+        detail.error ? errorMessage(detail.error, tr("github.unable-to-load-pull-request-details")) : undefined
+      }
       editor={editorContent()}
       diff={selected() ? <PullRequestDiff directory={props.directory} number={selected()!} /> : undefined}
       handlers={handlers()}

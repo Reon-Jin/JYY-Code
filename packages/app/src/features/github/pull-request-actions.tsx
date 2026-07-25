@@ -83,7 +83,13 @@ export function PullRequestActions(props: { detail: GitHubPullRequestDetail; han
           size="small"
           variant="secondary"
           loading={pending() === "checkout"}
-          onClick={() => void run("checkout", props.handlers.checkout, tr("github.checked-out", { branch: props.detail.headRefName }))}
+          onClick={() =>
+            void run(
+              "checkout",
+              props.handlers.checkout,
+              tr("github.checked-out", { branch: props.detail.headRefName }),
+            )
+          }
         >
           <RefreshCw aria-hidden="true" />
           Checkout {props.detail.headRefName}

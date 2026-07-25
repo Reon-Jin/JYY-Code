@@ -136,9 +136,7 @@ describe("MessageTimeline", () => {
     render(() => <MessageTimeline messages={messages()} />)
 
     expect(screen.getByText("Hel")).toBeVisible()
-    setMessages([
-      conversation([{ id: "part_stream", sessionID, messageID: info.id, type: "text", text: "Hello" }]),
-    ])
+    setMessages([conversation([{ id: "part_stream", sessionID, messageID: info.id, type: "text", text: "Hello" }])])
     await waitFor(() => expect(screen.getByText("Hello")).toBeVisible())
     expect(screen.queryByText("Hel")).not.toBeInTheDocument()
   })
@@ -325,7 +323,9 @@ describe("MessageTimeline", () => {
     expect(screen.getByRole("button", { name: /Task 执行过程/ })).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByText("Read first file")).toBeVisible()
 
-    setMessages([conversation([tool("part_child_1", "Read first file"), tool("part_child_2", "Read second file")], childInfo)])
+    setMessages([
+      conversation([tool("part_child_1", "Read first file"), tool("part_child_2", "Read second file")], childInfo),
+    ])
     await waitFor(() => expect(screen.getByText("Read second file")).toBeVisible())
   })
 

@@ -26,7 +26,11 @@ export function MessagePartView(props: {
       <Match when={props.part.type === "text" ? props.part : undefined}>
         {(part) => {
           const presentation = () => {
-            if (props.planStatus === "planning" && props.messageRole === "assistant" && props.messageAgent === "cluster") {
+            if (
+              props.planStatus === "planning" &&
+              props.messageRole === "assistant" &&
+              props.messageAgent === "cluster"
+            ) {
               return { kind: "plan" } as const
             }
             return presentMessageText({ part: part(), role: props.messageRole, agent: props.messageAgent })
@@ -37,7 +41,9 @@ export function MessagePartView(props: {
               <Match when={presentation().kind === "plan"}>
                 <div class="conversation-plan-status" role="status" aria-live="polite">
                   <span aria-hidden="true" />
-                  {props.planStatus === "planning" ? tr("conversation.generating-plan") : tr("conversation.plan-has-been-generated")}
+                  {props.planStatus === "planning"
+                    ? tr("conversation.generating-plan")
+                    : tr("conversation.plan-has-been-generated")}
                 </div>
               </Match>
               <Match when={presentation().kind === "text"}>

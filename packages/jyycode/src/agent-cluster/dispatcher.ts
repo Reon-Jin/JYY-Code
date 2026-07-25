@@ -1,5 +1,11 @@
 import type { Complexity, PlannedTask, TaskRole, TaskStatus } from "./schema"
-import { roleCapabilitySummary, roleSkillName, roleSkillNames, roleSystemPrompt, RoleSkillDefinitions } from "./role-skills"
+import {
+  roleCapabilitySummary,
+  roleSkillName,
+  roleSkillNames,
+  roleSystemPrompt,
+  RoleSkillDefinitions,
+} from "./role-skills"
 
 export function modelForComplexity(input: {
   complexity: Complexity
@@ -103,9 +109,7 @@ export function buildTaskBrief(input: {
       : "- (none)",
     "",
     "同一步协作者:",
-    input.peers.length
-      ? input.peers.map((task) => `- ${task.id} — ${task.prompt}`).join("\n")
-      : "- (none)",
+    input.peers.length ? input.peers.map((task) => `- ${task.id} — ${task.prompt}`).join("\n") : "- (none)",
     "",
     "验收标准:",
     listOrNone(input.task.acceptanceCriteria),

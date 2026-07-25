@@ -138,7 +138,9 @@ describe("authenticated global memory API", () => {
 
       const stale = yield* request("DELETE", `/global/memory/task/${taskPage.entries[0]!.id}?sessionID=ses_memory_api`)
       expect(stale.status).toBe(200)
-      expect((yield* request("DELETE", `/global/memory/task/${taskPage.entries[0]!.id}?sessionID=ses_memory_api`)).status).toBe(404)
+      expect(
+        (yield* request("DELETE", `/global/memory/task/${taskPage.entries[0]!.id}?sessionID=ses_memory_api`)).status,
+      ).toBe(404)
 
       const clear = yield* request("POST", "/global/memory/task/clear")
       expect(clear.status).toBe(200)

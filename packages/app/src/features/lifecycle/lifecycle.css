@@ -13,12 +13,36 @@
   gap: var(--space-4);
 }
 
-.lifecycle-failure h1 { margin: 0; font-size: var(--text-xl); }
-.lifecycle-failure__content > p { margin: 0; color: var(--color-text-muted); }
-.lifecycle-failure__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.lifecycle-failure__log { display: flex; min-width: 0; align-items: center; gap: var(--space-2); font-size: var(--text-xs); }
-.lifecycle-failure__log svg { width: 15px; height: 15px; flex: 0 0 auto; }
-.lifecycle-failure__log code { overflow-wrap: anywhere; color: var(--color-text); font-family: var(--font-code); }
+.lifecycle-failure h1 {
+  margin: 0;
+  font-size: var(--text-xl);
+}
+.lifecycle-failure__content > p {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+.lifecycle-failure__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.lifecycle-failure__log {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+.lifecycle-failure__log svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+.lifecycle-failure__log code {
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-family: var(--font-code);
+}
 
 .reconnect-banner {
   position: absolute;
@@ -37,5 +61,10 @@
   box-shadow: 0 8px 24px rgb(0 0 0 / 20%);
 }
 
-.reconnect-banner svg { width: 13px; height: 13px; }
-.reconnect-banner[data-state="connecting"] svg { animation: ui-spin 900ms linear infinite; }
+.reconnect-banner svg {
+  width: 13px;
+  height: 13px;
+}
+.reconnect-banner[data-state="connecting"] svg {
+  animation: ui-spin 900ms linear infinite;
+}

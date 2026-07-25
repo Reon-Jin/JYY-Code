@@ -70,15 +70,14 @@
 
 .multi-agent-switch[data-active="true"] {
   border-color: color-mix(in srgb, var(--color-accent) 56%, var(--color-border-strong));
-  background:
-    linear-gradient(
-      110deg,
-      color-mix(in srgb, #72e7ff 20%, var(--color-surface)) 0%,
-      color-mix(in srgb, #a98cff 26%, var(--color-surface)) 28%,
-      color-mix(in srgb, #ff83c8 20%, var(--color-surface)) 52%,
-      color-mix(in srgb, #7cf4c5 22%, var(--color-surface)) 76%,
-      color-mix(in srgb, #72e7ff 20%, var(--color-surface)) 100%
-    );
+  background: linear-gradient(
+    110deg,
+    color-mix(in srgb, #72e7ff 20%, var(--color-surface)) 0%,
+    color-mix(in srgb, #a98cff 26%, var(--color-surface)) 28%,
+    color-mix(in srgb, #ff83c8 20%, var(--color-surface)) 52%,
+    color-mix(in srgb, #7cf4c5 22%, var(--color-surface)) 76%,
+    color-mix(in srgb, #72e7ff 20%, var(--color-surface)) 100%
+  );
   background-size: 260% 100%;
   box-shadow:
     inset 0 0 18px rgb(144 124 255 / 12%),
@@ -96,25 +95,44 @@
 }
 
 @keyframes multi-agent-button-flow {
-  to { background-position: -260% 0; }
+  to {
+    background-position: -260% 0;
+  }
 }
 
 @keyframes multi-agent-inner-wave {
-  0% { transform: translateX(-30%) rotate(-6deg) scaleY(0.88); }
-  52% { transform: translateX(4%) rotate(3deg) scaleY(1.08); }
-  100% { transform: translateX(30%) rotate(-2deg) scaleY(0.94); }
+  0% {
+    transform: translateX(-30%) rotate(-6deg) scaleY(0.88);
+  }
+  52% {
+    transform: translateX(4%) rotate(3deg) scaleY(1.08);
+  }
+  100% {
+    transform: translateX(30%) rotate(-2deg) scaleY(0.94);
+  }
 }
 
 @keyframes multi-agent-hover-flash {
-  0% { opacity: 0; transform: translateX(-120%); }
-  18% { opacity: 0.75; }
-  58%, 100% { opacity: 0; transform: translateX(120%); }
+  0% {
+    opacity: 0;
+    transform: translateX(-120%);
+  }
+  18% {
+    opacity: 0.75;
+  }
+  58%,
+  100% {
+    opacity: 0;
+    transform: translateX(120%);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .multi-agent-switch[data-active="true"],
   .multi-agent-switch[data-active="true"]::before,
-  .multi-agent-switch:hover::after { animation: none; }
+  .multi-agent-switch:hover::after {
+    animation: none;
+  }
 }
 
 .multi-agent-control__reason {
@@ -429,10 +447,18 @@
   font-size: 0.62rem;
 }
 
-.multi-agent-step > header span[data-tone="running"] { color: var(--color-accent); }
-.multi-agent-step > header span[data-tone="review"] { color: var(--color-warning); }
-.multi-agent-step > header span[data-tone="done"] { color: var(--color-success); }
-.multi-agent-step > header span[data-tone="failed"] { color: var(--color-danger); }
+.multi-agent-step > header span[data-tone="running"] {
+  color: var(--color-accent);
+}
+.multi-agent-step > header span[data-tone="review"] {
+  color: var(--color-warning);
+}
+.multi-agent-step > header span[data-tone="done"] {
+  color: var(--color-success);
+}
+.multi-agent-step > header span[data-tone="failed"] {
+  color: var(--color-danger);
+}
 
 .multi-agent-step ol {
   display: grid;
@@ -451,8 +477,13 @@
   background: var(--color-surface);
 }
 
-.multi-agent-task[data-tone="queued"] { border-color: transparent; }
-.multi-agent-task[data-selected="true"] { border-color: var(--color-accent); box-shadow: 0 0 0 1px var(--color-accent); }
+.multi-agent-task[data-tone="queued"] {
+  border-color: transparent;
+}
+.multi-agent-task[data-selected="true"] {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
 
 .multi-agent-task summary {
   display: grid;
@@ -565,14 +596,60 @@
 }
 
 /* Mission Control: status is communicated through line, icon, and copy—not color. */
-.multi-agent-progress { display: none; }
-.multi-agent-step > header span[data-tone] { color: var(--color-text-muted); }
-.multi-agent-step ol { position: relative; }
-.multi-agent-step ol::before { position: absolute; top: 0; bottom: 0; left: 7px; width: 1px; background: var(--color-border-strong); content: ""; }
-.multi-agent-task { position: relative; }
-.multi-agent-task[data-selected="true"], .multi-agent-task[data-tone="running"] { border-color: var(--color-text); box-shadow: none; }
-.multi-agent-task[data-tone="running"]::after { position: absolute; inset: -1px; border: 1px solid transparent; border-top-color: var(--color-text); border-radius: inherit; pointer-events: none; content: ""; animation: multi-agent-active-edge 2.4s linear infinite; }
-.multi-agent-task summary .multi-agent-task__matrix { color: var(--color-text-muted); font-family: var(--font-code); font-size: 0.62rem; font-weight: 500; }
-.multi-agent-skill-chip { border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-muted); }
-@keyframes multi-agent-active-edge { to { transform: rotate(1turn); } }
-@media (prefers-reduced-motion: reduce) { .multi-agent-task[data-tone="running"]::after { animation: none; } }
+.multi-agent-progress {
+  display: none;
+}
+.multi-agent-step > header span[data-tone] {
+  color: var(--color-text-muted);
+}
+.multi-agent-step ol {
+  position: relative;
+}
+.multi-agent-step ol::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 7px;
+  width: 1px;
+  background: var(--color-border-strong);
+  content: "";
+}
+.multi-agent-task {
+  position: relative;
+}
+.multi-agent-task[data-selected="true"],
+.multi-agent-task[data-tone="running"] {
+  border-color: var(--color-text);
+  box-shadow: none;
+}
+.multi-agent-task[data-tone="running"]::after {
+  position: absolute;
+  inset: -1px;
+  border: 1px solid transparent;
+  border-top-color: var(--color-text);
+  border-radius: inherit;
+  pointer-events: none;
+  content: "";
+  animation: multi-agent-active-edge 2.4s linear infinite;
+}
+.multi-agent-task summary .multi-agent-task__matrix {
+  color: var(--color-text-muted);
+  font-family: var(--font-code);
+  font-size: 0.62rem;
+  font-weight: 500;
+}
+.multi-agent-skill-chip {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+@keyframes multi-agent-active-edge {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .multi-agent-task[data-tone="running"]::after {
+    animation: none;
+  }
+}

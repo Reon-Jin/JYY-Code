@@ -110,7 +110,18 @@ function resolveRole(raw: string): PlannedTask["role"] {
   if (lower.includes("chart") || lower.includes("图表")) return "chart"
   if (lower.includes("pdf") || lower.includes("文档") || lower.includes("doc")) return "pdf"
   if (lower.includes("test") || lower.includes("测试") || lower.includes("验证")) return "tester"
-  if (lower.includes("code") || lower.includes("coder") || lower.includes("开发") || lower.includes("代码") || lower.includes("前端") || lower.includes("html") || lower.includes("css") || lower.includes("js") || lower.includes("javascript")) return "coder"
+  if (
+    lower.includes("code") ||
+    lower.includes("coder") ||
+    lower.includes("开发") ||
+    lower.includes("代码") ||
+    lower.includes("前端") ||
+    lower.includes("html") ||
+    lower.includes("css") ||
+    lower.includes("js") ||
+    lower.includes("javascript")
+  )
+    return "coder"
   return "general"
 }
 
@@ -304,9 +315,7 @@ export function validatePlan(plan: Plan, limits: Pick<Limits, "maxSubagents" | "
       // Same-step dependency — this is auto-fixable, but if there are also
       // fundamental errors we'll report it right here.
       if (hasFundamentalError && dep.step >= task.step) {
-        errors.push(
-          `task ${taskLabel(task)} depends on ${taskLabel(dep)}, but dependencies must be in earlier steps`,
-        )
+        errors.push(`task ${taskLabel(task)} depends on ${taskLabel(dep)}, but dependencies must be in earlier steps`)
       }
     }
   }
@@ -347,8 +356,8 @@ export function validatePlan(plan: Plan, limits: Pick<Limits, "maxSubagents" | "
       if (depStep >= step) {
         errors.push(
           `task ${taskLabel(task)} depends on ${taskLabel(dep)} (step ${depStep}), ` +
-          `but ${taskLabel(task)} is at step ${step} which must be > ${depStep}. ` +
-          `Move ${task.id} to step ${depStep + 1} or later.`,
+            `but ${taskLabel(task)} is at step ${step} which must be > ${depStep}. ` +
+            `Move ${task.id} to step ${depStep + 1} or later.`,
         )
       }
     }
@@ -369,9 +378,7 @@ export function validatePlan(plan: Plan, limits: Pick<Limits, "maxSubagents" | "
       const key = `${step}\0${normalized}`
       const existing = artifactsByStep.get(key)
       if (existing) {
-        errors.push(
-          `step ${step} has duplicate expected artifact ${normalized}: ${existing.id} and ${task.id}`,
-        )
+        errors.push(`step ${step} has duplicate expected artifact ${normalized}: ${existing.id} and ${task.id}`)
         continue
       }
       artifactsByStep.set(key, task)

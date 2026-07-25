@@ -58,9 +58,6 @@ describe("ManagementShell", () => {
   it("places a Settings entry at the bottom of the rail", () => {
     renderShell()
 
-    expect(screen.getByRole("link", { name: "设置" })).toHaveAttribute(
-      "href",
-      "/settings/general?returnTo=%2F",
-    )
+    expect(screen.getByRole("link", { name: "设置" })).toHaveAttribute("href", "/settings/general?returnTo=%2F")
   })
 })

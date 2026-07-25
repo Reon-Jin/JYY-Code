@@ -136,9 +136,7 @@ describe("session.list", () => {
     () =>
       Effect.gen(function* () {
         const test = yield* TestInstance
-        yield* Effect.promise(() =>
-          mkdir(path.join(test.directory, "packages", "jyycode", "src"), { recursive: true }),
-        )
+        yield* Effect.promise(() => mkdir(path.join(test.directory, "packages", "jyycode", "src"), { recursive: true }))
         yield* Effect.promise(() => mkdir(path.join(test.directory, "packages", "app"), { recursive: true }))
 
         const current = yield* withSession({ title: "legacy-current" }).pipe(

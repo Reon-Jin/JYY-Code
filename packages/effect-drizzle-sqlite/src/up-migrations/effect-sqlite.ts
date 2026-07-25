@@ -100,5 +100,3 @@ function upgradeFromV0<TEffectHKT extends QueryEffectHKTBase>(
     )
   })
 }
-
-

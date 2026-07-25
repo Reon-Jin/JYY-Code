@@ -26,7 +26,8 @@ export function BackendUnavailable(props: BackendUnavailableProps) {
           {(path) => (
             <p class="lifecycle-failure__log">
               <FileText aria-hidden="true" />
-              {tr("lifecycle.log-location")}<code>{path()}</code>
+              {tr("lifecycle.log-location")}
+              <code>{path()}</code>
             </p>
           )}
         </Show>

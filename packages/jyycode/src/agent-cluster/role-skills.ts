@@ -78,7 +78,10 @@ const SOURCE = {
 function frontmatterDescription(content: string) {
   const line = content.split(/\r?\n/).find((item) => item.startsWith("description:"))
   if (!line) return "Third-party specialist workflow."
-  return line.slice("description:".length).trim().replace(/^['"]|['"]$/g, "")
+  return line
+    .slice("description:".length)
+    .trim()
+    .replace(/^['"]|['"]$/g, "")
 }
 
 function localSkill(name: string, content: string): RoleSkillModule {
@@ -154,8 +157,18 @@ export const RoleSkillDefinitions = {
     capabilitySummary: "data checks 路 comparisons 路 uncertainty",
     skillModules: [
       local.analyst,
-      upstreamSkill("exploratory-data-analysis", K_DENSE_EXPLORATORY_DATA_ANALYSIS, `${SOURCE.kDense}/exploratory-data-analysis`, "MIT"),
-      upstreamSkill("statistical-analysis", K_DENSE_STATISTICAL_ANALYSIS, `${SOURCE.kDense}/statistical-analysis`, "MIT"),
+      upstreamSkill(
+        "exploratory-data-analysis",
+        K_DENSE_EXPLORATORY_DATA_ANALYSIS,
+        `${SOURCE.kDense}/exploratory-data-analysis`,
+        "MIT",
+      ),
+      upstreamSkill(
+        "statistical-analysis",
+        K_DENSE_STATISTICAL_ANALYSIS,
+        `${SOURCE.kDense}/statistical-analysis`,
+        "MIT",
+      ),
     ],
   }),
   writer: defineRole({
@@ -166,7 +179,12 @@ export const RoleSkillDefinitions = {
     skillModules: [
       local.writer,
       upstreamSkill("scientific-writing", K_DENSE_SCIENTIFIC_WRITING, `${SOURCE.kDense}/scientific-writing`, "MIT"),
-      upstreamSkill("documentation-and-adrs", ADDY_DOCUMENTATION_AND_ADRS, `${SOURCE.addy}/documentation-and-adrs`, "MIT"),
+      upstreamSkill(
+        "documentation-and-adrs",
+        ADDY_DOCUMENTATION_AND_ADRS,
+        `${SOURCE.addy}/documentation-and-adrs`,
+        "MIT",
+      ),
     ],
   }),
   coder: defineRole({
@@ -176,10 +194,30 @@ export const RoleSkillDefinitions = {
     capabilitySummary: "implementation 路 security review 路 verification",
     skillModules: [
       local.coder,
-      upstreamSkill("incremental-implementation", ADDY_INCREMENTAL_IMPLEMENTATION, `${SOURCE.addy}/incremental-implementation`, "MIT"),
-      upstreamSkill("api-and-interface-design", ADDY_API_AND_INTERFACE_DESIGN, `${SOURCE.addy}/api-and-interface-design`, "MIT"),
-      upstreamSkill("security-and-hardening", ADDY_SECURITY_AND_HARDENING, `${SOURCE.addy}/security-and-hardening`, "MIT"),
-      upstreamSkill("code-review-and-quality", ADDY_CODE_REVIEW_AND_QUALITY, `${SOURCE.addy}/code-review-and-quality`, "MIT"),
+      upstreamSkill(
+        "incremental-implementation",
+        ADDY_INCREMENTAL_IMPLEMENTATION,
+        `${SOURCE.addy}/incremental-implementation`,
+        "MIT",
+      ),
+      upstreamSkill(
+        "api-and-interface-design",
+        ADDY_API_AND_INTERFACE_DESIGN,
+        `${SOURCE.addy}/api-and-interface-design`,
+        "MIT",
+      ),
+      upstreamSkill(
+        "security-and-hardening",
+        ADDY_SECURITY_AND_HARDENING,
+        `${SOURCE.addy}/security-and-hardening`,
+        "MIT",
+      ),
+      upstreamSkill(
+        "code-review-and-quality",
+        ADDY_CODE_REVIEW_AND_QUALITY,
+        `${SOURCE.addy}/code-review-and-quality`,
+        "MIT",
+      ),
     ],
   }),
   tester: defineRole({
@@ -189,10 +227,25 @@ export const RoleSkillDefinitions = {
     capabilitySummary: "test matrix 路 regression 路 evidence",
     skillModules: [
       local.tester,
-      upstreamSkill("test-driven-development", ADDY_TEST_DRIVEN_DEVELOPMENT, `${SOURCE.addy}/test-driven-development`, "MIT"),
-      upstreamSkill("debugging-and-error-recovery", ADDY_DEBUGGING_AND_ERROR_RECOVERY, `${SOURCE.addy}/debugging-and-error-recovery`, "MIT"),
+      upstreamSkill(
+        "test-driven-development",
+        ADDY_TEST_DRIVEN_DEVELOPMENT,
+        `${SOURCE.addy}/test-driven-development`,
+        "MIT",
+      ),
+      upstreamSkill(
+        "debugging-and-error-recovery",
+        ADDY_DEBUGGING_AND_ERROR_RECOVERY,
+        `${SOURCE.addy}/debugging-and-error-recovery`,
+        "MIT",
+      ),
       upstreamSkill("webapp-testing", GITHUB_WEBAPP_TESTING, `${SOURCE.github}/webapp-testing`, "MIT"),
-      upstreamSkill("playwright-generate-test", GITHUB_PLAYWRIGHT_GENERATE_TEST, `${SOURCE.github}/playwright-generate-test`, "MIT"),
+      upstreamSkill(
+        "playwright-generate-test",
+        GITHUB_PLAYWRIGHT_GENERATE_TEST,
+        `${SOURCE.github}/playwright-generate-test`,
+        "MIT",
+      ),
     ],
   }),
   chart: defineRole({
@@ -202,7 +255,12 @@ export const RoleSkillDefinitions = {
     capabilitySummary: "chart choice 路 declarative spec 路 accessibility",
     skillModules: [
       local.chart,
-      upstreamSkill("scientific-visualization", K_DENSE_SCIENTIFIC_VISUALIZATION, `${SOURCE.kDense}/scientific-visualization`, "MIT"),
+      upstreamSkill(
+        "scientific-visualization",
+        K_DENSE_SCIENTIFIC_VISUALIZATION,
+        `${SOURCE.kDense}/scientific-visualization`,
+        "MIT",
+      ),
       upstreamSkill("infographics", K_DENSE_INFOGRAPHICS, `${SOURCE.kDense}/infographics`, "MIT"),
     ],
   }),
@@ -211,10 +269,7 @@ export const RoleSkillDefinitions = {
     label: "Document producer",
     description: "Builds export-ready documents and verifies pagination and layout.",
     capabilitySummary: "semantic layout 路 export 路 render QA",
-    skillModules: [
-      local.pdf,
-      upstreamSkill("pdf", OPENAI_PDF, `${SOURCE.openai}/pdf`, "Apache-2.0"),
-    ],
+    skillModules: [local.pdf, upstreamSkill("pdf", OPENAI_PDF, `${SOURCE.openai}/pdf`, "Apache-2.0")],
   }),
   picture_searcher: defineRole({
     role: "picture_searcher",
@@ -235,7 +290,12 @@ export const RoleSkillDefinitions = {
     skillModules: [
       local.general,
       upstreamSkill("context-engineering", ADDY_CONTEXT_ENGINEERING, `${SOURCE.addy}/context-engineering`, "MIT"),
-      upstreamSkill("doubt-driven-development", ADDY_DOUBT_DRIVEN_DEVELOPMENT, `${SOURCE.addy}/doubt-driven-development`, "MIT"),
+      upstreamSkill(
+        "doubt-driven-development",
+        ADDY_DOUBT_DRIVEN_DEVELOPMENT,
+        `${SOURCE.addy}/doubt-driven-development`,
+        "MIT",
+      ),
     ],
   }),
   explore: defineRole({
@@ -245,7 +305,12 @@ export const RoleSkillDefinitions = {
     capabilitySummary: "file map 路 symbol search 路 call graph",
     skillModules: [
       local.explore,
-      upstreamSkill("acquire-codebase-knowledge", GITHUB_ACQUIRE_CODEBASE_KNOWLEDGE, `${SOURCE.github}/acquire-codebase-knowledge`, "MIT"),
+      upstreamSkill(
+        "acquire-codebase-knowledge",
+        GITHUB_ACQUIRE_CODEBASE_KNOWLEDGE,
+        `${SOURCE.github}/acquire-codebase-knowledge`,
+        "MIT",
+      ),
       upstreamSkill("repo-story-time", GITHUB_REPO_STORY_TIME, `${SOURCE.github}/repo-story-time`, "MIT"),
       upstreamSkill("what-context-needed", GITHUB_WHAT_CONTEXT_NEEDED, `${SOURCE.github}/what-context-needed`, "MIT"),
     ],
@@ -260,7 +325,12 @@ export const RoleSkillDefinitions = {
       upstreamSkill("web-search", BRAVE_WEB_SEARCH, `${SOURCE.brave}/web-search`, "MIT"),
       upstreamSkill("llm-context", BRAVE_LLM_CONTEXT, `${SOURCE.brave}/llm-context`, "MIT"),
       upstreamSkill("answers", BRAVE_ANSWERS, `${SOURCE.brave}/answers`, "MIT"),
-      upstreamSkill("source-driven-development", ADDY_SOURCE_DRIVEN_DEVELOPMENT, `${SOURCE.addy}/source-driven-development`, "MIT"),
+      upstreamSkill(
+        "source-driven-development",
+        ADDY_SOURCE_DRIVEN_DEVELOPMENT,
+        `${SOURCE.addy}/source-driven-development`,
+        "MIT",
+      ),
     ],
   }),
 } satisfies Record<AgentRole, RoleSkillDefinition>

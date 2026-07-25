@@ -1,10 +1,7 @@
 import type { Message, Part, TextPart } from "@jyycode-ai/sdk/v2/client"
 import type { ConversationMessage } from "./conversation-state"
 
-export type MessageTextPresentation =
-  | { kind: "hidden" }
-  | { kind: "plan" }
-  | { kind: "text"; text: string }
+export type MessageTextPresentation = { kind: "hidden" } | { kind: "plan" } | { kind: "text"; text: string }
 
 function isPlan(value: unknown) {
   if (!value || typeof value !== "object") return false
@@ -39,9 +36,7 @@ export type PresentedConversationMessage = {
   groups: PresentedMessageGroup[]
 }
 
-export type PresentedMessageGroup =
-  | { type: "content"; parts: Part[] }
-  | { type: "activity"; parts: Part[] }
+export type PresentedMessageGroup = { type: "content"; parts: Part[] } | { type: "activity"; parts: Part[] }
 
 function isActivityPart(part: Part) {
   return part.type === "reasoning" || part.type === "tool"
@@ -51,11 +46,13 @@ function isVisiblePart(part: Part, message: ConversationMessage) {
   if (part.type === "step-start" || part.type === "step-finish") return false
   if (part.type !== "text") return true
   if (!part.text.trim()) return false
-  return presentMessageText({
-    part,
-    role: message.info.role,
-    agent: message.info.role === "assistant" ? (message.info.agent ?? message.info.mode) : message.info.agent,
-  }).kind !== "hidden"
+  return (
+    presentMessageText({
+      part,
+      role: message.info.role,
+      agent: message.info.role === "assistant" ? (message.info.agent ?? message.info.mode) : message.info.agent,
+    }).kind !== "hidden"
+  )
 }
 
 /**
@@ -63,9 +60,7 @@ function isVisiblePart(part: Part, message: ConversationMessage) {
  * messages disappear, and streaming assistant steps from the same Agent become
  * one response with one consolidated activity section.
  */
-export function presentConversationMessages(
-  messages: readonly ConversationMessage[],
-): PresentedConversationMessage[] {
+export function presentConversationMessages(messages: readonly ConversationMessage[]): PresentedConversationMessage[] {
   const presented: PresentedConversationMessage[] = []
 
   for (const message of messages) {

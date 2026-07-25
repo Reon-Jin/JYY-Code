@@ -365,7 +365,8 @@ const dispatchToolCalls = (input: {
     for (const batch of batches) {
       const results = yield* Effect.forEach(
         batch.calls,
-        (call) => dispatch(input.tools, call).pipe(Effect.map((result) => [call, result.result, result.error] as const)),
+        (call) =>
+          dispatch(input.tools, call).pipe(Effect.map((result) => [call, result.result, result.error] as const)),
         { concurrency: batch.concurrencySafe ? input.concurrency : 1 },
       )
       dispatched.push(...results)

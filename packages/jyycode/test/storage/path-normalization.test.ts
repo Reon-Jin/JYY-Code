@@ -41,9 +41,7 @@ describe("storage path columns", () => {
       }
       expect(stored.directory).toBe(process.platform === "win32" ? "C:/repo/subdir" : "/repo/subdir")
       expect(stored.path).toBe("packages/jyycode")
-      expect(JSON.parse(stored.sandboxes)).toEqual([
-        process.platform === "win32" ? "C:/repo/subdir" : "/repo/subdir",
-      ])
+      expect(JSON.parse(stored.sandboxes)).toEqual([process.platform === "win32" ? "C:/repo/subdir" : "/repo/subdir"])
 
       const selected = db.select().from(paths).get()!
       expect(selected.directory).toBe(directory)
@@ -57,9 +55,7 @@ describe("storage path columns", () => {
     if (process.platform !== "win32") return
     const { native, db } = database()
     try {
-      db.insert(paths)
-        .values({ id: 1, directory: "\\\\server\\share", path: "", sandboxes: [] })
-        .run()
+      db.insert(paths).values({ id: 1, directory: "\\\\server\\share", path: "", sandboxes: [] }).run()
       expect((native.query("SELECT directory FROM paths").get() as { directory: string }).directory).toBe(
         "//server/share",
       )
@@ -92,20 +88,21 @@ describe("storage path migration", () => {
         Effect.gen(function* () {
           yield* db.run("CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT NOT NULL, sandboxes TEXT NOT NULL)")
           yield* db.run("CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT NOT NULL, path TEXT)")
-          yield* db.run(sql`INSERT INTO project VALUES ('project', ${"C:\\Repo"}, ${JSON.stringify(["C:\\Repo\\box"])})`)
+          yield* db.run(
+            sql`INSERT INTO project VALUES ('project', ${"C:\\Repo"}, ${JSON.stringify(["C:\\Repo\\box"])})`,
+          )
           yield* db.run(sql`INSERT INTO session VALUES ('session', ${"C:\\Repo"}, ${"packages\\jyycode"})`)
           yield* DatabaseMigration.applyOnly(db, [normalizeStoragePaths])
           yield* DatabaseMigration.applyOnly(db, [normalizeStoragePaths])
           return {
-            project: yield* db.get<{ worktree: string; sandboxes: string }>(sql`SELECT worktree, sandboxes FROM project`),
+            project: yield* db.get<{ worktree: string; sandboxes: string }>(
+              sql`SELECT worktree, sandboxes FROM project`,
+            ),
             session: yield* db.get<{ directory: string; path: string }>(sql`SELECT directory, path FROM session`),
             applied: yield* db.all<{ id: string }>(sql`SELECT id FROM migration`),
           }
         }),
-      ).pipe(
-        Effect.provide(ScopedDatabase.layerFromPath(filename, ScopedDatabase.noMigrations)),
-        Effect.scoped,
-      ),
+      ).pipe(Effect.provide(ScopedDatabase.layerFromPath(filename, ScopedDatabase.noMigrations)), Effect.scoped),
     )
     expect(result.project).toEqual({ worktree: "C:/Repo", sandboxes: JSON.stringify(["C:/Repo/box"]) })
     expect(result.session).toEqual({ directory: "C:/Repo", path: "packages/jyycode" })
@@ -128,10 +125,7 @@ describe("storage path migration", () => {
             worktrees: yield* db.all<{ worktree: string }>(sql`SELECT worktree FROM project ORDER BY id`),
           }
         }),
-      ).pipe(
-        Effect.provide(ScopedDatabase.layerFromPath(filename, ScopedDatabase.noMigrations)),
-        Effect.scoped,
-      ),
+      ).pipe(Effect.provide(ScopedDatabase.layerFromPath(filename, ScopedDatabase.noMigrations)), Effect.scoped),
     )
     expect(result.failed).toBe(true)
     expect(result.worktrees).toEqual([{ worktree: "C:\\Repo" }, { worktree: "c:/repo" }])

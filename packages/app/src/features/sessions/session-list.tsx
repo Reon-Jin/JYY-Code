@@ -34,7 +34,10 @@ export function SessionList(props: SessionListProps) {
     )
 
   return (
-    <nav class="session-list" aria-label={props.archived ? tr("sessions.archive-session") : tr("sessions.activity-session")}>
+    <nav
+      class="session-list"
+      aria-label={props.archived ? tr("sessions.archive-session") : tr("sessions.activity-session")}
+    >
       <Show
         when={!props.loading}
         fallback={

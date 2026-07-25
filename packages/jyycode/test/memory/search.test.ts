@@ -61,9 +61,7 @@ describe("JSON memory search", () => {
   test("searches complete entries across both stores", async () => {
     const { run } = await fixture()
     const results = await run(
-      Memory.Service.use((memory) =>
-        memory.search({ sessionID, scope: "all", query: "typescript 中文", limit: 5 }),
-      ),
+      Memory.Service.use((memory) => memory.search({ sessionID, scope: "all", query: "typescript 中文", limit: 5 })),
     )
 
     expect(results).toHaveLength(2)

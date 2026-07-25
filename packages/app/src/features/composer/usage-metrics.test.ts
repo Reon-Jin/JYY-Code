@@ -62,7 +62,11 @@ describe("usage metrics", () => {
       cost: 0.05,
       tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
     })
-    const unrelated = session({ id: "ses_other", cost: 99, tokens: { input: 999, output: 0, reasoning: 0, cache: { read: 0, write: 0 } } })
+    const unrelated = session({
+      id: "ses_other",
+      cost: 99,
+      tokens: { input: 999, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    })
 
     const usage = aggregateSessionUsage(root, [root, child, grandchild, unrelated])
     expect(usage.tokens).toEqual({

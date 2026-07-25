@@ -400,9 +400,9 @@ describe("provider HttpApi", () => {
       expect(hasProviderWithFetch(configBody, "providers")).toBe(false)
       expect(hasNonZeroModelCost(providerBody, "all", "google")).toBe(true)
       expect(hasNonZeroModelCost(configBody, "providers", "google")).toBe(true)
-      expect(
-        providerList(configBody, "providers").map((item) => (isRecord(item) ? item.id : undefined)),
-      ).toEqual(["google"])
+      expect(providerList(configBody, "providers").map((item) => (isRecord(item) ? item.id : undefined))).toEqual([
+        "google",
+      ])
     }),
     projectOptions,
   )

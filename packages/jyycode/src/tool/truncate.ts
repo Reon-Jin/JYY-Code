@@ -80,23 +80,17 @@ export const layer = Layer.effect(
       const cutoff = Identifier.timestamp(
         Identifier.create("tool", "ascending", Date.now() - Duration.toMillis(RETENTION)),
       )
-      const rootEntries = yield* fs.readDirectory(TRUNCATION_DIR).pipe(
-        Effect.catch(() => Effect.succeed([])),
-      )
+      const rootEntries = yield* fs.readDirectory(TRUNCATION_DIR).pipe(Effect.catch(() => Effect.succeed([])))
       for (const entry of rootEntries) {
         const fullPath = path.join(TRUNCATION_DIR, entry)
         if (yield* fs.isDir(fullPath).pipe(Effect.catch(() => Effect.succeed(false)))) {
-          const subEntries = yield* fs.readDirectory(fullPath).pipe(
-            Effect.catch(() => Effect.succeed([])),
-          )
+          const subEntries = yield* fs.readDirectory(fullPath).pipe(Effect.catch(() => Effect.succeed([])))
           for (const sub of subEntries) {
             if (Identifier.timestamp(sub) < cutoff) {
               yield* fs.remove(path.join(fullPath, sub)).pipe(Effect.catch(() => Effect.void))
             }
           }
-          const remaining = yield* fs.readDirectory(fullPath).pipe(
-            Effect.catch(() => Effect.succeed([])),
-          )
+          const remaining = yield* fs.readDirectory(fullPath).pipe(Effect.catch(() => Effect.succeed([])))
           if (remaining.length === 0) {
             yield* fs.remove(fullPath).pipe(Effect.catch(() => Effect.void))
           }
@@ -125,7 +119,12 @@ export const layer = Layer.effect(
       }
     })
 
-    const output = Effect.fn("Truncate.output")(function* (text: string, options: Options = {}, agent?: Agent.Info, sessionId?: string) {
+    const output = Effect.fn("Truncate.output")(function* (
+      text: string,
+      options: Options = {},
+      agent?: Agent.Info,
+      sessionId?: string,
+    ) {
       const resolved = yield* limits(options.toolName)
       const maxLines = options.maxLines ?? resolved.maxLines
       const maxBytes = options.maxBytes ?? resolved.maxBytes

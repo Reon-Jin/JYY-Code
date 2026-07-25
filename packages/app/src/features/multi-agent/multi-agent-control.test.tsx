@@ -17,11 +17,7 @@ const session: Session = {
   time: { created: 1, updated: 1 },
 }
 
-function renderControl(input?: {
-  session?: Session
-  config?: AgentClusterConfig
-  reject?: boolean
-}) {
+function renderControl(input?: { session?: Session; config?: AgentClusterConfig; reject?: boolean }) {
   const queryClient = createDesktopQueryClient()
   const activeSession = input?.session ?? session
   queryClient.setQueryData(keys.session(directory, activeSession.id), activeSession)
@@ -66,10 +62,7 @@ describe("MultiAgentControl", () => {
 
     await user.click(toggle)
 
-    expect(update).toHaveBeenCalledWith(
-      { directory, sessionID: "ses_root", multiAgent: true },
-      { throwOnError: true },
-    )
+    expect(update).toHaveBeenCalledWith({ directory, sessionID: "ses_root", multiAgent: true }, { throwOnError: true })
     expect(toggle).toHaveAttribute("aria-checked", "true")
     expect(toggle).toHaveAttribute("data-active", "true")
     expect(document.body.querySelector(".multi-agent-activation-wave")).not.toBeInTheDocument()
@@ -83,10 +76,7 @@ describe("MultiAgentControl", () => {
 
     await user.click(screen.getByRole("switch", { name: "多智能体" }))
 
-    expect(update).toHaveBeenCalledWith(
-      { directory, sessionID: "ses_root", multiAgent: false },
-      { throwOnError: true },
-    )
+    expect(update).toHaveBeenCalledWith({ directory, sessionID: "ses_root", multiAgent: false }, { throwOnError: true })
   })
 
   it("restores the effective state and shows an inline error when persistence fails", async () => {

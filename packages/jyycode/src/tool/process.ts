@@ -12,12 +12,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { containsPath } from "@/project/instance-context"
 import * as Tool from "./tool"
 import { commandProcess } from "./shell/command"
-import {
-  askShellPermissions,
-  collectShellPermissions,
-  parseShellCommand,
-  resolveShellPath,
-} from "./shell/scan"
+import { askShellPermissions, collectShellPermissions, parseShellCommand, resolveShellPath } from "./shell/scan"
 import PROCESS_START_DESCRIPTION from "./process-start.txt"
 import PROCESS_OUTPUT_DESCRIPTION from "./process-output.txt"
 import KILL_PROCESS_DESCRIPTION from "./kill-process.txt"

@@ -26,7 +26,8 @@ export function SkillSourceDialog(props: {
   async function submit(event: SubmitEvent) {
     event.preventDefault()
     const source = value().trim()
-    if (!source) return setError(type() === "path" ? tr("skills.please-enter-local-path") : tr("skills.please-enter-url"))
+    if (!source)
+      return setError(type() === "path" ? tr("skills.please-enter-local-path") : tr("skills.please-enter-url"))
     setBusy(true)
     setError(undefined)
     try {

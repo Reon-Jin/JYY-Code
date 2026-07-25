@@ -280,9 +280,7 @@ async function getAccessToken(emailCfg: {
       const refreshToken = tokenData.refresh_token as string | undefined
 
       if (refreshToken) {
-        process.stderr.write(
-          EOL + "Add this refreshToken to jyycode.jsonc email config to skip login next time:" + EOL,
-        )
+        process.stderr.write(EOL + "Add this refreshToken to jyycode.jsonc email config to skip login next time:" + EOL)
         process.stderr.write(`  "refreshToken": "${refreshToken}"` + EOL + EOL)
       } else {
         process.stderr.write(

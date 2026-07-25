@@ -154,9 +154,10 @@ describe("SessionList", () => {
     const user = userEvent.setup()
     let finish: () => void = () => {}
     const onArchive = vi.fn(
-      () => new Promise<void>((resolve) => {
-        finish = resolve
-      }),
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
     )
     renderList({ onArchive })
 
@@ -187,7 +188,10 @@ describe("SessionList", () => {
   })
 
   it("starts collapsed on a narrow window and exposes a labeled toggle", async () => {
-    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })))
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({ matches: true })),
+    )
     const user = userEvent.setup()
     const onReturnHome = vi.fn(async () => undefined)
     render(() => (

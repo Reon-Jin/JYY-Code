@@ -4,11 +4,7 @@ import { FolderSearch, GitBranch } from "lucide-solid"
 import { Button } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
 import { InlineError } from "../../components/ui/inline-error"
-import {
-  GitInitializationError,
-  errorMessage,
-  type CreatedProject,
-} from "./project-controller"
+import { GitInitializationError, errorMessage, type CreatedProject } from "./project-controller"
 import { useProjects } from "./project-context"
 
 export type ProjectCreateDialogProps = {

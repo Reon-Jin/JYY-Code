@@ -57,9 +57,7 @@ function activeCounts(file: string): { counts: DatabaseCounts; error?: string } 
         projects: tableCount(db, "project"),
         messages: tableCount(db, "message"),
         parts: tableCount(db, "part"),
-        migrations: tableExists(db, "migration")
-          ? tableCount(db, "migration")
-          : tableCount(db, "__drizzle_migrations"),
+        migrations: tableExists(db, "migration") ? tableCount(db, "migration") : tableCount(db, "__drizzle_migrations"),
       },
     }
   } catch (error) {
@@ -242,7 +240,12 @@ export const DbCommand = cmd({
   command: "db",
   describe: "database tools",
   builder: (yargs: Argv) => {
-    return yargs.command(QueryCommand).command(PathCommand).command(StatusCommand).command(MigrateCommand).demandCommand()
+    return yargs
+      .command(QueryCommand)
+      .command(PathCommand)
+      .command(StatusCommand)
+      .command(MigrateCommand)
+      .demandCommand()
   },
   handler: () => {},
 })

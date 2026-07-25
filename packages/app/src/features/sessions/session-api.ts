@@ -73,18 +73,12 @@ export function createSessionApi(input: SessionApiInput) {
   }
 
   async function listAll() {
-    const result = await input.client.session.list(
-      { directory: input.directory, roots: false },
-      { throwOnError: true },
-    )
+    const result = await input.client.session.list({ directory: input.directory, roots: false }, { throwOnError: true })
     return result.data ?? []
   }
 
   async function status() {
-    const result = await input.client.session.status(
-      { directory: input.directory },
-      { throwOnError: true },
-    )
+    const result = await input.client.session.status({ directory: input.directory }, { throwOnError: true })
     return (result.data ?? {}) as Record<string, SessionStatus>
   }
 
@@ -93,10 +87,7 @@ export function createSessionApi(input: SessionApiInput) {
   }
 
   async function create(value: CreateSessionInput) {
-    const result = await input.client.session.create(
-      { directory: input.directory, ...value },
-      { throwOnError: true },
-    )
+    const result = await input.client.session.create({ directory: input.directory, ...value }, { throwOnError: true })
     await invalidateLists()
     if (!result.data) throw new Error(tr("sessions.create-failed"))
     return result.data
@@ -121,10 +112,7 @@ export function createSessionApi(input: SessionApiInput) {
   }
 
   async function remove(sessionID: string) {
-    const result = await input.client.session.delete(
-      { directory: input.directory, sessionID },
-      { throwOnError: true },
-    )
+    const result = await input.client.session.delete({ directory: input.directory, sessionID }, { throwOnError: true })
     await invalidateLists()
     return result.data ?? false
   }

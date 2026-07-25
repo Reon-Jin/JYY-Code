@@ -488,5 +488,3 @@ export const migrate = Effect.fn("migrate")(function* <TEffectHKT extends QueryE
     }),
   )
 })
-
-

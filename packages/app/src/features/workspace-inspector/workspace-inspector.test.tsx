@@ -38,14 +38,8 @@ describe("workspace inspector preferences", () => {
   })
 
   it("migrates the legacy open state to Todo and legacy closed state to no pane", () => {
-    localStorage.setItem(
-      "jyycode:workspace-inspector:c:\\open",
-      JSON.stringify({ open: true, todoRatio: 0.42 }),
-    )
-    localStorage.setItem(
-      "jyycode:workspace-inspector:c:\\closed",
-      JSON.stringify({ open: false, todoRatio: 0.8 }),
-    )
+    localStorage.setItem("jyycode:workspace-inspector:c:\\open", JSON.stringify({ open: true, todoRatio: 0.42 }))
+    localStorage.setItem("jyycode:workspace-inspector:c:\\closed", JSON.stringify({ open: false, todoRatio: 0.8 }))
 
     expect(loadInspectorPreferences("C:\\open")).toEqual({ panes: ["todo"], ratios: [1], width: 420 })
     expect(loadInspectorPreferences("C:\\closed")).toEqual({ panes: [], ratios: [], width: 420 })
@@ -116,7 +110,7 @@ describe("WorkspaceInspectorView", () => {
   it("closes an overlay drawer with Escape at narrow width", () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
-      value: vi.fn(() => ({ matches: true } as MediaQueryList)),
+      value: vi.fn(() => ({ matches: true }) as MediaQueryList),
     })
     render(() => <InspectorHarness initial="multi-agent" />)
     expect(screen.getByRole("group", { name: "多智能体" })).toBeVisible()

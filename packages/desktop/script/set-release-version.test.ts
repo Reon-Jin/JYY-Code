@@ -29,9 +29,15 @@ describe("setDesktopReleaseVersion", () => {
     setDesktopReleaseVersion("1.2.3-beta.1", root)
 
     expect(JSON.parse(readFileSync(join(root, "packages/desktop/package.json"), "utf8")).version).toBe("1.2.3-beta.1")
-    expect(JSON.parse(readFileSync(join(root, "packages/desktop/src-tauri/tauri.conf.json"), "utf8")).version).toBe("1.2.3-beta.1")
-    expect(readFileSync(join(root, "packages/desktop/src-tauri/Cargo.toml"), "utf8")).toContain('version = "1.2.3-beta.1"')
-    expect(readFileSync(join(root, "packages/desktop/src-tauri/Cargo.lock"), "utf8")).toContain('version = "1.2.3-beta.1"')
+    expect(JSON.parse(readFileSync(join(root, "packages/desktop/src-tauri/tauri.conf.json"), "utf8")).version).toBe(
+      "1.2.3-beta.1",
+    )
+    expect(readFileSync(join(root, "packages/desktop/src-tauri/Cargo.toml"), "utf8")).toContain(
+      'version = "1.2.3-beta.1"',
+    )
+    expect(readFileSync(join(root, "packages/desktop/src-tauri/Cargo.lock"), "utf8")).toContain(
+      'version = "1.2.3-beta.1"',
+    )
   })
 
   it("rejects an invalid version before changing files", () => {

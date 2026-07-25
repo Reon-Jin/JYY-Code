@@ -18,11 +18,14 @@ afterEach(async () => {
 async function fixture(input?: { legacy?: boolean }) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "memory-management-"))
   cleanup.push(directory)
-  const legacyDirectory = input?.legacy ? await fs.mkdtemp(path.join(os.tmpdir(), "memory-management-legacy-")) : undefined
+  const legacyDirectory = input?.legacy
+    ? await fs.mkdtemp(path.join(os.tmpdir(), "memory-management-legacy-"))
+    : undefined
   if (legacyDirectory) cleanup.push(legacyDirectory)
   const child = SessionID.make("ses_child")
   const sessionLayer = Layer.mock(Session.Service)({
-    get: (sessionID) => Effect.succeed({ id: sessionID, parentID: sessionID === child ? "ses_parent" : undefined } as Session.Info),
+    get: (sessionID) =>
+      Effect.succeed({ id: sessionID, parentID: sessionID === child ? "ses_parent" : undefined } as Session.Info),
     messages: () => Effect.succeed([]),
   })
   const memoryLayer = Memory.layerWithDirectory(directory, { legacyDirectory }).pipe(
@@ -70,7 +73,9 @@ describe("audited memory management storage", () => {
 
     const user = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
     const task = await ctx.run(
-      MemoryManagement.Service.use((management) => management.list({ scope: "task", sessionID: SessionID.make("ses_task") })),
+      MemoryManagement.Service.use((management) =>
+        management.list({ scope: "task", sessionID: SessionID.make("ses_task") }),
+      ),
     )
     expect(user.entries[0]).toMatchObject({ scope: "user", keywords: ["偏好"], content: "用户偏好深色界面。" })
     expect(user.entries[0]?.id).toMatch(/^usr_[A-Za-z0-9_-]+$/)
@@ -91,14 +96,28 @@ describe("audited memory management storage", () => {
     await fs.writeFile(
       path.join(ctx.directory, "MEMORY.json"),
       Memory.serializeStore("memory", [
-        { scope: "memory", sessionID: SessionID.make("ses_old"), importance: 5, date: "20260701", keywords: ["old"], content: "Old task" },
-        { scope: "memory", sessionID: SessionID.make("ses_new"), importance: 5, date: "20260718", keywords: ["new"], content: "New task" },
+        {
+          scope: "memory",
+          sessionID: SessionID.make("ses_old"),
+          importance: 5,
+          date: "20260701",
+          keywords: ["old"],
+          content: "Old task",
+        },
+        {
+          scope: "memory",
+          sessionID: SessionID.make("ses_new"),
+          importance: 5,
+          date: "20260718",
+          keywords: ["new"],
+          content: "New task",
+        },
       ]),
       "utf8",
     )
 
     const page = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "task" })))
-    expect(page.entries.map((entry) => entry.scope === "task" ? entry.date : "")).toEqual(["20260718", "20260701"])
+    expect(page.entries.map((entry) => (entry.scope === "task" ? entry.date : ""))).toEqual(["20260718", "20260701"])
   })
 
   test("lists and searches task memories across sessions when no session is specified", async () => {
@@ -130,7 +149,10 @@ describe("audited memory management storage", () => {
     const searched = await ctx.run(
       MemoryManagement.Service.use((management) => management.list({ scope: "task", query: "附件" })),
     )
-    expect(all.entries.map((entry) => entry.scope === "task" ? String(entry.sessionID) : "")).toEqual(["ses_second", "ses_first"])
+    expect(all.entries.map((entry) => (entry.scope === "task" ? String(entry.sessionID) : ""))).toEqual([
+      "ses_second",
+      "ses_first",
+    ])
     expect(searched.entries).toHaveLength(1)
     expect(searched.entries[0]).toMatchObject({ scope: "task", sessionID: "ses_second", keywords: ["附件"] })
   })
@@ -159,27 +181,56 @@ describe("audited memory management storage", () => {
     const ctx = await fixture()
     const management = MemoryManagement.Service
     const sensitive = await ctx.run(
-      Effect.exit(management.use((service) => service.createUser({ importance: 5, keywords: ["密钥"], content: "api_key=sk-secret" }))),
+      Effect.exit(
+        management.use((service) =>
+          service.createUser({ importance: 5, keywords: ["密钥"], content: "api_key=sk-secret" }),
+        ),
+      ),
     )
     const invalid = await ctx.run(
-      Effect.exit(management.use((service) => service.createUser({ importance: 5, keywords: ["x"], content: "用户偏好。" }))),
+      Effect.exit(
+        management.use((service) => service.createUser({ importance: 5, keywords: ["x"], content: "用户偏好。" })),
+      ),
     )
     const user = await ctx.run(
       management.use((service) => service.createUser({ importance: 5, keywords: ["偏好"], content: "用户偏好中文。" })),
     )
     const crossScope = await ctx.run(
-      Effect.exit(management.use((service) => service.remove({ scope: "task", id: user.id, sessionID: SessionID.make("ses_task") }))),
+      Effect.exit(
+        management.use((service) =>
+          service.remove({ scope: "task", id: user.id, sessionID: SessionID.make("ses_task") }),
+        ),
+      ),
     )
     const task = await ctx.run(
       management.use((service) =>
-        service.update({ scope: "task", id: null, sessionID: SessionID.make("ses_task"), importance: 5, keywords: ["任务"], content: "用户要求实现任务，我用了步骤拆解，最终学会了任务规划" }),
+        service.update({
+          scope: "task",
+          id: null,
+          sessionID: SessionID.make("ses_task"),
+          importance: 5,
+          keywords: ["任务"],
+          content: "用户要求实现任务，我用了步骤拆解，最终学会了任务规划",
+        }),
       ),
     )
-    await ctx.run(management.use((service) => service.update({ ...task, content: "用户要求更新任务，我用了回归检查，最终学会了变更验证" })))
+    await ctx.run(
+      management.use((service) =>
+        service.update({ ...task, content: "用户要求更新任务，我用了回归检查，最终学会了变更验证" }),
+      ),
+    )
     if (task.scope !== "task") throw new Error("Expected task memory")
-    const stale = await ctx.run(Effect.exit(management.use((service) => service.remove({ scope: "task", id: task.id, sessionID: task.sessionID }))))
+    const stale = await ctx.run(
+      Effect.exit(
+        management.use((service) => service.remove({ scope: "task", id: task.id, sessionID: task.sessionID })),
+      ),
+    )
     const overflow = await ctx.run(
-      Effect.exit(management.use((service) => service.createUser({ importance: 5, keywords: ["超限"], content: "很".repeat(2_100) }))),
+      Effect.exit(
+        management.use((service) =>
+          service.createUser({ importance: 5, keywords: ["超限"], content: "很".repeat(2_100) }),
+        ),
+      ),
     )
 
     expect(Exit.isFailure(sensitive)).toBe(true)
@@ -204,12 +255,19 @@ describe("audited memory management storage", () => {
     const childWrite = await ctx.run(
       Effect.exit(
         Memory.Service.use((memory) =>
-          memory.upsertUserMemory({ sessionID: ctx.child, importance: 5, keywords: ["越权"], content: "子智能体不应写入。" }),
+          memory.upsertUserMemory({
+            sessionID: ctx.child,
+            importance: 5,
+            keywords: ["越权"],
+            content: "子智能体不应写入。",
+          }),
         ),
       ),
     )
     expect(Exit.isFailure(childWrite)).toBe(true)
-    expect(await fs.readFile(path.join(ctx.directory, "audit.jsonl"), "utf8")).toContain('"writerKind":"desktop-management"')
+    expect(await fs.readFile(path.join(ctx.directory, "audit.jsonl"), "utf8")).toContain(
+      '"writerKind":"desktop-management"',
+    )
   })
 
   test("migrates a valid legacy store and removes the source after copying", async () => {
@@ -222,7 +280,12 @@ describe("audited memory management storage", () => {
     await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
     await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
     expect(await fs.readFile(path.join(ctx.directory, "USER.json"), "utf8")).toBe(text)
-    expect(await fs.stat(source).then(() => true, () => false)).toBe(false)
+    expect(
+      await fs.stat(source).then(
+        () => true,
+        () => false,
+      ),
+    ).toBe(false)
   })
 
   test("reflects direct JSON edits in desktop management reads", async () => {

@@ -316,7 +316,8 @@ export const GlobalApi = HttpApi.make("global").add(
         OpenApi.annotations({
           identifier: "global.memory.compact",
           summary: "Compact memories",
-          description: "Compact one memory scope using deterministic storage rules, across all task sessions when omitted.",
+          description:
+            "Compact one memory scope using deterministic storage rules, across all task sessions when omitted.",
         }),
       ),
       HttpApiEndpoint.post("memoryTaskClear", GlobalPaths.memoryTaskClear, {

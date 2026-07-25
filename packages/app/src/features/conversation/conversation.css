@@ -120,7 +120,10 @@
 }
 
 @keyframes conversation-plan-pulse {
-  50% { opacity: 0.35; transform: scale(0.72); }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.72);
+  }
 }
 
 .conversation-markdown {

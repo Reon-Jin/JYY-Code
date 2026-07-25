@@ -90,7 +90,9 @@ type State = {
 
 const ToolSearchParameters = Schema.Struct({
   query: Schema.String.annotate({ description: "Search terms for finding relevant available tools" }),
-  limit: Schema.optional(Schema.Number).annotate({ description: "Maximum number of tool matches to return (default: 8)" }),
+  limit: Schema.optional(Schema.Number).annotate({
+    description: "Maximum number of tool matches to return (default: 8)",
+  }),
   detail: Schema.optional(Schema.Literals(["summary", "schema", "full"])).annotate({
     description: "How much information to return for each match (default: summary)",
   }),
@@ -494,7 +496,9 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),
       Layer.provide(Session.defaultLayer),
-      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer, BackgroundProcess.defaultLayer)),
+      Layer.provide(
+        Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer, BackgroundProcess.defaultLayer),
+      ),
       Layer.provide(Provider.defaultLayer),
       Layer.provide(Layer.mergeAll(Git.defaultLayer, RepositoryCache.defaultLayer)),
       Layer.provide(Reference.defaultLayer),

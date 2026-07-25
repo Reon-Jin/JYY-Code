@@ -28,7 +28,10 @@ export function TaskActivityContent(props: { messages: readonly ConversationMess
         running={props.running}
         defaultExpanded
       >
-        <Show when={parts().length > 0} fallback={<span class="task-activity__waiting">{tr("conversation.waiting-for-subtask-output")}</span>}>
+        <Show
+          when={parts().length > 0}
+          fallback={<span class="task-activity__waiting">{tr("conversation.waiting-for-subtask-output")}</span>}
+        >
           <For each={parts()}>{(part) => <MessagePartView part={part} />}</For>
         </Show>
       </ActivityGroup>

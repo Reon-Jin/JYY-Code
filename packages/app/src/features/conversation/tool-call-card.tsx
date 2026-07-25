@@ -36,7 +36,11 @@ export function ToolCallCard(props: { part: ToolPart }) {
       : props.part.tool
 
   return (
-    <section class="tool-call" data-status={props.part.state.status} aria-label={tr("conversation.tool-call-name", { name: props.part.tool })}>
+    <section
+      class="tool-call"
+      data-status={props.part.state.status}
+      aria-label={tr("conversation.tool-call-name", { name: props.part.tool })}
+    >
       <span class="tool-call__icon" aria-hidden="true">
         <Wrench />
       </span>

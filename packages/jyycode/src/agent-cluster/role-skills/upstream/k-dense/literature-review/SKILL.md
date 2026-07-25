@@ -3,8 +3,31 @@ name: literature-review
 description: Conduct comprehensive, systematic literature reviews using multiple academic databases (PubMed, arXiv, bioRxiv, Semantic Scholar, etc.). This skill should be used when conducting systematic literature reviews, meta-analyses, research synthesis, or comprehensive literature searches across biomedical, scientific, and technical domains. Creates professionally formatted markdown documents and PDFs with verified citations in multiple citation styles (APA, Nature, Vancouver, etc.).
 allowed-tools: Read Write Edit Bash
 license: MIT license
-required_environment_variables: [{"name": "OPENROUTER_API_KEY", "prompt": "OpenRouter API key for the skill's LLM-powered steps.", "required_for": "optional features"}]
-metadata: {"version": "1.2", "skill-author": "K-Dense Inc.", "openclaw": {"primaryEnv": "OPENROUTER_API_KEY", "envVars": [{"name": "OPENROUTER_API_KEY", "required": false, "description": "OpenRouter API key for the skill's LLM-powered steps."}]}}
+required_environment_variables:
+  [
+    {
+      "name": "OPENROUTER_API_KEY",
+      "prompt": "OpenRouter API key for the skill's LLM-powered steps.",
+      "required_for": "optional features",
+    },
+  ]
+metadata:
+  {
+    "version": "1.2",
+    "skill-author": "K-Dense Inc.",
+    "openclaw":
+      {
+        "primaryEnv": "OPENROUTER_API_KEY",
+        "envVars":
+          [
+            {
+              "name": "OPENROUTER_API_KEY",
+              "required": false,
+              "description": "OpenRouter API key for the skill's LLM-powered steps.",
+            },
+          ],
+      },
+  }
 ---
 
 # Literature Review
@@ -18,6 +41,7 @@ This skill uses the **parallel-web skill** (`parallel-cli search`) as the primar
 ## When to Use This Skill
 
 Use this skill when:
+
 - Conducting a systematic literature review for research or publication
 - Synthesizing current knowledge on a specific topic across multiple sources
 - Performing meta-analysis or scoping reviews
@@ -31,26 +55,31 @@ Use this skill when:
 **⚠️ MANDATORY: Every literature review MUST include at least 1-2 AI-generated figures using the scientific-schematics skill.**
 
 This is not optional. Literature reviews without visual elements are incomplete. Before finalizing any document:
+
 1. Generate at minimum ONE schematic or diagram (e.g., PRISMA flow diagram for systematic reviews)
 2. Prefer 2-3 figures for comprehensive reviews (search strategy flowchart, thematic synthesis diagram, conceptual framework)
 
 **How to generate figures:**
+
 - Use the **scientific-schematics** skill to generate AI-powered publication-quality diagrams
 - Simply describe your desired diagram in natural language
 - Nano Banana Pro will automatically generate, review, and refine the schematic
 
 **How to generate schematics:**
+
 ```bash
 python scripts/generate_schematic.py "your diagram description" -o figures/output.png
 ```
 
 The AI will automatically:
+
 - Create publication-quality images with proper formatting
 - Review and refine through multiple iterations
 - Ensure accessibility (colorblind-friendly, high contrast)
 - Save outputs in the figures/ directory
 
 **When to add schematics:**
+
 - PRISMA flow diagrams for systematic reviews
 - Literature search strategy flowcharts
 - Thematic synthesis diagrams
@@ -100,6 +129,7 @@ Literature reviews follow a structured, multi-phase workflow:
    **Web-Based Academic Search (parallel-web skill — START HERE):**
    - Use `parallel-cli search` with academic domain filtering for broad scholarly coverage
    - Run two searches: academic-focused + general to catch all relevant sources
+
    ```bash
    # Academic-focused search across scholarly sources
    parallel-cli search "your research topic" -q "keyword1" -q "keyword2" \
@@ -112,7 +142,9 @@ Literature reviews follow a structured, multi-phase workflow:
      --json --max-results 10 --excerpt-max-chars-total 27000 \
      -o sources/litreview_<topic>-general.json
    ```
+
    - Use `parallel-cli extract` to fetch full content from specific paper URLs or PDFs found in search results
+
    ```bash
    parallel-cli extract "https://arxiv.org/abs/XXXX.XXXXX" --json
    ```
@@ -134,18 +166,22 @@ Literature reviews follow a structured, multi-phase workflow:
    - Use specialized databases as appropriate for the domain
 
 2. **Document Search Parameters**:
+
    ```markdown
    ## Search Strategy
 
    ### Database: PubMed
+
    - **Date searched**: 2024-10-25
    - **Date range**: 2015-01-01 to 2024-10-25
    - **Search string**:
-     ```
-     ("CRISPR"[Title] OR "Cas9"[Title])
-     AND ("sickle cell"[MeSH] OR "SCD"[Title/Abstract])
-     AND 2015:2024[Publication Date]
-     ```
+   ```
+
+   ("CRISPR"[Title] OR "Cas9"[Title])
+   AND ("sickle cell"[MeSH] OR "SCD"[Title/Abstract])
+   AND 2015:2024[Publication Date]
+
+   ```
    - **Results**: 247 articles
    ```
 
@@ -165,9 +201,11 @@ Literature reviews follow a structured, multi-phase workflow:
 ### Phase 3: Screening and Selection
 
 1. **Deduplication**:
+
    ```bash
    python search_databases.py results.json --deduplicate --output unique_results.json
    ```
+
    - Removes duplicates by DOI (primary) or title (fallback)
    - Document number of duplicates removed
 
@@ -221,6 +259,7 @@ Literature reviews follow a structured, multi-phase workflow:
 ### Phase 5: Synthesis and Analysis
 
 1. **Create Review Document** from template:
+
    ```bash
    cp assets/review_template.md my_literature_review.md
    ```
@@ -233,6 +272,7 @@ Literature reviews follow a structured, multi-phase workflow:
    - Highlight the strongest evidence
 
    Example structure:
+
    ```markdown
    #### 3.3.1 Theme: CRISPR Delivery Methods
 
@@ -261,6 +301,7 @@ Literature reviews follow a structured, multi-phase workflow:
 **CRITICAL**: All citations must be verified for accuracy before final submission.
 
 1. **Verify All DOIs**:
+
    ```bash
    python scripts/verify_citations.py my_literature_review.md
    ```
@@ -287,6 +328,7 @@ Literature reviews follow a structured, multi-phase workflow:
 ### Phase 7: Document Generation
 
 1. **Generate PDF**:
+
    ```bash
    python scripts/generate_pdf.py my_literature_review.md \
      --citation-style apa \
@@ -323,6 +365,7 @@ Literature reviews follow a structured, multi-phase workflow:
 ### PubMed / PubMed Central
 
 Access via `gget` skill:
+
 ```bash
 # Search PubMed
 gget search pubmed "CRISPR gene editing" -l 100
@@ -333,6 +376,7 @@ gget search pubmed "CRISPR gene editing" -l 100
 ```
 
 **Search tips**:
+
 - Use MeSH terms: `"sickle cell disease"[MeSH]`
 - Field tags: `[Title]`, `[Title/Abstract]`, `[Author]`
 - Date filters: `2020:2024[Publication Date]`
@@ -342,11 +386,13 @@ gget search pubmed "CRISPR gene editing" -l 100
 ### bioRxiv / medRxiv
 
 Access via `gget` skill:
+
 ```bash
 gget search biorxiv "CRISPR sickle cell" -l 50
 ```
 
 **Important considerations**:
+
 - Preprints are not peer-reviewed
 - Verify findings with caution
 - Check if preprint has been published (CrossRef)
@@ -355,6 +401,7 @@ gget search biorxiv "CRISPR sickle cell" -l 50
 ### arXiv
 
 Access via direct API or WebFetch:
+
 ```python
 # Example search categories:
 # q-bio.QM (Quantitative Methods)
@@ -370,6 +417,7 @@ search_query = "cat:q-bio.QM AND ti:\"single cell sequencing\""
 ### Semantic Scholar
 
 Access via direct API (requires API key, or use free tier):
+
 - 200M+ papers across all fields
 - Excellent for cross-disciplinary searches
 - Provides citation graphs and paper recommendations
@@ -378,6 +426,7 @@ Access via direct API (requires API key, or use free tier):
 ### Specialized Biomedical Databases
 
 Use appropriate skills:
+
 - **ChEMBL**: `bioservices` skill for chemical bioactivity
 - **UniProt**: `gget` or `bioservices` skill for protein information
 - **KEGG**: `bioservices` skill for pathways and genes
@@ -416,14 +465,17 @@ Expand search via citation networks:
 Detailed formatting guidelines are in `references/citation_styles.md`. Quick reference:
 
 ### APA (7th Edition)
+
 - In-text: (Smith et al., 2023)
-- Reference: Smith, J. D., Johnson, M. L., & Williams, K. R. (2023). Title. *Journal*, *22*(4), 301-318. https://doi.org/10.xxx/yyy
+- Reference: Smith, J. D., Johnson, M. L., & Williams, K. R. (2023). Title. _Journal_, _22_(4), 301-318. https://doi.org/10.xxx/yyy
 
 ### Nature
+
 - In-text: Superscript numbers^1,2^
-- Reference: Smith, J. D., Johnson, M. L. & Williams, K. R. Title. *Nat. Rev. Drug Discov.* **22**, 301-318 (2023).
+- Reference: Smith, J. D., Johnson, M. L. & Williams, K. R. Title. _Nat. Rev. Drug Discov._ **22**, 301-318 (2023).
 
 ### Vancouver
+
 - In-text: Superscript numbers^1,2^
 - Reference: Smith JD, Johnson ML, Williams KR. Title. Nat Rev Drug Discov. 2023;22(4):301-18.
 
@@ -437,14 +489,14 @@ Detailed formatting guidelines are in `references/citation_styles.md`. Quick ref
 
 Use citation counts to identify the most impactful papers:
 
-| Paper Age | Citation Threshold | Classification |
-|-----------|-------------------|----------------|
-| 0-3 years | 20+ citations | Noteworthy |
-| 0-3 years | 100+ citations | Highly Influential |
-| 3-7 years | 100+ citations | Significant |
-| 3-7 years | 500+ citations | Landmark Paper |
-| 7+ years | 500+ citations | Seminal Work |
-| 7+ years | 1000+ citations | Foundational |
+| Paper Age | Citation Threshold | Classification     |
+| --------- | ------------------ | ------------------ |
+| 0-3 years | 20+ citations      | Noteworthy         |
+| 0-3 years | 100+ citations     | Highly Influential |
+| 3-7 years | 100+ citations     | Significant        |
+| 3-7 years | 500+ citations     | Landmark Paper     |
+| 7+ years  | 500+ citations     | Seminal Work       |
+| 7+ years  | 1000+ citations    | Foundational       |
 
 #### Journal and Venue Tiers
 
@@ -458,6 +510,7 @@ Prioritize papers from higher-tier venues:
 #### Author Reputation Assessment
 
 Prefer papers from:
+
 - **Senior researchers** with high h-index (>40 in established fields)
 - **Leading research groups** at recognized institutions (Harvard, Stanford, MIT, Oxford, etc.)
 - **Authors with multiple Tier-1 publications** in the relevant field
@@ -466,6 +519,7 @@ Prefer papers from:
 #### Identifying Seminal Papers
 
 For any topic, identify foundational work by:
+
 1. **High citation count** (typically 500+ for papers 5+ years old)
 2. **Frequently cited by other included studies** (appears in many reference lists)
 3. **Published in Tier-1 venues** (Nature, Science, Cell family)
@@ -474,6 +528,7 @@ For any topic, identify foundational work by:
 ## Best Practices
 
 ### Search Strategy
+
 1. **Start with parallel-web**: Use `parallel-cli search` with academic domains for initial broad coverage before querying specialized databases
 2. **Use multiple databases** (minimum 3): Ensures comprehensive coverage — parallel-web counts as one source
 3. **Include preprint servers**: Captures latest unpublished findings
@@ -483,30 +538,35 @@ For any topic, identify foundational work by:
 7. **Use parallel-cli extract**: Fetch full content from promising URLs found during search to verify relevance before full-text screening
 
 ### Screening and Selection
+
 1. **Use multiple databases** (minimum 3): Ensures comprehensive coverage
 2. **Include preprint servers**: Captures latest unpublished findings
 3. **Document everything**: Search strings, dates, result counts for reproducibility
 4. **Test and refine**: Run pilot searches, review results, adjust search terms
 
 ### Screening and Selection
+
 1. **Use clear criteria**: Document inclusion/exclusion criteria before screening
 2. **Screen systematically**: Title → Abstract → Full text
 3. **Document exclusions**: Record reasons for excluding studies
 4. **Consider dual screening**: For systematic reviews, have two reviewers screen independently
 
 ### Synthesis
+
 1. **Organize thematically**: Group by themes, NOT by individual studies
 2. **Synthesize across studies**: Compare, contrast, identify patterns
 3. **Be critical**: Evaluate quality and consistency of evidence
 4. **Identify gaps**: Note what's missing or understudied
 
 ### Quality and Reproducibility
+
 1. **Assess study quality**: Use appropriate quality assessment tools
 2. **Verify all citations**: Run verify_citations.py script
 3. **Document methodology**: Provide enough detail for others to reproduce
 4. **Follow guidelines**: Use PRISMA for systematic reviews
 
 ### Writing
+
 1. **Be objective**: Present evidence fairly, acknowledge limitations
 2. **Be systematic**: Follow structured template
 3. **Be specific**: Include numbers, statistics, effect sizes where available
@@ -595,26 +655,31 @@ python scripts/generate_pdf.py crispr_sickle_cell_review.md \
 This skill works seamlessly with other scientific skills:
 
 ### Web Search & Extraction (parallel-web skill — PRIMARY)
+
 - **parallel-cli search**: Broad academic and general web search with domain filtering — use for initial scoping, finding papers, citation chaining, and supplementary searches
 - **parallel-cli extract**: Fetch full content from paper URLs, journal websites, and preprint servers — use for reading abstracts, extracting reference lists, and verifying paper details
 - **parallel-cli search --include-domains**: Academic-focused search across scholarly domains (arxiv.org, pubmed, nature.com, etc.)
 
 ### Database Access Skills
+
 - **gget**: PubMed, bioRxiv, COSMIC, AlphaFold, Ensembl, UniProt
 - **bioservices**: ChEMBL, KEGG, Reactome, UniProt, PubChem
 - **datacommons-client**: Demographics, economics, health statistics
 
 ### Analysis Skills
+
 - **pydeseq2**: RNA-seq differential expression (for methods sections)
 - **scanpy**: Single-cell analysis (for methods sections)
 - **anndata**: Single-cell data (for methods sections)
 - **biopython**: Sequence analysis (for background sections)
 
 ### Visualization Skills
+
 - **matplotlib**: Generate figures and plots for review
 - **seaborn**: Statistical visualizations
 
 ### Writing Skills
+
 - **brand-guidelines**: Apply institutional branding to PDF
 - **internal-comms**: Adapt review for different audiences
 - **venue-templates**: Access venue-specific writing style guides when preparing reviews for publication
@@ -622,6 +687,7 @@ This skill works seamlessly with other scientific skills:
 ### Venue-Specific Writing Styles
 
 When preparing a literature review for a specific journal, consult the **venue-templates** skill for writing style guidance:
+
 - `venue_writing_styles.md`: Master style comparison across venues
 - `nature_science_style.md`: Nature/Science flowing abstract style, story-driven structure
 - `cell_press_style.md`: Cell Press graphical abstracts, Highlights format
@@ -634,30 +700,36 @@ These guides help adapt your review's tone, abstract format, and structure to ma
 ### Bundled Resources
 
 **Scripts:**
+
 - `scripts/verify_citations.py`: Verify DOIs and generate formatted citations
 - `scripts/generate_pdf.py`: Convert markdown to professional PDF
 - `scripts/search_databases.py`: Process, deduplicate, and format search results
 
 **References:**
+
 - `references/citation_styles.md`: Detailed citation formatting guide (APA, Nature, Vancouver, Chicago, IEEE)
 - `references/database_strategies.md`: Comprehensive database search strategies
 
 **Assets:**
+
 - `assets/review_template.md`: Complete literature review template with all sections
 
 ### External Resources
 
 **Guidelines:**
+
 - PRISMA (Systematic Reviews): http://www.prisma-statement.org/
 - Cochrane Handbook: https://training.cochrane.org/handbook
 - AMSTAR 2 (Review Quality): https://amstar.ca/
 
 **Tools:**
+
 - MeSH Browser: https://meshb.nlm.nih.gov/search
 - PubMed Advanced Search: https://pubmed.ncbi.nlm.nih.gov/advanced/
 - Boolean Search Guide: https://www.ncbi.nlm.nih.gov/books/NBK3827/
 
 **Citation Styles:**
+
 - APA Style: https://apastyle.apa.org/
 - Nature Portfolio: https://www.nature.com/nature-portfolio/editorial-policies/reporting-standards
 - NLM/Vancouver: https://www.nlm.nih.gov/bsd/uniform_requirements.html
@@ -665,6 +737,7 @@ These guides help adapt your review's tone, abstract format, and structure to ma
 ## Dependencies
 
 ### Required CLI Tools
+
 ```bash
 # parallel-cli (PRIMARY — for web search and URL extraction)
 curl -fsSL https://parallel.ai/install.sh | bash
@@ -673,11 +746,13 @@ curl -fsSL https://parallel.ai/install.sh | bash
 ```
 
 ### Required Python Packages
+
 ```bash
 pip install requests  # For citation verification
 ```
 
 ### Required System Tools
+
 ```bash
 # For PDF generation
 brew install pandoc  # macOS
@@ -689,6 +764,7 @@ apt-get install texlive-xetex  # Linux
 ```
 
 Check dependencies:
+
 ```bash
 python scripts/generate_pdf.py --check-deps
 ```
@@ -707,4 +783,3 @@ This literature-review skill provides:
 8. **Reproducibility** through detailed documentation requirements
 
 Conduct thorough, rigorous literature reviews that meet academic standards and provide comprehensive synthesis of current knowledge in any domain.
-

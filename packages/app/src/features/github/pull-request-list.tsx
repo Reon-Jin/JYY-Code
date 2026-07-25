@@ -70,7 +70,10 @@ export function PullRequestList(props: {
             </div>
           }
         >
-          <Show when={props.pulls.length > 0} fallback={<p class="pull-list__state">{tr("github.there-is-no-pull-request-for-the-current")}</p>}>
+          <Show
+            when={props.pulls.length > 0}
+            fallback={<p class="pull-list__state">{tr("github.there-is-no-pull-request-for-the-current")}</p>}
+          >
             <ul>
               <For each={props.pulls}>
                 {(pull) => (

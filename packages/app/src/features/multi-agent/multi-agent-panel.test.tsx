@@ -6,15 +6,52 @@ import { MultiAgentPanelView } from "./multi-agent-panel"
 import { projectAgentClusterState } from "./multi-agent-state"
 
 type Task = SessionAgentClusterResponse["tasks"][number]
-const task = (overrides: Partial<Task> = {}): Task => ({ id: "task", session_id: "ses_root", origin_message_id: "msg", parent_task_id: "", child_session_id: "", role: "coder", title: "Implement Mission Control", prompt: "Implement", complexity: "complex", model: "test/coder", status: "running", step: 2, dependencies: [], review_round: 0, acceptance_criteria: [], artifact_paths: [], result_summary: "", review_issues: [], last_event: "running", time_created: 1, time_updated: 1, ...overrides })
+const task = (overrides: Partial<Task> = {}): Task => ({
+  id: "task",
+  session_id: "ses_root",
+  origin_message_id: "msg",
+  parent_task_id: "",
+  child_session_id: "",
+  role: "coder",
+  title: "Implement Mission Control",
+  prompt: "Implement",
+  complexity: "complex",
+  model: "test/coder",
+  status: "running",
+  step: 2,
+  dependencies: [],
+  review_round: 0,
+  acceptance_criteria: [],
+  artifact_paths: [],
+  result_summary: "",
+  review_issues: [],
+  last_event: "running",
+  time_created: 1,
+  time_updated: 1,
+  ...overrides,
+})
 afterEach(cleanup)
 
 describe("MultiAgentPanelView", () => {
   it("renders session-wide waves, status matrix, and an active child card", async () => {
     const user = userEvent.setup()
     const onOpenChild = vi.fn()
-    const snapshot = projectAgentClusterState({ tasks: [task({ id: "done", step: 1, status: "accepted" }), task({ child_session_id: "ses_child" }), task({ id: "stopped", step: 3, status: "interrupted", review_issues: ["User redirected this worker"] })] })
-    render(() => <MultiAgentPanelView sessionID="ses_root" enabled snapshot={snapshot} selectedChildSessionID="ses_child" onOpenChild={onOpenChild} />)
+    const snapshot = projectAgentClusterState({
+      tasks: [
+        task({ id: "done", step: 1, status: "accepted" }),
+        task({ child_session_id: "ses_child" }),
+        task({ id: "stopped", step: 3, status: "interrupted", review_issues: ["User redirected this worker"] }),
+      ],
+    })
+    render(() => (
+      <MultiAgentPanelView
+        sessionID="ses_root"
+        enabled
+        snapshot={snapshot}
+        selectedChildSessionID="ses_child"
+        onOpenChild={onOpenChild}
+      />
+    ))
     expect(screen.getByText("Implement Mission Control").closest("li")).toHaveAttribute("data-tone", "running")
     expect(screen.getByText("Implement Mission Control").closest("li")).toHaveAttribute("data-selected", "true")
     expect(screen.getByText("已中断")).toBeVisible()

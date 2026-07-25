@@ -19,9 +19,7 @@ describe("conversation layout CSS", () => {
   })
 
   it("uses the responsive wide-screen content width for the timeline and Composer", () => {
-    expect(sessionsCSS).toMatch(
-      /--conversation-content-width:\s*min\(1100px, calc\(100% - 32px\)\);/,
-    )
+    expect(sessionsCSS).toMatch(/--conversation-content-width:\s*min\(1100px, calc\(100% - 32px\)\);/)
     expect(conversationCSS).toMatch(/\.message-timeline\s*\{[^}]*width:\s*100%;/s)
     expect(conversationCSS).toMatch(
       /\.message-timeline__content\s*\{[^}]*width:\s*var\(--conversation-content-width\);[^}]*margin:\s*0 auto;/s,
@@ -32,18 +30,10 @@ describe("conversation layout CSS", () => {
   })
 
   it("points activity chevrons down while expanded and up while collapsed", () => {
-    expect(conversationCSS).toMatch(
-      /\.reasoning-part__toggle svg:last-child\s*\{[^}]*transform:\s*rotate\(180deg\);/s,
-    )
-    expect(conversationCSS).toMatch(
-      /\.reasoning-part__toggle svg\[data-expanded="true"\]\s*\{[^}]*transform:\s*none;/s,
-    )
-    expect(conversationCSS).toMatch(
-      /\.activity-group__toggle svg:last-child\s*\{[^}]*transform:\s*rotate\(180deg\);/s,
-    )
-    expect(conversationCSS).toMatch(
-      /\.activity-group__toggle svg\[data-expanded="true"\]\s*\{[^}]*transform:\s*none;/s,
-    )
+    expect(conversationCSS).toMatch(/\.reasoning-part__toggle svg:last-child\s*\{[^}]*transform:\s*rotate\(180deg\);/s)
+    expect(conversationCSS).toMatch(/\.reasoning-part__toggle svg\[data-expanded="true"\]\s*\{[^}]*transform:\s*none;/s)
+    expect(conversationCSS).toMatch(/\.activity-group__toggle svg:last-child\s*\{[^}]*transform:\s*rotate\(180deg\);/s)
+    expect(conversationCSS).toMatch(/\.activity-group__toggle svg\[data-expanded="true"\]\s*\{[^}]*transform:\s*none;/s)
   })
 
   it("uses compact inline metrics and keeps Multi-Agent motion inside the button", () => {

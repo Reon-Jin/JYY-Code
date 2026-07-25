@@ -166,9 +166,7 @@ export const layer = Layer.effect(
       Effect.map((v) => v as Record<string, Provider> | undefined),
     )
 
-    const loadSnapshot = Effect.sync(() =>
-      typeof JYYCODE_MODELS_DEV === "undefined" ? undefined : JYYCODE_MODELS_DEV,
-    )
+    const loadSnapshot = Effect.sync(() => (typeof JYYCODE_MODELS_DEV === "undefined" ? undefined : JYYCODE_MODELS_DEV))
 
     const fetchAndWrite = Effect.fn("ModelsDev.fetchAndWrite")(function* () {
       const text = yield* fetchApi()

@@ -59,7 +59,11 @@ export function ComposerQueuePanel(props: {
               >
                 <MessageSquareMore aria-hidden="true" />
               </IconButton>
-              <IconButton label={tr("composer.remove-queued-message", { index: index() + 1 })} variant="ghost" onClick={() => props.onRemove(item.id)}>
+              <IconButton
+                label={tr("composer.remove-queued-message", { index: index() + 1 })}
+                variant="ghost"
+                onClick={() => props.onRemove(item.id)}
+              >
                 <Trash2 aria-hidden="true" />
               </IconButton>
             </li>

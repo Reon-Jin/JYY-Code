@@ -16,8 +16,7 @@ export function WorkspaceLabel(props: { type: string; name: string; status?: Wor
     <>
       {props.icon ? <StatusIcon status={iconStatus()} /> : undefined}
       {props.icon ? " " : undefined}
-      <span style={{ fg: theme.text }}>{props.name}</span>{" "}
-      <span style={{ fg: theme.textMuted }}>({props.type})</span>
+      <span style={{ fg: theme.text }}>{props.name}</span> <span style={{ fg: theme.textMuted }}>({props.type})</span>
     </>
   )
 }

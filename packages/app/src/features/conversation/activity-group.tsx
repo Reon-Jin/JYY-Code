@@ -3,9 +3,7 @@ import type { Part } from "@jyycode-ai/sdk/v2/client"
 import { ChevronDown, LoaderCircle } from "lucide-solid"
 import { createSignal, createUniqueId, Show, type ParentProps } from "solid-js"
 
-export type PartGroup =
-  | { type: "activity"; id: string; parts: Part[] }
-  | { type: "part"; id: string; part: Part }
+export type PartGroup = { type: "activity"; id: string; parts: Part[] } | { type: "part"; id: string; part: Part }
 
 function isActivityPart(part: Part) {
   return part.type === "reasoning" || part.type === "tool"
@@ -64,7 +62,9 @@ export function ActivityGroup(
           <LoaderCircle class="activity-group__spinner" aria-hidden="true" />
         </Show>
         <span>{props.label}</span>
-        <small>{props.count} {tr("conversation.item")}</small>
+        <small>
+          {props.count} {tr("conversation.item")}
+        </small>
         <ChevronDown aria-hidden="true" data-expanded={expanded() ? "true" : undefined} />
       </button>
       <Show when={expanded()}>

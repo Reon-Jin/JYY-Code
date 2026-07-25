@@ -21,10 +21,7 @@ const single: QuestionRequest = {
   ],
 }
 
-function renderQuestion(
-  request: QuestionRequest,
-  reply = vi.fn(async () => ({ data: true })),
-) {
+function renderQuestion(request: QuestionRequest, reply = vi.fn(async () => ({ data: true }))) {
   const client = {
     question: {
       reply,
@@ -102,10 +99,7 @@ describe("QuestionPanel", () => {
     const { client } = renderQuestion(single)
 
     await user.click(screen.getByRole("button", { name: "拒绝问题" }))
-    expect(client.question.reject).toHaveBeenCalledWith(
-      { directory, requestID: single.id },
-      { throwOnError: true },
-    )
+    expect(client.question.reject).toHaveBeenCalledWith({ directory, requestID: single.id }, { throwOnError: true })
     expect(screen.getByRole("region", { name: "Agent 提问" })).toBeVisible()
   })
 

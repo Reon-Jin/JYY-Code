@@ -114,7 +114,7 @@ export function CompactionSettings(props: { management?: ManagementContextValue 
   const changed = createMemo(() => Boolean(query.data && parsed().value && !same(query.data, parsed().value!)))
 
   function patch<K extends keyof CompactionDraft>(key: K, value: CompactionDraft[K]) {
-    setDraft((current) => current ? { ...current, [key]: value } : current)
+    setDraft((current) => (current ? { ...current, [key]: value } : current))
     setFailure(undefined)
     setNotice(undefined)
   }
@@ -169,15 +169,27 @@ export function CompactionSettings(props: { management?: ManagementContextValue 
       <p class="settings-description">{tr("settings.compaction-description")}</p>
 
       <Show when={query.isPending}>
-        <p class="settings-saving" role="status">{tr("settings.loading-compaction-settings")}</p>
+        <p class="settings-saving" role="status">
+          {tr("settings.loading-compaction-settings")}
+        </p>
       </Show>
       <Show when={query.error}>
-        <InlineError message={query.error instanceof Error ? query.error.message : tr("settings.unable-to-read-compaction-settings")} />
+        <InlineError
+          message={
+            query.error instanceof Error ? query.error.message : tr("settings.unable-to-read-compaction-settings")
+          }
+        />
       </Show>
 
       <Show when={draft()}>
         {(current) => (
-          <form class="compaction-settings__form" onSubmit={(event) => { event.preventDefault(); void save() }}>
+          <form
+            class="compaction-settings__form"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void save()
+            }}
+          >
             <fieldset class="settings-options settings-options--inline">
               <legend>{tr("settings.context-compression-parameters")}</legend>
               <label>
@@ -188,7 +200,10 @@ export function CompactionSettings(props: { management?: ManagementContextValue 
                   disabled={saving() || resetting()}
                   onChange={(event) => patch("auto", event.currentTarget.checked)}
                 />
-                <span><strong>{tr("settings.automatic-compaction")}</strong><small>{tr("settings.automatic-compaction-description")}</small></span>
+                <span>
+                  <strong>{tr("settings.automatic-compaction")}</strong>
+                  <small>{tr("settings.automatic-compaction-description")}</small>
+                </span>
               </label>
               <label>
                 <input
@@ -198,7 +213,10 @@ export function CompactionSettings(props: { management?: ManagementContextValue 
                   disabled={saving() || resetting()}
                   onChange={(event) => patch("prune", event.currentTarget.checked)}
                 />
-                <span><strong>{tr("settings.prune-old-tool-output")}</strong><small>{tr("settings.prune-old-tool-output-description")}</small></span>
+                <span>
+                  <strong>{tr("settings.prune-old-tool-output")}</strong>
+                  <small>{tr("settings.prune-old-tool-output-description")}</small>
+                </span>
               </label>
             </fieldset>
 
@@ -207,49 +225,128 @@ export function CompactionSettings(props: { management?: ManagementContextValue 
               <div class="compaction-settings__grid">
                 <label class="compaction-settings__field">
                   <span>{tr("settings.compaction-tail-turns")}</span>
-                  <input aria-label={tr("settings.compaction-tail-turns")} type="number" min="0" max="20" step="1" value={current().tailTurns} onInput={(event) => patch("tailTurns", event.currentTarget.value)} />
+                  <input
+                    aria-label={tr("settings.compaction-tail-turns")}
+                    type="number"
+                    min="0"
+                    max="20"
+                    step="1"
+                    value={current().tailTurns}
+                    onInput={(event) => patch("tailTurns", event.currentTarget.value)}
+                  />
                   <small>{tr("settings.compaction-tail-turns-description")}</small>
                 </label>
                 <label class="compaction-settings__field">
                   <span>{tr("settings.compaction-preserve-recent-tokens")}</span>
-                  <input aria-label={tr("settings.compaction-preserve-recent-tokens")} type="number" min="0" max="131072" step="1" value={current().preserveRecentTokens} onInput={(event) => patch("preserveRecentTokens", event.currentTarget.value)} />
+                  <input
+                    aria-label={tr("settings.compaction-preserve-recent-tokens")}
+                    type="number"
+                    min="0"
+                    max="131072"
+                    step="1"
+                    value={current().preserveRecentTokens}
+                    onInput={(event) => patch("preserveRecentTokens", event.currentTarget.value)}
+                  />
                   <small>{tr("settings.compaction-preserve-recent-tokens-description")}</small>
                 </label>
                 <label class="compaction-settings__field">
                   <span>{tr("settings.compaction-reserved-tokens")}</span>
-                  <input aria-label={tr("settings.compaction-reserved-tokens")} type="number" min="0" max="131072" step="1" value={current().reservedTokens} onInput={(event) => patch("reservedTokens", event.currentTarget.value)} />
+                  <input
+                    aria-label={tr("settings.compaction-reserved-tokens")}
+                    type="number"
+                    min="0"
+                    max="131072"
+                    step="1"
+                    value={current().reservedTokens}
+                    onInput={(event) => patch("reservedTokens", event.currentTarget.value)}
+                  />
                   <small>{tr("settings.compaction-reserved-tokens-description")}</small>
                 </label>
                 <label class="compaction-settings__field">
                   <span>{tr("settings.compaction-trigger-ratio")}</span>
-                  <input aria-label={tr("settings.compaction-trigger-ratio")} type="number" min="0.5" max="0.98" step="0.01" value={current().triggerRatio} onInput={(event) => patch("triggerRatio", event.currentTarget.value)} />
+                  <input
+                    aria-label={tr("settings.compaction-trigger-ratio")}
+                    type="number"
+                    min="0.5"
+                    max="0.98"
+                    step="0.01"
+                    value={current().triggerRatio}
+                    onInput={(event) => patch("triggerRatio", event.currentTarget.value)}
+                  />
                   <small>{tr("settings.compaction-trigger-ratio-description")}</small>
                 </label>
                 <label class="compaction-settings__field">
                   <span>{tr("settings.compaction-micro-max-chars")}</span>
-                  <input aria-label={tr("settings.compaction-micro-max-chars")} type="number" min="0" max="100000" step="1" value={current().microCompactMaxChars} onInput={(event) => patch("microCompactMaxChars", event.currentTarget.value)} />
+                  <input
+                    aria-label={tr("settings.compaction-micro-max-chars")}
+                    type="number"
+                    min="0"
+                    max="100000"
+                    step="1"
+                    value={current().microCompactMaxChars}
+                    onInput={(event) => patch("microCompactMaxChars", event.currentTarget.value)}
+                  />
                   <small>{tr("settings.compaction-micro-max-chars-description")}</small>
                 </label>
               </div>
               <fieldset class="settings-options settings-options--inline compaction-settings__toggles">
                 <legend>{tr("settings.advanced-parameters")}</legend>
                 <label>
-                  <input type="checkbox" aria-label={tr("settings.compaction-micro")} checked={current().microCompact} disabled={saving() || resetting()} onChange={(event) => patch("microCompact", event.currentTarget.checked)} />
-                  <span><strong>{tr("settings.compaction-micro")}</strong><small>{tr("settings.compaction-micro-description")}</small></span>
+                  <input
+                    type="checkbox"
+                    aria-label={tr("settings.compaction-micro")}
+                    checked={current().microCompact}
+                    disabled={saving() || resetting()}
+                    onChange={(event) => patch("microCompact", event.currentTarget.checked)}
+                  />
+                  <span>
+                    <strong>{tr("settings.compaction-micro")}</strong>
+                    <small>{tr("settings.compaction-micro-description")}</small>
+                  </span>
                 </label>
                 <label>
-                  <input type="checkbox" aria-label={tr("settings.compaction-reactive")} checked={current().reactiveCompact} disabled={saving() || resetting()} onChange={(event) => patch("reactiveCompact", event.currentTarget.checked)} />
-                  <span><strong>{tr("settings.compaction-reactive")}</strong><small>{tr("settings.compaction-reactive-description")}</small></span>
+                  <input
+                    type="checkbox"
+                    aria-label={tr("settings.compaction-reactive")}
+                    checked={current().reactiveCompact}
+                    disabled={saving() || resetting()}
+                    onChange={(event) => patch("reactiveCompact", event.currentTarget.checked)}
+                  />
+                  <span>
+                    <strong>{tr("settings.compaction-reactive")}</strong>
+                    <small>{tr("settings.compaction-reactive-description")}</small>
+                  </span>
                 </label>
               </fieldset>
             </details>
 
             <Show when={parsed().error}>{(message) => <p class="compaction-settings__validation">{message()}</p>}</Show>
             <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>
-            <Show when={notice()}>{(message) => <p class="compaction-settings__notice" role="status">{message()}</p>}</Show>
+            <Show when={notice()}>
+              {(message) => (
+                <p class="compaction-settings__notice" role="status">
+                  {message()}
+                </p>
+              )}
+            </Show>
             <div class="compaction-settings__actions">
-              <Button type="submit" disabled={!changed() || !parsed().value || saving() || resetting()} loading={saving()} loadingLabel={tr("settings.saving")}>{tr("settings.save-compaction-settings")}</Button>
-              <Button variant="secondary" disabled={saving() || resetting()} loading={resetting()} loadingLabel={tr("settings.resetting-compaction-settings")} onClick={() => void reset()}>{tr("settings.restore-safe-defaults")}</Button>
+              <Button
+                type="submit"
+                disabled={!changed() || !parsed().value || saving() || resetting()}
+                loading={saving()}
+                loadingLabel={tr("settings.saving")}
+              >
+                {tr("settings.save-compaction-settings")}
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={saving() || resetting()}
+                loading={resetting()}
+                loadingLabel={tr("settings.resetting-compaction-settings")}
+                onClick={() => void reset()}
+              >
+                {tr("settings.restore-safe-defaults")}
+              </Button>
             </div>
           </form>
         )}

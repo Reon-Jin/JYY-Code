@@ -15,9 +15,7 @@ describe("projectStatusTransitions", () => {
     expect(projectStatusTransitions({ ses_1: { type: "busy" } }, { ses_1: retry })).toEqual([
       { sessionID: "ses_1", status: "retry" },
     ])
-    expect(projectStatusTransitions({ ses_1: retry }, {})).toEqual([
-      { sessionID: "ses_1", status: "idle" },
-    ])
+    expect(projectStatusTransitions({ ses_1: retry }, {})).toEqual([{ sessionID: "ses_1", status: "idle" }])
     expect(projectStatusTransitions({ ses_1: { type: "busy" } }, { ses_1: { type: "busy" } })).toEqual([])
   })
 })
@@ -169,7 +167,9 @@ describe("ProjectTabs", () => {
         onReorder={vi.fn()}
       />
     ))
-    await waitFor(() => expect(screen.getByRole("tab", { name: /stable-status/ })).toHaveAttribute("data-state", "running"))
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /stable-status/ })).toHaveAttribute("data-state", "running"),
+    )
     first.unmount()
 
     project.client.session.status = vi.fn(() => new Promise(() => undefined)) as typeof project.client.session.status

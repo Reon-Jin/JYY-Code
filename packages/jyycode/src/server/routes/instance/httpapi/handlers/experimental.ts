@@ -12,12 +12,7 @@ import { Effect } from "effect"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import {
-  ConsoleSwitchPayload,
-  SessionListQuery,
-  ToolListQuery,
-  WorktreeApiError,
-} from "../groups/experimental"
+import { ConsoleSwitchPayload, SessionListQuery, ToolListQuery, WorktreeApiError } from "../groups/experimental"
 
 function mapWorktreeError<A, R>(self: Effect.Effect<A, Worktree.Error, R>) {
   return self.pipe(

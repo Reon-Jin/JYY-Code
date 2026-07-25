@@ -78,7 +78,10 @@ export function TodoPanelView(props: TodoPanelViewProps) {
 
       <Show when={!props.collapsed}>
         <div class="todo-panel__body">
-          <Show when={props.sessionID} fallback={<p class="todo-panel__empty">{tr("todos.show-steps-after-creating-or-selecting-a-session")}</p>}>
+          <Show
+            when={props.sessionID}
+            fallback={<p class="todo-panel__empty">{tr("todos.show-steps-after-creating-or-selecting-a-session")}</p>}
+          >
             <Show
               when={!props.loading}
               fallback={
@@ -101,7 +104,10 @@ export function TodoPanelView(props: TodoPanelViewProps) {
                   </div>
                 }
               >
-                <Show when={todos().length > 0} fallback={<p class="todo-panel__empty">{tr("todos.there-are-no-steps-in-the-current-session")}</p>}>
+                <Show
+                  when={todos().length > 0}
+                  fallback={<p class="todo-panel__empty">{tr("todos.there-are-no-steps-in-the-current-session")}</p>}
+                >
                   <ol class="todo-panel__list">
                     <For each={todos()}>
                       {(todo) => {

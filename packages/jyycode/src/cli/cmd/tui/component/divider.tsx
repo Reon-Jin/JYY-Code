@@ -17,17 +17,12 @@ export function Divider(props: DividerProps) {
 
   return (
     <box flexDirection="row" flexShrink={0} paddingTop={1} paddingBottom={1}>
-      <Show
-        when={props.title}
-        fallback={<text fg={lineColor()}>{lineChar().repeat(totalWidth())}</text>}
-      >
+      <Show when={props.title} fallback={<text fg={lineColor()}>{lineChar().repeat(totalWidth())}</text>}>
         {(title) => {
           const half = () => Math.max(0, Math.floor((totalWidth() - title().length - 2) / 2))
           return (
             <text fg={lineColor()}>
-              {lineChar().repeat(half())}{" "}
-              <span style={{ fg: lineColor() }}>{title()}</span>{" "}
-              {lineChar().repeat(half())}
+              {lineChar().repeat(half())} <span style={{ fg: lineColor() }}>{title()}</span> {lineChar().repeat(half())}
             </text>
           )
         }}

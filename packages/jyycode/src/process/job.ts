@@ -197,5 +197,8 @@ export const layer = Layer.effect(
   }),
 )
 
-export const defaultLayer = layer.pipe(Layer.provide(CrossSpawnSpawner.defaultLayer), Layer.provide(Truncate.defaultLayer))
+export const defaultLayer = layer.pipe(
+  Layer.provide(CrossSpawnSpawner.defaultLayer),
+  Layer.provide(Truncate.defaultLayer),
+)
 export * as BackgroundProcess from "./job"

@@ -76,7 +76,13 @@ export function PermissionBar(props: PermissionBarProps) {
         <Show when={view() === "request"}>
           <p>{tr("requests.the-agent-wants-to-do-the-following")}</p>
           <ul class="request-patterns">
-            <For each={props.request.patterns}>{(pattern) => <li><code>{pattern}</code></li>}</For>
+            <For each={props.request.patterns}>
+              {(pattern) => (
+                <li>
+                  <code>{pattern}</code>
+                </li>
+              )}
+            </For>
           </ul>
           <div class="request-panel__actions">
             <Button
@@ -103,7 +109,13 @@ export function PermissionBar(props: PermissionBarProps) {
         <Show when={view() === "always"}>
           <p>{tr("requests.once-confirmed-the-following-modes-will-continue-to")}</p>
           <ul class="request-patterns">
-            <For each={alwaysPatterns()}>{(pattern) => <li><code>{pattern}</code></li>}</For>
+            <For each={alwaysPatterns()}>
+              {(pattern) => (
+                <li>
+                  <code>{pattern}</code>
+                </li>
+              )}
+            </For>
           </ul>
           <div class="request-panel__actions">
             <Button
@@ -154,8 +166,15 @@ export function PermissionBar(props: PermissionBarProps) {
           </div>
         </Show>
 
-        <Show when={failure()}>{(cause) => <InlineError message={errorMessage(cause(), tr("requests.permission-reply-failed"))} />}</Show>
-        <p class="request-panel__status" role="status" aria-label={tr("requests.permission-request-status")} aria-live="polite">
+        <Show when={failure()}>
+          {(cause) => <InlineError message={errorMessage(cause(), tr("requests.permission-reply-failed"))} />}
+        </Show>
+        <p
+          class="request-panel__status"
+          role="status"
+          aria-label={tr("requests.permission-request-status")}
+          aria-live="polite"
+        >
           {submitted() ? tr("requests.submitted-waiting-for-confirmation-from-the-server") : ""}
         </p>
       </div>

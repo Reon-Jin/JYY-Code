@@ -11,8 +11,6 @@ export function microCompactOutput(_output: string): { content: string } | null 
   return null
 }
 
-export function estimateMicroCompactSavings(
-  _messages: unknown[],
-): number {
+export function estimateMicroCompactSavings(_messages: unknown[]): number {
   return 0
 }

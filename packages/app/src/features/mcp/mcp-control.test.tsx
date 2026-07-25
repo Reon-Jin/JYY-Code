@@ -40,13 +40,7 @@ function renderControl(initial: Record<string, McpStatus>) {
       }),
     },
   }
-  render(() => (
-    <McpControl
-      client={client as never}
-      queryClient={createDesktopQueryClient()}
-      directory={directory}
-    />
-  ))
+  render(() => <McpControl client={client as never} queryClient={createDesktopQueryClient()} directory={directory} />)
   return client
 }
 
@@ -80,18 +74,14 @@ describe("McpControl", () => {
     await user.click(screen.getByRole("button", { name: "MCP" }))
 
     await user.click(await screen.findByRole("switch", { name: "browser" }))
-    expect(client.mcp.connect).toHaveBeenCalledWith(
-      { directory, name: "browser" },
-      { throwOnError: true },
-    )
+    expect(client.mcp.connect).toHaveBeenCalledWith({ directory, name: "browser" }, { throwOnError: true })
     await waitFor(() => expect(screen.getByRole("switch", { name: "browser" })).toHaveAttribute("aria-checked", "true"))
 
     await user.click(screen.getByRole("switch", { name: "filesystem" }))
-    expect(client.mcp.disconnect).toHaveBeenCalledWith(
-      { directory, name: "filesystem" },
-      { throwOnError: true },
+    expect(client.mcp.disconnect).toHaveBeenCalledWith({ directory, name: "filesystem" }, { throwOnError: true })
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "filesystem" })).toHaveAttribute("aria-checked", "false"),
     )
-    await waitFor(() => expect(screen.getByRole("switch", { name: "filesystem" })).toHaveAttribute("aria-checked", "false"))
   })
 
   it("shows a retryable inline failure without closing the dialog", async () => {

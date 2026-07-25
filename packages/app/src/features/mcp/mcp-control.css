@@ -75,7 +75,9 @@
   border-radius: 999px;
   padding: 2px;
   background: color-mix(in srgb, var(--color-text) 11%, transparent);
-  transition: border-color var(--motion-fast), background var(--motion-fast);
+  transition:
+    border-color var(--motion-fast),
+    background var(--motion-fast);
 }
 
 .mcp-control__switch > span {
@@ -84,7 +86,9 @@
   height: 16px;
   border-radius: 50%;
   background: var(--color-text-muted);
-  transition: transform var(--motion-fast), background var(--motion-fast);
+  transition:
+    transform var(--motion-fast),
+    background var(--motion-fast);
 }
 
 .mcp-control__switch[data-active="true"] {

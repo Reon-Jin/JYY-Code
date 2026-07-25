@@ -12,21 +12,14 @@ export type ReactiveCompactState = {
   lastCheck: number
 }
 
-export function detectReactiveCompactTrigger(
-  _messages: readonly MessageV2.WithParts[],
-): boolean {
+export function detectReactiveCompactTrigger(_messages: readonly MessageV2.WithParts[]): boolean {
   return false
 }
 
-export function shouldAttemptReactiveCompact(
-  _state: ReactiveCompactState,
-  _config?: ReactiveCompactConfig,
-): boolean {
+export function shouldAttemptReactiveCompact(_state: ReactiveCompactState, _config?: ReactiveCompactConfig): boolean {
   return false
 }
 
-export function createReactiveCompactState(
-  _config?: ReactiveCompactConfig,
-): ReactiveCompactState {
+export function createReactiveCompactState(_config?: ReactiveCompactConfig): ReactiveCompactState {
   return { enabled: false, lastCheck: 0 }
 }

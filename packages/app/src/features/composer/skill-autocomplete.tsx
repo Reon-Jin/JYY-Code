@@ -84,12 +84,18 @@ export function SkillAutocomplete(props: SkillAutocompleteProps) {
   return (
     <Show when={props.open}>
       <div id="composer-skill-listbox" class="composer-skill-menu" role="listbox" aria-label="Skills">
-        <Show when={!skills.isPending} fallback={<p class="composer-skill-menu__status">{tr("composer.loading-skills")}</p>}>
+        <Show
+          when={!skills.isPending}
+          fallback={<p class="composer-skill-menu__status">{tr("composer.loading-skills")}</p>}
+        >
           <Show
             when={!skills.error}
             fallback={<InlineError message={errorMessage(skills.error, tr("composer.unable-to-load-skills"))} />}
           >
-            <Show when={options().length > 0} fallback={<p class="composer-skill-menu__status">{tr("composer.no-matching-skills")}</p>}>
+            <Show
+              when={options().length > 0}
+              fallback={<p class="composer-skill-menu__status">{tr("composer.no-matching-skills")}</p>}
+            >
               <For each={options()}>
                 {(skill, index) => (
                   <button
@@ -102,7 +108,9 @@ export function SkillAutocomplete(props: SkillAutocompleteProps) {
                     onClick={() => props.onSelect(skill.name)}
                   >
                     <strong>/{skill.name}</strong>
-                    <Show when={skill.description}><small>{skill.description}</small></Show>
+                    <Show when={skill.description}>
+                      <small>{skill.description}</small>
+                    </Show>
                   </button>
                 )}
               </For>

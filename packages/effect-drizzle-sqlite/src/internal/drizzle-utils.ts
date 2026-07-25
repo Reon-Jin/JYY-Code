@@ -125,4 +125,3 @@ export function getTableLikeName(table: SQLiteTable | Subquery | SQLiteViewBase 
 }
 
 export type { JoinNullability }
-

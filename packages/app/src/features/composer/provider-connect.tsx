@@ -100,8 +100,16 @@ export function ProviderConnectButton(props: {
       <Dialog
         open={opened()}
         class="provider-connect-dialog"
-        title={selected() ? tr("composer.connect-provider-name", { name: selected()!.name }) : tr("composer.connect-model-provider")}
-        description={selected() ? tr("composer.enter-your-api-key-and-your-credentials-will") : tr("composer.select-the-model-provider-to-connect-to")}
+        title={
+          selected()
+            ? tr("composer.connect-provider-name", { name: selected()!.name })
+            : tr("composer.connect-model-provider")
+        }
+        description={
+          selected()
+            ? tr("composer.enter-your-api-key-and-your-credentials-will")
+            : tr("composer.select-the-model-provider-to-connect-to")
+        }
         showClose
         onClose={close}
       >
@@ -117,13 +125,16 @@ export function ProviderConnectButton(props: {
         <Show
           when={selected()}
           fallback={
-            <Show when={!loading()} fallback={<p class="provider-connect__status">{tr("composer.loading-model-providers")}</p>}>
+            <Show
+              when={!loading()}
+              fallback={<p class="provider-connect__status">{tr("composer.loading-model-providers")}</p>}
+            >
               <label class="provider-connect__search">
                 <Search aria-hidden="true" />
                 <input
                   type="search"
                   aria-label={tr("composer.search-model-providers")}
-                placeholder={tr("composer.search-provider-name-or-id")}
+                  placeholder={tr("composer.search-provider-name-or-id")}
                   value={search()}
                   onInput={(event) => setSearch(event.currentTarget.value)}
                 />
@@ -165,7 +176,12 @@ export function ProviderConnectButton(props: {
                   onInput={(event) => setApiKey(event.currentTarget.value)}
                 />
               </div>
-              <Button type="submit" loading={saving()} loadingLabel={tr("composer.connecting")} disabled={!apiKey().trim()}>
+              <Button
+                type="submit"
+                loading={saving()}
+                loadingLabel={tr("composer.connecting")}
+                disabled={!apiKey().trim()}
+              >
                 {tr("composer.connect")}
               </Button>
             </form>

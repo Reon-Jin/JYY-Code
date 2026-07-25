@@ -24,7 +24,14 @@ function LiquidGlassFilters() {
   return (
     <svg class="liquid-glass-definitions" width="0" height="0" aria-hidden="true">
       <defs>
-        <filter id="liquid-glass-refraction" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
+        <filter
+          id="liquid-glass-refraction"
+          x="-12%"
+          y="-12%"
+          width="124%"
+          height="124%"
+          color-interpolation-filters="sRGB"
+        >
           <feTurbulence type="fractalNoise" baseFrequency="0.012 0.018" numOctaves="2" seed="17" result="noise" />
           <feGaussianBlur in="noise" stdDeviation="1.8" result="softNoise" />
           <feDisplacementMap in="SourceGraphic" in2="softNoise" scale="16" xChannelSelector="R" yChannelSelector="G" />
@@ -79,7 +86,9 @@ function DesktopApplication() {
     <Switch fallback={<StartupLoading phase={loadingPhase()} />}>
       <Match when={lifecycle.phase() === "failed"}>
         <BackendUnavailable
-          reason={tr("app.backend-start-failed", { reason: lifecycle.failure() ?? tr("app.local-backend-is-not-responding") })}
+          reason={tr("app.backend-start-failed", {
+            reason: lifecycle.failure() ?? tr("app.local-backend-is-not-responding"),
+          })}
           logPath={lifecycle.bootstrap()?.logPath}
           recovering={lifecycle.recovering()}
           recoveryAvailable={lifecycle.recoveryAvailable()}
@@ -109,7 +118,9 @@ export function App(props: AppProps) {
         <main class="startup-screen">
           <div class="startup-error">
             <InlineError
-              message={tr("app.interface-failed", { reason: error instanceof Error ? error.message : tr("app.unknown-error") })}
+              message={tr("app.interface-failed", {
+                reason: error instanceof Error ? error.message : tr("app.unknown-error"),
+              })}
             />
             <Button variant="secondary" onClick={reset}>
               {tr("app.reload-interface")}

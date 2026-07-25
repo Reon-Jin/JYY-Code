@@ -51,7 +51,12 @@ test("rolls back failed transactions", async () => {
     Effect.gen(function* () {
       const db = yield* makeDb
       yield* db
-        .transaction((tx) => tx.insert(users).values({ name: "Linus" }).pipe(Effect.andThen(Effect.fail("boom"))))
+        .transaction((tx) =>
+          tx
+            .insert(users)
+            .values({ name: "Linus" })
+            .pipe(Effect.andThen(Effect.fail("boom"))),
+        )
         .pipe(Effect.ignore)
       expect(yield* db.select().from(users)).toEqual([])
     }),

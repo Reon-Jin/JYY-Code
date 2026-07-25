@@ -41,9 +41,7 @@ export function loadInspectorPreferences(directory: string, storage?: Storage): 
     }
     if (typeof record.pane === "string") {
       const pane = panes.has(record.pane as InspectorPane) ? (record.pane as InspectorPane) : undefined
-      return pane
-        ? { panes: [pane], ratios: [1], width: validWidth(record.width) }
-        : { ...defaultInspectorPreferences }
+      return pane ? { panes: [pane], ratios: [1], width: validWidth(record.width) } : { ...defaultInspectorPreferences }
     }
     if (typeof record.open === "boolean") {
       return record.open

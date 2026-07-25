@@ -106,13 +106,19 @@ describe("session persistence", () => {
     const env = { ...process.env, JYYCODE_DB: dbPath }
 
     const created = childOutput(
-      await Bun.$`bun ${fixture} create ${dir.path}`.env(env).cwd(path.join(import.meta.dir, "../..")).quiet(),
+      await Bun.$`bun ${fixture} create ${dir.path}`
+        .env(env)
+        .cwd(path.join(import.meta.dir, "../.."))
+        .quiet(),
     )
     const sessionID = /^SESSION_ID=(.+)$/m.exec(created.stdout)?.[1]?.trim()
     expect(sessionID, created.stderr || created.stdout).toBeDefined()
 
     const loaded = childOutput(
-      await Bun.$`bun ${fixture} load ${dir.path} ${sessionID!}`.env(env).cwd(path.join(import.meta.dir, "../..")).quiet(),
+      await Bun.$`bun ${fixture} load ${dir.path} ${sessionID!}`
+        .env(env)
+        .cwd(path.join(import.meta.dir, "../.."))
+        .quiet(),
     )
     expect(loaded.stdout).toContain("SESSION_TITLE=subprocess persistence")
   }, 30000)

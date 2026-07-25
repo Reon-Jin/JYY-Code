@@ -8,12 +8,7 @@ if (process.env.npm_config_global === "true") {
   process.exit(0)
 }
 
-const husky = path.join(
-  process.cwd(),
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "husky.cmd" : "husky",
-)
+const husky = path.join(process.cwd(), "node_modules", ".bin", process.platform === "win32" ? "husky.cmd" : "husky")
 
 if (!fs.existsSync(husky)) {
   process.exit(0)

@@ -400,4 +400,3 @@ export class SQLiteEffectUpdateBase<
 }
 
 applyEffectWrapper(SQLiteEffectUpdateBase)
-

@@ -345,10 +345,16 @@ export function Prompt(props: PromptProps) {
     const msg = sync.data.message[props.sessionID] ?? []
     const last = msg.findLast((item): item is AssistantMessage => item.role === "assistant" && item.tokens.output > 0)
     const tokens = last
-      ? last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write
+      ? last.tokens.input +
+        last.tokens.output +
+        last.tokens.reasoning +
+        last.tokens.cache.read +
+        last.tokens.cache.write
       : undefined
     const providerTokens = tokens && tokens > 0 ? tokens : undefined
-    const model = last ? sync.data.provider.find((item) => item.id === last.providerID)?.models[last.modelID] : undefined
+    const model = last
+      ? sync.data.provider.find((item) => item.id === last.providerID)?.models[last.modelID]
+      : undefined
     const cost = session?.cost ?? 0
     const formatted = formatContextUsage({
       providerTokens,

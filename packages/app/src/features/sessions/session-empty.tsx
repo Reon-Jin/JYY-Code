@@ -10,7 +10,9 @@ export function SessionEmpty(props: { archived?: boolean; onCreate: () => void; 
       <span class="session-empty__icon" aria-hidden="true">
         <MessageSquarePlus />
       </span>
-      <h2 id={titleID}>{props.archived ? tr("sessions.no-archived-session-yet") : tr("sessions.start-a-new-conversation")}</h2>
+      <h2 id={titleID}>
+        {props.archived ? tr("sessions.no-archived-session-yet") : tr("sessions.start-a-new-conversation")}
+      </h2>
       <p>
         {props.archived
           ? tr("sessions.archived-sessions-will-appear-here-for-easy-reference")

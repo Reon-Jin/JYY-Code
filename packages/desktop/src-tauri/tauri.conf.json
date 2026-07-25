@@ -30,21 +30,13 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": false,
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
     "externalBin": ["binaries/jyycode-sidecar"]
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgxQ0E2NDBENzkyRURERUYKUldUdjNTNTVEV1RLZ2YwdGpkTWY0cGdNVFFteXJJeHk3cUJab2o3NzFzWE4rYnJmZ2NwQ1Y5a1QK",
-      "endpoints": [
-        "https://github.com/Reon-Jin/JYY-Code/releases/download/desktop-latest/latest.json"
-      ],
+      "endpoints": ["https://github.com/Reon-Jin/JYY-Code/releases/download/desktop-latest/latest.json"],
       "windows": {
         "installMode": "passive"
       }

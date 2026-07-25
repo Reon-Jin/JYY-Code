@@ -13,6 +13,7 @@ metadata: {"version": "1.1", "openclaw": {"primaryEnv": "OPENROUTER_API_KEY", "e
 Infographics are visual representations of information, data, or knowledge designed to present complex content quickly and clearly. **This skill uses Nano Banana Pro AI for infographic generation with Gemini 3 Pro quality review and Perplexity Sonar for research.**
 
 **How it works:**
+
 - (Optional) **Research phase**: Gather accurate facts and statistics using Perplexity Sonar
 - Describe your infographic in natural language
 - Nano Banana Pro generates publication-quality infographics automatically
@@ -66,6 +67,7 @@ python skills/infographics/scripts/generate_infographic.py \
 ```
 
 **What happens behind the scenes:**
+
 1. **(Optional) Research**: Perplexity Sonar gathers accurate facts, statistics, and data
 2. **Generation 1**: Nano Banana Pro creates initial infographic following design best practices
 3. **Review 1**: **Gemini 3 Pro** evaluates quality against document-type threshold
@@ -74,6 +76,7 @@ python skills/infographics/scripts/generate_infographic.py \
 6. **Repeat**: Until quality meets threshold OR max iterations reached
 
 **Smart Iteration Benefits:**
+
 - ✅ Saves API calls if first generation is good enough
 - ✅ Higher quality standards for marketing materials
 - ✅ Faster turnaround for drafts/internal use
@@ -84,6 +87,7 @@ python skills/infographics/scripts/generate_infographic.py \
 ## When to Use This Skill
 
 Use the **infographics** skill when:
+
 - Presenting data or statistics in a visual format
 - Creating timeline visualizations for project milestones or history
 - Explaining processes, workflows, or step-by-step guides
@@ -94,6 +98,7 @@ Use the **infographics** skill when:
 - Designing social media content or marketing materials
 
 **Use scientific-schematics instead for:**
+
 - Technical flowcharts and circuit diagrams
 - Biological pathways and molecular diagrams
 - Neural network architecture diagrams
@@ -137,6 +142,7 @@ The research phase automatically:
 ### When to Use Research
 
 **Enable research (`--research`) for:**
+
 - Statistical infographics requiring accurate numbers
 - Market data, industry statistics, or trends
 - Scientific or medical information
@@ -144,6 +150,7 @@ The research phase automatically:
 - Any topic where accuracy is critical
 
 **Skip research for:**
+
 - Simple conceptual infographics
 - Internal process documentation
 - Topics where you provide all the data in the prompt
@@ -152,6 +159,7 @@ The research phase automatically:
 ### Research Output
 
 When research is enabled, additional files are created:
+
 - `{name}_research.json` - Raw research data and sources
 - Research content is automatically incorporated into the infographic prompt
 
@@ -314,16 +322,16 @@ python skills/infographics/scripts/generate_infographic.py \
 
 ### Industry Styles (`--style`)
 
-| Style | Colors | Best For |
-|-------|--------|----------|
-| `corporate` | Navy, steel blue, gold | Business reports, finance |
-| `healthcare` | Medical blue, cyan, light cyan | Medical, wellness |
-| `technology` | Tech blue, slate, violet | Software, data, AI |
-| `nature` | Forest green, mint, earth brown | Environmental, organic |
-| `education` | Academic blue, light blue, coral | Learning, academic |
-| `marketing` | Coral, teal, yellow | Social media, campaigns |
-| `finance` | Navy, gold, green/red | Investment, banking |
-| `nonprofit` | Warm orange, sage, sand | Social causes, charities |
+| Style        | Colors                           | Best For                  |
+| ------------ | -------------------------------- | ------------------------- |
+| `corporate`  | Navy, steel blue, gold           | Business reports, finance |
+| `healthcare` | Medical blue, cyan, light cyan   | Medical, wellness         |
+| `technology` | Tech blue, slate, violet         | Software, data, AI        |
+| `nature`     | Forest green, mint, earth brown  | Environmental, organic    |
+| `education`  | Academic blue, light blue, coral | Learning, academic        |
+| `marketing`  | Coral, teal, yellow              | Social media, campaigns   |
+| `finance`    | Navy, gold, green/red            | Investment, banking       |
+| `nonprofit`  | Warm orange, sage, sand          | Social causes, charities  |
 
 ```bash
 # Corporate style
@@ -341,11 +349,11 @@ python skills/infographics/scripts/generate_infographic.py \
 
 ### Available Palettes (`--palette`)
 
-| Palette | Colors | Description |
-|---------|--------|-------------|
-| `wong` | Orange, sky blue, green, blue, vermillion | Most widely recommended |
-| `ibm` | Ultramarine, indigo, magenta, orange, gold | IBM's accessible palette |
-| `tol` | 12-color extended palette | For many categories |
+| Palette | Colors                                     | Description              |
+| ------- | ------------------------------------------ | ------------------------ |
+| `wong`  | Orange, sky blue, green, blue, vermillion  | Most widely recommended  |
+| `ibm`   | Ultramarine, indigo, magenta, orange, gold | IBM's accessible palette |
+| `tol`   | 12-color extended palette                  | For many categories      |
 
 ```bash
 # Wong's colorblind-safe palette
@@ -405,6 +413,7 @@ Gemini 3 Pro evaluates each infographic on:
 ### Review Log
 
 Each generation produces a JSON review log:
+
 ```json
 {
   "user_prompt": "5 benefits of exercise...",
@@ -463,6 +472,7 @@ python skills/infographics/scripts/generate_infographic.py --list-options
 ### API Key Setup
 
 Set your OpenRouter API key:
+
 ```bash
 export OPENROUTER_API_KEY='your_api_key_here'
 ```
@@ -476,12 +486,14 @@ Get an API key at: https://openrouter.ai/keys
 ### Be Specific About Content
 
 ✓ **Good prompts** (specific, detailed):
+
 ```
-"5 benefits of meditation: reduces stress, improves focus, 
+"5 benefits of meditation: reduces stress, improves focus,
 better sleep, lower blood pressure, emotional balance"
 ```
 
 ✗ **Avoid vague prompts**:
+
 ```
 "meditation infographic"
 ```
@@ -489,11 +501,13 @@ better sleep, lower blood pressure, emotional balance"
 ### Include Data Points
 
 ✓ **Good**:
+
 ```
 "Market growth from $10B (2020) to $45B (2025), CAGR 35%"
 ```
 
 ✗ **Vague**:
+
 ```
 "market is growing"
 ```
@@ -501,6 +515,7 @@ better sleep, lower blood pressure, emotional balance"
 ### Specify Visual Elements
 
 ✓ **Good**:
+
 ```
 "Timeline showing 5 milestones with icons for each event"
 ```
@@ -522,15 +537,19 @@ For detailed guidance, load these reference files:
 ### Common Issues
 
 **Problem**: Text in infographic is unreadable
+
 - **Solution**: Reduce text content; use --type to specify layout type
 
 **Problem**: Colors clash or are inaccessible
+
 - **Solution**: Use `--palette wong` for colorblind-safe colors
 
 **Problem**: Quality score too low
+
 - **Solution**: Increase iterations with `--iterations 3`; use more specific prompt
 
 **Problem**: Wrong infographic type generated
+
 - **Solution**: Always specify `--type` flag for consistent results
 
 ---
@@ -549,6 +568,7 @@ This skill works synergistically with:
 ## Quick Reference Checklist
 
 Before generating:
+
 - [ ] Clear, specific content description
 - [ ] Infographic type selected (`--type`)
 - [ ] Style appropriate for audience (`--style`)
@@ -556,6 +576,7 @@ Before generating:
 - [ ] API key configured
 
 After generating:
+
 - [ ] Review the generated image
 - [ ] Check the review log for scores
 - [ ] Regenerate with more specific prompt if needed

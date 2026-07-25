@@ -43,10 +43,7 @@ describe("session api", () => {
 
     await api.list(false)
 
-    expect(client.session.list).toHaveBeenCalledWith(
-      { directory, roots: true },
-      { throwOnError: true },
-    )
+    expect(client.session.list).toHaveBeenCalledWith({ directory, roots: true }, { throwOnError: true })
   })
 
   it("lists root and child sessions for usage aggregation", async () => {
@@ -54,10 +51,7 @@ describe("session api", () => {
 
     await api.listAll()
 
-    expect(client.session.list).toHaveBeenCalledWith(
-      { directory, roots: false },
-      { throwOnError: true },
-    )
+    expect(client.session.list).toHaveBeenCalledWith({ directory, roots: false }, { throwOnError: true })
   })
 
   it.each([
@@ -77,10 +71,7 @@ describe("session api", () => {
 
     await api.create({ agent: "build", model })
 
-    expect(client.session.create).toHaveBeenCalledWith(
-      { directory, agent: "build", model },
-      { throwOnError: true },
-    )
+    expect(client.session.create).toHaveBeenCalledWith({ directory, agent: "build", model }, { throwOnError: true })
   })
 
   it("forwards an explicit Multi-Agent creation override", async () => {

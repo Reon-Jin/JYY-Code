@@ -34,11 +34,7 @@ export async function setGlassPreference(input: GlassInput) {
   }
 }
 
-export async function reapplyGlassForTheme(
-  bridge: DesktopBridge,
-  settings: DesktopSettings,
-  theme: ColorTheme,
-) {
+export async function reapplyGlassForTheme(bridge: DesktopBridge, settings: DesktopSettings, theme: ColorTheme) {
   if (settings.glass !== "on") return
   const result = await bridge.setWindowGlass(true, theme)
   if (!result.supported) throw capabilityError(result.reason)

@@ -1,9 +1,7 @@
 import { Effect } from "effect"
 import type { DatabaseMigration } from "../migration"
 
-const statements = [
-  "[object Object]"
-] as const
+const statements = ["[object Object]"] as const
 
 export default {
   id: "20260323234822_events",
@@ -11,4 +9,3 @@ export default {
     return Effect.forEach(statements, (statement) => tx.run(statement), { discard: true })
   },
 } satisfies DatabaseMigration.Migration
-

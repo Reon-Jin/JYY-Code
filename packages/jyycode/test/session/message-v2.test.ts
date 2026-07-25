@@ -1631,9 +1631,7 @@ describe("session.message-v2.latest", () => {
     const state = MessageV2.latest(filtered)
 
     expect(
-      filtered.some((message) =>
-        message.parts.some((part) => part.type === "file" && part.filename === "sample.pdf"),
-      ),
+      filtered.some((message) => message.parts.some((part) => part.type === "file" && part.filename === "sample.pdf")),
     ).toBe(true)
     expect(state.finished?.id).toBe(SUMMARY_ASSISTANT)
     expect(state.finished?.summary).toBe(true)

@@ -259,5 +259,3 @@ export class SQLiteEffectDeleteBase<
 }
 
 applyEffectWrapper(SQLiteEffectDeleteBase)
-
-

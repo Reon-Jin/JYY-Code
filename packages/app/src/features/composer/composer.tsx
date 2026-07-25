@@ -108,13 +108,17 @@ export function attachmentFromPath(filePath: string): ComposerAttachment {
   const extension = filename.includes(".") ? filename.split(".").at(-1)!.toLowerCase() : ""
   const encoded = normalized
     .split("/")
-    .map((part, index) => index === 0 && /^[A-Za-z]:$/u.test(part) ? part : encodeURIComponent(part))
+    .map((part, index) => (index === 0 && /^[A-Za-z]:$/u.test(part) ? part : encodeURIComponent(part)))
     .join("/")
   return {
     type: "file",
     mime: fileMimeTypes[extension] ?? "application/octet-stream",
     filename,
-    url: normalized.startsWith("//") ? `file://${encoded.slice(2)}` : normalized.startsWith("/") ? `file://${encoded}` : `file:///${encoded}`,
+    url: normalized.startsWith("//")
+      ? `file://${encoded.slice(2)}`
+      : normalized.startsWith("/")
+        ? `file://${encoded}`
+        : `file:///${encoded}`,
   }
 }
 
@@ -145,8 +149,7 @@ export function Composer(props: ComposerProps) {
   let composing = false
   const active = () => props.status.type !== "idle" || props.requestPending === true || props.childSteering === true
   const slashQuery = () => /^\/([^\s/]*)$/.exec(controller.draft())?.[1]
-  const autocompleteOpen = () =>
-    !props.minimal && focused() && !autocompleteDismissed() && slashQuery() !== undefined
+  const autocompleteOpen = () => !props.minimal && focused() && !autocompleteDismissed() && slashQuery() !== undefined
 
   onMount(() => {
     if (!("__TAURI_INTERNALS__" in window)) return
@@ -272,33 +275,37 @@ export function Composer(props: ComposerProps) {
           onRemove={queue.remove}
         />
       </Show>
-      <section class="composer" data-minimal={props.minimal ? "true" : "false"} aria-label={tr("composer.message-editor")}>
+      <section
+        class="composer"
+        data-minimal={props.minimal ? "true" : "false"}
+        aria-label={tr("composer.message-editor")}
+      >
         <Show when={!props.minimal}>
           <div class="composer__selectors">
-          <AgentSelect
-            agents={props.agents}
-            value={props.selectedAgent}
-            disabled={props.identityLocked || controller.sending() || props.disabled}
-            onChange={props.onAgentChange}
-          />
-          <ProviderConnectButton
-            client={props.client}
-            directory={props.directory}
-            disabled={controller.sending() || props.disabled}
-            onConnected={props.onProviderConnected}
-          />
-          <ClusterModelControl
-            client={props.client}
-            queryClient={props.queryClient}
-            models={props.models}
-            currentModel={props.selectedModel}
-            disabled={props.identityLocked || controller.sending() || props.disabled}
-            identityLocked={props.identityLocked}
-            onModelChange={props.onModelChange}
-          />
-          {props.branchControl}
-          {props.multiAgentControl}
-          {props.mcpControl}
+            <AgentSelect
+              agents={props.agents}
+              value={props.selectedAgent}
+              disabled={props.identityLocked || controller.sending() || props.disabled}
+              onChange={props.onAgentChange}
+            />
+            <ProviderConnectButton
+              client={props.client}
+              directory={props.directory}
+              disabled={controller.sending() || props.disabled}
+              onConnected={props.onProviderConnected}
+            />
+            <ClusterModelControl
+              client={props.client}
+              queryClient={props.queryClient}
+              models={props.models}
+              currentModel={props.selectedModel}
+              disabled={props.identityLocked || controller.sending() || props.disabled}
+              identityLocked={props.identityLocked}
+              onModelChange={props.onModelChange}
+            />
+            {props.branchControl}
+            {props.multiAgentControl}
+            {props.mcpControl}
           </div>
         </Show>
 
@@ -426,64 +433,64 @@ export function Composer(props: ComposerProps) {
           </Show>
           <Show when={!props.minimal || active()}>
             <div class="composer__action">
-            <Show
-              when={active()}
-              fallback={
-                <Show when={!props.minimal}>
-                  <IconButton
-                    label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
-                    disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
-                    loading={controller.sending()}
-                    loadingLabel={tr("composer.sending")}
-                    onClick={submit}
-                  >
-                    <Send aria-hidden="true" />
-                  </IconButton>
-                </Show>
-              }
-            >
               <Show
-                when={props.minimal && props.childSteering}
+                when={active()}
                 fallback={
-                  <div class="composer__active-actions">
-                    <Show when={!props.minimal}>
-                      <IconButton
-                        label={tr("composer.join-queue")}
-                        disabled={!controller.draft().trim() && attachments().length === 0}
-                        onClick={submit}
+                  <Show when={!props.minimal}>
+                    <IconButton
+                      label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
+                      disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
+                      loading={controller.sending()}
+                      loadingLabel={tr("composer.sending")}
+                      onClick={submit}
+                    >
+                      <Send aria-hidden="true" />
+                    </IconButton>
+                  </Show>
+                }
+              >
+                <Show
+                  when={props.minimal && props.childSteering}
+                  fallback={
+                    <div class="composer__active-actions">
+                      <Show when={!props.minimal}>
+                        <IconButton
+                          label={tr("composer.join-queue")}
+                          disabled={!controller.draft().trim() && attachments().length === 0}
+                          onClick={submit}
+                        >
+                          <ListPlus aria-hidden="true" />
+                        </IconButton>
+                      </Show>
+                      <Button
+                        size="small"
+                        variant="secondary"
+                        loading={controller.stopping()}
+                        loadingLabel={tr("composer.stopping")}
+                        onClick={stop}
                       >
-                        <ListPlus aria-hidden="true" />
-                      </IconButton>
-                    </Show>
+                        <Square aria-hidden="true" />
+                        {tr("composer.stop")}
+                      </Button>
+                    </div>
+                  }
+                >
+                  <div class="composer__active-actions">
+                    <span class="composer__steering-warning">{tr("composer.interrupt-assignment-warning")}</span>
                     <Button
                       size="small"
                       variant="secondary"
-                      loading={controller.stopping()}
-                      loadingLabel={tr("composer.stopping")}
-                      onClick={stop}
+                      disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
+                      loading={controller.sending()}
+                      loadingLabel={tr("composer.sending")}
+                      onClick={submit}
                     >
-                      <Square aria-hidden="true" />
-                      {tr("composer.stop")}
+                      <Send aria-hidden="true" />
+                      {tr("composer.send-and-interrupt")}
                     </Button>
                   </div>
-                }
-              >
-                <div class="composer__active-actions">
-                  <span class="composer__steering-warning">{tr("composer.interrupt-assignment-warning")}</span>
-                  <Button
-                    size="small"
-                    variant="secondary"
-                    disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
-                    loading={controller.sending()}
-                    loadingLabel={tr("composer.sending")}
-                    onClick={submit}
-                  >
-                    <Send aria-hidden="true" />
-                    {tr("composer.send-and-interrupt")}
-                  </Button>
-                </div>
+                </Show>
               </Show>
-            </Show>
             </div>
           </Show>
         </div>

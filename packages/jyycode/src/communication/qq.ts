@@ -22,11 +22,7 @@ function powershell(script: string, timeoutMs = 15000): Promise<{ stdout: string
 }
 
 async function sendViaQQ(input: { to: string; body: string; filePath?: string }): Promise<SendResult> {
-  const escapedBody = input.body
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "`n")
-    .replace(/\r/g, "")
+  const escapedBody = input.body.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "`n").replace(/\r/g, "")
   const escapedFile = input.filePath?.replace(/\\/g, "\\\\").replace(/"/g, '\\"') || ""
   const escapedTo = input.to.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
 
@@ -83,7 +79,9 @@ Start-Sleep -Milliseconds 600
 [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
 Start-Sleep -Milliseconds 500
 
-${input.filePath ? `
+${
+  input.filePath
+    ? `
 # Send file
 [System.Windows.Forms.SendKeys]::SendWait("^%o")
 Start-Sleep -Milliseconds 600
@@ -92,7 +90,9 @@ Start-Sleep -Milliseconds 600
 Start-Sleep -Milliseconds 500
 [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
 Start-Sleep -Milliseconds 600
-` : ""}
+`
+    : ""
+}
 
 # Paste and send message
 [System.Windows.Forms.Clipboard]::SetText("${escapedBody}")
@@ -127,10 +127,7 @@ export const QQAdapter: Adapter = {
     return sendViaQQ(input)
   },
 
-  async sendFile(
-    _config: AdapterConfig,
-    input: { to: string; filePath: string; body?: string },
-  ): Promise<SendResult> {
+  async sendFile(_config: AdapterConfig, input: { to: string; filePath: string; body?: string }): Promise<SendResult> {
     const msg = input.body || `[File] ${input.filePath.split(/[/\\]/).pop()}`
     return sendViaQQ({ to: input.to, body: msg, filePath: input.filePath })
   },

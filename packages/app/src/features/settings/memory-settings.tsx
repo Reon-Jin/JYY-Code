@@ -16,10 +16,7 @@ import { memorySettingsHref, sanitizeSettingsReturnTo, settingsHref } from "./se
 import "./settings.css"
 
 type Scope = "user" | "task"
-type Confirmation =
-  | { kind: "delete"; entry: GlobalMemoryEntry }
-  | { kind: "compact" }
-  | { kind: "clear" }
+type Confirmation = { kind: "delete"; entry: GlobalMemoryEntry } | { kind: "compact" } | { kind: "clear" }
 
 export function MemorySettings() {
   const [search] = useSearchParams<{ returnTo?: string }>()
@@ -180,18 +177,20 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
 
   const confirmCopy = createMemo(() => {
     const current = confirmation()
-    if (current?.kind === "delete") return {
-      title: tr("settings.delete-memory"),
-      description: tr("settings.delete-memory-description"),
-      label: tr("settings.confirm-delete-memory"),
-      danger: true,
-    }
-    if (current?.kind === "clear") return {
-      title: tr("settings.clear-task-memory"),
-      description: tr("settings.clear-task-memory-description"),
-      label: tr("settings.confirm-clear-memory"),
-      danger: true,
-    }
+    if (current?.kind === "delete")
+      return {
+        title: tr("settings.delete-memory"),
+        description: tr("settings.delete-memory-description"),
+        label: tr("settings.confirm-delete-memory"),
+        danger: true,
+      }
+    if (current?.kind === "clear")
+      return {
+        title: tr("settings.clear-task-memory"),
+        description: tr("settings.clear-task-memory-description"),
+        label: tr("settings.confirm-clear-memory"),
+        danger: true,
+      }
     return {
       title: tr("settings.compact-memory"),
       description: tr("settings.compact-memory-description"),
@@ -214,20 +213,47 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
 
       <label class="memory-settings__search">
         <span>{tr("settings.search-memory")}</span>
-        <input type="search" aria-label={tr("settings.search-memory")} value={search()} onInput={(event) => setSearch(event.currentTarget.value)} />
+        <input
+          type="search"
+          aria-label={tr("settings.search-memory")}
+          value={search()}
+          onInput={(event) => setSearch(event.currentTarget.value)}
+        />
       </label>
 
       <div class="memory-settings__actions">
-        <Show when={props.scope === "user"}><Button onClick={openCreate}>{tr("settings.add-user-memory")}</Button></Show>
-        <Button variant="secondary" onClick={() => setConfirmation({ kind: "compact" })}>{tr("settings.compact-memory")}</Button>
-        <Show when={props.scope === "task"}><Button variant="danger" onClick={() => setConfirmation({ kind: "clear" })}>{tr("settings.clear-task-memory")}</Button></Show>
-        <Button variant="secondary" onClick={() => void exportMemory()}>{tr("settings.export-memory")}</Button>
+        <Show when={props.scope === "user"}>
+          <Button onClick={openCreate}>{tr("settings.add-user-memory")}</Button>
+        </Show>
+        <Button variant="secondary" onClick={() => setConfirmation({ kind: "compact" })}>
+          {tr("settings.compact-memory")}
+        </Button>
+        <Show when={props.scope === "task"}>
+          <Button variant="danger" onClick={() => setConfirmation({ kind: "clear" })}>
+            {tr("settings.clear-task-memory")}
+          </Button>
+        </Show>
+        <Button variant="secondary" onClick={() => void exportMemory()}>
+          {tr("settings.export-memory")}
+        </Button>
       </div>
 
-      <Show when={query.isPending}><p class="settings-saving" role="status">{tr("settings.loading-memory")}</p></Show>
-      <Show when={query.error}><InlineError message={query.error instanceof Error ? query.error.message : tr("settings.memory-load-error")} /></Show>
+      <Show when={query.isPending}>
+        <p class="settings-saving" role="status">
+          {tr("settings.loading-memory")}
+        </p>
+      </Show>
+      <Show when={query.error}>
+        <InlineError message={query.error instanceof Error ? query.error.message : tr("settings.memory-load-error")} />
+      </Show>
       <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>
-      <Show when={notice()}>{(message) => <p class="compaction-settings__notice" role="status">{message()}</p>}</Show>
+      <Show when={notice()}>
+        {(message) => (
+          <p class="compaction-settings__notice" role="status">
+            {message()}
+          </p>
+        )}
+      </Show>
 
       <div class="memory-settings__list">
         <For each={entries()}>
@@ -248,7 +274,10 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
                       variant="ghost"
                       label={tr("settings.edit-memory")}
                       title={tr("settings.edit-memory")}
-                      onClick={() => { setEditing(entry); setEditorOpen(true) }}
+                      onClick={() => {
+                        setEditing(entry)
+                        setEditorOpen(true)
+                      }}
                     >
                       <Pencil aria-hidden="true" />
                     </IconButton>

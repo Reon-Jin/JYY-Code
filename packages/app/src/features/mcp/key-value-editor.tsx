@@ -22,13 +22,15 @@ export function KeyValueEditor(props: KeyValueEditorProps) {
           <div class="mcp-kv__row">
             <label>
               <span>
-                {props.name}{tr("mcp.name")} {index + 1}
+                {props.name}
+                {tr("mcp.name")} {index + 1}
               </span>
               <input value={row().key} onInput={(event) => update(index, "key", event.currentTarget.value)} />
             </label>
             <label>
               <span>
-                {props.name}{tr("mcp.value")} {index + 1}
+                {props.name}
+                {tr("mcp.value")} {index + 1}
               </span>
               <input value={row().value} onInput={(event) => update(index, "value", event.currentTarget.value)} />
             </label>

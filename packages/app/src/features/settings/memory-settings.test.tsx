@@ -27,10 +27,13 @@ const taskEntry = {
   sessionID: "ses_settings",
 }
 
-function management(entries?: typeof userEntry[]) {
+function management(entries?: (typeof userEntry)[]) {
   const memory = {
     list: vi.fn(async ({ scope }: { scope: "user" | "task" }) => ({
-      data: { entries: scope === "user" ? (entries ?? [userEntry]) : [taskEntry], total: scope === "user" ? (entries?.length ?? 1) : 1 },
+      data: {
+        entries: scope === "user" ? (entries ?? [userEntry]) : [taskEntry],
+        total: scope === "user" ? (entries?.length ?? 1) : 1,
+      },
     })),
     update: vi.fn(async (input: Record<string, unknown>) => ({ data: { ...userEntry, ...input } })),
     remove: vi.fn(async () => ({ data: { removed: true } })),
@@ -47,33 +50,47 @@ function management(entries?: typeof userEntry[]) {
   return { value, memory }
 }
 
-function renderMemory(scope: "user" | "task" = "user", entries?: typeof userEntry[]) {
+function renderMemory(scope: "user" | "task" = "user", entries?: (typeof userEntry)[]) {
   const desktop = createFakeDesktop()
   const { value, memory } = management(entries)
   const history = createMemoryHistory()
   history.set({ value: "/", replace: true, scroll: false })
   render(() => (
     <MemoryRouter history={history}>
-      <Route path="/" component={() => (
-        <DesktopBridgeProvider bridge={desktop.bridge}>
-          <QueryClientProvider client={value.queryClient}>
-            <MemoryManagementPage management={value} scope={scope} />
-          </QueryClientProvider>
-        </DesktopBridgeProvider>
-      )} />
+      <Route
+        path="/"
+        component={() => (
+          <DesktopBridgeProvider bridge={desktop.bridge}>
+            <QueryClientProvider client={value.queryClient}>
+              <MemoryManagementPage management={value} scope={scope} />
+            </QueryClientProvider>
+          </DesktopBridgeProvider>
+        )}
+      />
     </MemoryRouter>
   ))
   return { desktop, value, memory }
 }
 
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 beforeEach(() => {
   Object.defineProperties(HTMLDialogElement.prototype, {
-    showModal: { configurable: true, value(this: HTMLDialogElement) { this.setAttribute("open", "") } },
-    close: { configurable: true, value(this: HTMLDialogElement) {
-      this.removeAttribute("open")
-      this.dispatchEvent(new Event("close"))
-    } },
+    showModal: {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.setAttribute("open", "")
+      },
+    },
+    close: {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.removeAttribute("open")
+        this.dispatchEvent(new Event("close"))
+      },
+    },
   })
 })
 
@@ -107,10 +124,11 @@ describe("MemorySettings", () => {
     expect(memory.list.mock.calls[0]?.[0]).not.toHaveProperty("sessionID")
 
     await user.type(screen.getByRole("searchbox", { name: "搜索记忆" }), "设置")
-    await waitFor(() => expect(memory.list).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: "task", query: "设置" }),
-      { throwOnError: true },
-    ))
+    await waitFor(() =>
+      expect(memory.list).toHaveBeenCalledWith(expect.objectContaining({ scope: "task", query: "设置" }), {
+        throwOnError: true,
+      }),
+    )
   })
 
   it("shows an empty memory store without throwing", async () => {
@@ -147,10 +165,18 @@ describe("MemorySettings", () => {
     await user.clear(content)
     await user.type(content, "用户偏好 English。")
     await user.click(within(dialog).getByRole("button", { name: "保存" }))
-    await waitFor(() => expect(memory.update).toHaveBeenCalledWith(
-      expect.objectContaining({ scope: "user", id: "usr_language", importance: 8, keywords: ["语言"], content: "用户偏好 English。" }),
-      { throwOnError: true },
-    ))
+    await waitFor(() =>
+      expect(memory.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: "user",
+          id: "usr_language",
+          importance: 8,
+          keywords: ["语言"],
+          content: "用户偏好 English。",
+        }),
+        { throwOnError: true },
+      ),
+    )
     await waitFor(() => expect(memory.list.mock.calls.length).toBeGreaterThan(1))
   })
 
@@ -171,7 +197,9 @@ describe("MemorySettings", () => {
     await user.click(screen.getByRole("button", { name: "压缩记忆" }))
     dialog = screen.getByRole("dialog", { name: "压缩记忆" })
     await user.click(within(dialog).getByRole("button", { name: "确认压缩" }))
-    await waitFor(() => expect(memory.compact).toHaveBeenCalledWith({ scope: "user", sessionID: undefined }, { throwOnError: true }))
+    await waitFor(() =>
+      expect(memory.compact).toHaveBeenCalledWith({ scope: "user", sessionID: undefined }, { throwOnError: true }),
+    )
 
     cleanup()
     const task = renderMemory("task")

@@ -120,8 +120,7 @@ async function commits(from: string, to: string) {
     data.set(item.sha, { login: item.login, message: item.message.split("\n")[0] ?? "" })
   }
 
-  const log =
-    await $`git log ${base}..${head} --format=%H -- packages/jyycode packages/sdk packages/plugin`.text()
+  const log = await $`git log ${base}..${head} --format=%H -- packages/jyycode packages/sdk packages/plugin`.text()
 
   const list: Commit[] = []
   for (const hash of log.split("\n").filter(Boolean)) {

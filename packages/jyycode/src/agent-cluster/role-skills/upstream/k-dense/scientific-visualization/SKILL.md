@@ -2,7 +2,7 @@
 name: scientific-visualization
 description: Meta-skill for publication-ready figures. Use when creating journal submission figures requiring multi-panel layouts, significance annotations, error bars, colorblind-safe palettes, and specific journal formatting (Nature, Science, Cell). Orchestrates matplotlib/seaborn/plotly with publication styles. For quick exploration use seaborn or plotly directly.
 license: MIT license
-metadata: {"version": "1.0", "skill-author": "K-Dense Inc."}
+metadata: { "version": "1.0", "skill-author": "K-Dense Inc." }
 ---
 
 # Scientific Visualization
@@ -14,6 +14,7 @@ Scientific visualization transforms data into clear, accurate figures for public
 ## When to Use This Skill
 
 This skill should be used when:
+
 - Creating plots or visualizations for scientific manuscripts
 - Preparing figures for journal submission (Nature, Science, Cell, PLOS, etc.)
 - Ensuring figures are colorblind-friendly and accessible
@@ -92,10 +93,10 @@ sns.set_palette('colorblind')
 
 # Create statistical comparison figure
 fig, ax = plt.subplots(figsize=(3.5, 3))
-sns.boxplot(data=df, x='treatment', y='response', 
+sns.boxplot(data=df, x='treatment', y='response',
             order=['Control', 'Low', 'High'], palette='Set2', ax=ax)
 sns.stripplot(data=df, x='treatment', y='response',
-              order=['Control', 'Low', 'High'], 
+              order=['Control', 'Low', 'High'],
               color='black', alpha=0.3, size=3, ax=ax)
 ax.set_ylabel('Response (μM)')
 sns.despine()
@@ -110,12 +111,14 @@ save_publication_figure(fig, 'treatment_comparison', formats=['pdf', 'png'], dpi
 ### 1. Resolution and File Format
 
 **Critical requirements** (detailed in `references/publication_guidelines.md`):
+
 - **Raster images** (photos, microscopy): 300-600 DPI
 - **Line art** (graphs, plots): 600-1200 DPI or vector format
 - **Vector formats** (preferred): PDF, EPS, SVG
 - **Raster formats**: TIFF, PNG (never JPEG for scientific data)
 
 **Implementation:**
+
 ```python
 # Use the figure_export.py script for correct settings
 from figure_export import save_publication_figure
@@ -133,6 +136,7 @@ save_for_journal(fig, 'figure1', journal='nature', figure_type='combination')
 **Always use colorblind-friendly palettes** (detailed in `references/color_palettes.md`):
 
 **Recommended: Okabe-Ito palette** (distinguishable by all types of color blindness):
+
 ```python
 # Option 1: Use assets/color_palettes.py
 from color_palettes import OKABE_ITO_LIST, apply_palette
@@ -145,6 +149,7 @@ plt.rcParams['axes.prop_cycle'] = plt.cycler(color=okabe_ito)
 ```
 
 **For heatmaps/continuous data:**
+
 - Use perceptually uniform colormaps: `viridis`, `plasma`, `cividis`
 - Avoid red-green diverging maps (use `PuOr`, `RdBu`, `BrBG` instead)
 - Never use `jet` or `rainbow` colormaps
@@ -154,6 +159,7 @@ plt.rcParams['axes.prop_cycle'] = plt.cycler(color=okabe_ito)
 ### 3. Typography and Text
 
 **Font guidelines** (detailed in `references/publication_guidelines.md`):
+
 - Sans-serif fonts: Arial, Helvetica, Calibri
 - Minimum sizes at **final print size**:
   - Axis labels: 7-9 pt
@@ -163,6 +169,7 @@ plt.rcParams['axes.prop_cycle'] = plt.cycler(color=okabe_ito)
 - Always include units in parentheses
 
 **Implementation:**
+
 ```python
 # Set fonts globally
 import matplotlib as mpl
@@ -177,11 +184,13 @@ mpl.rcParams['ytick.labelsize'] = 7
 ### 4. Figure Dimensions
 
 **Journal-specific widths** (detailed in `references/journal_requirements.md`):
+
 - **Nature**: Single 89 mm, Double 183 mm
 - **Science**: Single 55 mm, Double 175 mm
 - **Cell**: Single 85 mm, Double 178 mm
 
 **Check figure size compliance:**
+
 ```python
 from figure_export import check_figure_size
 
@@ -192,12 +201,14 @@ check_figure_size(fig, journal='nature')
 ### 5. Multi-Panel Figures
 
 **Best practices:**
+
 - Label panels with bold letters: **A**, **B**, **C** (uppercase for most journals, lowercase for Nature)
 - Maintain consistent styling across all panels
 - Align panels along edges where possible
 - Use adequate white space between panels
 
 **Example implementation** (see `references/matplotlib_examples.md` for complete code):
+
 ```python
 from string import ascii_uppercase
 
@@ -221,6 +232,7 @@ for i, ax in enumerate([ax1, ax2, ...]):
 See `references/matplotlib_examples.md` Example 1 for complete code.
 
 **Key steps:**
+
 1. Apply publication style
 2. Set appropriate figure size for target journal
 3. Use colorblind-friendly colors
@@ -230,11 +242,12 @@ See `references/matplotlib_examples.md` Example 1 for complete code.
 7. Save in vector format
 
 **Using seaborn for automatic confidence intervals:**
+
 ```python
 import seaborn as sns
 fig, ax = plt.subplots(figsize=(5, 3))
 sns.lineplot(data=timeseries, x='time', y='measurement',
-             hue='treatment', errorbar=('ci', 95), 
+             hue='treatment', errorbar=('ci', 95),
              markers=True, ax=ax)
 ax.set_xlabel('Time (hours)')
 ax.set_ylabel('Measurement (AU)')
@@ -246,6 +259,7 @@ sns.despine()
 See `references/matplotlib_examples.md` Example 2 for complete code.
 
 **Key steps:**
+
 1. Use `GridSpec` for flexible layout
 2. Ensure consistent styling across panels
 3. Add bold panel labels (A, B, C, etc.)
@@ -257,6 +271,7 @@ See `references/matplotlib_examples.md` Example 2 for complete code.
 See `references/matplotlib_examples.md` Example 4 for complete code.
 
 **Key steps:**
+
 1. Use perceptually uniform colormap (`viridis`, `plasma`, `cividis`)
 2. Include labeled colorbar
 3. For diverging data, use colorblind-safe diverging map (`RdBu_r`, `PuOr`)
@@ -264,6 +279,7 @@ See `references/matplotlib_examples.md` Example 4 for complete code.
 5. Test appearance in grayscale
 
 **Using seaborn for correlation matrices:**
+
 ```python
 import seaborn as sns
 fig, ax = plt.subplots(figsize=(5, 4))
@@ -277,6 +293,7 @@ sns.heatmap(corr, mask=mask, annot=True, fmt='.2f',
 ### Task 4: Prepare Figure for Specific Journal
 
 **Workflow:**
+
 1. Check journal requirements: `references/journal_requirements.md`
 2. Configure matplotlib for journal:
    ```python
@@ -306,12 +323,14 @@ sns.heatmap(corr, mask=mask, annot=True, fmt='.2f',
 ### Task 6: Create Colorblind-Friendly Visualizations
 
 **Strategy:**
+
 1. Use approved palettes from `assets/color_palettes.py`
 2. Add redundant encoding (line styles, markers, patterns)
 3. Test with colorblind simulator
 4. Ensure grayscale compatibility
 
 **Example:**
+
 ```python
 from color_palettes import apply_palette
 import matplotlib.pyplot as plt
@@ -330,12 +349,14 @@ for i, (data, label) in enumerate(datasets):
 ## Statistical Rigor
 
 **Always include:**
+
 - Error bars (SD, SEM, or CI - specify which in caption)
 - Sample size (n) in figure or caption
-- Statistical significance markers (*, **, ***)
+- Statistical significance markers (\*, **, \***)
 - Individual data points when possible (not just summary statistics)
 
 **Example with statistics:**
+
 ```python
 # Show individual points with summary statistics
 ax.scatter(x_jittered, individual_points, alpha=0.4, s=8)
@@ -348,6 +369,7 @@ ax.text(1.5, max_y * 1.1, '***', ha='center', fontsize=8)
 ## Working with Different Plotting Libraries
 
 ### Matplotlib
+
 - Most control over publication details
 - Best for complex multi-panel figures
 - Use provided style files for consistent formatting
@@ -358,6 +380,7 @@ ax.text(1.5, max_y * 1.1, '***', ha='center', fontsize=8)
 Seaborn provides a high-level, dataset-oriented interface for statistical graphics, built on matplotlib. It excels at creating publication-quality statistical visualizations with minimal code while maintaining full compatibility with matplotlib customization.
 
 **Key advantages for scientific visualization:**
+
 - Automatic statistical estimation and confidence intervals
 - Built-in support for multi-panel figures (faceting)
 - Colorblind-friendly palettes by default
@@ -382,7 +405,7 @@ sns.set_palette('colorblind')  # Use colorblind-safe palette
 
 # Create figure
 fig, ax = plt.subplots(figsize=(3.5, 2.5))
-sns.scatterplot(data=df, x='time', y='response', 
+sns.scatterplot(data=df, x='time', y='response',
                 hue='treatment', style='condition', ax=ax)
 sns.despine()  # Remove top and right spines
 ```
@@ -390,19 +413,21 @@ sns.despine()  # Remove top and right spines
 #### Common Plot Types for Publications
 
 **Statistical comparisons:**
+
 ```python
 # Box plot with individual points for transparency
 fig, ax = plt.subplots(figsize=(3.5, 3))
-sns.boxplot(data=df, x='treatment', y='response', 
+sns.boxplot(data=df, x='treatment', y='response',
             order=['Control', 'Low', 'High'], palette='Set2', ax=ax)
 sns.stripplot(data=df, x='treatment', y='response',
-              order=['Control', 'Low', 'High'], 
+              order=['Control', 'Low', 'High'],
               color='black', alpha=0.3, size=3, ax=ax)
 ax.set_ylabel('Response (μM)')
 sns.despine()
 ```
 
 **Distribution analysis:**
+
 ```python
 # Violin plot with split comparison
 fig, ax = plt.subplots(figsize=(4, 3))
@@ -413,6 +438,7 @@ sns.despine()
 ```
 
 **Correlation matrices:**
+
 ```python
 # Heatmap with proper colormap and annotations
 fig, ax = plt.subplots(figsize=(5, 4))
@@ -425,6 +451,7 @@ plt.tight_layout()
 ```
 
 **Time series with confidence bands:**
+
 ```python
 # Line plot with automatic CI calculation
 fig, ax = plt.subplots(figsize=(5, 3))
@@ -439,6 +466,7 @@ sns.despine()
 #### Multi-Panel Figures with Seaborn
 
 **Using FacetGrid for automatic faceting:**
+
 ```python
 # Create faceted plot
 g = sns.relplot(data=df, x='dose', y='response',
@@ -451,11 +479,12 @@ sns.despine()
 
 # Save with correct DPI
 from figure_export import save_publication_figure
-save_publication_figure(g.figure, 'figure_facets', 
+save_publication_figure(g.figure, 'figure_facets',
                        formats=['pdf', 'png'], dpi=300)
 ```
 
 **Combining seaborn with matplotlib subplots:**
+
 ```python
 # Create custom multi-panel layout
 fig, axes = plt.subplots(2, 2, figsize=(7, 6))
@@ -476,7 +505,7 @@ axes[1, 0].text(-0.15, 1.05, 'C', transform=axes[1, 0].transAxes,
                 fontsize=10, fontweight='bold')
 
 # Panel D: Time series
-sns.lineplot(data=timeseries, x='time', y='signal', 
+sns.lineplot(data=timeseries, x='time', y='signal',
              hue='condition', ax=axes[1, 1])
 axes[1, 1].text(-0.15, 1.05, 'D', transform=axes[1, 1].transAxes,
                 fontsize=10, fontweight='bold')
@@ -506,6 +535,7 @@ sns.heatmap(corr, cmap='RdBu_r', center=0)  # Diverging, centered
 #### Choosing Between Axes-Level and Figure-Level Functions
 
 **Axes-level functions** (e.g., `scatterplot`, `boxplot`, `heatmap`):
+
 - Use when building custom multi-panel layouts
 - Accept `ax=` parameter for precise placement
 - Better integration with matplotlib subplots
@@ -517,6 +547,7 @@ sns.scatterplot(data=df, x='x', y='y', hue='group', ax=ax)
 ```
 
 **Figure-level functions** (e.g., `relplot`, `catplot`, `displot`):
+
 - Use for automatic faceting by categorical variables
 - Create complete figures with consistent styling
 - Great for exploratory analysis
@@ -546,36 +577,42 @@ sns.barplot(data=df, x='treatment', y='response',
 #### Best Practices for Publication-Ready Seaborn Figures
 
 1. **Always set publication theme first:**
+
    ```python
    sns.set_theme(style='ticks', context='paper', font_scale=1.1)
    ```
 
 2. **Use colorblind-safe palettes:**
+
    ```python
    sns.set_palette('colorblind')
    ```
 
 3. **Remove unnecessary elements:**
+
    ```python
    sns.despine()  # Remove top and right spines
    ```
 
 4. **Control figure size appropriately:**
+
    ```python
    # Axes-level: use matplotlib figsize
    fig, ax = plt.subplots(figsize=(3.5, 2.5))
-   
+
    # Figure-level: use height and aspect
    g = sns.relplot(..., height=3, aspect=1.2)
    ```
 
 5. **Show individual data points when possible:**
+
    ```python
    sns.boxplot(...)  # Summary statistics
    sns.stripplot(..., alpha=0.3)  # Individual points
    ```
 
 6. **Include proper labels with units:**
+
    ```python
    ax.set_xlabel('Time (hours)')
    ax.set_ylabel('Expression (AU)')
@@ -584,32 +621,35 @@ sns.barplot(data=df, x='treatment', y='response',
 7. **Export at correct resolution:**
    ```python
    from figure_export import save_publication_figure
-   save_publication_figure(fig, 'figure_name', 
+   save_publication_figure(fig, 'figure_name',
                           formats=['pdf', 'png'], dpi=300)
    ```
 
 #### Advanced Seaborn Techniques
 
 **Pairwise relationships for exploratory analysis:**
+
 ```python
 # Quick overview of all relationships
-g = sns.pairplot(data=df, hue='condition', 
+g = sns.pairplot(data=df, hue='condition',
                  vars=['gene1', 'gene2', 'gene3'],
                  corner=True, diag_kind='kde', height=2)
 ```
 
 **Hierarchical clustering heatmap:**
+
 ```python
 # Cluster samples and features
-g = sns.clustermap(expression_data, method='ward', 
+g = sns.clustermap(expression_data, method='ward',
                    metric='euclidean', z_score=0,
-                   cmap='RdBu_r', center=0, 
-                   figsize=(10, 8), 
+                   cmap='RdBu_r', center=0,
+                   figsize=(10, 8),
                    row_colors=condition_colors,
                    cbar_kws={'label': 'Z-score'})
 ```
 
 **Joint distributions with marginals:**
+
 ```python
 # Bivariate distribution with context
 g = sns.jointplot(data=df, x='gene1', y='gene2',
@@ -620,18 +660,21 @@ g = sns.jointplot(data=df, x='gene1', y='gene2',
 #### Common Seaborn Issues and Solutions
 
 **Issue: Legend outside plot area**
+
 ```python
 g = sns.relplot(...)
 g._legend.set_bbox_to_anchor((0.9, 0.5))
 ```
 
 **Issue: Overlapping labels**
+
 ```python
 plt.xticks(rotation=45, ha='right')
 plt.tight_layout()
 ```
 
 **Issue: Text too small at final size**
+
 ```python
 sns.set_context('paper', font_scale=1.2)  # Increase if needed
 ```
@@ -639,15 +682,18 @@ sns.set_context('paper', font_scale=1.2)  # Increase if needed
 #### Additional Resources
 
 For more detailed seaborn information, see:
+
 - `skills/seaborn/SKILL.md` - Comprehensive seaborn documentation
 - `skills/seaborn/references/examples.md` - Practical use cases
 - `skills/seaborn/references/function_reference.md` - Complete API reference
 - `skills/seaborn/references/objects_interface.md` - Modern declarative API
 
 ### Plotly
+
 - Interactive figures for exploration
 - Export static images for publication
 - Configure for publication quality:
+
 ```python
 fig.update_layout(
     font=dict(family='Arial, sans-serif', size=10),
@@ -773,4 +819,3 @@ Before submitting figures, verify:
 - [ ] Legend is clear and complete
 
 Use this skill to ensure scientific figures meet the highest publication standards while remaining accessible to all readers.
-

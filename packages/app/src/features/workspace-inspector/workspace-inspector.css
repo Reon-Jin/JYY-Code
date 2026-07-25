@@ -190,7 +190,9 @@ html[data-glass="on"] body .workspace-activity-button.ui-button[aria-pressed="tr
     box-shadow: -12px 0 32px rgb(0 0 0 / 24%);
   }
 
-  .workspace-drawer__width-handle { display: none; }
+  .workspace-drawer__width-handle {
+    display: none;
+  }
 
   .workspace-activity-rail {
     grid-column: 2;

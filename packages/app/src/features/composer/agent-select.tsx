@@ -20,9 +20,7 @@ export function AgentSelect(props: {
         <Show when={!props.agents.some((agent) => agent.name === props.value)}>
           <option value={props.value}>{props.value}</option>
         </Show>
-        <For each={props.agents}>
-          {(agent) => <option value={agent.name}>{agent.name}</option>}
-        </For>
+        <For each={props.agents}>{(agent) => <option value={agent.name}>{agent.name}</option>}</For>
       </select>
     </label>
   )

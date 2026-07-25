@@ -34,8 +34,7 @@ describe("resource", () => {
 
   test("keeps built-in attributes when env values conflict", () => {
     process.env.JYYCODE_CLIENT = "cli"
-    process.env.OTEL_RESOURCE_ATTRIBUTES =
-      "jyycode.client=web,service.instance.id=override,service.namespace=anomalyco"
+    process.env.OTEL_RESOURCE_ATTRIBUTES = "jyycode.client=web,service.instance.id=override,service.namespace=anomalyco"
 
     expect(resource().attributes).toMatchObject({
       "jyycode.client": "cli",

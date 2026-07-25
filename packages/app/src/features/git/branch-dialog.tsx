@@ -113,7 +113,10 @@ export function BranchDialog(props: BranchDialogProps) {
                       <span class="branch-meta">
                         <Show when={formatBranchUpdatedAt(entry.branch.updatedAt)}>
                           {(label) => (
-                            <time dateTime={entry.branch.updatedAt} title={new Date(entry.branch.updatedAt!).toLocaleString()}>
+                            <time
+                              dateTime={entry.branch.updatedAt}
+                              title={new Date(entry.branch.updatedAt!).toLocaleString()}
+                            >
                               {label()}
                             </time>
                           )}

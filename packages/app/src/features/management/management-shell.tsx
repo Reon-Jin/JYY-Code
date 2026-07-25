@@ -5,11 +5,12 @@ import type { ParentProps } from "solid-js"
 import "./management-shell.css"
 import { settingsHref } from "../settings/settings-navigation"
 
-const items = () => [
-  { href: "/", label: tr("management.front-page"), icon: House },
-  { href: "/skills", label: "Skill", icon: Blocks },
-  { href: "/mcp", label: "MCP", icon: Plug },
-] as const
+const items = () =>
+  [
+    { href: "/", label: tr("management.front-page"), icon: House },
+    { href: "/skills", label: "Skill", icon: Blocks },
+    { href: "/mcp", label: "MCP", icon: Plug },
+  ] as const
 
 export function ManagementShell(props: ParentProps) {
   const location = useLocation()

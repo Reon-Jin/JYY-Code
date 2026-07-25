@@ -31,7 +31,7 @@ export const FinishCommand = effectCmd({
         describe: "print the summary without sending email",
         type: "boolean",
         default: false,
-  }),
+      }),
   handler: Effect.fn("Cli.finish")(function* (args) {
     const cfg = yield* Config.Service
     const git = yield* Git.Service
@@ -42,7 +42,8 @@ export const FinishCommand = effectCmd({
     const cwd = process.cwd()
     const notes = [...(args.notes ?? []), ...(args["--"] ?? [])].join(" ").trim()
     const summary = yield* buildSummary(git, cwd, notes)
-    const subject = args.subject ?? `JYYCode finish: ${path.basename(cwd)}${summary.branch ? ` (${summary.branch})` : ""}`
+    const subject =
+      args.subject ?? `JYYCode finish: ${path.basename(cwd)}${summary.branch ? ` (${summary.branch})` : ""}`
     const to = args.to ?? defaultEmailRecipient(info)
 
     if (args["dry-run"]) {

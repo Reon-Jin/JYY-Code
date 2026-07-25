@@ -22,11 +22,7 @@ function powershell(script: string, timeoutMs = 15000): Promise<{ stdout: string
 }
 
 async function sendViaWeChat(input: { to: string; body: string; filePath?: string }): Promise<SendResult> {
-  const escapedBody = input.body
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "`n")
-    .replace(/\r/g, "")
+  const escapedBody = input.body.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "`n").replace(/\r/g, "")
   const escapedFile = input.filePath?.replace(/\\/g, "\\\\").replace(/"/g, '\\"') || ""
   const escapedTo = input.to.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
 
@@ -93,12 +89,16 @@ Start-Sleep -Milliseconds 500
 [System.Windows.Forms.SendKeys]::SendWait("^v")
 Start-Sleep -Milliseconds 300
 
-${input.filePath ? `
+${
+  input.filePath
+    ? `
 # For file attachment
 [System.Windows.Forms.Clipboard]::SetText("${escapedFile}")
 [System.Windows.Forms.SendKeys]::SendWait("^v")
 Start-Sleep -Milliseconds 500
-` : ""}
+`
+    : ""
+}
 
 [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
 Start-Sleep -Milliseconds 200
@@ -129,10 +129,7 @@ export const WeChatAdapter: Adapter = {
     return sendViaWeChat(input)
   },
 
-  async sendFile(
-    _config: AdapterConfig,
-    input: { to: string; filePath: string; body?: string },
-  ): Promise<SendResult> {
+  async sendFile(_config: AdapterConfig, input: { to: string; filePath: string; body?: string }): Promise<SendResult> {
     const msg = input.body || `[File] ${input.filePath.split(/[/\\]/).pop()}`
     return sendViaWeChat({ to: input.to, body: msg, filePath: input.filePath })
   },

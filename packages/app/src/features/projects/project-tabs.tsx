@@ -349,9 +349,7 @@ export function ProjectTabs(props: ProjectTabsProps) {
               }}
               onClose={() => props.onClose(project.directory)}
               dragging={dragging() === project.directory}
-              dropPlacement={
-                dropTarget()?.directory === project.directory ? dropTarget()?.placement : undefined
-              }
+              dropPlacement={dropTarget()?.directory === project.directory ? dropTarget()?.placement : undefined}
               dragOffset={dragOffset(project.directory)}
               onPointerDown={(event) => startPointerDrag(project.directory, event)}
               onPointerMove={movePointerDrag}

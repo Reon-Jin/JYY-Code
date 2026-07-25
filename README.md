@@ -26,11 +26,11 @@ Press **F9** to enable the Multi-Agent workflow. Run **`/cluster`** to choose mo
 
 ## Why JYY-Code
 
-| Typical coding agent | JYY-Code |
-| --- | --- |
-| Forgets context between sessions | Keeps structured project and user memory |
-| Hides work inside a text stream | Shows plans, tasks, agents, and status in the TUI |
-| Loses background-task state | Persists sessions, cluster runs, tasks, and events in SQLite |
+| Typical coding agent                       | JYY-Code                                                                                    |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Forgets context between sessions           | Keeps structured project and user memory                                                    |
+| Hides work inside a text stream            | Shows plans, tasks, agents, and status in the TUI                                           |
+| Loses background-task state                | Persists sessions, cluster runs, tasks, and events in SQLite                                |
 | One agent writes and judges its own result | Specialists produce code and documents; the primary agent reviews, rejects, and synthesizes |
 
 ## Highlights
@@ -112,10 +112,10 @@ Global config: `~/.config/jyycode/jyycode.jsonc`
   "provider": {
     "openai": {
       "options": {
-        "apiKey": "sk-..."
-      }
-    }
-  }
+        "apiKey": "sk-...",
+      },
+    },
+  },
 }
 ```
 

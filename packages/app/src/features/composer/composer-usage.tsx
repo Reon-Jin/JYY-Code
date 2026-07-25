@@ -56,13 +56,34 @@ export function ComposerUsage(props: { metrics: ComposerUsageMetrics; permission
               <div id="composer-token-breakdown" class="composer-usage__popover" role="tooltip">
                 <strong>{tr("composer.token-source")}</strong>
                 <dl>
-                  <div><dt>{tr("composer.enter")}</dt><dd>{exact(aggregate.tokens.input)}</dd></div>
-                  <div><dt>{tr("composer.output")}</dt><dd>{exact(aggregate.tokens.output)}</dd></div>
-                  <div><dt>{tr("composer.think")}</dt><dd>{exact(aggregate.tokens.reasoning)}</dd></div>
-                  <div><dt>{tr("composer.tool-call")}</dt><dd>{tr("composer.included-in-input-output-provider-not-listed-separately")}</dd></div>
-                  <div><dt>{tr("composer.subagent")}</dt><dd>{exact(aggregate.tokens.subagents)}</dd></div>
-                  <div><dt>{tr("composer.others-cache")}</dt><dd>{exact(aggregate.tokens.other)}</dd></div>
-                  <div class="composer-usage__total"><dt>{tr("composer.total")}</dt><dd>{exact(aggregate.tokens.total)}</dd></div>
+                  <div>
+                    <dt>{tr("composer.enter")}</dt>
+                    <dd>{exact(aggregate.tokens.input)}</dd>
+                  </div>
+                  <div>
+                    <dt>{tr("composer.output")}</dt>
+                    <dd>{exact(aggregate.tokens.output)}</dd>
+                  </div>
+                  <div>
+                    <dt>{tr("composer.think")}</dt>
+                    <dd>{exact(aggregate.tokens.reasoning)}</dd>
+                  </div>
+                  <div>
+                    <dt>{tr("composer.tool-call")}</dt>
+                    <dd>{tr("composer.included-in-input-output-provider-not-listed-separately")}</dd>
+                  </div>
+                  <div>
+                    <dt>{tr("composer.subagent")}</dt>
+                    <dd>{exact(aggregate.tokens.subagents)}</dd>
+                  </div>
+                  <div>
+                    <dt>{tr("composer.others-cache")}</dt>
+                    <dd>{exact(aggregate.tokens.other)}</dd>
+                  </div>
+                  <div class="composer-usage__total">
+                    <dt>{tr("composer.total")}</dt>
+                    <dd>{exact(aggregate.tokens.total)}</dd>
+                  </div>
                 </dl>
               </div>
             </div>

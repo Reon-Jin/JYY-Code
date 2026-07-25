@@ -75,4 +75,3 @@ export const make = Effect.fn("SQLiteDrizzle.make")(function* <TRelations extend
 export const makeWithDefaults = <TRelations extends AnyRelations = EmptyRelations>(
   config: EffectDrizzleSQLiteConfig<TRelations> = {},
 ) => make(config).pipe(Effect.provide(DefaultServices))
-

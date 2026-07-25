@@ -43,8 +43,8 @@ function createHarness(options?: {
     restartBackend: vi.fn(),
     chooseDirectory: vi.fn(async () => project.worktree),
     createProjectDirectory: vi.fn(async () => project.worktree),
-    loadRecentProjects: vi.fn(async () =>
-      options?.recentProjects ?? (options?.recentPath ? [{ path: options.recentPath, usedAt: 1 }] : []),
+    loadRecentProjects: vi.fn(
+      async () => options?.recentProjects ?? (options?.recentPath ? [{ path: options.recentPath, usedAt: 1 }] : []),
     ),
     saveRecentProjects: vi.fn(async () => undefined),
     loadLastLocation: vi.fn(async () => ({})),

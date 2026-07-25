@@ -46,10 +46,12 @@ export function clampLimit(limit = DEFAULT_LIMIT) {
 }
 
 export function tokenize(input: string | undefined) {
-  return (input ?? "")
-    .toLowerCase()
-    .match(/[a-z0-9]+/g)
-    ?.filter(Boolean) ?? []
+  return (
+    (input ?? "")
+      .toLowerCase()
+      .match(/[a-z0-9]+/g)
+      ?.filter(Boolean) ?? []
+  )
 }
 
 export function search(input: SearchInput): SearchResult[] {
@@ -162,11 +164,9 @@ function formatResult(result: SearchResult, detail: Detail) {
   ]
     .filter(Boolean)
     .join(", ")
-  const lines = [
-    `- ${tool.id}`,
-    catalog ? `  ${catalog}` : undefined,
-    `  description: ${tool.description}`,
-  ].filter(Boolean) as string[]
+  const lines = [`- ${tool.id}`, catalog ? `  ${catalog}` : undefined, `  description: ${tool.description}`].filter(
+    Boolean,
+  ) as string[]
 
   if (detail === "summary") return lines.join("\n")
 

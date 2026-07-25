@@ -69,17 +69,18 @@ function PresentedGroupView(props: {
 
   return (
     <Show when={props.group.type === "activity"} fallback={parts()}>
-      <ActivityGroup label={tr("conversation.thinking-and-tool-calling")} count={props.group.parts.length} running={running()}>
+      <ActivityGroup
+        label={tr("conversation.thinking-and-tool-calling")}
+        count={props.group.parts.length}
+        running={running()}
+      >
         {parts()}
       </ActivityGroup>
     </Show>
   )
 }
 
-function PresentedMessageView(props: {
-  message: PresentedConversationMessage
-  planStatus?: "planning" | "ready"
-}) {
+function PresentedMessageView(props: { message: PresentedConversationMessage; planStatus?: "planning" | "ready" }) {
   const groupKeys = createMemo(() => props.message.groups.map(groupKey))
   const groupsByKey = createMemo(() => new Map(props.message.groups.map((group) => [groupKey(group), group])))
   const agent = () =>

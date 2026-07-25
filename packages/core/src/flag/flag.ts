@@ -29,9 +29,7 @@ export const Flag = {
   JYYCODE_SERVER_USERNAME: process.env["JYYCODE_SERVER_USERNAME"],
 
   // Experimental
-  JYYCODE_EXPERIMENTAL_FILEWATCHER: Config.boolean("JYYCODE_EXPERIMENTAL_FILEWATCHER").pipe(
-    Config.withDefault(false),
-  ),
+  JYYCODE_EXPERIMENTAL_FILEWATCHER: Config.boolean("JYYCODE_EXPERIMENTAL_FILEWATCHER").pipe(Config.withDefault(false)),
   JYYCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: Config.boolean("JYYCODE_EXPERIMENTAL_DISABLE_FILEWATCHER").pipe(
     Config.withDefault(false),
   ),

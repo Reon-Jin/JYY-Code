@@ -194,7 +194,9 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
               <>
                 <div class="multi-agent-panel__body">
                   <div class="multi-agent-summary">
-                    <span class="multi-agent-summary__status">{props.snapshot.runningAgents} {tr("multi-agent.running")}</span>
+                    <span class="multi-agent-summary__status">
+                      {props.snapshot.runningAgents} {tr("multi-agent.running")}
+                    </span>
                     <Show
                       when={props.snapshot.totalAgents > 0}
                       fallback={
@@ -213,7 +215,11 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                   <div class="multi-agent-steps">
                     <For each={props.snapshot.steps}>
                       {(step) => (
-                        <section class="multi-agent-step" data-collapsed={step.collapsed} aria-labelledby={`multi-agent-step-${step.index}`}>
+                        <section
+                          class="multi-agent-step"
+                          data-collapsed={step.collapsed}
+                          aria-labelledby={`multi-agent-step-${step.index}`}
+                        >
                           <header>
                             <h3 id={`multi-agent-step-${step.index}`}>
                               {tr("multi-agent.step")} {step.index}

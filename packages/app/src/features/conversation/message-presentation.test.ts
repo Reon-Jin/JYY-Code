@@ -105,11 +105,12 @@ describe("presentConversationMessages", () => {
       time: { start: 2 },
     } as Part
 
-    expect(presentConversationMessages([{ info: assistant, parts: [firstReasoning, answer, secondReasoning] }])[0]?.groups)
-      .toEqual([
-        { type: "activity", parts: [firstReasoning] },
-        { type: "content", parts: [answer] },
-        { type: "activity", parts: [secondReasoning] },
-      ])
+    expect(
+      presentConversationMessages([{ info: assistant, parts: [firstReasoning, answer, secondReasoning] }])[0]?.groups,
+    ).toEqual([
+      { type: "activity", parts: [firstReasoning] },
+      { type: "content", parts: [answer] },
+      { type: "activity", parts: [secondReasoning] },
+    ])
   })
 })

@@ -62,7 +62,10 @@ export function PullRequestDetailView(props: {
             </div>
           }
         >
-          <Show when={props.detail} fallback={<p class="pull-detail__state">{tr("github.select-pull-request-from-the-left")}</p>}>
+          <Show
+            when={props.detail}
+            fallback={<p class="pull-detail__state">{tr("github.select-pull-request-from-the-left")}</p>}
+          >
             {(pull) => (
               <>
                 <header class="pull-detail__header">
@@ -79,7 +82,8 @@ export function PullRequestDetailView(props: {
                     </Show>
                   </div>
                   <p>
-                    {tr("github.depend-on")} {pull().author.name ?? pull().author.login} {tr("github.submit")} {pull().headRefName} → {pull().baseRefName}
+                    {tr("github.depend-on")} {pull().author.name ?? pull().author.login} {tr("github.submit")}{" "}
+                    {pull().headRefName} → {pull().baseRefName}
                   </p>
                   <div class="pull-detail__tabs" aria-label={tr("github.pull-request-details-view")}>
                     <button type="button" aria-pressed={tab() === "overview"} onClick={() => setTab("overview")}>

@@ -216,4 +216,3 @@ export class EffectSQLiteTransaction<TRelations extends AnyRelations> extends SQ
     ) => Effect.Effect<A, E, R>,
   ) => Effect.Effect<A, SqlError | E, R> = (tx) => this.session.transaction(tx)
 }
-

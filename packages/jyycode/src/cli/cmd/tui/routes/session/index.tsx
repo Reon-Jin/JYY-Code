@@ -1361,10 +1361,7 @@ export function Session() {
                 </Show>
               </box>
               <Show when={pillVisible()}>
-                <NewMessagesPill
-                  count={pillCount()}
-                  onClick={() => toBottom()}
-                />
+                <NewMessagesPill count={pillCount()} onClick={() => toBottom()} />
               </Show>
             </Show>
             <Toast />

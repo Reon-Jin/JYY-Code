@@ -11,9 +11,7 @@ describe("settings navigation", () => {
   })
 
   it("encodes a sanitized return route", () => {
-    expect(settingsHref("general", "/session/ses_1")).toBe(
-      "/settings/general?returnTo=%2Fsession%2Fses_1",
-    )
+    expect(settingsHref("general", "/session/ses_1")).toBe("/settings/general?returnTo=%2Fsession%2Fses_1")
     expect(settingsHref("security", "https://example.com")).toBe("/settings/security?returnTo=%2F")
     expect(memorySettingsHref("task", "/workspace")).toBe("/settings/memory/task?returnTo=%2Fworkspace")
   })

@@ -191,7 +191,8 @@ export const layer = Layer.effect(
           },
           cluster: {
             name: "cluster",
-            description: "Multi-Agent cluster primary. Plans, dispatches, reviews, revises, and synthesizes subagent work.",
+            description:
+              "Multi-Agent cluster primary. Plans, dispatches, reviews, revises, and synthesizes subagent work.",
             prompt: ClusterPrimaryPrompt,
             options: {},
             permission: Permission.merge(

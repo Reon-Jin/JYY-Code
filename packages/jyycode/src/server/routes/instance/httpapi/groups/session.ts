@@ -352,7 +352,8 @@ export const SessionApi = HttpApi.make("session")
           OpenApi.annotations({
             identifier: "session.interrupt_prompt",
             summary: "Interrupt child assignment and send message",
-            description: "Stop a running cluster child assignment before sending a steering message to that child session.",
+            description:
+              "Stop a running cluster child assignment before sending a steering message to that child session.",
           }),
         ),
         HttpApiEndpoint.post("init", SessionPaths.init, {

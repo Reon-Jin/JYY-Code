@@ -58,26 +58,26 @@ Use this skill when you need to:
 
 ```javascript
 // Navigate to a page and verify title
-await page.goto("http://localhost:3000");
-const title = await page.title();
-console.log("Page title:", title);
+await page.goto("http://localhost:3000")
+const title = await page.title()
+console.log("Page title:", title)
 ```
 
 ### Example 2: Form Interaction
 
 ```javascript
 // Fill out and submit a form
-await page.fill("#username", "testuser");
-await page.fill("#password", "password123");
-await page.click('button[type="submit"]');
-await page.waitForURL("**/dashboard");
+await page.fill("#username", "testuser")
+await page.fill("#password", "password123")
+await page.click('button[type="submit"]')
+await page.waitForURL("**/dashboard")
 ```
 
 ### Example 3: Screenshot Capture
 
 ```javascript
 // Capture a screenshot for debugging
-await page.screenshot({ path: "debug.png", fullPage: true });
+await page.screenshot({ path: "debug.png", fullPage: true })
 ```
 
 ## Guidelines
@@ -95,29 +95,29 @@ await page.screenshot({ path: "debug.png", fullPage: true });
 ### Pattern: Wait for Element
 
 ```javascript
-await page.waitForSelector("#element-id", { state: "visible" });
+await page.waitForSelector("#element-id", { state: "visible" })
 ```
 
 ### Pattern: Check if Element Exists
 
 ```javascript
-const exists = (await page.locator("#element-id").count()) > 0;
+const exists = (await page.locator("#element-id").count()) > 0
 ```
 
 ### Pattern: Get Console Logs
 
 ```javascript
-page.on("console", (msg) => console.log("Browser log:", msg.text()));
+page.on("console", (msg) => console.log("Browser log:", msg.text()))
 ```
 
 ### Pattern: Handle Errors
 
 ```javascript
 try {
-  await page.click("#button");
+  await page.click("#button")
 } catch (error) {
-  await page.screenshot({ path: "error.png" });
-  throw error;
+  await page.screenshot({ path: "error.png" })
+  throw error
 }
 ```
 

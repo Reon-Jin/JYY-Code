@@ -17,10 +17,7 @@
 const original = globalThis.performance
 
 const marks = new Map<string, number>()
-const measures = new Map<
-  string,
-  { name: string; startTime: number; duration: number }
->()
+const measures = new Map<string, { name: string; startTime: number; duration: number }>()
 
 function now(): number {
   return original.now()
@@ -30,7 +27,7 @@ function mark(name: string): PerformanceMark {
   marks.set(name, now())
   return {
     name,
-    entryType: 'mark',
+    entryType: "mark",
     startTime: marks.get(name)!,
     duration: 0,
   } as PerformanceMark
@@ -42,20 +39,16 @@ interface MeasureOptions {
   detail?: unknown
 }
 
-function measure(
-  name: string,
-  startMarkOrOptions?: string | MeasureOptions,
-  endMark?: string,
-): void {
+function measure(name: string, startMarkOrOptions?: string | MeasureOptions, endMark?: string): void {
   let startTime: number
   let duration: number
 
-  if (typeof startMarkOrOptions === 'string') {
+  if (typeof startMarkOrOptions === "string") {
     const start = marks.get(startMarkOrOptions)
     const end = endMark ? marks.get(endMark) : now()
     startTime = start ?? now()
     duration = (end ?? now()) - startTime
-  } else if (startMarkOrOptions && typeof startMarkOrOptions === 'object') {
+  } else if (startMarkOrOptions && typeof startMarkOrOptions === "object") {
     startTime = startMarkOrOptions.start ?? 0
     duration = (startMarkOrOptions.end ?? now()) - startTime
   } else {
@@ -74,18 +67,18 @@ interface PerformanceEntryLike {
 }
 
 function getEntriesByType(type: string): PerformanceEntryLike[] {
-  if (type === 'mark') {
+  if (type === "mark") {
     return [...marks.entries()].map(([name, startTime]) => ({
       name,
-      entryType: 'mark',
+      entryType: "mark",
       startTime,
       duration: 0,
     }))
   }
-  if (type === 'measure') {
+  if (type === "measure") {
     return [...measures.values()].map((m) => ({
       name: m.name,
-      entryType: 'measure',
+      entryType: "measure",
       startTime: m.startTime,
       duration: m.duration,
     }))
@@ -94,9 +87,7 @@ function getEntriesByType(type: string): PerformanceEntryLike[] {
 }
 
 function getEntriesByName(name: string, type?: string): PerformanceEntryLike[] {
-  const entries = getEntriesByType(type ?? 'mark').concat(
-    type === undefined ? getEntriesByType('measure') : [],
-  )
+  const entries = getEntriesByType(type ?? "mark").concat(type === undefined ? getEntriesByType("measure") : [])
   return entries.filter((e) => e.name === name)
 }
 
@@ -125,8 +116,7 @@ const shim = {
   clearMarks: clearMarks as typeof performance.clearMarks,
   clearMeasures: clearMeasures as typeof performance.clearMeasures,
   clearResourceTimings: (() => {}) as typeof performance.clearResourceTimings,
-  setResourceTimingBufferSize:
-    (() => {}) as typeof performance.setResourceTimingBufferSize,
+  setResourceTimingBufferSize: (() => {}) as typeof performance.setResourceTimingBufferSize,
   markResourceTiming: (() => {}) as any,
   get timeOrigin() {
     return original.timeOrigin

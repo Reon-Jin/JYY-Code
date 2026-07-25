@@ -126,10 +126,7 @@ describe("project controller", () => {
     await controller.createProject({ parent: "C:\\work", name: "demo", initGit: true })
 
     expect(calls).toEqual(["createProjectDirectory", "project.current", "project.initGit", "session.create"])
-    expect(sdk.session.create).toHaveBeenCalledWith(
-      { directory: project.worktree },
-      { throwOnError: true },
-    )
+    expect(sdk.session.create).toHaveBeenCalledWith({ directory: project.worktree }, { throwOnError: true })
   })
 
   it("does not persist a failed project open", async () => {

@@ -338,8 +338,12 @@
   background: color-mix(in srgb, var(--color-surface) 92%, transparent);
 }
 
-.composer-usage__item:first-child { border-radius: calc(var(--radius-md) - 1px) 0 0 calc(var(--radius-md) - 1px); }
-.composer-usage__item:last-child { border-radius: 0 calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0; }
+.composer-usage__item:first-child {
+  border-radius: calc(var(--radius-md) - 1px) 0 0 calc(var(--radius-md) - 1px);
+}
+.composer-usage__item:last-child {
+  border-radius: 0 calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0;
+}
 
 .composer-usage__item > span:first-child {
   flex: 0 0 auto;
@@ -401,7 +405,9 @@
   color: var(--color-text);
   cursor: pointer;
   text-align: left;
-  transition: background var(--motion-fast), color var(--motion-fast);
+  transition:
+    background var(--motion-fast),
+    color var(--motion-fast);
 }
 
 .agent-permission-control__trigger:hover,
@@ -525,7 +531,11 @@
   color: var(--color-success);
 }
 
-@keyframes permission-spin { to { transform: rotate(360deg); } }
+@keyframes permission-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 .composer-usage__tokens {
   cursor: help;
@@ -571,7 +581,10 @@
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, 4px);
-  transition: opacity var(--motion-fast), transform var(--motion-fast), visibility var(--motion-fast);
+  transition:
+    opacity var(--motion-fast),
+    transform var(--motion-fast),
+    visibility var(--motion-fast);
 }
 
 .composer-usage__tokens:hover .composer-usage__popover,
@@ -605,8 +618,13 @@
   font-size: 0.68rem;
 }
 
-.composer-usage__popover dt { color: var(--color-text-muted); }
-.composer-usage__popover dd { color: var(--color-text); text-align: right; }
+.composer-usage__popover dt {
+  color: var(--color-text-muted);
+}
+.composer-usage__popover dd {
+  color: var(--color-text);
+  text-align: right;
+}
 .composer-usage__popover .composer-usage__total {
   margin-top: var(--space-1);
   border-top: 1px solid var(--color-border);

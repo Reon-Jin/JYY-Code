@@ -3,16 +3,13 @@ import "katex/dist/katex.min.css"
 import { Marked } from "marked"
 import markedKatex from "marked-katex-extension"
 
-const markdown = new Marked(
-  markedKatex({ throwOnError: false, nonStandard: true, strict: "ignore", trust: false }),
-  {
-    renderer: {
-      // Raw HTML is intentionally unsupported. This keeps user-authored styles
-      // out while allowing the trusted KaTeX renderer to retain layout styles.
-      html: () => "",
-    },
+const markdown = new Marked(markedKatex({ throwOnError: false, nonStandard: true, strict: "ignore", trust: false }), {
+  renderer: {
+    // Raw HTML is intentionally unsupported. This keeps user-authored styles
+    // out while allowing the trusted KaTeX renderer to retain layout styles.
+    html: () => "",
   },
-)
+})
 
 export function renderMarkdown(source: string) {
   const html = markdown.parse(source, { async: false }) as string

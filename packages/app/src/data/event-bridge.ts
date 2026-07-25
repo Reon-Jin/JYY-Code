@@ -592,9 +592,7 @@ export class EventBridge {
           { queryKey: keys.todos(directory, sessionID), exact: true },
         )
       }
-      await Promise.all(
-        queryFilters.map((filters) => this.#options.queryClient.invalidateQueries(filters)),
-      )
+      await Promise.all(queryFilters.map((filters) => this.#options.queryClient.invalidateQueries(filters)))
     }
     if (this.#abort.signal.aborted) return
     this.#wasDisconnected = false

@@ -24,7 +24,10 @@ export function RecentProjects(props: RecentProjectsProps) {
     <section class="recent-projects" aria-labelledby="recent-projects-title">
       <div class="recent-projects__heading">
         <h2 id="recent-projects-title">{tr("projects.recent-projects")}</h2>
-        <span class="recent-projects__count" aria-label={tr("projects.recent-project-count", { count: props.projects.length })}>
+        <span
+          class="recent-projects__count"
+          aria-label={tr("projects.recent-project-count", { count: props.projects.length })}
+        >
           {props.projects.length}
         </span>
       </div>

@@ -64,7 +64,7 @@ describe("global default permission API", () => {
               client.global.defaultPermission.update({ mode: "request" }, { throwOnError: true }),
             )
             const requested = yield* Effect.promise(() => fs.readFile(configFile, "utf8"))
-            expect(requested).toContain('// keep this comment')
+            expect(requested).toContain("// keep this comment")
             expect(requested).toContain('"model": "test/model"')
             expect(requested).toContain('"*": "ask"')
             expect(requested).not.toContain('"bash"')

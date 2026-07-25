@@ -277,5 +277,3 @@ export class SQLiteEffectSelectBase<
 applyEffectWrapper(SQLiteEffectSelectBase)
 
 export type AnySQLiteEffectSelect = SQLiteEffectSelectBase<any, any, any, any, any, any, any, any, any, any>
-
-

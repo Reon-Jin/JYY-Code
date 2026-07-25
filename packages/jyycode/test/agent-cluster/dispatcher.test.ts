@@ -1,7 +1,17 @@
 import { describe, expect, test } from "bun:test"
-import { buildTaskBrief, modelForComplexity, SubagentDescriptions, subagentPrompt } from "../../src/agent-cluster/dispatcher"
+import {
+  buildTaskBrief,
+  modelForComplexity,
+  SubagentDescriptions,
+  subagentPrompt,
+} from "../../src/agent-cluster/dispatcher"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
-import { RoleSkillDefinitions, roleSkillName, roleSkillNames, roleSystemPrompt } from "../../src/agent-cluster/role-skills"
+import {
+  RoleSkillDefinitions,
+  roleSkillName,
+  roleSkillNames,
+  roleSystemPrompt,
+} from "../../src/agent-cluster/role-skills"
 
 describe("modelForComplexity", () => {
   const models = {

@@ -2,7 +2,7 @@
 name: statistical-analysis
 description: Guided statistical analysis for research data - test selection, assumption checking, effect sizes, power analysis, Bayesian alternatives, and APA-formatted reporting. Use whenever a user wants to compare groups, test a hypothesis, analyze experimental or survey data, check statistical assumptions, compute required sample sizes, or write up results - even if they never name a specific test. Covers t-tests, ANOVA, chi-square, correlation, regression, non-parametric and Bayesian methods. For low-level model APIs, see the statsmodels and pymc skills.
 license: MIT license
-metadata: {"version": "1.1", "skill-author": "K-Dense Inc."}
+metadata: { "version": "1.1", "skill-author": "K-Dense Inc." }
 ---
 
 # Statistical Analysis
@@ -14,6 +14,7 @@ Conduct hypothesis tests (t-tests, ANOVA, chi-square), regression, correlation, 
 ## When to Use This Skill
 
 Use this skill when:
+
 - Conducting statistical hypothesis tests (t-tests, ANOVA, chi-square, non-parametric)
 - Performing regression or correlation analyses
 - Running Bayesian statistical analyses
@@ -69,6 +70,7 @@ If the user only needs one step (e.g., "how many participants do I need?"), jump
 Use `references/test_selection_guide.md` for comprehensive guidance (counts, survival, reliability, factorial designs). Quick reference:
 
 **Comparing Two Groups:**
+
 - Independent, continuous, normal → Independent t-test
 - Independent, continuous, non-normal → Mann-Whitney U test
 - Paired, continuous, normal → Paired t-test
@@ -76,12 +78,14 @@ Use `references/test_selection_guide.md` for comprehensive guidance (counts, sur
 - Binary outcome → Chi-square or Fisher's exact test
 
 **Comparing 3+ Groups:**
+
 - Independent, continuous, normal → One-way ANOVA
 - Independent, continuous, non-normal → Kruskal-Wallis test
 - Paired, continuous, normal → Repeated measures ANOVA
 - Paired, continuous, non-normal → Friedman test
 
 **Relationships:**
+
 - Two continuous variables → Pearson (normal) or Spearman correlation (non-normal)
 - Continuous outcome with predictor(s) → Linear regression
 - Binary outcome with predictor(s) → Logistic regression
@@ -129,16 +133,19 @@ print(result['recommendation'])
 ### What to Do When Assumptions Are Violated
 
 **Normality violated:**
+
 - Mild violation + n > 30 per group → Proceed with parametric test (robust)
 - Moderate violation → Use non-parametric alternative
 - Severe violation → Transform data or use non-parametric test
 
 **Homogeneity of variance violated:**
+
 - For t-test → Use Welch's t-test (`pg.ttest` applies it automatically with `correction='auto'`)
 - For ANOVA → Use Welch's ANOVA (`pg.welch_anova`) or Brown-Forsythe
 - For regression → Use robust standard errors or weighted least squares
 
 **Linearity violated (regression):**
+
 - Add polynomial terms, transform variables, or use non-linear models / GAM
 
 Formal tests get oversensitive as n grows: for n ≥ 100, weigh the Q-Q plot more heavily than the Shapiro-Wilk p-value. See `references/assumptions_and_diagnostics.md` for comprehensive guidance.
@@ -148,6 +155,7 @@ Formal tests get oversensitive as n grows: for n ≥ 100, weigh the Q-Q plot mor
 ## Running Statistical Tests
 
 Primary libraries:
+
 - **pingouin**: user-friendly tests that return effect sizes by default — prefer it for standard tests
 - **scipy.stats**: core statistical tests
 - **statsmodels**: regression, diagnostics, power analysis
@@ -250,13 +258,13 @@ Scale priors to the data (e.g., `sigma=10` suits outcomes with SD near 10; use t
 
 ### Quick Reference: Common Effect Sizes
 
-| Test | Effect Size | Small | Medium | Large |
-|------|-------------|-------|--------|-------|
-| T-test | Cohen's d | 0.20 | 0.50 | 0.80 |
-| ANOVA | η²_p | 0.01 | 0.06 | 0.14 |
-| Correlation | r | 0.10 | 0.30 | 0.50 |
-| Regression | R² | 0.02 | 0.13 | 0.26 |
-| Chi-square | Cramér's V | 0.07 | 0.21 | 0.35 |
+| Test        | Effect Size | Small | Medium | Large |
+| ----------- | ----------- | ----- | ------ | ----- |
+| T-test      | Cohen's d   | 0.20  | 0.50   | 0.80  |
+| ANOVA       | η²_p        | 0.01  | 0.06   | 0.14  |
+| Correlation | r           | 0.10  | 0.30   | 0.50  |
+| Regression  | R²          | 0.02  | 0.13   | 0.26  |
+| Chi-square  | Cramér's V  | 0.07  | 0.21   | 0.35  |
 
 Benchmarks are conventions, not laws — a "small" effect can matter enormously (drug side effects) and a "large" one can be trivial. Interpret in context.
 
@@ -400,10 +408,11 @@ If a non-parametric test was used, report medians rather than means, the U/W/H s
 ## Bayesian Statistics
 
 Consider Bayesian approaches when:
+
 - You have prior information to incorporate
 - You want direct probability statements about hypotheses ("there is a 95% probability the effect lies in this interval")
 - Sample size is small or data collection is sequential (no correction needed for optional stopping)
-- You need to quantify evidence *for* the null hypothesis
+- You need to quantify evidence _for_ the null hypothesis
 - The model is complex (hierarchical structure, missing data)
 
 See `references/bayesian_statistics.md` for prior specification, Bayes Factors, credible intervals, hierarchical models, and convergence checking (R-hat < 1.01, sufficient ESS, posterior predictive checks).

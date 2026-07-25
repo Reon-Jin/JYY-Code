@@ -50,7 +50,10 @@ describe("tool.skill", () => {
         })).find((tool) => tool.id === SkillTool.id)
         if (!tool) throw new Error("Skill tool not found")
 
-        const result = yield* tool.execute({ name: "literature-review" }, { ...baseCtx, agent: "researcher", ask: () => Effect.void })
+        const result = yield* tool.execute(
+          { name: "literature-review" },
+          { ...baseCtx, agent: "researcher", ask: () => Effect.void },
+        )
 
         expect(result.metadata.dir).toBe("<built-in>")
         expect(result.output).toContain(`<skill_content name="literature-review">`)

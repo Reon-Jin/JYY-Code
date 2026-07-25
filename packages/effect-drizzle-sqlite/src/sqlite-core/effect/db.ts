@@ -294,5 +294,3 @@ export const withReplicas = <
 
 export type AnySQLiteEffectDatabase = SQLiteEffectDatabase<any, any, any>
 export type AnySQLiteEffectSelectBase = SQLiteEffectSelectBase<any, any, any, any, any, any, any, any, any, any>
-
-

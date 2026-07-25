@@ -196,5 +196,3 @@ export class SQLiteEffectRelationalQuery<TResult, TEffectHKT extends QueryEffect
 }
 
 applyEffectWrapper(SQLiteEffectRelationalQuery)
-
-

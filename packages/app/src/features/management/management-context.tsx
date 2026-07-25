@@ -40,7 +40,13 @@ export function ManagementProvider(props: ParentProps<{ bootstrap: DesktopBootst
     <Switch>
       <Match when={directory.error}>
         <main class="management-state">
-          <InlineError message={directory.error instanceof Error ? directory.error.message : tr("management.unable-to-load-global-management-environment")} />
+          <InlineError
+            message={
+              directory.error instanceof Error
+                ? directory.error.message
+                : tr("management.unable-to-load-global-management-environment")
+            }
+          />
           <Button variant="secondary" onClick={() => void refetch()}>
             {tr("changes.try-again")}
           </Button>

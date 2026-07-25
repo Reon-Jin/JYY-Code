@@ -135,7 +135,9 @@ const runStart = Effect.fn("ProcessToolTest.runStart")(function* (
   return yield* tool.execute(args, next)
 })
 
-const runOutput = Effect.fn("ProcessToolTest.runOutput")(function* (args: Tool.InferParameters<typeof ProcessOutputTool>) {
+const runOutput = Effect.fn("ProcessToolTest.runOutput")(function* (
+  args: Tool.InferParameters<typeof ProcessOutputTool>,
+) {
   const tool = yield* outputTool()
   return yield* tool.execute(args, ctx)
 })
@@ -160,46 +162,50 @@ const asks = () => {
 }
 
 describe("tool.process", () => {
-  it.instance("starts, reads, and kills a background process", () =>
-    Effect.gen(function* () {
-      const test = yield* TestInstance
-      const started = yield* runStart({
-        command: "node --version",
-        workdir: test.directory,
-        description: "Run test background process",
-      })
-      const id = String(started.metadata.process_id)
+  it.instance(
+    "starts, reads, and kills a background process",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const started = yield* runStart({
+          command: "node --version",
+          workdir: test.directory,
+          description: "Run test background process",
+        })
+        const id = String(started.metadata.process_id)
 
-      expect(id.startsWith("proc_")).toBe(true)
-      expect(started.output).toContain("Started background process")
+        expect(id.startsWith("proc_")).toBe(true)
+        expect(started.output).toContain("Started background process")
 
-      const output = yield* runOutput({ id })
-      expect(output.output).toContain("ready")
-      expect(output.metadata.status).toBe("running")
+        const output = yield* runOutput({ id })
+        expect(output.output).toContain("ready")
+        expect(output.metadata.status).toBe("running")
 
-      const killed = yield* runKill({ id, forceAfterMs: 100 })
-      expect(killed.metadata.status).toBe("cancelled")
-    }),
+        const killed = yield* runKill({ id, forceAfterMs: 100 })
+        expect(killed.metadata.status).toBe("cancelled")
+      }),
     20_000,
   )
 
-  it.instance("asks shell permissions before starting", () =>
-    Effect.gen(function* () {
-      const test = yield* TestInstance
-      const { items, next } = asks()
-      const started = yield* runStart(
-        {
-          command: "node --version",
-          workdir: test.directory,
-          description: "Run permission process",
-        },
-        next,
-      )
+  it.instance(
+    "asks shell permissions before starting",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const { items, next } = asks()
+        const started = yield* runStart(
+          {
+            command: "node --version",
+            workdir: test.directory,
+            description: "Run permission process",
+          },
+          next,
+        )
 
-      expect(started.metadata.process_id).toBe("proc_tooltest")
+        expect(started.metadata.process_id).toBe("proc_tooltest")
 
-      expect(items.some((item) => item.permission === "bash")).toBe(true)
-    }),
+        expect(items.some((item) => item.permission === "bash")).toBe(true)
+      }),
     20_000,
   )
 

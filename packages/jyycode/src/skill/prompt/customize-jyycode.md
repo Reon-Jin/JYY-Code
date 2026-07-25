@@ -37,15 +37,15 @@ already-loaded config until then.
 
 ## Where files live
 
-| Scope                         | Path                                                                                                                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Scope                         | Path                                                                                                                 |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | Project config                | `./jyycode.json`, `./jyycode.jsonc`, or `.jyycode/jyycode.json` (jyycode walks up from the cwd to the worktree root) |
-| Global config                 | `~/.config/jyycode/jyycode.json` (NOT `~/.jyycode/`)                                                                   |
-| Project agents                | `.jyycode/agent/<name>.md` or `.jyycode/agents/<name>.md`                                                               |
-| Global agents                 | `~/.config/jyycode/agent(s)/<name>.md`                                                                                   |
-| Project skills                | `.jyycode/skill(s)/<name>/SKILL.md`                                                                                      |
-| Global skills                 | `~/.config/jyycode/skill(s)/<name>/SKILL.md`                                                                             |
-| External skills (auto-loaded) | `~/.jyycode/skills/<name>/SKILL.md`                                                    |
+| Global config                 | `~/.config/jyycode/jyycode.json` (NOT `~/.jyycode/`)                                                                 |
+| Project agents                | `.jyycode/agent/<name>.md` or `.jyycode/agents/<name>.md`                                                            |
+| Global agents                 | `~/.config/jyycode/agent(s)/<name>.md`                                                                               |
+| Project skills                | `.jyycode/skill(s)/<name>/SKILL.md`                                                                                  |
+| Global skills                 | `~/.config/jyycode/skill(s)/<name>/SKILL.md`                                                                         |
+| External skills (auto-loaded) | `~/.jyycode/skills/<name>/SKILL.md`                                                                                  |
 
 Configs from each scope are deep-merged. Project overrides global. Unknown
 top-level keys in `jyycode.json` are rejected with `ConfigInvalidError`.

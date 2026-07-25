@@ -23,8 +23,7 @@ const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 22_000
 const DEFAULT_RESTORE_TIMEOUT_MS = 10_000
 
 function sameDirectory(left: string, right: string) {
-  const normalize = (value: string) =>
-    value.replaceAll("/", "\\").replace(/\\+$/, "").toLocaleLowerCase("en-US")
+  const normalize = (value: string) => value.replaceAll("/", "\\").replace(/\\+$/, "").toLocaleLowerCase("en-US")
   return normalize(left) === normalize(right)
 }
 
@@ -45,7 +44,8 @@ export function withTimeout<T>(promise: Promise<T>, milliseconds: number, messag
 }
 
 export function safeFailureMessage(cause: unknown) {
-  const message = typeof cause === "string" && cause.trim() ? cause : errorMessage(cause, tr("app.local-backend-is-not-responding"))
+  const message =
+    typeof cause === "string" && cause.trim() ? cause : errorMessage(cause, tr("app.local-backend-is-not-responding"))
   return message
     .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, `Basic [${tr("lifecycle.redacted")}]`)
     .replace(/\b([A-Z][A-Z0-9_]{2,})=([^\s]+)/g, `$1=[${tr("lifecycle.redacted")}]`)
@@ -70,7 +70,11 @@ export function createLifecycleController(input: LifecycleControllerInput) {
 
   async function persist(value: LastLocation) {
     try {
-      await withTimeout(input.bridge.saveLastLocation(value), restoreTimeoutMs, tr("lifecycle.save-startup-location-timeout"))
+      await withTimeout(
+        input.bridge.saveLastLocation(value),
+        restoreTimeoutMs,
+        tr("lifecycle.save-startup-location-timeout"),
+      )
     } catch {
       // Persistence must not block an otherwise valid workspace.
     }
@@ -109,14 +113,14 @@ export function createLifecycleController(input: LifecycleControllerInput) {
     const controller = createProjectController({
       bridge: input.bridge,
       bootstrap: nextBootstrap,
-      ...(input.clientFor
-        ? { clientFor: (directory: string) => input.clientFor!(directory, nextBootstrap) }
-        : {}),
+      ...(input.clientFor ? { clientFor: (directory: string) => input.clientFor!(directory, nextBootstrap) } : {}),
     })
     setProjects(controller)
 
     try {
-      setSettings(await withTimeout(input.bridge.loadSettings(), restoreTimeoutMs, tr("lifecycle.read-settings-timeout")))
+      setSettings(
+        await withTimeout(input.bridge.loadSettings(), restoreTimeoutMs, tr("lifecycle.read-settings-timeout")),
+      )
     } catch {
       setSettings({ ...defaultDesktopSettings })
     }
@@ -128,7 +132,11 @@ export function createLifecycleController(input: LifecycleControllerInput) {
 
     let location: Awaited<ReturnType<DesktopBridge["loadLastLocation"]>> = {}
     try {
-      location = await withTimeout(input.bridge.loadLastLocation(), restoreTimeoutMs, tr("lifecycle.read-last-location-timeout"))
+      location = await withTimeout(
+        input.bridge.loadLastLocation(),
+        restoreTimeoutMs,
+        tr("lifecycle.read-last-location-timeout"),
+      )
     } catch {
       location = {}
     }
@@ -152,7 +160,11 @@ export function createLifecycleController(input: LifecycleControllerInput) {
     let activeOpened: OpenedProject | undefined
     for (const stored of storedProjects) {
       try {
-        const restored = await withTimeout(controller.openProject(stored.path), restoreTimeoutMs, tr("lifecycle.restore-project-timeout"))
+        const restored = await withTimeout(
+          controller.openProject(stored.path),
+          restoreTimeoutMs,
+          tr("lifecycle.restore-project-timeout"),
+        )
         if (sameDirectory(stored.path, location.project)) activeOpened = restored
         if (stored.sessionID && !sameDirectory(stored.path, location.project)) {
           controller.rememberSession(stored.path, stored.sessionID)

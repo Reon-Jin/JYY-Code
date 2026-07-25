@@ -89,7 +89,10 @@ export function DialogAgentCluster() {
 }
 
 // --- Model picker sub-view ---
-function ModelPickerView(props: { role: string; onSelect: (role: string, providerID: string, modelID: string) => void }) {
+function ModelPickerView(props: {
+  role: string
+  onSelect: (role: string, providerID: string, modelID: string) => void
+}) {
   const sync = useSync()
 
   const options = createMemo(() =>

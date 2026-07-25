@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import {
-  createDialogSessionListQuery,
-  loadDialogSessionList,
-} from "@/cli/cmd/tui/component/dialog-session-list"
+import { createDialogSessionListQuery, loadDialogSessionList } from "@/cli/cmd/tui/component/dialog-session-list"
 
 describe("dialog session list", () => {
   test("requests roots for default browsing", () => {

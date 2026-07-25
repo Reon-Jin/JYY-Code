@@ -160,7 +160,9 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
               {(argument, index) => (
                 <div class="mcp-config-form__argument">
                   <label>
-                    <span>{tr("mcp.parameter")} {index + 1}</span>
+                    <span>
+                      {tr("mcp.parameter")} {index + 1}
+                    </span>
                     <input value={argument()} onInput={(event) => updateArgument(index, event.currentTarget.value)} />
                   </label>
                   <button
@@ -179,7 +181,12 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
           </fieldset>
           <fieldset>
             <legend>{tr("mcp.environment-variables")}</legend>
-            <KeyValueEditor rows={environment()} name={tr("mcp.environment-variables")} addLabel={tr("mcp.add-environment-variables")} onChange={setEnvironment} />
+            <KeyValueEditor
+              rows={environment()}
+              name={tr("mcp.environment-variables")}
+              addLabel={tr("mcp.add-environment-variables")}
+              onChange={setEnvironment}
+            />
           </fieldset>
         </Show>
 
@@ -190,7 +197,12 @@ export function McpConfigDialog(props: McpConfigDialogProps) {
           </label>
           <fieldset>
             <legend>{tr("mcp.request-header")}</legend>
-            <KeyValueEditor rows={headers()} name={tr("mcp.request-header")} addLabel={tr("mcp.add-request-header")} onChange={setHeaders} />
+            <KeyValueEditor
+              rows={headers()}
+              name={tr("mcp.request-header")}
+              addLabel={tr("mcp.add-request-header")}
+              onChange={setHeaders}
+            />
           </fieldset>
           <label>
             <span>{tr("mcp.oauth-pattern")}</span>

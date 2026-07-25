@@ -359,9 +359,7 @@ export const GithubInstallCommand = effectCmd({
           s.stop("Installed GitHub app")
 
           async function getInstallation() {
-            return await fetch(
-              `https://api.jyycode.ai/get_github_app_installation?owner=${app.owner}&repo=${app.repo}`,
-            )
+            return await fetch(`https://api.jyycode.ai/get_github_app_installation?owner=${app.owner}&repo=${app.repo}`)
               .then((res) => res.json())
               .then((data) => data.installation)
           }

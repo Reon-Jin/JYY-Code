@@ -21,10 +21,12 @@ export const Parameters = Schema.Struct({
     description: "Importance from 1 (lowest) to 10 (highest). Required for add.",
   }),
   keywords: Schema.optional(Schema.Array(Schema.String)).annotate({
-    description: "One to three stable keywords, each 2-4 characters. Required for add; duplicates are normalized automatically.",
+    description:
+      "One to three stable keywords, each 2-4 characters. Required for add; duplicates are normalized automatically.",
   }),
   old_text: Schema.optional(Schema.String).annotate({
-    description: "Substring to identify the entry to replace or remove. Must uniquely match a single entry. Required for replace and remove actions.",
+    description:
+      "Substring to identify the entry to replace or remove. Must uniquely match a single entry. Required for replace and remove actions.",
   }),
   reason: Schema.optional(Schema.String).annotate({
     description: "Why this change should be remembered.",

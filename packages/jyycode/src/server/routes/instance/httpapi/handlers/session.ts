@@ -119,9 +119,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         ...result,
         thresholdTokens,
         shouldCompact:
-          cfg.compaction?.auto !== false &&
-          model.value.limit.context !== 0 &&
-          estimate.totalTokens >= thresholdTokens,
+          cfg.compaction?.auto !== false && model.value.limit.context !== 0 && estimate.totalTokens >= thresholdTokens,
       }
     })
 
@@ -293,9 +291,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       yield* promptSvc.prompt({ ...ctx.payload, sessionID: child.id }).pipe(
         Effect.catchCause((cause) =>
           Effect.gen(function* () {
-            yield* Effect.logError("interrupt_prompt failed").pipe(
-              Effect.annotateLogs({ sessionID: child.id, cause }),
-            )
+            yield* Effect.logError("interrupt_prompt failed").pipe(Effect.annotateLogs({ sessionID: child.id, cause }))
             yield* bus.publish(Session.Event.Error, {
               sessionID: child.id,
               error: new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(),

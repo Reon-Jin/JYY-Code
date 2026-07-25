@@ -4,18 +4,14 @@ import { For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { IconButton } from "../../components/ui/button"
 import { ChangesPanel } from "../changes/changes-panel"
 import { TodoPanel } from "../todos/todo-panel"
-import {
-  normalizeInspectorRatios,
-  type InspectorPane,
-  type InspectorPreferences,
-} from "./inspector-preferences"
+import { normalizeInspectorRatios, type InspectorPane, type InspectorPreferences } from "./inspector-preferences"
 import "./workspace-inspector.css"
 
 function paneLabel(pane: InspectorPane) {
   const labels: Record<InspectorPane, string> = {
-  todo: tr("workspace-inspector.to-do"),
-  "multi-agent": tr("multi-agent.multi-agent"),
-  changes: tr("changes.workspace-changes"),
+    todo: tr("workspace-inspector.to-do"),
+    "multi-agent": tr("multi-agent.multi-agent"),
+    changes: tr("changes.workspace-changes"),
   }
   return labels[pane]
 }

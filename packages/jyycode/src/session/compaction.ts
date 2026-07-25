@@ -235,15 +235,10 @@ export interface Interface {
     tokens: MessageV2.Assistant["tokens"]
     model: Provider.Model
   }) => Effect.Effect<boolean>
-  readonly shouldCompact: (input: {
-    messages: MessageV2.WithParts[]
-    model: Provider.Model
-  }) => Effect.Effect<boolean>
+  readonly shouldCompact: (input: { messages: MessageV2.WithParts[]; model: Provider.Model }) => Effect.Effect<boolean>
   readonly prune: (input: { sessionID: SessionID }) => Effect.Effect<void>
   /** Micro-compact tool results within a message array without full compaction. */
-  readonly microCompact: (input: {
-    messages: MessageV2.WithParts[]
-  }) => Effect.Effect<MessageV2.WithParts[]>
+  readonly microCompact: (input: { messages: MessageV2.WithParts[] }) => Effect.Effect<MessageV2.WithParts[]>
   /** Detect if the conversation needs reactive (emergency) compaction. */
   readonly detectReactiveNeed: (input: {
     messages: MessageV2.WithParts[]
@@ -477,7 +472,8 @@ export const layer = Layer.effect(
         { context: [], prompt: undefined },
       )
       const nextPrompt =
-        compacting.prompt ?? buildPrompt({ previousSummary, context: [...compacting.context, ...mediaManifest(history)] })
+        compacting.prompt ??
+        buildPrompt({ previousSummary, context: [...compacting.context, ...mediaManifest(history)] })
       const msgs = structuredClone(selected.head)
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
       const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {

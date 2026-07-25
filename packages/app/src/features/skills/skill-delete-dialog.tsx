@@ -39,7 +39,12 @@ export function SkillDeleteDialog(props: {
           <Button variant="ghost" onClick={props.onClose}>
             {tr("github.cancel")}
           </Button>
-          <Button variant="danger" loading={busy()} loadingLabel={tr("skills.processing")} onClick={() => void confirm()}>
+          <Button
+            variant="danger"
+            loading={busy()}
+            loadingLabel={tr("skills.processing")}
+            onClick={() => void confirm()}
+          >
             {props.sourceRemoval ? tr("skills.confirm-removal") : tr("mcp.confirm-deletion")}
           </Button>
         </>

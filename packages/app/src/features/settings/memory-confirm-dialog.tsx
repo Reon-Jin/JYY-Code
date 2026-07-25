@@ -38,8 +38,17 @@ export function MemoryConfirmDialog(props: {
       onClose={props.onClose}
       footer={
         <>
-          <Button variant="secondary" disabled={busy()} onClick={props.onClose}>{tr("github.cancel")}</Button>
-          <Button variant={props.danger ? "danger" : "primary"} loading={busy()} loadingLabel={tr("components.processing")} onClick={() => void confirm()}>{props.confirmLabel}</Button>
+          <Button variant="secondary" disabled={busy()} onClick={props.onClose}>
+            {tr("github.cancel")}
+          </Button>
+          <Button
+            variant={props.danger ? "danger" : "primary"}
+            loading={busy()}
+            loadingLabel={tr("components.processing")}
+            onClick={() => void confirm()}
+          >
+            {props.confirmLabel}
+          </Button>
         </>
       }
     >

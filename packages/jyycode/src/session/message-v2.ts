@@ -1001,12 +1001,7 @@ export function parts(message_id: MessageID) {
  *  {@link parts} uses the legacy sync connection which may lag behind. */
 export const partsAsync = Effect.fn("MessageV2.partsAsync")(function* (messageID: MessageID) {
   const rows = yield* Database.query((db) =>
-    db
-      .select()
-      .from(PartTable)
-      .where(eq(PartTable.message_id, messageID))
-      .orderBy(PartTable.id)
-      .all(),
+    db.select().from(PartTable).where(eq(PartTable.message_id, messageID)).orderBy(PartTable.id).all(),
   )
   return rows.map(
     (row) =>

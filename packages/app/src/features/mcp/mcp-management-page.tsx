@@ -120,14 +120,19 @@ export function McpManagementPage(props: McpManagementPageProps) {
           when={!config.error && !status.error}
           fallback={
             <div class="mcp-management__error">
-              <InlineError message={errorMessage(config.error ?? status.error, tr("mcp.unable-to-load-mcp-configuration"))} />
+              <InlineError
+                message={errorMessage(config.error ?? status.error, tr("mcp.unable-to-load-mcp-configuration"))}
+              />
               <Button variant="secondary" onClick={() => void Promise.all([config.refetch(), status.refetch()])}>
                 {tr("changes.try-again")}
               </Button>
             </div>
           }
         >
-          <Show when={entries().length} fallback={<p class="mcp-management__state">{tr("mcp.there-is-no-global-mcp-configuration-yet")}</p>}>
+          <Show
+            when={entries().length}
+            fallback={<p class="mcp-management__state">{tr("mcp.there-is-no-global-mcp-configuration-yet")}</p>}
+          >
             <div class="mcp-management__list">
               <For each={entries()}>
                 {(entry) => {
@@ -137,7 +142,9 @@ export function McpManagementPage(props: McpManagementPageProps) {
                     <article class="mcp-management__item" data-status={entry.status.status}>
                       <div class="mcp-management__identity">
                         <strong>{entry.name}</strong>
-                        <span class="mcp-management__type">{entry.config.type === "local" ? tr("mcp.local") : tr("mcp.remote")}</span>
+                        <span class="mcp-management__type">
+                          {entry.config.type === "local" ? tr("mcp.local") : tr("mcp.remote")}
+                        </span>
                         <small>{endpoint(entry.config)}</small>
                       </div>
                       <span

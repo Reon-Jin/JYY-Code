@@ -21,10 +21,7 @@ export function setDesktopReleaseVersion(version: string, root = process.cwd()) 
   const manifestFile = "packages/desktop/src-tauri/Cargo.toml"
   const manifestPath = resolve(root, manifestFile)
   const manifest = readFileSync(manifestPath, "utf8")
-  writeFileSync(
-    manifestPath,
-    replaceRequired(manifest, /^version = "[^"]+"/m, `version = "${version}"`, manifestFile),
-  )
+  writeFileSync(manifestPath, replaceRequired(manifest, /^version = "[^"]+"/m, `version = "${version}"`, manifestFile))
 
   const lockFile = "packages/desktop/src-tauri/Cargo.lock"
   const lockPath = resolve(root, lockFile)

@@ -121,7 +121,10 @@ export const layer = Layer.effect(
     }
 
     const entriesFor = Effect.fn("MemoryManagement.entriesFor")(function* (scope: Scope, sessionID?: SessionID) {
-      const writer = scope === "task" && !sessionID ? managementSessionID : yield* Effect.try({ try: () => requireSession(scope, sessionID), catch: asError })
+      const writer =
+        scope === "task" && !sessionID
+          ? managementSessionID
+          : yield* Effect.try({ try: () => requireSession(scope, sessionID), catch: asError })
       const store = yield* storage.read({ sessionID: writer, scope: storageScope(scope) })
       return store.entries.filter((entry) =>
         scope === "user"
@@ -152,12 +155,13 @@ export const layer = Layer.effect(
       const query = input.query?.normalize("NFKC").trim().toLowerCase() ?? ""
       const filtered = (yield* entriesFor(input.scope, input.sessionID))
         .filter((entry) =>
-          !query ? true : `${entry.keywords.join(" ")} ${entry.content}`.normalize("NFKC").toLowerCase().includes(query),
+          !query
+            ? true
+            : `${entry.keywords.join(" ")} ${entry.content}`.normalize("NFKC").toLowerCase().includes(query),
         )
         .map((entry, index) => ({ entry, index }))
         .sort(
-          (left, right) =>
-            (right.entry.date ?? "").localeCompare(left.entry.date ?? "") || right.index - left.index,
+          (left, right) => (right.entry.date ?? "").localeCompare(left.entry.date ?? "") || right.index - left.index,
         )
         .map(({ entry }) => managed(entry))
       const offset = input.cursor ? Number.parseInt(input.cursor, 10) : 0
@@ -238,17 +242,20 @@ export const layer = Layer.effect(
 
     const clearTask = Effect.fn("MemoryManagement.clearTask")(function* (input: { sessionID?: SessionID }) {
       if (input.sessionID) return yield* storage.clearTask({ sessionID: input.sessionID })
-      const sessions = [...new Set((yield* entriesFor("task")).flatMap((entry) => entry.scope === "memory" ? [entry.sessionID] : []))]
+      const sessions = [
+        ...new Set((yield* entriesFor("task")).flatMap((entry) => (entry.scope === "memory" ? [entry.sessionID] : []))),
+      ]
       const removed = yield* Effect.forEach(sessions, (sessionID) => storage.clearTask({ sessionID }))
       return removed.reduce((total, count) => total + count, 0)
     })
 
-    const compact = Effect.fn("MemoryManagement.compact")(function* (input: {
-      scope: Scope
-      sessionID?: SessionID
-    }) {
+    const compact = Effect.fn("MemoryManagement.compact")(function* (input: { scope: Scope; sessionID?: SessionID }) {
       if (input.scope === "task" && !input.sessionID) {
-        const sessions = [...new Set((yield* entriesFor("task")).flatMap((entry) => entry.scope === "memory" ? [entry.sessionID] : []))]
+        const sessions = [
+          ...new Set(
+            (yield* entriesFor("task")).flatMap((entry) => (entry.scope === "memory" ? [entry.sessionID] : [])),
+          ),
+        ]
         const results = yield* Effect.forEach(sessions, (sessionID) => storage.compact({ sessionID, scope: "memory" }))
         return results.reduce(
           (total, result) => ({

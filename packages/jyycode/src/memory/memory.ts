@@ -445,9 +445,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           const exists = yield* fs.existsSafe(target).pipe(Effect.orDie)
           if (!exists) {
             const legacyTarget = legacyDirectory ? path.join(legacyDirectory, filenames[scope]) : undefined
-            const legacyText = legacyTarget
-              ? yield* fs.readFileStringSafe(legacyTarget).pipe(Effect.orDie)
-              : undefined
+            const legacyText = legacyTarget ? yield* fs.readFileStringSafe(legacyTarget).pipe(Effect.orDie) : undefined
             let initial = templates[scope]
             let removeLegacy = false
             if (legacyText !== undefined && legacyText.trim() !== "") {
@@ -872,7 +870,13 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
             if (store.entries.some((candidate) => entryKey(candidate) === entryKey(entry))) {
               return yield* Effect.fail(new Error("Memory entry already exists"))
             }
-            yield* writeManagedEntries(input.sessionID, entry.scope, store, [...store.entries, entry], "memory.management.create")
+            yield* writeManagedEntries(
+              input.sessionID,
+              entry.scope,
+              store,
+              [...store.entries, entry],
+              "memory.management.create",
+            )
             return entry
           }),
           target,
@@ -885,7 +889,8 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         replacement: MemoryEntry
       }) {
         yield* ensure(input.sessionID)
-        if (input.expected.scope !== input.replacement.scope) return yield* Effect.fail(new Error("Memory scope mismatch"))
+        if (input.expected.scope !== input.replacement.scope)
+          return yield* Effect.fail(new Error("Memory scope mismatch"))
         const replacement = yield* Effect.try({ try: () => validateManagementEntry(input.replacement), catch: asError })
         const target = yield* filePath(input.sessionID, input.expected.scope)
         return yield* flock.withLock(
@@ -899,7 +904,13 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
             if (duplicate !== -1) return yield* Effect.fail(new Error("Memory entry conflicts with an existing entry"))
             const entries = [...store.entries]
             entries[index] = replacement
-            yield* writeManagedEntries(input.sessionID, input.expected.scope, store, entries, "memory.management.update")
+            yield* writeManagedEntries(
+              input.sessionID,
+              input.expected.scope,
+              store,
+              entries,
+              "memory.management.update",
+            )
             return replacement
           }),
           target,
@@ -918,7 +929,13 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
             const index = store.entries.findIndex((entry) => entriesEquivalent(entry, input.expected))
             if (index === -1) return yield* Effect.fail(new Error("Memory entry is missing or stale"))
             const entries = store.entries.filter((_, candidateIndex) => candidateIndex !== index)
-            yield* writeManagedEntries(input.sessionID, input.expected.scope, store, entries, "memory.management.remove")
+            yield* writeManagedEntries(
+              input.sessionID,
+              input.expected.scope,
+              store,
+              entries,
+              "memory.management.remove",
+            )
           }),
           target,
         )
@@ -952,9 +969,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
             const store = yield* readStore(input.sessionID, input.scope)
             const source =
               input.scope === "memory"
-                ? store.entries.filter(
-                    (entry) => entry.scope === "memory" && entry.sessionID === input.sessionID,
-                  )
+                ? store.entries.filter((entry) => entry.scope === "memory" && entry.sessionID === input.sessionID)
                 : store.entries
             const untouched = input.scope === "memory" ? store.entries.filter((entry) => !source.includes(entry)) : []
             const outcome = compactEntrySet(store, input.scope, source)
@@ -1337,9 +1352,7 @@ function deduplicateStoredUserEntries(source: readonly MemoryEntry[]) {
       entries.push(entry)
       continue
     }
-    const index = entries.findIndex(
-      (existing) => existing.scope === "user" && equivalentUserFacts(existing, entry),
-    )
+    const index = entries.findIndex((existing) => existing.scope === "user" && equivalentUserFacts(existing, entry))
     if (index === -1) {
       entries.push(entry)
       continue

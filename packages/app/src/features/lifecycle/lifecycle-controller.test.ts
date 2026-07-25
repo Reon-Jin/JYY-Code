@@ -160,10 +160,7 @@ describe("createLifecycleController", () => {
     expect(controller.route()).toBe("/session/ses_1")
     expect(controller.project()?.directory).toBe(directory)
     expect(sdk.project.current).toHaveBeenCalledWith({ directory }, { throwOnError: true })
-    expect(sdk.session.get).toHaveBeenCalledWith(
-      { directory, sessionID: session.id },
-      { throwOnError: true },
-    )
+    expect(sdk.session.get).toHaveBeenCalledWith({ directory, sessionID: session.id }, { throwOnError: true })
     expect(bridge.saveLastLocation).toHaveBeenCalledWith({
       project: directory,
       sessionID: session.id,
@@ -184,7 +181,12 @@ describe("createLifecycleController", () => {
 
     await controller.start()
 
-    expect(controller.projects()?.openProjects().map((item) => item.directory)).toEqual([directory, other])
+    expect(
+      controller
+        .projects()
+        ?.openProjects()
+        .map((item) => item.directory),
+    ).toEqual([directory, other])
     expect(controller.project()?.directory).toBe(directory)
     expect(controller.projects()?.sessionFor(other)).toBe("ses_other")
     expect(sdk.project.current.mock.calls.map(([input]) => input.directory)).toEqual([directory, other])

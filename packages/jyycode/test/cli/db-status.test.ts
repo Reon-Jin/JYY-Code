@@ -39,9 +39,7 @@ describe("database status", () => {
       const status = collectDatabaseStatus({ disableChannelDb: false })
       expect(status.active.path).toBe(active)
       expect(status.active.counts).toEqual({ sessions: 0, projects: 1, messages: 1, parts: 1, migrations: 1 })
-      expect(status.databases).toContainEqual(
-        expect.objectContaining({ path: inactive, sessions: 4 }),
-      )
+      expect(status.databases).toContainEqual(expect.objectContaining({ path: inactive, sessions: 4 }))
       expect(status.hint).toContain("JYYCODE_DISABLE_CHANNEL_DB=1")
 
       const verify = new BunDatabase(inactive, { readonly: true })

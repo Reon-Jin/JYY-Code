@@ -114,8 +114,9 @@ describe("desktop shared-backend contract", () => {
         }),
       )
       expect(prompt.response.status).toBe(204)
-      expect(yield* awaitWithTimeout(Deferred.await(observed), "desktop message events were not delivered", "5 seconds"))
-        .toEqual(new Set(["message.updated", "message.part.updated"]))
+      expect(
+        yield* awaitWithTimeout(Deferred.await(observed), "desktop message events were not delivered", "5 seconds"),
+      ).toEqual(new Set(["message.updated", "message.part.updated"]))
 
       const reloaded = yield* Effect.promise(() => client(directory).session.messages({ directory, sessionID }))
       expect(reloaded.response.status).toBe(200)

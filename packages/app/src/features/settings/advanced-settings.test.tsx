@@ -17,15 +17,17 @@ function management(shell = "cmd", directory = "C:\\Users\\dev", config = "C:\\U
         update: vi.fn(async ({ config }: { config: { shell: string } }) => ({ data: config })),
       },
       compaction: {
-        get: vi.fn(async () => ({ data: {
-          auto: true,
-          prune: true,
-          tailTurns: 2,
-          triggerRatio: 0.92,
-          microCompact: true,
-          microCompactMaxChars: 8000,
-          reactiveCompact: true,
-        } })),
+        get: vi.fn(async () => ({
+          data: {
+            auto: true,
+            prune: true,
+            tailTurns: 2,
+            triggerRatio: 0.92,
+            microCompact: true,
+            microCompactMaxChars: 8000,
+            reactiveCompact: true,
+          },
+        })),
         update: vi.fn(),
         reset: vi.fn(),
       },
@@ -56,13 +58,16 @@ function renderAdvanced(value = management()) {
   const desktop = createFakeDesktop()
   render(() => (
     <MemoryRouter>
-      <Route path="/" component={() => (
-        <DesktopBridgeProvider bridge={desktop.bridge}>
-          <QueryClientProvider client={value.queryClient}>
-            <AdvancedSettings management={value} />
-          </QueryClientProvider>
-        </DesktopBridgeProvider>
-      )} />
+      <Route
+        path="/"
+        component={() => (
+          <DesktopBridgeProvider bridge={desktop.bridge}>
+            <QueryClientProvider client={value.queryClient}>
+              <AdvancedSettings management={value} />
+            </QueryClientProvider>
+          </DesktopBridgeProvider>
+        )}
+      />
     </MemoryRouter>
   ))
   return { value, desktop }

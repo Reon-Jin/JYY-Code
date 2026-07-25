@@ -36,7 +36,9 @@ export function PullRequestForm(props: {
   async function submit() {
     const value = { title: title().trim(), body: body(), head: head().trim(), base: base().trim(), draft: draft() }
     if (!value.title || (props.mode === "create" && (!value.head || !value.base))) {
-      setError(props.mode === "create" ? tr("github.title-head-and-base-are-required") : tr("github.title-cannot-be-empty"))
+      setError(
+        props.mode === "create" ? tr("github.title-head-and-base-are-required") : tr("github.title-cannot-be-empty"),
+      )
       return
     }
     setPending(true)

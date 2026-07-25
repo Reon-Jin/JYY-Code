@@ -11,8 +11,19 @@ import { createFakeDesktop } from "../../test/fake-desktop"
 
 function installDialog() {
   Object.defineProperties(HTMLDialogElement.prototype, {
-    close: { configurable: true, value(this: HTMLDialogElement) { this.removeAttribute("open"); this.dispatchEvent(new Event("close")) } },
-    showModal: { configurable: true, value(this: HTMLDialogElement) { this.setAttribute("open", "") } },
+    close: {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.removeAttribute("open")
+        this.dispatchEvent(new Event("close"))
+      },
+    },
+    showModal: {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.setAttribute("open", "")
+      },
+    },
   })
 }
 
@@ -51,14 +62,20 @@ function renderSecurity(value = management()) {
 }
 
 beforeEach(installDialog)
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe("SecuritySettings", () => {
   it("keeps permission controls locked while saving without exposing a saving message", async () => {
     const value = management()
     let finish!: (result: { data: { mode: "request" } }) => void
     value.client.global.defaultPermission.update.mockImplementationOnce(
-      () => new Promise((resolve) => { finish = resolve }),
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
     )
     renderSecurity(value)
 
@@ -107,9 +124,11 @@ describe("SecuritySettings", () => {
     const dialog = await screen.findByRole("dialog", { name: "替换自定义权限" })
     expect(value.client.global.defaultPermission.update).not.toHaveBeenCalled()
     await userEvent.setup().click(within(dialog).getByRole("button", { name: "替换并继续" }))
-    await waitFor(() => expect(value.client.global.defaultPermission.update).toHaveBeenCalledWith(
-      { mode: "full" },
-      { throwOnError: true },
-    ))
+    await waitFor(() =>
+      expect(value.client.global.defaultPermission.update).toHaveBeenCalledWith(
+        { mode: "full" },
+        { throwOnError: true },
+      ),
+    )
   })
 })

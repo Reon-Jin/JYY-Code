@@ -251,5 +251,3 @@ const upgradeAsyncFunctions: Record<
     })
   },
 }
-
-

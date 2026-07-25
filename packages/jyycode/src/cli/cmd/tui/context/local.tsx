@@ -129,12 +129,15 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           return
         }
         state.pending = false
-        void Filesystem.writeJson(filePath, encodeModelState({
-          model: modelStore.model,
-          recent: modelStore.recent,
-          favorite: modelStore.favorite,
-          variant: modelStore.variant,
-        }))
+        void Filesystem.writeJson(
+          filePath,
+          encodeModelState({
+            model: modelStore.model,
+            recent: modelStore.recent,
+            favorite: modelStore.favorite,
+            variant: modelStore.variant,
+          }),
+        )
       }
 
       Filesystem.readJson(filePath)

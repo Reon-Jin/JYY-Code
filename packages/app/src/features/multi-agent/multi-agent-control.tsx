@@ -94,7 +94,9 @@ export function MultiAgentControl(props: MultiAgentControlProps) {
       </button>
       <Show when={reason()}>{(message) => <span class="multi-agent-control__reason">{message()}</span>}</Show>
       <Show when={failure()}>
-        {(cause) => <InlineError message={errorMessage(cause(), tr("multi-agent.unable-to-update-multi-agent-mode"))} />}
+        {(cause) => (
+          <InlineError message={errorMessage(cause(), tr("multi-agent.unable-to-update-multi-agent-mode"))} />
+        )}
       </Show>
     </div>
   )

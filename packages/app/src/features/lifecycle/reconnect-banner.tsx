@@ -10,7 +10,11 @@ export function ReconnectBanner(props: { state: Exclude<ConnectionState, "connec
       <Show when={props.state === "disconnected"} fallback={<LoaderCircle aria-hidden="true" />}>
         <WifiOff aria-hidden="true" />
       </Show>
-      <span>{props.state === "disconnected" ? tr("lifecycle.the-connection-has-been-interrupted-reconnecting") : tr("lifecycle.connecting-backend")}</span>
+      <span>
+        {props.state === "disconnected"
+          ? tr("lifecycle.the-connection-has-been-interrupted-reconnecting")
+          : tr("lifecycle.connecting-backend")}
+      </span>
     </aside>
   )
 }

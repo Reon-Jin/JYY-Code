@@ -28,7 +28,10 @@ export function PullRequestDiffView(props: { patch?: string; loading?: boolean; 
             </div>
           }
         >
-          <Show when={diff().hunks.length > 0} fallback={<p class="pull-detail__state">{tr("github.no-text-to-display-diff")}</p>}>
+          <Show
+            when={diff().hunks.length > 0}
+            fallback={<p class="pull-detail__state">{tr("github.no-text-to-display-diff")}</p>}
+          >
             <pre tabIndex={0} aria-label="Pull Request unified diff">
               <For each={diff().hunks}>
                 {(hunk) => (

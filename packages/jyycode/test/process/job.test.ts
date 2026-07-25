@@ -25,9 +25,9 @@ describe("process.job", () => {
       })
 
       const output = yield* pollWithTimeout(
-        service.output({ id: proc.id, limit: 20 }).pipe(
-          Effect.map((output) => (output.output.includes("ready") ? output : undefined)),
-        ),
+        service
+          .output({ id: proc.id, limit: 20 })
+          .pipe(Effect.map((output) => (output.output.includes("ready") ? output : undefined))),
         "process output not captured",
       )
 

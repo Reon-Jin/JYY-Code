@@ -45,7 +45,9 @@ export function SkillDetailPage(props: { management?: ManagementContextValue; na
           when={!query.error}
           fallback={
             <div class="skill-state">
-              <InlineError message={query.error instanceof Error ? query.error.message : tr("skills.unable-to-load-skill")} />
+              <InlineError
+                message={query.error instanceof Error ? query.error.message : tr("skills.unable-to-load-skill")}
+              />
               <Button size="small" variant="secondary" onClick={() => void query.refetch()}>
                 {tr("changes.try-again")}
               </Button>

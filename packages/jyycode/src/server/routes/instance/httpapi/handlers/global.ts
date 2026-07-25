@@ -220,7 +220,9 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       if (ctx.params.scope === "task" && !ctx.query.sessionID) {
         return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
       }
-      yield* mapMemoryError(memory.remove({ scope: ctx.params.scope, id: ctx.params.id, sessionID: ctx.query.sessionID }))
+      yield* mapMemoryError(
+        memory.remove({ scope: ctx.params.scope, id: ctx.params.id, sessionID: ctx.query.sessionID }),
+      )
       return { removed: true }
     })
 

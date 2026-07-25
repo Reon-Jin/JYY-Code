@@ -6,28 +6,29 @@ import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
 
-const recovery = () => ({
-  "missing-gh": {
-    title: tr("github.github-cli-is-not-installed"),
-    detail: tr("github.re-detect-after-installing-github-cli-without-restarting"),
-    command: "winget install --id GitHub.cli",
-  },
-  "not-authenticated": {
-    title: tr("github.github-cli-not-logged-in-yet"),
-    detail: tr("github.please-complete-the-browser-login-in-the-terminal"),
-    command: "gh auth login",
-  },
-  "not-github-repo": {
-    title: tr("github.the-remote-end-is-currently-not-associated-with"),
-    detail: tr("github.please-confirm-that-git-remote-points-to-the"),
-    command: "git remote -v",
-  },
-  "command-failed": {
-    title: tr("github.github-cli-detection-failed"),
-    detail: tr("github.check-network-and-github-cli-status-and-try"),
-    command: "gh auth status",
-  },
-} as const)
+const recovery = () =>
+  ({
+    "missing-gh": {
+      title: tr("github.github-cli-is-not-installed"),
+      detail: tr("github.re-detect-after-installing-github-cli-without-restarting"),
+      command: "winget install --id GitHub.cli",
+    },
+    "not-authenticated": {
+      title: tr("github.github-cli-not-logged-in-yet"),
+      detail: tr("github.please-complete-the-browser-login-in-the-terminal"),
+      command: "gh auth login",
+    },
+    "not-github-repo": {
+      title: tr("github.the-remote-end-is-currently-not-associated-with"),
+      detail: tr("github.please-confirm-that-git-remote-points-to-the"),
+      command: "git remote -v",
+    },
+    "command-failed": {
+      title: tr("github.github-cli-detection-failed"),
+      detail: tr("github.check-network-and-github-cli-status-and-try"),
+      command: "gh auth status",
+    },
+  }) as const
 
 export function GitHubStatus(props: {
   status?: GitHubAvailability

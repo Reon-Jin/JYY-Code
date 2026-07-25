@@ -5,6 +5,7 @@ description: "Send a work summary email to reon_jin@outlook.com"
 Review the current workspace and send a concise work summary email to reon_jin@outlook.com.
 
 Include:
+
 - What changed or what work was completed
 - Current git status and notable changed files
 - Tests or checks that were run, if visible in this session
@@ -12,6 +13,7 @@ Include:
 - Extra notes from the user: $ARGUMENTS
 
 Use the send_message tool with:
+
 - channel: email
 - to: reon_jin@outlook.com
 - subject: JYYCode finish: work summary

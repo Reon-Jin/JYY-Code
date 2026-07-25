@@ -38,8 +38,11 @@ function management(input?: {
       },
     },
   }
-  return { client, queryClient: createDesktopQueryClient(), directory: "C:\\Users\\dev" } as unknown as
-    ManagementContextValue & { client: typeof client }
+  return {
+    client,
+    queryClient: createDesktopQueryClient(),
+    directory: "C:\\Users\\dev",
+  } as unknown as ManagementContextValue & { client: typeof client }
 }
 
 function renderSettings(value = management()) {
@@ -77,10 +80,12 @@ describe("CompactionSettings", () => {
     await user.click(auto)
     await user.click(screen.getByRole("button", { name: "保存压缩参数" }))
 
-    await waitFor(() => expect(value.client.global.compaction.update).toHaveBeenCalledWith(
-      { globalCompaction: { ...defaults, auto: false } },
-      { throwOnError: true },
-    ))
+    await waitFor(() =>
+      expect(value.client.global.compaction.update).toHaveBeenCalledWith(
+        { globalCompaction: { ...defaults, auto: false } },
+        { throwOnError: true },
+      ),
+    )
     expect(await screen.findByText("已保存；新会话将使用新参数。")).toBeVisible()
   })
 
@@ -100,7 +105,13 @@ describe("CompactionSettings", () => {
   })
 
   it("rolls the draft back when saving fails", async () => {
-    const value = renderSettings(management({ update: async () => { throw new Error("save failed") } }))
+    const value = renderSettings(
+      management({
+        update: async () => {
+          throw new Error("save failed")
+        },
+      }),
+    )
     const user = userEvent.setup()
     const auto = await screen.findByRole("checkbox", { name: "自动压缩" })
 

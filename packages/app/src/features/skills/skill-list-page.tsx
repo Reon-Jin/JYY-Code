@@ -10,7 +10,8 @@ import { SkillSourceDialog } from "./skill-source-dialog"
 import { managementSkillsQueryOptions, refreshManagementSkills } from "./skill-query"
 import "./skills.css"
 
-const originLabel = () => ({ built_in: tr("skills.built-in"), managed: tr("skills.managed"), path: tr("skills.path"), url: "URL" } as const)
+const originLabel = () =>
+  ({ built_in: tr("skills.built-in"), managed: tr("skills.managed"), path: tr("skills.path"), url: "URL" }) as const
 
 export function SkillListPage(props: { management?: ManagementContextValue }) {
   const management = props.management ?? useManagement()
@@ -73,7 +74,9 @@ export function SkillListPage(props: { management?: ManagementContextValue }) {
           when={!query.error}
           fallback={
             <div class="skill-state">
-              <InlineError message={query.error instanceof Error ? query.error.message : tr("skills.unable-to-load-skill")} />
+              <InlineError
+                message={query.error instanceof Error ? query.error.message : tr("skills.unable-to-load-skill")}
+              />
               <Button size="small" variant="secondary" onClick={() => void query.refetch()}>
                 {tr("changes.try-again")}
               </Button>
@@ -82,7 +85,11 @@ export function SkillListPage(props: { management?: ManagementContextValue }) {
         >
           <Show
             when={filtered().length > 0}
-            fallback={<p class="skill-state">{search() ? tr("skills.no-matching-skill") : tr("skills.there-is-no-global-skill-yet")}</p>}
+            fallback={
+              <p class="skill-state">
+                {search() ? tr("skills.no-matching-skill") : tr("skills.there-is-no-global-skill-yet")}
+              </p>
+            }
           >
             <ul class="skill-list">
               <For each={filtered()}>

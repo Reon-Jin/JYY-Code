@@ -12,4 +12,3 @@ export function migrate<TRelations extends AnyRelations>(
   const migrations = readMigrationFiles(config)
   return coreMigrate(migrations, db.session, config)
 }
-

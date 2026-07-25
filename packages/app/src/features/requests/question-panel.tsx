@@ -110,7 +110,9 @@ export function QuestionPanel(props: QuestionPanelProps) {
         </span>
         <span class="request-panel__heading">
           <strong>{tr("requests.agent-asked-a-question")}</strong>
-          <small>{props.request.questions.length} {tr("requests.questions")}</small>
+          <small>
+            {props.request.questions.length} {tr("requests.questions")}
+          </small>
         </span>
         <Button size="small" variant="ghost" disabled={disabled()} onClick={focusFirstControl}>
           {tr("requests.handle-request")}
@@ -161,10 +163,18 @@ export function QuestionPanel(props: QuestionPanelProps) {
                           checked={(selected()[questionIndex()] ?? []).includes(option.label)}
                           disabled={disabled()}
                           onChange={(event) =>
-                            choose(questionIndex(), option.label, question.multiple === true, event.currentTarget.checked)
+                            choose(
+                              questionIndex(),
+                              option.label,
+                              question.multiple === true,
+                              event.currentTarget.checked,
+                            )
                           }
                         />
-                        <span><strong>{option.label}</strong><small>{option.description}</small></span>
+                        <span>
+                          <strong>{option.label}</strong>
+                          <small>{option.description}</small>
+                        </span>
                       </label>
                     )
                   }}
@@ -201,8 +211,15 @@ export function QuestionPanel(props: QuestionPanelProps) {
             {tr("requests.reject-question")}
           </Button>
         </div>
-        <Show when={failure()}>{(cause) => <InlineError message={errorMessage(cause(), tr("requests.question-reply-failed"))} />}</Show>
-        <p class="request-panel__status" role="status" aria-label={tr("requests.question-request-status")} aria-live="polite">
+        <Show when={failure()}>
+          {(cause) => <InlineError message={errorMessage(cause(), tr("requests.question-reply-failed"))} />}
+        </Show>
+        <p
+          class="request-panel__status"
+          role="status"
+          aria-label={tr("requests.question-request-status")}
+          aria-live="polite"
+        >
           {submitted() ? tr("requests.submitted-waiting-for-confirmation-from-the-server") : ""}
         </p>
       </div>

@@ -17,9 +17,7 @@ type QueueItem<T extends unknown[], R> = {
   context: unknown
 }
 
-export function sequential<T extends unknown[], R>(
-  fn: (...args: T) => Promise<R>,
-): (...args: T) => Promise<R> {
+export function sequential<T extends unknown[], R>(fn: (...args: T) => Promise<R>): (...args: T) => Promise<R> {
   const queue: QueueItem<T, R>[] = []
   let processing = false
 
@@ -60,9 +58,7 @@ export function sequential<T extends unknown[], R>(
  * Convert an async generator to an array.
  * Ported from claudecode's src/utils/generators.ts.
  */
-export async function generatorToArray<A>(
-  generator: AsyncGenerator<A, void>,
-): Promise<A[]> {
+export async function generatorToArray<A>(generator: AsyncGenerator<A, void>): Promise<A[]> {
   const result: A[] = []
   for await (const a of generator) {
     result.push(a)

@@ -56,5 +56,3 @@ export class SQLiteEffectCountBuilder<TEffectHKT extends QueryEffectHKTBase = Qu
 }
 
 applyEffectWrapper(SQLiteEffectCountBuilder)
-
-

@@ -4,4 +4,3 @@ export * from "./effect-sqlite/session"
 export { migrate } from "./effect-sqlite/migrator"
 
 export * as EffectDrizzleSqlite from "."
-

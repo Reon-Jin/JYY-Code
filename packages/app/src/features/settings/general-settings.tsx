@@ -3,7 +3,12 @@ import { createSignal, onMount, Show } from "solid-js"
 import { InlineError } from "../../components/ui/inline-error"
 import { useDesktopBridge } from "../../platform/context"
 import { applyTheme } from "./theme"
-import { defaultDesktopSettings, type AppLocale, type DesktopSettings, type NotificationPreferences } from "./settings-preferences"
+import {
+  defaultDesktopSettings,
+  type AppLocale,
+  type DesktopSettings,
+  type NotificationPreferences,
+} from "./settings-preferences"
 import type { DesktopNotificationPermission } from "../../platform/types"
 import { publishDesktopNotificationPermission } from "../notifications/desktop-notifications"
 import { reapplyGlassForTheme, setGlassPreference } from "./glass-preference"
@@ -94,10 +99,14 @@ export function GeneralSettings() {
 
   function notificationPermissionText() {
     switch (notificationPermission()) {
-      case "granted": return tr("settings.notification-permission-granted")
-      case "denied": return tr("settings.notification-permission-denied")
-      case "unsupported": return tr("settings.notification-permission-unsupported")
-      default: return tr("settings.notification-permission-default")
+      case "granted":
+        return tr("settings.notification-permission-granted")
+      case "denied":
+        return tr("settings.notification-permission-denied")
+      case "unsupported":
+        return tr("settings.notification-permission-unsupported")
+      default:
+        return tr("settings.notification-permission-default")
     }
   }
 
@@ -131,7 +140,10 @@ export function GeneralSettings() {
               checked={settings().startup === "restore"}
               onChange={() => void save({ ...settings(), startup: "restore" })}
             />
-            <span><strong>{tr("settings.restore-last-project")}</strong><small>{tr("settings.return-to-recently-used-projects-and-sessions")}</small></span>
+            <span>
+              <strong>{tr("settings.restore-last-project")}</strong>
+              <small>{tr("settings.return-to-recently-used-projects-and-sessions")}</small>
+            </span>
           </label>
           <label>
             <input
@@ -142,7 +154,10 @@ export function GeneralSettings() {
               checked={settings().startup === "home"}
               onChange={() => void save({ ...settings(), startup: "home" })}
             />
-            <span><strong>{tr("settings.show-home-on-startup")}</strong><small>{tr("settings.every-startup-starts-with-the-project-selection-page")}</small></span>
+            <span>
+              <strong>{tr("settings.show-home-on-startup")}</strong>
+              <small>{tr("settings.every-startup-starts-with-the-project-selection-page")}</small>
+            </span>
           </label>
         </fieldset>
       </section>
@@ -160,7 +175,9 @@ export function GeneralSettings() {
               checked={settings().theme === "dark"}
               onChange={() => void save({ ...settings(), theme: "dark" })}
             />
-            <span><strong>{tr("settings.dark")}</strong></span>
+            <span>
+              <strong>{tr("settings.dark")}</strong>
+            </span>
           </label>
           <label>
             <input
@@ -171,7 +188,9 @@ export function GeneralSettings() {
               checked={settings().theme === "light"}
               onChange={() => void save({ ...settings(), theme: "light" })}
             />
-            <span><strong>{tr("settings.light-color")}</strong></span>
+            <span>
+              <strong>{tr("settings.light-color")}</strong>
+            </span>
           </label>
         </fieldset>
       </section>
@@ -235,7 +254,9 @@ export function GeneralSettings() {
             {tr("requests.agent-asked-a-question")}
           </label>
         </fieldset>
-        <p class="settings-card__hint" role="status" aria-live="polite">{notificationPermissionText()}</p>
+        <p class="settings-card__hint" role="status" aria-live="polite">
+          {notificationPermissionText()}
+        </p>
       </section>
     </div>
   )

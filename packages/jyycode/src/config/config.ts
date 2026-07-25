@@ -313,16 +313,13 @@ export const Info = Schema.Struct({
           "Fraction of media-aware active context estimate that triggers predictive compaction before the next model call (default: 0.92). Media attachments are estimated by MIME/decoded bytes, not base64 string length.",
       }),
       micro_compact: Schema.optional(Schema.Boolean).annotate({
-        description:
-          "Enable micro-compaction of tool results to save context (default: true).",
+        description: "Enable micro-compaction of tool results to save context (default: true).",
       }),
       micro_compact_max_chars: Schema.optional(NonNegativeInt).annotate({
-        description:
-          "Maximum characters to keep from micro-compacted tool results (default: 8000).",
+        description: "Maximum characters to keep from micro-compacted tool results (default: 8000).",
       }),
       reactive_compact: Schema.optional(Schema.Boolean).annotate({
-        description:
-          "Enable emergency compaction on prompt-too-long API errors (default: true).",
+        description: "Enable emergency compaction on prompt-too-long API errors (default: true).",
       }),
     }),
   ),
@@ -414,9 +411,7 @@ export class Service extends Context.Service<Service, Interface>()("@jyycode/Con
 export const use = serviceUse(Service)
 
 function globalConfigFile() {
-  const candidates = ["jyycode.jsonc", "jyycode.json", "config.json"].map((file) =>
-    path.join(Global.Path.config, file),
-  )
+  const candidates = ["jyycode.jsonc", "jyycode.json", "config.json"].map((file) => path.join(Global.Path.config, file))
   for (const file of candidates) {
     if (existsSync(file)) return file
   }
@@ -893,10 +888,7 @@ export const layer = Layer.effect(
       const file = globalConfigFile()
       const before = (yield* readConfigFile(file)) ?? "{}"
       const parsed = ConfigParse.jsonc(before, file)
-      const current = configPath.reduce<unknown>(
-        (node, key) => (isRecord(node) ? node[key] : undefined),
-        parsed,
-      )
+      const current = configPath.reduce<unknown>((node, key) => (isRecord(node) ? node[key] : undefined), parsed)
       const existing = ConfigParse.schema(Info, parsed, file)
 
       if (isDeepStrictEqual(current, value)) return { info: existing, changed: false }

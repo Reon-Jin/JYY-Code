@@ -6,16 +6,24 @@ import { createMemo, createSignal, For, Show } from "solid-js"
 import { keys } from "../../data/query-keys"
 import type { DesktopClient } from "../../data/sdk"
 import { errorMessage } from "../projects/project-controller"
-import {
-  permissionModeFromRules,
-  permissionRulesForMode,
-  type AgentPermissionMode,
-} from "./permission-mode"
+import { permissionModeFromRules, permissionRulesForMode, type AgentPermissionMode } from "./permission-mode"
 
 const choices = (): ReadonlyArray<{ mode: AgentPermissionMode; label: string; description: string }> => [
-  { mode: "request", label: tr("composer.request-approval"), description: tr("composer.require-approval-when-editing-files-and-using-tools") },
-  { mode: "auto", label: tr("composer.automatic-mode"), description: tr("composer.approval-is-only-required-when-risky-actions-are") },
-  { mode: "full", label: tr("composer.all-permissions"), description: tr("composer.actions-can-be-performed-without-approval") },
+  {
+    mode: "request",
+    label: tr("composer.request-approval"),
+    description: tr("composer.require-approval-when-editing-files-and-using-tools"),
+  },
+  {
+    mode: "auto",
+    label: tr("composer.automatic-mode"),
+    description: tr("composer.approval-is-only-required-when-risky-actions-are"),
+  },
+  {
+    mode: "full",
+    label: tr("composer.all-permissions"),
+    description: tr("composer.actions-can-be-performed-without-approval"),
+  },
 ]
 
 function ModeIcon(props: { mode: AgentPermissionMode }) {
@@ -86,7 +94,11 @@ export function AgentPermissionControl(props: AgentPermissionControlProps) {
           aria-haspopup="menu"
           aria-expanded={open()}
           disabled={props.disabled || saving()}
-          title={failure() ? errorMessage(failure(), tr("composer.unable-to-update-agent-permissions")) : current().description}
+          title={
+            failure()
+              ? errorMessage(failure(), tr("composer.unable-to-update-agent-permissions"))
+              : current().description
+          }
           onClick={() => setOpen((value) => !value)}
         >
           <Show when={saving()} fallback={<ModeIcon mode={mode()} />}>

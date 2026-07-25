@@ -47,5 +47,3 @@ export class SQLiteEffectRaw<TResult, TEffectHKT extends QueryEffectHKTBase = Qu
 }
 
 applyEffectWrapper(SQLiteEffectRaw)
-
-

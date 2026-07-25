@@ -43,5 +43,3 @@ export const GET_VERSION_FOR = {
     return 0
   },
 } as const
-
-

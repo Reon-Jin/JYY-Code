@@ -40,11 +40,21 @@ export function GlobalConfigReveal(props: { management: ManagementContextValue }
 
   return (
     <div class="settings-reveal-config">
-      <Button variant="secondary" disabled={paths.isPending || Boolean(paths.error) || !path()} onClick={() => void reveal()}>
+      <Button
+        variant="secondary"
+        disabled={paths.isPending || Boolean(paths.error) || !path()}
+        onClick={() => void reveal()}
+      >
         {tr("settings.open-global-configuration-file")}
       </Button>
       <Show when={paths.error}>
-        <InlineError message={paths.error instanceof Error ? paths.error.message : tr("settings.unable-to-read-global-configuration-directory")} />
+        <InlineError
+          message={
+            paths.error instanceof Error
+              ? paths.error.message
+              : tr("settings.unable-to-read-global-configuration-directory")
+          }
+        />
       </Show>
       <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>
     </div>

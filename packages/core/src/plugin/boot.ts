@@ -12,9 +12,7 @@ import { ProviderPlugins } from "./provider"
 
 type Plugin = {
   id: PluginV2.ID
-  effect: PluginV2.Effect<
-    Catalog.Service | AgentV2.Service | Npm.Service | EventV2.Service | PluginV2.Service
-  >
+  effect: PluginV2.Effect<Catalog.Service | AgentV2.Service | Npm.Service | EventV2.Service | PluginV2.Service>
 }
 
 export interface Interface {

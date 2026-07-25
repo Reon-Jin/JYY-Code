@@ -2,7 +2,7 @@
 name: acquire-codebase-knowledge
 description: 'Use this skill when the user explicitly asks to map, document, or onboard into an existing codebase. Trigger for prompts like "map this codebase", "document this architecture", "onboard me to this repo", or "create codebase docs". Do not trigger for routine feature implementation, bug fixes, or narrow code edits unless the user asks for repository-level discovery.'
 license: MIT
-compatibility: 'Cross-platform. Requires Python 3.8+ and git. Run scripts/scan.py from the target project root.'
+compatibility: "Cross-platform. Requires Python 3.8+ and git. Run scripts/scan.py from the target project root."
 metadata:
   version: "1.3"
   enhancements:
@@ -52,12 +52,15 @@ If the user supplies a focus area (for example: "architecture only" or "testing 
 ### Phase 1: Scan and Read Intent
 
 1. Run the scan script from the target project root:
+
    ```bash
    python3 "$SKILL_ROOT/scripts/scan.py" --output docs/codebase/.codebase-scan.txt
    ```
+
    Where `$SKILL_ROOT` is the absolute path to the skill folder. Works on Windows, macOS, and Linux.
 
    **Quick start:** If you have the path inline:
+
    ```bash
    python3 /absolute/path/to/skills/acquire-codebase-knowledge/scripts/scan.py --output docs/codebase/.codebase-scan.txt
    ```
@@ -92,8 +95,10 @@ Run this mandatory validation loop before finalizing:
 1. Validate each doc against `references/inquiry-checkpoints.md`.
 2. For each non-trivial claim, confirm at least one evidence reference exists.
 3. If any required section is missing or unsupported:
-  - Fix the document.
-  - Re-run validation.
+
+- Fix the document.
+- Re-run validation.
+
 4. Repeat until all seven docs pass.
 
 Then present a summary of all seven documents, list every `[ASK USER]` item as a numbered question, and highlight any Intent vs. Reality divergences from Phase 1.
@@ -129,12 +134,12 @@ Validation pass criteria:
 
 ## Anti-Patterns
 
-| ❌ Don't | ✅ Do instead |
-|---------|--------------|
-| "Uses Clean Architecture with Domain/Data layers." (when no such directories exist) | State only what directory structure actually shows. |
-| "This is a Next.js project." (without checking `package.json`) | Check `dependencies` first. State what's actually there. |
-| Guess the database from a variable name like `dbUrl` | Check manifest for `pg`, `mysql2`, `mongoose`, `prisma`, etc. |
-| Document `dist/` or `build/` naming patterns as conventions | Source files only. |
+| ❌ Don't                                                                            | ✅ Do instead                                                 |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| "Uses Clean Architecture with Domain/Data layers." (when no such directories exist) | State only what directory structure actually shows.           |
+| "This is a Next.js project." (without checking `package.json`)                      | Check `dependencies` first. State what's actually there.      |
+| Guess the database from a variable name like `dbUrl`                                | Check manifest for `pg`, `mysql2`, `mongoose`, `prisma`, etc. |
+| Document `dist/` or `build/` naming patterns as conventions                         | Source files only.                                            |
 
 ---
 
@@ -154,8 +159,8 @@ Use these sections during Phase 2 to inform investigation questions and identify
 
 ## Bundled Assets
 
-| Asset | When to load |
-|-------|-------------|
+| Asset                                | When to load                                                        |
+| ------------------------------------ | ------------------------------------------------------------------- |
 | [`scripts/scan.py`](scripts/scan.py) | Phase 1 — run first, before reading any code (Python 3.8+ required) |
 
 | [`references/inquiry-checkpoints.md`](references/inquiry-checkpoints.md) | Phase 2 — load for per-template investigation questions |

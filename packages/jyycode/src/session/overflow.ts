@@ -30,10 +30,7 @@ export function getAutocompactBufferTokens(model: Provider.Model): number {
  * Returns the effective context window (model context - max output tokens).
  */
 export function getEffectiveContextWindow(model: Provider.Model): number {
-  const maxOutput = Math.min(
-    ProviderTransform.maxOutputTokens(model),
-    COMPACTION_BUFFER,
-  )
+  const maxOutput = Math.min(ProviderTransform.maxOutputTokens(model), COMPACTION_BUFFER)
   const contextWindow = model.limit.context
   return contextWindow - maxOutput
 }
@@ -43,10 +40,7 @@ export function getEffectiveContextWindow(model: Provider.Model): number {
  * Used for predictive autocompact checks.
  */
 export function estimateMaxTurnGrowth(model: Provider.Model): number {
-  const maxOutput = Math.min(
-    ProviderTransform.maxOutputTokens(model),
-    COMPACTION_BUFFER,
-  )
+  const maxOutput = Math.min(ProviderTransform.maxOutputTokens(model), COMPACTION_BUFFER)
   return maxOutput + TOOL_RESULT_GROWTH_ESTIMATE
 }
 
@@ -66,10 +60,7 @@ export function usable(input: { cfg: Config.Info; model: Provider.Model; outputT
  * Returns the auto-compaction threshold for a given model.
  * This is the token count above which auto-compaction should trigger.
  */
-export function getAutoCompactThreshold(input: {
-  model: Provider.Model
-  config: Config.Info
-}): number {
+export function getAutoCompactThreshold(input: { model: Provider.Model; config: Config.Info }): number {
   const effectiveWindow = getEffectiveContextWindow(input.model)
   const buffer = getAutocompactBufferTokens(input.model)
   return effectiveWindow - buffer
@@ -87,11 +78,7 @@ export function getPredictiveCompactThreshold(input: {
 /**
  * Calculate detailed token warning state for UI feedback.
  */
-export function calculateTokenWarningState(input: {
-  tokenUsage: number
-  model: Provider.Model
-  config: Config.Info
-}): {
+export function calculateTokenWarningState(input: { tokenUsage: number; model: Provider.Model; config: Config.Info }): {
   percentLeft: number
   isAboveWarningThreshold: boolean
   isAboveErrorThreshold: boolean
@@ -100,14 +87,9 @@ export function calculateTokenWarningState(input: {
 } {
   const autoCompactThreshold = getAutoCompactThreshold(input)
   const threshold =
-    input.config.compaction?.auto !== false
-      ? autoCompactThreshold
-      : getEffectiveContextWindow(input.model)
+    input.config.compaction?.auto !== false ? autoCompactThreshold : getEffectiveContextWindow(input.model)
 
-  const percentLeft = Math.max(
-    0,
-    Math.round(((threshold - input.tokenUsage) / threshold) * 100),
-  )
+  const percentLeft = Math.max(0, Math.round(((threshold - input.tokenUsage) / threshold) * 100))
 
   const warningThreshold = threshold - WARNING_THRESHOLD_BUFFER
   const errorThreshold = threshold - ERROR_THRESHOLD_BUFFER
@@ -115,8 +97,7 @@ export function calculateTokenWarningState(input: {
   const isAboveWarningThreshold = input.tokenUsage >= warningThreshold
   const isAboveErrorThreshold = input.tokenUsage >= errorThreshold
   const isAboveAutoCompactThreshold =
-    input.config.compaction?.auto !== false &&
-    input.tokenUsage >= autoCompactThreshold
+    input.config.compaction?.auto !== false && input.tokenUsage >= autoCompactThreshold
 
   const actualContextWindow = getEffectiveContextWindow(input.model)
   const blockingLimit = actualContextWindow - MANUAL_COMPACT_BUFFER
