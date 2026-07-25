@@ -67,7 +67,7 @@ function agentClusterSessionID(ctx: Tool.Context): SessionID | undefined {
   return typeof extra === "string" ? (extra as SessionID) : undefined
 }
 
-// Regex to extract run_id from <agent-cluster-run> text injected into prompts
+// Regex to extract the root session from injected cluster prompt metadata.
 
 const BaseParameters = Schema.Struct({
   description: Schema.String.annotate({ description: "A short (3-5 words) description of the task" }),

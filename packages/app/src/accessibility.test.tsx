@@ -188,25 +188,11 @@ describe("desktop accessibility contract", () => {
       model: { providerID: "test", id: "test-complex" },
     })
     backend.setAgentCluster("ses_root", {
-      runs: [
-        {
-          id: "run_1",
-          session_id: "ses_root",
-          parent_message_id: "msg_parent",
-          enabled: true,
-          status: "dispatching",
-          goal: "Accessible workflow",
-          planner_model: "test/test-planner",
-          reviewer_model: "test/test-planner",
-          time_created: 1,
-          time_updated: 2,
-          completed_at: 0,
-        },
-      ],
       tasks: [
         {
           id: "code",
-          run_id: "run_1",
+          session_id: "ses_root",
+          origin_message_id: "msg_parent",
           parent_task_id: "",
           child_session_id: "ses_child",
           role: "coder",

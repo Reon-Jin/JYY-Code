@@ -591,23 +591,10 @@ export type TuiWorkspace = {
   set: (workspaceID?: string) => void
 }
 
-export type TuiAgentClusterRun = {
-  id: string
-  session_id: string
-  parent_message_id: string
-  enabled: boolean
-  status: "planning" | "dispatching" | "reviewing" | "synthesizing" | "completed" | "failed" | "cancelled"
-  goal: string
-  planner_model: string
-  reviewer_model: string
-  time_created: number
-  time_updated: number
-  completed_at: number | null
-}
-
 export type TuiAgentClusterTask = {
   id: string
-  run_id: string
+  session_id: string
+  origin_message_id: string | null
   parent_task_id: string | null
   child_session_id: string | null
   role:
@@ -636,6 +623,7 @@ export type TuiAgentClusterTask = {
     | "revising"
     | "failed"
     | "cancelled"
+    | "interrupted"
   review_round: number
   acceptance_criteria: string[]
   artifact_paths: string[]
@@ -645,7 +633,6 @@ export type TuiAgentClusterTask = {
 }
 
 export type TuiAgentClusterState = {
-  runs: ReadonlyArray<TuiAgentClusterRun>
   tasks: ReadonlyArray<TuiAgentClusterTask>
 }
 

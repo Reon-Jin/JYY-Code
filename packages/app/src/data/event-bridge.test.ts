@@ -45,25 +45,11 @@ const part: TextPart = {
 }
 
 const clusterState: SessionAgentClusterResponse = {
-  runs: [
-    {
-      id: "run_1",
-      session_id: "ses_root",
-      parent_message_id: "msg_parent",
-      enabled: true,
-      status: "planning",
-      goal: "Build the feature",
-      planner_model: "test/planner",
-      reviewer_model: "test/reviewer",
-      time_created: 10,
-      time_updated: 10,
-      completed_at: 0,
-    },
-  ],
   tasks: [
     {
       id: "task_1",
-      run_id: "run_1",
+      session_id: "ses_root",
+      origin_message_id: "msg_parent",
       parent_task_id: "",
       child_session_id: "ses_child",
       role: "coder",
@@ -429,23 +415,10 @@ describe("event routing", () => {
     })
     const clusterEvents = [
       {
-        id: "evt_cluster_run",
-        type: "agent_cluster.event",
-        properties: {
-          sessionID: "ses_root",
-          runID: "run_1",
-          type: "run",
-          status: "completed",
-          message: "Run completed",
-          createdAt: 20,
-        },
-      },
-      {
         id: "evt_cluster_task",
         type: "agent_cluster.event",
         properties: {
           sessionID: "ses_root",
-          runID: "run_1",
           taskID: "task_1",
           type: "task",
           status: "revision_requested",
@@ -458,7 +431,6 @@ describe("event routing", () => {
         type: "agent_cluster.event",
         properties: {
           sessionID: "ses_root",
-          runID: "run_1",
           taskID: "task_new",
           type: "task",
           status: "queued",
@@ -490,7 +462,6 @@ describe("event routing", () => {
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey, exact: true }))
 
     const patched = queryClient.getQueryData<SessionAgentClusterResponse>(queryKey)
-    expect(patched?.runs[0]).toMatchObject({ status: "completed", time_updated: 20, completed_at: 20 })
     expect(patched?.tasks[0]).toMatchObject({
       status: "revision_requested",
       time_updated: 21,

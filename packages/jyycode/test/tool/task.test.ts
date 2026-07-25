@@ -4,7 +4,7 @@ import { Agent } from "../../src/agent/agent"
 import { BackgroundJob } from "@/background/job"
 import { Bus } from "@/bus"
 import { Config } from "@/config/config"
-import { AgentClusterRunTable, AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
+import { AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { Session } from "@/session/session"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -13,12 +13,7 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import {
-  TaskTool,
-  type TaskGitOps,
-  type TaskPromptOps,
-  type TaskWorktreeOps,
-} from "../../src/tool/task"
+import { TaskTool, type TaskGitOps, type TaskPromptOps, type TaskWorktreeOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -996,100 +991,89 @@ describe("tool.task", () => {
     }),
   )
 
-  it.instance("cluster task updates agent_cluster_task child session", () =>
-    Effect.gen(function* () {
-      const sessions = yield* Session.Service
-      const { chat, assistant } = yield* seed()
-      const runID = "run_task_binding"
-      const planTaskID = "task-binding-research"
-      yield* sessions.updatePart({
-        id: PartID.ascending(),
-        messageID: assistant.parentID!,
-        sessionID: chat.id,
-        type: "text",
-        synthetic: true,
-        metadata: { kind: "agent_cluster", runID },
-        text: "Agent cluster instructions",
-      })
-      const messages = yield* sessions.messages({ sessionID: chat.id })
-      Database.use((db) => {
-        const now = Date.now()
-        db.insert(AgentClusterRunTable)
-          .values({
-            id: runID as any,
-            session_id: chat.id,
-            parent_message_id: assistant.parentID!,
-            enabled: true,
-            status: "dispatching",
-            goal: "Investigate bug",
-            planner_model: "test/planner",
-            reviewer_model: "test/reviewer",
-            time_created: now,
-            time_updated: now,
-          })
-          .run()
-        db.insert(AgentClusterTaskTable)
-          .values({
-            id: planTaskID as any,
-            run_id: runID as any,
-            role: "researcher",
-            title: "Research",
-            prompt: "Find the bug",
-            complexity: "simple",
-            model: "-",
-            status: "planned",
-            acceptance_criteria: ["done"],
-            artifact_paths: [],
-            time_created: now,
-            time_updated: now,
-          })
-          .run()
-      })
-      const tool = yield* TaskTool
-      const def = yield* tool.init()
-
-      const result = yield* def.execute(
-        {
-          description: "inspect bug",
-          prompt: "look into the cache key path",
-          subagent_type: "general",
-          task_id: planTaskID,
-          model: "test/does-not-exist",
-        },
-        {
+  it.instance(
+    "cluster task updates agent_cluster_task child session",
+    () =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const planTaskID = "task-binding-research"
+        yield* sessions.updatePart({
+          id: PartID.ascending(),
+          messageID: assistant.parentID!,
           sessionID: chat.id,
-          messageID: assistant.id,
-          agent: "cluster",
-          abort: new AbortController().signal,
-          extra: {
-            promptOps: {
-              ...stubOps(),
-              prompt: () => Effect.never,
-            } satisfies TaskPromptOps,
-          },
-          messages,
-          metadata: () => Effect.void,
-          ask: () => Effect.void,
-        },
-      )
+          type: "text",
+          synthetic: true,
+          metadata: { kind: "agent_cluster", sessionID: chat.id },
+          text: "Agent cluster instructions",
+        })
+        const messages = yield* sessions.messages({ sessionID: chat.id })
+        Database.use((db) => {
+          const now = Date.now()
+          db.insert(AgentClusterTaskTable)
+            .values({
+              id: planTaskID as any,
+              session_id: chat.id,
+              origin_message_id: assistant.parentID!,
+              role: "researcher",
+              title: "Research",
+              prompt: "Find the bug",
+              complexity: "simple",
+              model: "-",
+              status: "planned",
+              acceptance_criteria: ["done"],
+              artifact_paths: [],
+              time_created: now,
+              time_updated: now,
+            })
+            .run()
+        })
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
 
-      const row = Database.use((db) =>
-        db
-          .select()
-          .from(AgentClusterTaskTable)
-          .where(
-            Database.and(
-              Database.eq(AgentClusterTaskTable.run_id, runID as any),
-              Database.eq(AgentClusterTaskTable.id, planTaskID as any),
-            ),
-          )
-          .get(),
-      )
-      expect(row?.child_session_id).toBe(result.metadata.sessionId)
-      expect(row?.status).toBe("running")
-      expect(row?.model).toBe("test/test-model")
-      expect(result.metadata.model).toEqual(ref)
-    }),
+        const result = yield* def.execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+            task_id: planTaskID,
+            model: "test/does-not-exist",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "cluster",
+            abort: new AbortController().signal,
+            extra: {
+              agentClusterSessionID: chat.id,
+              promptOps: {
+                ...stubOps(),
+                prompt: () => Effect.never,
+              } satisfies TaskPromptOps,
+            },
+            messages,
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+
+        const row = Database.use((db) =>
+          db
+            .select()
+            .from(AgentClusterTaskTable)
+            .where(
+              Database.and(
+                Database.eq(AgentClusterTaskTable.session_id, chat.id),
+                Database.eq(AgentClusterTaskTable.id, planTaskID as any),
+              ),
+            )
+            .get(),
+        )
+        expect(row?.child_session_id).toBe(result.metadata.sessionId)
+        expect(row?.status).toBe("running")
+        expect(row?.model).toBe("test/test-model")
+        expect(result.metadata.model).toEqual(ref)
+      }),
     {
       config: {
         agent_cluster: {
@@ -1106,8 +1090,6 @@ describe("tool.task", () => {
       const sessions = yield* Session.Service
       const { chat, assistant } = yield* seed()
       const child = yield* sessions.create({ parentID: chat.id, title: "Reusable researcher" })
-      const previousRunID = "run_previous_turn"
-      const currentRunID = "run_current_turn"
       const currentTaskID = "task-follow-up"
 
       yield* sessions.updatePart({
@@ -1116,7 +1098,7 @@ describe("tool.task", () => {
         sessionID: chat.id,
         type: "text",
         synthetic: true,
-        metadata: { kind: "agent_cluster", runID: currentRunID },
+        metadata: { kind: "agent_cluster", sessionID: chat.id },
         text: "Agent cluster instructions",
       })
       yield* sessions.updatePart({
@@ -1149,30 +1131,12 @@ describe("tool.task", () => {
 
       Database.use((db) => {
         const now = Date.now()
-        for (const [runID, status, goal] of [
-          [previousRunID, "completed", "Initial investigation"],
-          [currentRunID, "dispatching", "Continue the investigation"],
-        ] as const) {
-          db.insert(AgentClusterRunTable)
-            .values({
-              id: runID as any,
-              session_id: chat.id,
-              parent_message_id: assistant.parentID!,
-              enabled: true,
-              status,
-              goal,
-              planner_model: "test/planner",
-              reviewer_model: "test/reviewer",
-              time_created: now,
-              time_updated: now,
-            })
-            .run()
-        }
         db.insert(AgentClusterTaskTable)
           .values([
             {
               id: "task-initial" as any,
-              run_id: previousRunID as any,
+              session_id: chat.id,
+              origin_message_id: assistant.parentID!,
               child_session_id: child.id,
               role: "researcher",
               title: "Initial research",
@@ -1187,7 +1151,8 @@ describe("tool.task", () => {
             },
             {
               id: currentTaskID as any,
-              run_id: currentRunID as any,
+              session_id: chat.id,
+              origin_message_id: assistant.parentID!,
               role: "researcher",
               title: "Follow up",
               prompt: "Continue from prior findings",
@@ -1219,6 +1184,7 @@ describe("tool.task", () => {
           agent: "cluster",
           abort: new AbortController().signal,
           extra: {
+            agentClusterSessionID: chat.id,
             promptOps: {
               ...stubOps(),
               prompt: () => Effect.never,
@@ -1236,7 +1202,7 @@ describe("tool.task", () => {
           .from(AgentClusterTaskTable)
           .where(
             Database.and(
-              Database.eq(AgentClusterTaskTable.run_id, currentRunID as any),
+              Database.eq(AgentClusterTaskTable.session_id, chat.id),
               Database.eq(AgentClusterTaskTable.id, currentTaskID as any),
             ),
           )
@@ -1253,7 +1219,6 @@ describe("tool.task", () => {
     Effect.gen(function* () {
       const sessions = yield* Session.Service
       const { chat, assistant } = yield* seed()
-      const runID = "run_streamed_plan"
       const planTaskID = "task-research"
       yield* sessions.updatePart({
         id: PartID.ascending(),
@@ -1261,7 +1226,7 @@ describe("tool.task", () => {
         sessionID: chat.id,
         type: "text",
         synthetic: true,
-        metadata: { kind: "agent_cluster", runID },
+        metadata: { kind: "agent_cluster", sessionID: chat.id },
         text: "Agent cluster instructions",
       })
       yield* sessions
@@ -1293,23 +1258,6 @@ describe("tool.task", () => {
           ].join("\n"),
         })
         .pipe(Effect.delay("2 seconds"), Effect.forkScoped)
-      Database.use((db) => {
-        const now = Date.now()
-        db.insert(AgentClusterRunTable)
-          .values({
-            id: runID as any,
-            session_id: chat.id,
-            parent_message_id: assistant.parentID!,
-            enabled: true,
-            status: "planning",
-            goal: "Investigate bug",
-            planner_model: "test/planner",
-            reviewer_model: "test/reviewer",
-            time_created: now,
-            time_updated: now,
-          })
-          .run()
-      })
       const messages = yield* sessions.messages({ sessionID: chat.id })
       const tool = yield* TaskTool
       const def = yield* tool.init()
@@ -1327,6 +1275,7 @@ describe("tool.task", () => {
           agent: "cluster",
           abort: new AbortController().signal,
           extra: {
+            agentClusterSessionID: chat.id,
             promptOps: {
               ...stubOps(),
               prompt: () => Effect.never,
@@ -1344,7 +1293,7 @@ describe("tool.task", () => {
           .from(AgentClusterTaskTable)
           .where(
             Database.and(
-              Database.eq(AgentClusterTaskTable.run_id, runID as any),
+              Database.eq(AgentClusterTaskTable.session_id, chat.id),
               Database.eq(AgentClusterTaskTable.id, planTaskID as any),
             ),
           )
@@ -1359,7 +1308,6 @@ describe("tool.task", () => {
     Effect.gen(function* () {
       const sessions = yield* Session.Service
       const { chat, assistant } = yield* seed()
-      const runID = "run_live_tui_plan"
       const planTaskID = "create-1"
       const livePlanText = [
         "```json",
@@ -1449,23 +1397,6 @@ describe("tool.task", () => {
           "```",
         ].join("\n"),
       })
-      Database.use((db) => {
-        const now = Date.now()
-        db.insert(AgentClusterRunTable)
-          .values({
-            id: runID as any,
-            session_id: chat.id,
-            parent_message_id: assistant.parentID!,
-            enabled: true,
-            status: "planning",
-            goal: "Create and combine text files",
-            planner_model: "test/planner",
-            reviewer_model: "test/reviewer",
-            time_created: now,
-            time_updated: now,
-          })
-          .run()
-      })
       const messages = yield* sessions.messages({ sessionID: chat.id })
       const tool = yield* TaskTool
       const def = yield* tool.init()
@@ -1483,7 +1414,7 @@ describe("tool.task", () => {
           agent: "cluster",
           abort: new AbortController().signal,
           extra: {
-            agentClusterRunID: runID,
+            agentClusterSessionID: chat.id,
             promptOps: {
               ...stubOps(),
               prompt: () => Effect.never,
@@ -1497,11 +1428,7 @@ describe("tool.task", () => {
       )
 
       const rows = Database.use((db) =>
-        db
-          .select()
-          .from(AgentClusterTaskTable)
-          .where(Database.eq(AgentClusterTaskTable.run_id, runID as any))
-          .all(),
+        db.select().from(AgentClusterTaskTable).where(Database.eq(AgentClusterTaskTable.session_id, chat.id)).all(),
       )
       expect(rows.map((row) => String(row.id)).sort()).toEqual(["create-1", "create-2", "create-3", "create-ans"])
       expect(rows.find((row) => row.id === planTaskID)?.child_session_id).toBe(result.metadata.sessionId)
@@ -1747,27 +1674,14 @@ describe("tool.task", () => {
     }),
   )
 
-  function seedClusterTask(input: { runID: string; taskID: string; sessionID: SessionID; parentMessageID: MessageID }) {
+  function seedClusterTask(input: { taskID: string; sessionID: SessionID; parentMessageID: MessageID }) {
     const now = Date.now()
     Database.use((db) => {
-      db.insert(AgentClusterRunTable)
-        .values({
-          id: input.runID as any,
-          session_id: input.sessionID,
-          parent_message_id: input.parentMessageID,
-          enabled: true,
-          status: "dispatching",
-          goal: "Produce charts",
-          planner_model: "test/planner",
-          reviewer_model: "test/reviewer",
-          time_created: now,
-          time_updated: now,
-        })
-        .run()
       db.insert(AgentClusterTaskTable)
         .values({
           id: input.taskID as any,
-          run_id: input.runID as any,
+          session_id: input.sessionID,
+          origin_message_id: input.parentMessageID,
           role: "chart",
           title: "Make charts",
           prompt: "Create the charts",
@@ -1783,14 +1697,14 @@ describe("tool.task", () => {
     })
   }
 
-  function clusterTaskRow(runID: string, taskID: string) {
+  function clusterTaskRow(sessionID: SessionID, taskID: string) {
     return Database.use((db) =>
       db
         .select()
         .from(AgentClusterTaskTable)
         .where(
           Database.and(
-            Database.eq(AgentClusterTaskTable.run_id, runID as any),
+            Database.eq(AgentClusterTaskTable.session_id, sessionID),
             Database.eq(AgentClusterTaskTable.id, taskID as any),
           ),
         )
@@ -1802,9 +1716,8 @@ describe("tool.task", () => {
     Effect.gen(function* () {
       const jobs = yield* BackgroundJob.Service
       const { chat, assistant } = yield* seed()
-      const runID = "run_child_error"
       const taskID = "task-chart"
-      seedClusterTask({ runID, taskID, sessionID: chat.id, parentMessageID: assistant.parentID! })
+      seedClusterTask({ taskID, sessionID: chat.id, parentMessageID: assistant.parentID! })
       const messages = yield* (yield* Session.Service).messages({ sessionID: chat.id })
       const def = yield* (yield* TaskTool).init()
 
@@ -1821,7 +1734,7 @@ describe("tool.task", () => {
           agent: "cluster",
           abort: new AbortController().signal,
           extra: {
-            agentClusterRunID: runID,
+            agentClusterSessionID: chat.id,
             promptOps: {
               ...stubOps(),
               prompt: (input) =>
@@ -1847,7 +1760,7 @@ describe("tool.task", () => {
       expect(waited.timedOut).toBe(false)
       expect(waited.info?.status).toBe("error")
       expect(waited.info?.error).toContain("provider exploded")
-      const row = clusterTaskRow(runID, taskID)
+      const row = clusterTaskRow(chat.id, taskID)
       expect(row?.status).toBe("failed")
       expect((row?.review_issues as string[] | null)?.[0]).toContain("provider exploded")
     }),
@@ -1857,9 +1770,8 @@ describe("tool.task", () => {
     Effect.gen(function* () {
       const jobs = yield* BackgroundJob.Service
       const { chat, assistant } = yield* seed()
-      const runID = "run_child_recovery"
       const taskID = "task-chart"
-      seedClusterTask({ runID, taskID, sessionID: chat.id, parentMessageID: assistant.parentID! })
+      seedClusterTask({ taskID, sessionID: chat.id, parentMessageID: assistant.parentID! })
       const messages = yield* (yield* Session.Service).messages({ sessionID: chat.id })
       const def = yield* (yield* TaskTool).init()
       const prompts: SessionPrompt.PromptInput[] = []
@@ -1877,15 +1789,14 @@ describe("tool.task", () => {
           agent: "cluster",
           abort: new AbortController().signal,
           extra: {
-            agentClusterRunID: runID,
+            agentClusterSessionID: chat.id,
             promptOps: {
               ...stubOps(),
               prompt: (input) =>
                 Effect.sync(() => {
                   prompts.push(input)
                   const recovery =
-                    input.sessionID !== chat.id &&
-                    input.parts.some((part) => part.type === "text" && part.synthetic)
+                    input.sessionID !== chat.id && input.parts.some((part) => part.type === "text" && part.synthetic)
                   return reply(
                     input,
                     recovery
@@ -1906,13 +1817,12 @@ describe("tool.task", () => {
       expect(waited.info?.status).toBe("completed")
       expect(waited.info?.output).toContain("**Status**: success")
       const recovery = prompts.find(
-        (input) =>
-          input.sessionID !== chat.id && input.parts.some((part) => part.type === "text" && part.synthetic),
+        (input) => input.sessionID !== chat.id && input.parts.some((part) => part.type === "text" && part.synthetic),
       )
       expect(recovery).toBeDefined()
       const reminder = recovery?.parts.find((part) => part.type === "text")
       expect(reminder && "text" in reminder ? reminder.text : "").toContain("final report")
-      const row = clusterTaskRow(runID, taskID)
+      const row = clusterTaskRow(chat.id, taskID)
       expect(row?.status).toBe("submitted")
       expect(row?.result_summary).toBe("charts created")
     }),
@@ -1922,9 +1832,8 @@ describe("tool.task", () => {
     Effect.gen(function* () {
       const jobs = yield* BackgroundJob.Service
       const { chat, assistant } = yield* seed()
-      const runID = "run_child_no_report"
       const taskID = "task-chart"
-      seedClusterTask({ runID, taskID, sessionID: chat.id, parentMessageID: assistant.parentID! })
+      seedClusterTask({ taskID, sessionID: chat.id, parentMessageID: assistant.parentID! })
       const messages = yield* (yield* Session.Service).messages({ sessionID: chat.id })
       const def = yield* (yield* TaskTool).init()
 
@@ -1941,7 +1850,7 @@ describe("tool.task", () => {
           agent: "cluster",
           abort: new AbortController().signal,
           extra: {
-            agentClusterRunID: runID,
+            agentClusterSessionID: chat.id,
             promptOps: stubOps({ text: "still working on chart 3 of 4" }),
           },
           messages,
@@ -1954,7 +1863,7 @@ describe("tool.task", () => {
       expect(waited.timedOut).toBe(false)
       expect(waited.info?.status).toBe("error")
       expect(waited.info?.error).toContain("final report")
-      const row = clusterTaskRow(runID, taskID)
+      const row = clusterTaskRow(chat.id, taskID)
       expect(row?.status).toBe("failed")
       expect((row?.review_issues as string[] | null)?.[0]).toContain("final report")
     }),

@@ -34,36 +34,13 @@ import path from "path"
 import { useKV } from "./kv"
 import { aggregateFailures } from "./aggregate-failures"
 
-export type AgentClusterRun = {
-  id: string
-  session_id: string
-  parent_message_id: string
-  enabled: boolean
-  status: "planning" | "dispatching" | "reviewing" | "synthesizing" | "completed" | "failed" | "cancelled"
-  goal: string
-  planner_model: string
-  reviewer_model: string
-  time_created: number
-  time_updated: number
-  completed_at: number | null
-}
-
 export type AgentClusterTask = {
   id: string
   session_id: string
   origin_message_id: string | null
   parent_task_id: string | null
   child_session_id: string | null
-  role:
-    | "researcher"
-    | "analyst"
-    | "writer"
-    | "chart"
-    | "pdf"
-    | "coder"
-    | "tester"
-    | "picture_searcher"
-    | "general"
+  role: "researcher" | "analyst" | "writer" | "chart" | "pdf" | "coder" | "tester" | "picture_searcher" | "general"
   title: string
   prompt: string
   complexity: "simple" | "complex"
@@ -107,7 +84,10 @@ export type SessionContextEstimate = {
   shouldCompact?: boolean
 }
 
-export function applyAgentClusterEvent(state: AgentClusterState, event: Extract<Event, { type: "agent_cluster.event" }>) {
+export function applyAgentClusterEvent(
+  state: AgentClusterState,
+  event: Extract<Event, { type: "agent_cluster.event" }>,
+) {
   const next: AgentClusterState = {
     tasks: state.tasks.map((task) => ({ ...task })),
   }

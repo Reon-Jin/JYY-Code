@@ -1,38 +1,8 @@
 import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core"
-import { MessageTable, SessionTable } from "@/session/session.sql"
+import { SessionTable } from "@/session/session.sql"
 import { Timestamps } from "@/storage/schema.sql"
 import type { MessageID, SessionID } from "@/session/schema"
-import type { RunID, RunStatus, TaskID, TaskRole, TaskStatus, Complexity } from "./schema"
-
-/**
- * Transitional query shape retained while callers are moved to the durable
- * session task graph. The migration no longer creates this table.
- */
-export const AgentClusterRunTable = sqliteTable(
-  "agent_cluster_run",
-  {
-    id: text().$type<RunID>().primaryKey(),
-    session_id: text()
-      .$type<SessionID>()
-      .notNull()
-      .references(() => SessionTable.id, { onDelete: "cascade" }),
-    parent_message_id: text()
-      .$type<MessageID>()
-      .notNull()
-      .references(() => MessageTable.id, { onDelete: "cascade" }),
-    enabled: integer({ mode: "boolean" }).notNull().default(true),
-    status: text().$type<RunStatus>().notNull(),
-    goal: text().notNull(),
-    planner_model: text().notNull(),
-    reviewer_model: text().notNull(),
-    ...Timestamps,
-    completed_at: integer(),
-  },
-  (table) => [
-    index("agent_cluster_run_session_idx").on(table.session_id),
-    index("agent_cluster_run_parent_message_idx").on(table.parent_message_id),
-  ],
-)
+import type { TaskID, TaskRole, TaskStatus, Complexity } from "./schema"
 
 export const AgentClusterTaskTable = sqliteTable(
   "agent_cluster_task",

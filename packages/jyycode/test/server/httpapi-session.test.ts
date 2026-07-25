@@ -20,8 +20,8 @@ import { MessageID, PartID, SessionID, type SessionID as SessionIDType } from ".
 import { MessageV2 } from "../../src/session/message-v2"
 import { Database } from "@/storage/db"
 import { SessionMessageTable, SessionTable } from "@/session/session.sql"
-import { AgentClusterRunTable, AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
-import type { RunID, TaskID } from "@/agent-cluster/schema"
+import { AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
+import type { TaskID } from "@/agent-cluster/schema"
 import { SessionMessage } from "@jyycode-ai/core/session-message"
 import { ModelV2 } from "@jyycode-ai/core/model"
 import { ProviderV2 } from "@jyycode-ai/core/provider"
@@ -379,11 +379,10 @@ describe("session HttpApi", () => {
             .run()
         })
 
-        const cluster = yield* requestJson<{
-          runs: Array<{ id: string }>
-          tasks: Array<{ status: string }>
-        }>(pathFor(SessionPaths.agentCluster, { sessionID: parent.id }), { headers })
-        expect(cluster.runs[0]?.id).toBe("run_1")
+        const cluster = yield* requestJson<{ tasks: Array<{ status: string }> }>(
+          pathFor(SessionPaths.agentCluster, { sessionID: parent.id }),
+          { headers },
+        )
         expect(cluster.tasks[0]?.status).toBe("running")
 
         expect(
@@ -439,10 +438,9 @@ describe("session HttpApi", () => {
         const activeRoots = yield* requestJson<Session.Info[]>(`${SessionPaths.list}?roots=true`, { headers })
         expect(activeRoots.map((item) => item.id)).toEqual([active.id])
 
-        const archivedRoots = yield* requestJson<Session.Info[]>(
-          `${SessionPaths.list}?roots=true&archived=true`,
-          { headers },
-        )
+        const archivedRoots = yield* requestJson<Session.Info[]>(`${SessionPaths.list}?roots=true&archived=true`, {
+          headers,
+        })
         expect(archivedRoots.map((item) => item.id)).toEqual([archived.id])
       }),
     { git: true, config: { formatter: false, lsp: false } },

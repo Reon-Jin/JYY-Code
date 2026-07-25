@@ -322,7 +322,7 @@ export function createTuiPluginApi(opts: Opts = {}): HostPluginApi {
         status: opts.state?.session?.status ?? (() => undefined),
         permission: opts.state?.session?.permission ?? (() => []),
         question: opts.state?.session?.question ?? (() => []),
-        agentCluster: opts.state?.session?.agentCluster ?? (() => ({ runs: [], tasks: [] })),
+        agentCluster: opts.state?.session?.agentCluster ?? (() => ({ tasks: [] })),
       },
       part: opts.state?.part ?? (() => []),
       lsp: opts.state?.lsp ?? (() => []),

@@ -57,7 +57,7 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
-import { AgentClusterRunTable } from "@/agent-cluster/cluster.sql"
+import { AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
 
 void Log.init({ print: false })
 
@@ -622,13 +622,13 @@ it.instance("noReply injection in a Multi-Agent session does not create a ghost 
     expect(message.info.agent).toBe("build")
     expect(
       message.parts.some(
-        (part) => part.type === "text" && part.metadata?.kind === "agent_cluster" && Boolean(part.metadata.runID),
+        (part) => part.type === "text" && part.metadata?.kind === "agent_cluster" && Boolean(part.metadata.sessionID),
       ),
     ).toBe(false)
-    const runs = Database.use((db) =>
-      db.select().from(AgentClusterRunTable).where(Database.eq(AgentClusterRunTable.session_id, chat.id)).all(),
+    const tasks = Database.use((db) =>
+      db.select().from(AgentClusterTaskTable).where(Database.eq(AgentClusterTaskTable.session_id, chat.id)).all(),
     )
-    expect(runs).toHaveLength(0)
+    expect(tasks).toHaveLength(0)
   }),
 )
 

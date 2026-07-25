@@ -9,25 +9,11 @@ import { createFakeJyycode } from "./test/fake-jyycode"
 
 function clusterSnapshot(): SessionAgentClusterResponse {
   return {
-    runs: [
-      {
-        id: "run_1",
-        session_id: "ses_root",
-        parent_message_id: "msg_parent",
-        enabled: true,
-        status: "dispatching" as const,
-        goal: "Ship the feature",
-        planner_model: "test/test-planner",
-        reviewer_model: "test/test-planner",
-        time_created: 1,
-        time_updated: 2,
-        completed_at: 0,
-      },
-    ],
     tasks: [
       {
         id: "code",
-        run_id: "run_1",
+        session_id: "ses_root",
+        origin_message_id: "msg_parent",
         parent_task_id: "",
         child_session_id: "ses_child",
         role: "coder",
@@ -505,25 +491,11 @@ describe("desktop GUI journey", () => {
       time: { created: 3, updated: 3 },
     })
     backend.setAgentCluster("ses_root", {
-      runs: [
-        {
-          id: "run_1",
-          session_id: "ses_root",
-          parent_message_id: "msg_parent",
-          enabled: true,
-          status: "dispatching",
-          goal: "Implement the feature",
-          planner_model: "test/test-planner",
-          reviewer_model: "test/test-planner",
-          time_created: 1,
-          time_updated: 2,
-          completed_at: 0,
-        },
-      ],
       tasks: [
         {
           id: "code",
-          run_id: "run_1",
+          session_id: "ses_root",
+          origin_message_id: "msg_parent",
           parent_task_id: "",
           child_session_id: "ses_child",
           role: "coder",
@@ -545,7 +517,8 @@ describe("desktop GUI journey", () => {
         },
         {
           id: "research",
-          run_id: "run_1",
+          session_id: "ses_root",
+          origin_message_id: "msg_parent",
           parent_task_id: "",
           child_session_id: "ses_sibling",
           role: "researcher",

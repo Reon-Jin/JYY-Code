@@ -75,15 +75,10 @@ type SessionStatusLike = {
 }
 
 type AgentClusterRowState = {
-  runs?: readonly {
-    id: string
-    status?: string
-    goal?: string
-    time_created?: number
-  }[]
   tasks: readonly {
     id: string
-    run_id?: string
+    session_id: string
+    origin_message_id?: string | null
     child_session_id?: string | null
     step?: number
     title: string
@@ -466,7 +461,9 @@ function trimPlanOnlyPreamble(value: string) {
 }
 
 export function extractAgentClusterPlan(textValue: string): AgentClusterPlan | undefined {
-  return collectPlanRanges(textValue).at(-1)?.plan ?? parsePartialPlanJson(collectPartialPlanRange(textValue)?.json ?? "")
+  return (
+    collectPlanRanges(textValue).at(-1)?.plan ?? parsePartialPlanJson(collectPartialPlanRange(textValue)?.json ?? "")
+  )
 }
 
 export function stripAgentClusterPlanText(textValue: string): string {
@@ -563,55 +560,7 @@ function clusterTaskStatus(status: string): AgentClusterTaskStatus {
 }
 
 function projectSessionCluster(cluster: AgentClusterRowState | undefined): AgentClusterRowState | undefined {
-  if (!cluster?.tasks.length) return cluster
-
-  const runs = (cluster.runs ?? [])
-    .map((run, index) => ({ run, index }))
-    .sort((a, b) => {
-      if (a.run.time_created !== undefined && b.run.time_created !== undefined) {
-        const chronological = a.run.time_created - b.run.time_created
-        if (chronological !== 0) return chronological
-      }
-      return a.index - b.index
-    })
-    .map((item) => item.run)
-  const runOrder = new Map(runs.map((run, index) => [run.id, index]))
-  const duplicateIDs = new Map<string, number>()
-  for (const task of cluster.tasks) duplicateIDs.set(task.id, (duplicateIDs.get(task.id) ?? 0) + 1)
-
-  const groups = new Map<string, (typeof cluster.tasks)[number][]>()
-  for (const task of cluster.tasks) {
-    const key = task.run_id ?? "__session__"
-    const group = groups.get(key) ?? []
-    group.push(task)
-    groups.set(key, group)
-  }
-
-  const orderedGroups = [...groups.entries()].sort(
-    ([left], [right]) =>
-      (runOrder.get(left) ?? Number.MAX_SAFE_INTEGER) - (runOrder.get(right) ?? Number.MAX_SAFE_INTEGER),
-  )
-  const tasks: (typeof cluster.tasks)[number][] = []
-  let stepOffset = 0
-
-  for (const [runID, group] of orderedGroups) {
-    const localSteps = [...new Set(group.map((task) => Math.max(1, Math.trunc(task.step ?? 1))))].sort((a, b) => a - b)
-    const projectedStep = new Map(localSteps.map((step, index) => [step, stepOffset + index + 1]))
-    const qualify = (id: string) => (duplicateIDs.get(id) === 1 ? id : `${runID}:${id}`)
-
-    for (const task of group) {
-      const localStep = Math.max(1, Math.trunc(task.step ?? 1))
-      tasks.push({
-        ...task,
-        id: qualify(task.id),
-        step: projectedStep.get(localStep)!,
-        dependencies: task.dependencies?.map(qualify),
-      })
-    }
-    stepOffset += localSteps.length
-  }
-
-  return { runs, tasks }
+  return cluster
 }
 
 function clusterPlan(cluster: AgentClusterRowState | undefined): AgentClusterPlan | undefined {
@@ -643,7 +592,7 @@ function clusterTaskRuns(cluster: AgentClusterRowState | undefined): AgentCluste
   return cluster.tasks.map((task, index) => ({
     index: index + 1,
     id: task.id,
-    runID: task.run_id,
+    runID: undefined,
     role: task.role,
     model: task.model ?? "-",
     status: clusterTaskStatus(task.status),
@@ -657,23 +606,11 @@ function clusterTaskRuns(cluster: AgentClusterRowState | undefined): AgentCluste
 
 function boundLiveTaskRuns(cluster: AgentClusterRowState | undefined, rows: AgentClusterTaskRun[]) {
   if (!cluster?.tasks.length) return rows
-  const runIDs = new Set((cluster.runs ?? []).map((run) => run.id))
-  const duplicateIDs = new Map<string, number>()
-  for (const task of cluster.tasks) duplicateIDs.set(task.id, (duplicateIDs.get(task.id) ?? 0) + 1)
-
   return rows.flatMap((row) => {
     // A task tool error raised during dispatch validation has no agentCluster
     // binding because no child was started. It must not override the persisted
     // planned row as failed in the Step panel.
-    if (!row.runID) {
-      // Compatibility for task calls persisted before agentCluster metadata was
-      // added: a real child session proves dispatch started. Only bind it when
-      // the plan id is unambiguous across the whole session.
-      return row.sessionID && row.id && duplicateIDs.get(row.id) === 1 ? [row] : []
-    }
-    if (!runIDs.has(row.runID)) return []
-    if (!row.id || duplicateIDs.get(row.id) === 1) return [row]
-    return [{ ...row, id: `${row.runID}:${row.id}` }]
+    return row.sessionID && row.id ? [row] : []
   })
 }
 
@@ -884,13 +821,13 @@ export function agentClusterSnapshot(input: SnapshotInput): AgentClusterSnapshot
         ? "planning"
         : planWithStatus?.partial && rows.length === 0
           ? "planning"
-        : active
-          ? "dispatching"
-          : rows.length > 0 || planWithStatus
-            ? completedSteps === steps.length && steps.length > 0
-              ? "completed"
-              : "reviewing"
-            : "planning"
+          : active
+            ? "dispatching"
+            : rows.length > 0 || planWithStatus
+              ? completedSteps === steps.length && steps.length > 0
+                ? "completed"
+                : "reviewing"
+              : "planning"
 
   return {
     visible: input.enabled || input.disabled || rows.length > 0 || !!planWithStatus,

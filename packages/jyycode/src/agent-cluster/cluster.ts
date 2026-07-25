@@ -393,7 +393,10 @@ export const submitTaskResult = Effect.fn("AgentCluster.submitTaskResult")(funct
         and(
           eq(AgentClusterTaskTable.session_id, sessionID),
           eq(AgentClusterTaskTable.id, input.taskID as TaskID),
-          inArray(AgentClusterTaskTable.status, ["running", "revising"]),
+          // A fast background child can complete before the caller gets a
+          // chance to persist its optimistic "running" transition. Accept
+          // that first completion directly instead of dropping its summary.
+          inArray(AgentClusterTaskTable.status, ["planned", "queued", "running", "revising"]),
         ),
       )
       .run(),

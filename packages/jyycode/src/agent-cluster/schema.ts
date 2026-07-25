@@ -3,9 +3,6 @@ export * as AgentClusterSchema from "./schema"
 import { MessageID, SessionID } from "@/session/schema"
 import { Schema } from "effect"
 
-export const RunID = Schema.String.pipe(Schema.brand("AgentClusterRunID"))
-export type RunID = Schema.Schema.Type<typeof RunID>
-
 export const TaskID = Schema.String.pipe(Schema.brand("AgentClusterTaskID"))
 export type TaskID = Schema.Schema.Type<typeof TaskID>
 
@@ -39,17 +36,6 @@ export const TaskStatus = Schema.Literals([
   "interrupted",
 ])
 export type TaskStatus = Schema.Schema.Type<typeof TaskStatus>
-
-export const RunStatus = Schema.Literals([
-  "planning",
-  "dispatching",
-  "reviewing",
-  "synthesizing",
-  "completed",
-  "failed",
-  "cancelled",
-])
-export type RunStatus = Schema.Schema.Type<typeof RunStatus>
 
 export const Artifact = Schema.Struct({
   path: Schema.String,
@@ -111,18 +97,3 @@ export const ReviewResult = Schema.Struct({
   revisionPrompt: Schema.optional(Schema.String),
 })
 export type ReviewResult = Schema.Schema.Type<typeof ReviewResult>
-
-export const RunRecord = Schema.Struct({
-  id: RunID,
-  sessionID: SessionID,
-  parentMessageID: MessageID,
-  enabled: Schema.Boolean,
-  status: RunStatus,
-  goal: Schema.String,
-  plannerModel: Schema.String,
-  reviewerModel: Schema.String,
-  createdAt: Schema.Number,
-  updatedAt: Schema.Number,
-  completedAt: Schema.optional(Schema.Number),
-})
-export type RunRecord = Schema.Schema.Type<typeof RunRecord>
