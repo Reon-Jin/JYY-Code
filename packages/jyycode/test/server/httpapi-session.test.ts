@@ -360,24 +360,11 @@ describe("session HttpApi", () => {
 
         const now = Date.now()
         Database.use((db) => {
-          db.insert(AgentClusterRunTable)
-            .values({
-              id: "run_1" as RunID,
-              session_id: parent.id,
-              parent_message_id: message.info.id,
-              enabled: true,
-              status: "dispatching",
-              goal: "Build feature",
-              planner_model: "test/planner",
-              reviewer_model: "test/reviewer",
-              time_created: now,
-              time_updated: now,
-            })
-            .run()
           db.insert(AgentClusterTaskTable)
             .values({
               id: "inspect" as TaskID,
-              run_id: "run_1" as RunID,
+              session_id: parent.id,
+              origin_message_id: message.info.id,
               role: "researcher",
               title: "Inspect code",
               prompt: "Inspect the code",

@@ -15,7 +15,6 @@ import { SessionStatus } from "@/session/status"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import {
   TaskTool,
-  agentClusterRunIDFromMessages,
   type TaskGitOps,
   type TaskPromptOps,
   type TaskWorktreeOps,
@@ -37,15 +36,6 @@ const ref = {
   providerID: ProviderID.make("test"),
   modelID: ModelID.make("test-model"),
 }
-
-test("agent cluster run lookup prefers the newest turn", () => {
-  const messages = [
-    { parts: [{ type: "text", text: "run_id: 01AAAAAAAAAAAAAAAAAAAA" }] },
-    { parts: [{ type: "text", text: "run_id: 01BBBBBBBBBBBBBBBBBBBB" }] },
-  ] as MessageV2.WithParts[]
-
-  expect(agentClusterRunIDFromMessages(undefined, messages)).toBe("01BBBBBBBBBBBBBBBBBBBB")
-})
 
 const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
   Layer.mergeAll(
