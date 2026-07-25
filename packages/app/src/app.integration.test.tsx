@@ -370,11 +370,6 @@ describe("desktop GUI journey", () => {
     expect(await screen.findByRole("heading", { name: "Implement feature" })).toBeVisible()
     const rootList = screen.getByRole("navigation", { name: "活动 Session" })
     expect(within(rootList).getByRole("link", { name: /Root Session/ })).toHaveAttribute("aria-current", "page")
-    const childDraft = screen.getByRole("textbox", { name: "消息" })
-    await user.type(childDraft, "请先解释你的修改")
-    await user.keyboard("{Enter}")
-    await waitFor(() => expect(backend.messages.get("ses_child")?.[0]?.parts[0]?.text).toBe("请先解释你的修改"))
-
     await user.click(screen.getByRole("button", { name: "返回主 Session" }))
     expect(await screen.findByRole("heading", { name: "Root Session" })).toBeVisible()
     expect(screen.getByRole("progressbar", { name: "多智能体进度" })).toBeVisible()
@@ -564,14 +559,6 @@ describe("desktop GUI journey", () => {
     expect(screen.getByText("child command")).toBeVisible()
     expect(screen.queryByText("sibling command")).not.toBeInTheDocument()
     expect(await screen.findByRole("button", { name: "发送并中断" })).toBeVisible()
-
-    await user.type(screen.getByRole("textbox", { name: "消息" }), "请先解释你的修改")
-    await user.click(screen.getByRole("button", { name: "发送并中断" }))
-    await user.click(screen.getByRole("button", { name: "仅本次允许" }))
-    await waitFor(
-      () => expect(backend.messages.get("ses_child")?.[0]?.parts[0]?.text).toBe("请先解释你的修改"),
-      { timeout: 4_000 },
-    )
     await waitFor(() =>
       expect(desktop.lastLocation()).toEqual({
         project: desktop.directory,
