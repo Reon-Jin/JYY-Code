@@ -118,7 +118,7 @@ describe("Composer", () => {
     const user = userEvent.setup()
     const client = renderComposer({ minimal: true, childSteering: true, status: { type: "busy" } })
 
-    await user.type(screen.getByRole("textbox", { name: "娑堟伅" }), "stop and explain")
+    await user.type(screen.getByRole("textbox", { name: "消息" }), "stop and explain")
     await user.click(screen.getByRole("button", { name: "发送并中断" }))
 
     await waitFor(() => expect(client.session.interruptPrompt).toHaveBeenCalledOnce())

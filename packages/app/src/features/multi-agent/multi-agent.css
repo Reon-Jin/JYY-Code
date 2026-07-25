@@ -289,6 +289,37 @@
   white-space: nowrap;
 }
 
+.multi-agent-step__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.multi-agent-step__toggle {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.multi-agent-step__toggle > span {
+  display: block;
+  font-family: var(--font-code);
+  font-size: 0.82rem;
+  line-height: 1;
+  transition: transform var(--motion-fast) ease;
+}
+
+.multi-agent-step__toggle[data-expanded="true"] > span { transform: rotate(90deg); }
+.multi-agent-step__toggle:hover { color: var(--color-text); background: var(--color-surface); }
+.multi-agent-step__toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
 .multi-agent-step ol {
   position: relative;
   display: grid;
@@ -421,6 +452,12 @@
   font-size: var(--text-xs);
 }
 
+.multi-agent-panel__progress {
+  width: 72px;
+  height: 3px;
+  accent-color: var(--color-text);
+}
+
 .multi-agent-task__details dl { display: grid; gap: var(--space-1); margin: 0; }
 
 .multi-agent-task__details dl > div {
@@ -512,6 +549,7 @@
   .multi-agent-task[data-tone="running"]::after,
   .multi-agent-step[data-tone="running"] .multi-agent-step__marker,
   .multi-agent-step[data-tone="review"] .multi-agent-step__marker { animation: none; }
+  .multi-agent-step__toggle > span { transition: none; }
 }
 
 @media (max-width: 640px) {

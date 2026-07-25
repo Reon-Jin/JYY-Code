@@ -38,9 +38,15 @@ describe("MultiAgentPanelView", () => {
     const onOpenChild = vi.fn()
     const snapshot = projectAgentClusterState({
       tasks: [
-        task({ id: "done", step: 1, status: "accepted" }),
+        task({ id: "done", step: 1, status: "accepted", title: "Plan Mission Control" }),
         task({ child_session_id: "ses_child" }),
-        task({ id: "stopped", step: 3, status: "interrupted", review_issues: ["User redirected this worker"] }),
+        task({
+          id: "stopped",
+          step: 3,
+          status: "interrupted",
+          title: "Validate Mission Control",
+          review_issues: ["User redirected this worker"],
+        }),
       ],
     })
     render(() => (
@@ -54,6 +60,13 @@ describe("MultiAgentPanelView", () => {
     ))
     expect(screen.getByText("Implement Mission Control").closest("li")).toHaveAttribute("data-tone", "running")
     expect(screen.getByText("Implement Mission Control").closest("li")).toHaveAttribute("data-selected", "true")
+    const toggle = screen.getByRole("button", { name: "Toggle Wave 2" })
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByText("Implement Mission Control")).not.toBeInTheDocument()
+    await user.click(toggle)
+    expect(screen.getByText("Implement Mission Control")).toBeVisible()
     expect(screen.getByText("已中断")).toBeVisible()
     await user.click(screen.getByRole("button", { name: "审阅：Implement Mission Control" }))
     expect(onOpenChild).toHaveBeenCalledWith("ses_child")

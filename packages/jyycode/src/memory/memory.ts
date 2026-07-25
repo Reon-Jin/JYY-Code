@@ -16,15 +16,19 @@ const MEMORY_FILE = "MEMORY.json"
 const USER_FILE = "USER.json"
 export const LEGACY_DIRECTORY = path.normalize("D:/jyycode/memory")
 export const DIRECTORY = path.join(Global.Path.data, "memory")
-const MEMORY_CHAR_LIMIT = 10_000
+const MEMORY_CHAR_LIMIT = 20_000
 const USER_CHAR_LIMIT = 2_000
 const ENTRY_LIMIT = 50
 const CAPACITY_WARN_THRESHOLD = 0.8
 const COMPACTION_TARGET = 0.7
 const COMPACTION_ENTRY_TARGET = 45
 const SNAPSHOT_ENTRY_LIMIT = 10
-const TASK_SUMMARY_CHAR_LIMIT = 20
-const TASK_METHOD_CHAR_LIMIT = 50
+// A task entry is the durable summary for an entire session, not a caption for
+// its latest turn. Keep enough room for the original goal, important decisions,
+// and the final state while remaining compact enough for memory retrieval.
+const TASK_REQUEST_CHAR_LIMIT = 100
+const TASK_METHOD_CHAR_LIMIT = 180
+const TASK_LEARNED_CHAR_LIMIT = 100
 
 export type Scope = "memory" | "user"
 type Confidence = "low" | "medium" | "high"
@@ -1622,14 +1626,14 @@ function validateTaskContent(input: string) {
   if (!request || (hasMethod && (!method || !learned))) {
     throw new Error(formatError)
   }
-  if ([...request].length > TASK_SUMMARY_CHAR_LIMIT) {
-    throw new Error(`Task memory 用户要求 must not exceed ${TASK_SUMMARY_CHAR_LIMIT} characters`)
+  if ([...request].length > TASK_REQUEST_CHAR_LIMIT) {
+    throw new Error(`Task memory 用户要求 must not exceed ${TASK_REQUEST_CHAR_LIMIT} characters`)
   }
   if (method !== undefined && [...method].length > TASK_METHOD_CHAR_LIMIT) {
     throw new Error(`Task memory 我用了 must not exceed ${TASK_METHOD_CHAR_LIMIT} characters`)
   }
-  if (learned !== undefined && [...learned].length > TASK_SUMMARY_CHAR_LIMIT) {
-    throw new Error(`Task memory 最终学会了 must not exceed ${TASK_SUMMARY_CHAR_LIMIT} characters`)
+  if (learned !== undefined && [...learned].length > TASK_LEARNED_CHAR_LIMIT) {
+    throw new Error(`Task memory 最终学会了 must not exceed ${TASK_LEARNED_CHAR_LIMIT} characters`)
   }
   return content
 }

@@ -124,7 +124,7 @@ describe("bounded deterministic memory compaction", () => {
     const stored = await read("memory")
 
     expect(stored.entries.length).toBeLessThanOrEqual(45)
-    expect(stored.text.length).toBeLessThanOrEqual(10_000)
+    expect(stored.text.length).toBeLessThanOrEqual(20_000)
     expect((stored.entries as Memory.TaskMemoryEntry[]).some((entry) => entry.sessionID === "ses_50")).toBe(true)
   })
 

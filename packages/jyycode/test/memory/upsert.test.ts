@@ -318,12 +318,12 @@ describe("structured memory upserts", () => {
     ).rejects.toThrow('expected "用户要求..." or "用户要求...，我用了...，最终学会了..."')
   })
 
-  test("limits request and learned sections to 20 characters and method to 50 characters", async () => {
+  test("keeps enough room for a session-wide summary while bounding each section", async () => {
     const { run } = fixture()
-    const twenty = "甲".repeat(20)
-    const twentyOne = "甲".repeat(21)
-    const fifty = "甲".repeat(50)
-    const fiftyOne = "甲".repeat(51)
+    const request = "甲".repeat(100)
+    const requestTooLong = "甲".repeat(101)
+    const method = "甲".repeat(180)
+    const methodTooLong = "甲".repeat(181)
 
     const accepted = await run(
       Memory.Service.use((memory) =>
@@ -332,13 +332,13 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${twenty}`,
+            content: `用户要求${request}`,
           }),
           memory.upsertTaskMemory({
             sessionID: secondSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${twenty}，我用了${fifty}，最终学会了${twenty}`,
+            content: `用户要求${request}，我用了${method}，最终学会了${request}`,
           }),
         ]),
       ),
@@ -352,11 +352,11 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${twentyOne}`,
+            content: `用户要求${requestTooLong}`,
           }),
         ),
       ),
-    ).rejects.toThrow("用户要求 must not exceed 20 characters")
+    ).rejects.toThrow("用户要求 must not exceed 100 characters")
 
     await expect(
       run(
@@ -365,11 +365,11 @@ describe("structured memory upserts", () => {
             sessionID: secondSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${twenty}，我用了${fiftyOne}，最终学会了${twenty}`,
+            content: `用户要求${request}，我用了${methodTooLong}，最终学会了${request}`,
           }),
         ),
       ),
-    ).rejects.toThrow("我用了 must not exceed 50 characters")
+    ).rejects.toThrow("我用了 must not exceed 180 characters")
 
     await expect(
       run(
@@ -378,10 +378,10 @@ describe("structured memory upserts", () => {
             sessionID: secondSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${twenty}，我用了${fifty}，最终学会了${twentyOne}`,
+            content: `用户要求${request}，我用了${method}，最终学会了${requestTooLong}`,
           }),
         ),
       ),
-    ).rejects.toThrow("最终学会了 must not exceed 20 characters")
+    ).rejects.toThrow("最终学会了 must not exceed 100 characters")
   })
 })

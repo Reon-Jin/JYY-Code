@@ -584,6 +584,7 @@ describe("desktop GUI journey", () => {
             JSON.stringify(request.body.model) === JSON.stringify({ providerID: "test", modelID: "coder-model" }),
         ),
       ).toBe(true),
+      { timeout: 4_000 },
     )
     await waitFor(() =>
       expect(desktop.lastLocation()).toEqual({

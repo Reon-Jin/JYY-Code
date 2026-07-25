@@ -36,11 +36,13 @@ describe("conversation layout CSS", () => {
     expect(conversationCSS).toMatch(/\.activity-group__toggle svg\[data-expanded="true"\]\s*\{[^}]*transform:\s*none;/s)
   })
 
-  it("uses compact inline metrics and keeps Multi-Agent motion inside the button", () => {
+  it("uses compact inline metrics and keeps Multi-Agent motion on active work", () => {
     expect(composerCSS).toMatch(/\.composer-select\s*\{[^}]*width:\s*80px;[^}]*min-width:\s*80px;/s)
     expect(composerCSS).toMatch(/\.composer-usage__item\s*\{[^}]*display:\s*flex;[^}]*align-items:\s*center;/s)
     expect(multiAgentCSS).toMatch(/\.cluster-model-control__button\s*\{[^}]*min-width:\s*360px;/s)
-    expect(multiAgentCSS).toMatch(/\.multi-agent-switch\[data-active="true"\][^{]*\{[^}]*animation:/s)
+    expect(multiAgentCSS).toMatch(
+      /\.multi-agent-step\[data-tone="running"\] \.multi-agent-step__marker,[^{]*\{[^}]*animation:/s,
+    )
     expect(multiAgentCSS).not.toContain("multi-agent-activation-wave")
   })
 
