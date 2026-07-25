@@ -356,7 +356,8 @@ describe("desktop GUI journey", () => {
       createdAt: 3,
     })
     expect(await screen.findByRole("progressbar", { name: "多智能体进度" })).toHaveAttribute("aria-valuenow", "0")
-    expect(screen.getByText(/1 TASKS.*1 ACTIVE/)).toBeVisible()
+    const taskCounts = document.querySelector(".multi-agent-panel__counts")
+    expect(taskCounts).toHaveTextContent(/1 TASKS.*1 ACTIVE/)
 
     const railButton = screen.getByRole("button", { name: "多智能体" })
     await user.click(railButton)
@@ -376,9 +377,10 @@ describe("desktop GUI journey", () => {
       expect(
         backend.requests.some(
           (request) =>
-            request.path === "/session/ses_child/prompt_async" &&
+            request.path === "/session/ses_child/interrupt-prompt" &&
             request.body.agent === "coder" &&
-            JSON.stringify(request.body.model) === JSON.stringify({ providerID: "test", modelID: "test-complex" }),
+            JSON.stringify(request.body.model) === JSON.stringify({ providerID: "test", modelID: "test-complex" }) &&
+            JSON.stringify(request.body.agentCluster) === JSON.stringify({ enabled: false }),
         ),
       ).toBe(true),
     )
@@ -571,9 +573,10 @@ describe("desktop GUI journey", () => {
     expect(screen.queryByRole("button", { name: /当前模型/ })).not.toBeInTheDocument()
     expect(screen.getByText("child command")).toBeVisible()
     expect(screen.queryByText("sibling command")).not.toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: "发送并中断" })).toBeVisible()
 
     await user.type(screen.getByRole("textbox", { name: "消息" }), "请先解释你的修改")
-    await user.keyboard("{Enter}")
+    await user.click(screen.getByRole("button", { name: "发送并中断" }))
     await user.click(screen.getByRole("button", { name: "仅本次允许" }))
     await waitFor(() =>
       expect(
