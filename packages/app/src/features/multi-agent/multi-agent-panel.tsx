@@ -16,7 +16,7 @@ import {
   Search,
   ShieldCheck,
 } from "lucide-solid"
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { createMemo, createSignal, For, Index, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
@@ -255,63 +255,74 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
             >
               <div class="multi-agent-panel__body">
                 <div class="multi-agent-steps">
-                  <For each={props.snapshot.steps}>
-                    {(step) => {
-                      const collapsed = () => collapsedSteps().has(step.index)
-                      const taskListID = `multi-agent-step-tasks-${step.index}`
+                  <Index each={props.snapshot.steps}>
+                    {(item) => {
+                      const wave = () => item()
+                      const step = {
+                        get index() {
+                          return wave().index
+                        },
+                        get tone() {
+                          return wave().tone
+                        },
+                      }
+                      const collapsed = () => collapsedSteps().has(wave().index)
+                      const taskListID = () => `multi-agent-step-tasks-${wave().index}`
                       return (
                       <section
                         class="multi-agent-step"
-                        data-tone={step.tone}
+                        data-tone={wave().tone}
                         data-collapsed={collapsed()}
-                        aria-labelledby={`multi-agent-step-${step.index}`}
+                        aria-labelledby={`multi-agent-step-${wave().index}`}
                       >
                         <header>
-                          <h3 id={`multi-agent-step-${step.index}`}>
+                          <h3 id={`multi-agent-step-${wave().index}`}>
                             <span class="multi-agent-step__marker" aria-hidden="true" />
                             <span>WAVE {String(step.index).padStart(2, "0")} · {waveLabel(step.tone)}</span>
                           </h3>
                           <div class="multi-agent-step__actions">
                             <span class="multi-agent-step__ratio">
-                              {step.tasks.filter((task) => task.tone === "done").length}/{step.tasks.length}
+                              {wave().tasks.filter((task) => task.tone === "done").length}/{wave().tasks.length}
                             </span>
                             <button
                               class="multi-agent-step__toggle"
                               type="button"
                               data-expanded={!collapsed()}
-                              aria-controls={taskListID}
+                              aria-controls={taskListID()}
                               aria-expanded={!collapsed()}
-                              aria-label={`Toggle Wave ${step.index}`}
-                              onClick={() => toggleStep(step.index)}
+                              aria-label={`Toggle Wave ${wave().index}`}
+                              onClick={() => toggleStep(wave().index)}
                             >
                               <span aria-hidden="true">&gt;</span>
                             </button>
                           </div>
                         </header>
                         <Show when={!collapsed()}>
-                          <ol id={taskListID} aria-label={tr("multi-agent.tasks-for-step", { index: step.index })}>
-                            <For each={step.tasks}>
+                          <ol id={taskListID()} aria-label={tr("multi-agent.tasks-for-step", { index: wave().index })}>
+                            <Index each={wave().tasks}>
                               {(task) => (
                                 <li
                                   class="multi-agent-task"
-                                  data-tone={task.tone}
+                                  data-tone={task().tone}
                                   data-selected={
-                                    task.childSessionID && task.childSessionID === props.selectedChildSessionID ? "true" : "false"
+                                    task().childSessionID && task().childSessionID === props.selectedChildSessionID
+                                      ? "true"
+                                      : "false"
                                   }
                                 >
                                   <details>
                                     <summary>
-                                      <RoleAvatar role={task.role} />
+                                      <RoleAvatar role={task().role} />
                                       <span class="multi-agent-task__content">
-                                        <strong>{task.title}</strong>
-                                        <small>{roleMeta(task)}</small>
+                                        <strong>{task().title}</strong>
+                                        <small>{roleMeta(task())}</small>
                                       </span>
-                                      <Show when={task.childSessionID}>
+                                      <Show when={task().childSessionID}>
                                         {(childSessionID) => (
                                           <Button
                                             size="small"
                                             variant="ghost"
-                                            aria-label={tr("multi-agent.review-task", { title: task.title })}
+                                            aria-label={tr("multi-agent.review-task", { title: task().title })}
                                             onClick={(event) => {
                                               event.preventDefault()
                                               event.stopPropagation()
@@ -322,21 +333,21 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                                           </Button>
                                         )}
                                       </Show>
-                                      <Show when={!task.childSessionID}>
-                                        <span class="multi-agent-task__matrix">{task.statusLabel}</span>
+                                      <Show when={!task().childSessionID}>
+                                        <span class="multi-agent-task__matrix">{task().statusLabel}</span>
                                       </Show>
                                     </summary>
-                                    <TaskDetails task={task} />
+                                    <TaskDetails task={task()} />
                                   </details>
                                 </li>
                               )}
-                            </For>
+                            </Index>
                           </ol>
                         </Show>
                       </section>
                       )
                     }}
-                  </For>
+                  </Index>
                 </div>
 
                 <footer class="multi-agent-legend" aria-label="Task status legend">
