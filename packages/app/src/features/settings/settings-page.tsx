@@ -8,10 +8,12 @@ import { GeneralSettings } from "./general-settings"
 import { Show } from "solid-js"
 import { SecuritySettings } from "./security-settings"
 import { AdvancedSettings } from "./advanced-settings"
+import { MobileSettings } from "./mobile-settings"
 
 const sections = (): Array<{ id: SettingsSection; label: string }> => [
   { id: "general", label: tr("settings.conventional") },
   { id: "security", label: tr("settings.permissions-and-security") },
+  { id: "mobile", label: "Mobile companion" },
   { id: "advanced", label: tr("settings.advanced") },
 ]
 
@@ -62,6 +64,9 @@ export function SettingsPage() {
           </Show>
           <Show when={section() === "advanced"}>
             <AdvancedSettings />
+          </Show>
+          <Show when={section() === "mobile"}>
+            <MobileSettings />
           </Show>
         </section>
       </div>

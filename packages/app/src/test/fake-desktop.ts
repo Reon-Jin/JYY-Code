@@ -1,5 +1,5 @@
 import { vi } from "vitest"
-import type { DesktopBridge, LastLocation, RecentProject } from "../platform/types"
+import type { DesktopBridge, LastLocation, MobileDevice, RecentProject } from "../platform/types"
 import { parseDesktopSettings, type DesktopSettings } from "../features/settings/settings-preferences"
 
 export function createFakeDesktop(input?: {
@@ -12,6 +12,7 @@ export function createFakeDesktop(input?: {
   let lastLocation = input?.lastLocation ?? {}
   let recentProjects = input?.recentProjects ?? []
   let settings = parseDesktopSettings(input?.settings)
+  let mobileDevices: MobileDevice[] = []
 
   const bridge: DesktopBridge = {
     bootstrap: vi.fn(async () => ({
@@ -43,6 +44,18 @@ export function createFakeDesktop(input?: {
     installAvailableUpdate: vi.fn(async () => ({ supported: true })),
     saveTextFile: vi.fn(async () => ({ supported: true, saved: true })),
     revealConfigFile: vi.fn(async () => undefined),
+    mobileListDevices: vi.fn(async () => [...mobileDevices]),
+    mobileStartPairing: vi.fn(async () => ({
+      routeId: "desktop_test",
+      relayUrl: "wss://relay.test/connect",
+      temporaryPublicKey: "public-key",
+      expiresAt: Date.now() + 5 * 60_000,
+      qrPayload: "{\"routeId\":\"desktop_test\"}",
+    })),
+    mobilePairingStatus: vi.fn(async () => ({ routeId: "desktop_test", pairedDevices: mobileDevices.length })),
+    mobileRevokeDevice: vi.fn(async (deviceID) => {
+      mobileDevices = mobileDevices.filter((device) => device.id !== deviceID)
+    }),
   }
 
   return {
@@ -51,5 +64,6 @@ export function createFakeDesktop(input?: {
     lastLocation: () => ({ ...lastLocation }),
     recentProjects: () => [...recentProjects],
     settings: () => parseDesktopSettings(settings),
+    mobileDevices: () => [...mobileDevices],
   }
 }

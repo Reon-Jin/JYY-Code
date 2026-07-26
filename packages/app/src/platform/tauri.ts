@@ -15,6 +15,9 @@ import {
   type RecentProject,
   type DesktopSaveResult,
   type DesktopUpdateCheck,
+  type MobileCompanionStatus,
+  type MobileDevice,
+  type MobilePairingInvitation,
 } from "./types"
 
 const STORE_PATH = "desktop.json"
@@ -125,5 +128,17 @@ export const tauriBridge: DesktopBridge = {
   },
   revealConfigFile(path: string) {
     return invoke("reveal_config_file", { path })
+  },
+  mobileListDevices() {
+    return invoke<MobileDevice[]>("mobile_list_devices")
+  },
+  mobileStartPairing() {
+    return invoke<MobilePairingInvitation>("mobile_start_pairing")
+  },
+  mobilePairingStatus() {
+    return invoke<MobileCompanionStatus>("mobile_pairing_status")
+  },
+  mobileRevokeDevice(deviceID: string) {
+    return invoke("mobile_revoke_device", { deviceId: deviceID })
   },
 }
