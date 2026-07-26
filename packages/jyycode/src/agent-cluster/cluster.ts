@@ -287,7 +287,6 @@ export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (inpu
   }
   const newTasks = plan.tasks.filter((task) => !existingByID.has(task.id))
   if (newTasks.length === 0) return
-  const stepOffset = history.reduce((highest, task) => Math.max(highest, task.step), 0)
   const inserted = yield* Database.query((db) =>
     db
       .insert(AgentClusterTaskTable)
@@ -302,7 +301,7 @@ export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (inpu
           complexity: task.complexity,
           model: task.model,
           status: "planned" as const,
-          step: stepOffset + task.step,
+          step: task.step,
           dependencies: [...task.dependencies],
           acceptance_criteria: [...task.acceptanceCriteria],
           artifact_paths: [...task.expectedArtifacts],

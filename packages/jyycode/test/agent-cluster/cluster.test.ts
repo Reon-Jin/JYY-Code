@@ -45,6 +45,7 @@ describe("AgentCluster planner instructions", () => {
     expect(text).toContain("This session task graph is durable")
     expect(text).toContain("Never recreate an existing task")
     expect(text).toContain("global Step numbers")
+    expect(text).toContain("never expect the runtime to translate local steps")
   })
 })
 
@@ -188,7 +189,7 @@ describe("AgentCluster session task graph", () => {
           tasks: [
             {
               id: "document-ui" as any,
-              step: 1,
+              step: 2,
               title: "Document",
               role: "writer",
               complexity: "simple",
@@ -214,6 +215,32 @@ describe("AgentCluster session task graph", () => {
         ["document-ui", 2],
       ])
       expect(state).not.toHaveProperty("runs")
+    }),
+  )
+
+  it.instance("preserves global step numbers across later plans", () =>
+    Effect.gen(function* () {
+      const chat = yield* (yield* Session.Service).create({ title: "Global step numbers" })
+      const task = (id: string, step: number) => ({
+        id: id as any,
+        step,
+        title: id,
+        role: "coder" as const,
+        complexity: "simple" as const,
+        model: "test/simple",
+        dependencies: [],
+        prompt: id,
+        acceptanceCriteria: [],
+        expectedArtifacts: [],
+      })
+      yield* AgentCluster.persistPlan({ sessionID: chat.id, plan: { goal: "First", tasks: [task("step-five", 5)] } })
+      yield* AgentCluster.persistPlan({ sessionID: chat.id, plan: { goal: "Later", tasks: [task("step-six", 6)] } })
+
+      const state = yield* AgentCluster.getSessionState(chat.id)
+      expect(state.tasks.map((item) => [item.id, item.step])).toEqual([
+        ["step-five", 5],
+        ["step-six", 6],
+      ])
     }),
   )
 
