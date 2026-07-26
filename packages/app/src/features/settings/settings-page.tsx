@@ -13,7 +13,7 @@ import { MobileSettings } from "./mobile-settings"
 const sections = (): Array<{ id: SettingsSection; label: string }> => [
   { id: "general", label: tr("settings.conventional") },
   { id: "security", label: tr("settings.permissions-and-security") },
-  { id: "mobile", label: "Mobile companion" },
+  { id: "mobile", label: tr("settings.mobile-companion") },
   { id: "advanced", label: tr("settings.advanced") },
 ]
 

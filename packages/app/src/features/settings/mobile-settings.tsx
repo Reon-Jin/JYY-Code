@@ -4,9 +4,11 @@ import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { useDesktopBridge } from "../../platform/context"
 import type { MobileDevice, MobilePairingInvitation } from "../../platform/types"
+import { useI18n } from "../../i18n/i18n-context"
 
 export function MobileSettings() {
   const bridge = useDesktopBridge()
+  const i18n = useI18n()
   const [devices, setDevices] = createSignal<MobileDevice[]>([])
   const [pairing, setPairing] = createSignal<MobilePairingInvitation>()
   const [loading, setLoading] = createSignal(true)
@@ -16,7 +18,7 @@ export function MobileSettings() {
 
   function requireMobileBridge() {
     if (!bridge.mobileListDevices || !bridge.mobileStartPairing || !bridge.mobileRevokeDevice) {
-      throw new Error("Mobile companion is unavailable in this desktop build.")
+      throw new Error(i18n.t("settings.mobile-unavailable"))
     }
     return bridge
   }
@@ -27,7 +29,7 @@ export function MobileSettings() {
     try {
       setDevices(await requireMobileBridge().mobileListDevices!())
     } catch (cause) {
-      setFailure(cause instanceof Error ? cause.message : "Unable to load paired mobile devices.")
+      setFailure(cause instanceof Error ? cause.message : i18n.t("settings.mobile-load-failed"))
     } finally {
       setLoading(false)
     }
@@ -42,7 +44,7 @@ export function MobileSettings() {
       await Promise.resolve()
       if (qrCanvas) await QRCode.toCanvas(qrCanvas, invitation.qrPayload, { width: 220, margin: 1 })
     } catch (cause) {
-      setFailure(cause instanceof Error ? cause.message : "Unable to start mobile pairing.")
+      setFailure(cause instanceof Error ? cause.message : i18n.t("settings.mobile-start-failed"))
     } finally {
       setStarting(false)
     }
@@ -54,7 +56,7 @@ export function MobileSettings() {
       await requireMobileBridge().mobileRevokeDevice!(deviceID)
       await loadDevices()
     } catch (cause) {
-      setFailure(cause instanceof Error ? cause.message : "Unable to revoke this mobile device.")
+      setFailure(cause instanceof Error ? cause.message : i18n.t("settings.mobile-revoke-failed"))
     }
   }
 
@@ -64,32 +66,31 @@ export function MobileSettings() {
     <div class="settings-sections mobile-settings">
       <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>
       <section class="settings-card" aria-labelledby="mobile-pairing-title">
-        <h3 id="mobile-pairing-title">Pair an iPhone</h3>
+        <h3 id="mobile-pairing-title">{i18n.t("settings.mobile-pair-iphone")}</h3>
         <p class="settings-description">
-          Scan a time-limited QR code from the JYYCode iPhone app. The code expires after five minutes and does not
-          expose your local backend address or credentials.
+          {i18n.t("settings.mobile-pair-description")}
         </p>
         <Button loading={starting()} onClick={() => void startPairing()}>
-          Show pairing QR code
+          {i18n.t("settings.mobile-show-qr")}
         </Button>
         <Show when={pairing()}>
           {(invitation) => (
             <div class="mobile-settings__qr" role="status">
-              <canvas ref={(element) => (qrCanvas = element)} aria-label="Mobile pairing QR code" />
-              <p>Expires {new Date(invitation().expiresAt * 1000).toLocaleTimeString()}.</p>
+              <canvas ref={(element) => (qrCanvas = element)} aria-label={i18n.t("settings.mobile-qr-label")} />
+              <p>{i18n.t("settings.mobile-expires", { time: new Date(invitation().expiresAt * 1000).toLocaleTimeString(i18n.locale()) })}</p>
             </div>
           )}
         </Show>
       </section>
 
       <section class="settings-card" aria-labelledby="mobile-devices-title">
-        <h3 id="mobile-devices-title">Paired devices</h3>
-        <p class="settings-description">Revoking a device immediately prevents it from receiving future remote traffic.</p>
+        <h3 id="mobile-devices-title">{i18n.t("settings.mobile-paired-devices")}</h3>
+        <p class="settings-description">{i18n.t("settings.mobile-revoke-description")}</p>
         <Show when={loading()}>
-          <p role="status">Loading paired devices…</p>
+          <p role="status">{i18n.t("settings.mobile-loading-devices")}</p>
         </Show>
         <Show when={!loading() && devices().length === 0}>
-          <p class="settings-card__hint">No iPhone is paired yet.</p>
+          <p class="settings-card__hint">{i18n.t("settings.mobile-no-devices")}</p>
         </Show>
         <div class="mobile-settings__devices">
           <For each={devices()}>
@@ -97,10 +98,10 @@ export function MobileSettings() {
               <article>
                 <div>
                   <strong>{device.name}</strong>
-                  <small>Paired {new Date(device.pairedAt * 1000).toLocaleString()}</small>
+                  <small>{i18n.t("settings.mobile-paired-at", { time: new Date(device.pairedAt * 1000).toLocaleString(i18n.locale()) })}</small>
                 </div>
                 <Button variant="danger" size="small" onClick={() => void revoke(device.id)}>
-                  Revoke
+                  {i18n.t("settings.mobile-revoke")}
                 </Button>
               </article>
             )}
