@@ -81,6 +81,10 @@ const BaseParameters = Schema.Struct({
     description:
       "In cluster mode, use the current plan task id for initial dispatch or a prior ses_... id for revision. Outside cluster mode, pass a prior task_id only to resume that subagent session.",
   }),
+  force: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "In cluster mode, deliberately restart a failed, cancelled, or interrupted persisted task, or bypass normal earlier-step ordering for a selected existing task.",
+  }),
   model: Schema.optional(Schema.String).annotate({
     description:
       "Optional model override for this subagent task. Use provider/model when possible; a bare model id must match exactly one configured provider.",
@@ -118,6 +122,10 @@ export const Parameters = Schema.Struct({
   task_id: Schema.optional(Schema.String).annotate({
     description:
       "In cluster mode, use the current plan task id for initial dispatch or a prior ses_... id for revision. Outside cluster mode, pass a prior task_id only to resume that subagent session.",
+  }),
+  force: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "In cluster mode, deliberately restart a failed, cancelled, or interrupted persisted task, or bypass normal earlier-step ordering for a selected existing task.",
   }),
   model: Schema.optional(Schema.String).annotate({
     description:
@@ -395,12 +403,20 @@ export const TaskTool = Tool.define(
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
       const persistCurrentClusterPlan = Effect.fn("TaskTool.persistCurrentClusterPlan")(function* () {
         if (!clusterSessionID) return false
+        const persisted = yield* AgentCluster.getSessionState(clusterSessionID)
+        const persistedTask = params.task_id
+          ? persisted.tasks.find((task) => task.id === params.task_id || task.child_session_id === params.task_id)
+          : undefined
         const texts: string[] = []
+        const currentTexts: string[] = []
         // AI SDK executes tools inside handle.process(), before prompt.ts can
         // perform its post-process cache write. The processor accumulator is
         // therefore the only race-free source for the first TUI dispatch.
         const live = (ctx.extra?.promptOps as TaskPromptOps | undefined)?.currentAssistantText?.()
-        if (live) texts.push(live)
+        if (live) {
+          texts.push(live)
+          currentTexts.push(live)
+        }
         // 1. Read text parts from the current assistant message using the
         //    ASYNC DB connection.  The legacy parts() function uses a
         //    separate better-sqlite3 connection that may not see parts
@@ -409,14 +425,20 @@ export const TaskTool = Tool.define(
           Effect.catchCause(() => Effect.succeed([] as MessageV2.Part[])),
         )
         for (const part of asyncParts) {
-          if (part.type === "text") texts.push(part.text)
+          if (part.type === "text") {
+            texts.push(part.text)
+            currentTexts.push(part.text)
+          }
         }
         // 1b. LEGACY FALLBACK: read the current message's parts via the
         //     synchronous legacy connection.
         try {
           const legacyParts = MessageV2.parts(ctx.messageID)
           for (const part of legacyParts) {
-            if (part.type === "text" && !texts.includes(part.text)) texts.push(part.text)
+            if (part.type === "text" && !texts.includes(part.text)) {
+              texts.push(part.text)
+              currentTexts.push(part.text)
+            }
           }
         } catch {
           // legacyQuery may throw if the DB isn't ready; ignore.
@@ -436,8 +458,14 @@ export const TaskTool = Tool.define(
             if (part.type === "text" && !texts.includes(part.text)) texts.push(part.text)
           }
         }
+        const currentPlan = AgentClusterRuntime.extractPlanFromText(currentTexts.join("\n"))
+        // A direct dispatch of an existing task must not reapply a stale plan
+        // found in message history. Any JSON plan from the current turn is
+        // deliberately persisted first, including a cancellation-only update.
+        if (persistedTask && !currentPlan) return false
+
         const combined = texts.join("\n")
-        const plan = AgentClusterRuntime.extractPlanFromText(combined)
+        const plan = currentPlan ?? AgentClusterRuntime.extractPlanFromText(combined)
         if (!plan) {
           const preview = combined.slice(-500) || "(empty)"
           return yield* Effect.fail(
@@ -473,6 +501,7 @@ export const TaskTool = Tool.define(
           sessionID: clusterSessionID,
           requestedTaskID: params.task_id,
           resumeSessionID: params.resume_session_id,
+          allowOutOfOrder: params.force === true,
           prompt: params.prompt,
           config: cfg.agent_cluster ?? {},
         })

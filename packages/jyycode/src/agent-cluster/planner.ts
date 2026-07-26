@@ -19,7 +19,7 @@ const CLUSTER_ROLE_CATALOG = CLUSTER_ROLES.map((role) => {
 export const ClusterPrimaryPrompt = [
   "You are the primary agent for Multi-Agent cluster mode.",
   "",
-  "Your job is orchestration only: understand the user goal, create a structured task plan in JSON format, dispatch subagents, review their results against acceptance criteria with agent_cluster_review, request revisions, and synthesize the final answer.",
+  "Your job is orchestration only: understand the user goal, create and revise structured task plans in JSON format, dispatch subagents, review their results against acceptance criteria with agent_cluster_review, request revisions, and synthesize the final answer.",
   "",
   "You must not directly perform concrete work. Do not edit project files, run destructive shell commands, perform web research, write long-form deliverables, create PDFs, or generate business artifacts yourself. Use subagents for those tasks.",
   "The primary only routes work. It may see the short role catalog below, but role-specific skill bodies and domain workflows are activated only inside the assigned child session.",
@@ -29,7 +29,7 @@ export const ClusterPrimaryPrompt = [
   "",
   "=== JSON OUTPUT FORMAT — PLAN ===",
   "",
-  'You MUST output the complete task plan as a valid JSON object inside a ```json fenced code block. The JSON must contain two top-level keys: "goal" (string) and "tasks" (array of task objects).',
+  'You MUST output the complete task plan as a valid JSON object inside a ```json fenced code block. The JSON must contain "goal" (string) and "tasks" (array of task objects); it may also contain "cancelTaskIDs" (array of existing task ids to remove).',
   "",
   "REQUIRED JSON STRUCTURE — copy this exact shape:",
   "```json",
@@ -84,7 +84,7 @@ export const ClusterPrimaryPrompt = [
   "Do NOT:",
   "- Output a markdown plan without a JSON fenced code block",
   "- Output JSON after dispatching tasks",
-  "- Output JSON in a later response (the runtime only scans the FIRST assistant message for the plan)",
+  "- Omit a later JSON update when the durable plan itself needs to change",
   "- Use single quotes or trailing commas in the JSON",
   "",
   "Only after presenting the full JSON plan may you begin dispatching step 1 tasks. Do not dispatch tasks before presenting the plan, unless the user explicitly says 'just do it' or similar.",
@@ -102,7 +102,7 @@ export const ClusterPrimaryPrompt = [
   "Scheduling rules:",
   "- For step i, dispatch as many subagents as the work supports, up to the limits: at most max_subagents tasks across the full plan and at most max_concurrency tasks in this step. Fill each step as close to max_concurrency as the independent work allows — prefer one wide parallel step over several narrow sequential steps. Tasks in step i must depend only on results from steps 1 through i-1.",
   "- Step 1 has no prior results, so every step-1 task must have dependencies=[] and must be dispatched together immediately.",
-  "- Steps are strict gates. Dispatch only the smallest-numbered unfinished step. Do not dispatch step N+1 until every task in step N is accepted by agent_cluster_review.",
+  "- Steps are strict gates by default. Dispatch only the smallest-numbered unfinished step, and do not dispatch step N+1 until every task in step N is accepted by agent_cluster_review. On a later recovery turn, you may deliberately dispatch an existing task out of order only with task force=true.",
   "- At each scheduling point, dispatch every undispatched task in the current step together in one assistant message as multiple `task` tool calls, without exceeding max_concurrency.",
   "- After outputting the JSON plan and summary, do not stop. In that same assistant response, immediately call the `task` tool for every ready step-1 task.",
   "- Do not wait for one ready task before dispatching another ready task. Wait or poll with task_status only after all currently ready tasks have been started.",
@@ -142,6 +142,21 @@ export function runInstructions(input: {
   maxSubagents: number
   maxConcurrency: number
   maxReviewRounds: number
+  taskGraph?: readonly {
+    id: string
+    step: number
+    status: string
+    title: string
+    role: string
+    prompt: string
+    complexity: string
+    model: string
+    dependencies: readonly string[]
+    acceptance_criteria: readonly string[]
+    artifact_paths: readonly string[]
+    review_issues: readonly string[]
+    last_event: string | null
+  }[]
   reusableSubagents?: readonly {
     sessionID: string
     lastTaskID: string
@@ -164,18 +179,41 @@ export function runInstructions(input: {
     CLUSTER_ROLE_CATALOG,
     "reusable_subagents:",
     input.reusableSubagents?.length ? JSON.stringify(input.reusableSubagents) : "[]",
+    "current_task_graph:",
+    input.taskGraph?.length
+      ? JSON.stringify(
+          input.taskGraph.map((task) => ({
+            id: task.id,
+            step: task.step,
+            status: task.status,
+            title: task.title,
+            role: task.role,
+            prompt: task.prompt,
+            complexity: task.complexity,
+            model: task.model,
+            dependencies: task.dependencies,
+            acceptanceCriteria: task.acceptance_criteria,
+            expectedArtifacts: task.artifact_paths,
+            reviewIssues: task.review_issues,
+            lastEvent: task.last_event,
+          })),
+        )
+      : "[]",
     "",
     "=== CURRENT TURN SCOPE ===",
     "This session task graph is durable. Plan only new work from the latest real user message, but use current open tasks, accepted summaries, blocked dependencies, reusable_subagents, and ready_task_ids to continue the graph.",
-    "Never recreate an existing task. Select an existing task_id to dispatch it directly, or choose a unique new task id for new work. Preserve existing dependencies and global Step numbers.",
-    "Treat each JSON task.step as its persistent global wave number. On later turns, continue after the largest existing Step; never restart at 1 and never expect the runtime to translate local steps.",
+    "Never create a duplicate existing task. Select an existing task_id to dispatch it directly, reuse it in a JSON plan update to change unfinished work, or choose a unique new task id for new work. Preserve existing dependencies and global Step numbers unless deliberately editing that unfinished task.",
+    "Treat each JSON task.step as its persistent global wave number. New work on later turns must continue after the largest existing Step; never restart at 1 and never expect the runtime to translate local steps.",
+    "At the start of every later turn, inspect current_task_graph before planning new work. It is authoritative for existing task ids, steps, statuses, dependencies, and review problems.",
+    "To edit the plan, output another complete JSON plan before dispatching. Repeat every current task from current_task_graph, reuse an existing id to update that unfinished task, and include cancelTaskIDs to remove unfinished tasks. Accepted tasks are immutable history and must be repeated exactly as shown.",
+    "To recover a persisted planned, failed, cancelled, or interrupted task, call task with its existing task_id. Set force=true when deliberately restarting a problem task or choosing a task out of normal step order; no new JSON plan is required just to start existing work.",
     "",
     "Limits: the full plan must not exceed max_subagents. A single dependency step must not exceed max_concurrency.",
     "Decomposition: break the goal into the smallest useful single-purpose tasks before assigning steps. Each step should contain as many independent subagents as possible — aim to fill each step up to max_concurrency, and prefer many narrow tasks over a few broad ones. Plans with only 1-2 tasks are almost always under-decomposed.",
     "",
     "=== PLAN-FIRST (CRITICAL — MUST BE FIRST) ===",
     "",
-    'CRITICAL: Before ANY task tool call, you MUST output the COMPLETE JSON plan as a ```json fenced code block containing a valid JSON object with "goal" and "tasks". The runtime extracts this JSON to persist plan rows; without it dispatch will fail.',
+    'CRITICAL: Before dispatching a NEW task, output a complete JSON plan in a ```json fenced code block containing "goal" and "tasks". Existing persisted tasks may be dispatched directly without repeating a JSON plan.',
     "",
     "JSON PLAN EXAMPLE (copy the shape, replace the values — note how the goal fans out into many narrow parallel tasks):",
     "```json",

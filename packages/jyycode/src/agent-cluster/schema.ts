@@ -86,6 +86,7 @@ export type TaskRecord = Schema.Schema.Type<typeof TaskRecord>
 export const Plan = Schema.Struct({
   goal: Schema.String,
   tasks: Schema.Array(PlannedTask),
+  cancelTaskIDs: Schema.optional(Schema.Array(TaskID)),
 })
 export type Plan = Schema.Schema.Type<typeof Plan>
 

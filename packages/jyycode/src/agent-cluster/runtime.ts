@@ -145,6 +145,7 @@ export function normalizePlan(value: unknown): Plan | undefined {
   const obj = record(value)
   // Allow project, description as fallback goal field names
   const goal = text(obj?.goal) ?? text(obj?.project) ?? text(obj?.description) ?? ""
+  const cancelTaskIDs = stringList(obj?.cancelTaskIDs ?? obj?.cancel_task_ids).map(taskID)
   // Support both top-level tasks and nested steps[].tasks[]
   let rawTasks = obj?.tasks
   if (!Array.isArray(rawTasks)) {
@@ -165,7 +166,7 @@ export function normalizePlan(value: unknown): Plan | undefined {
       })
     }
   }
-  if (!Array.isArray(rawTasks) || rawTasks.length === 0) return
+  if (!Array.isArray(rawTasks)) return
   const tasks = rawTasks.flatMap((item): PlannedTask[] => {
     const task = record(item)
     if (!task) return []
@@ -207,8 +208,8 @@ export function normalizePlan(value: unknown): Plan | undefined {
       },
     ]
   })
-  if (tasks.length === 0) return
-  return { goal: goal || "Multi-Agent cluster run", tasks }
+  if (tasks.length === 0 && cancelTaskIDs.length === 0) return
+  return { goal: goal || "Multi-Agent cluster run", tasks, ...(cancelTaskIDs.length ? { cancelTaskIDs } : {}) }
 }
 
 // JSON.parse is strict; LLMs often produce trailing commas.
@@ -293,7 +294,7 @@ export function extractPlanFromText(value: string): Plan | undefined {
 export function validatePlan(plan: Plan, limits: Pick<Limits, "maxSubagents" | "maxConcurrency">): PlanValidation {
   const errors: string[] = []
   if (!plan.goal.trim()) errors.push("goal must be non-empty")
-  if (plan.tasks.length === 0) errors.push("plan must include at least one task")
+  if (plan.tasks.length === 0 && plan.cancelTaskIDs?.length === 0) errors.push("plan must include at least one task")
   if (plan.tasks.length > limits.maxSubagents) {
     errors.push(`plan has ${plan.tasks.length} tasks, exceeding max_subagents=${limits.maxSubagents}`)
   }

@@ -56,22 +56,25 @@ function sameStrings(left: readonly string[], right: readonly string[]) {
   return [...left].sort().join("\u0000") === [...right].sort().join("\u0000")
 }
 
-function normalizeTaskTitle(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, " ")
+function sameTaskPlan(row: TaskRow, task: PlannedTask) {
+  return (
+    row.step === task.step &&
+    row.role === task.role &&
+    row.title === task.title &&
+    row.prompt === task.prompt &&
+    row.complexity === task.complexity &&
+    row.model === task.model &&
+    sameStrings(row.dependencies, task.dependencies) &&
+    sameStrings(row.acceptance_criteria, task.acceptanceCriteria) &&
+    sameStrings(row.artifact_paths, task.expectedArtifacts)
+  )
 }
 
 export function incrementalPlan(plan: Plan, history: readonly TaskRow[]): Plan {
   const accepted = history.filter((task) => task.status === "accepted")
   const completed = new Set(
     plan.tasks
-      .filter((task) =>
-        accepted.some(
-          (row) =>
-            row.id === task.id &&
-            normalizeTaskTitle(row.title) === normalizeTaskTitle(task.title) &&
-            sameStrings(row.artifact_paths, task.expectedArtifacts),
-        ),
-      )
+      .filter((task) => accepted.some((row) => row.id === task.id && sameTaskPlan(row, task)))
       .map((task) => task.id),
   )
   const remaining = plan.tasks.filter((task) => !completed.has(task.id))
@@ -213,6 +216,21 @@ export function decoratePromptInput(input: {
   session: Pick<Session.Info, "directory">
   config: ConfigAgentCluster.Info
   models: ClusterModels
+  taskGraph?: readonly {
+    id: string
+    step: number
+    status: string
+    title: string
+    role: string
+    prompt: string
+    complexity: string
+    model: string
+    dependencies: readonly string[]
+    acceptance_criteria: readonly string[]
+    artifact_paths: readonly string[]
+    review_issues: readonly string[]
+    last_event: string | null
+  }[]
   reusableSubagents?: readonly {
     sessionID: SessionID
     lastTaskID: TaskID
@@ -248,6 +266,7 @@ export function decoratePromptInput(input: {
           maxSubagents: config.max_subagents,
           maxConcurrency: config.max_concurrency,
           maxReviewRounds: config.max_review_rounds,
+          taskGraph: input.taskGraph,
           reusableSubagents: input.reusableSubagents,
         }),
         metadata: {
@@ -267,24 +286,103 @@ export const persistPlan = Effect.fn("AgentCluster.persistPlan")(function* (inpu
   const now = Date.now()
   const history = (yield* getSessionState(input.sessionID)).tasks
   const plan = incrementalPlan(input.plan, history)
-  if (plan.tasks.length === 0) return
   const existingByID = new Map(history.map((task) => [task.id, task]))
-  const duplicate = plan.tasks.find((task) => {
-    const existing = existingByID.get(task.id)
-    return (
-      existing &&
-      (normalizeTaskTitle(existing.title) !== normalizeTaskTitle(task.title) ||
-        existing.prompt !== task.prompt ||
-        !sameStrings(existing.artifact_paths, task.expectedArtifacts))
-    )
-  })
-  if (duplicate) {
+  const cancelledIDs = new Set(plan.cancelTaskIDs ?? [])
+  const conflicting = plan.tasks.find((task) => cancelledIDs.has(task.id))
+  if (conflicting) {
     return yield* Effect.fail(
-      new Error(
-        `Cluster task id ${duplicate.id} is already used by a distinct task in this session. Choose a new task id.`,
-      ),
+      new Error(`Cluster task ${conflicting.id} cannot be updated and cancelled in the same plan.`),
     )
   }
+  const unknownCancellation = [...cancelledIDs].find((taskID) => !existingByID.has(taskID))
+  if (unknownCancellation) {
+    return yield* Effect.fail(new Error(`Cannot cancel unknown cluster task ${unknownCancellation}.`))
+  }
+  const changedTasks = plan.tasks.flatMap((task) => {
+    const existing = existingByID.get(task.id)
+    return existing && !sameTaskPlan(existing, task) ? [{ existing, task }] : []
+  })
+  const acceptedEdit = changedTasks.find(({ existing }) => existing.status === "accepted")
+  if (acceptedEdit) {
+    return yield* Effect.fail(
+      new Error(`Cluster task ${acceptedEdit.existing.id} is already accepted and cannot be changed.`),
+    )
+  }
+  const acceptedCancellation = [...cancelledIDs].find((taskID) => existingByID.get(taskID)?.status === "accepted")
+  if (acceptedCancellation) {
+    return yield* Effect.fail(
+      new Error(`Cluster task ${acceptedCancellation} is already accepted and cannot be cancelled.`),
+    )
+  }
+
+  for (const { existing, task } of changedTasks) {
+    if (existing.child_session_id && isActiveTaskStatus(existing.status)) {
+      yield* interruptChildAssignment({
+        sessionID: input.sessionID,
+        taskID: existing.id,
+        reason: "Interrupted because the primary agent updated this task's plan.",
+      })
+    }
+    yield* Database.query((db) =>
+      db
+        .update(AgentClusterTaskTable)
+        .set({
+          ...(input.originMessageID ? { origin_message_id: input.originMessageID } : {}),
+          role: task.role,
+          title: task.title,
+          prompt: task.prompt,
+          complexity: task.complexity,
+          model: task.model,
+          step: task.step,
+          dependencies: [...task.dependencies],
+          acceptance_criteria: [...task.acceptanceCriteria],
+          artifact_paths: [...task.expectedArtifacts],
+          status: "planned" as const,
+          child_session_id: null,
+          result_summary: null,
+          review_round: 0,
+          review_issues: [],
+          last_event: "plan updated",
+          time_updated: now,
+        })
+        .where(and(eq(AgentClusterTaskTable.session_id, input.sessionID), eq(AgentClusterTaskTable.id, existing.id)))
+        .run(),
+    )
+    yield* publishTaskState({
+      sessionID: input.sessionID,
+      taskID: existing.id,
+      message: `task ${existing.id}: plan updated`,
+    })
+  }
+
+  for (const taskID of cancelledIDs) {
+    const existing = existingByID.get(taskID)!
+    if (existing.child_session_id && isActiveTaskStatus(existing.status)) {
+      yield* interruptChildAssignment({
+        sessionID: input.sessionID,
+        taskID: existing.id,
+        reason: "Interrupted because the primary agent removed this task from the plan.",
+      })
+    }
+    yield* Database.query((db) =>
+      db
+        .update(AgentClusterTaskTable)
+        .set({
+          status: "cancelled" as const,
+          review_issues: [...existing.review_issues, "Removed from the plan by the primary agent."],
+          last_event: "plan cancelled",
+          time_updated: now,
+        })
+        .where(and(eq(AgentClusterTaskTable.session_id, input.sessionID), eq(AgentClusterTaskTable.id, existing.id)))
+        .run(),
+    )
+    yield* publishTaskState({
+      sessionID: input.sessionID,
+      taskID: existing.id,
+      message: `task ${existing.id}: plan cancelled`,
+    })
+  }
+
   const newTasks = plan.tasks.filter((task) => !existingByID.has(task.id))
   if (newTasks.length === 0) return
   const inserted = yield* Database.query((db) =>
@@ -584,6 +682,7 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   sessionID?: SessionID
   requestedTaskID?: string
   resumeSessionID?: string
+  allowOutOfOrder?: boolean
   prompt: string
   config: ConfigAgentCluster.Info
 }) {
@@ -597,11 +696,13 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
     }
   }
   const sessionID = input.sessionID
-  const rows = (yield* Database.query((db) =>
+  let rows = (yield* Database.query((db) =>
     db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.session_id, sessionID)).all(),
   )) as TaskRow[]
-  const target = rows.find((row) => row.id === input.requestedTaskID || row.child_session_id === input.requestedTaskID)
-  if (!target) {
+  const matchingTask = rows.find(
+    (row) => row.id === input.requestedTaskID || row.child_session_id === input.requestedTaskID,
+  )
+  if (!matchingTask) {
     const knownIDs = rows.map((r) => `${r.id}(step=${r.step},status=${r.status})`).join(", ")
     return yield* Effect.fail(
       new Error(
@@ -611,8 +712,40 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
       ),
     )
   }
-  if (target.status === "failed" || target.status === "cancelled" || target.status === "accepted") {
+  let target: TaskRow = matchingTask
+  if (target.status === "accepted") {
     return yield* Effect.fail(new Error(`Cluster task ${target.id} cannot be dispatched from status ${target.status}`))
+  }
+  if (target.status === "failed" || target.status === "cancelled" || target.status === "interrupted") {
+    if (!input.allowOutOfOrder) {
+      return yield* Effect.fail(
+        new Error(
+          `Cluster task ${target.id} is ${target.status}. Use force=true to deliberately restart a problem task.`,
+        ),
+      )
+    }
+    const restarted = yield* Database.query((db) =>
+      db
+        .update(AgentClusterTaskTable)
+        .set({
+          status: "planned" as const,
+          child_session_id: null,
+          result_summary: null,
+          review_round: 0,
+          review_issues: [],
+          last_event: "restart requested",
+          time_updated: Date.now(),
+        })
+        .where(and(eq(AgentClusterTaskTable.session_id, sessionID), eq(AgentClusterTaskTable.id, target.id)))
+        .returning()
+        .get(),
+    )
+    if (!restarted) {
+      return yield* Effect.fail(new Error(`Cluster task ${target.id} disappeared while preparing a restart.`))
+    }
+    target = restarted
+    rows = rows.map((row) => (row.id === target.id ? target : row))
+    yield* publishTaskState({ sessionID, taskID: target.id, message: `task ${target.id}: restart requested` })
   }
   const resumedSessionID = input.resumeSessionID as SessionID | undefined
   if (resumedSessionID) {
@@ -630,7 +763,7 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
     }
   }
   const isRevision = target.child_session_id === input.requestedTaskID || target.status === "revision_requested"
-  if (!isRevision) {
+  if (!isRevision && !input.allowOutOfOrder) {
     const gate = stepGate(rows, target.step)
     if (!gate.allowed) {
       const earlier = rows.filter((row) => row.step < target.step)

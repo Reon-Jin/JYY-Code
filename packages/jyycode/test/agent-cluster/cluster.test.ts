@@ -11,6 +11,8 @@ import { Session } from "../../src/session/session"
 import type { Session as SessionInfo } from "../../src/session/session"
 import { SessionRunState } from "../../src/session/run-state"
 import { SessionStatus } from "../../src/session/status"
+import { AgentClusterTaskTable } from "../../src/agent-cluster/cluster.sql"
+import * as Database from "../../src/storage/db"
 import { awaitWithTimeout, testEffect } from "../lib/effect"
 
 const it = testEffect(Session.defaultLayer)
@@ -40,12 +42,32 @@ describe("AgentCluster planner instructions", () => {
       maxSubagents: 10,
       maxConcurrency: 3,
       maxReviewRounds: 2,
+      taskGraph: [
+        {
+          id: "task-recover",
+          step: 4,
+          status: "failed",
+          title: "Recover task",
+          role: "coder",
+          prompt: "Recover the task with the reported issue",
+          complexity: "simple",
+          model: "test/simple",
+          dependencies: ["task-previous"],
+          acceptance_criteria: ["artifact is present"],
+          artifact_paths: ["result.txt"],
+          review_issues: ["missing artifact"],
+          last_event: "failed",
+        },
+      ],
     })
     expect(text).toContain("Dispatch only the smallest unfinished step")
     expect(text).toContain("This session task graph is durable")
-    expect(text).toContain("Never recreate an existing task")
+    expect(text).toContain("Never create a duplicate existing task")
     expect(text).toContain("global Step numbers")
     expect(text).toContain("never expect the runtime to translate local steps")
+    expect(text).toContain("task-recover")
+    expect(text).toContain("cancelTaskIDs")
+    expect(text).toContain("force=true")
   })
 })
 
@@ -118,6 +140,14 @@ describe("AgentClusterRuntime", () => {
       '```json\n{"goal":"Build","tasks":[{"id":"build","step":1,"title":"Build","role":"coder","complexity":"simple","model":"test/simple","dependencies":[],"prompt":"Build it","acceptanceCriteria":[],"expectedArtifacts":[]}]}\n```',
     )
     expect(plan?.tasks[0]?.id).toBe("build")
+  })
+
+  test("extracts a cancellation-only plan update", () => {
+    const plan = AgentClusterRuntime.extractPlanFromText(
+      '```json\n{"goal":"Remove obsolete work","tasks":[],"cancelTaskIDs":["obsolete-task"]}\n```',
+    )
+    expect(plan).toMatchObject({ goal: "Remove obsolete work", tasks: [], cancelTaskIDs: ["obsolete-task"] })
+    expect(AgentClusterRuntime.validatePlan(plan!, { maxSubagents: 10, maxConcurrency: 3 }).valid).toBe(true)
   })
 
   test("normalizes image research to researcher", () => {
@@ -244,7 +274,101 @@ describe("AgentCluster session task graph", () => {
     }),
   )
 
-  it.instance("rejects a changed duplicate task id within the session", () =>
+  it.instance("updates and cancels unfinished tasks from a later plan", () =>
+    Effect.gen(function* () {
+      const chat = yield* (yield* Session.Service).create({ title: "Editable task graph" })
+      const task = (id: string, step: number, prompt = id) => ({
+        id: id as any,
+        step,
+        title: id,
+        role: "coder" as const,
+        complexity: "simple" as const,
+        model: "test/simple",
+        dependencies: [],
+        prompt,
+        acceptanceCriteria: ["complete"],
+        expectedArtifacts: [],
+      })
+      yield* AgentCluster.persistPlan({
+        sessionID: chat.id,
+        plan: { goal: "First", tasks: [task("edit-me", 1), task("remove-me", 2)] },
+      })
+      yield* AgentCluster.persistPlan({
+        sessionID: chat.id,
+        plan: {
+          goal: "Revised",
+          tasks: [task("edit-me", 3, "Use the corrected implementation")],
+          cancelTaskIDs: ["remove-me" as any],
+        },
+      })
+
+      const state = yield* AgentCluster.getSessionState(chat.id)
+      expect(state.tasks.find((item) => item.id === "edit-me")).toMatchObject({
+        step: 3,
+        prompt: "Use the corrected implementation",
+        status: "planned",
+      })
+      expect(state.tasks.find((item) => item.id === "remove-me")).toMatchObject({ status: "cancelled" })
+    }),
+  )
+
+  it.instance("lets the primary deliberately restart a failed task out of step order", () =>
+    Effect.gen(function* () {
+      const chat = yield* (yield* Session.Service).create({ title: "Recover task graph" })
+      const task = (id: string, step: number) => ({
+        id: id as any,
+        step,
+        title: id,
+        role: "coder" as const,
+        complexity: "simple" as const,
+        model: "test/simple",
+        dependencies: [],
+        prompt: id,
+        acceptanceCriteria: [],
+        expectedArtifacts: [],
+      })
+      yield* AgentCluster.persistPlan({
+        sessionID: chat.id,
+        plan: { goal: "Recover", tasks: [task("first", 1), task("later", 2)] },
+      })
+      const blocked = yield* AgentCluster.prepareTaskDispatch({
+        sessionID: chat.id,
+        requestedTaskID: "later",
+        prompt: "Start later",
+        config: dispatchConfig,
+      }).pipe(Effect.exit)
+      expect(blocked._tag).toBe("Failure")
+
+      yield* Database.query((db) =>
+        db
+          .update(AgentClusterTaskTable)
+          .set({ status: "failed" as const, review_issues: ["needs recovery"] })
+          .where(
+            Database.and(
+              Database.eq(AgentClusterTaskTable.session_id, chat.id),
+              Database.eq(AgentClusterTaskTable.id, "later" as any),
+            ),
+          )
+          .run(),
+      )
+      const dispatch = yield* AgentCluster.prepareTaskDispatch({
+        sessionID: chat.id,
+        requestedTaskID: "later",
+        allowOutOfOrder: true,
+        prompt: "Restart later",
+        config: dispatchConfig,
+      })
+      const state = yield* AgentCluster.getSessionState(chat.id)
+      expect(dispatch.taskID).toBe("later")
+      expect(state.tasks.find((item) => item.id === "later")).toMatchObject({
+        status: "planned",
+        review_issues: [],
+        last_event: "restart requested",
+      })
+    }),
+  )
+
+  it.instance("keeps an accepted task immutable when a later plan reuses its id", () =>
     Effect.gen(function* () {
       const chat = yield* (yield* Session.Service).create({ title: "No duplicate ids" })
       const task = {
@@ -260,6 +384,18 @@ describe("AgentCluster session task graph", () => {
         expectedArtifacts: [],
       }
       yield* AgentCluster.persistPlan({ sessionID: chat.id, plan: { goal: "First", tasks: [task] } })
+      yield* Database.query((db) =>
+        db
+          .update(AgentClusterTaskTable)
+          .set({ status: "accepted" as const })
+          .where(
+            Database.and(
+              Database.eq(AgentClusterTaskTable.session_id, chat.id),
+              Database.eq(AgentClusterTaskTable.id, "shared" as any),
+            ),
+          )
+          .run(),
+      )
       const result = yield* AgentCluster.persistPlan({
         sessionID: chat.id,
         plan: { goal: "Second", tasks: [{ ...task, prompt: "Different work" }] },

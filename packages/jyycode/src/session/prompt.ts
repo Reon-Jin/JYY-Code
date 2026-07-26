@@ -1390,6 +1390,7 @@ export const layer = Layer.effect(
         const clusterModels = useCluster
           ? yield* AgentCluster.resolveModels(cfg.agent_cluster ?? {}).pipe(Effect.orDie)
           : undefined
+        const clusterTaskGraph = useCluster ? yield* AgentCluster.getSessionState(session.id) : undefined
         const reusableSubagents = useCluster ? yield* AgentCluster.reusableSubagents(session.id) : undefined
         const promptInput =
           useCluster && clusterModels
@@ -1399,6 +1400,7 @@ export const layer = Layer.effect(
                 session,
                 config: cfg.agent_cluster ?? {},
                 models: clusterModels,
+                taskGraph: clusterTaskGraph?.tasks,
                 reusableSubagents,
               })
             : input

@@ -1435,6 +1435,103 @@ describe("tool.task", () => {
     }),
   )
 
+  it.instance("cluster task applies a same-turn plan edit before dispatching an existing task", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      const taskID = "editable-task"
+      const now = Date.now()
+      yield* Database.query((db) =>
+        db
+          .insert(AgentClusterTaskTable)
+          .values({
+            id: taskID as any,
+            session_id: chat.id,
+            origin_message_id: assistant.parentID!,
+            role: "coder",
+            title: "Editable task",
+            prompt: "Use the old approach",
+            complexity: "simple",
+            model: "test/test-model",
+            status: "planned",
+            step: 1,
+            dependencies: [],
+            acceptance_criteria: ["updated work is complete"],
+            artifact_paths: [],
+            review_issues: [],
+            time_created: now,
+            time_updated: now,
+          })
+          .run(),
+      )
+      const updatedPlan = [
+        "```json",
+        JSON.stringify({
+          goal: "Apply corrected approach",
+          tasks: [
+            {
+              id: taskID,
+              step: 1,
+              title: "Editable task",
+              role: "coder",
+              complexity: "simple",
+              model: "test/test-model",
+              dependencies: [],
+              prompt: "Use the corrected approach",
+              acceptanceCriteria: ["updated work is complete"],
+              expectedArtifacts: [],
+            },
+          ],
+        }),
+        "```",
+      ].join("\n")
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const def = yield* (yield* TaskTool).init()
+
+      const result = yield* def.execute(
+        {
+          description: "apply corrected approach",
+          prompt: "Use the corrected approach",
+          subagent_type: "coder",
+          task_id: taskID,
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "cluster",
+          abort: new AbortController().signal,
+          extra: {
+            agentClusterSessionID: chat.id,
+            promptOps: {
+              ...stubOps(),
+              prompt: () => Effect.never,
+              currentAssistantText: () => updatedPlan,
+            } satisfies TaskPromptOps,
+          },
+          messages,
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const row = Database.use((db) =>
+        db
+          .select()
+          .from(AgentClusterTaskTable)
+          .where(
+            Database.and(
+              Database.eq(AgentClusterTaskTable.session_id, chat.id),
+              Database.eq(AgentClusterTaskTable.id, taskID as any),
+            ),
+          )
+          .get(),
+      )
+      expect(row?.prompt).toBe("Use the corrected approach")
+      expect(row?.status).toBe("running")
+      expect(row?.child_session_id).toBe(result.metadata.sessionId)
+    }),
+  )
+
   background.instance("background tasks complete through the background job service", () =>
     Effect.gen(function* () {
       const jobs = yield* BackgroundJob.Service
