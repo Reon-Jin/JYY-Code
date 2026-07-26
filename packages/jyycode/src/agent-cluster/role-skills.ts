@@ -369,13 +369,12 @@ export function roleSkillPermission(role: string): Record<string, "allow" | "den
   return permission
 }
 
-export function primarySkillPermission(): Record<string, "allow" | "deny"> {
+export function primarySkillPermission(globalSkillNames: readonly string[]): Record<string, "allow" | "deny"> {
   const permission: Record<string, "allow" | "deny"> = {
-    "*": "allow",
-    // Keep generic/user skills available without exposing role-specialist skills.
-    skill: "allow",
+    "*": "deny",
+    "customize-jyycode": "allow",
   }
-  for (const module of allRoleSkillModules()) permission[module.name] = "deny"
+  for (const name of globalSkillNames) permission[name] = "allow"
   return permission
 }
 

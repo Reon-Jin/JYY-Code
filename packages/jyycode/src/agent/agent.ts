@@ -97,6 +97,14 @@ export const layer = Layer.effect(
       Effect.fn("Agent.state")(function* (ctx) {
         const cfg = yield* config.get()
         const skillDirs = yield* skill.dirs()
+        const globalSkillRoot = path.resolve(Global.Path.home, ".jyycode", "skills")
+        const globalSkillNames = (yield* skill.all())
+          .filter((item) => {
+            const relative = path.relative(globalSkillRoot, item.location)
+            return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)
+          })
+          .map((item) => item.name)
+        const primarySkills = primarySkillPermission(globalSkillNames)
         const whitelistedDirs = [
           Truncate.GLOB,
           path.join(Global.Path.tmp, "*"),
@@ -160,7 +168,7 @@ export const layer = Layer.effect(
                 plan_enter: "allow",
               }),
               user,
-              Permission.fromConfig({ skill: primarySkillPermission() }),
+              Permission.fromConfig({ skill: primarySkills }),
             ),
             mode: "primary",
             native: true,
@@ -184,7 +192,7 @@ export const layer = Layer.effect(
                 },
               }),
               user,
-              Permission.fromConfig({ skill: primarySkillPermission() }),
+              Permission.fromConfig({ skill: primarySkills }),
             ),
             mode: "primary",
             native: true,

@@ -337,6 +337,7 @@ export function Composer(props: ComposerProps) {
             client={props.client}
             queryClient={props.queryClient}
             directory={props.directory}
+            agent={props.selectedAgent}
             open={autocompleteOpen()}
             query={slashQuery() ?? ""}
             ref={(handle) => {

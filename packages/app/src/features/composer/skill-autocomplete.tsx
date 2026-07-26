@@ -15,6 +15,7 @@ export type SkillAutocompleteProps = {
   client: Pick<DesktopClient, "app">
   queryClient: QueryClient
   directory: string
+  agent: string
   open: boolean
   query: string
   onSelect: (name: string) => void
@@ -26,10 +27,13 @@ export function SkillAutocomplete(props: SkillAutocompleteProps) {
   const [selected, setSelected] = createSignal(0)
   const skills = createQuery(
     () => ({
-      queryKey: keys.skills(props.directory),
+      queryKey: keys.skills(props.directory, props.agent),
       enabled: props.open,
       queryFn: async () => {
-        const result = await props.client.app.skills({ directory: props.directory }, { throwOnError: true })
+        const result = await props.client.app.skills(
+          { directory: props.directory, agent: props.agent },
+          { throwOnError: true },
+        )
         return result.data ?? []
       },
     }),

@@ -7,11 +7,14 @@ import {
 } from "../../src/agent-cluster/dispatcher"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 import {
+  primarySkillPermission,
   RoleSkillDefinitions,
   roleSkillName,
   roleSkillNames,
+  roleSkillPermission,
   roleSystemPrompt,
 } from "../../src/agent-cluster/role-skills"
+import { Permission } from "../../src/permission"
 
 describe("modelForComplexity", () => {
   const models = {
@@ -80,6 +83,22 @@ describe("SubagentDescriptions", () => {
     expect(roleSkillNames("explore")).toContain("acquire-codebase-knowledge")
     expect(roleSkillNames("scout")).toContain("source-driven-development")
     expect(roleSkillNames("coder")).not.toContain("literature-review")
+  })
+})
+
+describe("skill visibility", () => {
+  test("allows the primary only its built-in customization skill and global user skills", () => {
+    const rules = Permission.fromConfig({ skill: primarySkillPermission(["my-global-skill"]) })
+    expect(Permission.evaluate("skill", "customize-jyycode", rules).action).toBe("allow")
+    expect(Permission.evaluate("skill", "my-global-skill", rules).action).toBe("allow")
+    expect(Permission.evaluate("skill", "cluster-safe-implementation", rules).action).toBe("deny")
+    expect(Permission.evaluate("skill", "project-skill", rules).action).toBe("deny")
+  })
+
+  test("allows each child role only its assigned skill catalog", () => {
+    const rules = Permission.fromConfig({ skill: roleSkillPermission("coder") })
+    expect(Permission.evaluate("skill", "cluster-safe-implementation", rules).action).toBe("allow")
+    expect(Permission.evaluate("skill", "literature-review", rules).action).toBe("deny")
   })
 })
 

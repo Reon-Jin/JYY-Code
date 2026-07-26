@@ -113,6 +113,7 @@ const SkillMutationErrors = [
 export const SkillListQuery = Schema.Struct({
   ...WorkspaceRoutingQueryFields,
   scope: Schema.optional(Schema.Literal("global")),
+  agent: Schema.optional(Schema.String),
 })
 
 export const InstancePaths = {

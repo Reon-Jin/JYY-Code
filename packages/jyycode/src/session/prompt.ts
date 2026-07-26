@@ -453,13 +453,8 @@ export const layer = Layer.effect(
           Stream.mkString,
           Effect.orDie,
         )
-      const cleaned = text
-        .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
-        .split("\n")
-        .map((line) => line.trim())
-        .find((line) => line.length > 0)
-      if (!cleaned) return
-      const t = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
+      const t = normalizeGeneratedTitle(text)
+      if (!t) return
       yield* sessions
         .setTitle({ sessionID: input.session.id, title: t })
         .pipe(Effect.catchCause((cause) => elog.error("failed to generate title", { error: Cause.squash(cause) })))
@@ -2304,6 +2299,19 @@ const ModelRef = Schema.Struct({
   providerID: ProviderID,
   modelID: ModelID,
 })
+
+export function normalizeGeneratedTitle(text: string) {
+  const lines = text
+    .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length !== 1) return
+  const title = lines[0]!.replace(/^["'“”]+|["'“”]+$/g, "").trim()
+  if (!title || title.length > 80 || title.split(/\s+/).length > 16) return
+  if (/^(?:(?:i(?:'|’)ll|i will|let me|here(?:'|’)s|sure[,!]?)\b|我会|我将|让我|好的[，,！!]?)/i.test(title)) return
+  return title
+}
 
 export const PromptInput = Schema.Struct({
   sessionID: SessionID,

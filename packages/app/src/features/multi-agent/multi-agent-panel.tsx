@@ -16,7 +16,7 @@ import {
   Search,
   ShieldCheck,
 } from "lucide-solid"
-import { createMemo, createSignal, For, Index, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Index, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
@@ -70,18 +70,23 @@ function eventLabel(value: string) {
 
 function waveLabel(tone: MultiAgentTaskTone) {
   const labels: Record<MultiAgentTaskTone, string> = {
-    queued: "QUEUED",
-    running: "ACTIVE",
-    review: "VERIFYING",
-    done: "VERIFIED",
-    failed: "FAILED",
-    interrupted: "BLOCKED",
+    queued: tr("multi-agent.wave-status-queued"),
+    running: tr("multi-agent.wave-status-running"),
+    review: tr("multi-agent.wave-status-review"),
+    done: tr("multi-agent.wave-status-done"),
+    failed: tr("multi-agent.wave-status-failed"),
+    interrupted: tr("multi-agent.wave-status-interrupted"),
   }
   return labels[tone]
 }
 
 function roleMeta(task: MultiAgentTaskView) {
-  const status = task.tone === "done" ? "DONE" : task.tone === "interrupted" ? "INTERRUPTED" : task.status.toUpperCase()
+  const status =
+    task.tone === "done"
+      ? tr("multi-agent.count-done")
+      : task.tone === "interrupted"
+        ? tr("multi-agent.count-interrupted")
+        : task.statusLabel
   return `[${status}] · ${roleLabel(task.role).toUpperCase()}`
 }
 
@@ -187,8 +192,29 @@ export type MultiAgentPanelViewProps = {
 
 export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
   const [collapsedSteps, setCollapsedSteps] = createSignal<ReadonlySet<number>>(new Set())
+  const [cruiseRevisions, setCruiseRevisions] = createSignal<ReadonlyMap<number, number>>(new globalThis.Map())
+  let activeTasksByStep = new globalThis.Map<number, ReadonlySet<string>>()
   const completionPercent = () =>
     props.snapshot.totalAgents > 0 ? Math.round((props.snapshot.doneAgents / props.snapshot.totalAgents) * 100) : 0
+  const cruiseRevision = (step: number) => cruiseRevisions().get(step) ?? 0
+
+  createEffect(() => {
+    const nextActiveTasksByStep = new globalThis.Map<number, ReadonlySet<string>>()
+    const restartedSteps = new globalThis.Set<number>()
+    for (const step of props.snapshot.steps) {
+      const activeTasks = new globalThis.Set(step.tasks.filter((task) => task.tone === "running").map((task) => task.id))
+      const previous = activeTasksByStep.get(step.index)
+      if (previous && [...activeTasks].some((taskID) => !previous.has(taskID))) restartedSteps.add(step.index)
+      nextActiveTasksByStep.set(step.index, activeTasks)
+    }
+    activeTasksByStep = nextActiveTasksByStep
+    if (restartedSteps.size === 0) return
+    setCruiseRevisions((current) => {
+      const next = new globalThis.Map(current)
+      for (const step of restartedSteps) next.set(step, (next.get(step) ?? 0) + 1)
+      return next
+    })
+  })
 
   function toggleStep(index: number) {
     setCollapsedSteps((current) => {
@@ -205,8 +231,9 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
         <Bot aria-hidden="true" />
         <h2 id="multi-agent-panel-title">{tr("multi-agent.multi-agent")}</h2>
         <span class="multi-agent-panel__counts">
-          {props.snapshot.totalAgents} TASKS · {props.snapshot.doneAgents} DONE · {props.snapshot.runningAgents} ACTIVE ·{" "}
-          {props.snapshot.interruptedAgents} INTERRUPTED
+          {props.snapshot.totalAgents} {tr("multi-agent.count-tasks")} · {props.snapshot.doneAgents}{" "}
+          {tr("multi-agent.count-done")} · {props.snapshot.runningAgents} {tr("multi-agent.count-active")} ·{" "}
+          {props.snapshot.interruptedAgents} {tr("multi-agent.count-interrupted")}
         </span>
       </header>
       <div class="multi-agent-panel__progress-row">
@@ -283,7 +310,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                         <header>
                           <h3 id={`multi-agent-step-${wave().index}`}>
                             <span class="multi-agent-step__marker" aria-hidden="true" />
-                            <span>WAVE {String(step.index).padStart(2, "0")} · {waveLabel(step.tone)}</span>
+                            <span>{tr("multi-agent.wave", { index: String(step.index).padStart(2, "0"), status: waveLabel(step.tone) })}</span>
                           </h3>
                           <div class="multi-agent-step__actions">
                             <span class="multi-agent-step__ratio">
@@ -295,7 +322,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                               data-expanded={!collapsed()}
                               aria-controls={taskListID()}
                               aria-expanded={!collapsed()}
-                              aria-label={`Toggle Wave ${wave().index}`}
+                              aria-label={tr("multi-agent.toggle-wave", { index: wave().index })}
                               onClick={() => toggleStep(wave().index)}
                             >
                               <span aria-hidden="true">&gt;</span>
@@ -309,6 +336,8 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                                 <li
                                   class="multi-agent-task"
                                   data-tone={task().tone}
+                                  data-cruise-revision={cruiseRevision(wave().index)}
+                                  style={{ "--multi-agent-cruise-duration": `${2.8 + cruiseRevision(wave().index) / 1000}s` }}
                                   data-selected={
                                     task().childSessionID && task().childSessionID === props.selectedChildSessionID
                                       ? "true"
@@ -355,11 +384,11 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                   </Index>
                 </div>
 
-                <footer class="multi-agent-legend" aria-label="Task status legend">
-                  <span data-tone="queued"><i /> QUEUED</span>
-                  <span data-tone="running"><i /> ACTIVE</span>
-                  <span data-tone="done"><i /> DONE</span>
-                  <span data-tone="interrupted"><i /> INTERRUPTED</span>
+                <footer class="multi-agent-legend" aria-label={tr("multi-agent.task-status-legend")}>
+                  <span data-tone="queued"><i /> {tr("multi-agent.wave-status-queued")}</span>
+                  <span data-tone="running"><i /> {tr("multi-agent.count-active")}</span>
+                  <span data-tone="done"><i /> {tr("multi-agent.count-done")}</span>
+                  <span data-tone="interrupted"><i /> {tr("multi-agent.count-interrupted")}</span>
                 </footer>
               </div>
             </Show>

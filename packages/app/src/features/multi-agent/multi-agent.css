@@ -374,7 +374,7 @@
   content: "";
   pointer-events: none;
   transform: translate(-50%, -50%);
-  animation: multi-agent-active-edge 2.8s linear infinite;
+  animation: multi-agent-active-edge var(--multi-agent-cruise-duration, 2.8s) linear infinite;
 }
 
 .multi-agent-task details { display: block; }

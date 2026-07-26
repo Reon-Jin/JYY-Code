@@ -6448,6 +6448,7 @@ export type AppSkillsData = {
     directory?: string
     workspace?: string
     scope?: "global"
+    agent?: string
   }
   url: "/skill"
 }

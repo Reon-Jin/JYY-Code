@@ -558,6 +558,7 @@ export class App extends HeyApiClient {
       directory?: string
       workspace?: string
       scope?: "global"
+      agent?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -569,6 +570,7 @@ export class App extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "scope" },
+            { in: "query", key: "agent" },
           ],
         },
       ],

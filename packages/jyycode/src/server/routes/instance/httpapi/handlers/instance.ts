@@ -169,8 +169,9 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* agent.list()
     })
 
-    const getSkill = Effect.fn("InstanceHttpApi.skill")(function* () {
-      return yield* skill.all()
+    const getSkill = Effect.fn("InstanceHttpApi.skill")(function* (ctx: { query: { agent?: string } }) {
+      if (!ctx.query.agent) return yield* skill.all()
+      return yield* skill.available(yield* agent.get(ctx.query.agent))
     })
 
     const markMutation = Effect.fn("InstanceHttpApi.markSkillMutation")(function* () {
