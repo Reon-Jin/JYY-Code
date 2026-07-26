@@ -5,6 +5,10 @@ description: Delivers changes incrementally. Use when implementing any feature o
 
 # Incremental Implementation
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux. Treat shell and package-manager snippets as project-specific examples: discover the repository toolchain and use the active host's native shell. Do not assume Bash syntax or install dependencies solely to follow this skill.
+
 ## Overview
 
 Build in thin vertical slices — implement one piece, test it, verify it, then expand. Avoid implementing an entire feature in one pass. Each increment should leave the system in a working, testable state. This is the execution discipline that makes large features manageable.

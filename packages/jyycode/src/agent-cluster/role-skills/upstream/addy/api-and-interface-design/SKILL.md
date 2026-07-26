@@ -5,6 +5,10 @@ description: Guides stable API and interface design. Use when designing APIs, mo
 
 # API and Interface Design
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux. Treat shell and package-manager snippets as project-specific examples: discover the repository toolchain and use the active host's native shell. Do not assume Bash syntax or install dependencies solely to follow this skill.
+
 ## Overview
 
 Design stable, well-documented interfaces that are hard to misuse. Good interfaces make the right thing easy and the wrong thing hard. This applies to REST APIs, GraphQL schemas, module boundaries, component props, and any surface where one piece of code talks to another.

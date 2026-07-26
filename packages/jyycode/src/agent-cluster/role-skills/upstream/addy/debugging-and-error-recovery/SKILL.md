@@ -5,6 +5,10 @@ description: Guides systematic root-cause debugging. Use when tests fail, builds
 
 # Debugging and Error Recovery
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux. Treat shell and package-manager snippets as project-specific examples: discover the repository toolchain and use the active host's native shell. Do not assume Bash syntax or install dependencies solely to follow this skill.
+
 ## Overview
 
 Systematic debugging with structured triage. When something breaks, stop adding features, preserve evidence, and follow a structured process to find and fix the root cause. Guessing wastes time. The triage checklist works for test failures, build errors, runtime bugs, and production incidents.

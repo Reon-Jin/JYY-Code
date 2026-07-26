@@ -69,3 +69,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+## Platform compatibility
+
+Supports Windows, macOS, and Linux. Discover the repository's declared runtime, package manager, and test commands before running them; use the active host's native shell and do not translate an example Bash command literally onto Windows. Do not install or upgrade dependencies solely to satisfy a workflow example.

@@ -7,6 +7,10 @@ metadata: { "version": "1.1", "skill-author": "K-Dense Inc." }
 
 # Statistical Analysis
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux with Python 3.10+ and the already-installed analysis libraries required by the delegated method. Resolve the host's Python runtime instead of assuming python3, Bash, or a package installer. For headless hosts, pass plot=False or use a non-interactive backend; do not use this skill to claim plots were inspected when no renderer is available.
+
 ## Overview
 
 Conduct hypothesis tests (t-tests, ANOVA, chi-square), regression, correlation, and Bayesian analyses with systematic assumption checking, effect sizes, and APA-style reporting. The goal is an analysis a reviewer could not tear apart: the right test, verified assumptions, honest effect sizes, and a complete write-up.
@@ -25,17 +29,9 @@ Use this skill when:
 
 ---
 
-## Installation
+## Runtime prerequisites
 
-Use **uv** to install the libraries used in this skill. Pin versions in production; unpinned installs are fine for exploration.
-
-```bash
-# Core frequentist stack (Python 3.10+; 3.12+ recommended for latest SciPy/ArviZ)
-uv pip install "pingouin>=0.6" "scipy>=1.11" "statsmodels>=0.14.6" pandas matplotlib seaborn
-
-# Bayesian modeling (PyMC 5 + ArviZ)
-uv pip install "pymc>=5.0" "arviz>=1.0"
-```
+The requested method may need Pingouin, SciPy, Statsmodels, Pandas, Matplotlib, Seaborn, PyMC, or ArviZ. Use only packages already available in the assigned runtime. If a required package is absent, do not install it during the task; report the blocked method and offer an available alternative.
 
 **Compatibility notes (verified against pingouin 0.6.1, statsmodels 0.14.6, arviz 1.2, 2026):**
 

@@ -3,6 +3,10 @@ name: repo-story-time
 description: "Generate a comprehensive repository summary and narrative story from commit history"
 ---
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux. The PowerShell commands below are Windows examples, not mandatory commands: on macOS/Linux use equivalent native file-discovery commands, and on any host prefer JYYCode's native repository search where available. Do not install dependencies merely to run this workflow.
+
 ## Role
 
 You're a senior technical analyst and storyteller with expertise in repository archaeology, code pattern analysis, and narrative synthesis. Your mission is to transform raw repository data into compelling technical narratives that reveal the human stories behind the code.

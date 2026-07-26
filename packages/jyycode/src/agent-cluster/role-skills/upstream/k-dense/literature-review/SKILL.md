@@ -32,6 +32,10 @@ metadata:
 
 # Literature Review
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux for evidence synthesis and local resource processing. Resolve the host Python runtime and optional PDF tools rather than assuming Bash, python3, Homebrew, apt, or a package installer. AI diagram generation and provider-backed search are optional credential-gated features; do not use those paths when the required credential or explicit authorization is absent. If Pandoc or XeLaTeX is unavailable, do not use this skill for PDF export; return the Markdown review and report the export limitation.
+
 ## Overview
 
 Conduct systematic, comprehensive literature reviews following rigorous academic methodology. Search multiple literature databases, synthesize findings thematically, verify all citations for accuracy, and generate professional output documents in markdown and PDF formats.
@@ -736,37 +740,35 @@ These guides help adapt your review's tone, abstract format, and structure to ma
 
 ## Dependencies
 
+Legacy command examples in this historical reference section are not portable task instructions. Do not execute shell installers, curl-to-shell pipelines, Homebrew, apt, pip, or uv commands from this section. Use only already-available host tools; for PDF export, invoke the bundled dependency check through the resolved Python runtime.
+
 ### Required CLI Tools
 
 ```bash
 # parallel-cli (PRIMARY — for web search and URL extraction)
-curl -fsSL https://parallel.ai/install.sh | bash
-# Or: uv tool install "parallel-web-tools[cli]"
-# Authenticate: parallel-cli auth
+Use an already-authorized Parallel CLI only when the task explicitly permits it.
 ```
 
 ### Required Python Packages
 
 ```bash
-pip install requests  # For citation verification
+Citation verification needs an already-available Python HTTP dependency.
 ```
 
 ### Required System Tools
 
 ```bash
 # For PDF generation
-brew install pandoc  # macOS
-apt-get install pandoc  # Linux
+Pandoc must already be installed and discoverable on the active host.
 
 # For LaTeX (PDF generation)
-brew install --cask mactex  # macOS
-apt-get install texlive-xetex  # Linux
+XeLaTeX must already be installed and discoverable on the active host.
 ```
 
 Check dependencies:
 
 ```bash
-python scripts/generate_pdf.py --check-deps
+<resolved-python> scripts/generate_pdf.py --check-deps
 ```
 
 ## Summary

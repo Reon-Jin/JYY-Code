@@ -11,6 +11,10 @@ description: "Read, create, inspect, render, and verify PDF files with a Windows
 - Create PDFs programmatically with reliable formatting.
 - Validate final rendering before delivery.
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux when a PDF renderer is already available. Use the active host's native shell and resolved executable paths; do not install software during a task. If no renderer is present, this skill supports structural PDF checks only and must not be used to claim visual QA or print-ready layout verification.
+
 ## Runtime contract
 
 - Use the workspace-provided runtime and already-installed tools first. Do not install packages or system tools during a task.
@@ -24,6 +28,16 @@ description: "Read, create, inspect, render, and verify PDF files with a Windows
 - Invoke a discovered executable path with the PowerShell call operator:
 
       & $pdftoppm -png -- $InputPdf $OutputPrefix
+
+- On macOS and Linux, discover optional executables with:
+
+      pdftoppm=$(command -v pdftoppm) || true
+      pdfinfo=$(command -v pdfinfo) || true
+      soffice=$(command -v soffice) || true
+
+- Invoke a discovered POSIX executable path without assuming a fixed installation location:
+
+      "$pdftoppm" -png -- "$input_pdf" "$output_prefix"
 
 - If the workspace resolves a Python runtime, use that runtime and its installed libraries. Otherwise use python only when it is already available. Do not prescribe package-install commands.
 

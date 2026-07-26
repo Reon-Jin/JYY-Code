@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { existsSync } from "node:fs"
+import path from "node:path"
 import {
   buildTaskBrief,
   modelForComplexity,
@@ -7,6 +9,7 @@ import {
 } from "../../src/agent-cluster/dispatcher"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 import {
+  allRoleSkillModules,
   primarySkillPermission,
   RoleSkillDefinitions,
   roleSkillName,
@@ -56,6 +59,26 @@ describe("modelForComplexity", () => {
 })
 
 describe("SubagentDescriptions", () => {
+  test("vendors companion resources for active upstream workflows", () => {
+    const root = path.resolve(import.meta.dir, "../../src/agent-cluster/role-skills/upstream")
+    const required = [
+      "k-dense/literature-review/assets/review_template.md",
+      "k-dense/literature-review/scripts/verify_citations.py",
+      "k-dense/research-lookup/scripts/research_lookup.py",
+      "k-dense/peer-review/references/common_issues.md",
+      "k-dense/statistical-analysis/scripts/assumption_checks.py",
+      "k-dense/scientific-writing/assets/scientific_report_template.tex",
+      "k-dense/scientific-visualization/assets/publication.mplstyle",
+      "k-dense/scientific-slides/scripts/pdf_to_images.py",
+      "k-dense/seaborn/references/examples.md",
+      "github/acquire-codebase-knowledge/scripts/scan.py",
+      "github/acquire-codebase-knowledge/assets/templates/ARCHITECTURE.md",
+    ]
+    for (const resource of required) {
+      expect(existsSync(path.join(root, resource))).toBe(true)
+    }
+  })
+
   test("has description for all 8 cluster roles", () => {
     const roles = ["researcher", "analyst", "writer", "chart", "office", "coder", "tester", "general"]
     for (const role of roles) {
@@ -70,6 +93,25 @@ describe("SubagentDescriptions", () => {
     for (const role of roles) {
       expect(RoleSkillDefinitions[role as keyof typeof RoleSkillDefinitions].skillContent).toContain("---")
       expect(RoleSkillDefinitions[role as keyof typeof RoleSkillDefinitions].capabilitySummary).toBeTruthy()
+    }
+  })
+
+  test("gives every local role profile a cross-platform runtime contract", () => {
+    for (const role of Object.keys(RoleSkillDefinitions)) {
+      const profile = RoleSkillDefinitions[role as keyof typeof RoleSkillDefinitions]
+      expect(profile.skillContent).toContain("## Platform compatibility")
+      expect(profile.skillContent).toContain("Windows")
+      expect(profile.skillContent).toContain("macOS")
+      expect(profile.skillContent).toContain("Linux")
+    }
+  })
+
+  test("gives every active upstream workflow a cross-platform runtime contract", () => {
+    for (const module of allRoleSkillModules()) {
+      expect(module.content).toContain("## Platform compatibility")
+      expect(module.content).toContain("Windows")
+      expect(module.content).toContain("macOS")
+      expect(module.content).toContain("Linux")
     }
   })
 

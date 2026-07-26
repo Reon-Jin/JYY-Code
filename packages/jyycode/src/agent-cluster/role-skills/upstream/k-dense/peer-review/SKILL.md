@@ -1,7 +1,7 @@
 ---
 name: peer-review
 description: Structured manuscript/grant review with checklist-based evaluation. Use when writing formal peer reviews with specific criteria methodology assessment, statistical validity, reporting standards compliance (CONSORT/STROBE), and constructive feedback. Best for actual review writing, manuscript revision. For evaluating claims/evidence quality use scientific-critical-thinking; for quantitative scoring frameworks use scholar-evaluation.
-allowed-tools: Read Write Edit Bash
+allowed-tools: Read Write Edit
 license: MIT license
 required_environment_variables:
   [
@@ -31,6 +31,10 @@ metadata:
 ---
 
 # Scientific Critical Evaluation and Peer Review
+
+## Platform compatibility
+
+Supports Windows, macOS, and Linux for document review and structured feedback. Use the active host's native shell and discovered runtimes; do not assume Bash, `python3`, a package manager, or a graphical display. AI diagram generation is optional and requires an available credential. PDF image conversion needs an already-installed Python/PDF dependency stack; if it is unavailable, complete the text-based review and report that visual inspection was not run.
 
 ## Overview
 

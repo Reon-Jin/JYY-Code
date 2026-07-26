@@ -29,6 +29,10 @@ metadata:
 
 # Research Lookup
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux for evidence synthesis. Prefer JYYCode's native web tools; the Parallel and OpenRouter paths are optional, credential-gated network integrations. Resolve any local Python runtime with the host-native command lookup rather than assuming Bash, `python3`, a package manager, or a fixed skill-root path. If a credential, network route, or optional runtime is unavailable, return the verified evidence collected by available tools and state the omitted step.
+
 Compile the external evidence needed to plan and write a high-quality scientific
 manuscript. The default academic workflow targets **60 verified, unique references**
 and produces a manuscript-ready research packet rather than a loose list of links.
@@ -293,21 +297,16 @@ python skills/research-lookup/scripts/research_lookup.py \
 
 Each batch query receives its own packet subdirectory.
 
-## Setup
+## Provider readiness
 
-Check the current installation before changing it:
+Check a previously configured provider integration before using it:
 
 ```bash
 parallel-cli --version
 parallel-cli auth
 ```
 
-If the CLI is missing, install the reviewed version in an isolated environment:
-
-```bash
-uv tool install "parallel-web-tools[cli]==0.7.1"
-parallel-cli login
-```
+If the CLI is missing, do not install it during this workflow. Use JYYCode native web tools, or report that the optional provider-backed step was unavailable.
 
 For headless environments, use `parallel-cli login --device` or an existing
 `PARALLEL_API_KEY`. The explicit Chat backend always requires `PARALLEL_API_KEY` in

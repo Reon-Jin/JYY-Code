@@ -5,6 +5,10 @@ description: Hardens code against vulnerabilities. Use when handling user input,
 
 # Security and Hardening
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux. Treat shell and package-manager snippets as project-specific examples: discover the repository toolchain and use the active host's native shell. Do not assume Bash syntax or install dependencies solely to follow this skill.
+
 ## Overview
 
 Security-first development practices for web applications. Treat every external input as hostile, every secret as sacred, and every authorization check as mandatory. Security isn't a phase — it's a constraint on every line of code that touches user data, authentication, or external systems.

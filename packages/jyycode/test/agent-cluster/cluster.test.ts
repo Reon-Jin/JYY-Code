@@ -1,6 +1,6 @@
 // @ts-nocheck -- runtime assertions cover branded API boundaries directly.
 import { describe, expect, test } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Deferred, Effect, Layer } from "effect"
 import { AgentCluster } from "../../src/agent-cluster/cluster"
 import { BackgroundJob } from "../../src/background/job"
 import { ConfigAgentCluster } from "../../src/config/agent-cluster"
@@ -9,10 +9,16 @@ import { RoleSkillDefinitions } from "../../src/agent-cluster/role-skills"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 import { Session } from "../../src/session/session"
 import type { Session as SessionInfo } from "../../src/session/session"
-import { testEffect } from "../lib/effect"
+import { SessionRunState } from "../../src/session/run-state"
+import { SessionStatus } from "../../src/session/status"
+import { awaitWithTimeout, testEffect } from "../lib/effect"
 
 const it = testEffect(Session.defaultLayer)
-const interruptIt = testEffect(Layer.mergeAll(Session.defaultLayer, BackgroundJob.defaultLayer))
+const backgroundLayer = BackgroundJob.defaultLayer
+const runStateLayer = SessionRunState.layer.pipe(
+  Layer.provide(Layer.mergeAll(backgroundLayer, SessionStatus.defaultLayer)),
+)
+const interruptIt = testEffect(Layer.mergeAll(Session.defaultLayer, backgroundLayer, runStateLayer))
 const dispatchConfig = { simple_model: "test/simple", complex_model: "test/complex", visual_model: "test/visual" }
 
 describe("AgentCluster planner instructions", () => {
@@ -279,6 +285,54 @@ describe("AgentCluster session task graph", () => {
       expect(state.tasks.find((item) => item.id === "old-work")?.status).toBe("interrupted")
       expect((yield* jobs.get("ses_worker"))?.status).toBe("cancelled")
       expect(dispatch.childSessionID).toBe("ses_worker")
+    }),
+  )
+
+  interruptIt.instance("also stops the child session runner before it is steered", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Steer worker" })
+      const task = {
+        id: "worker-task" as any,
+        step: 1,
+        title: "Worker task",
+        role: "coder" as const,
+        complexity: "simple" as const,
+        model: "test/simple",
+        dependencies: [],
+        prompt: "Keep working",
+        acceptanceCriteria: [],
+        expectedArtifacts: [],
+      }
+      yield* AgentCluster.persistPlan({ sessionID: chat.id, plan: { goal: "Steer", tasks: [task] } })
+      yield* AgentCluster.markTaskRunning({
+        sessionID: chat.id,
+        taskID: task.id,
+        childSessionID: "ses_worker" as any,
+      })
+
+      const started = yield* Deferred.make<void>()
+      const stopped = yield* Deferred.make<void>()
+      const runState = yield* SessionRunState.Service
+      yield* runState
+        .ensureRunning(
+          "ses_worker" as any,
+          Effect.succeed({} as never),
+          Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
+        )
+        .pipe(Effect.asVoid, Effect.tap(() => Deferred.succeed(stopped, undefined).pipe(Effect.asVoid)), Effect.forkChild)
+      yield* Deferred.await(started)
+
+      const jobs = yield* BackgroundJob.Service
+      yield* jobs.start({ id: "ses_worker", type: "task", run: Effect.never as Effect.Effect<string> })
+      yield* AgentCluster.interruptActiveChildAssignment({
+        sessionID: chat.id,
+        childSessionID: "ses_worker" as any,
+        reason: "Interrupted by a user steering message.",
+      })
+
+      yield* awaitWithTimeout(Deferred.await(stopped), "child session runner did not stop")
+      yield* runState.assertNotBusy("ses_worker" as any)
     }),
   )
 })

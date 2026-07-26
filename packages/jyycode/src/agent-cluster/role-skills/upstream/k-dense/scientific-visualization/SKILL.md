@@ -7,6 +7,10 @@ metadata: { "version": "1.0", "skill-author": "K-Dense Inc." }
 
 # Scientific Visualization
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux when the selected Python plotting libraries are already installed. Resolve the host's Python executable rather than assuming Bash, `python3`, or a package installer. On headless hosts use a non-interactive backend and verify exported files structurally; do not claim an on-screen visual inspection without an available renderer.
+
 ## Overview
 
 Scientific visualization transforms data into clear, accurate figures for publication. Create journal-ready plots with multi-panel layouts, error bars, significance markers, and colorblind-safe palettes. Export as PDF/EPS/TIFF using matplotlib, seaborn, and plotly for manuscripts.

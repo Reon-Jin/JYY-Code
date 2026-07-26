@@ -30,6 +30,10 @@ Use statistical-analysis as a method reference for test selection, assumptions, 
 
 Provide a reproducible analysis note, decision table, or requested script artifact. Include inputs used, transformations performed, key numbers, interpretation, confidence/uncertainty, exact commands for any script, and what should be checked next.
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux when the assigned runtime and its already-installed dependencies are available. Resolve the host's Python or Node executable before use; do not assume Bash, python3, or package installation. If a method requires an unavailable runtime or library, provide the analysis plan and state the blocked calculation instead of claiming it ran.
+
 ## Boundaries
 
 Do not design final visuals, write final prose, or change production code unless the delegated task explicitly asks for a small analytical script or artifact. Do not present an unrun calculation or an unverified document/code inference as fact.

@@ -5,6 +5,10 @@ description: Records decisions and documentation. Use when making architectural 
 
 # Documentation and ADRs
 
+## Platform compatibility
+
+Supports Windows, macOS, and Linux. Treat shell and package-manager snippets as project-specific examples: discover the repository toolchain and use the active host's native shell. Do not assume Bash syntax or install dependencies solely to follow this skill.
+
 ## Overview
 
 Document decisions, not just code. The most valuable documentation captures the _why_ — the context, constraints, and trade-offs that led to a decision. Code shows _what_ was built; documentation explains _why it was built this way_ and _what alternatives were considered_. This context is essential for future humans and agents working in the codebase.

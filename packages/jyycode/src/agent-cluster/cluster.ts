@@ -7,6 +7,7 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import type { Session } from "@/session/session"
 import type { MessageV2 } from "@/session/message-v2"
 import type { PromptInput } from "@/session/prompt"
+import { SessionRunState } from "@/session/run-state"
 import type { MessageID, SessionID } from "@/session/schema"
 import { Bus } from "@/bus"
 import { BackgroundJob } from "@/background/job"
@@ -511,6 +512,11 @@ export const interruptChildAssignment = Effect.fn("AgentCluster.interruptChildAs
   if (updated.child_session_id) {
     const jobs = Option.getOrUndefined(yield* Effect.serviceOption(BackgroundJob.Service))
     if (jobs) yield* jobs.cancel(updated.child_session_id)
+    // A child prompt runs in the session runner's scope, rather than inside
+    // its background job fiber. Cancel both so a replacement assignment or
+    // user steering message does not join the stale runner.
+    const runState = Option.getOrUndefined(yield* Effect.serviceOption(SessionRunState.Service))
+    if (runState) yield* runState.cancel(updated.child_session_id)
   }
   return { task: updated as TaskRow, interrupted: true }
 })

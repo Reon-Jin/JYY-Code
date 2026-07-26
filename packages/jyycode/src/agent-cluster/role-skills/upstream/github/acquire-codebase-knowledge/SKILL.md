@@ -2,7 +2,7 @@
 name: acquire-codebase-knowledge
 description: 'Use this skill when the user explicitly asks to map, document, or onboard into an existing codebase. Trigger for prompts like "map this codebase", "document this architecture", "onboard me to this repo", or "create codebase docs". Do not trigger for routine feature implementation, bug fixes, or narrow code edits unless the user asks for repository-level discovery.'
 license: MIT
-compatibility: "Cross-platform. Requires Python 3.8+ and git. Run scripts/scan.py from the target project root."
+compatibility: "Windows, macOS, and Linux with an already-available Python 3.8+ runtime and Git. Use the host-native shell and a resolved Python executable."
 metadata:
   version: "1.3"
   enhancements:
@@ -16,6 +16,10 @@ argument-hint: 'Optional: specific area to focus on, e.g. "architecture only", "
 ---
 
 # Acquire Codebase Knowledge
+
+## Platform compatibility
+
+Supports Windows, macOS, and Linux when Python 3.8+ and Git are already available. Resolve the Python executable with the host's normal command lookup; do not assume python3, Bash syntax, or a fixed skill-root path. If Python or Git is unavailable, do not use the companion scanner and continue with JYYCode's native file and search tools.
 
 Produces seven populated documents in `docs/codebase/` covering everything needed to work effectively on the project. Only document what is verifiable from files or terminal output — never infer or assume.
 
@@ -53,16 +57,16 @@ If the user supplies a focus area (for example: "architecture only" or "testing 
 
 1. Run the scan script from the target project root:
 
-   ```bash
-   python3 "$SKILL_ROOT/scripts/scan.py" --output docs/codebase/.codebase-scan.txt
+   ```text
+   <resolved-python> <skill-root>/scripts/scan.py --output docs/codebase/.codebase-scan.txt
    ```
 
    Where `$SKILL_ROOT` is the absolute path to the skill folder. Works on Windows, macOS, and Linux.
 
    **Quick start:** If you have the path inline:
 
-   ```bash
-   python3 /absolute/path/to/skills/acquire-codebase-knowledge/scripts/scan.py --output docs/codebase/.codebase-scan.txt
+   ```text
+   <resolved-python> <absolute-skill-root>/scripts/scan.py --output docs/codebase/.codebase-scan.txt
    ```
 
 2. Search for `PRD`, `TRD`, `README`, `ROADMAP`, `SPEC`, `DESIGN` files and read them.
