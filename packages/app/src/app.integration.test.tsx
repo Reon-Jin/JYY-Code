@@ -357,7 +357,7 @@ describe("desktop GUI journey", () => {
     })
     expect(await screen.findByRole("progressbar", { name: "多智能体进度" })).toHaveAttribute("aria-valuenow", "0")
     const taskCounts = document.querySelector(".multi-agent-panel__counts")
-    await waitFor(() => expect(taskCounts).toHaveTextContent(/1 TASKS.*1 ACTIVE/))
+    await waitFor(() => expect(taskCounts).toHaveTextContent(/1 (?:TASKS|任务).*1 (?:ACTIVE|进行中)/i))
 
     const railButton = screen.getByRole("button", { name: "多智能体" })
     await user.click(railButton)
