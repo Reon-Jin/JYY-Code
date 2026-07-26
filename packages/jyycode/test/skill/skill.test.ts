@@ -96,11 +96,12 @@ describe("skill", () => {
         origin: "built_in",
         source: expect.stringContaining("addyosmani"),
       })
-      expect(records.get("images-search")).toMatchObject({
-        origin: "built_in",
-        source: expect.stringContaining("brave"),
-      })
+      expect(records.get("images-search")).toBeUndefined()
       expect(records.get("pdf")).toMatchObject({ origin: "built_in", source: expect.stringContaining("openai") })
+      expect(records.get("pdf")?.content).toContain("Get-Command")
+      expect(records.get("pdf")?.content).not.toContain("python3 -m pip")
+      expect(records.get("pdf")?.content).not.toContain("brew install")
+      expect(records.get("pdf")?.content).not.toContain("sudo apt-get")
       expect(records.get("literature-review")?.content).toContain("# Literature Review")
     }),
   )

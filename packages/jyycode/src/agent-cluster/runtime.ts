@@ -104,11 +104,27 @@ function resolveRole(raw: string): PlannedTask["role"] {
   const lower = raw.toLowerCase()
   if (lower.includes("research") || lower.includes("调研")) return "researcher"
   if (lower.includes("search") || lower.includes("图片") || lower.includes("image") || lower.includes("picture"))
-    return "picture_searcher"
+    return "researcher"
   if (lower.includes("analyst") || lower.includes("analysis") || lower.includes("分析")) return "analyst"
   if (lower.includes("write") || lower.includes("writer") || lower.includes("写")) return "writer"
   if (lower.includes("chart") || lower.includes("图表")) return "chart"
-  if (lower.includes("pdf") || lower.includes("文档") || lower.includes("doc")) return "pdf"
+  if (
+    lower.includes("pdf") ||
+    lower.includes("word") ||
+    lower.includes("doc") ||
+    lower.includes("excel") ||
+    lower.includes("xlsx") ||
+    lower.includes("spreadsheet") ||
+    lower.includes("workbook") ||
+    lower.includes("powerpoint") ||
+    lower.includes("ppt") ||
+    lower.includes("office") ||
+    lower.includes("文档") ||
+    lower.includes("表格") ||
+    lower.includes("演示") ||
+    lower.includes("幻灯片")
+  )
+    return "office"
   if (lower.includes("test") || lower.includes("测试") || lower.includes("验证")) return "tester"
   if (
     lower.includes("code") ||

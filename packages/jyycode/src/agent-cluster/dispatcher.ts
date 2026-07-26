@@ -14,7 +14,7 @@ export function modelForComplexity(input: {
   visualModel?: string
   role?: TaskRole
 }) {
-  if (input.visualModel && (input.role === "picture_searcher" || input.role === "chart" || input.role === "pdf")) {
+  if (input.visualModel && (input.role === "chart" || input.role === "office")) {
     return input.visualModel
   }
   return input.complexity === "simple" ? input.simpleModel : input.complexModel
@@ -22,11 +22,10 @@ export function modelForComplexity(input: {
 
 export const SubagentDescriptions = {
   researcher: RoleSkillDefinitions.researcher.description,
-  picture_searcher: RoleSkillDefinitions.picture_searcher.description,
   analyst: RoleSkillDefinitions.analyst.description,
   writer: RoleSkillDefinitions.writer.description,
   chart: RoleSkillDefinitions.chart.description,
-  pdf: RoleSkillDefinitions.pdf.description,
+  office: RoleSkillDefinitions.office.description,
   coder: RoleSkillDefinitions.coder.description,
   tester: RoleSkillDefinitions.tester.description,
   general: RoleSkillDefinitions.general.description,

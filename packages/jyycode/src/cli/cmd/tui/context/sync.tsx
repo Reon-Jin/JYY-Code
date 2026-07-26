@@ -40,7 +40,7 @@ export type AgentClusterTask = {
   origin_message_id: string | null
   parent_task_id: string | null
   child_session_id: string | null
-  role: "researcher" | "analyst" | "writer" | "chart" | "pdf" | "coder" | "tester" | "picture_searcher" | "general"
+  role: "researcher" | "analyst" | "writer" | "chart" | "office" | "coder" | "tester" | "general"
   title: string
   prompt: string
   complexity: "simple" | "complex"

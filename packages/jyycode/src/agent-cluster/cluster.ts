@@ -683,7 +683,7 @@ export const prepareTaskDispatch = Effect.fn("AgentCluster.prepareTaskDispatch")
   const variant =
     task.model !== "-"
       ? undefined
-      : task.role === "picture_searcher" || task.role === "chart" || task.role === "pdf"
+      : task.role === "chart" || task.role === "office"
         ? config.visual_variant || undefined
         : task.complexity === "simple"
           ? config.simple_variant || undefined

@@ -252,10 +252,9 @@ export const layer = Layer.effect(
           analyst: clusterSubagent("analyst"),
           writer: clusterSubagent("writer"),
           chart: clusterSubagent("chart"),
-          pdf: clusterSubagent("pdf"),
+          office: clusterSubagent("office"),
           coder: clusterSubagent("coder"),
           tester: clusterSubagent("tester"),
-          picture_searcher: clusterSubagent("picture_searcher"),
           explore: {
             name: "explore",
             permission: Permission.merge(

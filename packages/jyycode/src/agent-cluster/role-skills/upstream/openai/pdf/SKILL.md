@@ -1,6 +1,6 @@
 ---
 name: "pdf"
-description: "Use when tasks involve reading, creating, or reviewing PDF files where rendering and layout matter; prefer visual checks by rendering pages (Poppler) and use Python tools such as `reportlab`, `pdfplumber`, and `pypdf` for generation and extraction."
+description: "Read, create, inspect, render, and verify PDF files with a Windows-compatible runtime workflow."
 ---
 
 # PDF Skill
@@ -11,69 +11,51 @@ description: "Use when tasks involve reading, creating, or reviewing PDF files w
 - Create PDFs programmatically with reliable formatting.
 - Validate final rendering before delivery.
 
+## Runtime contract
+
+- Use the workspace-provided runtime and already-installed tools first. Do not install packages or system tools during a task.
+- Do not assume python3, Homebrew, apt, sudo, or a Unix shell is available.
+- On Windows, discover optional executables before using them:
+
+      $pdftoppm = (Get-Command pdftoppm -ErrorAction SilentlyContinue).Source
+      $pdfinfo = (Get-Command pdfinfo -ErrorAction SilentlyContinue).Source
+      $soffice = (Get-Command soffice -ErrorAction SilentlyContinue).Source
+
+- Invoke a discovered executable path with the PowerShell call operator:
+
+      & $pdftoppm -png -- $InputPdf $OutputPrefix
+
+- If the workspace resolves a Python runtime, use that runtime and its installed libraries. Otherwise use python only when it is already available. Do not prescribe package-install commands.
+
 ## Workflow
 
-1. Prefer visual review: render PDF pages to PNGs and inspect them.
-   - Use `pdftoppm` if available.
-   - If unavailable, install Poppler or ask the user to review the output locally.
-2. Use `reportlab` to generate PDFs when creating new documents.
-3. Use `pdfplumber` (or `pypdf`) for text extraction and quick checks; do not rely on it for layout fidelity.
-4. After each meaningful update, re-render pages and verify alignment, spacing, and legibility.
+1. Inspect the input PDF and confirm the requested edit, output path, and whether visual fidelity is required.
+2. Use reportlab for new PDFs when it is already available in the assigned runtime.
+3. Use pdfplumber or pypdf for extraction and structural checks when available; do not treat extraction as layout verification.
+4. Render the final PDF to PNGs with a discovered Poppler renderer and inspect alignment, spacing, legibility, links, tables, and glyphs.
+5. If no renderer is available, perform structural checks and clearly report that visual QA was unavailable. Never state that an unrendered file is print-ready.
+
+## Rendering fallbacks
+
+1. Prefer a discovered pdftoppm executable.
+2. If the source is an Office document and a discovered soffice executable is available, use its headless conversion only when the task requires a PDF export; then render the produced PDF if pdftoppm is available.
+3. Without a renderer, verify page count, readable extracted text, metadata, links, and file integrity with available libraries, then disclose the visual-QA limitation.
 
 ## Temp and output conventions
 
-- Use `tmp/pdfs/` for intermediate files; delete when done.
-- Write final artifacts under `output/pdf/` when working in this repo.
-- Keep filenames stable and descriptive.
-
-## Dependencies (install if missing)
-
-Prefer `uv` for dependency management.
-
-Python packages:
-
-```
-uv pip install reportlab pdfplumber pypdf
-```
-
-If `uv` is unavailable:
-
-```
-python3 -m pip install reportlab pdfplumber pypdf
-```
-
-System tools (for rendering):
-
-```
-# macOS (Homebrew)
-brew install poppler
-
-# Ubuntu/Debian
-sudo apt-get install -y poppler-utils
-```
-
-If installation isn't possible in this environment, tell the user which dependency is missing and how to install it locally.
-
-## Environment
-
-No required environment variables.
-
-## Rendering command
-
-```
-pdftoppm -png $INPUT_PDF $OUTPUT_PREFIX
-```
+- Use tmp/pdfs/ for intermediate files when that convention fits the repository.
+- Write final artifacts to the task-requested path; do not override an existing project convention.
+- Keep source files, intermediate files, and final outputs separate.
 
 ## Quality expectations
 
-- Maintain polished visual design: consistent typography, spacing, margins, and section hierarchy.
-- Avoid rendering issues: clipped text, overlapping elements, broken tables, black squares, or unreadable glyphs.
-- Charts, tables, and images must be sharp, aligned, and clearly labeled.
-- Use ASCII hyphens only. Avoid U+2011 (non-breaking hyphen) and other Unicode dashes.
-- Citations and references must be human-readable; never leave tool tokens or placeholder strings.
+- Maintain consistent typography, spacing, margins, headers, footers, and section hierarchy.
+- Avoid clipped text, overlapping elements, broken tables, black squares, and unreadable glyphs.
+- Keep charts, tables, and images sharp, aligned, and clearly labeled.
+- Ensure citations and references are human-readable with no tool tokens or placeholders.
 
 ## Final checks
 
-- Do not deliver until the latest PNG inspection shows zero visual or formatting defects.
-- Confirm headers/footers, page numbering, and section transitions look polished.
-- Keep intermediate files organized or remove them after final approval.
+- Report the output path and the exact structural and visual checks completed.
+- State every unavailable check or unresolved layout issue.
+- Keep intermediate files organized or remove only files created for the task after final approval.

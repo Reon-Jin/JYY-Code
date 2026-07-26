@@ -42,25 +42,26 @@ describe("modelForComplexity", () => {
     ).toBe("deepseek-v4-pro")
   })
 
-  test("routes image-search tasks to the visual model", () => {
+  test("routes office tasks to the visual model", () => {
     expect(
       modelForComplexity({
         complexity: "simple",
         simpleModel: models.simpleModel,
         complexModel: models.complexModel,
         visualModel: "gemini/visual",
-        role: "picture_searcher",
+        role: "office",
       }),
     ).toBe("gemini/visual")
   })
 })
 
 describe("SubagentDescriptions", () => {
-  test("has description for all 9 roles", () => {
-    const roles = ["researcher", "analyst", "writer", "chart", "pdf", "coder", "tester", "picture_searcher", "general"]
+  test("has description for all 8 cluster roles", () => {
+    const roles = ["researcher", "analyst", "writer", "chart", "office", "coder", "tester", "general"]
     for (const role of roles) {
       expect(SubagentDescriptions[role as keyof typeof SubagentDescriptions]).toBeTruthy()
     }
+    expect(SubagentDescriptions).not.toHaveProperty("picture_searcher")
   })
 
   test("has one isolated built-in skill for every role", () => {
@@ -72,16 +73,26 @@ describe("SubagentDescriptions", () => {
     }
   })
 
-  test("maps curated upstream skills to exactly one role catalog", () => {
+  test("keeps only compatible specialist workflows in each role catalog", () => {
     expect(roleSkillNames("researcher")).toContain("literature-review")
-    expect(roleSkillNames("analyst")).toContain("statistical-analysis")
+    expect(roleSystemPrompt("researcher")).toContain("Visual-asset research")
+    expect(roleSkillNames("analyst")).toEqual(["cluster-analysis-insights", "statistical-analysis"])
     expect(roleSkillNames("coder")).toContain("security-and-hardening")
-    expect(roleSkillNames("tester")).toContain("webapp-testing")
+    expect(roleSkillNames("tester")).toContain("debugging-and-error-recovery")
+    expect(roleSkillNames("tester")).not.toContain("test-driven-development")
     expect(roleSkillNames("chart")).toContain("scientific-visualization")
-    expect(roleSkillNames("pdf")).toContain("pdf")
-    expect(roleSkillNames("picture_searcher")).toContain("images-search")
+    expect(roleSkillNames("chart")).not.toContain("infographics")
+    expect(roleSkillNames("office")).toEqual(["cluster-office-production", "pdf"])
+    expect(roleSystemPrompt("office")).toContain("DOCX")
+    expect(roleSystemPrompt("office")).toContain("XLSX")
+    expect(roleSystemPrompt("office")).toContain("PPTX")
+    expect(RoleSkillDefinitions).not.toHaveProperty("pdf")
     expect(roleSkillNames("explore")).toContain("acquire-codebase-knowledge")
+    expect(roleSkillNames("explore")).not.toContain("what-context-needed")
     expect(roleSkillNames("scout")).toContain("source-driven-development")
+    expect(roleSkillNames("scout")).not.toContain("web-search")
+    expect(roleSkillNames("general")).toEqual(["cluster-general-handoff"])
+    expect(RoleSkillDefinitions).not.toHaveProperty("picture_searcher")
     expect(roleSkillNames("coder")).not.toContain("literature-review")
   })
 })
@@ -99,6 +110,13 @@ describe("skill visibility", () => {
     const rules = Permission.fromConfig({ skill: roleSkillPermission("coder") })
     expect(Permission.evaluate("skill", "cluster-safe-implementation", rules).action).toBe("allow")
     expect(Permission.evaluate("skill", "literature-review", rules).action).toBe("deny")
+  })
+
+  test("does not expose inactive or obsolete workflows to researcher", () => {
+    const rules = Permission.fromConfig({ skill: roleSkillPermission("researcher") })
+    expect(Permission.evaluate("skill", "cluster-research-evidence", rules).action).toBe("allow")
+    expect(Permission.evaluate("skill", "images-search", rules).action).toBe("deny")
+    expect(Permission.evaluate("skill", "web-search", rules).action).toBe("deny")
   })
 })
 
@@ -161,6 +179,7 @@ describe("subagentPrompt", () => {
     expect(prompt).toContain('role="researcher"')
     expect(prompt).toContain("cluster-research-evidence")
     expect(prompt).toContain("literature-review")
+    expect(prompt).toContain("Visual-asset research")
     expect(prompt).toContain("Multi-Agent cluster")
     expect(prompt).toContain("acceptance criteria")
   })

@@ -112,6 +112,42 @@ describe("AgentClusterRuntime", () => {
     )
     expect(plan?.tasks[0]?.id).toBe("build")
   })
+
+  test("normalizes image research to researcher", () => {
+    const plan = AgentClusterRuntime.normalizePlan({
+      goal: "Find a licensed image",
+      tasks: [
+        {
+          id: "image-research",
+          step: 1,
+          title: "Find image sources",
+          role: "image search",
+          prompt: "Find a reusable image source",
+          acceptanceCriteria: ["sources are verified"],
+          expectedArtifacts: [],
+        },
+      ],
+    })
+    expect(plan?.tasks[0]?.role).toBe("researcher")
+  })
+
+  test("normalizes Office file work to office", () => {
+    const plan = AgentClusterRuntime.normalizePlan({
+      goal: "Update a workbook",
+      tasks: [
+        {
+          id: "office-work",
+          step: 1,
+          title: "Update Excel workbook",
+          role: "excel spreadsheet",
+          prompt: "Update an XLSX workbook",
+          acceptanceCriteria: ["formulas are verified"],
+          expectedArtifacts: [],
+        },
+      ],
+    })
+    expect(plan?.tasks[0]?.role).toBe("office")
+  })
 })
 
 describe("AgentCluster session task graph", () => {
