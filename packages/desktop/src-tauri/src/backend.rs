@@ -51,6 +51,10 @@ struct BackendInner {
     auto_restart_used: AtomicBool,
     stopping: AtomicBool,
     generation: AtomicU64,
+    /// Win32 job object configured with KILL_ON_JOB_CLOSE that owns the sidecar.
+    /// Stored as usize because raw handles are not Send.
+    #[cfg(windows)]
+    job: Mutex<Option<usize>>,
 }
 
 #[derive(Clone)]
@@ -73,6 +77,8 @@ impl Default for BackendSupervisor {
                 auto_restart_used: AtomicBool::new(false),
                 stopping: AtomicBool::new(false),
                 generation: AtomicU64::new(0),
+                #[cfg(windows)]
+                job: Mutex::new(None),
             }),
         }
     }
@@ -103,6 +109,65 @@ impl BackendSupervisor {
             .kill()
             .map_err(|error| format!("failed to stop JYYCode backend: {error}"))?;
         Ok(Some(pid))
+    }
+
+    /// Returns a job object configured with KILL_ON_JOB_CLOSE so the OS reaps
+    /// the sidecar when this process exits for any reason. A force-killed
+    /// desktop process runs no Rust cleanup (the Windows smoke test kills the
+    /// desktop this way), so only the kernel can guarantee the sidecar dies
+    /// with us.
+    #[cfg(windows)]
+    fn kill_on_close_job(&self) -> Option<windows_sys::Win32::Foundation::HANDLE> {
+        use windows_sys::Win32::System::JobObjects::{
+            CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+            SetInformationJobObject,
+        };
+
+        let mut slot = self.inner.job.lock().ok()?;
+        if let Some(handle) = *slot {
+            return Some(handle as windows_sys::Win32::Foundation::HANDLE);
+        }
+        let job = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
+        if job.is_null() {
+            return None;
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let ok = unsafe {
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION as *const std::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        };
+        if ok == 0 {
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(job) };
+            return None;
+        }
+        *slot = Some(job as usize);
+        Some(job)
+    }
+
+    #[cfg(windows)]
+    fn assign_child_kill_on_close(&self, pid: u32) {
+        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+        };
+
+        let Some(job) = self.kill_on_close_job() else {
+            return;
+        };
+        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid) };
+        if process.is_null() {
+            return;
+        }
+        unsafe {
+            AssignProcessToJobObject(job, process);
+            windows_sys::Win32::Foundation::CloseHandle(process);
+        }
     }
 
     fn is_current_generation(&self, generation: u64) -> bool {
@@ -203,6 +268,11 @@ impl BackendSupervisor {
                     return Err(message);
                 }
             };
+            // A force-kill of this process (crash, Task Manager, the Windows
+            // smoke test's Stop-Process) runs no cleanup code, so tie the
+            // sidecar's lifetime to ours with a kill-on-close job object.
+            #[cfg(windows)]
+            self.assign_child_kill_on_close(child.pid());
             *child_slot = Some(child);
             (generation, events)
         };

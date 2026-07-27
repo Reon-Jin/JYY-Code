@@ -1453,6 +1453,10 @@ export const layer = Layer.effect(
         let repeatedToolTurnCount = 0
         const clusterDispatchReminderKind = "agent_cluster_dispatch_reminder"
         const clusterSynthesisReminderKind = "agent_cluster_synthesis_gate"
+        const stuckLoopReminderKind = "stuck_loop_warning"
+        const emptyResponseReminderKind = "empty_response_retry"
+        let loopWarningIssued = false
+        let emptyResponseCount = 0
 
         function hasTaskToolAfter(messages: MessageV2.WithParts[], userID: MessageID) {
           const userIndex = messages.findIndex((message) => message.info.id === userID)
@@ -1481,6 +1485,41 @@ export const layer = Layer.effect(
             (part) => part.type === "text" && part.synthetic && part.metadata?.kind === clusterSynthesisReminderKind,
           )
         }
+
+        const createSyntheticReminder = Effect.fn("SessionPrompt.createSyntheticReminder")(function* (input: {
+          lastUser: MessageV2.User
+          kind: string
+          lines: string[]
+        }) {
+          const userMsg: MessageV2.User = {
+            id: MessageID.ascending(),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: input.lastUser.agent,
+            model: input.lastUser.model,
+          }
+          yield* sessions.updateMessage(userMsg)
+          yield* sessions.updatePart({
+            id: PartID.ascending(),
+            messageID: userMsg.id,
+            sessionID,
+            type: "text",
+            synthetic: true,
+            metadata: { kind: input.kind },
+            text: ["<system-reminder>", ...input.lines, "</system-reminder>"].join("\n"),
+          } satisfies MessageV2.TextPart)
+        })
+
+        const autoCompactionHalted = Effect.gen(function* () {
+          yield* bus.publish(Session.Event.Error, {
+            sessionID,
+            error: new NamedError.Unknown({
+              message:
+                "Automatic context compaction failed repeatedly, so the turn was stopped to avoid an endless compact loop. Start a new session or run /compact manually.",
+            }).toObject(),
+          })
+        })
 
         const createClusterDispatchReminder = Effect.fn("SessionPrompt.createClusterDispatchReminder")(
           function* (input: {
@@ -1608,15 +1647,19 @@ export const layer = Layer.effect(
           const lastAssistantMsg = msgs.findLast(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
           )
+          const lastAssistantInfo = lastAssistantMsg?.info.role === "assistant" ? lastAssistantMsg.info : undefined
           // Some providers return "stop" while a non-provider tool result still
-          // needs to be replayed to the model. Child sessions also guard against
-          // repeating the same tool turn without making progress.
+          // needs to be replayed to the model.
           // Skip provider-executed tool parts �?those were fully handled within the
           // provider's stream (e.g. DWS Agent Platform) and don't need a re-loop.
           const hasToolCalls =
             lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
 
-          if (session.parentID !== undefined && hasToolCalls && lastAssistantMsg) {
+          // Stuck-turn guard: an assistant turn that repeats the exact same text
+          // and tool calls as the previous iteration made no progress. Child
+          // sessions hard-stop right away (a subagent must not burn its budget);
+          // main sessions get one warning reminder before the hard stop.
+          if (lastAssistantMsg && lastAssistantInfo && !lastAssistantInfo.summary && !lastAssistantInfo.error) {
             const signature = [
               lastAssistantMsg.parts
                 .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic)
@@ -1634,22 +1677,48 @@ export const layer = Layer.effect(
                 })
                 .join(","),
             ].join("|")
-            if (signature === previousToolTurnSignature) repeatedToolTurnCount++
+            if (signature !== "|" && signature === previousToolTurnSignature) repeatedToolTurnCount++
             else {
-              previousToolTurnSignature = signature
+              previousToolTurnSignature = signature === "|" ? undefined : signature
               repeatedToolTurnCount = 0
             }
-            if (repeatedToolTurnCount >= 2 && lastAssistantMsg.info.role === "assistant") {
-              yield* slog.warn("stopping repeated child-agent tool turns", {
-                repetitions: repeatedToolTurnCount + 1,
-                finish: lastAssistantMsg.info.finish,
-              })
-              yield* sessions.updateMessage({
-                ...lastAssistantMsg.info,
-                finish: "stop",
-                time: { ...lastAssistantMsg.info.time, completed: lastAssistantMsg.info.time.completed ?? Date.now() },
-              })
-              break
+            if (repeatedToolTurnCount >= 2) {
+              if (session.parentID === undefined && !loopWarningIssued) {
+                loopWarningIssued = true
+                yield* slog.warn("assistant repeated an identical turn; issuing stuck-loop warning", {
+                  repetitions: repeatedToolTurnCount + 1,
+                })
+                yield* createSyntheticReminder({
+                  lastUser,
+                  kind: stuckLoopReminderKind,
+                  lines: [
+                    `You have repeated the exact same response (same text and same tool calls) ${repeatedToolTurnCount + 1} times in a row without making progress.`,
+                    "Do not issue the same tool calls again. Change your approach: use the results you already have, try a different action, or conclude with a final answer that explains what is blocking progress.",
+                  ],
+                })
+              } else {
+                yield* slog.warn("stopping repeated assistant turns", {
+                  repetitions: repeatedToolTurnCount + 1,
+                  finish: lastAssistantInfo.finish,
+                })
+                yield* sessions.updateMessage({
+                  ...lastAssistantInfo,
+                  finish: "stop",
+                  time: {
+                    ...lastAssistantInfo.time,
+                    completed: lastAssistantInfo.time.completed ?? Date.now(),
+                  },
+                })
+                if (session.parentID === undefined) {
+                  yield* bus.publish(Session.Event.Error, {
+                    sessionID,
+                    error: new NamedError.Unknown({
+                      message: `Stopped the turn: the agent repeated the same response ${repeatedToolTurnCount + 1} times without making progress. Send a message to continue.`,
+                    }).toObject(),
+                  })
+                }
+                break
+              }
             }
           } else {
             previousToolTurnSignature = undefined
@@ -1662,6 +1731,29 @@ export const layer = Layer.effect(
             !hasToolCalls &&
             lastUser.id < lastAssistant.id
           ) {
+            // A finished assistant turn that produced neither text nor tool calls
+            // delivered nothing — for subagents this silently returns an empty
+            // result to the parent. Re-prompt a bounded number of times first.
+            const delivered =
+              lastAssistantMsg?.parts.some(
+                (part) =>
+                  (part.type === "text" && !part.synthetic && part.text.trim().length > 0) || part.type === "tool",
+              ) ?? false
+            if (!delivered && emptyResponseCount < 2) {
+              emptyResponseCount++
+              yield* slog.warn("assistant finished with an empty response; requesting the final answer", {
+                attempt: emptyResponseCount,
+              })
+              yield* createSyntheticReminder({
+                lastUser,
+                kind: emptyResponseReminderKind,
+                lines: [
+                  "Your previous response contained no text and no tool calls, so nothing was delivered.",
+                  "Respond with your final answer now: summarize the outcome of your work, or explain what is blocking you.",
+                ],
+              })
+              continue
+            }
             const plan = clusterPlan(lastAssistantMsg)
             if (lastUser.agent === "cluster" && plan) {
               const clusterConfig = ConfigAgentCluster.resolve((yield* config.get()).agent_cluster)
@@ -1739,7 +1831,10 @@ export const layer = Layer.effect(
               model: lastUser.model,
               auto: true,
             })
-            if (!created) break
+            if (!created) {
+              yield* autoCompactionHalted
+              break
+            }
             continue
           }
 
@@ -1766,7 +1861,10 @@ export const layer = Layer.effect(
               auto: true,
               overflow: true,
             })
-            if (!created) break
+            if (!created) {
+              yield* autoCompactionHalted
+              break
+            }
             continue
           }
 
@@ -1989,7 +2087,10 @@ export const layer = Layer.effect(
                 auto: true,
                 overflow: !handle.message.finish,
               })
-              if (!created) return "break" as const
+              if (!created) {
+                yield* autoCompactionHalted
+                return "break" as const
+              }
             }
             return "continue" as const
           }).pipe(

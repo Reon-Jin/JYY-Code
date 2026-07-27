@@ -983,6 +983,79 @@ it.instance("cuts off repeated child-agent tool turns", () =>
   }),
 )
 
+it.instance("warns then cuts off repeated main-session tool turns", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "Main",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "repeat this tool call" }],
+    })
+    for (let index = 0; index < 6; index++) {
+      yield* llm.push(reply().tool("first", { value: "same" }).stop())
+    }
+
+    const result = yield* prompt.loop({ sessionID: session.id })
+    // Main sessions get one stuck-loop warning reminder before the hard stop,
+    // so the cutoff lands one LLM call later than the child-session cutoff.
+    expect(yield* llm.calls).toBe(4)
+    expect(result.info.role).toBe("assistant")
+    if (result.info.role === "assistant") expect(result.info.finish).toBe("stop")
+
+    const msgs = yield* MessageV2.filterCompactedEffect(session.id)
+    const warning = msgs.find((msg) =>
+      msg.parts.some(
+        (part) => part.type === "text" && part.synthetic && part.metadata?.kind === "stuck_loop_warning",
+      ),
+    )
+    expect(warning).toBeDefined()
+  }),
+)
+
+it.instance("re-prompts when the assistant finishes with an empty response", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "Empty",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "hello" }],
+    })
+    yield* llm.push(reply().stop())
+    yield* llm.text("the answer")
+
+    const result = yield* prompt.loop({ sessionID: session.id })
+    expect(yield* llm.calls).toBe(2)
+    expect(result.info.role).toBe("assistant")
+    if (result.info.role === "assistant") {
+      expect(result.parts.some((part) => part.type === "text" && part.text === "the answer")).toBe(true)
+    }
+
+    const msgs = yield* MessageV2.filterCompactedEffect(session.id)
+    const reminder = msgs.find((msg) =>
+      msg.parts.some(
+        (part) => part.type === "text" && part.synthetic && part.metadata?.kind === "empty_response_retry",
+      ),
+    )
+    expect(reminder).toBeDefined()
+  }),
+)
+
 it.instance("failed subtask preserves metadata on error tool state", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig((url) => ({
