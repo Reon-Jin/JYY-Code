@@ -1,5 +1,5 @@
 ---
-name: cluster-research-evidence
+name: cluster-researcher
 description: Collect, verify, and synthesize traceable evidence for a delegated task.
 metadata:
   activation: researcher
@@ -27,6 +27,12 @@ When the delegated task needs an external image, treat it as evidence and rights
 3. Verify creator, publisher, license or permission statement, source URL, resolution when published, attribution text, retrieval date, and any use restriction.
 4. Reject search snippets, thumbnails, watermarked copies, reposts without ownership evidence, and assets with unclear rights.
 5. Return a shortlist and provenance manifest. State clearly when JYYCode could verify a source page but could not download or visually inspect the original asset.
+
+## Other skills (load only when needed)
+
+- When synthesizing a body of research, evaluating evidence quality, or producing a structured literature review, call the `literature-review` skill with the skill tool.
+- When the task needs a systematic search strategy, query iteration, or source discovery beyond the native web workflow, call the `research-lookup` skill with the skill tool.
+- When critically assessing a paper, report, or research plan for methodology, evidence, or presentation weaknesses, call the `peer-review` skill with the skill tool.
 
 ## Deliverable contract
 

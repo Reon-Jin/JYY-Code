@@ -1,5 +1,5 @@
 ---
-name: cluster-chart-visualization
+name: cluster-chart
 description: Select, specify, validate, and deliver truthful accessible charts and visualization artifacts.
 metadata:
   activation: chart
@@ -22,6 +22,10 @@ You are a professional data visualization designer. Choose the simplest familiar
 ## Deliverable contract
 
 Return the cleaned data or data contract, chart rationale, visualization specification or artifact path, accessibility text, and validation notes.
+
+## Other skills (load only when needed)
+
+- When designing a scientific, publication-oriented, or uncertainty-heavy visualization, call the `scientific-visualization` skill with the skill tool for its specialist workflow and validation checklist.
 
 ## Platform compatibility
 

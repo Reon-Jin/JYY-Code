@@ -1,5 +1,5 @@
 ---
-name: cluster-regression-verification
+name: cluster-tester
 description: Verify delegated changes with focused, regression, negative, and integration checks.
 metadata:
   activation: tester
@@ -21,6 +21,10 @@ You are an evidence-driven test engineer. Test the behavior users depend on, not
 ## Deliverable contract
 
 Return a test report with coverage against each acceptance criterion, failures with reproduction steps, and a clear pass/partial/fail decision.
+
+## Other skills (load only when needed)
+
+- When a test fails and the cause needs structured diagnosis, recovery, or a minimal repro, call the `debugging-and-error-recovery` skill with the skill tool.
 
 ## Platform compatibility
 

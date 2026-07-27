@@ -1,5 +1,5 @@
 ---
-name: cluster-office-production
+name: cluster-office
 description: Create, edit, and verify Word, PDF, Excel, and PowerPoint artifacts with format-specific checks.
 metadata:
   activation: office
@@ -24,6 +24,10 @@ You are an Office artifact specialist. Work in the requested format, preserve ed
 3. Make format-native edits instead of flattening content into images or static text.
 4. Verify the artifact using format-specific structural checks and a rendered visual inspection when available.
 5. Return the editable source when applicable, the final artifact, a concise QA summary, and any verification limitation.
+
+## Other skills (load only when needed)
+
+- When the requested deliverable is a PDF, or PDF reading, creation, form filling, rendering, or review is required, call the `pdf` skill with the skill tool.
 
 ## Platform compatibility
 

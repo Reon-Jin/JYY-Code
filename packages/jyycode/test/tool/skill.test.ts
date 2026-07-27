@@ -6,6 +6,7 @@ import { pathToFileURL } from "url"
 import type { Permission } from "../../src/permission"
 import type { Tool } from "@/tool/tool"
 import { SkillTool } from "../../src/tool/skill"
+import { allRoleSkillModules } from "../../src/agent-cluster/role-skills"
 import { ToolRegistry } from "@/tool/registry"
 import { disposeAllInstances, provideTmpdirInstance } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
@@ -50,17 +51,20 @@ describe("tool.skill", () => {
         })).find((tool) => tool.id === SkillTool.id)
         if (!tool) throw new Error("Skill tool not found")
 
-        const result = yield* tool.execute(
-          { name: "literature-review" },
-          { ...baseCtx, agent: "researcher", ask: () => Effect.void },
-        )
+        for (const module of allRoleSkillModules().filter((module) => module.upstream)) {
+          const result = yield* tool.execute(
+            { name: module.name },
+            { ...baseCtx, agent: "researcher", ask: () => Effect.void },
+          )
 
-        expect(result.metadata.dir).toBe("<built-in>")
-        expect(result.output).toContain(`<skill_content name="literature-review">`)
-        expect(result.output).toContain("# Literature Review")
-        expect(result.output).toContain("(built-in skill has no external resource directory)")
+          expect(result.metadata.dir).toBe("<built-in>")
+          expect(result.output).toContain(`<skill_content name="${module.name}">`)
+          expect(result.output).toContain(module.content.trim())
+          expect(result.output).toContain("(built-in skill has no external resource directory)")
+        }
       }),
     ),
+    30_000,
   )
 
   it.live("execute returns skill content block with files", () =>

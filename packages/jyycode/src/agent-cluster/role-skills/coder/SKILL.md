@@ -70,6 +70,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
+## Other skills (load only when needed)
+
+- When implementing a scoped change in small, verifiable increments, call the `incremental-implementation` skill with the skill tool.
+- When a task defines or changes a public API, data contract, or component boundary, call the `api-and-interface-design` skill with the skill tool.
+- When the change processes untrusted input, handles authentication or authorization, stores sensitive data, or exposes a security boundary, call the `security-and-hardening` skill with the skill tool.
+- When reviewing an implementation for correctness, maintainability, regressions, or quality risks, call the `code-review-and-quality` skill with the skill tool.
+
 ## Platform compatibility
 
 Supports Windows, macOS, and Linux. Discover the repository's declared runtime, package manager, and test commands before running them; use the active host's native shell and do not translate an example Bash command literally onto Windows. Do not install or upgrade dependencies solely to satisfy a workflow example.

@@ -106,6 +106,17 @@ describe("SubagentDescriptions", () => {
     }
   })
 
+  test("documents every role's allowed auxiliary workflow in its local profile", () => {
+    for (const role of Object.keys(RoleSkillDefinitions)) {
+      const profile = RoleSkillDefinitions[role as keyof typeof RoleSkillDefinitions]
+      expect(profile.skillContent).toContain("## Other skills (load only when needed)")
+      expect(profile.skillContent).not.toContain("upstream/")
+      for (const module of profile.skillModules.filter((skill) => skill.upstream)) {
+        expect(profile.skillContent).toContain(`\`${module.name}\` skill with the skill tool`)
+      }
+    }
+  })
+
   test("gives every active upstream workflow a cross-platform runtime contract", () => {
     for (const module of allRoleSkillModules()) {
       expect(module.content).toContain("## Platform compatibility")
@@ -152,6 +163,16 @@ describe("skill visibility", () => {
     const rules = Permission.fromConfig({ skill: roleSkillPermission("coder") })
     expect(Permission.evaluate("skill", "cluster-safe-implementation", rules).action).toBe("allow")
     expect(Permission.evaluate("skill", "literature-review", rules).action).toBe("deny")
+  })
+
+  test("allows every role to load each documented auxiliary skill", () => {
+    for (const role of Object.keys(RoleSkillDefinitions)) {
+      const profile = RoleSkillDefinitions[role as keyof typeof RoleSkillDefinitions]
+      const rules = Permission.fromConfig({ skill: roleSkillPermission(role) })
+      for (const module of profile.skillModules.filter((skill) => skill.upstream)) {
+        expect(Permission.evaluate("skill", module.name, rules).action).toBe("allow")
+      }
+    }
   })
 
   test("does not expose inactive or obsolete workflows to researcher", () => {
@@ -216,6 +237,19 @@ describe("buildTaskBrief", () => {
 })
 
 describe("subagentPrompt", () => {
+  test("injects every role's complete local SKILL.md on initial dispatch", () => {
+    const taskRoles = new Set(Object.keys(SubagentDescriptions))
+    for (const role of Object.keys(RoleSkillDefinitions)) {
+      const profile = RoleSkillDefinitions[role as keyof typeof RoleSkillDefinitions]
+      const prompt = taskRoles.has(role)
+        ? subagentPrompt(role as keyof typeof SubagentDescriptions)
+        : roleSystemPrompt(role as keyof typeof RoleSkillDefinitions)
+      expect(prompt).toContain('<initial-role-skill-injection source="role-skills">')
+      expect(prompt).toContain(profile.skillContent.trim())
+      expect(prompt).toContain("</initial-role-skill-injection>")
+    }
+  })
+
   test("returns multi-line prompt for researcher role", () => {
     const prompt = subagentPrompt("researcher")
     expect(prompt).toContain('role="researcher"')
