@@ -1,0 +1,31 @@
+{
+  "name": "@jyycode-ai/mobile-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --bun vite --host 0.0.0.0",
+    "build": "bun run --bun vite build",
+    "typecheck": "bun run --bun tsc --noEmit",
+    "test": "bun run --bun vitest run"
+  },
+  "dependencies": {
+    "@jyycode-ai/mobile-protocol": "workspace:*",
+    "@noble/ciphers": "^1.3.0",
+    "@zxing/browser": "^0.1.5",
+    "lucide-solid": "catalog:",
+    "solid-js": "catalog:"
+  },
+  "devDependencies": {
+    "@solidjs/testing-library": "catalog:",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "catalog:",
+    "fake-indexeddb": "^6.2.4",
+    "jsdom": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-solid": "catalog:",
+    "vitest": "catalog:"
+  }
+}

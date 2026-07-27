@@ -1,0 +1,40 @@
+services:
+  relay:
+    build:
+      context: ../..
+      dockerfile: packages/relay/Dockerfile
+    restart: unless-stopped
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: "8787"
+    expose:
+      - "8787"
+
+  mobile-web:
+    build:
+      context: ../..
+      dockerfile: packages/mobile-web/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      - relay
+      - mobile-web
+    environment:
+      JYYCODE_PUBLIC_HOST: ${JYYCODE_PUBLIC_HOST:?set JYYCODE_PUBLIC_HOST in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

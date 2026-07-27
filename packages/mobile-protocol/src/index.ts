@@ -5,7 +5,11 @@
 export const PROTOCOL_VERSION = 1
 export const MAX_CIPHERTEXT_BYTES = 64 * 1024
 
-export type RelayRole = "desktop" | "mobile"
+/**
+ * `mobile` is retained for already-paired native clients. New Safari/PWA
+ * clients identify themselves as `web`; both roles are opaque relay peers.
+ */
+export type RelayRole = "desktop" | "mobile" | "web"
 
 export type RelayHello = {
   type: "relay.hello"
@@ -127,7 +131,7 @@ function isIdentifier(value: unknown): value is string {
 }
 
 function isRole(value: unknown): value is RelayRole {
-  return value === "desktop" || value === "mobile"
+  return value === "desktop" || value === "mobile" || value === "web"
 }
 
 function isSequence(value: unknown): value is number {

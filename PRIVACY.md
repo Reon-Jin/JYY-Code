@@ -19,6 +19,7 @@ JYY-Code connects to external services only as needed for configured or user-req
 - The official GitHub Releases endpoint when the desktop application checks for updates according to your update setting.
 - MCP servers, web services, email servers, language servers, or other integrations that you explicitly configure or invoke.
 - A configured JYY-Code sharing service when you explicitly share a session or enable automatic session sharing. Shared session data can then be accessed through the generated link until it is unshared or removed by the service.
+- The optional Safari mobile companion relay after you pair a browser from the desktop Settings page. The relay receives only encrypted envelopes and minimal routing metadata; it does not receive decrypted task content, source code, project paths, credentials, authorization headers, or queued commands.
 
 Network services normally receive technical connection data such as your IP address, request time, and user agent. Each external service processes data under its own terms and privacy policy. Do not send secrets or personal information to a provider unless you trust that provider and intend it to process that information.
 

@@ -212,3 +212,7 @@ JYY-Code 在本地保存应用数据，并会连接你主动配置或调用的�
 ## License
 
 MIT © [JYYCode](https://github.com/Reon-Jin/JYY-Code)
+
+## Safari 移动版
+
+JYYCode 移动版通过 iPhone Safari 使用，不需要 Mac、Xcode 或 Apple Developer Program。将 `packages/mobile-web` 部署到 HTTPS 地址并部署 WSS 中继后，在手机 Safari 打开该地址，在桌面端“设置 → 移动网页版”显示二维码即可配对。详细安全边界与部署步骤见 [`packages/mobile-web/README.md`](packages/mobile-web/README.md)；已有公网服务器和域名时，可直接使用单域名部署组合 [`deploy/safari-relay/README.md`](deploy/safari-relay/README.md)。

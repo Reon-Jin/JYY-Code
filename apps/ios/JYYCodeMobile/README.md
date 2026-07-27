@@ -1,24 +1,5 @@
-# JYYCode Mobile (iOS)
+# JYYCode 移动端迁移说明
 
-This is the iOS 17+ SwiftUI companion application. On macOS, install
-[XcodeGen](https://github.com/yonaskolb/XcodeGen), then run `xcodegen generate`
-from this directory and open `JYYCodeMobile.xcodeproj` in Xcode.
+此目录保留早期 iOS 原型，仅作历史参考；它不再是 JYYCode 的受支持发布路径，也不参与构建。
 
-The bundle identifier and `aps-environment` entitlement are development defaults.
-Set the production team, provisioning profile, APNs key, and relay base URL before
-installing on a physical device.
-
-## Release handoff
-
-1. In the Apple Developer portal, create the `ai.jyycode.mobile` App ID and
-   enable Push Notifications. Select the paid development team in Xcode.
-2. Generate the project with `xcodegen generate`, then run the `JYYCodeMobileTests`
-   target and install on a physical iPhone over cellular data.
-3. Deploy `packages/relay` behind HTTPS/WSS. Set `JYYCODE_PUSH_GATEWAY_URL` to
-   the APNs sender owned by the deployment. The relay posts only
-   `{ token, kind }`, where `kind` is `attention`, `failed`, or `completed`;
-   the sender must produce a generic APNs alert and must never add task text,
-   paths, source code, credentials, or authorization headers.
-
-The relay itself does not persist task data or queue commands. Its health check
-is available at `/health`; expose it through the deployment health probe.
+当前移动端使用 `packages/mobile-web` 的 Safari/PWA 版本：不需要 Mac、Xcode 或 Apple Developer Program。部署、配对与安全说明见 [`packages/mobile-web/README.md`](../../../packages/mobile-web/README.md)。

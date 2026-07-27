@@ -52,7 +52,7 @@ export function createFakeDesktop(input?: {
       expiresAt: Date.now() + 5 * 60_000,
       qrPayload: "{\"routeId\":\"desktop_test\"}",
     })),
-    mobilePairingStatus: vi.fn(async () => ({ routeId: "desktop_test", pairedDevices: mobileDevices.length })),
+    mobilePairingStatus: vi.fn(async () => ({ routeId: "desktop_test", relayUrl: "wss://relay.test/connect", pairedDevices: mobileDevices.length })),
     mobileRevokeDevice: vi.fn(async (deviceID) => {
       mobileDevices = mobileDevices.filter((device) => device.id !== deviceID)
     }),

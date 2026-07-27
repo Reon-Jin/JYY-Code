@@ -62,6 +62,7 @@ pub struct PairingRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MobileCompanionStatus {
     pub route_id: String,
+    pub relay_url: String,
     pub paired_devices: usize,
     pub pending_pairing_expires_at: Option<u64>,
 }
@@ -140,7 +141,7 @@ impl MobileCompanion {
         });
         let invitation = MobilePairingInvitation {
             route_id: state.route_id.clone(),
-            relay_url: RELAY_URL.into(),
+            relay_url: mobile_relay_url(),
             pairing_secret: secret,
             temporary_public_key: to_hex(public_key.as_bytes()),
             expires_at,
@@ -166,6 +167,7 @@ impl MobileCompanion {
         }
         Ok(MobileCompanionStatus {
             route_id: state.route_id.clone(),
+            relay_url: mobile_relay_url(),
             paired_devices: state.devices.len(),
             pending_pairing_expires_at: state.pending.as_ref().map(|pending| pending.expires_at),
         })
@@ -295,6 +297,30 @@ impl MobileCompanion {
     }
 }
 
+/// Resolve the current relay every time instead of baking a development tunnel
+/// URL into a pairing QR. The small local file lets the Windows tunnel launcher
+/// update an already-running desktop UI without exposing a relay address in any
+/// remote service.
+fn mobile_relay_url() -> String {
+    let configured_file = std::env::var("JYYCODE_MOBILE_RELAY_FILE")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var("LOCALAPPDATA")
+                .ok()
+                .map(|directory| PathBuf::from(directory).join("JYYCode").join("mobile-relay-url.txt"))
+        });
+    if let Some(path) = configured_file {
+        if let Ok(value) = fs::read_to_string(path) {
+            let value = value.trim();
+            if value.starts_with("wss://") && value.len() <= 2_048 {
+                return value.into();
+            }
+        }
+    }
+    std::env::var("JYYCODE_MOBILE_RELAY_URL").unwrap_or_else(|_| RELAY_URL.into())
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct SavedMobileState {
     route_id: String,
@@ -350,6 +376,7 @@ enum MobileAction {
     AnswerQuestion { id: String, answer: String },
     LoadConversation,
     LoadDiff,
+    RevokeDevice,
 }
 
 #[derive(serde::Serialize)]
@@ -583,7 +610,7 @@ async fn relay_once(
     event_signal: Arc<AtomicBool>,
     notification_signal: Arc<Mutex<Option<&'static str>>>,
 ) -> Result<(), String> {
-    let relay_url = std::env::var("JYYCODE_MOBILE_RELAY_URL").unwrap_or_else(|_| RELAY_URL.into());
+    let relay_url = mobile_relay_url();
     let (stream, _) = connect_async(&relay_url)
         .await
         .map_err(|error| format!("mobile relay connection failed: {error}"))?;
@@ -728,6 +755,9 @@ async fn relay_once(
                 }
                 if !companion.claim_command(&envelope.sender_id, &command.id)? {
                     serde_json::json!({ "type": "commandResult", "id": command.id, "duplicate": true })
+                } else if matches!(&command.action, MobileAction::RevokeDevice) {
+                    companion.revoke_device(&envelope.sender_id)?;
+                    serde_json::json!({ "type": "commandResult", "ok": true })
                 } else {
                     match execute_command(&backend, command).await {
                         Ok(data) => serde_json::json!({ "type": "commandResult", "ok": true, "data": data }),
@@ -847,7 +877,7 @@ async fn fetch_summary(
             let title = session
                 .get("title")
                 .cloned()
-                .unwrap_or_else(|| serde_json::Value::String("Untitled task".into()));
+                .unwrap_or_else(|| serde_json::Value::String("未命名任务".into()));
             let updated = session
                 .pointer("/time/updated")
                 .and_then(serde_json::Value::as_u64)
@@ -855,20 +885,20 @@ async fn fetch_summary(
             let permission = permissions.as_array().and_then(|items| items.iter().find(|item| item.get("sessionID").and_then(serde_json::Value::as_str) == Some(id)));
             let question = questions.as_array().and_then(|items| items.iter().find(|item| item.get("sessionID").and_then(serde_json::Value::as_str) == Some(id)));
             let pending = if let Some(permission) = permission {
-                serde_json::json!({ "type": "permission", "id": permission.get("id").and_then(serde_json::Value::as_str).unwrap_or_default(), "title": "Permission needs review" })
+                serde_json::json!({ "type": "permission", "id": permission.get("id").and_then(serde_json::Value::as_str).unwrap_or_default(), "title": "需要批准权限" })
             } else if let Some(question) = question {
                 let options = question.pointer("/questions/0/options").and_then(serde_json::Value::as_array).map(|options| options.iter().filter_map(|option| option.get("label").and_then(serde_json::Value::as_str)).collect::<Vec<_>>()).unwrap_or_default();
-                serde_json::json!({ "type": "question", "id": question.get("id").and_then(serde_json::Value::as_str).unwrap_or_default(), "title": question.pointer("/questions/0/header").and_then(serde_json::Value::as_str).unwrap_or("A task needs an answer"), "options": options })
+                serde_json::json!({ "type": "question", "id": question.get("id").and_then(serde_json::Value::as_str).unwrap_or_default(), "title": question.pointer("/questions/0/header").and_then(serde_json::Value::as_str).unwrap_or("任务需要回答"), "options": options })
             } else {
                 serde_json::Value::Null
             };
             let status_type = statuses.get(id).and_then(|status| status.get("type")).and_then(serde_json::Value::as_str).unwrap_or("idle");
             let status = if !pending.is_null() { "waiting" } else if status_type == "busy" { "running" } else if status_type == "retry" { "failed" } else { "completed" };
             let summary = match status {
-                "waiting" => "Needs your attention.",
-                "running" => "Working on this task.",
-                "failed" => "Task needs to be retried.",
-                _ => "Task completed.",
+                "waiting" => "等待你的处理。",
+                "running" => "正在处理任务。",
+                "failed" => "任务需要重试。",
+                _ => "任务已完成。",
             };
             let children = sessions
                 .iter()
@@ -882,7 +912,7 @@ async fn fetch_summary(
                     };
                     serde_json::json!({
                         "id": child_id,
-                        "title": child.get("title").and_then(serde_json::Value::as_str).unwrap_or("Untitled subtask"),
+                        "title": child.get("title").and_then(serde_json::Value::as_str).unwrap_or("未命名子任务"),
                         "status": child_status,
                     })
                 })
@@ -890,6 +920,7 @@ async fn fetch_summary(
             serde_json::json!({
                 "id": id,
                 "deviceID": device_id,
+                "project": session.get("directory").or_else(|| session.get("workspace")).and_then(serde_json::Value::as_str).unwrap_or("未命名项目"),
                 "title": title,
                 "status": status,
                 "summary": summary,
@@ -898,7 +929,7 @@ async fn fetch_summary(
                 "todo": [],
                 "children": children,
                 "pending": pending,
-                "timeline": [],
+                "timeline": [{ "id": format!("{id}-synced"), "title": "任务状态已同步", "date": iso8601_seconds(updated) }],
             })
         })
         .collect::<Vec<_>>();
@@ -917,11 +948,23 @@ async fn fetch_summary(
             .as_array()
             .map(|items| items.iter().enumerate().map(|(index, item)| serde_json::json!({
                 "id": format!("{id}-todo-{index}"),
-                "title": item.get("content").and_then(serde_json::Value::as_str).unwrap_or("Todo"),
+                "title": item.get("content").and_then(serde_json::Value::as_str).unwrap_or("待办事项"),
                 "isComplete": item.get("status").and_then(serde_json::Value::as_str) == Some("completed"),
             })).collect::<Vec<_>>())
             .unwrap_or_default();
         task["todo"] = serde_json::Value::Array(items);
+        let (completed, total) = task["todo"]
+            .as_array()
+            .map(|items| {
+                (
+                    items.iter().filter(|item| item.get("isComplete") == Some(&serde_json::Value::Bool(true))).count(),
+                    items.len(),
+                )
+            })
+            .unwrap_or((0, 0));
+        if total > 0 {
+            task["progress"] = serde_json::json!(completed as f64 / total as f64);
+        }
     }
     Ok(tasks)
 }
@@ -1028,6 +1071,7 @@ async fn execute_command(
                 "content": serde_json::to_string(&diff).map_err(|error| error.to_string())?,
             })));
         }
+        MobileAction::RevokeDevice => return Err("mobile device revocation must be handled by the relay".into()),
     }
     Ok(None)
 }
@@ -1203,6 +1247,9 @@ mod tests {
         let action: MobileAction = serde_json::from_value(serde_json::json!({ "type": "stop" }))
             .expect("stop is allowlisted");
         assert!(matches!(action, MobileAction::Stop));
+        let action: MobileAction = serde_json::from_value(serde_json::json!({ "type": "revokeDevice" }))
+            .expect("self-revocation is allowlisted");
+        assert!(matches!(action, MobileAction::RevokeDevice));
         let terminal = serde_json::from_value::<MobileAction>(serde_json::json!({
             "type": "terminal",
             "command": "whoami"

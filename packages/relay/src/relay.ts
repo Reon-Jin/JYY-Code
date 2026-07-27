@@ -8,6 +8,7 @@ import {
   protocolError,
 } from "@jyycode-ai/mobile-protocol"
 import type { ServerWebSocket } from "bun"
+import { resolve, sep } from "node:path"
 import { configuredPushSender, type PushSender } from "./push"
 
 type SocketData = {
@@ -22,6 +23,8 @@ export type RelayOptions = {
   hostname?: string
   port?: number
   pushSender?: PushSender
+  /** Optional built Safari/PWA directory, served beside the relay on one local port. */
+  staticRoot?: string
 }
 
 export type Relay = {
@@ -41,13 +44,15 @@ export function createRelay(options: RelayOptions = {}): Relay {
   const routes = new Map<string, Map<string, ServerWebSocket<SocketData>>>()
   const pushTokens = new Map<string, Map<string, string>>()
   const pushSender = options.pushSender ?? configuredPushSender()
+  const staticRoot = options.staticRoot ? resolve(options.staticRoot) : undefined
   const server = Bun.serve<SocketData>({
     hostname,
     port,
-    fetch(request, server) {
+    async fetch(request, server) {
       const url = new URL(request.url)
       if (url.pathname === "/health") return Response.json({ ok: true })
       if (url.pathname === "/connect" && server.upgrade(request, { data: { messageIDs: new Set(), windowStartedAt: Date.now(), envelopeCount: 0, pairingCount: 0 } })) return
+      if (staticRoot && request.method === "GET") return serveStatic(staticRoot, url.pathname)
       return new Response("Not found", { status: 404 })
     },
     websocket: {
@@ -75,6 +80,34 @@ export function createRelay(options: RelayOptions = {}): Relay {
   })
 
   return { hostname: server.hostname ?? hostname, port: server.port ?? port, stop: () => server.stop(true) }
+}
+
+async function serveStatic(root: string, pathname: string): Promise<Response> {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(pathname)
+  } catch {
+    return new Response("Bad request", { status: 400 })
+  }
+  const requested = decoded === "/" ? "index.html" : decoded.replace(/^\/+/, "")
+  const candidate = resolve(root, requested)
+  if (candidate !== root && !candidate.startsWith(`${root}${sep}`)) return new Response("Not found", { status: 404 })
+
+  const file = Bun.file(candidate)
+  if (await file.exists()) return staticResponse(file, requested)
+  // Client-side routes must load the PWA shell; missing assets must still 404.
+  if (requested.includes(".")) return new Response("Not found", { status: 404 })
+  return staticResponse(Bun.file(resolve(root, "index.html")), "index.html")
+}
+
+function staticResponse(file: Blob, filename: string) {
+  const immutable = filename.startsWith("assets/")
+  return new Response(file, {
+    headers: {
+      "Cache-Control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
+      "X-Content-Type-Options": "nosniff",
+    },
+  })
 }
 
 function registerPushToken(tokens: Map<string, Map<string, string>>, socket: ServerWebSocket<SocketData>, message: RelayPushToken) {

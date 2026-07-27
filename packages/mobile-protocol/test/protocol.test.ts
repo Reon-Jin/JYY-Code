@@ -25,6 +25,24 @@ test("accepts a valid opaque envelope", () => {
   })
 })
 
+test("accepts a Safari web client without adding task fields to the relay protocol", () => {
+  expect(
+    parseRelayMessage({
+      type: "relay.hello",
+      protocolVersion: PROTOCOL_VERSION,
+      routeID: "desktop_1",
+      clientID: "safari_1",
+      role: "web",
+    }),
+  ).toEqual({
+    type: "relay.hello",
+    protocolVersion: PROTOCOL_VERSION,
+    routeID: "desktop_1",
+    clientID: "safari_1",
+    role: "web",
+  })
+})
+
 test("rejects unsupported versions and oversized ciphertext without inspecting it", () => {
   expect(parseRelayMessage({ type: "relay.hello", protocolVersion: 2 })).toEqual({
     type: "relay.error",
