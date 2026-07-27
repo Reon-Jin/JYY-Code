@@ -60,6 +60,7 @@ export type MobilePairingInvitation = {
 export type MobileCompanionStatus = {
   routeId: string
   relayUrl: string
+  tunnelReady: boolean
   pairedDevices: number
   pendingPairingExpiresAt?: number
 }

@@ -91,6 +91,7 @@ export function MobileSettings() {
   })
 
   const safariUrl = () => status()?.relayUrl.replace(/^wss:/, "https:").replace(/\/connect$/, "")
+  const tunnelReady = () => status()?.tunnelReady === true
 
   return (
     <div class="settings-sections mobile-settings">
@@ -115,7 +116,10 @@ export function MobileSettings() {
             </div>
           )}
         </Show>
-        <Button loading={starting()} onClick={() => void startPairing()}>
+        <Show when={!tunnelReady()}>
+          <p class="settings-card__hint" role="status">{i18n.t("settings.mobile-tunnel-starting")}</p>
+        </Show>
+        <Button disabled={!tunnelReady()} loading={starting()} onClick={() => void startPairing()}>
           {i18n.t("settings.mobile-show-qr")}
         </Button>
         <Show when={pairing()}>

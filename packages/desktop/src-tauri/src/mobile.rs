@@ -63,6 +63,7 @@ pub struct PairingRequest {
 pub struct MobileCompanionStatus {
     pub route_id: String,
     pub relay_url: String,
+    pub tunnel_ready: bool,
     pub paired_devices: usize,
     pub pending_pairing_expires_at: Option<u64>,
 }
@@ -126,11 +127,23 @@ impl MobileCompanion {
     }
 
     fn start_pairing(&self) -> Result<MobilePairingInvitation, String> {
+        // A Quick Tunnel gets a fresh hostname after every desktop launch.
+        // Never create a QR code until its launcher has written that hostname;
+        // otherwise a user could pair against the retired development relay.
+        #[cfg(not(test))]
+        let relay_url = configured_mobile_relay_url()
+            .ok_or("Safari 移动网页连接正在启动，请稍候几秒后重试。")?;
+        // Protocol unit tests intentionally run without a Windows tunnel.
+        #[cfg(test)]
+        let relay_url = mobile_relay_url();
         let mut state = self
             .state
             .lock()
             .map_err(|_| "mobile companion state is unavailable")?;
-        let secret = random_hex(32);
+        // The browser validates this as a 32-byte (64 hexadecimal character)
+        // pairing secret.  Keep the desktop invitation at the same strength so
+        // scanned and manually pasted invitations are accepted consistently.
+        let secret = random_hex(64);
         let private_key = StaticSecret::from(random_bytes());
         let public_key = PublicKey::from(&private_key);
         let expires_at = now_seconds() + PAIRING_TTL.as_secs();
@@ -141,7 +154,7 @@ impl MobileCompanion {
         });
         let invitation = MobilePairingInvitation {
             route_id: state.route_id.clone(),
-            relay_url: mobile_relay_url(),
+            relay_url,
             pairing_secret: secret,
             temporary_public_key: to_hex(public_key.as_bytes()),
             expires_at,
@@ -165,9 +178,12 @@ impl MobileCompanion {
         {
             state.pending = None;
         }
+        let configured_relay_url = configured_mobile_relay_url();
+        let tunnel_ready = configured_relay_url.is_some();
         Ok(MobileCompanionStatus {
             route_id: state.route_id.clone(),
-            relay_url: mobile_relay_url(),
+            relay_url: configured_relay_url.unwrap_or_default(),
+            tunnel_ready,
             paired_devices: state.devices.len(),
             pending_pairing_expires_at: state.pending.as_ref().map(|pending| pending.expires_at),
         })
@@ -302,6 +318,12 @@ impl MobileCompanion {
 /// update an already-running desktop UI without exposing a relay address in any
 /// remote service.
 fn mobile_relay_url() -> String {
+    configured_mobile_relay_url()
+        .or_else(|| std::env::var("JYYCODE_MOBILE_RELAY_URL").ok())
+        .unwrap_or_else(|| RELAY_URL.into())
+}
+
+fn configured_mobile_relay_url() -> Option<String> {
     let configured_file = std::env::var("JYYCODE_MOBILE_RELAY_FILE")
         .ok()
         .map(PathBuf::from)
@@ -314,11 +336,11 @@ fn mobile_relay_url() -> String {
         if let Ok(value) = fs::read_to_string(path) {
             let value = value.trim();
             if value.starts_with("wss://") && value.len() <= 2_048 {
-                return value.into();
+                return Some(value.into());
             }
         }
     }
-    std::env::var("JYYCODE_MOBILE_RELAY_URL").unwrap_or_else(|_| RELAY_URL.into())
+    None
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -598,11 +620,40 @@ pub fn start_relay(companion: MobileCompanion, backend: BackendSupervisor) {
         let notification_signal = Arc::new(Mutex::new(None));
         start_backend_event_listener(backend.clone(), event_signal.clone(), notification_signal.clone());
         loop {
-            let _ = relay_once(companion.clone(), backend.clone(), event_signal.clone(), notification_signal.clone()).await;
+            if let Err(error) = relay_once(
+                companion.clone(),
+                backend.clone(),
+                event_signal.clone(),
+                notification_signal.clone(),
+            )
+            .await
+            {
+                // The public relay only handles ciphertext. Keep the operational
+                // cause locally so a failed pairing can be diagnosed without
+                // exposing message contents, keys, or task data.
+                record_relay_diagnostic(&error);
+            }
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
     });
 }
+
+#[cfg(windows)]
+fn record_relay_diagnostic(error: &str) {
+    use std::io::Write;
+
+    let Some(directory) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) else {
+        return;
+    };
+    let path = directory.join("JYYCode").join("mobile-relay.log");
+    let sanitized = error.replace(['\r', '\n'], " ");
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{} {sanitized}", now_seconds());
+    }
+}
+
+#[cfg(not(windows))]
+fn record_relay_diagnostic(_error: &str) {}
 
 async fn relay_once(
     companion: MobileCompanion,
@@ -1198,6 +1249,19 @@ mod tests {
         MobileAction, MobileCompanion, PairingRequest, decrypt, derive_session_key, encrypt,
         percent_encode, random_hex,
     };
+
+    #[test]
+    fn emits_a_browser_compatible_pairing_invitation() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let companion = MobileCompanion::load_from_directory(directory.path()).expect("companion");
+        let invitation = companion.start_pairing().expect("pairing invitation");
+
+        assert_eq!(invitation.pairing_secret.len(), 64);
+        assert!(invitation.pairing_secret.chars().all(|character| character.is_ascii_hexdigit()));
+        let payload: serde_json::Value =
+            serde_json::from_str(&invitation.qr_payload).expect("QR payload JSON");
+        assert_eq!(payload["pairingSecret"], invitation.pairing_secret);
+    }
 
     #[test]
     fn rejects_an_incorrect_pairing_secret() {

@@ -5,6 +5,7 @@ mod mobile;
 mod notifications;
 mod project_path;
 mod text_file;
+mod tunnel;
 mod window_effects;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,6 +37,9 @@ pub fn run() {
         .setup(|app| {
             let supervisor = backend::BackendSupervisor::default();
             app.manage(supervisor.clone());
+            let tunnel_supervisor = tunnel::MobileTunnelSupervisor::default();
+            tunnel_supervisor.start(&app.handle());
+            app.manage(tunnel_supervisor);
             let mobile_companion = mobile::MobileCompanion::load(&app.handle())?;
             mobile::start_relay(mobile_companion.clone(), supervisor.clone());
             app.manage(mobile_companion);
@@ -68,6 +72,7 @@ pub fn run() {
             tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
         ) {
             handle.state::<backend::BackendSupervisor>().stop();
+            handle.state::<tunnel::MobileTunnelSupervisor>().stop();
         }
     });
 }
