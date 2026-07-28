@@ -117,11 +117,17 @@ const cancelBackgroundJobs = Effect.fn("SessionRunState.cancelBackgroundJobs")(f
   sessionID: SessionID,
 ) {
   const jobs = yield* background.list()
+  const rootSessionID = sessionID
   const pending = new Set<string>([sessionID])
   const cancelled = new Set<string>()
   const matches = (job: BackgroundJob.Info) => {
     if (job.status !== "running") return false
     if (cancelled.has(job.id)) return false
+    // Cluster workers are durable session-graph assignments. Cancelling the
+    // primary runner can be a transient scheduling operation, so it must not
+    // cascade into those workers. Their own session can still be cancelled
+    // directly by explicit interruption/reassignment paths.
+    if (job.metadata?.agentCluster !== undefined && job.id !== rootSessionID) return false
     if (pending.has(job.id)) return true
     if (typeof job.metadata?.sessionId === "string" && pending.has(job.metadata.sessionId)) return true
     return typeof job.metadata?.parentSessionId === "string" && pending.has(job.metadata.parentSessionId)

@@ -958,7 +958,7 @@ it.instance("loop continues when finish is stop but assistant has tool parts", (
   }),
 )
 
-it.instance("cuts off repeated child-agent tool turns", () =>
+it.instance("recovers repeated child-agent tool turns", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
     const prompt = yield* SessionPrompt.Service
@@ -972,14 +972,23 @@ it.instance("cuts off repeated child-agent tool turns", () =>
       noReply: true,
       parts: [{ type: "text", text: "repeat this tool call" }],
     })
-    for (let index = 0; index < 4; index++) {
+    for (let index = 0; index < 3; index++) {
       yield* llm.push(reply().tool("first", { value: "same" }).stop())
     }
+    yield* llm.text("recovered")
 
     const result = yield* prompt.loop({ sessionID: child.id })
-    expect(yield* llm.calls).toBe(3)
+    expect(yield* llm.calls).toBe(4)
     expect(result.info.role).toBe("assistant")
-    if (result.info.role === "assistant") expect(result.info.finish).toBe("stop")
+    if (result.info.role === "assistant") {
+      expect(result.parts.some((part) => part.type === "text" && part.text === "recovered")).toBe(true)
+    }
+
+    const msgs = yield* MessageV2.filterCompactedEffect(child.id)
+    const warning = msgs.find((msg) =>
+      msg.parts.some((part) => part.type === "text" && part.synthetic && part.metadata?.kind === "stuck_loop_warning"),
+    )
+    expect(warning).toBeDefined()
   }),
 )
 
@@ -1005,7 +1014,7 @@ it.instance("warns then cuts off repeated main-session tool turns", () =>
 
     const result = yield* prompt.loop({ sessionID: session.id })
     // Main sessions get one stuck-loop warning reminder before the hard stop,
-    // so the cutoff lands one LLM call later than the child-session cutoff.
+    // so the cutoff lands one LLM call later than the child-session recovery.
     expect(yield* llm.calls).toBe(4)
     expect(result.info.role).toBe("assistant")
     if (result.info.role === "assistant") expect(result.info.finish).toBe("stop")

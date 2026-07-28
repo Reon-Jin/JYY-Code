@@ -1656,9 +1656,9 @@ export const layer = Layer.effect(
             lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
 
           // Stuck-turn guard: an assistant turn that repeats the exact same text
-          // and tool calls as the previous iteration made no progress. Child
-          // sessions hard-stop right away (a subagent must not burn its budget);
-          // main sessions get one warning reminder before the hard stop.
+          // and tool calls as the previous iteration may be stuck. Child-agent
+          // repetitions can also be legitimate retries or polling, so recover
+          // them with one corrective reminder instead of terminating the session.
           if (lastAssistantMsg && lastAssistantInfo && !lastAssistantInfo.summary && !lastAssistantInfo.error) {
             const signature = [
               lastAssistantMsg.parts
@@ -1683,7 +1683,7 @@ export const layer = Layer.effect(
               repeatedToolTurnCount = 0
             }
             if (repeatedToolTurnCount >= 2) {
-              if (session.parentID === undefined && !loopWarningIssued) {
+              if (!loopWarningIssued) {
                 loopWarningIssued = true
                 yield* slog.warn("assistant repeated an identical turn; issuing stuck-loop warning", {
                   repetitions: repeatedToolTurnCount + 1,
@@ -1696,7 +1696,11 @@ export const layer = Layer.effect(
                     "Do not issue the same tool calls again. Change your approach: use the results you already have, try a different action, or conclude with a final answer that explains what is blocking progress.",
                   ],
                 })
-              } else {
+                if (session.parentID !== undefined) {
+                  previousToolTurnSignature = undefined
+                  repeatedToolTurnCount = 0
+                }
+              } else if (session.parentID === undefined) {
                 yield* slog.warn("stopping repeated assistant turns", {
                   repetitions: repeatedToolTurnCount + 1,
                   finish: lastAssistantInfo.finish,
@@ -1709,14 +1713,12 @@ export const layer = Layer.effect(
                     completed: lastAssistantInfo.time.completed ?? Date.now(),
                   },
                 })
-                if (session.parentID === undefined) {
-                  yield* bus.publish(Session.Event.Error, {
-                    sessionID,
-                    error: new NamedError.Unknown({
-                      message: `Stopped the turn: the agent repeated the same response ${repeatedToolTurnCount + 1} times without making progress. Send a message to continue.`,
-                    }).toObject(),
-                  })
-                }
+                yield* bus.publish(Session.Event.Error, {
+                  sessionID,
+                  error: new NamedError.Unknown({
+                    message: `Stopped the turn: the agent repeated the same response ${repeatedToolTurnCount + 1} times without making progress. Send a message to continue.`,
+                  }).toObject(),
+                })
                 break
               }
             }
