@@ -27,5 +27,9 @@ export const migrations = (
     import("./migration/20260706090000_agent_cluster_pipeline_context"),
     import("./migration/20260706120000_agent_cluster_task_scope"),
     import("./migration/20260725100000_session_task_graph"),
+    import("./migration/20260728143000_workflow_runtime_foundation"),
+    import("./migration/20260728150000_workflow_context_ledger"),
+    import("./migration/20260728160000_workflow_collaboration"),
+    import("./migration/20260728170000_workflow_assignments"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

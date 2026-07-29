@@ -174,8 +174,10 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
       question(sessionID) {
         return sync.data.question[sessionID] ?? []
       },
-      agentCluster(sessionID) {
-        return (sync.data.agent_cluster[sessionID] ?? { tasks: [] }) as never
+      // Kept as an empty compatibility shape for third-party TUI plugins. The
+      // built-in TUI no longer renders or fetches the legacy cluster state.
+      agentCluster() {
+        return { tasks: [] } as never
       },
     },
     part(messageID) {

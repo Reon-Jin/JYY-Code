@@ -1,5 +1,4 @@
 import { Agent } from "@/agent/agent"
-import { AgentCluster } from "@/agent-cluster/cluster"
 import { Bus } from "@/bus"
 import { Command } from "@/command"
 import { Config } from "@/config/config"
@@ -18,6 +17,9 @@ import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
+import { WorkflowRuntime } from "@/workflow/runtime"
+import { WorkflowCollaboration } from "@/workflow/collaboration"
+import { WorkflowExecutor } from "@/workflow/executor"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NamedError } from "@jyycode-ai/core/util/error"
 import { Cause, Effect, Exit, Option, Schema, Scope } from "effect"
@@ -127,7 +129,21 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
     }) {
       yield* requireSession(ctx.params.sessionID)
-      return yield* AgentCluster.getSessionState(ctx.params.sessionID)
+      const state = yield* WorkflowExecutor.getMultiSessionState(ctx.params.sessionID).pipe(
+        Effect.catchCause(() => Effect.succeed({ tasks: [] })),
+      )
+      return {
+        tasks: state.tasks.map((task) => ({
+          ...task,
+          session_id: ctx.params.sessionID,
+          origin_message_id: null,
+          parent_task_id: null,
+          child_session_id: task.child_session_id ?? null,
+          review_round: task.review_issues.length,
+          result_summary: task.result_summary ?? null,
+          last_event: task.last_event ?? null,
+        })),
+      }
     })
 
     const todo = Effect.fn("SessionHttpApi.todo")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -241,6 +257,18 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       }
       if (ctx.payload.multiAgent !== undefined) {
         yield* session.setMultiAgent({ sessionID: ctx.params.sessionID, enabled: ctx.payload.multiAgent })
+        const plan = yield* WorkflowRuntime.getSessionRunPlan(ctx.params.sessionID).pipe(Effect.option)
+        if (Option.isSome(plan) && plan.value.mode !== (ctx.payload.multiAgent ? "multi" : "single")) {
+          yield* WorkflowRuntime.patchRunPlan({
+            runPlanID: plan.value.id,
+            author: "user",
+            patch: {
+              baseVersion: plan.value.version,
+              reason: "user switched execution mode",
+              operations: [{ type: "set_mode", mode: ctx.payload.multiAgent ? "multi" : "single" }],
+            },
+          }).pipe(Effect.orDie)
+        }
       }
       if (ctx.payload.time?.archived !== undefined) {
         yield* session.setArchived({ sessionID: ctx.params.sessionID, time: ctx.payload.time.archived })
@@ -282,11 +310,22 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       const child = yield* requireSession(ctx.params.sessionID)
       if (child.parentID) {
-        yield* AgentCluster.interruptActiveChildAssignment({
-          sessionID: child.parentID,
-          childSessionID: child.id,
-          reason: "Interrupted by a user steering message.",
-        })
+        const plan = yield* WorkflowRuntime.getSessionRunPlan(child.parentID).pipe(Effect.option)
+        if (Option.isSome(plan)) {
+          const assignment = (yield* WorkflowCollaboration.listAssignments(child.parentID)).find(
+            (item) => item.runPlanID === plan.value.id && item.childSessionID === child.id,
+          )
+          if (assignment) {
+            yield* WorkflowExecutor.endMultiTask({
+              sessionID: child.parentID,
+              runPlanID: plan.value.id,
+              taskID: assignment.nodeID,
+              childSessionID: child.id,
+              outcome: "interrupted",
+              detail: "Interrupted by a user steering message.",
+            }).pipe(Effect.ignore)
+          }
+        }
       }
       yield* promptSvc.prompt({ ...ctx.payload, sessionID: child.id }).pipe(
         Effect.catchCause((cause) =>

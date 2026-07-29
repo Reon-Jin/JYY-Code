@@ -2,8 +2,9 @@ import * as Tool from "./tool"
 import DESCRIPTION from "./task.txt"
 import { ToolJsonSchema } from "./json-schema"
 import { BackgroundJob } from "@/background/job"
-import { AgentCluster } from "@/agent-cluster/cluster"
 import { AgentClusterRuntime } from "@/agent-cluster/runtime"
+import { WorkflowExecutor } from "@/workflow/executor"
+import { modelForComplexity } from "@/agent-cluster/dispatcher"
 import { Bus } from "@/bus"
 import { Session } from "@/session/session"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
@@ -59,6 +60,10 @@ const BACKGROUND_DESCRIPTION = [
   ].join(" "),
 ].join("\n")
 const FORK_CONTEXT_MAX_CHARS = 20_000
+
+function summarizeWorkflowResult(text: string) {
+  return text.trim().slice(0, 8_000)
+}
 
 // Note: duplicated in tool/agent-cluster-review.ts — keep in sync.
 function agentClusterSessionID(ctx: Tool.Context): SessionID | undefined {
@@ -403,10 +408,6 @@ export const TaskTool = Tool.define(
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
       const persistCurrentClusterPlan = Effect.fn("TaskTool.persistCurrentClusterPlan")(function* () {
         if (!clusterSessionID) return false
-        const persisted = yield* AgentCluster.getSessionState(clusterSessionID)
-        const persistedTask = params.task_id
-          ? persisted.tasks.find((task) => task.id === params.task_id || task.child_session_id === params.task_id)
-          : undefined
         const texts: string[] = []
         const currentTexts: string[] = []
         // AI SDK executes tools inside handle.process(), before prompt.ts can
@@ -459,11 +460,6 @@ export const TaskTool = Tool.define(
           }
         }
         const currentPlan = AgentClusterRuntime.extractPlanFromText(currentTexts.join("\n"))
-        // A direct dispatch of an existing task must not reapply a stale plan
-        // found in message history. Any JSON plan from the current turn is
-        // deliberately persisted first, including a cancellation-only update.
-        if (persistedTask && !currentPlan) return false
-
         const combined = texts.join("\n")
         const plan = currentPlan ?? AgentClusterRuntime.extractPlanFromText(combined)
         if (!plan) {
@@ -488,7 +484,7 @@ export const TaskTool = Tool.define(
         if (!validation.valid) {
           return yield* Effect.fail(new Error(`Invalid cluster plan: ${validation.errors.join("; ")}`))
         }
-        yield* AgentCluster.persistPlan({ sessionID: clusterSessionID, originMessageID: ctx.messageID, plan })
+        yield* WorkflowExecutor.applyMultiAgentPlan({ sessionID: clusterSessionID, plan })
         return true
       })
       if (clusterBackground && clusterSessionID && !params.task_id) {
@@ -496,15 +492,6 @@ export const TaskTool = Tool.define(
           new Error("Cluster task_id is required for every task in an active session task graph"),
         )
       }
-      const prepareClusterDispatch = () =>
-        AgentCluster.prepareTaskDispatch({
-          sessionID: clusterSessionID,
-          requestedTaskID: params.task_id,
-          resumeSessionID: params.resume_session_id,
-          allowOutOfOrder: params.force === true,
-          prompt: params.prompt,
-          config: cfg.agent_cluster ?? {},
-        })
       // Captured after .pipe(Effect.exit); undefined when no dispatch was attempted.
       let clusterDispatch: Exit.Exit<any, any> | undefined = undefined
       if (clusterBackground && params.task_id) {
@@ -527,7 +514,7 @@ export const TaskTool = Tool.define(
             const delay = Math.min(100 * Math.pow(2, Math.min(attempt - 1, 3)), 1000)
             yield* Effect.sleep(`${delay} millis` as any)
           }
-          // Ensure the plan rows exist (idempotent after first success).
+          // Ensure the Run Plan exists (idempotent after first success).
           // If the plan text cannot be extracted from recent messages we
           // still try to dispatch — the rows may have been pre-seeded by
           // the runLoop (pre-persist in prompt.ts), a direct DB insert
@@ -550,17 +537,19 @@ export const TaskTool = Tool.define(
               }
             }
           }
-          const dispatched = yield* prepareClusterDispatch().pipe(Effect.exit)
+          const dispatched = yield* WorkflowExecutor.prepareMultiTask({
+            sessionID: clusterSessionID!,
+            taskID: params.task_id,
+            force: params.force === true,
+          }).pipe(Effect.exit)
           if (Exit.isSuccess(dispatched)) {
             clusterDispatch = dispatched
             break
           }
           const dispatchErr = Cause.squash(dispatched.cause)
           const msg = String(dispatchErr)
-          // Retry only when the error indicates the plan hasn't been
-          // persisted yet (no known task IDs at all).  If tasks exist
-          // but the requested ID doesn't match, retrying is futile.
-          if (msg.includes("Unknown cluster task for run") && msg.includes("(none")) {
+          // Retry only while the plan has not reached durable Runtime state.
+          if (msg.includes("Workflow task not found")) {
             lastError = msg
             continue
           }
@@ -582,10 +571,42 @@ export const TaskTool = Tool.define(
           return yield* Effect.failCause(clusterDispatch.cause)
         }
       }
-      const preparedDispatch = clusterDispatch?.value
-      const effectivePrompt = preparedDispatch?.prompt ?? params.prompt
-      const clusterPlanTaskID = preparedDispatch?.taskID
-      const resumeTaskID = preparedDispatch?.childSessionID ?? (clusterPlanTaskID ? undefined : params.task_id)
+      const workflowDispatch = clusterDispatch?.value
+      const clusterPlanTaskID = workflowDispatch?.task.id.toString()
+      const clusterConfig = ConfigAgentCluster.resolve(cfg.agent_cluster)
+      const dispatchModel = workflowDispatch
+        ? workflowDispatch.task.model === "-" || !workflowDispatch.task.model
+          ? modelForComplexity({
+              complexity: workflowDispatch.task.complexity ?? "simple",
+              role: workflowDispatch.task.role as any,
+              simpleModel: clusterConfig.simple_model,
+              complexModel: clusterConfig.complex_model,
+              visualModel: clusterConfig.visual_model,
+            })
+          : workflowDispatch.task.model
+        : undefined
+      const dispatchVariant = workflowDispatch && (workflowDispatch.task.model === "-" || !workflowDispatch.task.model)
+        ? workflowDispatch.task.role === "chart" || workflowDispatch.task.role === "office"
+          ? clusterConfig.visual_variant || undefined
+          : workflowDispatch.task.complexity === "simple"
+            ? clusterConfig.simple_variant || undefined
+            : clusterConfig.complex_variant || undefined
+        : undefined
+      const effectivePrompt = workflowDispatch
+        ? [
+            "<workflow-task-brief>",
+            `task_id: ${clusterPlanTaskID}`,
+            `role: ${workflowDispatch.task.role ?? "general"}`,
+            `acceptance: ${workflowDispatch.task.acceptance.map((item: { title: string }) => item.title).join("; ") || "complete the assigned task"}`,
+            `expected artifacts: ${(workflowDispatch.task.expectedArtifacts ?? []).join(", ") || "report the result"}`,
+            "</workflow-task-brief>",
+            "",
+            workflowDispatch.task.prompt ?? workflowDispatch.task.title,
+            "",
+            params.prompt,
+          ].join("\n")
+        : params.prompt
+      const resumeTaskID = workflowDispatch?.childSessionID ?? (clusterPlanTaskID ? undefined : params.task_id)
       if (runInBackground && !clusterBackground && !flags.experimentalBackgroundSubagents) {
         return yield* Effect.fail(
           new Error("Background subagents require JYYCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS=true"),
@@ -632,8 +653,8 @@ export const TaskTool = Tool.define(
         ? yield* sessions.get(SessionID.make(taskID)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
       const parent = yield* sessions.get(ctx.sessionID)
-      if (preparedDispatch?.childSessionID && !session) {
-        return yield* Effect.fail(new Error(`Task session ${preparedDispatch.childSessionID} was not found.`))
+      if (workflowDispatch?.childSessionID && !session) {
+        return yield* Effect.fail(new Error(`Task session ${workflowDispatch.childSessionID} was not found.`))
       }
       if (session && session.parentID !== ctx.sessionID) {
         return yield* Effect.fail(new Error(`Task session ${session.id} does not belong to this parent session.`))
@@ -699,7 +720,7 @@ export const TaskTool = Tool.define(
           permission,
         }))
 
-      const modelOverride = preparedDispatch?.model ?? params.model
+      const modelOverride = dispatchModel ?? params.model
       const model = modelOverride
         ? yield* resolveModel(modelOverride)
         : (next.model ?? {
@@ -783,7 +804,7 @@ export const TaskTool = Tool.define(
             modelID: model.modelID,
             providerID: model.providerID,
           },
-          ...(preparedDispatch?.variant ? { variant: preparedDispatch.variant } : {}),
+          ...(dispatchVariant ? { variant: dispatchVariant } : {}),
           agent: next.name,
           tools: {
             ...(next.permission.some((rule) => rule.permission === "todowrite" && rule.action === "allow")
@@ -1036,16 +1057,7 @@ export const TaskTool = Tool.define(
 
       let existing = yield* background.get(nextSession.id)
       if (existing?.status === "running" && clusterSessionID && clusterPlanTaskID) {
-        const interrupted = yield* AgentCluster.interruptActiveChildAssignment({
-          sessionID: clusterSessionID,
-          childSessionID: nextSession.id,
-          reason: `Reassigned by cluster primary to ${clusterPlanTaskID}`,
-        })
-        if (!interrupted.interrupted) {
-          return yield* Effect.fail(
-            new Error(`Subagent ${nextSession.id} is running an assignment that could not be safely interrupted.`),
-          )
-        }
+        yield* background.cancel(nextSession.id)
         existing = yield* background.get(nextSession.id)
       }
       if (existing?.status === "running") {
@@ -1062,47 +1074,37 @@ export const TaskTool = Tool.define(
           metadata,
           run: runTaskWithMerge().pipe(
             Effect.tap((text) =>
-              AgentCluster.submitTaskResult({
-                sessionID: clusterSessionID,
-                taskID: clusterPlanTaskID,
-                childSessionID: nextSession.id,
-                summary: AgentCluster.summarizeTaskResult(text),
-              }),
+              workflowDispatch
+                ? WorkflowExecutor.submitMultiTask({
+                    sessionID: clusterSessionID!,
+                    runPlanID: workflowDispatch.plan.id,
+                    taskID: workflowDispatch.task.id,
+                    childSessionID: nextSession.id,
+                    summary: summarizeWorkflowResult(text),
+                  })
+                : Effect.void,
             ),
             Effect.tap((text) => inject("completed", text).pipe(Effect.ignore)),
             Effect.catchCause((cause) =>
               (Cause.hasInterruptsOnly(cause)
-                ? AgentCluster.cancelTaskResult({
-                    sessionID: clusterSessionID,
-                    taskID: clusterPlanTaskID,
-                    childSessionID: nextSession.id,
-                    reason: "Child Agent was stopped by the user.",
-                  }).pipe(Effect.andThen(inject("error", "Child Agent was stopped by the user.").pipe(Effect.ignore)))
-                : AgentCluster.failTaskResult({
-                    sessionID: clusterSessionID,
-                    taskID: clusterPlanTaskID,
-                    childSessionID: nextSession.id,
-                    error: errorText(Cause.squash(cause)),
-                  }).pipe(Effect.andThen(inject("error", errorText(Cause.squash(cause))).pipe(Effect.ignore)))
+                ? (workflowDispatch
+                    ? WorkflowExecutor.endMultiTask({ sessionID: clusterSessionID!, runPlanID: workflowDispatch.plan.id, taskID: workflowDispatch.task.id, childSessionID: nextSession.id, outcome: "interrupted", detail: "Child Agent was stopped by the user." })
+                    : Effect.void
+                  ).pipe(Effect.andThen(inject("error", "Child Agent was stopped by the user.").pipe(Effect.ignore)))
+                : (workflowDispatch
+                    ? WorkflowExecutor.endMultiTask({ sessionID: clusterSessionID!, runPlanID: workflowDispatch.plan.id, taskID: workflowDispatch.task.id, childSessionID: nextSession.id, outcome: "failed", detail: errorText(Cause.squash(cause)) })
+                    : Effect.void
+                  ).pipe(Effect.andThen(inject("error", errorText(Cause.squash(cause))).pipe(Effect.ignore)))
               ).pipe(Effect.andThen(Effect.failCause(cause))),
             ),
           ),
         })
-        const claimedTaskID = (info.metadata?.agentCluster as { taskID?: unknown } | undefined)?.taskID
-        if (clusterPlanTaskID && claimedTaskID !== clusterPlanTaskID) {
-          return yield* Effect.fail(
-            new Error(
-              `Subagent ${nextSession.id} is already running ${claimedTaskID ? `cluster task ${String(claimedTaskID)}` : "another task"}. ` +
-                "Wait for it to finish before assigning another task to the same subagent.",
-            ),
-          )
-        }
-        if (clusterPlanTaskID) {
-          yield* AgentCluster.markTaskRunning({
-            sessionID: clusterSessionID,
-            taskID: clusterPlanTaskID,
+        if (workflowDispatch) {
+          yield* WorkflowExecutor.startMultiTask({
+            sessionID: clusterSessionID!,
+            runPlanID: workflowDispatch.plan.id,
+            taskID: workflowDispatch.task.id,
             childSessionID: nextSession.id,
-            model: `${model.providerID}/${model.modelID}`,
           })
         }
 

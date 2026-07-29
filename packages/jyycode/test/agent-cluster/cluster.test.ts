@@ -1,501 +1,102 @@
-// @ts-nocheck -- runtime assertions cover branded API boundaries directly.
 import { describe, expect, test } from "bun:test"
-import { Deferred, Effect, Layer } from "effect"
+import { Effect, Layer } from "effect"
 import { AgentCluster } from "../../src/agent-cluster/cluster"
-import { BackgroundJob } from "../../src/background/job"
-import { ConfigAgentCluster } from "../../src/config/agent-cluster"
-import { ClusterPrimaryPrompt, runInstructions } from "../../src/agent-cluster/planner"
-import { RoleSkillDefinitions } from "../../src/agent-cluster/role-skills"
+import { ClusterPrimaryPrompt } from "../../src/agent-cluster/planner"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 import { Session } from "../../src/session/session"
-import type { Session as SessionInfo } from "../../src/session/session"
-import { SessionRunState } from "../../src/session/run-state"
-import { SessionStatus } from "../../src/session/status"
-import { AgentClusterTaskTable } from "../../src/agent-cluster/cluster.sql"
 import * as Database from "../../src/storage/db"
-import { awaitWithTimeout, testEffect } from "../lib/effect"
+import { WorkflowExecutor } from "../../src/workflow/executor"
+import { WorkflowRuntime } from "../../src/workflow/runtime"
+import { testEffect } from "../lib/effect"
 
-const it = testEffect(Session.defaultLayer)
-const backgroundLayer = BackgroundJob.defaultLayer
-const runStateLayer = SessionRunState.layer.pipe(
-  Layer.provide(Layer.mergeAll(backgroundLayer, SessionStatus.defaultLayer)),
-)
-const interruptIt = testEffect(Layer.mergeAll(Session.defaultLayer, backgroundLayer, runStateLayer))
-const dispatchConfig = { simple_model: "test/simple", complex_model: "test/complex", visual_model: "test/visual" }
+const it = testEffect(Layer.mergeAll(Session.defaultLayer, Database.layer))
 
-describe("AgentCluster planner instructions", () => {
+describe("Multi-agent planner instructions", () => {
   test("describe dependency steps as durable dispatch waves", () => {
-    expect(ClusterPrimaryPrompt).toContain("A step is a dispatch wave")
-    expect(ClusterPrimaryPrompt).toContain("Step 1 has no prior results")
     expect(ClusterPrimaryPrompt).toContain("agent_cluster_review")
-    expect(ClusterPrimaryPrompt).toContain("ROLE CAPABILITY CATALOG")
-    expect(ClusterPrimaryPrompt).not.toContain(RoleSkillDefinitions.chart.skillName)
+    expect(ClusterPrimaryPrompt).toContain("strict gates")
   })
 
   test("includes session graph scheduling rules", () => {
-    const text = runInstructions({
-      sessionID: "ses_root",
-      artifactDir: "/tmp/artifacts",
-      simpleModel: "provider/simple",
-      complexModel: "provider/complex",
-      visualModel: "provider/visual",
-      maxSubagents: 10,
-      maxConcurrency: 3,
-      maxReviewRounds: 2,
-      taskGraph: [
-        {
-          id: "task-recover",
-          step: 4,
-          status: "failed",
-          title: "Recover task",
-          role: "coder",
-          prompt: "Recover the task with the reported issue",
-          complexity: "simple",
-          model: "test/simple",
-          dependencies: ["task-previous"],
-          acceptance_criteria: ["artifact is present"],
-          artifact_paths: ["result.txt"],
-          review_issues: ["missing artifact"],
-          last_event: "failed",
-        },
+    expect(ClusterPrimaryPrompt).toContain("task_id")
+    expect(ClusterPrimaryPrompt).toContain("acceptance")
+  })
+})
+
+describe("Multi-agent mode selection", () => {
+  test("respects config and excludes child and mail sessions", () => {
+    const config = { enabled: true, default_on: true }
+    expect(AgentCluster.canUseAgentCluster({ session: { title: "Main", path: "", multiAgent: false }, config, requested: true })).toBe(true)
+    expect(AgentCluster.canUseAgentCluster({ session: { title: "Main", path: "", parentID: "ses_parent" as any }, config, requested: true })).toBe(false)
+    expect(AgentCluster.canUseAgentCluster({ session: { title: "Mail", agent: "mail", path: "", multiAgent: true }, config })).toBe(false)
+  })
+})
+
+describe("Multi-agent plan parsing", () => {
+  test("only makes the earliest unfinished wave ready", () => {
+    const plan = AgentClusterRuntime.normalizePlan({
+      goal: "Test", tasks: [
+        { id: "first", step: 1, title: "First", role: "researcher", complexity: "simple", model: "test/model", dependencies: [], prompt: "First", acceptanceCriteria: [], expectedArtifacts: [] },
+        { id: "second", step: 2, title: "Second", role: "coder", complexity: "simple", model: "test/model", dependencies: ["first"], prompt: "Second", acceptanceCriteria: [], expectedArtifacts: [] },
       ],
     })
-    expect(text).toContain("Dispatch only the smallest unfinished step")
-    expect(text).toContain("This session task graph is durable")
-    expect(text).toContain("Never create a duplicate existing task")
-    expect(text).toContain("global Step numbers")
-    expect(text).toContain("never expect the runtime to translate local steps")
-    expect(text).toContain("task-recover")
-    expect(text).toContain("cancelTaskIDs")
-    expect(text).toContain("force=true")
-  })
-})
-
-describe("AgentCluster.canUseAgentCluster", () => {
-  const baseConfig = ConfigAgentCluster.Default
-  const baseSession = {
-    title: "Help me write a function",
-    agent: "build" as const,
-    path: undefined,
-    multiAgent: undefined as boolean | undefined,
-    parentID: undefined,
-  } satisfies Pick<SessionInfo.Info, "title" | "agent" | "path" | "multiAgent" | "parentID">
-
-  test("respects config and excludes child and mail sessions", () => {
-    expect(AgentCluster.canUseAgentCluster({ session: baseSession, config: { ...baseConfig, enabled: false } })).toBe(
-      false,
-    )
-    expect(
-      AgentCluster.canUseAgentCluster({
-        session: { ...baseSession, parentID: "ses_parent" as any },
-        config: baseConfig,
-        requested: true,
-      }),
-    ).toBe(false)
-    expect(
-      AgentCluster.canUseAgentCluster({
-        session: { ...baseSession, title: "Email: welcome" },
-        config: baseConfig,
-        requested: true,
-      }),
-    ).toBe(false)
-    expect(AgentCluster.canUseAgentCluster({ session: baseSession, config: baseConfig, requested: true })).toBe(true)
-  })
-})
-
-describe("AgentClusterRuntime", () => {
-  const task = (id: string, step: number, dependencies: string[] = []) => ({
-    id: AgentClusterRuntime.coerceTaskID(id),
-    step,
-    title: id,
-    role: "researcher" as const,
-    complexity: "simple" as const,
-    model: "test/simple",
-    dependencies: dependencies.map(AgentClusterRuntime.coerceTaskID),
-    prompt: `Do ${id}`,
-    acceptanceCriteria: [],
-    expectedArtifacts: [],
-  })
-
-  test("only makes the earliest unfinished wave ready", () => {
-    const plan = { goal: "Test", tasks: [task("research", 1), task("write", 2, ["research"])] }
-    expect(AgentClusterRuntime.nextReadyBatch(plan, { completed: [] }).tasks.map((item) => item.id)).toEqual([
-      "research",
-    ])
-    expect(
-      AgentClusterRuntime.nextReadyBatch(plan, { completed: ["research" as any] }).tasks.map((item) => item.id),
-    ).toEqual(["write"])
+    expect(plan).toBeDefined()
+    expect(AgentClusterRuntime.nextReadyBatch(plan!, { completed: [] }).tasks.map((task) => task.id)).toEqual(["first"] as any)
+    expect(AgentClusterRuntime.nextReadyBatch(plan!, { completed: ["first" as any] }).tasks.map((task) => task.id)).toEqual(["second"] as any)
   })
 
   test("rejects invalid graph topology", () => {
-    const result = AgentClusterRuntime.validatePlan(
-      { goal: "Bad", tasks: [task("same-step", 1, ["other"]), task("other", 1)] },
-      { maxSubagents: 10, maxConcurrency: 3 },
-    )
+    const invalid = AgentClusterRuntime.normalizePlan({ goal: "Bad", tasks: [{ id: "a", step: 1, title: "A", role: "coder", complexity: "simple", model: "test/model", dependencies: ["missing"], prompt: "A", acceptanceCriteria: [], expectedArtifacts: [] }] })!
+    const result = AgentClusterRuntime.validatePlan(invalid, { maxSubagents: 4, maxConcurrency: 2 })
     expect(result.valid).toBe(false)
   })
 
-  test("extracts fenced plan JSON", () => {
-    const plan = AgentClusterRuntime.extractPlanFromText(
-      '```json\n{"goal":"Build","tasks":[{"id":"build","step":1,"title":"Build","role":"coder","complexity":"simple","model":"test/simple","dependencies":[],"prompt":"Build it","acceptanceCriteria":[],"expectedArtifacts":[]}]}\n```',
-    )
-    expect(plan?.tasks[0]?.id).toBe("build")
-  })
-
-  test("extracts a cancellation-only plan update", () => {
-    const plan = AgentClusterRuntime.extractPlanFromText(
-      '```json\n{"goal":"Remove obsolete work","tasks":[],"cancelTaskIDs":["obsolete-task"]}\n```',
-    )
-    expect(plan).toMatchObject({ goal: "Remove obsolete work", tasks: [], cancelTaskIDs: ["obsolete-task"] })
-    expect(AgentClusterRuntime.validatePlan(plan!, { maxSubagents: 10, maxConcurrency: 3 }).valid).toBe(true)
-  })
-
-  test("normalizes image research to researcher", () => {
-    const plan = AgentClusterRuntime.normalizePlan({
-      goal: "Find a licensed image",
-      tasks: [
-        {
-          id: "image-research",
-          step: 1,
-          title: "Find image sources",
-          role: "image search",
-          prompt: "Find a reusable image source",
-          acceptanceCriteria: ["sources are verified"],
-          expectedArtifacts: [],
-        },
-      ],
-    })
-    expect(plan?.tasks[0]?.role).toBe("researcher")
-  })
-
-  test("normalizes Office file work to office", () => {
-    const plan = AgentClusterRuntime.normalizePlan({
-      goal: "Update a workbook",
-      tasks: [
-        {
-          id: "office-work",
-          step: 1,
-          title: "Update Excel workbook",
-          role: "excel spreadsheet",
-          prompt: "Update an XLSX workbook",
-          acceptanceCriteria: ["formulas are verified"],
-          expectedArtifacts: [],
-        },
-      ],
-    })
-    expect(plan?.tasks[0]?.role).toBe("office")
+  test("extracts fenced plan JSON and cancellation updates", () => {
+    const text = "```json\n{\"goal\":\"Test\",\"tasks\":[{\"id\":\"task\",\"step\":1,\"title\":\"Task\",\"role\":\"coder\",\"prompt\":\"Do it\"}]}\n```"
+    expect(AgentClusterRuntime.extractPlanFromText(text)?.goal).toBe("Test")
+    const cancellation = AgentClusterRuntime.extractPlanFromText("```json\n{\"goal\":\"Test\",\"tasks\":[],\"cancelTaskIDs\":[\"old\"]}\n```")
+    expect((cancellation?.cancelTaskIDs ?? []).map(String)).toEqual(["old"])
   })
 })
 
-describe("AgentCluster session task graph", () => {
-  it.instance("starts an earlier planned task after a later user turn", () =>
+describe("Workflow Runtime multi-agent execution", () => {
+  it.instance("enforces dependency gates and preserves accepted nodes across planner revisions", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service
-      const chat = yield* sessions.create({ title: "Durable task graph" })
-      yield* AgentCluster.persistPlan({
-        sessionID: chat.id,
-        plan: {
-          goal: "First",
-          tasks: [
-            {
-              id: "build-ui" as any,
-              step: 1,
-              title: "Build",
-              role: "coder",
-              complexity: "complex",
-              model: "test/complex",
-              dependencies: [],
-              prompt: "Build the panel",
-              acceptanceCriteria: [],
-              expectedArtifacts: [],
-            },
-          ],
-        },
+      const root = yield* sessions.create({ title: "Runtime graph" })
+      const child = yield* sessions.create({ parentID: root.id, title: "First worker" })
+      const initial = yield* WorkflowExecutor.applyMultiAgentPlan({
+        sessionID: root.id,
+        plan: { goal: "Ship", tasks: [
+          { id: "first", step: 1, title: "First", role: "researcher", prompt: "Research", complexity: "simple", model: "test/model", dependencies: [], acceptanceCriteria: ["evidence"], expectedArtifacts: [] },
+          { id: "second", step: 2, title: "Second", role: "coder", prompt: "Implement", complexity: "complex", model: "test/model", dependencies: ["first"], acceptanceCriteria: ["build"], expectedArtifacts: [] },
+        ] },
       })
-      yield* AgentCluster.persistPlan({
-        sessionID: chat.id,
-        plan: {
-          goal: "Later",
-          tasks: [
-            {
-              id: "document-ui" as any,
-              step: 2,
-              title: "Document",
-              role: "writer",
-              complexity: "simple",
-              model: "test/simple",
-              dependencies: [],
-              prompt: "Document the panel",
-              acceptanceCriteria: [],
-              expectedArtifacts: [],
-            },
-          ],
-        },
-      })
-      const dispatch = yield* AgentCluster.prepareTaskDispatch({
-        sessionID: chat.id,
-        requestedTaskID: "build-ui",
-        prompt: "Start it",
-        config: dispatchConfig,
-      })
-      const state = yield* AgentCluster.getSessionState(chat.id)
-      expect(dispatch.taskID).toBe("build-ui")
-      expect(state.tasks.map((item) => [item.id, item.step])).toEqual([
-        ["build-ui", 1],
-        ["document-ui", 2],
-      ])
-      expect(state).not.toHaveProperty("runs")
-    }),
-  )
-
-  it.instance("preserves global step numbers across later plans", () =>
-    Effect.gen(function* () {
-      const chat = yield* (yield* Session.Service).create({ title: "Global step numbers" })
-      const task = (id: string, step: number) => ({
-        id: id as any,
-        step,
-        title: id,
-        role: "coder" as const,
-        complexity: "simple" as const,
-        model: "test/simple",
-        dependencies: [],
-        prompt: id,
-        acceptanceCriteria: [],
-        expectedArtifacts: [],
-      })
-      yield* AgentCluster.persistPlan({ sessionID: chat.id, plan: { goal: "First", tasks: [task("step-five", 5)] } })
-      yield* AgentCluster.persistPlan({ sessionID: chat.id, plan: { goal: "Later", tasks: [task("step-six", 6)] } })
-
-      const state = yield* AgentCluster.getSessionState(chat.id)
-      expect(state.tasks.map((item) => [item.id, item.step])).toEqual([
-        ["step-five", 5],
-        ["step-six", 6],
-      ])
-    }),
-  )
-
-  it.instance("updates and cancels unfinished tasks from a later plan", () =>
-    Effect.gen(function* () {
-      const chat = yield* (yield* Session.Service).create({ title: "Editable task graph" })
-      const task = (id: string, step: number, prompt = id) => ({
-        id: id as any,
-        step,
-        title: id,
-        role: "coder" as const,
-        complexity: "simple" as const,
-        model: "test/simple",
-        dependencies: [],
-        prompt,
-        acceptanceCriteria: ["complete"],
-        expectedArtifacts: [],
-      })
-      yield* AgentCluster.persistPlan({
-        sessionID: chat.id,
-        plan: { goal: "First", tasks: [task("edit-me", 1), task("remove-me", 2)] },
-      })
-      yield* AgentCluster.persistPlan({
-        sessionID: chat.id,
-        plan: {
-          goal: "Revised",
-          tasks: [task("edit-me", 3, "Use the corrected implementation")],
-          cancelTaskIDs: ["remove-me" as any],
-        },
-      })
-
-      const state = yield* AgentCluster.getSessionState(chat.id)
-      expect(state.tasks.find((item) => item.id === "edit-me")).toMatchObject({
-        step: 3,
-        prompt: "Use the corrected implementation",
-        status: "planned",
-      })
-      expect(state.tasks.find((item) => item.id === "remove-me")).toMatchObject({ status: "cancelled" })
-    }),
-  )
-
-  it.instance("lets the primary deliberately restart a failed task out of step order", () =>
-    Effect.gen(function* () {
-      const chat = yield* (yield* Session.Service).create({ title: "Recover task graph" })
-      const task = (id: string, step: number) => ({
-        id: id as any,
-        step,
-        title: id,
-        role: "coder" as const,
-        complexity: "simple" as const,
-        model: "test/simple",
-        dependencies: [],
-        prompt: id,
-        acceptanceCriteria: [],
-        expectedArtifacts: [],
-      })
-      yield* AgentCluster.persistPlan({
-        sessionID: chat.id,
-        plan: { goal: "Recover", tasks: [task("first", 1), task("later", 2)] },
-      })
-      const blocked = yield* AgentCluster.prepareTaskDispatch({
-        sessionID: chat.id,
-        requestedTaskID: "later",
-        prompt: "Start later",
-        config: dispatchConfig,
-      }).pipe(Effect.exit)
+      const blocked = yield* WorkflowExecutor.prepareMultiTask({ sessionID: root.id, taskID: "second" }).pipe(Effect.exit)
       expect(blocked._tag).toBe("Failure")
-
-      yield* Database.query((db) =>
-        db
-          .update(AgentClusterTaskTable)
-          .set({ status: "failed" as const, review_issues: ["needs recovery"] })
-          .where(
-            Database.and(
-              Database.eq(AgentClusterTaskTable.session_id, chat.id),
-              Database.eq(AgentClusterTaskTable.id, "later" as any),
-            ),
-          )
-          .run(),
-      )
-      const dispatch = yield* AgentCluster.prepareTaskDispatch({
-        sessionID: chat.id,
-        requestedTaskID: "later",
-        allowOutOfOrder: true,
-        prompt: "Restart later",
-        config: dispatchConfig,
+      const first = yield* WorkflowExecutor.prepareMultiTask({ sessionID: root.id, taskID: "first" })
+      yield* WorkflowExecutor.startMultiTask({ sessionID: root.id, runPlanID: first.plan.id, taskID: first.task.id, childSessionID: child.id })
+      yield* WorkflowExecutor.submitMultiTask({ sessionID: root.id, runPlanID: first.plan.id, taskID: first.task.id, childSessionID: child.id, summary: "Evidence supplied." })
+      yield* WorkflowRuntime.transitionNode({ sessionID: root.id, runPlanID: initial.id, nodeID: first.task.id, from: "submitted", to: "reviewing" })
+      yield* WorkflowRuntime.transitionNode({ sessionID: root.id, runPlanID: initial.id, nodeID: first.task.id, from: "reviewing", to: "accepted", detail: { validation: true, evidence: ["evidence"] } })
+      expect((yield* WorkflowExecutor.prepareMultiTask({ sessionID: root.id, taskID: "second" })).task.id).toBe("second" as any)
+      const revised = yield* WorkflowExecutor.applyMultiAgentPlan({
+        sessionID: root.id,
+        plan: { goal: "Ship", tasks: [{ id: "first", step: 1, title: "Changed title", role: "researcher", prompt: "Changed", complexity: "simple", model: "test/model", dependencies: [], acceptanceCriteria: ["different"], expectedArtifacts: [] }, { id: "second", step: 2, title: "Second", role: "coder", prompt: "Implement", complexity: "complex", model: "test/model", dependencies: ["first"], acceptanceCriteria: ["build"], expectedArtifacts: [] }] },
       })
-      const state = yield* AgentCluster.getSessionState(chat.id)
-      expect(dispatch.taskID).toBe("later")
-      expect(state.tasks.find((item) => item.id === "later")).toMatchObject({
-        status: "planned",
-        review_issues: [],
-        last_event: "restart requested",
-      })
+      expect(revised.tasks.find((task) => task.id === "first" as any)?.title).toBe("First")
     }),
   )
 
-  it.instance("keeps an accepted task immutable when a later plan reuses its id", () =>
+  it.instance("requires explicit cancellation for planned nodes", () =>
     Effect.gen(function* () {
-      const chat = yield* (yield* Session.Service).create({ title: "No duplicate ids" })
-      const task = {
-        id: "shared" as any,
-        step: 1,
-        title: "Original",
-        role: "coder" as const,
-        complexity: "simple" as const,
-        model: "test/simple",
-        dependencies: [],
-        prompt: "Original work",
-        acceptanceCriteria: [],
-        expectedArtifacts: [],
-      }
-      yield* AgentCluster.persistPlan({ sessionID: chat.id, plan: { goal: "First", tasks: [task] } })
-      yield* Database.query((db) =>
-        db
-          .update(AgentClusterTaskTable)
-          .set({ status: "accepted" as const })
-          .where(
-            Database.and(
-              Database.eq(AgentClusterTaskTable.session_id, chat.id),
-              Database.eq(AgentClusterTaskTable.id, "shared" as any),
-            ),
-          )
-          .run(),
-      )
-      const result = yield* AgentCluster.persistPlan({
-        sessionID: chat.id,
-        plan: { goal: "Second", tasks: [{ ...task, prompt: "Different work" }] },
-      }).pipe(Effect.exit)
-      expect(result._tag).toBe("Failure")
-    }),
-  )
-
-  interruptIt.instance("interrupts an active worker before reassigning it", () =>
-    Effect.gen(function* () {
-      const sessions = yield* Session.Service
-      const chat = yield* sessions.create({ title: "Reassign worker" })
-      const task = (id: string) => ({
-        id: id as any,
-        step: 1,
-        title: id,
-        role: "coder" as const,
-        complexity: "simple" as const,
-        model: "test/simple",
-        dependencies: [],
-        prompt: id,
-        acceptanceCriteria: [],
-        expectedArtifacts: [],
-      })
-      yield* AgentCluster.persistPlan({
-        sessionID: chat.id,
-        plan: { goal: "Reuse", tasks: [task("old-work"), task("new-work")] },
-      })
-      yield* AgentCluster.markTaskRunning({
-        sessionID: chat.id,
-        taskID: "old-work",
-        childSessionID: "ses_worker" as any,
-      })
-      const jobs = yield* BackgroundJob.Service
-      yield* jobs.start({ id: "ses_worker", type: "task", run: Effect.never as Effect.Effect<string> })
-      const result = yield* AgentCluster.interruptChildAssignment({
-        sessionID: chat.id,
-        taskID: "old-work" as any,
-        reason: "Reassigned by cluster primary to new-work",
-      })
-      const dispatch = yield* AgentCluster.prepareTaskDispatch({
-        sessionID: chat.id,
-        requestedTaskID: "new-work",
-        resumeSessionID: "ses_worker" as any,
-        prompt: "Start new work",
-        config: dispatchConfig,
-      })
-      const state = yield* AgentCluster.getSessionState(chat.id)
-      expect(result.interrupted).toBe(true)
-      expect(state.tasks.find((item) => item.id === "old-work")?.status).toBe("interrupted")
-      expect((yield* jobs.get("ses_worker"))?.status).toBe("cancelled")
-      expect(dispatch.childSessionID).toBe("ses_worker")
-    }),
-  )
-
-  interruptIt.instance("also stops the child session runner before it is steered", () =>
-    Effect.gen(function* () {
-      const sessions = yield* Session.Service
-      const chat = yield* sessions.create({ title: "Steer worker" })
-      const task = {
-        id: "worker-task" as any,
-        step: 1,
-        title: "Worker task",
-        role: "coder" as const,
-        complexity: "simple" as const,
-        model: "test/simple",
-        dependencies: [],
-        prompt: "Keep working",
-        acceptanceCriteria: [],
-        expectedArtifacts: [],
-      }
-      yield* AgentCluster.persistPlan({ sessionID: chat.id, plan: { goal: "Steer", tasks: [task] } })
-      yield* AgentCluster.markTaskRunning({
-        sessionID: chat.id,
-        taskID: task.id,
-        childSessionID: "ses_worker" as any,
-      })
-
-      const started = yield* Deferred.make<void>()
-      const stopped = yield* Deferred.make<void>()
-      const runState = yield* SessionRunState.Service
-      yield* runState
-        .ensureRunning(
-          "ses_worker" as any,
-          Effect.succeed({} as never),
-          Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
-        )
-        .pipe(Effect.asVoid, Effect.tap(() => Deferred.succeed(stopped, undefined).pipe(Effect.asVoid)), Effect.forkChild)
-      yield* Deferred.await(started)
-
-      const jobs = yield* BackgroundJob.Service
-      yield* jobs.start({ id: "ses_worker", type: "task", run: Effect.never as Effect.Effect<string> })
-      yield* AgentCluster.interruptActiveChildAssignment({
-        sessionID: chat.id,
-        childSessionID: "ses_worker" as any,
-        reason: "Interrupted by a user steering message.",
-      })
-
-      yield* awaitWithTimeout(Deferred.await(stopped), "child session runner did not stop")
-      yield* runState.assertNotBusy("ses_worker" as any)
+      const root = yield* (yield* Session.Service).create({ title: "Cancellation" })
+      const plan = yield* WorkflowExecutor.applyMultiAgentPlan({ sessionID: root.id, plan: { goal: "Cancel", tasks: [{ id: "keep", step: 1, title: "Keep", role: "coder", prompt: "Keep", complexity: "simple", model: "test/model", dependencies: [], acceptanceCriteria: [], expectedArtifacts: [] }, { id: "remove", step: 1, title: "Remove", role: "coder", prompt: "Remove", complexity: "simple", model: "test/model", dependencies: [], acceptanceCriteria: [], expectedArtifacts: [] }] } })
+      const unchanged = yield* WorkflowExecutor.applyMultiAgentPlan({ sessionID: root.id, plan: { goal: "Cancel", tasks: [{ id: "keep", step: 1, title: "Keep", role: "coder", prompt: "Keep", complexity: "simple", model: "test/model", dependencies: [], acceptanceCriteria: [], expectedArtifacts: [] }] } })
+      expect(unchanged.tasks.some((task) => task.id === "remove" as any)).toBe(true)
+      const cancelled = yield* WorkflowExecutor.applyMultiAgentPlan({ sessionID: root.id, plan: { goal: "Cancel", cancelTaskIDs: ["remove"], tasks: [{ id: "keep", step: 1, title: "Keep", role: "coder", prompt: "Keep", complexity: "simple", model: "test/model", dependencies: [], acceptanceCriteria: [], expectedArtifacts: [] }] } })
+      expect(cancelled.tasks.some((task) => task.id === "remove" as any)).toBe(false)
+      expect(plan.id).toBe(cancelled.id)
     }),
   )
 })

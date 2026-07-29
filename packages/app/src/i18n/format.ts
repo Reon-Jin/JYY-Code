@@ -2,7 +2,8 @@ import type { AppLocale } from "../features/settings/settings-preferences"
 
 export type MessageValues = Record<string, string | number>
 
-export function formatMessage(template: string, values: MessageValues = {}) {
+export function formatMessage(template: string | undefined, values: MessageValues = {}) {
+  if (typeof template !== "string") return ""
   return template.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (placeholder, name: string) => {
     const value = values[name]
     return value === undefined ? placeholder : String(value)

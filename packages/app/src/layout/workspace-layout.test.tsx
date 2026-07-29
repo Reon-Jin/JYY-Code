@@ -49,6 +49,70 @@ describe("WorkspaceLayoutView settings entry", () => {
     )
   })
 
+  it("provides an accessible Session workspace with dedicated operational pages", () => {
+    render(() => (
+      <MemoryRouter>
+        <Route
+          path="/*all"
+          component={() => (
+            <WorkspaceLayoutView
+              projectName="demo"
+              projectDirectory={session.directory}
+              connection="connected"
+              activeSessions={[session]}
+              archivedSessions={[]}
+              statuses={{}}
+              activeSession={session}
+              activeSessionID={session.id}
+              onReturnHome={vi.fn(async () => undefined)}
+              onCreate={vi.fn(async () => undefined)}
+              onRename={vi.fn(async () => undefined)}
+              onArchive={vi.fn(async () => undefined)}
+              onDelete={vi.fn(async () => undefined)}
+            />
+          )}
+        />
+      </MemoryRouter>
+    ))
+
+    const plan = screen.getByRole("tab", { name: "方案" })
+    expect(screen.getByRole("tab", { name: "概览" })).toHaveAttribute("aria-selected", "true")
+    fireEvent.click(plan)
+    expect(plan).toHaveAttribute("aria-selected", "true")
+    expect(screen.getByText("尚未生成可执行方案。")).toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "Session 工作栏" })).toBeInTheDocument()
+  })
+
+  it("waits for the requested Session instead of mounting the workspace with an undefined session", () => {
+    render(() => (
+      <MemoryRouter>
+        <Route
+          path="/*all"
+          component={() => (
+            <WorkspaceLayoutView
+              projectName="demo"
+              projectDirectory={session.directory}
+              connection="connected"
+              activeSessions={[]}
+              archivedSessions={[]}
+              statuses={{}}
+              activeSessionID="ses_loading"
+              activeLoading
+              onReturnHome={vi.fn(async () => undefined)}
+              onCreate={vi.fn(async () => undefined)}
+              onRename={vi.fn(async () => undefined)}
+              onArchive={vi.fn(async () => undefined)}
+              onDelete={vi.fn(async () => undefined)}
+            />
+          )}
+        />
+      </MemoryRouter>
+    ))
+
+    expect(screen.queryByRole("heading", { name: "Active Session" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "新建 Session" })).toBeDisabled()
+  })
+
   it("switches projects with Tab on the conversation canvas and Ctrl+1-9 globally", () => {
     const switchProject = vi.fn(async () => undefined)
     render(() => (
