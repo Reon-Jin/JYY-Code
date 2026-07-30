@@ -254,7 +254,7 @@ describe("SessionList", () => {
     expect(within(screen.getByRole("navigation", { name: "活动会话" })).queryByRole("heading")).toBeNull()
   })
 
-  it("keeps requests in the central control shelf and the Composer in the chat dock", () => {
+  it("keeps requests below the top header and the Composer in the chat dock", () => {
     render(() => (
       <MemoryRouter>
         <Route
@@ -281,9 +281,10 @@ describe("SessionList", () => {
       </MemoryRouter>
     ))
 
-    const controls = screen.getByTestId("request-area").closest(".session-workbench__control-shelf")!
-    expect(controls).toBeInTheDocument()
-    expect(controls).toContainElement(screen.getByTestId("request-area"))
+    const requestArea = screen.getByTestId("request-area").closest(".session-workbench__request-area")!
+    expect(requestArea).toBeInTheDocument()
+    expect(requestArea).toContainElement(screen.getByTestId("request-area"))
+    expect(document.querySelector(".session-workbench__control-shelf")).not.toBeInTheDocument()
     expect(screen.getByLabelText("对话")).toContainElement(screen.getByTestId("composer"))
   })
 })

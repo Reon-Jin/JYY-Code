@@ -266,7 +266,8 @@ export const applyMultiAgentPlan = Effect.fn("WorkflowExecutor.applyMultiAgentPl
   }
   for (const task of input.plan.tasks) {
     const nodeID = NodeID.make(task.id)
-    if (!current.tasks.some((item) => item.id === nodeID)) continue
+    const runtimeTask = current.tasks.find((item) => item.id === nodeID)
+    if (!runtimeTask) continue
     yield* WorkflowCollaboration.reconcileAssignment({
       sessionID: input.sessionID,
       runPlanID: current.id,
@@ -274,7 +275,7 @@ export const applyMultiAgentPlan = Effect.fn("WorkflowExecutor.applyMultiAgentPl
       agentID: `role:${task.role}`,
       role: task.role,
       workspaceID: `workflow/${current.id}/${nodeID}`,
-      status: "assigned",
+      status: assignmentStatus(runtimeTask.status),
     })
   }
   return current
@@ -384,8 +385,23 @@ export const submitMultiTask = Effect.fn("WorkflowExecutor.submitMultiTask")(fun
   }
   const updated = yield* WorkflowRuntime.getRunPlan(plan.id)
   const current = updated.tasks.find((item) => item.id === input.taskID)!
-  yield* WorkflowLedger.putArtifact({ sessionID: input.sessionID, runPlanID: updated.id, nodeID: current.id, name: `${current.id}-subagent-result.md`, mediaType: "text/markdown", content: input.summary, summary: `Subagent submission for ${current.title}`, metadata: { childSessionID: input.childSessionID } })
+  const artifact = yield* WorkflowLedger.putArtifact({ sessionID: input.sessionID, runPlanID: updated.id, nodeID: current.id, name: `${current.id}-subagent-result.md`, mediaType: "text/markdown", content: input.summary, summary: `Subagent submission for ${current.title}`, metadata: { childSessionID: input.childSessionID } })
   yield* reconcileTaskAssignment({ sessionID: input.sessionID, plan: updated, task: current, childSessionID: input.childSessionID, checkpoint: input.summary })
+  const assignment = (yield* WorkflowCollaboration.listAssignments(input.sessionID)).find(
+    (item) => item.runPlanID === updated.id && item.nodeID === current.id,
+  )
+  const card = yield* WorkflowCollaboration.createBlackboardCard({
+    sessionID: input.sessionID,
+    type: "evidence",
+    title: current.title,
+    authorAgentID: assignment?.agentID ?? input.childSessionID,
+    summary: input.summary,
+    relatedTasks: [current.id],
+    replaces: [],
+    impactScope: "medium",
+    artifacts: [artifact.uri],
+  })
+  yield* WorkflowCollaboration.transitionBlackboard({ cardID: card.id, from: "draft", to: "published" })
   return current
 })
 

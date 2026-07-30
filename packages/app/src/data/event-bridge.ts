@@ -384,6 +384,7 @@ export class EventBridge {
     const events = this.#queue.splice(0)
     const conversations = new Map<string, GlobalEvent[]>()
     const invalidatedVcs = new Set<string>()
+    let workflowChanged = false
 
     for (const event of events) {
       for (const action of routeEvent(this.#options.directory, event)) {
@@ -403,6 +404,12 @@ export class EventBridge {
           if (invalidatedVcs.has(key)) continue
           invalidatedVcs.add(key)
         }
+        if (
+          action.kind === "status.set" ||
+          (action.kind === "session.upsert" && action.info.parentID !== undefined)
+        ) {
+          workflowChanged = true
+        }
         this.#apply(action)
       }
     }
@@ -419,6 +426,12 @@ export class EventBridge {
       if (!current.needsRefetch && patched.needsRefetch) this.#invalidate(queryKey)
     }
 
+    if (workflowChanged) {
+      await this.#options.queryClient.invalidateQueries({
+        queryKey: keys.workflowScope(this.#options.directory),
+        exact: false,
+      })
+    }
   }
 
   #apply(
@@ -583,6 +596,7 @@ export class EventBridge {
         { queryKey: keys.githubStatus(directory), exact: true },
         { queryKey: keys.pullRequestsScope(directory), exact: true },
         { queryKey: keys.agentClustersScope(directory), exact: false },
+        { queryKey: keys.workflowScope(directory), exact: false },
       ]
       const sessionID = this.#options.activeSessionID?.()
       if (sessionID) {

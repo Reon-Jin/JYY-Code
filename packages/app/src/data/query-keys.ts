@@ -34,6 +34,7 @@ export const keys = {
     [...project(directory), "github", "pull", number, "diff"] as const,
   agentClustersScope: (directory: string) => [...project(directory), "agent-clusters"] as const,
   agentCluster: (directory: string, sessionID: string) => [...project(directory), "agent-clusters", sessionID] as const,
+  workflowScope: (directory: string) => [...project(directory), "workflow"] as const,
   workflowRunPlan: (directory: string, sessionID: string) =>
     [...project(directory), "workflow", "run-plan", sessionID] as const,
   workflowPlanVersions: (directory: string, sessionID: string) =>

@@ -23,7 +23,7 @@ import {
   UsersRound,
   X,
 } from "lucide-solid"
-import { createMemo, createSignal, For, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { tr } from "../../i18n/i18n-context"
 import type { ConversationSnapshot } from "../conversation/conversation-state"
@@ -33,7 +33,6 @@ import type {
   SessionArtifact,
   SessionAssignment,
   SessionBlackboardCard,
-  SessionBlackboardDraft,
   SessionReviewFinding,
   SessionRunPlan,
   SessionRunPlanPatch,
@@ -92,7 +91,11 @@ const copy = {
   agentFlow: "\u667a\u80fd\u4f53\u534f\u4f5c\u56fe",
   agentFlowNote: "\u70b9\u51fb\u8282\u70b9\u67e5\u770b\u5206\u5de5\u548c\u5f53\u524d\u8fdb\u5ea6\u3002",
   mainAgent: "\u4e3b\u667a\u80fd\u4f53",
-  noAgents: "\u5f53\u524d\u8fd8\u6ca1\u6709\u5206\u914d\u667a\u80fd\u4f53\u3002",
+  orchestrator: "\u7f16\u6392\u4e0e\u5bf9\u8bdd",
+  collaborators: "\u534f\u4f5c\u667a\u80fd\u4f53",
+  noAgents: "\u5c1a\u672a\u5206\u914d\u534f\u4f5c\u667a\u80fd\u4f53\uff1b\u5f53\u524d\u7531 1 \u4e2a\u4e3b\u667a\u80fd\u4f53\u8d1f\u8d23\u5bf9\u8bdd\u4e0e\u7f16\u6392\u3002",
+  orchestratorNote: "\u8d1f\u8d23\u4e0e\u7528\u6237\u6c9f\u901a\u3001\u7f16\u6392\u4efb\u52a1\u5e76\u6574\u5408\u534f\u4f5c\u7ed3\u679c\u3002",
+  unassigned: "\u5f85\u5206\u914d",
   selectedAgent: "\u5df2\u9009\u667a\u80fd\u4f53",
   blackboardNote: "\u5728\u6b64\u6c89\u6dc0\u51b3\u7b56\u3001\u7ea6\u675f\u3001\u8bc1\u636e\u548c\u98ce\u9669\u3002",
   reviewNote: "\u6bcf\u4e00\u6761\u95ee\u9898\u90fd\u4fdd\u7559\u8bc1\u636e\u4e0e\u5904\u7406\u5efa\u8bae\u3002",
@@ -111,15 +114,9 @@ const copy = {
   submitted: "\u5df2\u63d0\u4ea4",
   blocked: "\u5df2\u963b\u585e",
   noWorkflowChange: "\u6682\u65e0\u53ef\u7528\u7684\u5de5\u4f5c\u6d41\u5207\u6362\u64cd\u4f5c\u3002",
-  expand: "\u70b9\u51fb\u5c55\u5f00",
   close: "\u6536\u8d77",
   controls: "\u4efb\u52a1\u63a7\u5236\u4e0e\u8f93\u5165",
   controlsNote: "\u5728\u6b64\u5207\u6362\u667a\u80fd\u4f53\u3001\u6a21\u578b\u4e0e\u5de5\u5177\uff0c\u5e76\u53d1\u9001\u6d88\u606f\u3002",
-  publish: "\u53d1\u5e03\u5230\u9ed1\u677f",
-  publishing: "\u6b63\u5728\u53d1\u5e03\u2026",
-  blackboardTitle: "\u4fe1\u606f\u6807\u9898",
-  blackboardSummary: "\u53d1\u5e03\u5185\u5bb9",
-  blackboardAuthor: "\u53d1\u5e03\u667a\u80fd\u4f53",
 } as const
 
 const tabs: ReadonlyArray<{ id: WorkspaceTab; label: Parameters<typeof tr>[0]; icon: typeof LayoutDashboard }> = [
@@ -175,7 +172,27 @@ function taskStatusLabel(status: string | undefined) {
   }
 }
 
-function blackboardTypeLabel(type: SessionBlackboardDraft["type"]) {
+function collaboratorStatus(assignment: SessionAssignment, task?: SessionRunPlan["tasks"][number]) {
+  switch (task?.status) {
+    case "accepted":
+    case "submitted":
+    case "reviewing":
+      return "completed"
+    case "running":
+    case "revising":
+    case "checkpointed":
+      return "running"
+    case "failed":
+    case "failed_with_report":
+      return "failed"
+    case "interrupted":
+      return "interrupted"
+    default:
+      return assignment.status
+  }
+}
+
+function blackboardTypeLabel(type: SessionBlackboardCard["type"]) {
   switch (type) {
     case "decision": return "决策"
     case "contract": return "约定"
@@ -206,7 +223,6 @@ export function SessionWorkspace(props: {
   onRestoreRunPlanVersion?: (version: number) => Promise<void>
   onSetPlanMode?: (mode: "single" | "multi") => Promise<void>
   onSelectWorkflow?: (workflowID: BuiltinWorkflowID, workflowVersion: string) => Promise<void>
-  onPublishBlackboard?: (card: SessionBlackboardDraft) => Promise<void>
   onRetryConversation?: () => void
   requestArea?: JSX.Element
   commandBar?: JSX.Element
@@ -219,7 +235,13 @@ export function SessionWorkspace(props: {
   const active = createMemo(() => tabs.find((tab) => tab.id === activeTab())!)
   const planTasks = createMemo(() => props.runPlan?.tasks ?? [])
   const status = createMemo<WorkspaceStatus>(() => {
-    if (props.status?.type === "busy" || props.status?.type === "retry") return "running"
+    const delegatedWorkActive = props.assignments?.some(
+      (assignment) => assignment.status === "running" || assignment.status === "checkpointed",
+    )
+    const planWorkActive = planTasks().some((task) => task.status === "running" || task.status === "revising")
+    if (props.status?.type === "busy" || props.status?.type === "retry" || delegatedWorkActive || planWorkActive) {
+      return "running"
+    }
     return planTasks().some((task) => task.status === "failed" || task.status === "blocked") ? "attention" : "ready"
   })
   const [planSearch, setPlanSearch] = createSignal("")
@@ -270,51 +292,58 @@ export function SessionWorkspace(props: {
   const [workflowSaving, setWorkflowSaving] = createSignal(false)
   const [workflowError, setWorkflowError] = createSignal<string>()
   const [selectedAgentID, setSelectedAgentID] = createSignal<string>()
-  const [blackboardType, setBlackboardType] = createSignal<SessionBlackboardDraft["type"]>("proposal")
-  const [blackboardTitle, setBlackboardTitle] = createSignal("")
-  const [blackboardSummary, setBlackboardSummary] = createSignal("")
-  const [blackboardAuthor, setBlackboardAuthor] = createSignal("")
-  const [blackboardPublishing, setBlackboardPublishing] = createSignal(false)
-  const [blackboardError, setBlackboardError] = createSignal<string>()
+  const [selectedWorkflowOverride, setSelectedWorkflowOverride] = createSignal<BuiltinWorkflowID>()
   const selectedWorkflow = createMemo<BuiltinWorkflowID>(() =>
-    props.runPlan?.workflowID === "workflow-creation" ? "workflow-creation" : "general",
+    selectedWorkflowOverride() ?? (props.runPlan?.workflowID === "workflow-creation" ? "workflow-creation" : "general"),
   )
   const activeWorkflowOption = createMemo(
     () => workflowOptions.find((workflow) => workflow.id === selectedWorkflow()) ?? workflowOptions[0]!,
   )
+  let workflowSessionID = props.session.id
+  createEffect(() => {
+    if (props.session.id !== workflowSessionID) {
+      workflowSessionID = props.session.id
+      setSelectedWorkflowOverride(undefined)
+      return
+    }
+    const runPlanWorkflow = props.runPlan?.workflowID === "workflow-creation"
+      ? "workflow-creation"
+      : props.runPlan?.workflowID === "general"
+        ? "general"
+        : undefined
+    if (runPlanWorkflow === selectedWorkflowOverride()) setSelectedWorkflowOverride(undefined)
+  })
   const agentNodes = createMemo<AgentFlowNode[]>(() => {
     const assignments = props.assignments ?? []
-    if (assignments.length) {
-      return assignments.map((assignment) => {
-        const task = planTasks().find((candidate) => candidate.id === assignment.nodeID)
-        return {
-          id: assignment.id,
-          name: assignment.agentID,
-          role: assignment.role,
-          status: assignment.status,
-          task: task?.title ?? copy.waiting,
-          detail: assignment.checkpoint ?? assignment.workspaceID,
-        }
-      })
-    }
-    return planTasks().map((task) => ({
-      id: task.id,
-      name: task.assignee ?? copy.mainAgent,
-      role: task.role ?? copy.task,
-      status: task.status,
-      task: task.title,
-      detail: task.acceptance.map((rule) => rule.title).join(" ") || copy.waiting,
-    }))
+    return assignments.map((assignment) => {
+      const task = planTasks().find((candidate) => candidate.id === assignment.nodeID)
+      return {
+        id: assignment.id,
+        name: assignment.agentID,
+        role: assignment.role,
+        status: collaboratorStatus(assignment, task),
+        task: task?.title ?? copy.waiting,
+        detail: assignment.checkpoint ?? assignment.workspaceID,
+      }
+    })
   })
+  const rootAgentNode = createMemo<AgentFlowNode>(() => ({
+    id: "main-agent",
+    name: copy.mainAgent,
+    role: copy.orchestrator,
+    status: status(),
+    task: nextStep()?.title ?? copy.waiting,
+    detail: copy.orchestratorNote,
+  }))
   const selectedAgentNode = createMemo(() =>
-    agentNodes().find((agent) => agent.id === selectedAgentID()) ?? agentNodes()[0],
+    agentNodes().find((agent) => agent.id === selectedAgentID()) ?? rootAgentNode(),
   )
 
   function modulePreview(tab: WorkspaceTab) {
     switch (tab) {
       case "overview": return planTasks().length ? `${acceptedPlanTasks()} / ${planTasks().length} \u5df2\u9a8c\u6536` : copy.noPlan
       case "plan": return planTasks().length ? `${planTasks().length} \u9879\u4efb\u52a1\uff0c\u7248\u672c v${props.runPlan?.version}` : copy.noPlan
-      case "agents": return agentNodes().length ? `${agentNodes().length} \u4e2a\u667a\u80fd\u4f53\u53c2\u4e0e\u534f\u4f5c` : copy.noAgents
+      case "agents": return `1 \u4e2a\u4e3b\u667a\u80fd\u4f53 \u00b7 ${agentNodes().length} \u4e2a${copy.collaborators}`
       case "blackboard": return props.blackboard?.length ? `${props.blackboard.length} \u6761\u5171\u4eab\u8bb0\u5f55` : copy.blackboardNote
       case "review": return props.reviews?.length ? `${props.reviews.length} \u9879\u5ba1\u6838\u7ed3\u679c` : copy.reviewNote
       case "deliverables": return props.artifacts?.length ? `${props.artifacts.length} \u4e2a\u4ea4\u4ed8\u7269` : copy.deliverablesNote
@@ -483,6 +512,7 @@ export function SessionWorkspace(props: {
     setWorkflowError(undefined)
     try {
       await props.onSelectWorkflow(workflow.id, workflow.version)
+      setSelectedWorkflowOverride(workflow.id)
       return true
     } catch (error) {
       const status = (error as { status?: unknown; response?: { status?: unknown } } | undefined)?.status
@@ -498,34 +528,15 @@ export function SessionWorkspace(props: {
     }
   }
 
-  async function publishBlackboard() {
-    if (!props.onPublishBlackboard) return
-    const title = blackboardTitle().trim()
-    const summary = blackboardSummary().trim()
-    if (!title || !summary) {
-      setBlackboardError("请填写信息标题和发布内容。")
-      return
-    }
-    setBlackboardPublishing(true)
-    setBlackboardError(undefined)
-    try {
-      await props.onPublishBlackboard({
-        type: blackboardType(),
-        title,
-        summary,
-        authorAgentID: blackboardAuthor() || selectedAgentNode()?.name || copy.mainAgent,
-        relatedTasks: [],
-        replaces: [],
-        impactScope: "medium",
-        artifacts: [],
-      })
-      setBlackboardTitle("")
-      setBlackboardSummary("")
-    } catch (error) {
-      setBlackboardError(error instanceof Error ? error.message : "无法发布黑板信息。")
-    } finally {
-      setBlackboardPublishing(false)
-    }
+  function openModule(tab: WorkspaceTab) {
+    setActiveTab(tab)
+    setExpandedTab(tab)
+  }
+
+  function openModuleFromKeyboard(event: KeyboardEvent, tab: WorkspaceTab) {
+    if (event.key !== "Enter" && event.key !== " ") return
+    event.preventDefault()
+    openModule(tab)
   }
 
   function versionDiffSummary(version: SessionRunPlanVersion) {
@@ -571,6 +582,9 @@ export function SessionWorkspace(props: {
             <h1 id="workspace-session-title">{displaySessionTitle(props.session.title)}</h1>
           </div>
           <div class="session-workbench__controls">
+            <Show when={props.commandBar}>
+              <div class="session-workbench__command-bar">{props.commandBar}</div>
+            </Show>
             <details class="workflow-picker">
               <summary aria-label={copy.switchWorkflow}>
                 <PanelsTopLeft aria-hidden="true" />
@@ -599,16 +613,19 @@ export function SessionWorkspace(props: {
                 <Show when={workflowError()}>{(message) => <p class="workflow-picker__error" role="alert">{message()}</p>}</Show>
               </div>
             </details>
-            <Show when={props.runPlan && props.onSetPlanMode}>
+            <Show when={props.onSetPlanMode}>
               <div class="session-workbench__mode" aria-label={copy.workflow}>
-                <button type="button" aria-pressed={props.runPlan?.mode === "single"} onClick={() => setPendingMode("single")}>{copy.modeSingle}</button>
-                <button type="button" aria-pressed={props.runPlan?.mode === "multi"} onClick={() => setPendingMode("multi")}>{copy.modeMulti}</button>
+                <button type="button" aria-pressed={(props.runPlan?.mode ?? (props.multiAgentEnabled ? "multi" : "single")) === "single"} onClick={() => setPendingMode("single")}>{copy.modeSingle}</button>
+                <button type="button" aria-pressed={(props.runPlan?.mode ?? (props.multiAgentEnabled ? "multi" : "single")) === "multi"} onClick={() => setPendingMode("multi")}>{copy.modeMulti}</button>
               </div>
             </Show>
             <span class="session-workbench__status" data-tone={status()}><Radio aria-hidden="true" />{workspaceStatusLabel(status())}</span>
           </div>
         </header>
 
+        <Show when={props.requestArea}>
+          <section class="session-workbench__request-area">{props.requestArea}</section>
+        </Show>
         <Show when={workflowError()}>{(message) => <p class="session-workbench__notice" role="alert">{message()}</p>}</Show>
         <Show when={pendingMode()}>
           {(mode) => (
@@ -628,56 +645,44 @@ export function SessionWorkspace(props: {
 
         <div class="session-workbench__layout">
           <section class="session-workbench__canvas" data-expanded={expandedTab() ?? ""} aria-label={tr("session-workspace.workspace-tabs")}>
-            <section class="session-workbench__control-shelf" aria-label={copy.controls}>
-              <header><div><PanelsTopLeft aria-hidden="true" /><strong>{copy.controls}</strong></div><span>{copy.controlsNote}</span></header>
-              <div>{props.requestArea}{props.commandBar}</div>
-            </section>
-
             <div class="workbench-board" aria-label={tr("session-workspace.workspace-tabs")}>
-              <section class="workbench-module-card workbench-live-panel workbench-live-panel--plan" data-module="plan">
+              <section class="workbench-module-card workbench-live-panel workbench-live-panel--plan" data-module="plan" role="button" tabindex={0} aria-label={`查看${copy.plan}`} aria-expanded={expandedTab() === "plan"} onClick={() => openModule("plan")} onKeyDown={(event) => openModuleFromKeyboard(event, "plan")}>
                 <header><div><ClipboardList aria-hidden="true" /><strong>{copy.plan}</strong></div><span>{props.runPlan ? `方案 v${props.runPlan.version}` : copy.waiting}</span></header>
                 <div class="workbench-plan__meter"><span><i style={{ width: `${planTasks().length ? Math.round((acceptedPlanTasks() / planTasks().length) * 100) : 0}%` }} /></span><small>{planTasks().length ? `${acceptedPlanTasks()} / ${planTasks().length}` : "0 / 0"}</small></div>
                 <Show when={planTasks().length} fallback={<p class="workbench-live-panel__empty">{copy.noPlan}</p>}>
-                  <div class="workbench-live-task-list"><For each={planTasks().slice(0, 6)}>{(task) => <button type="button" data-tone={task.status} onClick={() => { setActiveTab("plan"); setExpandedTab("plan"); beginTaskEdit(task) }}><span /><strong>{task.title}</strong><small>{taskStatusLabel(task.status)}</small></button>}</For></div>
+                  <div class="workbench-live-task-list"><For each={planTasks().slice(0, 6)}>{(task) => <div data-tone={task.status}><span /><strong>{task.title}</strong><small>{taskStatusLabel(task.status)}</small></div>}</For></div>
                 </Show>
-                <button class="workbench-live-panel__open" type="button" aria-label="编辑方案详细信息" onClick={() => { setActiveTab("plan"); setExpandedTab("plan") }}>{props.runPlan ? copy.editPlan : copy.expand}</button>
               </section>
 
-              <section class="workbench-module-card workbench-live-panel" data-module="overview">
+              <section class="workbench-module-card workbench-live-panel" data-module="overview" role="button" tabindex={0} aria-label={`查看${copy.overview}`} aria-expanded={expandedTab() === "overview"} onClick={() => openModule("overview")} onKeyDown={(event) => openModuleFromKeyboard(event, "overview")}>
                 <header><div><LayoutDashboard aria-hidden="true" /><strong>{copy.overview}</strong></div><span>{workspaceStatusLabel(status())}</span></header>
                 <div class="workbench-overview__metrics"><article><small>{copy.currentStatus}</small><strong>{workspaceStatusLabel(status())}</strong></article><article><small>{copy.workflow}</small><strong>{activeWorkflowOption().label}</strong></article><article><small>{copy.nextStep}</small><strong>{nextStep()?.title ?? copy.waiting}</strong></article></div>
-                <button class="workbench-live-panel__open" type="button" aria-label="查看概览详细信息" onClick={() => { setActiveTab("overview"); setExpandedTab("overview") }}>{copy.expand}</button>
               </section>
 
-              <section class="workbench-module-card workbench-live-panel workbench-live-panel--agents" data-module="agents">
-                <header><div><Bot aria-hidden="true" /><strong>{copy.agents}</strong></div><span>{agentNodes().length} 在线</span></header>
-                <div class="workbench-agent-mini-flow"><div class="workbench-agent-mini-flow__root"><Bot aria-hidden="true" /><span>{copy.mainAgent}</span></div><div class="workbench-agent-mini-flow__line" /><div class="workbench-agent-mini-flow__nodes"><For each={agentNodes().slice(0, 3)}>{(agent) => <button type="button" data-status={agent.status} onClick={() => { setSelectedAgentID(agent.id); setActiveTab("agents"); setExpandedTab("agents") }}><span /><strong>{agent.name}</strong><small>{agent.role}</small></button>}</For></div></div>
+              <section class="workbench-module-card workbench-live-panel workbench-live-panel--agents" data-module="agents" role="button" tabindex={0} aria-label={`查看${copy.agents}`} aria-expanded={expandedTab() === "agents"} onClick={() => openModule("agents")} onKeyDown={(event) => openModuleFromKeyboard(event, "agents")}>
+                <header><div><Bot aria-hidden="true" /><strong>{copy.agents}</strong></div><span>1 {copy.mainAgent} · {agentNodes().length} {copy.collaborators}</span></header>
+                <div class="workbench-agent-mini-flow"><div class="workbench-agent-mini-flow__root"><Bot aria-hidden="true" /><span>{copy.mainAgent}</span></div><Show when={agentNodes().length}><div class="workbench-agent-mini-flow__line" /><div class="workbench-agent-mini-flow__nodes"><For each={agentNodes().slice(0, 3)}>{(agent) => <div data-status={agent.status}><span /><strong>{agent.name}</strong><small>{agent.role}</small></div>}</For></div></Show></div>
                 <Show when={!agentNodes().length}><p class="workbench-live-panel__empty">{copy.noAgents}</p></Show>
-                <button class="workbench-live-panel__open" type="button" aria-label="查看智能体详细信息" onClick={() => { setActiveTab("agents"); setExpandedTab("agents") }}>{copy.expand}</button>
               </section>
 
-              <section class="workbench-module-card workbench-live-panel" data-module="blackboard">
+              <section class="workbench-module-card workbench-live-panel" data-module="blackboard" role="button" tabindex={0} aria-label={`查看${copy.blackboard}`} aria-expanded={expandedTab() === "blackboard"} onClick={() => openModule("blackboard")} onKeyDown={(event) => openModuleFromKeyboard(event, "blackboard")}>
                 <header><div><Boxes aria-hidden="true" /><strong>{copy.blackboard}</strong></div><span>{props.blackboard?.length ?? 0} 条</span></header>
                 <Show when={props.blackboard?.length} fallback={<p class="workbench-live-panel__empty">智能体可在此发布决策、约束和风险。</p>}><div class="workbench-blackboard-mini"><For each={props.blackboard?.slice(0, 3)}>{(card) => <article><strong>{card.title}</strong><small>{card.authorAgentID} · {blackboardTypeLabel(card.type)}</small></article>}</For></div></Show>
-                <button class="workbench-live-panel__open" type="button" aria-label="发布或查看黑板信息" onClick={() => { setActiveTab("blackboard"); setExpandedTab("blackboard") }}>{copy.publish}</button>
               </section>
 
-              <section class="workbench-module-card workbench-live-panel" data-module="review">
+              <section class="workbench-module-card workbench-live-panel" data-module="review" role="button" tabindex={0} aria-label={`查看${copy.review}`} aria-expanded={expandedTab() === "review"} onClick={() => openModule("review")} onKeyDown={(event) => openModuleFromKeyboard(event, "review")}>
                 <header><div><GitPullRequest aria-hidden="true" /><strong>{copy.review}</strong></div><span>{props.reviews?.length ?? 0} 项</span></header>
                 <Show when={props.reviews?.length} fallback={<p class="workbench-live-panel__empty">{copy.noAttention}</p>}><div class="workbench-record-mini"><For each={props.reviews?.slice(0, 3)}>{(review) => <article><strong>{review.summary}</strong><small>{taskStatusLabel(review.status)}</small></article>}</For></div></Show>
-                <button class="workbench-live-panel__open" type="button" aria-label="查看审核详细信息" onClick={() => { setActiveTab("review"); setExpandedTab("review") }}>{copy.expand}</button>
               </section>
 
-              <section class="workbench-module-card workbench-live-panel" data-module="deliverables">
+              <section class="workbench-module-card workbench-live-panel" data-module="deliverables" role="button" tabindex={0} aria-label={`查看${copy.deliverables}`} aria-expanded={expandedTab() === "deliverables"} onClick={() => openModule("deliverables")} onKeyDown={(event) => openModuleFromKeyboard(event, "deliverables")}>
                 <header><div><FileCheck2 aria-hidden="true" /><strong>{copy.deliverables}</strong></div><span>{props.artifacts?.length ?? 0} 个</span></header>
                 <Show when={props.artifacts?.length} fallback={<p class="workbench-live-panel__empty">{copy.noArtifacts}</p>}><div class="workbench-record-mini"><For each={props.artifacts?.slice(0, 3)}>{(artifact) => <article><strong>{artifact.name}</strong><small>{artifact.mediaType}</small></article>}</For></div></Show>
-                <button class="workbench-live-panel__open" type="button" aria-label="查看交付物详细信息" onClick={() => { setActiveTab("deliverables"); setExpandedTab("deliverables") }}>{copy.expand}</button>
               </section>
 
-              <section class="workbench-module-card workbench-live-panel" data-module="diff">
+              <section class="workbench-module-card workbench-live-panel" data-module="diff" role="button" tabindex={0} aria-label={`查看${copy.diff}`} aria-expanded={expandedTab() === "diff"} onClick={() => openModule("diff")} onKeyDown={(event) => openModuleFromKeyboard(event, "diff")}>
                 <header><div><GitCompareArrows aria-hidden="true" /><strong>{copy.diff}</strong></div><span>{props.planVersions?.length ?? 0} 版</span></header>
                 <Show when={(props.planVersions?.length ?? 0) > 1} fallback={<p class="workbench-live-panel__empty">{copy.noDiff}</p>}><div class="workbench-record-mini"><For each={props.planVersions?.slice(0, 3)}>{(version) => <article><strong>{`方案 v${version.version}`}</strong><small>{version.reason}</small></article>}</For></div></Show>
-                <button class="workbench-live-panel__open" type="button" aria-label="查看差异详细信息" onClick={() => { setActiveTab("diff"); setExpandedTab("diff") }}>{copy.expand}</button>
               </section>
             </div>
 
@@ -702,7 +707,7 @@ export function SessionWorkspace(props: {
                 </section>
                 <section class="workbench-card">
                   <header><span>{copy.activeAgents}</span><UsersRound aria-hidden="true" /></header>
-                  <strong>{agentNodes().length} / {planTasks().length}</strong>
+                  <strong>1 + {agentNodes().length}</strong>
                   <p>{agentNodes().length ? copy.agentFlowNote : copy.noAgents}</p>
                 </section>
                 <section class="workbench-card" data-tone={attention().length ? "attention" : "ready"}>
@@ -713,7 +718,7 @@ export function SessionWorkspace(props: {
                 <section class="workbench-wide-card">
                   <header><span>{copy.nextStep}</span><small>{taskStatusLabel(nextStep()?.status)}</small></header>
                   <strong>{nextStep()?.title ?? copy.waiting}</strong>
-                  <p>{nextStep() ? `${nextStep()!.assignee ?? copy.mainAgent}\u00b7${nextStep()!.dependsOn.length ? nextStep()!.dependsOn.join(", ") : copy.ready}` : copy.noPending}</p>
+                  <p>{nextStep() ? `${nextStep()!.assignee ?? copy.unassigned}\u00b7${nextStep()!.dependsOn.length ? nextStep()!.dependsOn.join(", ") : copy.ready}` : copy.noPending}</p>
                 </section>
                 <section class="workbench-wide-card">
                   <header><span>{copy.latestArtifacts}</span><small>{props.artifacts?.length ?? 0}</small></header>
@@ -771,42 +776,26 @@ export function SessionWorkspace(props: {
               <div class="workbench-agents">
                 <section class="workbench-panel workbench-agent-flow">
                   <header class="workbench-panel__header"><div><UsersRound aria-hidden="true" /><h2>{copy.agentFlow}</h2></div><small>{copy.agentFlowNote}</small></header>
-                  <Show when={agentNodes().length} fallback={<EmptyPanel icon={Bot} title={copy.noAgents} />}>
                     <div class="agent-flow" role="list" aria-label={copy.agentFlow}>
-                      <div class="agent-flow__hub"><Bot aria-hidden="true" /><strong>{copy.mainAgent}</strong><span>{copy.running}</span></div>
+                      <div class="agent-flow__hub-item" role="listitem"><button type="button" class="agent-flow__hub" aria-pressed={selectedAgentNode().id === rootAgentNode().id} onClick={() => setSelectedAgentID(rootAgentNode().id)}><Bot aria-hidden="true" /><strong>{copy.mainAgent}</strong><span>{workspaceStatusLabel(status())}</span></button></div>
+                      <Show when={agentNodes().length}>
                       <div class="agent-flow__network" aria-hidden="true"><i /><i /><i /></div>
-                      <div class="agent-flow__nodes"><For each={agentNodes()}>{(agent) => <button type="button" role="listitem" data-status={agent.status} aria-pressed={selectedAgentNode()?.id === agent.id} onClick={() => setSelectedAgentID(agent.id)}><span class="agent-flow__pulse" aria-hidden="true" /><small>{agent.role}</small><strong>{agent.name}</strong><span>{taskStatusLabel(agent.status)}</span></button>}</For></div>
+                      <div class="agent-flow__nodes"><For each={agentNodes()}>{(agent) => <div role="listitem"><button type="button" data-status={agent.status} aria-pressed={selectedAgentNode()?.id === agent.id} onClick={() => setSelectedAgentID(agent.id)}><span class="agent-flow__pulse" aria-hidden="true" /><small>{agent.role}</small><strong>{agent.name}</strong><span>{taskStatusLabel(agent.status)}</span></button></div>}</For></div>
+                      </Show>
+                      <Show when={!agentNodes().length}><p class="agent-flow__empty">{copy.noAgents}</p></Show>
                     </div>
-                  </Show>
                 </section>
                 <section class="workbench-panel workbench-agent-detail">
-                  <header class="workbench-panel__header"><div><CircleDot aria-hidden="true" /><h2>{copy.selectedAgent}</h2></div><small>{taskStatusLabel(selectedAgentNode()?.status)}</small></header>
-                  <Show when={selectedAgentNode()} fallback={<p>{copy.noAgents}</p>}>
-                    {(agent) => <><strong>{agent().name}</strong><p>{agent().role}</p><dl><div><dt>{copy.task}</dt><dd>{agent().task}</dd></div><div><dt>{copy.currentStatus}</dt><dd>{taskStatusLabel(agent().status)}</dd></div><div><dt>{copy.blackboard}</dt><dd>{agent().detail}</dd></div></dl></>}
-                  </Show>
+                  <header class="workbench-panel__header"><div><CircleDot aria-hidden="true" /><h2>{copy.selectedAgent}</h2></div><small>{selectedAgentNode().id === rootAgentNode().id ? workspaceStatusLabel(status()) : taskStatusLabel(selectedAgentNode().status)}</small></header>
+                  <strong>{selectedAgentNode().name}</strong><p>{selectedAgentNode().role}</p><dl><div><dt>{copy.task}</dt><dd>{selectedAgentNode().task}</dd></div><div><dt>{copy.currentStatus}</dt><dd>{selectedAgentNode().id === rootAgentNode().id ? workspaceStatusLabel(status()) : taskStatusLabel(selectedAgentNode().status)}</dd></div><div><dt>{copy.blackboard}</dt><dd>{selectedAgentNode().detail}</dd></div></dl>
                 </section>
               </div>
             </Show>
 
             <Show when={expandedTab() === "blackboard"}>
               <div class="workbench-blackboard">
-                <section class="workbench-panel workbench-blackboard__publish">
-                  <header class="workbench-panel__header"><div><PenLine aria-hidden="true" /><h2>{copy.publish}</h2></div><small>{copy.blackboardNote}</small></header>
-                  <Show when={props.onPublishBlackboard} fallback={<p>黑板发布入口暂不可用。</p>}>
-                    <form class="workbench-edit-form" onSubmit={(event) => { event.preventDefault(); void publishBlackboard() }}>
-                      <div class="workbench-blackboard__fields">
-                        <label class="workbench-field">信息类型<select value={blackboardType()} onChange={(event) => setBlackboardType(event.currentTarget.value as SessionBlackboardDraft["type"])}><option value="proposal">提案</option><option value="decision">决策</option><option value="constraint">约束</option><option value="evidence">证据</option><option value="risk">风险</option><option value="blocker">阻塞</option><option value="contract">约定</option></select></label>
-                        <label class="workbench-field">{copy.blackboardAuthor}<select value={blackboardAuthor()} onChange={(event) => setBlackboardAuthor(event.currentTarget.value)}><option value="">{selectedAgentNode()?.name ?? copy.mainAgent}</option><For each={agentNodes()}>{(agent) => <option value={agent.name}>{agent.name}</option>}</For></select></label>
-                      </div>
-                      <label class="workbench-field">{copy.blackboardTitle}<input value={blackboardTitle()} onInput={(event) => setBlackboardTitle(event.currentTarget.value)} placeholder="例如：接口变更需兼容现有数据" /></label>
-                      <label class="workbench-field">{copy.blackboardSummary}<textarea value={blackboardSummary()} onInput={(event) => setBlackboardSummary(event.currentTarget.value)} placeholder="写入其他智能体需要知道的结论、依据或风险。" /></label>
-                      <Show when={blackboardError()}>{(message) => <p class="workbench-error" role="alert">{message()}</p>}</Show>
-                      <div class="session-workbench__actions"><Button type="submit" size="small" loading={blackboardPublishing()} loadingLabel={copy.publishing}>{copy.publish}</Button></div>
-                    </form>
-                  </Show>
-                </section>
                 <section class="workbench-panel workbench-list-panel">
-                  <header class="workbench-panel__header"><div><Boxes aria-hidden="true" /><h2>{copy.blackboard}</h2></div><small>{props.blackboard?.length ?? 0} 条共享信息</small></header>
+                  <header class="workbench-panel__header"><div><Boxes aria-hidden="true" /><h2>{copy.blackboard}</h2></div><small>{props.blackboard?.length ?? 0} 条智能体共享信息</small></header>
                   <Show when={props.blackboard?.length} fallback={<EmptyPanel icon={Boxes} title={tr("session-workspace.no-blackboard-yet")} />}><div class="workbench-record-list"><For each={props.blackboard}>{(card) => <article data-status={card.status}><header><span>{blackboardTypeLabel(card.type)} · {card.authorAgentID}</span><span>{taskStatusLabel(card.status)}</span></header><strong>{card.title}</strong><p>{card.summary}</p><small>影响范围：{card.impactScope === "high" ? "高" : card.impactScope === "low" ? "低" : "中"}</small></article>}</For></div></Show>
                 </section>
               </div>

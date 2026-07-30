@@ -1083,7 +1083,23 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
 }
 
 export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: SessionID) {
-  return filterCompacted(stream(sessionID))
+  const messages: WithParts[] = []
+  const size = 50
+  let before: string | undefined
+  while (true) {
+    const next = yield* page({ sessionID, limit: size, before }).pipe(
+      Effect.catchIf(NotFoundError.isInstance, () =>
+        Effect.succeed({ items: [] as WithParts[], more: false, cursor: undefined }),
+      ),
+    )
+    if (next.items.length === 0) break
+    for (let index = next.items.length - 1; index >= 0; index--) {
+      messages.push(next.items[index]!)
+    }
+    if (!next.more || !next.cursor) break
+    before = next.cursor
+  }
+  return filterCompacted(messages)
 })
 
 // filterCompacted reorders messages for model consumption

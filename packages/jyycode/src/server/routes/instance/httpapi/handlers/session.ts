@@ -2,6 +2,7 @@ import { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
 import { Command } from "@/command"
 import { Config } from "@/config/config"
+import { AppRuntime } from "@/effect/app-runtime"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { Provider } from "@/provider/provider"
@@ -21,8 +22,7 @@ import { WorkflowRuntime } from "@/workflow/runtime"
 import { WorkflowCollaboration } from "@/workflow/collaboration"
 import { WorkflowExecutor } from "@/workflow/executor"
 import { MessageID, PartID, SessionID } from "@/session/schema"
-import { NamedError } from "@jyycode-ai/core/util/error"
-import { Cause, Effect, Exit, Option, Schema, Scope } from "effect"
+import { Effect, Exit, Option, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
@@ -45,6 +45,8 @@ import {
 } from "../groups/session"
 import { PermissionNotFoundError } from "../errors"
 import * as SessionError from "./session-errors"
+import { NamedError } from "@jyycode-ai/core/util/error"
+import { Cause } from "effect"
 
 const tryParseJson = (text: string) =>
   Effect.try({
@@ -67,8 +69,30 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const statusSvc = yield* SessionStatus.Service
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
-    const bus = yield* Bus.Service
-    const scope = yield* Scope.Scope
+
+    const startPrompt = Effect.fn("SessionHttpApi.startPrompt")(function* (input: SessionPrompt.PromptInput) {
+      yield* Effect.sync(() => {
+        AppRuntime.runFork(
+          Effect.gen(function* () {
+            const stablePrompt = yield* SessionPrompt.Service
+            const stableBus = yield* Bus.Service
+            yield* stablePrompt.prompt(input).pipe(
+              Effect.catchCause((cause) =>
+                Effect.gen(function* () {
+                  yield* Effect.logError("prompt_async failed").pipe(
+                    Effect.annotateLogs({ sessionID: input.sessionID, cause }),
+                  )
+                  yield* stableBus.publish(Session.Event.Error, {
+                    sessionID: input.sessionID,
+                    error: new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(),
+                  })
+                }),
+              ),
+            )
+          }),
+        )
+      })
+    })
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
       return yield* session.list({
@@ -327,18 +351,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           }
         }
       }
-      yield* promptSvc.prompt({ ...ctx.payload, sessionID: child.id }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.gen(function* () {
-            yield* Effect.logError("interrupt_prompt failed").pipe(Effect.annotateLogs({ sessionID: child.id, cause }))
-            yield* bus.publish(Session.Event.Error, {
-              sessionID: child.id,
-              error: new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(),
-            })
-          }),
-        ),
-        Effect.forkIn(scope, { startImmediately: true }),
-      )
+      yield* startPrompt({ ...ctx.payload, sessionID: child.id })
       return HttpApiSchema.NoContent.make()
     })
 
@@ -421,20 +434,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.gen(function* () {
-            yield* Effect.logError("prompt_async failed").pipe(
-              Effect.annotateLogs({ sessionID: ctx.params.sessionID, cause }),
-            )
-            yield* bus.publish(Session.Event.Error, {
-              sessionID: ctx.params.sessionID,
-              error: new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(),
-            })
-          }),
-        ),
-        Effect.forkIn(scope, { startImmediately: true }),
-      )
+      yield* startPrompt({ ...ctx.payload, sessionID: ctx.params.sessionID })
       return HttpApiSchema.NoContent.make()
     })
 

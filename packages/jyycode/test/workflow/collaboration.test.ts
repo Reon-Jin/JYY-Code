@@ -45,6 +45,21 @@ describe("Workflow collaboration records", () => {
       yield* WorkflowExecutor.submitMultiTask({ sessionID: session.id, runPlanID: prepared.plan.id, taskID: prepared.task.id, childSessionID: child.id, summary: "Cited the relevant sources." })
       expect((yield* WorkflowRuntime.getSessionRunPlan(session.id)).tasks.find((task) => task.id === "research" as any)?.status).toBe("submitted")
       expect((yield* WorkflowCollaboration.listAssignments(session.id))[0]?.status).toBe("completed")
+      expect((yield* WorkflowCollaboration.listBlackboard(session.id))[0]).toMatchObject({
+        type: "evidence",
+        status: "published",
+        title: "Research",
+        summary: "Cited the relevant sources.",
+        relatedTasks: ["research"],
+      })
+      yield* WorkflowExecutor.applyMultiAgentPlan({
+        sessionID: session.id,
+        plan: {
+          goal: "Parallelize",
+          tasks: [{ id: "research" as any, step: 1, title: "Research", role: "researcher", complexity: "simple", model: "test/model", dependencies: [], prompt: "Research", acceptanceCriteria: ["cite sources"], expectedArtifacts: ["notes.md"] }],
+        },
+      })
+      expect((yield* WorkflowCollaboration.listAssignments(session.id))[0]?.status).toBe("completed")
     }),
   )
 

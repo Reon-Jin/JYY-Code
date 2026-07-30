@@ -65,7 +65,7 @@
 
 .conversation-message[data-role="user"] {
   width: fit-content;
-  max-width: 42%;
+  max-width: 82%;
   justify-self: end;
   border: 0;
   border-radius: 18px;

@@ -1381,6 +1381,7 @@ export const layer = Layer.effect(
       const body = Effect.gen(function* () {
         const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
         const cfg = yield* config.get()
+        const goal = realPromptGoal(input) || session.title
         // noReply messages are synthetic injections (for example, background
         // subagent completion). They must not start a new cluster planner turn.
         const useCluster =
@@ -1393,6 +1394,9 @@ export const layer = Layer.effect(
         const clusterModels = useCluster
           ? yield* AgentCluster.resolveModels(cfg.agent_cluster ?? {}).pipe(Effect.orDie)
           : undefined
+        if (useCluster && clusterModels && session.parentID === undefined) {
+          yield* WorkflowExecutor.ensureRunPlan({ sessionID: session.id, goal, mode: "multi" }).pipe(Effect.orDie)
+        }
         const clusterTaskGraph = useCluster
           ? yield* WorkflowExecutor.getMultiSessionState(session.id).pipe(Effect.catchCause(() => Effect.succeed({ tasks: [] })))
           : undefined
@@ -1426,30 +1430,16 @@ export const layer = Layer.effect(
 
         if (promptInput.noReply === true) return message
         if (useCluster && clusterModels) {
-          if (session.parentID === undefined) {
-            const goal = promptInput.parts
-              .flatMap((part) => (part.type === "text" ? [part.text] : []))
-              .join("\n")
-              .trim()
-            yield* WorkflowExecutor.ensureRunPlan({ sessionID: session.id, goal: goal || session.title, mode: "multi" }).pipe(Effect.orDie)
-          }
           return yield* WorkflowExecutor.runMulti({
             sessionID: session.id,
-            goal: promptInput.parts
-              .flatMap((part) => (part.type === "text" ? [part.text] : []))
-              .join("\n")
-              .trim() || session.title,
+            goal,
             run: loop({ sessionID: input.sessionID }),
           }).pipe(Effect.orDie)
         }
         if (session.parentID === undefined) {
-          const goal = promptInput.parts
-            .flatMap((part) => (part.type === "text" ? [part.text] : []))
-            .join("\n")
-            .trim()
           return yield* WorkflowExecutor.runSingle({
             sessionID: session.id,
-            goal: goal || session.title,
+            goal,
             run: loop({ sessionID: input.sessionID }),
           }).pipe(Effect.orDie)
         }
@@ -2509,6 +2499,13 @@ export const PromptInput = Schema.Struct({
   ),
 })
 export type PromptInput = Schema.Schema.Type<typeof PromptInput>
+
+export function realPromptGoal(input: Pick<PromptInput, "parts">) {
+  return input.parts
+    .flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : []))
+    .join("\n")
+    .trim()
+}
 
 export class LoopInput extends Schema.Class<LoopInput>("SessionPrompt.LoopInput")({
   sessionID: SessionID,

@@ -28,12 +28,11 @@ import {
   type ModelSelection,
 } from "../features/composer/model-catalog"
 import { ProviderEmpty } from "../features/composer/provider-empty"
-import { effectiveMultiAgent, MultiAgentControl } from "../features/multi-agent/multi-agent-control"
+import { effectiveMultiAgent } from "../features/multi-agent/multi-agent-control"
 import { McpControl } from "../features/mcp/mcp-control"
 import { SessionWorkspace } from "../features/session-workspace/session-workspace"
 import {
   patchSessionRunPlan,
-  publishSessionBlackboard,
   restoreSessionRunPlanVersion,
   selectSessionWorkflow,
   sessionArtifactsQueryOptions,
@@ -44,7 +43,6 @@ import {
   sessionRunPlanQueryOptions,
   sessionRunPlanVersionsQueryOptions,
   type SessionRunPlanPatch,
-  type SessionBlackboardDraft,
 } from "../features/session-workspace/workflow-query"
 import { PermissionBar } from "../features/requests/permission-bar"
 import { QuestionPanel } from "../features/requests/question-panel"
@@ -118,7 +116,6 @@ export type WorkspaceLayoutViewProps = {
   onRestoreRunPlanVersion?: (version: number) => Promise<void>
   onSetPlanMode?: (mode: "single" | "multi") => Promise<void>
   onSelectWorkflow?: (workflowID: "general" | "workflow-creation", workflowVersion: string) => Promise<void>
-  onPublishBlackboard?: (card: SessionBlackboardDraft) => Promise<void>
 }
 
 function connectionLabel(connection: ConnectionState) {
@@ -343,7 +340,6 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
               onRestoreRunPlanVersion={props.onRestoreRunPlanVersion}
               onSetPlanMode={props.onSetPlanMode}
               onSelectWorkflow={props.onSelectWorkflow}
-              onPublishBlackboard={props.onPublishBlackboard}
               onRetryConversation={props.onRetryConversation}
               requestArea={props.requestArea}
               commandBar={props.commandBar}
@@ -525,6 +521,19 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     if (running > 0) return String(running)
     return undefined
   })
+  const workflowExecutionActive = createMemo(() =>
+    (assignmentsQuery.data ?? []).some(
+      (assignment) => assignment.status === "running" || assignment.status === "checkpointed",
+    ) ||
+    (runPlanQuery.data?.tasks ?? []).some((task) => task.status === "running" || task.status === "revising"),
+  )
+  const displayStatuses = createMemo<Record<string, SessionStatus>>(() => {
+    const statuses = statusQuery.data ?? {}
+    const rootID = rootSessionID()
+    if (!rootID || !workflowExecutionActive()) return statuses
+    return { ...statuses, [rootID]: { type: "busy" } }
+  })
+  const displayStatus = createMemo(() => displayStatuses()[props.activeSessionID ?? ""])
   const requestScope = createMemo(() => {
     const session = activeSession()
     if (!session) return []
@@ -748,21 +757,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     ])
   }
 
-  async function publishBlackboard(card: SessionBlackboardDraft) {
-    const sessionID = rootSessionID()
-    if (!sessionID) throw new Error("当前会话无法发布黑板信息")
-    await publishSessionBlackboard({
-      client: data.client(),
-      directory: data.directory(),
-      sessionID,
-      card,
-    })
-    await data.queryClient().invalidateQueries({
-      queryKey: keys.workflowBlackboard(data.directory(), sessionID),
-      exact: true,
-    })
-  }
-
   function changeAgent(agent: string) {
     setSelectedAgent(agent)
     saveComposerPreference({ agent, model: selectedModel() })
@@ -823,7 +817,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                   selectedAgent={composerAgent()}
                   selectedModel={composerModel()!}
                   agentClusterEnabled={activeSession() ? effectiveMultiAgent(activeSession()!, catalogQuery.data?.agentCluster) : false}
-                  status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
+                  status={displayStatuses()[sessionID] ?? { type: "idle" }}
                   requestPending={Boolean(activeRequest())}
                   childSteering={isChildSession() && childTaskRunning()}
                   disabled={data.connection() !== "connected"}
@@ -832,7 +826,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                   usage={composerUsage()}
                   permissionControl={<Show when={activeSession()} keyed>{(session) => <AgentPermissionControl client={data.client()} queryClient={data.queryClient()} directory={data.directory()} session={session} disabled={data.connection() !== "connected"} />}</Show>}
                   branchControl={<BranchControl directory={data.directory()} />}
-                  multiAgentControl={<Show when={activeSession()} keyed>{(session) => <MultiAgentControl client={data.client()} queryClient={data.queryClient()} directory={data.directory()} session={session} config={catalogQuery.data?.agentCluster} />}</Show>}
                   mcpControl={<McpControl client={data.client()} queryClient={data.queryClient()} directory={data.directory()} disabled={data.connection() !== "connected"} />}
                   onAgentChange={changeAgent}
                   onModelChange={changeModel}
@@ -854,8 +847,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       connection={data.connection()}
       activeSessions={activeQuery.data ?? []}
       archivedSessions={archivedQuery.data ?? []}
-      statuses={statusQuery.data ?? {}}
-      status={statusQuery.data?.[props.activeSessionID ?? ""]}
+      statuses={displayStatuses()}
+      status={displayStatus()}
       runPlan={runPlanQuery.data}
       planVersions={planVersionsQuery.data}
       artifacts={artifactsQuery.data}
@@ -888,7 +881,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       onRestoreRunPlanVersion={restoreRunPlanVersion}
       onSetPlanMode={setPlanMode}
       onSelectWorkflow={setWorkflow}
-      onPublishBlackboard={publishBlackboard}
       operationError={operationError()}
       projectTabs={
         <ProjectTabs

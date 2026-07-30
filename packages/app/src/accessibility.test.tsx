@@ -11,7 +11,7 @@ const copy = {
   navigation: "\u9879\u76ee\u4e0e\u4f1a\u8bdd\u5bfc\u822a",
   activeSessions: "\u6d3b\u52a8\u4f1a\u8bdd",
   workbench: "\u4f1a\u8bdd\u5de5\u4f5c\u533a\u9875\u9762",
-  controls: "\u4efb\u52a1\u63a7\u5236\u4e0e\u8f93\u5165",
+  controls: "\u4efb\u52a1\u63a7\u5236",
   composer: "\u6d88\u606f\u7f16\u8f91\u5668",
   message: "\u6d88\u606f",
   agent: "\u667a\u80fd\u4f53",
@@ -78,7 +78,13 @@ describe("desktop accessibility contract", () => {
     expect(screen.getByRole("region", { name: copy.composer })).toBeVisible()
     expect(screen.getByRole("textbox", { name: copy.message })).toBeVisible()
     expect(await screen.findByRole("combobox", { name: copy.agent })).toBeVisible()
-    expect(screen.getAllByRole("button", { name: /\u70b9\u51fb\u5c55\u5f00/ })).toHaveLength(7)
+    const moduleCards = container.querySelectorAll(".workbench-module-card")
+    expect(moduleCards).toHaveLength(7)
+    for (const card of moduleCards) {
+      expect(card).toHaveAttribute("role", "button")
+      expect(card).toHaveAttribute("tabindex", "0")
+      expect(card.getAttribute("aria-label")).toMatch(/^查看/)
+    }
     expect(container.querySelector(".workspace-inspector")).not.toBeInTheDocument()
     expect(container.querySelector(".branch-control__trigger")).toHaveAttribute("aria-haspopup", "dialog")
     expect(unnamedIconButtons(container)).toEqual([])
@@ -90,12 +96,12 @@ describe("desktop accessibility contract", () => {
     vi.stubGlobal("fetch", backend.fetch)
     render(() => <App bridge={desktop.bridge} />)
 
-    const mode = await screen.findByRole("switch", { name: copy.agents }, { timeout: 5_000 })
+    const mode = await screen.findByRole("button", { name: copy.agents }, { timeout: 5_000 })
     mode.focus()
     expect(mode).toHaveFocus()
-    expect(mode).toHaveAttribute("aria-checked", "true")
+    expect(mode).toHaveAttribute("aria-pressed", "true")
 
-    const plan = screen.getByRole("button", { name: "编辑方案详细信息" })
+    const plan = screen.getByRole("button", { name: "查看方案" })
     plan.focus()
     await user.keyboard("{Enter}")
     expect(screen.getByRole("region", { name: copy.plan })).toBeVisible()

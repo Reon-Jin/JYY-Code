@@ -50,6 +50,7 @@ import { Skill } from "@/skill"
 import { SkillManagement } from "@/skill/management"
 import { Global } from "@jyycode-ai/core/global"
 import { Snapshot } from "@/snapshot"
+import { Database } from "@/storage/db"
 import { SyncEvent } from "@/sync"
 import { ToolRegistry } from "@/tool/registry"
 import { lazy } from "@/util/lazy"
@@ -223,6 +224,7 @@ export function createRoutes(
       Ripgrep.defaultLayer,
       RuntimeFlags.defaultLayer,
       BackgroundProcess.defaultLayer,
+      Database.layer,
       Session.defaultLayer,
       SessionCompaction.defaultLayer,
       SessionPrompt.defaultLayer,

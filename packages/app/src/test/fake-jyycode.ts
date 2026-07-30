@@ -754,6 +754,10 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     agentClusters.set(sessionID, structuredClone(state))
   }
 
+  function setRunPlan(sessionID: string, plan: WorkflowGetSessionPlanResponse) {
+    runPlans.set(sessionID, structuredClone(plan))
+  }
+
   function emitAgentCluster(properties: AgentClusterEvent["properties"]) {
     event("agent_cluster.event", properties)
   }
@@ -797,6 +801,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     emit,
     setTodos,
     setAgentCluster,
+    setRunPlan,
     emitAgentCluster,
     disconnectStreams,
     setGitHubStatus,

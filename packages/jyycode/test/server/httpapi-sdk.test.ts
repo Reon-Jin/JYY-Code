@@ -827,6 +827,53 @@ describe("HttpApi SDK", () => {
   )
 
   httpapi(
+    "keeps async prompts alive through the first assistant response",
+    withFakeLlm("default", ({ sdk, llm }) =>
+      Effect.gen(function* () {
+        const session = yield* capture(() =>
+          sdk.session.create({
+            title: "async llm prompt",
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          }),
+        )
+        const sessionID = String(record(session.data).id)
+        const asyncPrompt = yield* capture(() =>
+          sdk.session.promptAsync({
+            sessionID,
+            agent: "build",
+            model: { providerID: "test", modelID: "test-model" },
+            parts: [{ type: "text", text: "hello async llm" }],
+          }),
+        )
+        expect(asyncPrompt.status).toBe(204)
+
+        let messages = yield* capture(() => sdk.session.messages({ sessionID }))
+        for (
+          let attempt = 0;
+          attempt < 100 && !JSON.stringify(messages.data).includes('"finish":"stop"');
+          attempt++
+        ) {
+          yield* Effect.sleep("20 millis")
+          messages = yield* capture(() => sdk.session.messages({ sessionID }))
+        }
+
+        const inputs = yield* llm.inputs
+        const assistantCalls = inputs.filter(
+          (input) => !JSON.stringify(input).includes("semantic memory compressor"),
+        )
+        expect(assistantCalls).toHaveLength(1)
+        expect(JSON.stringify(messages.data)).toContain("hello async llm")
+        expect(JSON.stringify(messages.data)).toContain('"finish":"stop"')
+        return {
+          statuses: statuses({ session, asyncPrompt, messages }),
+          calls: inputs.length,
+          persistedText: JSON.stringify(messages.data).includes('"finish":"stop"'),
+        }
+      }),
+    ),
+  )
+
+  httpapi(
     "includes project skills in REST API prompt context",
     withFakeLlmProject("default", { setup: writeProjectSkill }, ({ sdk, llm }) =>
       Effect.gen(function* () {

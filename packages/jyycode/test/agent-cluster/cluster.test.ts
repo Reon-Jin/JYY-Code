@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { AgentCluster } from "../../src/agent-cluster/cluster"
-import { ClusterPrimaryPrompt } from "../../src/agent-cluster/planner"
+import { ClusterPrimaryPrompt, runInstructions } from "../../src/agent-cluster/planner"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 import { Session } from "../../src/session/session"
 import * as Database from "../../src/storage/db"
@@ -20,6 +20,40 @@ describe("Multi-agent planner instructions", () => {
   test("includes session graph scheduling rules", () => {
     expect(ClusterPrimaryPrompt).toContain("task_id")
     expect(ClusterPrimaryPrompt).toContain("acceptance")
+  })
+
+  test("clarifies an interview workflow before planning or dispatch", () => {
+    expect(ClusterPrimaryPrompt).toContain("CLARIFICATION GATE (OVERRIDES PLAN-FIRST)")
+    expect(ClusterPrimaryPrompt).toContain("Do NOT output a JSON plan")
+
+    const instructions = runInstructions({
+      sessionID: "ses_interview",
+      artifactDir: "artifacts",
+      simpleModel: "test/simple",
+      complexModel: "test/complex",
+      visualModel: "test/visual",
+      maxSubagents: 4,
+      maxConcurrency: 2,
+      maxReviewRounds: 2,
+      taskGraph: [{
+        id: "workflow-interview",
+        step: 1,
+        status: "planned",
+        title: "Clarify goals, inputs, deliverables, and constraints",
+        role: "general",
+        prompt: "Interview the user",
+        complexity: "simple",
+        model: "-",
+        dependencies: [],
+        acceptance_criteria: ["Requirements confirmed"],
+        artifact_paths: [],
+        review_issues: [],
+        last_event: null,
+      }],
+    })
+    expect(instructions).toContain("CLARIFICATION GATE")
+    expect(instructions).toContain("ask the user")
+    expect(instructions).toContain("workflow-interview")
   })
 })
 

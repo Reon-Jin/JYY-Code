@@ -403,6 +403,62 @@ describe("event routing", () => {
     releaseStream()
   })
 
+  it("refreshes live workflow snapshots once when session execution changes", async () => {
+    const queryClient = createDesktopQueryClient()
+    queryClient.setQueryData(keys.status("C:\\a"), {})
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    const stream = (async function* () {
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_root_busy",
+          type: "session.status",
+          properties: { sessionID: session.id, status: { type: "busy" } },
+        },
+      } as GlobalEvent
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_child_busy",
+          type: "session.status",
+          properties: { sessionID: "ses_child", status: { type: "busy" } },
+        },
+      } as GlobalEvent
+      await streamWait
+    })()
+
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeDefined())
+    scheduled?.(0)
+    await Promise.resolve()
+
+    expect(invalidate).toHaveBeenCalledTimes(1)
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: keys.workflowScope("C:\\a"),
+      exact: false,
+    })
+
+    bridge.abort()
+    releaseStream()
+  })
+
   it("patches known cluster rows and refetches once per root session per frame", async () => {
     const queryClient = createDesktopQueryClient()
     const queryKey = keys.agentCluster("C:\\a", "ses_root")
@@ -684,10 +740,12 @@ describe("event routing", () => {
       keys.githubStatus("C:\\a"),
       keys.pullRequestsScope("C:\\a"),
       keys.agentClustersScope("C:\\a"),
+      keys.workflowScope("C:\\a"),
       keys.messages("C:\\a", session.id),
       keys.todos("C:\\a", session.id),
     ])
     expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.agentClustersScope("C:\\a"), exact: false })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.workflowScope("C:\\a"), exact: false })
     expect(states.at(-1)).toBe("connected")
 
     bridge.abort()
