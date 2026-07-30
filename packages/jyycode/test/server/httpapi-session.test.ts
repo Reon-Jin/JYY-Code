@@ -711,6 +711,60 @@ describe("session HttpApi", () => {
   )
 
   it.instance(
+    "interrupts active workflow tasks and assignments when aborting a session",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const headers = { "x-jyycode-directory": test.directory, "content-type": "application/json" }
+        const parent = yield* requestJson<Session.Info>(SessionPaths.create, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ title: "Active workflow" }),
+        })
+        const now = Date.now()
+        const plan = {
+          id: "plan-abort",
+          sessionID: parent.id,
+          workflowID: "general",
+          workflowVersion: "2.0.0",
+          version: 1,
+          mode: "multi",
+          goal: "Stop this workflow",
+          tasks: [{
+            id: "task-abort",
+            stageID: "implementation",
+            stepID: "build",
+            title: "Running task",
+            dependsOn: [],
+            status: "running",
+            acceptance: [],
+          }],
+          createdAt: now,
+          updatedAt: now,
+        }
+        yield* requestJson(`/workflow/sessions/${parent.id}/run-plan`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ plan, author: "main_agent" }),
+        })
+
+        expect(
+          yield* requestJson<boolean>(pathFor(SessionPaths.abort, { sessionID: parent.id }), {
+            method: "POST",
+            headers,
+          }),
+        ).toBe(true)
+        expect(
+          (yield* requestJson<{ tasks: Array<{ status: string }> }>(
+            `/workflow/sessions/${parent.id}/run-plan`,
+            { headers },
+          )).tasks[0]?.status,
+        ).toBe("interrupted")
+      }),
+    { git: true, config: { formatter: false, lsp: false } },
+  )
+
+  it.instance(
     "persists selected workspace id when creating a session",
     () =>
       Effect.gen(function* () {

@@ -139,5 +139,7 @@ describe("central workbench integration", () => {
         path: "/session/ses_1/abort",
       })),
     )
+    await waitFor(() => expect(screen.getByRole("button", { name: "发送" })).toBeVisible())
+    expect(screen.queryByRole("button", { name: "停止" })).not.toBeInTheDocument()
   })
 })

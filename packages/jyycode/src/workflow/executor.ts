@@ -405,6 +405,35 @@ export const submitMultiTask = Effect.fn("WorkflowExecutor.submitMultiTask")(fun
   return current
 })
 
+export const interruptActiveTasks = Effect.fn("WorkflowExecutor.interruptActiveTasks")(function* (input: {
+  sessionID: SessionID
+  detail: string
+}) {
+  const plan = yield* WorkflowRuntime.getSessionRunPlan(input.sessionID)
+  for (const task of plan.tasks) {
+    if (task.status !== "running" && task.status !== "revising") continue
+    yield* WorkflowRuntime.transitionNode({
+      sessionID: input.sessionID,
+      runPlanID: plan.id,
+      nodeID: task.id,
+      from: task.status,
+      to: "interrupted",
+      detail: { error: input.detail },
+    })
+  }
+  const assignments = yield* WorkflowCollaboration.listAssignments(input.sessionID)
+  for (const assignment of assignments) {
+    if (assignment.runPlanID !== plan.id) continue
+    if (assignment.status !== "running" && assignment.status !== "checkpointed") continue
+    yield* WorkflowCollaboration.updateAssignment({
+      assignmentID: assignment.id,
+      from: assignment.status,
+      to: "interrupted",
+      checkpoint: input.detail,
+    })
+  }
+})
+
 export const endMultiTask = Effect.fn("WorkflowExecutor.endMultiTask")(function* (input: {
   sessionID: SessionID
   runPlanID: RunPlan["id"]

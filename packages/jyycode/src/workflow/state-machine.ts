@@ -9,7 +9,7 @@ const transitions: Readonly<Record<NodeStatus, readonly NodeStatus[]>> = {
   submitted: ["reviewing"],
   reviewing: ["accepted", "revision_requested"],
   revision_requested: ["revising"],
-  revising: ["submitted", "failed"],
+  revising: ["submitted", "interrupted", "failed"],
   interrupted: ["needs_validation"],
   needs_validation: ["reassigned", "failed"],
   checkpointing: ["checkpointed"],

@@ -325,6 +325,31 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
 
     const abort = Effect.fn("SessionHttpApi.abort")(function* (ctx: { params: { sessionID: SessionID } }) {
       yield* promptSvc.cancel(ctx.params.sessionID)
+      const plan = yield* WorkflowRuntime.getSessionRunPlan(ctx.params.sessionID).pipe(Effect.option)
+      if (Option.isSome(plan)) {
+        yield* Effect.gen(function* () {
+          const assignments = yield* WorkflowCollaboration.listAssignments(ctx.params.sessionID)
+          const childSessionIDs = [
+            ...new Set(
+              assignments.flatMap((assignment) =>
+                assignment.runPlanID === plan.value.id &&
+                (assignment.status === "running" || assignment.status === "checkpointed") &&
+                assignment.childSessionID
+                  ? [assignment.childSessionID]
+                  : [],
+              ),
+            ),
+          ]
+          yield* Effect.forEach(childSessionIDs, (sessionID) => promptSvc.cancel(sessionID), {
+            concurrency: "unbounded",
+            discard: true,
+          })
+          yield* WorkflowExecutor.interruptActiveTasks({
+            sessionID: ctx.params.sessionID,
+            detail: "Interrupted by the user.",
+          })
+        }).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      }
       return true
     })
 

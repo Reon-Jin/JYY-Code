@@ -623,6 +623,18 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       return json(true)
     }
     if (sessionID && url.pathname.endsWith("/abort") && request.method === "POST") {
+      const plan = runPlans.get(sessionID)
+      if (plan) {
+        runPlans.set(sessionID, {
+          ...plan,
+          tasks: plan.tasks.map((task) =>
+            task.status === "running" || task.status === "revising"
+              ? { ...task, status: "interrupted" }
+              : task,
+          ),
+          updatedAt: Date.now(),
+        })
+      }
       event("session.idle", { sessionID })
       return json(true)
     }

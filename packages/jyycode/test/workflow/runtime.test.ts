@@ -165,6 +165,43 @@ describe("Workflow Runtime persistence", () => {
     }),
   )
 
+  it.instance("interrupts running workflow nodes and durable assignments", () =>
+    Effect.gen(function* () {
+      const service = yield* Session.Service
+      const session = yield* service.create({ title: "Interrupt workflow" })
+      const child = yield* service.create({ parentID: session.id, title: "Worker" })
+      const plan = yield* WorkflowExecutor.ensureRunPlan({
+        sessionID: session.id,
+        goal: "Stop delegated work",
+        mode: "multi",
+      })
+      const task = plan.tasks[0]!
+      yield* WorkflowCollaboration.assignAgent({
+        sessionID: session.id,
+        runPlanID: plan.id,
+        nodeID: task.id,
+        agentID: "agent:worker",
+        role: "worker",
+        workspaceID: "workflow/worker",
+      })
+      yield* WorkflowExecutor.prepareMultiTask({ sessionID: session.id, taskID: task.id })
+      yield* WorkflowExecutor.startMultiTask({
+        sessionID: session.id,
+        runPlanID: plan.id,
+        taskID: task.id,
+        childSessionID: child.id,
+      })
+
+      yield* WorkflowExecutor.interruptActiveTasks({
+        sessionID: session.id,
+        detail: "Interrupted by the user.",
+      })
+
+      expect((yield* WorkflowRuntime.getRunPlan(plan.id)).tasks[0]?.status).toBe("interrupted")
+      expect((yield* WorkflowCollaboration.listAssignments(session.id))[0]?.status).toBe("interrupted")
+    }),
+  )
+
   it.instance("pins an immutable workflow, persists patches, and enforces node transitions", () =>
     Effect.gen(function* () {
       const session = yield* (yield* Session.Service).create({ title: "Workflow runtime" })

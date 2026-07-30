@@ -45,6 +45,7 @@ describe("workflow state machine", () => {
   test("enforces review and rework gates", () => {
     expect(WorkflowStateMachine.canTransition("submitted", "accepted")).toBe(false)
     expect(WorkflowStateMachine.canTransition("submitted", "reviewing")).toBe(true)
+    expect(WorkflowStateMachine.canTransition("revising", "interrupted")).toBe(true)
     expect(() => WorkflowStateMachine.assertTransition("running", "accepted")).toThrow()
     expect(WorkflowStateMachine.allowedTransitions("reviewing")).toEqual(["accepted", "revision_requested"])
   })
