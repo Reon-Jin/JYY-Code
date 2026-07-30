@@ -45,8 +45,10 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 
 const log = Log.create({ service: "session" })
 
-const parentTitlePrefix = "New session - "
-const childTitlePrefix = "Child session - "
+const parentTitlePrefix = "\u65b0\u5efa\u4f1a\u8bdd - "
+const childTitlePrefix = "\u5b50\u4f1a\u8bdd - "
+const legacyParentTitlePrefix = "New session - "
+const legacyChildTitlePrefix = "Child session - "
 
 function createDefaultTitle(isChild = false) {
   return (isChild ? childTitlePrefix : parentTitlePrefix) + new Date().toISOString()
@@ -54,7 +56,7 @@ function createDefaultTitle(isChild = false) {
 
 export function isDefaultTitle(title: string) {
   return new RegExp(
-    `^(${parentTitlePrefix}|${childTitlePrefix})\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$`,
+    `^(${parentTitlePrefix}|${childTitlePrefix}|${legacyParentTitlePrefix}|${legacyChildTitlePrefix})\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$`,
   ).test(title)
 }
 

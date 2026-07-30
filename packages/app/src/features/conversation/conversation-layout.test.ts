@@ -5,6 +5,7 @@ const composerCSS = readFileSync("src/features/composer/composer.css", "utf8")
 const sessionsCSS = readFileSync("src/features/sessions/sessions.css", "utf8")
 const conversationCSS = readFileSync("src/features/conversation/conversation.css", "utf8")
 const multiAgentCSS = readFileSync("src/features/multi-agent/multi-agent.css", "utf8")
+const workbenchCSS = readFileSync("src/features/session-workspace/session-workspace.css", "utf8")
 
 describe("conversation layout CSS", () => {
   it("caps the workspace and reserves a scrollable timeline above the Composer", () => {
@@ -40,10 +41,11 @@ describe("conversation layout CSS", () => {
     expect(composerCSS).toMatch(/\.composer-select\s*\{[^}]*width:\s*80px;[^}]*min-width:\s*80px;/s)
     expect(composerCSS).toMatch(/\.composer-usage__item\s*\{[^}]*display:\s*flex;[^}]*align-items:\s*center;/s)
     expect(multiAgentCSS).toMatch(/\.cluster-model-control__button\s*\{[^}]*min-width:\s*360px;/s)
-    expect(multiAgentCSS).toMatch(
-      /\.multi-agent-step\[data-tone="running"\] \.multi-agent-step__marker,[^{]*\{[^}]*animation:/s,
+    expect(workbenchCSS).toMatch(
+      /\.agent-flow__nodes button\[data-status="running"\] \.agent-flow__pulse\s*\{[^}]*animation:\s*agent-node-pulse/s,
     )
-    expect(multiAgentCSS).not.toContain("multi-agent-activation-wave")
+    expect(workbenchCSS).toMatch(/\.agent-flow__network i\s*\{[^}]*animation:\s*agent-flow-signal/s)
+    expect(workbenchCSS).toMatch(/@media \(prefers-reduced-motion: reduce\)/)
   })
 
   it("aligns the user bubble and Agent content on opposite sides and keeps tool calls compact", () => {

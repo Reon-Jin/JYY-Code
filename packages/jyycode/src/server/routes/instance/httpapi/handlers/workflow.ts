@@ -17,7 +17,7 @@ export const workflowHandlers = HttpApiBuilder.group(InstanceHttpApi, "workflow"
         badRequest(WorkflowRuntime.registerWorkflow(ctx.payload).pipe(Effect.as(true))),
       )
       .handle("pin", (ctx: { params: { sessionID: string }; payload: typeof PinPayload.Type }) =>
-        badRequest(WorkflowRuntime.pinWorkflow({ sessionID: ctx.params.sessionID as any, ...ctx.payload }).pipe(Effect.as(true))),
+        badRequest(WorkflowRuntime.selectSessionWorkflow({ sessionID: ctx.params.sessionID as any, ...ctx.payload }).pipe(Effect.as(true))),
       )
       .handle("getSessionPlan", (ctx: { params: { sessionID: string } }) =>
         notFound(WorkflowRuntime.getSessionRunPlan(ctx.params.sessionID as any)),

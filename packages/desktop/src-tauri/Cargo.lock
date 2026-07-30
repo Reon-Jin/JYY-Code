@@ -2128,7 +2128,7 @@ dependencies = [
 
 [[package]]
 name = "jyycode-desktop"
-version = "1.0.0"
+version = "1.0.13"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
@@ -2140,6 +2140,7 @@ dependencies = [
  "notify-rust",
  "rand 0.10.2",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",

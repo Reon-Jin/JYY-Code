@@ -346,7 +346,8 @@
 }
 
 .composer-usage__item > span:first-child {
-  flex: 0 0 auto;
+  min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   color: var(--color-text-muted);
   font-size: 0.55rem;
@@ -356,7 +357,7 @@
 
 .composer-usage__item > strong {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   overflow: hidden;
   color: var(--color-text);
   font-family: var(--font-code);

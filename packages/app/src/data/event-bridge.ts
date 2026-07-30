@@ -5,6 +5,7 @@ import type {
   PermissionRequest,
   QuestionRequest,
   Session,
+  SessionAgentClusterResponse,
   SessionStatus,
   Todo,
   VcsInfo,
@@ -37,6 +38,21 @@ export type ConversationAction =
     }
   | { kind: "part.remove"; eventID: string; sessionID: string; messageID: string; partID: string }
 
+// This event is emitted by the local cluster runtime before the generated SDK's
+// global-event union is refreshed. Keep the bridge structurally typed so a newer
+// desktop sidecar can still update an already-open cluster view.
+type AgentClusterEvent = {
+  id: string
+  type: "agent_cluster.event"
+  properties: {
+    sessionID: string
+    taskID: string
+    status: SessionAgentClusterResponse["tasks"][number]["status"]
+    createdAt: number
+    message?: string
+  }
+}
+
 export type CacheAction =
   | { kind: "server.connected"; eventID: string }
   | { kind: "session.upsert"; eventID: string; info: Session }
@@ -49,6 +65,13 @@ export type CacheAction =
   | { kind: "todos.set"; eventID: string; directory: string; sessionID: string; todos: Todo[] }
   | { kind: "vcs.invalidate"; eventID: string; directory: string }
   | { kind: "vcs.branch.set"; eventID: string; directory: string; branch?: string }
+  | {
+      kind: "agent-cluster.event"
+      eventID: string
+      directory: string
+      sessionID: string
+      event: AgentClusterEvent
+    }
   | ConversationAction
 
 function sameDirectory(left: string | undefined, right: string) {
@@ -61,6 +84,17 @@ export function routeEvent(directory: string, event: GlobalEvent): CacheAction[]
     return [{ kind: "server.connected", eventID: payload.id }]
   }
   if (!sameDirectory(event.directory, directory)) return []
+
+  const agentClusterPayload = payload as unknown as AgentClusterEvent
+  if (agentClusterPayload.type === "agent_cluster.event") {
+    return [{
+      kind: "agent-cluster.event",
+      eventID: agentClusterPayload.id,
+      directory,
+      sessionID: agentClusterPayload.properties.sessionID,
+      event: agentClusterPayload,
+    }]
+  }
 
   switch (payload.type) {
     case "session.created":
@@ -475,6 +509,30 @@ export class EventBridge {
       case "todos.set":
         this.#options.queryClient.setQueryData(keys.todos(action.directory, action.sessionID), action.todos)
         break
+      case "agent-cluster.event": {
+        const queryKey = keys.agentCluster(action.directory, action.sessionID)
+        const cluster = this.#options.queryClient.getQueryData<SessionAgentClusterResponse>(queryKey)
+        const properties = action.event.properties
+        const taskIndex = cluster?.tasks.findIndex((task) => task.id === properties.taskID) ?? -1
+        if (!cluster || taskIndex === -1) {
+          this.#invalidate(queryKey)
+          break
+        }
+        this.#options.queryClient.setQueryData(queryKey, {
+          ...cluster,
+          tasks: cluster.tasks.map((task) =>
+            task.id === properties.taskID
+              ? {
+                  ...task,
+                  status: properties.status,
+                  time_updated: properties.createdAt,
+                  last_event: properties.message,
+                }
+              : task,
+          ),
+        })
+        break
+      }
       case "vcs.branch.set": {
         const queryKey = keys.vcsInfo(action.directory)
         const info = this.#options.queryClient.getQueryData<VcsInfo>(queryKey)
@@ -524,6 +582,7 @@ export class EventBridge {
         { queryKey: keys.vcsDiff(directory), exact: true },
         { queryKey: keys.githubStatus(directory), exact: true },
         { queryKey: keys.pullRequestsScope(directory), exact: true },
+        { queryKey: keys.agentClustersScope(directory), exact: false },
       ]
       const sessionID = this.#options.activeSessionID?.()
       if (sessionID) {

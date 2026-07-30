@@ -5,6 +5,7 @@ import { Effect, Schema } from "effect"
 import { ulid } from "ulid"
 import * as Database from "@/storage/db"
 import type { SessionID } from "@/session/schema"
+import { BuiltinWorkflows, createRunPlanForWorkflow } from "./builtin"
 import { Event } from "./event"
 import type { NodeID, NodeStatus, PlanPatch, RunPlan, RunPlanTask, Workflow } from "./schema"
 import { RunPlan as RunPlanSchema, RunPlanVersion as RunPlanVersionSchema } from "./schema"
@@ -24,6 +25,15 @@ import { validateWorkflow } from "./validation"
 
 function snapshot(plan: RunPlan) {
   return plan as unknown as Record<string, unknown>
+}
+
+/**
+ * Built-in workflows must stay selectable while an existing installation is
+ * being upgraded.  Older local databases may not have received the workflow
+ * catalogue rows yet; the definitions are still part of this executable.
+ */
+function builtinWorkflow(workflowID: Workflow["id"], workflowVersion: Workflow["version"]) {
+  return BuiltinWorkflows.find((workflow) => workflow.id === workflowID && workflow.version === workflowVersion)
 }
 
 export function applyPlanPatch(plan: RunPlan, patch: PlanPatch) {
@@ -117,7 +127,9 @@ export const createRunPlan = Effect.fn("WorkflowRuntime.createRunPlan")(function
       )
       .get(),
   )
-  if (!workflow) return yield* Effect.fail(new Error(`Workflow version not found: ${input.plan.workflowID}@${input.plan.workflowVersion}`))
+  if (!workflow && !builtinWorkflow(input.plan.workflowID, input.plan.workflowVersion)) {
+    return yield* Effect.fail(new Error(`Workflow version not found: ${input.plan.workflowID}@${input.plan.workflowVersion}`))
+  }
   const now = Date.now()
   yield* Database.withTransaction((db) =>
     Effect.gen(function* () {
@@ -244,7 +256,9 @@ export const pinWorkflow = Effect.fn("WorkflowRuntime.pinWorkflow")(function* (i
       .where(and(eq(WorkflowVersionTable.workflow_id, input.workflowID), eq(WorkflowVersionTable.version, input.workflowVersion)))
       .get(),
   )
-  if (!existing) return yield* Effect.fail(new Error(`Workflow version not found: ${input.workflowID}@${input.workflowVersion}`))
+  if (!existing && !builtinWorkflow(input.workflowID, input.workflowVersion)) {
+    return yield* Effect.fail(new Error(`Workflow version not found: ${input.workflowID}@${input.workflowVersion}`))
+  }
   const now = Date.now()
   yield* Database.query((db) =>
     db
@@ -256,6 +270,120 @@ export const pinWorkflow = Effect.fn("WorkflowRuntime.pinWorkflow")(function* (i
       })
       .run(),
   )
+})
+
+export const getSessionWorkflowPin = Effect.fn("WorkflowRuntime.getSessionWorkflowPin")(function* (sessionID: SessionID) {
+  const pin = yield* Database.query((db) =>
+    db
+      .select({ workflowID: SessionWorkflowPinTable.workflow_id, workflowVersion: SessionWorkflowPinTable.workflow_version })
+      .from(SessionWorkflowPinTable)
+      .where(eq(SessionWorkflowPinTable.session_id, sessionID))
+      .get(),
+  )
+  return pin
+})
+
+export const selectSessionWorkflow = Effect.fn("WorkflowRuntime.selectSessionWorkflow")(function* (input: {
+  sessionID: SessionID
+  workflowID: Workflow["id"]
+  workflowVersion: Workflow["version"]
+}) {
+  const definition = yield* Database.query((db) =>
+    db
+      .select({ definition: WorkflowVersionTable.definition })
+      .from(WorkflowVersionTable)
+      .where(and(eq(WorkflowVersionTable.workflow_id, input.workflowID), eq(WorkflowVersionTable.version, input.workflowVersion)))
+      .get(),
+  )
+  const fallback = builtinWorkflow(input.workflowID, input.workflowVersion)
+  if (!definition && !fallback) return yield* Effect.fail(new Error(`Workflow version not found: ${input.workflowID}@${input.workflowVersion}`))
+
+  const workflow = definition
+    ? Schema.decodeUnknownSync(Schema.Struct({
+        id: Schema.String,
+        version: Schema.String,
+        displayName: Schema.String,
+        supports: Schema.Struct({ single: Schema.Boolean, multi: Schema.Boolean }),
+        stages: Schema.Array(Schema.Unknown),
+      }))(definition.definition) as Workflow
+    : fallback!
+  const currentExit = yield* getSessionRunPlan(input.sessionID).pipe(Effect.exit)
+
+  if (currentExit._tag === "Failure") {
+    yield* pinWorkflow(input)
+    yield* recordEvent({
+      id: ulid(),
+      sessionID: input.sessionID,
+      type: "WorkflowSelected",
+      workflowID: input.workflowID,
+      workflowVersion: input.workflowVersion,
+      payload: { reason: "\u5728\u521b\u5efa\u65b9\u6848\u524d\u9009\u62e9\u5de5\u4f5c\u6d41" },
+      createdAt: Date.now(),
+    })
+    return undefined
+  }
+
+  const current = currentExit.value
+  if (current.workflowID === input.workflowID && current.workflowVersion === input.workflowVersion) return current
+  if (current.tasks.some((task) => task.status !== "planned")) {
+    return yield* Effect.fail(new Error("\u5f53\u524d\u65b9\u6848\u5df2\u7ecf\u5f00\u59cb\u6267\u884c\u3002\u4e3a\u4fdd\u62a4\u5df2\u6709\u7ed3\u679c\uff0c\u8bf7\u65b0\u5efa\u4f1a\u8bdd\u540e\u518d\u5207\u6362\u5de5\u4f5c\u6d41\u3002"))
+  }
+
+  const next = createRunPlanForWorkflow({
+    sessionID: current.sessionID,
+    goal: current.goal,
+    mode: current.mode,
+    workflow,
+    id: current.id,
+    version: current.version + 1,
+  })
+  validateRunPlan(next)
+  const now = Date.now()
+  yield* Database.withTransaction((db) =>
+    Effect.gen(function* () {
+      yield* db
+        .insert(SessionWorkflowPinTable)
+        .values({ session_id: input.sessionID, workflow_id: input.workflowID, workflow_version: input.workflowVersion, time_created: now, time_updated: now })
+        .onConflictDoUpdate({
+          target: SessionWorkflowPinTable.session_id,
+          set: { workflow_id: input.workflowID, workflow_version: input.workflowVersion, time_updated: now },
+        })
+        .run()
+      yield* db
+        .update(RunPlanTable)
+        .set({ workflow_id: next.workflowID, workflow_version: next.workflowVersion, version: next.version, time_updated: now })
+        .where(and(eq(RunPlanTable.id, current.id), eq(RunPlanTable.version, current.version)))
+        .run()
+      yield* db
+        .insert(RunPlanVersionTable)
+        .values({
+          run_plan_id: next.id,
+          version: next.version,
+          author: "user",
+          reason: `\u5df2\u5207\u6362\u81f3${workflow.displayName}`,
+          snapshot: snapshot(next),
+          time_created: now,
+          time_updated: now,
+        })
+        .run()
+      yield* db.delete(WorkflowNodeRuntimeTable).where(eq(WorkflowNodeRuntimeTable.run_plan_id, next.id)).run()
+      yield* db
+        .insert(WorkflowNodeRuntimeTable)
+        .values(next.tasks.map((task) => ({ run_plan_id: next.id, node_id: task.id, status: task.status, time_created: now, time_updated: now })))
+        .run()
+    }),
+  )
+  yield* recordEvent({
+    id: ulid(),
+    sessionID: input.sessionID,
+    workflowID: input.workflowID,
+    workflowVersion: input.workflowVersion,
+    runPlanID: next.id,
+    type: "WorkflowSelected",
+    payload: { from: current.workflowID, to: input.workflowID, planVersion: next.version },
+    createdAt: now,
+  })
+  return next
 })
 
 export const getRunPlan = Effect.fn("WorkflowRuntime.getRunPlan")(function* (runPlanID: RunPlan["id"]) {

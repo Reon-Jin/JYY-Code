@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect"
 import { Session } from "../../src/session/session"
 import * as Database from "../../src/storage/db"
 import { WorkflowExecutor } from "../../src/workflow/executor"
+import { WorkflowCreationWorkflow } from "../../src/workflow/builtin"
 import { WorkflowCollaboration } from "../../src/workflow/collaboration"
 import { WorkflowLedger } from "../../src/workflow/ledger"
 import { WorkflowRuntime } from "../../src/workflow/runtime"
@@ -33,6 +34,64 @@ const workflow = {
 }
 
 describe("Workflow Runtime persistence", () => {
+  it.instance("pins a built-in workflow for a legacy session before its catalogue rows are registered", () =>
+    Effect.gen(function* () {
+      const session = yield* (yield* Session.Service).create({ title: "Legacy workflow selection" })
+
+      const selected = yield* WorkflowRuntime.selectSessionWorkflow({
+        sessionID: session.id,
+        workflowID: WorkflowCreationWorkflow.id,
+        workflowVersion: WorkflowCreationWorkflow.version,
+      })
+
+      expect(selected).toBeUndefined()
+      expect(yield* WorkflowRuntime.getSessionWorkflowPin(session.id)).toMatchObject({
+        workflowID: "workflow-creation",
+        workflowVersion: "2.0.0",
+      })
+    }),
+  )
+
+  it.instance("recompiles an unstarted session plan when the user selects a built-in workflow", () =>
+    Effect.gen(function* () {
+      const session = yield* (yield* Session.Service).create({ title: "Workflow selection" })
+      const initial = yield* WorkflowExecutor.ensureRunPlan({ sessionID: session.id, goal: "Create a workflow", mode: "single" })
+      expect(String(initial.workflowID)).toBe("general")
+
+      const selected = yield* WorkflowRuntime.selectSessionWorkflow({
+        sessionID: session.id,
+        workflowID: WorkflowCreationWorkflow.id,
+        workflowVersion: WorkflowCreationWorkflow.version,
+      })
+      expect(String(selected?.workflowID)).toBe("workflow-creation")
+      expect(selected?.version).toBe(initial.version + 1)
+      expect(selected?.tasks.map((task) => String(task.id))).toEqual([
+        "workflow-interview",
+        "workflow-specification",
+        "workflow-validation",
+      ])
+      expect((yield* WorkflowRuntime.listEvents(session.id)).some((event) => event.type === "WorkflowSelected")).toBe(true)
+    }),
+  )
+
+  it.instance("refuses to replace a workflow after execution has started", () =>
+    Effect.gen(function* () {
+      const session = yield* (yield* Session.Service).create({ title: "Protected workflow selection" })
+      yield* WorkflowExecutor.runSingle({
+        sessionID: session.id,
+        goal: "Complete work first",
+        run: Effect.succeed({ parts: [{ type: "text", text: "Completed" }] }),
+      })
+      const result = yield* WorkflowRuntime.selectSessionWorkflow({
+        sessionID: session.id,
+        workflowID: WorkflowCreationWorkflow.id,
+        workflowVersion: WorkflowCreationWorkflow.version,
+      }).pipe(Effect.exit)
+      expect(result._tag).toBe("Failure")
+      expect(String((yield* WorkflowRuntime.getSessionRunPlan(session.id)).workflowID)).toBe("general")
+    }),
+  )
+
   it.instance("runs a default single-agent task through review and validation", () =>
     Effect.gen(function* () {
       const session = yield* (yield* Session.Service).create({ title: "Execute workflow" })

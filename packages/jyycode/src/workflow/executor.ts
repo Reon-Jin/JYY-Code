@@ -3,7 +3,7 @@ export * as WorkflowExecutor from "./executor"
 import { Cause, Effect, Exit } from "effect"
 import { ulid } from "ulid"
 import type { SessionID } from "@/session/schema"
-import { GeneralWorkflow, createFollowUpTask, createGeneralRunPlan } from "./builtin"
+import { BuiltinWorkflows, GeneralWorkflow, createFollowUpTask, createRunPlanForWorkflow } from "./builtin"
 import { WorkflowCollaboration } from "./collaboration"
 import { WorkflowLedger } from "./ledger"
 import { WorkflowRuntime } from "./runtime"
@@ -57,10 +57,16 @@ export const ensureRunPlan = Effect.fn("WorkflowExecutor.ensureRunPlan")(functio
   goal: string
   mode: ExecutionMode
 }) {
-  yield* WorkflowRuntime.registerWorkflow({ workflow: GeneralWorkflow, scope: "builtin", source: "builtin:general", installed: true })
+  for (const workflow of BuiltinWorkflows) {
+    yield* WorkflowRuntime.registerWorkflow({ workflow, scope: "builtin", source: `builtin:${workflow.id}`, installed: true })
+  }
   const existing = yield* WorkflowRuntime.getSessionRunPlan(input.sessionID).pipe(Effect.exit)
   if (Exit.isFailure(existing)) {
-    const plan = createGeneralRunPlan(input)
+    const pin = yield* WorkflowRuntime.getSessionWorkflowPin(input.sessionID)
+    const workflow = BuiltinWorkflows.find(
+      (candidate) => Boolean(pin) && candidate.id === pin!.workflowID && candidate.version === pin!.workflowVersion,
+    ) ?? GeneralWorkflow
+    const plan = createRunPlanForWorkflow({ ...input, workflow })
     const created = yield* WorkflowRuntime.createRunPlan({ plan, author: "main_agent" }).pipe(Effect.exit)
     if (Exit.isSuccess(created)) return created.value
     return yield* WorkflowRuntime.getSessionRunPlan(input.sessionID)

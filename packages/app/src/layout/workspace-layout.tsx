@@ -14,6 +14,7 @@ import { errorMessage } from "../features/projects/project-controller"
 import { ReconnectBanner } from "../features/lifecycle/reconnect-banner"
 import { useProjects } from "../features/projects/project-context"
 import { ProjectTabs } from "../features/projects/project-tabs"
+import { ProjectFileTree } from "../features/projects/project-file-tree"
 import { conversationQueryOptions } from "../features/conversation/conversation-query"
 import type { ConversationSnapshot } from "../features/conversation/conversation-state"
 import { Composer } from "../features/composer/composer"
@@ -32,7 +33,9 @@ import { McpControl } from "../features/mcp/mcp-control"
 import { SessionWorkspace } from "../features/session-workspace/session-workspace"
 import {
   patchSessionRunPlan,
+  publishSessionBlackboard,
   restoreSessionRunPlanVersion,
+  selectSessionWorkflow,
   sessionArtifactsQueryOptions,
   sessionAssignmentsQueryOptions,
   sessionBlackboardQueryOptions,
@@ -41,6 +44,7 @@ import {
   sessionRunPlanQueryOptions,
   sessionRunPlanVersionsQueryOptions,
   type SessionRunPlanPatch,
+  type SessionBlackboardDraft,
 } from "../features/session-workspace/workflow-query"
 import { PermissionBar } from "../features/requests/permission-bar"
 import { QuestionPanel } from "../features/requests/question-panel"
@@ -90,7 +94,9 @@ export type WorkspaceLayoutViewProps = {
   planStatus?: "planning" | "ready"
   operationError?: string
   projectTabs?: JSX.Element
+  projectTree?: JSX.Element
   requestArea?: JSX.Element
+  commandBar?: JSX.Element
   composer?: JSX.Element
   inspector?: JSX.Element
   inspectorOpen?: boolean
@@ -111,6 +117,8 @@ export type WorkspaceLayoutViewProps = {
   onPatchRunPlan?: (patch: SessionRunPlanPatch) => Promise<void>
   onRestoreRunPlanVersion?: (version: number) => Promise<void>
   onSetPlanMode?: (mode: "single" | "multi") => Promise<void>
+  onSelectWorkflow?: (workflowID: "general" | "workflow-creation", workflowVersion: string) => Promise<void>
+  onPublishBlackboard?: (card: SessionBlackboardDraft) => Promise<void>
 }
 
 function connectionLabel(connection: ConnectionState) {
@@ -204,8 +212,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
     <div
       class="workspace-shell"
       data-rail-open={railOpen() ? "true" : "false"}
-      data-inspector-open={props.inspectorOpen ? "true" : "false"}
-      style={{ "--workspace-inspector-width": `${props.inspectorWidth ?? 420}px` }}
+      data-inspector-open="false"
     >
       <aside
         id="session-navigation"
@@ -261,6 +268,8 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
           onArchive={props.onArchive}
           onDelete={props.onDelete}
         />
+
+        <Show when={props.projectTree}>{props.projectTree}</Show>
 
         <footer class="workspace-connection" data-state={props.connection}>
           <span class="workspace-connection__status" role="status" aria-live="polite">
@@ -333,8 +342,11 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
               onPatchRunPlan={props.onPatchRunPlan}
               onRestoreRunPlanVersion={props.onRestoreRunPlanVersion}
               onSetPlanMode={props.onSetPlanMode}
+              onSelectWorkflow={props.onSelectWorkflow}
+              onPublishBlackboard={props.onPublishBlackboard}
               onRetryConversation={props.onRetryConversation}
               requestArea={props.requestArea}
+              commandBar={props.commandBar}
               composer={props.composer}
               context={
                 session.parentID ? (
@@ -352,7 +364,6 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
           )}
         </Show>
       </main>
-      {props.inspector}
     </div>
   )
 }
@@ -718,6 +729,40 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }
   }
 
+  async function setWorkflow(workflowID: "general" | "workflow-creation", workflowVersion: string) {
+    const session = rootSession()
+    if (!session) throw new Error("\u5f53\u524d\u4f1a\u8bdd\u65e0\u6cd5\u5207\u6362\u5de5\u4f5c\u6d41")
+    await selectSessionWorkflow({
+      client: data.client(),
+      directory: data.directory(),
+      sessionID: session.id,
+      workflowID,
+      workflowVersion,
+    })
+    const sessionID = rootSessionID()
+    if (!sessionID) return
+    await Promise.all([
+      data.queryClient().invalidateQueries({ queryKey: keys.workflowRunPlan(data.directory(), sessionID), exact: true }),
+      data.queryClient().invalidateQueries({ queryKey: keys.workflowPlanVersions(data.directory(), sessionID), exact: true }),
+      data.queryClient().invalidateQueries({ queryKey: keys.workflowEvents(data.directory(), sessionID), exact: true }),
+    ])
+  }
+
+  async function publishBlackboard(card: SessionBlackboardDraft) {
+    const sessionID = rootSessionID()
+    if (!sessionID) throw new Error("当前会话无法发布黑板信息")
+    await publishSessionBlackboard({
+      client: data.client(),
+      directory: data.directory(),
+      sessionID,
+      card,
+    })
+    await data.queryClient().invalidateQueries({
+      queryKey: keys.workflowBlackboard(data.directory(), sessionID),
+      exact: true,
+    })
+  }
+
   function changeAgent(agent: string) {
     setSelectedAgent(agent)
     saveComposerPreference({ agent, model: selectedModel() })
@@ -760,6 +805,47 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     })
   })
 
+  function composerArea(mode: "toolbar" | "input") {
+    return (
+      <Show when={props.activeSessionID} keyed>
+        {(sessionID) => (
+          <Show when={!catalogQuery.isPending} fallback={<p class="composer__status" role="status">{tr("layout.loading-agents-and-models")}</p>}>
+            <Show when={!catalogQuery.error} fallback={<InlineError message={errorMessage(catalogQuery.error, tr("layout.unable-to-load-agents-and-models"))} />}>
+              <Show when={composerModel()} fallback={<ProviderEmpty client={data.client()} configPath={catalogQuery.data?.configPath ?? "jyycode.jsonc"} directory={data.directory()} disabled={data.connection() !== "connected"} onProviderConnected={async () => { await catalogQuery.refetch() }} />}>
+                <Composer
+                  mode={mode}
+                  client={data.client()}
+                  queryClient={data.queryClient()}
+                  directory={data.directory()}
+                  sessionID={sessionID}
+                  agents={isChildSession() ? (catalogQuery.data?.allAgents ?? []) : (catalogQuery.data?.agents ?? [])}
+                  models={catalogQuery.data?.models ?? []}
+                  selectedAgent={composerAgent()}
+                  selectedModel={composerModel()!}
+                  agentClusterEnabled={activeSession() ? effectiveMultiAgent(activeSession()!, catalogQuery.data?.agentCluster) : false}
+                  status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
+                  requestPending={Boolean(activeRequest())}
+                  childSteering={isChildSession() && childTaskRunning()}
+                  disabled={data.connection() !== "connected"}
+                  identityLocked={isChildSession()}
+                  minimal={isChildSession()}
+                  usage={composerUsage()}
+                  permissionControl={<Show when={activeSession()} keyed>{(session) => <AgentPermissionControl client={data.client()} queryClient={data.queryClient()} directory={data.directory()} session={session} disabled={data.connection() !== "connected"} />}</Show>}
+                  branchControl={<BranchControl directory={data.directory()} />}
+                  multiAgentControl={<Show when={activeSession()} keyed>{(session) => <MultiAgentControl client={data.client()} queryClient={data.queryClient()} directory={data.directory()} session={session} config={catalogQuery.data?.agentCluster} />}</Show>}
+                  mcpControl={<McpControl client={data.client()} queryClient={data.queryClient()} directory={data.directory()} disabled={data.connection() !== "connected"} />}
+                  onAgentChange={changeAgent}
+                  onModelChange={changeModel}
+                  onProviderConnected={async () => { await catalogQuery.refetch() }}
+                />
+              </Show>
+            </Show>
+          </Show>
+        )}
+      </Show>
+    )
+  }
+
   return (
     <WorkspaceLayoutView
       projectName={projectName()}
@@ -801,6 +887,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       onPatchRunPlan={patchRunPlan}
       onRestoreRunPlanVersion={restoreRunPlanVersion}
       onSetPlanMode={setPlanMode}
+      onSelectWorkflow={setWorkflow}
+      onPublishBlackboard={publishBlackboard}
       operationError={operationError()}
       projectTabs={
         <ProjectTabs
@@ -814,6 +902,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           onReorder={(source, target, placement) => projects.reorderProjects(source, target, placement)}
         />
       }
+      projectTree={<ProjectFileTree client={data.client()} directory={data.directory()} />}
       multiAgentEnabled={rootMultiAgentEnabled()}
       childRole={activeChildAssignment()?.role}
       requestArea={
@@ -847,105 +936,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           </Show>
         </Show>
       }
-      composer={
-        <Show when={props.activeSessionID} keyed>
-          {(sessionID) => (
-            <Show
-              when={!catalogQuery.isPending}
-              fallback={
-                <p class="composer__status" role="status">
-                  {tr("layout.loading-agents-and-models")}
-                </p>
-              }
-            >
-              <Show
-                when={!catalogQuery.error}
-                fallback={
-                  <InlineError
-                    message={errorMessage(catalogQuery.error, tr("layout.unable-to-load-agents-and-models"))}
-                  />
-                }
-              >
-                <Show
-                  when={composerModel()}
-                  fallback={
-                    <ProviderEmpty
-                      client={data.client()}
-                      configPath={catalogQuery.data?.configPath ?? "jyycode.jsonc"}
-                      directory={data.directory()}
-                      disabled={data.connection() !== "connected"}
-                      onProviderConnected={async () => {
-                        await catalogQuery.refetch()
-                      }}
-                    />
-                  }
-                >
-                  <Composer
-                    client={data.client()}
-                    queryClient={data.queryClient()}
-                    directory={data.directory()}
-                    sessionID={sessionID}
-                    agents={isChildSession() ? (catalogQuery.data?.allAgents ?? []) : (catalogQuery.data?.agents ?? [])}
-                    models={catalogQuery.data?.models ?? []}
-                    selectedAgent={composerAgent()}
-                    selectedModel={composerModel()!}
-                    agentClusterEnabled={
-                      activeSession() ? effectiveMultiAgent(activeSession()!, catalogQuery.data?.agentCluster) : false
-                    }
-                    status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
-                    requestPending={Boolean(activeRequest())}
-                    childSteering={isChildSession() && childTaskRunning()}
-                    disabled={data.connection() !== "connected"}
-                    identityLocked={isChildSession()}
-                    minimal={isChildSession()}
-                    usage={composerUsage()}
-                    permissionControl={
-                      <Show when={activeSession()} keyed>
-                        {(session) => (
-                          <AgentPermissionControl
-                            client={data.client()}
-                            queryClient={data.queryClient()}
-                            directory={data.directory()}
-                            session={session}
-                            disabled={data.connection() !== "connected"}
-                          />
-                        )}
-                      </Show>
-                    }
-                    branchControl={<BranchControl directory={data.directory()} />}
-                    multiAgentControl={
-                      <Show when={activeSession()} keyed>
-                        {(session) => (
-                          <MultiAgentControl
-                            client={data.client()}
-                            queryClient={data.queryClient()}
-                            directory={data.directory()}
-                            session={session}
-                            config={catalogQuery.data?.agentCluster}
-                          />
-                        )}
-                      </Show>
-                    }
-                    mcpControl={
-                      <McpControl
-                        client={data.client()}
-                        queryClient={data.queryClient()}
-                        directory={data.directory()}
-                        disabled={data.connection() !== "connected"}
-                      />
-                    }
-                    onAgentChange={changeAgent}
-                    onModelChange={changeModel}
-                    onProviderConnected={async () => {
-                      await catalogQuery.refetch()
-                    }}
-                  />
-                </Show>
-              </Show>
-            </Show>
-          )}
-        </Show>
-      }
+      commandBar={composerArea("toolbar")}
+      composer={composerArea("input")}
       inspectorOpen={inspectorPreferences().panes.length > 0}
       inspectorWidth={inspectorPreferences().width}
       inspector={

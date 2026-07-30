@@ -1,5 +1,6 @@
 import type {
   WorkflowGetSessionPlanResponse,
+  WorkflowCreateBlackboardData,
   WorkflowListArtifactsResponse,
   WorkflowListAssignmentsResponse,
   WorkflowListBlackboardResponse,
@@ -20,6 +21,7 @@ export type SessionAssignment = WorkflowListAssignmentsResponse[number]
 export type SessionWorkflowEvent = WorkflowListEventsResponse[number]
 export type SessionRunPlanVersion = WorkflowListVersionsResponse[number]
 export type SessionRunPlanPatch = NonNullable<WorkflowPatchData["body"]>["patch"]
+export type SessionBlackboardDraft = NonNullable<WorkflowCreateBlackboardData["body"]>
 
 function isNotFound(error: unknown) {
   if (!error || typeof error !== "object") return false
@@ -65,6 +67,24 @@ export async function patchSessionRunPlan(input: {
   return result.data
 }
 
+export async function selectSessionWorkflow(input: {
+  client: Pick<DesktopClient, "workflow">
+  directory: string
+  sessionID: string
+  workflowID: "general" | "workflow-creation"
+  workflowVersion: string
+}) {
+  await input.client.workflow.pin(
+    {
+      directory: input.directory,
+      sessionID: input.sessionID,
+      workflowID: input.workflowID,
+      workflowVersion: input.workflowVersion,
+    },
+    { throwOnError: true },
+  )
+}
+
 export function sessionRunPlanVersionsQueryOptions(input: { client: Pick<DesktopClient, "workflow">; directory: string; runPlanID: string; sessionID: string }) {
   return {
     queryKey: keys.workflowPlanVersions(input.directory, input.sessionID),
@@ -99,6 +119,25 @@ export function sessionArtifactsQueryOptions(input: { client: Pick<DesktopClient
 
 export function sessionBlackboardQueryOptions(input: { client: Pick<DesktopClient, "workflow">; directory: string; sessionID: string }) {
   return { queryKey: keys.workflowBlackboard(input.directory, input.sessionID), queryFn: async () => (await input.client.workflow.listBlackboard({ directory: input.directory, sessionID: input.sessionID }, { throwOnError: true })).data } as const
+}
+
+export async function publishSessionBlackboard(input: {
+  client: Pick<DesktopClient, "workflow">
+  directory: string
+  sessionID: string
+  card: SessionBlackboardDraft
+}) {
+  const created = await input.client.workflow.createBlackboard(
+    { directory: input.directory, sessionID: input.sessionID, ...input.card },
+    { throwOnError: true },
+  )
+  const card = created.data
+  if (card.status !== "draft") return card
+  const published = await input.client.workflow.transitionBlackboard(
+    { directory: input.directory, cardID: card.id, from: "draft", to: "published" },
+    { throwOnError: true },
+  )
+  return published.data
 }
 
 export function sessionReviewsQueryOptions(input: { client: Pick<DesktopClient, "workflow">; directory: string; sessionID: string }) {

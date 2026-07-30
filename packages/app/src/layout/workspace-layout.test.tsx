@@ -1,6 +1,6 @@
 import type { Session } from "@jyycode-ai/sdk/v2/client"
 import { MemoryRouter, Route } from "@solidjs/router"
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library"
+import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { projectShortcutIndex, WorkspaceLayoutView } from "./workspace-layout"
 
@@ -49,7 +49,7 @@ describe("WorkspaceLayoutView settings entry", () => {
     )
   })
 
-  it("provides an accessible Session workspace with dedicated operational pages", () => {
+  it("provides an accessible Session workbench with all operational modules", () => {
     render(() => (
       <MemoryRouter>
         <Route
@@ -75,12 +75,12 @@ describe("WorkspaceLayoutView settings entry", () => {
       </MemoryRouter>
     ))
 
-    const plan = screen.getByRole("tab", { name: "方案" })
-    expect(screen.getByRole("tab", { name: "概览" })).toHaveAttribute("aria-selected", "true")
+    const plan = document.querySelector<HTMLButtonElement>('.workbench-module-card[data-module="plan"]')!
+    expect(document.querySelectorAll(".workbench-module-card")).toHaveLength(7)
     fireEvent.click(plan)
-    expect(plan).toHaveAttribute("aria-selected", "true")
-    expect(screen.getByText("尚未生成可执行方案。")).toBeInTheDocument()
-    expect(screen.getByRole("region", { name: "Session 工作栏" })).toBeInTheDocument()
+    expect(plan).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getAllByText(/尚未生成可执行方案/)).not.toHaveLength(0)
+    expect(screen.getByRole("region", { name: "Active Session" })).toBeInTheDocument()
   })
 
   it("waits for the requested Session instead of mounting the workspace with an undefined session", () => {
@@ -110,7 +110,7 @@ describe("WorkspaceLayoutView settings entry", () => {
     ))
 
     expect(screen.queryByRole("heading", { name: "Active Session" })).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "新建 Session" })).toBeDisabled()
+    expect(within(document.querySelector(".session-empty")!).getByRole("button", { name: "新建会话" })).toBeDisabled()
   })
 
   it("switches projects with Tab on the conversation canvas and Ctrl+1-9 globally", () => {
