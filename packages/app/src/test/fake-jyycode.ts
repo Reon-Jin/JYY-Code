@@ -14,6 +14,7 @@ import type {
   Project,
   Session,
   SessionAgentClusterResponse,
+  WorkflowGetSessionPlanResponse,
   Todo,
   VcsBranches,
   VcsFileDiff,
@@ -69,6 +70,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   const messages = new Map<string, Array<{ info: Message; parts: Part[] }>>()
   const todos = new Map<string, Todo[]>()
   const agentClusters = new Map<string, SessionAgentClusterResponse>()
+  const runPlans = new Map<string, WorkflowGetSessionPlanResponse>()
   const permissions: PermissionRequest[] = []
   const skills: AppSkillsResponse = [
     {
@@ -344,6 +346,31 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     if (url.pathname === "/project/current") return json(project)
     if (url.pathname === "/project/git/init") return json({ ...project, vcs: "git" })
 
+    const workflowSession = url.pathname.match(/^\/workflow\/sessions\/([^/]+)\/(pin|run-plan)$/)
+    if (workflowSession?.[2] === "pin" && request.method === "POST") {
+      const sessionID = workflowSession[1]!
+      const workflowID = value.workflowID === "workflow-creation" ? "workflow-creation" : "general"
+      const previous = runPlans.get(sessionID)
+      const now = Date.now()
+      runPlans.set(sessionID, {
+        id: previous?.id ?? `run_${sessionID}`,
+        sessionID,
+        workflowID,
+        workflowVersion: typeof value.workflowVersion === "string" ? value.workflowVersion : "2.0.0",
+        version: (previous?.version ?? 0) + 1,
+        mode: previous?.mode ?? "single",
+        goal: previous?.goal ?? "",
+        tasks: previous?.tasks ?? [],
+        createdAt: previous?.createdAt ?? now,
+        updatedAt: now,
+      })
+      return json(true)
+    }
+    if (workflowSession?.[2] === "run-plan" && request.method === "GET") {
+      const plan = runPlans.get(workflowSession[1]!)
+      return plan ? json(plan) : json({ name: "NotFoundError", message: "Run plan not found" }, 404)
+    }
+
     if (url.pathname === "/agent") {
       return json([
         { name: "build", mode: "primary", permission: [], options: {} },
@@ -596,6 +623,18 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       return json(true)
     }
     if (sessionID && url.pathname.endsWith("/abort") && request.method === "POST") {
+      const plan = runPlans.get(sessionID)
+      if (plan) {
+        runPlans.set(sessionID, {
+          ...plan,
+          tasks: plan.tasks.map((task) =>
+            task.status === "running" || task.status === "revising"
+              ? { ...task, status: "interrupted" }
+              : task,
+          ),
+          updatedAt: Date.now(),
+        })
+      }
       event("session.idle", { sessionID })
       return json(true)
     }
@@ -727,6 +766,10 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     agentClusters.set(sessionID, structuredClone(state))
   }
 
+  function setRunPlan(sessionID: string, plan: WorkflowGetSessionPlanResponse) {
+    runPlans.set(sessionID, structuredClone(plan))
+  }
+
   function emitAgentCluster(properties: AgentClusterEvent["properties"]) {
     event("agent_cluster.event", properties)
   }
@@ -770,6 +813,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     emit,
     setTodos,
     setAgentCluster,
+    setRunPlan,
     emitAgentCluster,
     disconnectStreams,
     setGitHubStatus,

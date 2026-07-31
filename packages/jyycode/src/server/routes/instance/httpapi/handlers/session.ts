@@ -1,8 +1,8 @@
 import { Agent } from "@/agent/agent"
-import { AgentCluster } from "@/agent-cluster/cluster"
 import { Bus } from "@/bus"
 import { Command } from "@/command"
 import { Config } from "@/config/config"
+import { AppRuntime } from "@/effect/app-runtime"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { Provider } from "@/provider/provider"
@@ -18,9 +18,11 @@ import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
+import { WorkflowRuntime } from "@/workflow/runtime"
+import { WorkflowCollaboration } from "@/workflow/collaboration"
+import { WorkflowExecutor } from "@/workflow/executor"
 import { MessageID, PartID, SessionID } from "@/session/schema"
-import { NamedError } from "@jyycode-ai/core/util/error"
-import { Cause, Effect, Exit, Option, Schema, Scope } from "effect"
+import { Effect, Exit, Option, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiError, HttpApiSchema } from "effect/unstable/httpapi"
@@ -43,6 +45,8 @@ import {
 } from "../groups/session"
 import { PermissionNotFoundError } from "../errors"
 import * as SessionError from "./session-errors"
+import { NamedError } from "@jyycode-ai/core/util/error"
+import { Cause } from "effect"
 
 const tryParseJson = (text: string) =>
   Effect.try({
@@ -65,8 +69,30 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const statusSvc = yield* SessionStatus.Service
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
-    const bus = yield* Bus.Service
-    const scope = yield* Scope.Scope
+
+    const startPrompt = Effect.fn("SessionHttpApi.startPrompt")(function* (input: SessionPrompt.PromptInput) {
+      yield* Effect.sync(() => {
+        AppRuntime.runFork(
+          Effect.gen(function* () {
+            const stablePrompt = yield* SessionPrompt.Service
+            const stableBus = yield* Bus.Service
+            yield* stablePrompt.prompt(input).pipe(
+              Effect.catchCause((cause) =>
+                Effect.gen(function* () {
+                  yield* Effect.logError("prompt_async failed").pipe(
+                    Effect.annotateLogs({ sessionID: input.sessionID, cause }),
+                  )
+                  yield* stableBus.publish(Session.Event.Error, {
+                    sessionID: input.sessionID,
+                    error: new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(),
+                  })
+                }),
+              ),
+            )
+          }),
+        )
+      })
+    })
 
     const list = Effect.fn("SessionHttpApi.list")(function* (ctx: { query: typeof ListQuery.Type }) {
       return yield* session.list({
@@ -127,7 +153,21 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
     }) {
       yield* requireSession(ctx.params.sessionID)
-      return yield* AgentCluster.getSessionState(ctx.params.sessionID)
+      const state = yield* WorkflowExecutor.getMultiSessionState(ctx.params.sessionID).pipe(
+        Effect.catchCause(() => Effect.succeed({ tasks: [] })),
+      )
+      return {
+        tasks: state.tasks.map((task) => ({
+          ...task,
+          session_id: ctx.params.sessionID,
+          origin_message_id: null,
+          parent_task_id: null,
+          child_session_id: task.child_session_id ?? null,
+          review_round: task.review_issues.length,
+          result_summary: task.result_summary ?? null,
+          last_event: task.last_event ?? null,
+        })),
+      }
     })
 
     const todo = Effect.fn("SessionHttpApi.todo")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -241,6 +281,18 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       }
       if (ctx.payload.multiAgent !== undefined) {
         yield* session.setMultiAgent({ sessionID: ctx.params.sessionID, enabled: ctx.payload.multiAgent })
+        const plan = yield* WorkflowRuntime.getSessionRunPlan(ctx.params.sessionID).pipe(Effect.option)
+        if (Option.isSome(plan) && plan.value.mode !== (ctx.payload.multiAgent ? "multi" : "single")) {
+          yield* WorkflowRuntime.patchRunPlan({
+            runPlanID: plan.value.id,
+            author: "user",
+            patch: {
+              baseVersion: plan.value.version,
+              reason: "user switched execution mode",
+              operations: [{ type: "set_mode", mode: ctx.payload.multiAgent ? "multi" : "single" }],
+            },
+          }).pipe(Effect.orDie)
+        }
       }
       if (ctx.payload.time?.archived !== undefined) {
         yield* session.setArchived({ sessionID: ctx.params.sessionID, time: ctx.payload.time.archived })
@@ -273,6 +325,31 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
 
     const abort = Effect.fn("SessionHttpApi.abort")(function* (ctx: { params: { sessionID: SessionID } }) {
       yield* promptSvc.cancel(ctx.params.sessionID)
+      const plan = yield* WorkflowRuntime.getSessionRunPlan(ctx.params.sessionID).pipe(Effect.option)
+      if (Option.isSome(plan)) {
+        yield* Effect.gen(function* () {
+          const assignments = yield* WorkflowCollaboration.listAssignments(ctx.params.sessionID)
+          const childSessionIDs = [
+            ...new Set(
+              assignments.flatMap((assignment) =>
+                assignment.runPlanID === plan.value.id &&
+                (assignment.status === "running" || assignment.status === "checkpointed") &&
+                assignment.childSessionID
+                  ? [assignment.childSessionID]
+                  : [],
+              ),
+            ),
+          ]
+          yield* Effect.forEach(childSessionIDs, (sessionID) => promptSvc.cancel(sessionID), {
+            concurrency: "unbounded",
+            discard: true,
+          })
+          yield* WorkflowExecutor.interruptActiveTasks({
+            sessionID: ctx.params.sessionID,
+            detail: "Interrupted by the user.",
+          })
+        }).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      }
       return true
     })
 
@@ -282,24 +359,24 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     }) {
       const child = yield* requireSession(ctx.params.sessionID)
       if (child.parentID) {
-        yield* AgentCluster.interruptActiveChildAssignment({
-          sessionID: child.parentID,
-          childSessionID: child.id,
-          reason: "Interrupted by a user steering message.",
-        })
+        const plan = yield* WorkflowRuntime.getSessionRunPlan(child.parentID).pipe(Effect.option)
+        if (Option.isSome(plan)) {
+          const assignment = (yield* WorkflowCollaboration.listAssignments(child.parentID)).find(
+            (item) => item.runPlanID === plan.value.id && item.childSessionID === child.id,
+          )
+          if (assignment) {
+            yield* WorkflowExecutor.endMultiTask({
+              sessionID: child.parentID,
+              runPlanID: plan.value.id,
+              taskID: assignment.nodeID,
+              childSessionID: child.id,
+              outcome: "interrupted",
+              detail: "Interrupted by a user steering message.",
+            }).pipe(Effect.ignore)
+          }
+        }
       }
-      yield* promptSvc.prompt({ ...ctx.payload, sessionID: child.id }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.gen(function* () {
-            yield* Effect.logError("interrupt_prompt failed").pipe(Effect.annotateLogs({ sessionID: child.id, cause }))
-            yield* bus.publish(Session.Event.Error, {
-              sessionID: child.id,
-              error: new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(),
-            })
-          }),
-        ),
-        Effect.forkIn(scope, { startImmediately: true }),
-      )
+      yield* startPrompt({ ...ctx.payload, sessionID: child.id })
       return HttpApiSchema.NoContent.make()
     })
 
@@ -382,20 +459,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.gen(function* () {
-            yield* Effect.logError("prompt_async failed").pipe(
-              Effect.annotateLogs({ sessionID: ctx.params.sessionID, cause }),
-            )
-            yield* bus.publish(Session.Event.Error, {
-              sessionID: ctx.params.sessionID,
-              error: new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(),
-            })
-          }),
-        ),
-        Effect.forkIn(scope, { startImmediately: true }),
-      )
+      yield* startPrompt({ ...ctx.payload, sessionID: ctx.params.sessionID })
       return HttpApiSchema.NoContent.make()
     })
 

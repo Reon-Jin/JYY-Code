@@ -184,6 +184,28 @@ describe("database compatibility context", () => {
 })
 
 describe("Effect database transaction context", () => {
+  test.serial("shares its native transaction with synchronous legacy projectors", async () => {
+    Database.close()
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          yield* Database.withTransaction(() =>
+            Effect.sync(() => {
+              Database.legacyQuery((db) => {
+                db.run("CREATE TABLE IF NOT EXISTS effect_legacy_bridge (id INTEGER PRIMARY KEY)")
+                db.run("INSERT INTO effect_legacy_bridge (id) VALUES (1)")
+              })
+            }),
+          )
+          const count = yield* Database.query((db) => db.get<{ count: number }>("SELECT count(*) AS count FROM effect_legacy_bridge"))
+          expect(count?.count).toBe(1)
+        }),
+      )
+    } finally {
+      Database.close()
+    }
+  })
+
   test.serial("runs afterCommit effects only after a successful commit", async () => {
     Database.close()
     const order: string[] = []

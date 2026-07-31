@@ -7,6 +7,7 @@ import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { errorMessage } from "../projects/project-controller"
 import { SessionActions } from "./session-actions"
+import { displaySessionTitle } from "./session-title"
 
 export function relativeSessionTime(created: number, now = Date.now()) {
   const elapsed = Math.max(0, now - created)
@@ -137,7 +138,7 @@ export function SessionListItem(props: SessionListItemProps) {
           aria-current={props.active ? "page" : undefined}
           onClick={props.onNavigate}
         >
-          <span class="session-list-item__title">{props.session.title}</span>
+          <span class="session-list-item__title">{displaySessionTitle(props.session.title)}</span>
           <span class="session-list-item__meta">
             <span class="session-list-item__status" data-status={props.status?.type ?? "idle"}>
               <Circle aria-hidden="true" />

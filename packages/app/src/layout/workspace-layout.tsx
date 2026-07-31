@@ -14,9 +14,9 @@ import { errorMessage } from "../features/projects/project-controller"
 import { ReconnectBanner } from "../features/lifecycle/reconnect-banner"
 import { useProjects } from "../features/projects/project-context"
 import { ProjectTabs } from "../features/projects/project-tabs"
+import { ProjectFileTree } from "../features/projects/project-file-tree"
 import { conversationQueryOptions } from "../features/conversation/conversation-query"
 import type { ConversationSnapshot } from "../features/conversation/conversation-state"
-import { MessageTimeline } from "../features/conversation/message-timeline"
 import { Composer } from "../features/composer/composer"
 import { composerUsageMetrics } from "../features/composer/usage-metrics"
 import { AgentPermissionControl } from "../features/composer/agent-permission-control"
@@ -28,11 +28,22 @@ import {
   type ModelSelection,
 } from "../features/composer/model-catalog"
 import { ProviderEmpty } from "../features/composer/provider-empty"
-import { effectiveMultiAgent, MultiAgentControl } from "../features/multi-agent/multi-agent-control"
+import { effectiveMultiAgent } from "../features/multi-agent/multi-agent-control"
 import { McpControl } from "../features/mcp/mcp-control"
-import { agentClusterQueryOptions } from "../features/multi-agent/multi-agent-query"
-import { MultiAgentPanel } from "../features/multi-agent/multi-agent-panel"
-import { findTaskByChildSessionID, projectAgentClusterState } from "../features/multi-agent/multi-agent-state"
+import { SessionWorkspace } from "../features/session-workspace/session-workspace"
+import {
+  patchSessionRunPlan,
+  restoreSessionRunPlanVersion,
+  selectSessionWorkflow,
+  sessionArtifactsQueryOptions,
+  sessionAssignmentsQueryOptions,
+  sessionBlackboardQueryOptions,
+  sessionEventsQueryOptions,
+  sessionReviewsQueryOptions,
+  sessionRunPlanQueryOptions,
+  sessionRunPlanVersionsQueryOptions,
+  type SessionRunPlanPatch,
+} from "../features/session-workspace/workflow-query"
 import { PermissionBar } from "../features/requests/permission-bar"
 import { QuestionPanel } from "../features/requests/question-panel"
 import {
@@ -47,6 +58,7 @@ import { SessionEmpty } from "../features/sessions/session-empty"
 import { SessionList } from "../features/sessions/session-list"
 import { useDesktopBridge } from "../platform/context"
 import "../features/sessions/sessions.css"
+import "../features/session-workspace/session-workspace.css"
 import { settingsHref } from "../features/settings/settings-navigation"
 
 type AsyncSessionAction = (sessionID: string) => Promise<void>
@@ -59,6 +71,14 @@ export type WorkspaceLayoutViewProps = {
   activeSessions: readonly Session[]
   archivedSessions: readonly Session[]
   statuses: Record<string, SessionStatus>
+  status?: SessionStatus
+  runPlan?: import("../features/session-workspace/workflow-query").SessionRunPlan
+  artifacts?: readonly import("../features/session-workspace/workflow-query").SessionArtifact[]
+  blackboard?: readonly import("../features/session-workspace/workflow-query").SessionBlackboardCard[]
+  reviews?: readonly import("../features/session-workspace/workflow-query").SessionReviewFinding[]
+  assignments?: readonly import("../features/session-workspace/workflow-query").SessionAssignment[]
+  events?: readonly import("../features/session-workspace/workflow-query").SessionWorkflowEvent[]
+  planVersions?: readonly import("../features/session-workspace/workflow-query").SessionRunPlanVersion[]
   conversation?: ConversationSnapshot
   activeSession?: Session
   activeSessionID?: string
@@ -72,7 +92,9 @@ export type WorkspaceLayoutViewProps = {
   planStatus?: "planning" | "ready"
   operationError?: string
   projectTabs?: JSX.Element
+  projectTree?: JSX.Element
   requestArea?: JSX.Element
+  commandBar?: JSX.Element
   composer?: JSX.Element
   inspector?: JSX.Element
   inspectorOpen?: boolean
@@ -90,6 +112,10 @@ export type WorkspaceLayoutViewProps = {
   onArchive: AsyncSessionAction
   onDelete: AsyncSessionAction
   onReturnToRoot?: () => void
+  onPatchRunPlan?: (patch: SessionRunPlanPatch) => Promise<void>
+  onRestoreRunPlanVersion?: (version: number) => Promise<void>
+  onSetPlanMode?: (mode: "single" | "multi") => Promise<void>
+  onSelectWorkflow?: (workflowID: "general" | "workflow-creation", workflowVersion: string) => Promise<void>
 }
 
 function connectionLabel(connection: ConnectionState) {
@@ -183,8 +209,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
     <div
       class="workspace-shell"
       data-rail-open={railOpen() ? "true" : "false"}
-      data-inspector-open={props.inspectorOpen ? "true" : "false"}
-      style={{ "--workspace-inspector-width": `${props.inspectorWidth ?? 420}px` }}
+      data-inspector-open="false"
     >
       <aside
         id="session-navigation"
@@ -241,6 +266,8 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
           onDelete={props.onDelete}
         />
 
+        <Show when={props.projectTree}>{props.projectTree}</Show>
+
         <footer class="workspace-connection" data-state={props.connection}>
           <span class="workspace-connection__status" role="status" aria-live="polite">
             <Radio aria-hidden="true" />
@@ -283,51 +310,56 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
       >
         <Show when={props.operationError}>{(message) => <InlineError message={message()} />}</Show>
         <Show
-          when={props.activeSessionID}
+          when={selected()}
+          keyed
           fallback={
             <SessionEmpty disabled={props.busy || props.activeLoading} onCreate={() => void props.onCreate()} />
           }
         >
-          <section class="workspace-conversation" aria-labelledby="workspace-session-title">
-            <header class="workspace-conversation__header">
-              <Show
-                when={selected()?.parentID}
-                fallback={
-                  <span class="workspace-conversation__context">
-                    {props.multiAgentEnabled ? tr("layout.multi-agent-model") : tr("layout.single-agent-mode")}
-                  </span>
-                }
-              >
-                <div class="workspace-conversation__child-context">
-                  <button type="button" onClick={props.onReturnToRoot} aria-label={tr("layout.return-to-main-session")}>
-                    <ArrowLeft aria-hidden="true" />
-                    {tr("layout.return-to-main-session")}
-                  </button>
-                  <span>
-                    {tr("layout.subagent")} {capitalize(childRole())}
-                  </span>
-                </div>
+          {(session) => (
+            <>
+              <Show when={props.connection === "connected" ? undefined : props.connection} keyed>
+                {(state) => <ReconnectBanner state={state} />}
               </Show>
-              <h1 id="workspace-session-title">{selected()?.title ?? "Session"}</h1>
-            </header>
-            <Show when={props.connection === "connected" ? undefined : props.connection} keyed>
-              {(state) => <ReconnectBanner state={state} />}
-            </Show>
-            <MessageTimeline
-              messages={props.conversation?.messages ?? []}
-              loading={props.conversationLoading}
-              error={props.conversationError}
+              <SessionWorkspace
+              session={session}
+              status={props.status}
+              multiAgentEnabled={props.multiAgentEnabled}
+              runPlan={props.runPlan}
+              artifacts={props.artifacts}
+              blackboard={props.blackboard}
+              reviews={props.reviews}
+              assignments={props.assignments}
+              events={props.events}
+              planVersions={props.planVersions}
+              conversation={props.conversation}
+              conversationLoading={props.conversationLoading}
+              conversationError={props.conversationError}
               planStatus={props.planStatus}
-              onRetry={props.onRetryConversation}
-            />
-            <div class="workspace-conversation__footer">
-              {props.requestArea}
-              {props.composer}
-            </div>
-          </section>
+              onPatchRunPlan={props.onPatchRunPlan}
+              onRestoreRunPlanVersion={props.onRestoreRunPlanVersion}
+              onSetPlanMode={props.onSetPlanMode}
+              onSelectWorkflow={props.onSelectWorkflow}
+              onRetryConversation={props.onRetryConversation}
+              requestArea={props.requestArea}
+              commandBar={props.commandBar}
+              composer={props.composer}
+              context={
+                session.parentID ? (
+                  <div class="workspace-conversation__child-context">
+                    <button type="button" onClick={props.onReturnToRoot} aria-label={tr("layout.return-to-main-session")}>
+                      <ArrowLeft aria-hidden="true" />
+                      {tr("layout.return-to-main-session")}
+                    </button>
+                    <span>{tr("layout.subagent")} {capitalize(childRole())}</span>
+                  </div>
+                ) : undefined
+              }
+              />
+            </>
+          )}
         </Show>
       </main>
-      {props.inspector}
     </div>
   )
 }
@@ -420,16 +452,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const activeSession = createMemo(() => sessionQuery.data)
   const parentSessionID = createMemo(() => activeSession()?.parentID)
   const rootSessionID = createMemo(() => parentSessionID() ?? activeSession()?.id)
-  const rootSession = createMemo(() => {
-    const rootID = rootSessionID()
-    if (!rootID) return undefined
-    if (activeSession()?.id === rootID) return activeSession()
-    return [...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])].find((session) => session.id === rootID)
-  })
-  const isChildSession = createMemo(() => Boolean(parentSessionID()))
-  const clusterQuery = createQuery(
+  const runPlanQuery = createQuery(
     () => ({
-      ...agentClusterQueryOptions({
+      ...sessionRunPlanQueryOptions({
         client: data.client(),
         directory: data.directory(),
         sessionID: rootSessionID() ?? "",
@@ -438,28 +463,77 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }),
     data.queryClient,
   )
-  const clusterSnapshot = createMemo(() => projectAgentClusterState(clusterQuery.data ?? { tasks: [] }))
-  const activeChildTask = createMemo(() => findTaskByChildSessionID(clusterSnapshot(), activeSession()?.id))
+  const planVersionsQuery = createQuery(
+    () => ({
+      ...sessionRunPlanVersionsQueryOptions({
+        client: data.client(),
+        directory: data.directory(),
+        runPlanID: runPlanQuery.data?.id ?? "",
+        sessionID: rootSessionID() ?? "",
+      }),
+      enabled: Boolean(rootSessionID() && runPlanQuery.data?.id),
+    }),
+    data.queryClient,
+  )
+  const artifactsQuery = createQuery(
+    () => ({
+      ...sessionArtifactsQueryOptions({
+        client: data.client(),
+        directory: data.directory(),
+        sessionID: rootSessionID() ?? "",
+      }),
+      enabled: Boolean(rootSessionID()),
+    }),
+    data.queryClient,
+  )
+  const blackboardQuery = createQuery(() => ({ ...sessionBlackboardQueryOptions({ client: data.client(), directory: data.directory(), sessionID: rootSessionID() ?? "" }), enabled: Boolean(rootSessionID()) }), data.queryClient)
+  const reviewsQuery = createQuery(() => ({ ...sessionReviewsQueryOptions({ client: data.client(), directory: data.directory(), sessionID: rootSessionID() ?? "" }), enabled: Boolean(rootSessionID()) }), data.queryClient)
+  const assignmentsQuery = createQuery(() => ({ ...sessionAssignmentsQueryOptions({ client: data.client(), directory: data.directory(), sessionID: rootSessionID() ?? "" }), enabled: Boolean(rootSessionID()) }), data.queryClient)
+  const eventsQuery = createQuery(() => ({ ...sessionEventsQueryOptions({ client: data.client(), directory: data.directory(), sessionID: rootSessionID() ?? "" }), enabled: Boolean(rootSessionID()) }), data.queryClient)
+  const rootSession = createMemo(() => {
+    const rootID = rootSessionID()
+    if (!rootID) return undefined
+    if (activeSession()?.id === rootID) return activeSession()
+    return [...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])].find((session) => session.id === rootID)
+  })
+  const isChildSession = createMemo(() => Boolean(parentSessionID()))
+  const activeChildAssignment = createMemo(() =>
+    assignmentsQuery.data?.find((assignment) => assignment.childSessionID === activeSession()?.id),
+  )
   const childTaskRunning = createMemo(() => {
-    const task = activeChildTask()
-    return task?.status === "running" || task?.status === "revising"
+    const assignment = activeChildAssignment()
+    return assignment?.status === "running" || assignment?.status === "checkpointed"
   })
   const rootMultiAgentEnabled = createMemo(() =>
     rootSession() ? effectiveMultiAgent(rootSession()!, catalogQuery.data?.agentCluster) : false,
   )
-  const clusterPlanStatus = createMemo<"planning" | "ready" | undefined>(() => {
+  const workflowPlanStatus = createMemo<"planning" | "ready" | undefined>(() => {
     if (isChildSession() || !rootMultiAgentEnabled()) return undefined
-    const snapshot = clusterSnapshot()
     const rootStatus = statusQuery.data?.[rootSessionID() ?? ""]
     const active = rootStatus?.type === "busy" || rootStatus?.type === "retry"
-    return snapshot.totalAgents === 0 && active ? "planning" : "ready"
+    return !runPlanQuery.data?.tasks.length && active ? "planning" : "ready"
   })
   const multiAgentBadge = createMemo(() => {
-    const snapshot = clusterSnapshot()
-    if (snapshot.failedAgents > 0) return `${snapshot.runningAgents}/${snapshot.failedAgents}`
-    if (snapshot.runningAgents > 0) return String(snapshot.runningAgents)
+    const assignments = assignmentsQuery.data ?? []
+    const failed = assignments.filter((assignment) => assignment.status === "failed" || assignment.status === "interrupted").length
+    const running = assignments.filter((assignment) => assignment.status === "running" || assignment.status === "checkpointed").length
+    if (failed > 0) return `${running}/${failed}`
+    if (running > 0) return String(running)
     return undefined
   })
+  const workflowExecutionActive = createMemo(() =>
+    (assignmentsQuery.data ?? []).some(
+      (assignment) => assignment.status === "running" || assignment.status === "checkpointed",
+    ) ||
+    (runPlanQuery.data?.tasks ?? []).some((task) => task.status === "running" || task.status === "revising"),
+  )
+  const displayStatuses = createMemo<Record<string, SessionStatus>>(() => {
+    const statuses = statusQuery.data ?? {}
+    const rootID = rootSessionID()
+    if (!rootID || !workflowExecutionActive()) return statuses
+    return { ...statuses, [rootID]: { type: "busy" } }
+  })
+  const displayStatus = createMemo(() => displayStatuses()[props.activeSessionID ?? ""])
   const requestScope = createMemo(() => {
     const session = activeSession()
     if (!session) return []
@@ -467,7 +541,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return [
       ...new Set([
         session.id,
-        ...clusterSnapshot().tasks.flatMap((task) => (task.childSessionID ? [task.childSessionID] : [])),
+        ...(assignmentsQuery.data ?? []).flatMap((assignment) => (assignment.childSessionID ? [assignment.childSessionID] : [])),
       ]),
     ]
   })
@@ -606,6 +680,83 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     if (props.activeSessionID === sessionID) navigate(next ? `/session/${encodeURIComponent(next.id)}` : "/")
   }
 
+  async function patchRunPlan(patch: SessionRunPlanPatch) {
+    const plan = runPlanQuery.data
+    const sessionID = rootSessionID()
+    if (!plan || !sessionID) throw new Error("The current session does not have a run plan yet")
+    const updated = await patchSessionRunPlan({
+      client: data.client(),
+      directory: data.directory(),
+      runPlanID: plan.id,
+      patch,
+    })
+    data.queryClient().setQueryData(keys.workflowRunPlan(data.directory(), sessionID), updated)
+    await data.queryClient().invalidateQueries({
+      queryKey: keys.workflowPlanVersions(data.directory(), sessionID),
+      exact: true,
+    })
+  }
+
+  async function restoreRunPlanVersion(version: number) {
+    const plan = runPlanQuery.data
+    const sessionID = rootSessionID()
+    if (!plan || !sessionID) throw new Error("The current session does not have a run plan yet")
+    const updated = await restoreSessionRunPlanVersion({
+      client: data.client(),
+      directory: data.directory(),
+      runPlanID: plan.id,
+      version,
+      baseVersion: plan.version,
+    })
+    data.queryClient().setQueryData(keys.workflowRunPlan(data.directory(), sessionID), updated)
+    await data.queryClient().invalidateQueries({
+      queryKey: keys.workflowPlanVersions(data.directory(), sessionID),
+      exact: true,
+    })
+  }
+
+  async function setPlanMode(mode: "single" | "multi") {
+    const session = rootSession()
+    if (!session) throw new Error("The current session does not have a run plan yet")
+    const result = await data.client().session.update(
+      { directory: data.directory(), sessionID: session.id, multiAgent: mode === "multi" },
+      { throwOnError: true },
+    )
+    const updated = result.data ?? { ...session, multiAgent: mode === "multi" }
+    data.queryClient().setQueryData(keys.session(data.directory(), updated.id), updated)
+    for (const archived of [false, true]) {
+      const key = keys.sessions(data.directory(), archived)
+      const sessions = data.queryClient().getQueryData<Session[]>(key)
+      if (sessions) data.queryClient().setQueryData(key, sessions.map((candidate) => candidate.id === updated.id ? updated : candidate))
+    }
+    const rootID = rootSessionID()
+    if (rootID) {
+      await data.queryClient().invalidateQueries({
+        queryKey: keys.workflowRunPlan(data.directory(), rootID),
+        exact: true,
+      })
+    }
+  }
+
+  async function setWorkflow(workflowID: "general" | "workflow-creation", workflowVersion: string) {
+    const session = rootSession()
+    if (!session) throw new Error("\u5f53\u524d\u4f1a\u8bdd\u65e0\u6cd5\u5207\u6362\u5de5\u4f5c\u6d41")
+    await selectSessionWorkflow({
+      client: data.client(),
+      directory: data.directory(),
+      sessionID: session.id,
+      workflowID,
+      workflowVersion,
+    })
+    const sessionID = rootSessionID()
+    if (!sessionID) return
+    await Promise.all([
+      data.queryClient().invalidateQueries({ queryKey: keys.workflowRunPlan(data.directory(), sessionID), exact: true }),
+      data.queryClient().invalidateQueries({ queryKey: keys.workflowPlanVersions(data.directory(), sessionID), exact: true }),
+      data.queryClient().invalidateQueries({ queryKey: keys.workflowEvents(data.directory(), sessionID), exact: true }),
+    ])
+  }
+
   function changeAgent(agent: string) {
     setSelectedAgent(agent)
     saveComposerPreference({ agent, model: selectedModel() })
@@ -648,6 +799,46 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     })
   })
 
+  function composerArea(mode: "toolbar" | "input") {
+    return (
+      <Show when={props.activeSessionID} keyed>
+        {(sessionID) => (
+          <Show when={!catalogQuery.isPending} fallback={<p class="composer__status" role="status">{tr("layout.loading-agents-and-models")}</p>}>
+            <Show when={!catalogQuery.error} fallback={<InlineError message={errorMessage(catalogQuery.error, tr("layout.unable-to-load-agents-and-models"))} />}>
+              <Show when={composerModel()} fallback={<ProviderEmpty client={data.client()} configPath={catalogQuery.data?.configPath ?? "jyycode.jsonc"} directory={data.directory()} disabled={data.connection() !== "connected"} onProviderConnected={async () => { await catalogQuery.refetch() }} />}>
+                <Composer
+                  mode={mode}
+                  client={data.client()}
+                  queryClient={data.queryClient()}
+                  directory={data.directory()}
+                  sessionID={sessionID}
+                  agents={isChildSession() ? (catalogQuery.data?.allAgents ?? []) : (catalogQuery.data?.agents ?? [])}
+                  models={catalogQuery.data?.models ?? []}
+                  selectedAgent={composerAgent()}
+                  selectedModel={composerModel()!}
+                  agentClusterEnabled={activeSession() ? effectiveMultiAgent(activeSession()!, catalogQuery.data?.agentCluster) : false}
+                  status={displayStatuses()[sessionID] ?? { type: "idle" }}
+                  requestPending={Boolean(activeRequest())}
+                  childSteering={isChildSession() && childTaskRunning()}
+                  disabled={data.connection() !== "connected"}
+                  identityLocked={isChildSession()}
+                  minimal={isChildSession()}
+                  usage={composerUsage()}
+                  permissionControl={<Show when={activeSession()} keyed>{(session) => <AgentPermissionControl client={data.client()} queryClient={data.queryClient()} directory={data.directory()} session={session} disabled={data.connection() !== "connected"} />}</Show>}
+                  branchControl={<BranchControl directory={data.directory()} />}
+                  mcpControl={<McpControl client={data.client()} queryClient={data.queryClient()} directory={data.directory()} disabled={data.connection() !== "connected"} />}
+                  onAgentChange={changeAgent}
+                  onModelChange={changeModel}
+                  onProviderConnected={async () => { await catalogQuery.refetch() }}
+                />
+              </Show>
+            </Show>
+          </Show>
+        )}
+      </Show>
+    )
+  }
+
   return (
     <WorkspaceLayoutView
       projectName={projectName()}
@@ -656,7 +847,15 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       connection={data.connection()}
       activeSessions={activeQuery.data ?? []}
       archivedSessions={archivedQuery.data ?? []}
-      statuses={statusQuery.data ?? {}}
+      statuses={displayStatuses()}
+      status={displayStatus()}
+      runPlan={runPlanQuery.data}
+      planVersions={planVersionsQuery.data}
+      artifacts={artifactsQuery.data}
+      blackboard={blackboardQuery.data}
+      reviews={reviewsQuery.data}
+      assignments={assignmentsQuery.data}
+      events={eventsQuery.data}
       conversation={conversationQuery.data}
       activeSession={activeSession()}
       activeSessionID={props.activeSessionID}
@@ -677,7 +876,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           ? errorMessage(conversationQuery.error, tr("layout.unable-to-load-session-message"))
           : undefined
       }
-      planStatus={clusterPlanStatus()}
+      planStatus={workflowPlanStatus()}
+      onPatchRunPlan={patchRunPlan}
+      onRestoreRunPlanVersion={restoreRunPlanVersion}
+      onSetPlanMode={setPlanMode}
+      onSelectWorkflow={setWorkflow}
       operationError={operationError()}
       projectTabs={
         <ProjectTabs
@@ -691,8 +894,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           onReorder={(source, target, placement) => projects.reorderProjects(source, target, placement)}
         />
       }
+      projectTree={<ProjectFileTree client={data.client()} directory={data.directory()} />}
       multiAgentEnabled={rootMultiAgentEnabled()}
-      childRole={activeChildTask()?.role}
+      childRole={activeChildAssignment()?.role}
       requestArea={
         <Show
           when={!requestError()}
@@ -709,7 +913,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                   <p class="request-panel__source">
                     {tr("layout.from-subagent")}{" "}
                     {capitalize(
-                      clusterSnapshot().tasks.find((task) => task.childSessionID === pending.sourceSessionID)?.role ??
+                      assignmentsQuery.data?.find((assignment) => assignment.childSessionID === pending.sourceSessionID)?.role ??
                         tr("composer.agent"),
                     )}
                   </p>
@@ -724,105 +928,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           </Show>
         </Show>
       }
-      composer={
-        <Show when={props.activeSessionID} keyed>
-          {(sessionID) => (
-            <Show
-              when={!catalogQuery.isPending}
-              fallback={
-                <p class="composer__status" role="status">
-                  {tr("layout.loading-agents-and-models")}
-                </p>
-              }
-            >
-              <Show
-                when={!catalogQuery.error}
-                fallback={
-                  <InlineError
-                    message={errorMessage(catalogQuery.error, tr("layout.unable-to-load-agents-and-models"))}
-                  />
-                }
-              >
-                <Show
-                  when={composerModel()}
-                  fallback={
-                    <ProviderEmpty
-                      client={data.client()}
-                      configPath={catalogQuery.data?.configPath ?? "jyycode.jsonc"}
-                      directory={data.directory()}
-                      disabled={data.connection() !== "connected"}
-                      onProviderConnected={async () => {
-                        await catalogQuery.refetch()
-                      }}
-                    />
-                  }
-                >
-                  <Composer
-                    client={data.client()}
-                    queryClient={data.queryClient()}
-                    directory={data.directory()}
-                    sessionID={sessionID}
-                    agents={isChildSession() ? (catalogQuery.data?.allAgents ?? []) : (catalogQuery.data?.agents ?? [])}
-                    models={catalogQuery.data?.models ?? []}
-                    selectedAgent={composerAgent()}
-                    selectedModel={composerModel()!}
-                    agentClusterEnabled={
-                      activeSession() ? effectiveMultiAgent(activeSession()!, catalogQuery.data?.agentCluster) : false
-                    }
-                    status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
-                    requestPending={Boolean(activeRequest())}
-                    childSteering={isChildSession() && childTaskRunning()}
-                    disabled={data.connection() !== "connected"}
-                    identityLocked={isChildSession()}
-                    minimal={isChildSession()}
-                    usage={composerUsage()}
-                    permissionControl={
-                      <Show when={activeSession()} keyed>
-                        {(session) => (
-                          <AgentPermissionControl
-                            client={data.client()}
-                            queryClient={data.queryClient()}
-                            directory={data.directory()}
-                            session={session}
-                            disabled={data.connection() !== "connected"}
-                          />
-                        )}
-                      </Show>
-                    }
-                    branchControl={<BranchControl directory={data.directory()} />}
-                    multiAgentControl={
-                      <Show when={activeSession()} keyed>
-                        {(session) => (
-                          <MultiAgentControl
-                            client={data.client()}
-                            queryClient={data.queryClient()}
-                            directory={data.directory()}
-                            session={session}
-                            config={catalogQuery.data?.agentCluster}
-                          />
-                        )}
-                      </Show>
-                    }
-                    mcpControl={
-                      <McpControl
-                        client={data.client()}
-                        queryClient={data.queryClient()}
-                        directory={data.directory()}
-                        disabled={data.connection() !== "connected"}
-                      />
-                    }
-                    onAgentChange={changeAgent}
-                    onModelChange={changeModel}
-                    onProviderConnected={async () => {
-                      await catalogQuery.refetch()
-                    }}
-                  />
-                </Show>
-              </Show>
-            </Show>
-          )}
-        </Show>
-      }
+      commandBar={composerArea("toolbar")}
+      composer={composerArea("input")}
       inspectorOpen={inspectorPreferences().panes.length > 0}
       inspectorWidth={inspectorPreferences().width}
       inspector={
@@ -832,13 +939,10 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           preferences={inspectorPreferences()}
           onPreferencesChange={updateInspectorPreferences}
           multiAgent={
-            <MultiAgentPanel
-              directory={data.directory()}
-              sessionID={rootSessionID()}
-              enabled={rootMultiAgentEnabled()}
-              selectedChildSessionID={isChildSession() ? activeSession()?.id : undefined}
-              onOpenChild={(sessionID) => navigate(`/session/${encodeURIComponent(sessionID)}`)}
-            />
+            <section class="workspace-drawer__placeholder" aria-labelledby="workflow-activity-title">
+              <h2 id="workflow-activity-title">{tr("session-workspace.workflow")}</h2>
+              <p>{tr("session-workspace.workflow-note")}</p>
+            </section>
           }
           multiAgentBadge={multiAgentBadge()}
         />

@@ -55,8 +55,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe("workspace inspector Git and GitHub journey", () => {
-  it("moves from live Todo and Changes through branch sync and the PR lifecycle", async () => {
+describe("central workbench integration", () => {
+  it("keeps the former inspector controls in the workbench and switches an unstarted workflow", async () => {
     const user = userEvent.setup()
     const { desktop, backend } = restoredWorkspace()
     backend.setTodos("ses_1", [{ content: "Inspect workspace", status: "pending", priority: "high" }])
@@ -66,80 +66,29 @@ describe("workspace inspector Git and GitHub journey", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Workspace flow" })).toBeVisible(), {
       timeout: 5_000,
     })
-    await user.click(screen.getByRole("button", { name: "待办" }))
-    expect(await screen.findByText("Inspect workspace")).toBeVisible()
-    expect(await screen.findByText("后端已连接")).toBeVisible()
-    expect(screen.getByText("Inspect workspace").closest("li")).toHaveTextContent("未开始")
+    expect(document.querySelector(".workspace-inspector")).not.toBeInTheDocument()
+    expect(document.querySelectorAll(".workbench-module-card")).toHaveLength(7)
 
-    await user.click(screen.getByRole("button", { name: "工作区变更" }))
-    expect(await screen.findByRole("button", { name: /src\/app.tsx, \+4 -1/ })).toBeVisible()
-    await user.click(screen.getByRole("button", { name: "工作区变更" }))
-    expect(screen.queryByRole("region", { name: "工作区变更" })).not.toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "工作区变更" }))
-    expect(screen.getByRole("region", { name: "工作区变更" })).toBeVisible()
+    expect(document.querySelector(".workbench-live-panel__open")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "查看方案" }))
+    expect(screen.getByRole("region", { name: "方案" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "收起" }))
+    expect(document.querySelector(".workbench-module-detail")).not.toBeInTheDocument()
 
-    await user.click(await screen.findByRole("button", { name: /main/ }))
-    const branchDialog = screen.getByRole("dialog", { name: "Git 分支" })
-    await user.type(within(branchDialog).getByLabelText("新分支名称"), "feature/integration")
-    await user.click(within(branchDialog).getByRole("button", { name: "新建分支" }))
-    await waitFor(() => expect(within(branchDialog).getByRole("status")).toHaveTextContent("feature/integration"))
-    await user.click(within(branchDialog).getByRole("button", { name: "Fetch" }))
-    await waitFor(() => expect(within(branchDialog).getByRole("status")).toHaveTextContent("Fetch 完成"))
-    await user.click(within(branchDialog).getByRole("button", { name: "Push" }))
-    await waitFor(() => expect(within(branchDialog).getByRole("status")).toHaveTextContent("Push 完成"))
-    const loadingFlashes: string[] = []
-    const observer = new MutationObserver(() => {
-      if (document.body.textContent?.includes("正在加载工作区")) loadingFlashes.push("workspace")
-    })
-    observer.observe(document.body, { childList: true, subtree: true })
-    await user.click(within(branchDialog).getByRole("button", { name: "Pull Requests" }))
+    const controlShelf = document.querySelector<HTMLElement>(".session-workbench__command-bar")
+    expect(controlShelf).toBeVisible()
+    expect(document.querySelector(".session-workbench__control-shelf")).not.toBeInTheDocument()
+    expect(within(controlShelf!).getByRole("combobox", { name: "智能体" })).toBeVisible()
+    expect(within(controlShelf!).getByRole("button", { name: /版本库|main/ })).toBeVisible()
 
-    const pullDialog = await screen.findByRole("dialog", { name: "GitHub Pull Requests" })
-    observer.disconnect()
-    expect(loadingFlashes).toEqual([])
-    expect(within(pullDialog).getByText("example/demo")).toBeVisible()
-    await user.click(within(pullDialog).getByRole("button", { name: "创建 Pull Request" }))
-    const createForm = within(pullDialog).getByRole("form", { name: "创建 Pull Request" })
-    await user.type(within(createForm).getByLabelText("标题"), "Integration draft")
-    await user.clear(within(createForm).getByLabelText("Head"))
-    await user.type(within(createForm).getByLabelText("Head"), "feature/integration")
-    await user.click(within(createForm).getByLabelText("创建为 Draft"))
-    await user.click(within(createForm).getByRole("button", { name: "创建" }))
-    expect(await within(pullDialog).findByRole("heading", { name: "Integration draft" })).toBeVisible()
-
-    await user.click(within(pullDialog).getByRole("button", { name: "编辑" }))
-    const editForm = within(pullDialog).getByRole("form", { name: "编辑 Pull Request" })
-    await user.clear(within(editForm).getByLabelText("标题"))
-    await user.type(within(editForm).getByLabelText("标题"), "Integration draft updated")
-    await user.click(within(editForm).getByRole("button", { name: "保存" }))
-    expect(await within(pullDialog).findByRole("heading", { name: "Integration draft updated" })).toBeVisible()
-
-    await user.type(within(pullDialog).getByLabelText("添加评论"), "Desktop integration comment")
-    await user.click(within(pullDialog).getByRole("button", { name: "评论" }))
-    await waitFor(() => expect(within(pullDialog).getByRole("status")).toHaveTextContent("评论已发布"))
-    await user.click(within(pullDialog).getByRole("button", { name: "Diff" }))
-    expect(await within(pullDialog).findByLabelText("Pull Request unified diff")).toHaveTextContent("+new")
-    await user.click(within(pullDialog).getByRole("button", { name: "Overview" }))
-    await user.click(within(pullDialog).getByRole("button", { name: /Checkout feature\/integration/ }))
-    await waitFor(() => expect(within(pullDialog).getByRole("status")).toHaveTextContent("已 Checkout"))
-    await user.click(within(pullDialog).getByRole("button", { name: "Close" }))
-    await user.click(within(pullDialog).getByRole("button", { name: "Closed" }))
-    await user.click(await within(pullDialog).findByRole("button", { name: /#2 Integration draft updated/ }))
-    expect(await within(pullDialog).findByRole("button", { name: "Reopen" })).toBeVisible()
-    await user.click(within(pullDialog).getByRole("button", { name: "Reopen" }))
-
-    await user.click(within(pullDialog).getByRole("button", { name: "Open" }))
-    await user.click(within(pullDialog).getByRole("button", { name: /#1 Workspace inspector/ }))
-    expect(await within(pullDialog).findByRole("button", { name: "Merge" })).toBeEnabled()
-    await user.click(within(pullDialog).getByRole("button", { name: "Merge" }))
-    const mergeDialog = screen.getByRole("dialog", { name: "合并 #1" })
-    expect(within(mergeDialog).getByLabelText("Squash")).toBeChecked()
-    await user.click(within(mergeDialog).getByRole("button", { name: "确认合并" }))
-    await waitFor(() => expect(mergeDialog).not.toHaveAttribute("open"))
-    await user.click(within(pullDialog).getByRole("button", { name: "All" }))
-    await user.click(await within(pullDialog).findByRole("button", { name: /#1 Workspace inspector/ }))
-    await waitFor(() => expect(within(pullDialog).getByText(/#1 · MERGED/)).toBeVisible())
-  }, 30_000)
+    const picker = document.querySelector<HTMLDetailsElement>(".workflow-picker")
+    expect(picker).toBeTruthy()
+    await user.click(picker!.querySelector("summary")!)
+    const creationWorkflow = screen.getByRole("menuitemradio", { name: /创建工作流/ })
+    await user.click(creationWorkflow)
+    await waitFor(() => expect(creationWorkflow).toHaveAttribute("aria-checked", "true"))
+    expect(picker).toHaveTextContent("创建工作流")
+  })
 
   it("keeps chat editable when GitHub CLI is unavailable", async () => {
     const user = userEvent.setup()
@@ -149,9 +98,48 @@ describe("workspace inspector Git and GitHub journey", () => {
     render(() => <App bridge={desktop.bridge} />)
     const composer = await screen.findByRole("textbox", { name: "消息" }, { timeout: 5_000 })
     await user.type(composer, "chat remains available")
-    await user.click(await screen.findByRole("button", { name: /main/ }))
-    await user.click(screen.getByRole("button", { name: "Pull Requests" }))
-    expect(await screen.findByText("winget install --id GitHub.cli")).toBeVisible()
     expect(composer).toHaveValue("chat remains available")
+    expect(screen.getByLabelText("对话")).toContainElement(composer)
+    expect(screen.getByLabelText("对话")).toBeVisible()
+  })
+
+  it("shows Stop while workflow tasks are running even when the root session status is idle", async () => {
+    const user = userEvent.setup()
+    const { desktop, backend } = restoredWorkspace()
+    backend.setRunPlan("ses_1", {
+      id: "run_ses_1",
+      sessionID: "ses_1",
+      workflowID: "general",
+      workflowVersion: "2.0.0",
+      version: 1,
+      mode: "multi",
+      goal: "Run the workflow",
+      tasks: [{
+        id: "task_running",
+        stageID: "implementation",
+        stepID: "step-1",
+        title: "Running task",
+        dependsOn: [],
+        acceptance: [],
+        status: "running",
+      }],
+      createdAt: 1,
+      updatedAt: 2,
+    })
+    vi.stubGlobal("fetch", backend.fetch)
+    render(() => <App bridge={desktop.bridge} />)
+
+    const stop = await screen.findByRole("button", { name: "停止" }, { timeout: 5_000 })
+    expect(screen.queryByRole("button", { name: "发送" })).not.toBeInTheDocument()
+
+    await user.click(stop)
+    await waitFor(() =>
+      expect(backend.requests).toContainEqual(expect.objectContaining({
+        method: "POST",
+        path: "/session/ses_1/abort",
+      })),
+    )
+    await waitFor(() => expect(screen.getByRole("button", { name: "发送" })).toBeVisible())
+    expect(screen.queryByRole("button", { name: "停止" })).not.toBeInTheDocument()
   })
 })

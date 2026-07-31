@@ -132,14 +132,14 @@ describe("SessionList", () => {
     renderList({ sessions: [], archived: true })
 
     expect(screen.queryByRole("heading")).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "新建 Session" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "新建会话" })).not.toBeInTheDocument()
   })
 
   it("validates an inline rename without closing the editor", async () => {
     const user = userEvent.setup()
     const props = renderList()
 
-    await user.click(screen.getByRole("button", { name: "Session 操作：Newer session" }))
+    await user.click(screen.getByRole("button", { name: "会话操作：Newer session" }))
     await user.click(screen.getByRole("menuitem", { name: "重命名" }))
     const input = screen.getByRole("textbox", { name: "重命名 Newer session" })
     await user.clear(input)
@@ -161,7 +161,7 @@ describe("SessionList", () => {
     )
     renderList({ onArchive })
 
-    await user.click(screen.getByRole("button", { name: "Session 操作：Newer session" }))
+    await user.click(screen.getByRole("button", { name: "会话操作：Newer session" }))
     await user.click(screen.getByRole("menuitem", { name: "归档" }))
 
     expect(screen.getByRole("link", { name: /Newer session/ })).toBeVisible()
@@ -174,14 +174,14 @@ describe("SessionList", () => {
     const user = userEvent.setup()
     const props = renderList()
 
-    await user.click(screen.getByRole("button", { name: "Session 操作：Newer session" }))
+    await user.click(screen.getByRole("button", { name: "会话操作：Newer session" }))
     await user.click(screen.getByRole("menuitem", { name: "删除" }))
-    const dialog = screen.getByRole("dialog", { name: "删除 Session" })
+    const dialog = screen.getByRole("dialog", { name: "删除会话" })
     expect(within(dialog).getByText(/Newer session/)).toBeVisible()
     await user.click(within(dialog).getByRole("button", { name: "取消" }))
     expect(props.onDelete).not.toHaveBeenCalled()
 
-    await user.click(screen.getByRole("button", { name: "Session 操作：Newer session" }))
+    await user.click(screen.getByRole("button", { name: "会话操作：Newer session" }))
     await user.click(screen.getByRole("menuitem", { name: "删除" }))
     await user.click(screen.getByRole("button", { name: "永久删除" }))
     await waitFor(() => expect(props.onDelete).toHaveBeenCalledWith(newer.id))
@@ -217,10 +217,10 @@ describe("SessionList", () => {
       </MemoryRouter>
     ))
 
-    const toggle = screen.getByRole("button", { name: "展开 Session 导航" })
+    const toggle = screen.getByRole("button", { name: "展开会话导航" })
     expect(screen.getByRole("complementary", { hidden: true })).toHaveAttribute("aria-hidden", "true")
     await user.click(toggle)
-    expect(screen.getByRole("button", { name: "收起 Session 导航" })).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("button", { name: "收起会话导航" })).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByRole("complementary")).toHaveAttribute("aria-hidden", "false")
     await user.click(screen.getByRole("button", { name: "返回项目首页" }))
     expect(onReturnHome).toHaveBeenCalledOnce()
@@ -251,10 +251,10 @@ describe("SessionList", () => {
     ))
 
     expect(within(screen.getByRole("main")).getByRole("heading", { name: "开始一次新的对话" })).toBeVisible()
-    expect(within(screen.getByRole("navigation", { name: "活动 Session" })).queryByRole("heading")).toBeNull()
+    expect(within(screen.getByRole("navigation", { name: "活动会话" })).queryByRole("heading")).toBeNull()
   })
 
-  it("keeps the active request immediately above the Composer outside the message scroller", () => {
+  it("keeps requests below the top header and the Composer in the chat dock", () => {
     render(() => (
       <MemoryRouter>
         <Route
@@ -281,10 +281,10 @@ describe("SessionList", () => {
       </MemoryRouter>
     ))
 
-    const footer = screen.getByTestId("request-area").parentElement!
-    expect(footer).toHaveClass("workspace-conversation__footer")
-    expect(footer.children[0]).toBe(screen.getByTestId("request-area"))
-    expect(footer.children[1]).toBe(screen.getByTestId("composer"))
-    expect(footer.previousElementSibling).toHaveClass("message-timeline")
+    const requestArea = screen.getByTestId("request-area").closest(".session-workbench__request-area")!
+    expect(requestArea).toBeInTheDocument()
+    expect(requestArea).toContainElement(screen.getByTestId("request-area"))
+    expect(document.querySelector(".session-workbench__control-shelf")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("对话")).toContainElement(screen.getByTestId("composer"))
   })
 })

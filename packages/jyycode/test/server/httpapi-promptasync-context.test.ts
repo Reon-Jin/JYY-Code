@@ -9,7 +9,7 @@
 
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { describe, expect } from "bun:test"
-import { Deferred, Effect, Layer, Scope } from "effect"
+import { Deferred, Effect, Exit, Layer, Scope } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpClient, HttpRouter, HttpServerResponse } from "effect/unstable/http"
 import * as Socket from "effect/unstable/socket/Socket"
@@ -116,6 +116,64 @@ describe("HttpApi handler context inheritance", () => {
       const observed = yield* Deferred.await(capture).pipe(Effect.timeout("2 seconds"))
       expect(observed.directory).toBe(dir)
       expect(observed.workspaceID).toBe(workspace.id)
+    }),
+  )
+
+  // A prompt fiber forked into the service scope outlives HTTP supervision.
+  // This is the lifecycle used by SessionPrompt.promptAsync.
+  it.live("a service-owned prompt scope keeps delayed work alive after the response", () =>
+    Effect.gen(function* () {
+      const requestAcquired = yield* Deferred.make<void>()
+      const requestRelease = yield* Deferred.make<void>()
+      const requestFinalized = yield* Deferred.make<void>()
+      const acquired = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const finalized = yield* Deferred.make<void>()
+      const completed = yield* Deferred.make<void>()
+      const serviceScope = yield* Scope.make()
+      yield* Effect.addFinalizer(() => Scope.close(serviceScope, Exit.void))
+
+      yield* HttpRouter.add(
+        "POST",
+        "/request-lifetime-probe",
+        Effect.gen(function* () {
+          const delayedPrompt = Effect.acquireRelease(Deferred.succeed(requestAcquired, undefined), () =>
+            Deferred.succeed(requestFinalized, undefined),
+          ).pipe(Effect.andThen(Deferred.await(requestRelease)))
+          const supervisionScope = yield* Scope.make()
+          yield* Effect.addFinalizer(() => Scope.close(supervisionScope, Exit.void))
+          yield* delayedPrompt.pipe(Effect.forkIn(supervisionScope, { startImmediately: true }))
+          return HttpServerResponse.empty({ status: 204 })
+        }),
+      ).pipe(HttpRouter.serve, Layer.build)
+      yield* HttpRouter.add(
+        "POST",
+        "/prompt-lifetime-probe",
+        Effect.gen(function* () {
+          const delayedPrompt = Effect.acquireRelease(Deferred.succeed(acquired, undefined), () =>
+            Deferred.succeed(finalized, undefined),
+          ).pipe(Effect.andThen(Deferred.await(release)), Effect.andThen(Deferred.succeed(completed, undefined)))
+          yield* delayedPrompt.pipe(
+            Scope.provide(serviceScope),
+            Effect.forkIn(serviceScope, { startImmediately: true }),
+          )
+          return HttpServerResponse.empty({ status: 204 })
+        }),
+      ).pipe(HttpRouter.serve, Layer.build)
+
+      const requestScopedResponse = yield* HttpClient.post("/request-lifetime-probe")
+      expect(requestScopedResponse.status).toBe(204)
+      yield* Deferred.await(requestAcquired).pipe(Effect.timeout("2 seconds"))
+      yield* Deferred.await(requestFinalized).pipe(Effect.timeout("2 seconds"))
+
+      const response = yield* HttpClient.post("/prompt-lifetime-probe")
+      expect(response.status).toBe(204)
+      yield* Deferred.await(acquired).pipe(Effect.timeout("2 seconds"))
+      expect(yield* Deferred.isDone(finalized)).toBe(false)
+
+      yield* Deferred.succeed(release, undefined)
+      yield* Deferred.await(completed).pipe(Effect.timeout("2 seconds"))
+      expect(yield* Deferred.isDone(finalized)).toBe(false)
     }),
   )
 

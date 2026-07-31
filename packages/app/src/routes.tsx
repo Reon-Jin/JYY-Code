@@ -10,6 +10,7 @@ import { ManagementShell } from "./features/management/management-shell"
 
 const SkillsRoute = lazy(() => import("./features/management/skills-route"))
 const McpRoute = lazy(() => import("./features/management/mcp-route"))
+const WorkflowsRoute = lazy(() => import("./features/management/workflows-route"))
 const SettingsRoute = lazy(() => import("./features/settings/settings-route"))
 const MemorySettingsRoute = lazy(() => import("./features/settings/memory-settings-route"))
 
@@ -77,6 +78,7 @@ function isManagementPath(pathname: string) {
     pathname === "/" ||
     pathname.startsWith("/skills") ||
     pathname.startsWith("/mcp") ||
+    pathname.startsWith("/workflows") ||
     pathname.startsWith("/settings")
   )
 }
@@ -126,6 +128,7 @@ export function AppRoutes(props: { bootstrap: DesktopBootstrap }) {
           </ManagementRoute>
         )}
       />
+      <Route path="/workflows" component={() => <ManagementRoute><WorkflowsRoute /></ManagementRoute>} />
       <Route path="/workspace" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
       <Route path="/session/:sessionID" component={() => <WorkspaceRoute bootstrap={props.bootstrap} />} />
       <Route path="/settings" component={SettingsRoute} />

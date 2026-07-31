@@ -39,6 +39,7 @@ export type ComposerProps = {
   permissionControl?: JSX.Element
   identityLocked?: boolean
   minimal?: boolean
+  mode?: "full" | "toolbar" | "input"
   usage?: ComposerUsageMetrics
   onAgentChange: (name: string) => void
   onModelChange: (model: ModelSelection) => void
@@ -147,11 +148,13 @@ export function Composer(props: ComposerProps) {
   let inputRegion!: HTMLDivElement
   let skillAutocomplete: SkillAutocompleteHandle | undefined
   let composing = false
+  const toolbarOnly = () => props.mode === "toolbar"
   const active = () => props.status.type !== "idle" || props.requestPending === true || props.childSteering === true
   const slashQuery = () => /^\/([^\s/]*)$/.exec(controller.draft())?.[1]
   const autocompleteOpen = () => !props.minimal && focused() && !autocompleteDismissed() && slashQuery() !== undefined
 
   onMount(() => {
+    if (toolbarOnly()) return
     if (!("__TAURI_INTERNALS__" in window)) return
     let unlisten: (() => void) | undefined
     let disposed = false
@@ -185,11 +188,13 @@ export function Composer(props: ComposerProps) {
   })
 
   createEffect(() => {
+    if (toolbarOnly()) return
     controller.draft()
     queueMicrotask(() => resizeDraft(textarea))
   })
 
   createEffect(() => {
+    if (toolbarOnly()) return
     const isActive = active()
     const phase = queuePhase()
     const items = queue.items()
@@ -265,6 +270,39 @@ export function Composer(props: ComposerProps) {
     }
   }
 
+  function selectors() {
+    return <div class="composer__selectors">
+      <AgentSelect
+        agents={props.agents}
+        value={props.selectedAgent}
+        disabled={props.identityLocked || controller.sending() || props.disabled}
+        onChange={props.onAgentChange}
+      />
+      <ProviderConnectButton
+        client={props.client}
+        directory={props.directory}
+        disabled={controller.sending() || props.disabled}
+        onConnected={props.onProviderConnected}
+      />
+      <ClusterModelControl
+        client={props.client}
+        queryClient={props.queryClient}
+        models={props.models}
+        currentModel={props.selectedModel}
+        disabled={props.identityLocked || controller.sending() || props.disabled}
+        identityLocked={props.identityLocked}
+        onModelChange={props.onModelChange}
+      />
+      {props.branchControl}
+      {props.multiAgentControl}
+      {props.mcpControl}
+    </div>
+  }
+
+  if (toolbarOnly()) {
+    return <section class="composer composer--toolbar" aria-label="任务控制">{!props.minimal && selectors()}</section>
+  }
+
   return (
     <div class="composer-stack">
       <Show when={!props.minimal && queue.items().length > 0}>
@@ -280,34 +318,7 @@ export function Composer(props: ComposerProps) {
         data-minimal={props.minimal ? "true" : "false"}
         aria-label={tr("composer.message-editor")}
       >
-        <Show when={!props.minimal}>
-          <div class="composer__selectors">
-            <AgentSelect
-              agents={props.agents}
-              value={props.selectedAgent}
-              disabled={props.identityLocked || controller.sending() || props.disabled}
-              onChange={props.onAgentChange}
-            />
-            <ProviderConnectButton
-              client={props.client}
-              directory={props.directory}
-              disabled={controller.sending() || props.disabled}
-              onConnected={props.onProviderConnected}
-            />
-            <ClusterModelControl
-              client={props.client}
-              queryClient={props.queryClient}
-              models={props.models}
-              currentModel={props.selectedModel}
-              disabled={props.identityLocked || controller.sending() || props.disabled}
-              identityLocked={props.identityLocked}
-              onModelChange={props.onModelChange}
-            />
-            {props.branchControl}
-            {props.multiAgentControl}
-            {props.mcpControl}
-          </div>
-        </Show>
+        <Show when={!props.minimal && props.mode !== "input"}>{selectors()}</Show>
 
         <div
           ref={inputRegion}

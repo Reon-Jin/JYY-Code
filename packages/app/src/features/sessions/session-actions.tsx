@@ -7,6 +7,7 @@ import { Button, IconButton } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
 import { InlineError } from "../../components/ui/inline-error"
 import { errorMessage } from "../projects/project-controller"
+import { displaySessionTitle } from "./session-title"
 
 export type SessionActionsProps = {
   session: Session
@@ -78,7 +79,7 @@ export function SessionActions(props: SessionActionsProps) {
     >
       <IconButton
         ref={trigger}
-        label={tr("sessions.actions-for-title", { title: props.session.title })}
+        label={tr("sessions.actions-for-title", { title: displaySessionTitle(props.session.title) })}
         variant="ghost"
         disabled={props.disabled}
         aria-haspopup="menu"
@@ -105,7 +106,7 @@ export function SessionActions(props: SessionActionsProps) {
           <div
             class="session-actions__menu"
             role="menu"
-            aria-label={tr("sessions.title-actions", { title: props.session.title })}
+            aria-label={tr("sessions.title-actions", { title: displaySessionTitle(props.session.title) })}
             style={{ top: `${menuPosition().top}px`, left: `${menuPosition().left}px` }}
             onKeyDown={handleMenuKeyDown}
           >
@@ -177,7 +178,7 @@ export function SessionActions(props: SessionActionsProps) {
         }
       >
         <p class="session-delete-copy">
-          {tr("sessions.about-to-be-deleted")} <strong>{props.session.title}</strong>
+          {tr("sessions.about-to-be-deleted")} <strong>{displaySessionTitle(props.session.title)}</strong>
         </p>
         <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>
       </Dialog>

@@ -360,6 +360,56 @@ import type {
   VcsStatusErrors,
   VcsStatusResponses,
   VcsSwitchBranchInput,
+  WorkflowCreateArtifactErrors,
+  WorkflowCreateArtifactResponses,
+  WorkflowCreateBlackboardErrors,
+  WorkflowCreateBlackboardResponses,
+  WorkflowCreateContextErrors,
+  WorkflowCreateContextResponses,
+  WorkflowCreateReviewErrors,
+  WorkflowCreateReviewResponses,
+  WorkflowCreateSessionPlanErrors,
+  WorkflowCreateSessionPlanResponses,
+  WorkflowGeneratorInstallErrors,
+  WorkflowGeneratorInstallResponses,
+  WorkflowGeneratorPreviewErrors,
+  WorkflowGeneratorPreviewResponses,
+  WorkflowGetArtifactErrors,
+  WorkflowGetArtifactResponses,
+  WorkflowGetContextErrors,
+  WorkflowGetContextResponses,
+  WorkflowGetRunPlanErrors,
+  WorkflowGetRunPlanResponses,
+  WorkflowGetSessionPlanErrors,
+  WorkflowGetSessionPlanResponses,
+  WorkflowListArtifactsErrors,
+  WorkflowListArtifactsResponses,
+  WorkflowListAssignmentsErrors,
+  WorkflowListAssignmentsResponses,
+  WorkflowListBlackboardErrors,
+  WorkflowListBlackboardResponses,
+  WorkflowListContextErrors,
+  WorkflowListContextResponses,
+  WorkflowListEventsErrors,
+  WorkflowListEventsResponses,
+  WorkflowListReviewsErrors,
+  WorkflowListReviewsResponses,
+  WorkflowListVersionsErrors,
+  WorkflowListVersionsResponses,
+  WorkflowPatchErrors,
+  WorkflowPatchResponses,
+  WorkflowPinErrors,
+  WorkflowPinResponses,
+  WorkflowRegisterErrors,
+  WorkflowRegisterResponses,
+  WorkflowResolveReviewErrors,
+  WorkflowResolveReviewResponses,
+  WorkflowRestoreErrors,
+  WorkflowRestoreResponses,
+  WorkflowTransitionBlackboardErrors,
+  WorkflowTransitionBlackboardResponses,
+  WorkflowTransitionErrors,
+  WorkflowTransitionResponses,
   WorktreeCreateErrors,
   WorktreeCreateInput,
   WorktreeCreateResponses,
@@ -6459,6 +6509,1147 @@ export class Tui extends HeyApiClient {
   }
 }
 
+export class Workflow extends HeyApiClient {
+  public register<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      workflow?: {
+        id: string
+        version: string
+        displayName: string
+        supports: {
+          single: boolean
+          multi: boolean
+        }
+        stages: Array<{
+          id: string
+          title: string
+          dependsOn: Array<string>
+          steps: Array<{
+            id: string
+            title: string
+            dependsOn: Array<string>
+            tasks: Array<{
+              id: string
+              title: string
+              dependsOn: Array<string>
+              acceptance: Array<{
+                id: string
+                title: string
+                required: boolean
+              }>
+            }>
+          }>
+        }>
+      }
+      scope?: "builtin" | "global" | "project"
+      source?: string
+      installed?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "workflow" },
+            { in: "body", key: "scope" },
+            { in: "body", key: "source" },
+            { in: "body", key: "installed" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorkflowRegisterResponses, WorkflowRegisterErrors, ThrowOnError>({
+      url: "/workflow",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public pin<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      workflowID?: string
+      workflowVersion?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "workflowID" },
+            { in: "body", key: "workflowVersion" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorkflowPinResponses, WorkflowPinErrors, ThrowOnError>({
+      url: "/workflow/sessions/{sessionID}/pin",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public getSessionPlan<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      WorkflowGetSessionPlanResponses,
+      WorkflowGetSessionPlanErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/sessions/{sessionID}/run-plan",
+      ...options,
+      ...params,
+    })
+  }
+
+  public createSessionPlan<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      plan?: {
+        id: string
+        sessionID: string
+        workflowID: string
+        workflowVersion: string
+        version: number
+        mode: "single" | "multi"
+        goal: string
+        tasks: Array<{
+          id: string
+          title: string
+          stageID: string
+          stepID: string
+          dependsOn: Array<string>
+          status:
+            | "planned"
+            | "ready"
+            | "running"
+            | "submitted"
+            | "reviewing"
+            | "accepted"
+            | "revision_requested"
+            | "revising"
+            | "interrupted"
+            | "needs_validation"
+            | "checkpointing"
+            | "checkpointed"
+            | "reassigned"
+            | "failed"
+            | "replan_requested"
+            | "blocked"
+            | "failed_with_report"
+          assignee?: string
+          role?: string
+          prompt?: string
+          model?: string
+          complexity?: "simple" | "complex"
+          expectedArtifacts?: Array<string>
+          acceptance: Array<{
+            id: string
+            title: string
+            required: boolean
+          }>
+        }>
+        createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
+      author?: "user" | "main_agent"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "plan" },
+            { in: "body", key: "author" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorkflowCreateSessionPlanResponses,
+      WorkflowCreateSessionPlanErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/sessions/{sessionID}/run-plan",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public getRunPlan<ThrowOnError extends boolean = false>(
+    parameters: {
+      runPlanID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "runPlanID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorkflowGetRunPlanResponses, WorkflowGetRunPlanErrors, ThrowOnError>({
+      url: "/workflow/run-plans/{runPlanID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  public listVersions<ThrowOnError extends boolean = false>(
+    parameters: {
+      runPlanID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "runPlanID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      WorkflowListVersionsResponses,
+      WorkflowListVersionsErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/run-plans/{runPlanID}/versions",
+      ...options,
+      ...params,
+    })
+  }
+
+  public patch<ThrowOnError extends boolean = false>(
+    parameters: {
+      runPlanID: string
+      directory?: string
+      workspace?: string
+      patch?: {
+        baseVersion: number
+        reason: string
+        operations: Array<
+          | {
+              type: "add_task"
+              task: {
+                id: string
+                title: string
+                stageID: string
+                stepID: string
+                dependsOn: Array<string>
+                status:
+                  | "planned"
+                  | "ready"
+                  | "running"
+                  | "submitted"
+                  | "reviewing"
+                  | "accepted"
+                  | "revision_requested"
+                  | "revising"
+                  | "interrupted"
+                  | "needs_validation"
+                  | "checkpointing"
+                  | "checkpointed"
+                  | "reassigned"
+                  | "failed"
+                  | "replan_requested"
+                  | "blocked"
+                  | "failed_with_report"
+                assignee?: string
+                role?: string
+                prompt?: string
+                model?: string
+                complexity?: "simple" | "complex"
+                expectedArtifacts?: Array<string>
+                acceptance: Array<{
+                  id: string
+                  title: string
+                  required: boolean
+                }>
+              }
+            }
+          | {
+              type: "update_task"
+              taskID: string
+              title?: string
+              dependsOn?: Array<string>
+              role?: string
+              prompt?: string
+              model?: string
+              complexity?: "simple" | "complex"
+              expectedArtifacts?: Array<string>
+              acceptance?: Array<{
+                id: string
+                title: string
+                required: boolean
+              }>
+            }
+          | {
+              type: "remove_task"
+              taskID: string
+            }
+          | {
+              type: "set_mode"
+              mode: "single" | "multi"
+            }
+        >
+      }
+      author?: "user" | "main_agent"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "runPlanID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "patch" },
+            { in: "body", key: "author" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorkflowPatchResponses, WorkflowPatchErrors, ThrowOnError>({
+      url: "/workflow/run-plans/{runPlanID}/patch",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public restore<ThrowOnError extends boolean = false>(
+    parameters: {
+      runPlanID: string
+      directory?: string
+      workspace?: string
+      version?: number
+      baseVersion?: number
+      author?: "user" | "main_agent"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "runPlanID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "version" },
+            { in: "body", key: "baseVersion" },
+            { in: "body", key: "author" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorkflowRestoreResponses, WorkflowRestoreErrors, ThrowOnError>({
+      url: "/workflow/run-plans/{runPlanID}/restore",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public transition<ThrowOnError extends boolean = false>(
+    parameters: {
+      runPlanID: string
+      nodeID: string
+      directory?: string
+      workspace?: string
+      from?:
+        | "planned"
+        | "ready"
+        | "running"
+        | "submitted"
+        | "reviewing"
+        | "accepted"
+        | "revision_requested"
+        | "revising"
+        | "interrupted"
+        | "needs_validation"
+        | "checkpointing"
+        | "checkpointed"
+        | "reassigned"
+        | "failed"
+        | "replan_requested"
+        | "blocked"
+        | "failed_with_report"
+      to?:
+        | "planned"
+        | "ready"
+        | "running"
+        | "submitted"
+        | "reviewing"
+        | "accepted"
+        | "revision_requested"
+        | "revising"
+        | "interrupted"
+        | "needs_validation"
+        | "checkpointing"
+        | "checkpointed"
+        | "reassigned"
+        | "failed"
+        | "replan_requested"
+        | "blocked"
+        | "failed_with_report"
+      detail?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "runPlanID" },
+            { in: "path", key: "nodeID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "from" },
+            { in: "body", key: "to" },
+            { in: "body", key: "detail" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<WorkflowTransitionResponses, WorkflowTransitionErrors, ThrowOnError>({
+      url: "/workflow/run-plans/{runPlanID}/nodes/{nodeID}/transition",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public listContext<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      query?: string
+      limit?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "query" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorkflowListContextResponses, WorkflowListContextErrors, ThrowOnError>({
+      url: "/workflow/sessions/{sessionID}/context",
+      ...options,
+      ...params,
+    })
+  }
+
+  public createContext<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      source?:
+        | "system"
+        | "workflow"
+        | "run_plan"
+        | "user_constraint"
+        | "memory"
+        | "conversation"
+        | "task"
+        | "artifact"
+        | "tool_result"
+        | "review"
+        | "compaction"
+        | "blackboard"
+      priority?: "critical" | "high" | "normal" | "low"
+      tokenEstimate?: number
+      provenance?: string
+      retention?: "turn" | "task" | "session" | "persistent"
+      cachePolicy?: "stable" | "volatile" | "no_cache"
+      scope?: {
+        [key: string]: unknown
+      }
+      content?: string
+      runPlanID?: string
+      nodeID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "source" },
+            { in: "body", key: "priority" },
+            { in: "body", key: "tokenEstimate" },
+            { in: "body", key: "provenance" },
+            { in: "body", key: "retention" },
+            { in: "body", key: "cachePolicy" },
+            { in: "body", key: "scope" },
+            { in: "body", key: "content" },
+            { in: "body", key: "runPlanID" },
+            { in: "body", key: "nodeID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorkflowCreateContextResponses,
+      WorkflowCreateContextErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/sessions/{sessionID}/context",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public getContext<ThrowOnError extends boolean = false>(
+    parameters: {
+      contextID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "contextID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorkflowGetContextResponses, WorkflowGetContextErrors, ThrowOnError>({
+      url: "/workflow/context/{contextID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  public listArtifacts<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      WorkflowListArtifactsResponses,
+      WorkflowListArtifactsErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/sessions/{sessionID}/artifacts",
+      ...options,
+      ...params,
+    })
+  }
+
+  public createArtifact<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      name?: string
+      mediaType?: string
+      content?: string
+      summary?: string
+      metadata?: {
+        [key: string]: unknown
+      }
+      runPlanID?: string
+      nodeID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "mediaType" },
+            { in: "body", key: "content" },
+            { in: "body", key: "summary" },
+            { in: "body", key: "metadata" },
+            { in: "body", key: "runPlanID" },
+            { in: "body", key: "nodeID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorkflowCreateArtifactResponses,
+      WorkflowCreateArtifactErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/sessions/{sessionID}/artifacts",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public getArtifact<ThrowOnError extends boolean = false>(
+    parameters: {
+      artifactID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "artifactID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorkflowGetArtifactResponses, WorkflowGetArtifactErrors, ThrowOnError>({
+      url: "/workflow/artifacts/{artifactID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  public listBlackboard<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      WorkflowListBlackboardResponses,
+      WorkflowListBlackboardErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/sessions/{sessionID}/blackboard",
+      ...options,
+      ...params,
+    })
+  }
+
+  public createBlackboard<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      type?: "decision" | "contract" | "constraint" | "evidence" | "risk" | "proposal" | "blocker"
+      title?: string
+      authorAgentID?: string
+      summary?: string
+      relatedTasks?: Array<string>
+      replaces?: Array<string>
+      impactScope?: "low" | "medium" | "high"
+      artifacts?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "type" },
+            { in: "body", key: "title" },
+            { in: "body", key: "authorAgentID" },
+            { in: "body", key: "summary" },
+            { in: "body", key: "relatedTasks" },
+            { in: "body", key: "replaces" },
+            { in: "body", key: "impactScope" },
+            { in: "body", key: "artifacts" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorkflowCreateBlackboardResponses,
+      WorkflowCreateBlackboardErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/sessions/{sessionID}/blackboard",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public transitionBlackboard<ThrowOnError extends boolean = false>(
+    parameters: {
+      cardID: string
+      directory?: string
+      workspace?: string
+      from?: "draft" | "published" | "accepted" | "superseded" | "rejected"
+      to?: "draft" | "published" | "accepted" | "superseded" | "rejected"
+      approvedBy?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "cardID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "from" },
+            { in: "body", key: "to" },
+            { in: "body", key: "approvedBy" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorkflowTransitionBlackboardResponses,
+      WorkflowTransitionBlackboardErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/blackboard/{cardID}/transition",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public listReviews<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorkflowListReviewsResponses, WorkflowListReviewsErrors, ThrowOnError>({
+      url: "/workflow/sessions/{sessionID}/reviews",
+      ...options,
+      ...params,
+    })
+  }
+
+  public createReview<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      runPlanID?: string
+      nodeID?: string
+      authorAgentID?: string
+      severity?: "low" | "medium" | "high" | "critical"
+      summary?: string
+      evidence?: Array<string>
+      suggestion?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "runPlanID" },
+            { in: "body", key: "nodeID" },
+            { in: "body", key: "authorAgentID" },
+            { in: "body", key: "severity" },
+            { in: "body", key: "summary" },
+            { in: "body", key: "evidence" },
+            { in: "body", key: "suggestion" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorkflowCreateReviewResponses,
+      WorkflowCreateReviewErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/sessions/{sessionID}/reviews",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public resolveReview<ThrowOnError extends boolean = false>(
+    parameters: {
+      findingID: string
+      directory?: string
+      workspace?: string
+      status?: "accepted" | "rejected" | "resolved"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "findingID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "status" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorkflowResolveReviewResponses,
+      WorkflowResolveReviewErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/reviews/{findingID}/resolve",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public generatorPreview<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      request?: string
+      id?: string
+      displayName?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "request" },
+            { in: "body", key: "id" },
+            { in: "body", key: "displayName" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorkflowGeneratorPreviewResponses,
+      WorkflowGeneratorPreviewErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/generator/preview",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public generatorInstall<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      workflow?: {
+        id: string
+        version: string
+        displayName: string
+        supports: {
+          single: boolean
+          multi: boolean
+        }
+        stages: Array<{
+          id: string
+          title: string
+          dependsOn: Array<string>
+          steps: Array<{
+            id: string
+            title: string
+            dependsOn: Array<string>
+            tasks: Array<{
+              id: string
+              title: string
+              dependsOn: Array<string>
+              acceptance: Array<{
+                id: string
+                title: string
+                required: boolean
+              }>
+            }>
+          }>
+        }>
+      }
+      confirmed?: boolean
+      scope?: "global" | "project"
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "workflow" },
+            { in: "body", key: "confirmed" },
+            { in: "body", key: "scope" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      WorkflowGeneratorInstallResponses,
+      WorkflowGeneratorInstallErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/generator/install",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public listAssignments<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      WorkflowListAssignmentsResponses,
+      WorkflowListAssignmentsErrors,
+      ThrowOnError
+    >({
+      url: "/workflow/sessions/{sessionID}/assignments",
+      ...options,
+      ...params,
+    })
+  }
+
+  public listEvents<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<WorkflowListEventsResponses, WorkflowListEventsErrors, ThrowOnError>({
+      url: "/workflow/sessions/{sessionID}/events",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class JyycodeClient extends HeyApiClient {
   public static readonly __registry = new HeyApiRegistry<JyycodeClient>()
 
@@ -6610,5 +7801,10 @@ export class JyycodeClient extends HeyApiClient {
   private _tui?: Tui
   get tui(): Tui {
     return (this._tui ??= new Tui({ client: this.client }))
+  }
+
+  private _workflow?: Workflow
+  get workflow(): Workflow {
+    return (this._workflow ??= new Workflow({ client: this.client }))
   }
 }

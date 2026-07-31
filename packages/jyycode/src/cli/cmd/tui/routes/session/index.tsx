@@ -64,8 +64,6 @@ import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
 import { Sidebar } from "./sidebar"
 import { SubagentFooter } from "./subagent-footer.tsx"
-import { MultiAgentPanel } from "./multi-agent-panel"
-import { stripAgentClusterPlanText } from "./agent-cluster-state"
 import { LANGUAGE_EXTENSIONS } from "@/lsp/language"
 import { MailSession } from "@/communication/mail-session"
 import parsers from "../../../../../../parsers-config.ts"
@@ -1306,13 +1304,6 @@ export function Session() {
                 </For>
               </scrollbox>
               <box flexShrink={0}>
-                <Show when={!session()?.parentID}>
-                  <MultiAgentPanel
-                    sessionID={route.sessionID}
-                    enabled={agentClusterEnabled()}
-                    disabled={agentClusterDisabled()}
-                  />
-                </Show>
                 <Show when={permissions().length > 0}>
                   <PermissionPrompt request={permissions()[0]} />
                 </Show>
@@ -1688,8 +1679,7 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
   const { theme, syntax } = useTheme()
   const content = createMemo(() => {
     const text = props.part.text.trim()
-    if (props.message.agent !== "cluster" && props.message.mode !== "cluster") return text
-    return stripAgentClusterPlanText(text).trim()
+    return text
   })
   return (
     <Show when={content()}>

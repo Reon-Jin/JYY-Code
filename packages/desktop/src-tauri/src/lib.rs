@@ -10,6 +10,11 @@ mod window_effects;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // reqwest selects aws-lc-rs while the updater pulls rustls' ring feature.
+    // Install one process-wide provider before either background service creates
+    // a TLS client so rustls never has to guess between both enabled providers.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     #[cfg(target_os = "macos")]
     let _ = fix_path_env::fix();
 

@@ -37,7 +37,7 @@ export type State<A, E> =
   | { readonly _tag: "ShellThenRun"; readonly shell: ShellHandle<A, E>; readonly run: PendingHandle<A, E> }
 
 export const make = <A, E = never>(
-  scope: Scope.Scope,
+  _scope: Scope.Scope,
   opts?: {
     onIdle?: Effect.Effect<void>
     onBusy?: Effect.Effect<void>
@@ -85,7 +85,10 @@ export const make = <A, E = never>(
       const id = next()
       const fiber = yield* work.pipe(
         Effect.onExit((exit) => finishRun(id, done, exit)),
-        Effect.forkIn(scope),
+        // A run is explicitly owned and cancelled by this Runner. Detaching
+        // it prevents an HTTP request scope from cancelling the turn as soon
+        // as an async endpoint returns.
+        Effect.forkDetach(),
       )
       return { id, done, fiber } satisfies RunHandle<A, E>
     })

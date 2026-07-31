@@ -5,8 +5,8 @@ import { TodoItem } from "../../component/todo-item"
 
 const id = "internal:sidebar-todo"
 
-export function shouldShowTodoPanel(input: { todoCount: number; openTodoCount: number; clusterTaskCount: number }) {
-  return input.clusterTaskCount === 0 && input.todoCount > 0 && input.openTodoCount > 0
+export function shouldShowTodoPanel(input: { todoCount: number; openTodoCount: number }) {
+  return input.todoCount > 0 && input.openTodoCount > 0
 }
 
 function View(props: { api: TuiPluginApi; session_id: string }) {
@@ -14,11 +14,9 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   const theme = () => props.api.theme.current
   const list = createMemo(() => props.api.state.session.todo(props.session_id))
   const show = createMemo(() => {
-    const cluster = props.api.state.session.agentCluster(props.session_id)
     return shouldShowTodoPanel({
       todoCount: list().length,
       openTodoCount: list().filter((item) => item.status !== "completed").length,
-      clusterTaskCount: cluster.tasks.length,
     })
   })
 

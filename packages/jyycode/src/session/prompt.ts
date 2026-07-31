@@ -66,6 +66,9 @@ import { LLMEvent } from "@jyycode-ai/llm"
 import { AgentCluster } from "@/agent-cluster/cluster"
 import { AgentClusterRuntime } from "@/agent-cluster/runtime"
 import { Memory } from "@/memory/memory"
+import { WorkflowExecutor } from "@/workflow/executor"
+import { WorkflowLedger } from "@/workflow/ledger"
+import { WorkflowRuntime } from "@/workflow/runtime"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1378,6 +1381,7 @@ export const layer = Layer.effect(
       const body = Effect.gen(function* () {
         const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
         const cfg = yield* config.get()
+        const goal = realPromptGoal(input) || session.title
         // noReply messages are synthetic injections (for example, background
         // subagent completion). They must not start a new cluster planner turn.
         const useCluster =
@@ -1390,8 +1394,15 @@ export const layer = Layer.effect(
         const clusterModels = useCluster
           ? yield* AgentCluster.resolveModels(cfg.agent_cluster ?? {}).pipe(Effect.orDie)
           : undefined
-        const clusterTaskGraph = useCluster ? yield* AgentCluster.getSessionState(session.id) : undefined
-        const reusableSubagents = useCluster ? yield* AgentCluster.reusableSubagents(session.id) : undefined
+        if (useCluster && clusterModels && session.parentID === undefined) {
+          yield* WorkflowExecutor.ensureRunPlan({ sessionID: session.id, goal, mode: "multi" }).pipe(Effect.orDie)
+        }
+        const clusterTaskGraph = useCluster
+          ? yield* WorkflowExecutor.getMultiSessionState(session.id).pipe(Effect.catchCause(() => Effect.succeed({ tasks: [] })))
+          : undefined
+        const reusableSubagents = clusterTaskGraph?.tasks
+          .filter((task) => task.child_session_id && (task.status === "accepted" || task.status === "failed" || task.status === "interrupted"))
+          .map((task) => ({ sessionID: task.child_session_id!, lastTaskID: task.id as any, role: task.role as any, title: task.title, status: task.status as any }))
         const promptInput =
           useCluster && clusterModels
             ? AgentCluster.decoratePromptInput({
@@ -1419,12 +1430,17 @@ export const layer = Layer.effect(
 
         if (promptInput.noReply === true) return message
         if (useCluster && clusterModels) {
-          return yield* AgentCluster.run({
-            session,
-            message,
-            config: cfg.agent_cluster ?? {},
-            models: clusterModels,
-            runLoop: loop({ sessionID: input.sessionID }),
+          return yield* WorkflowExecutor.runMulti({
+            sessionID: session.id,
+            goal,
+            run: loop({ sessionID: input.sessionID }),
+          }).pipe(Effect.orDie)
+        }
+        if (session.parentID === undefined) {
+          return yield* WorkflowExecutor.runSingle({
+            sessionID: session.id,
+            goal,
+            run: loop({ sessionID: input.sessionID }),
           }).pipe(Effect.orDie)
         }
         return yield* loop({ sessionID: input.sessionID })
@@ -1582,10 +1598,10 @@ export const layer = Layer.effect(
 
         const createClusterSynthesisReminder = Effect.fn("SessionPrompt.createClusterSynthesisReminder")(
           function* (input: { lastUser: MessageV2.User }) {
-            const state = yield* AgentCluster.getSessionState(sessionID)
+            const state = yield* WorkflowExecutor.getMultiSessionState(sessionID).pipe(Effect.orDie)
             const tasks = state.tasks
             const notAccepted = tasks.filter((task) => task.status !== "accepted")
-            const failed = notAccepted.filter((task) => task.status === "failed" || task.status === "cancelled")
+            const failed = notAccepted.filter((task) => task.status === "failed" || task.status === "interrupted")
             const userMsg: MessageV2.User = {
               id: MessageID.ascending(),
               sessionID,
@@ -1656,9 +1672,9 @@ export const layer = Layer.effect(
             lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
 
           // Stuck-turn guard: an assistant turn that repeats the exact same text
-          // and tool calls as the previous iteration made no progress. Child
-          // sessions hard-stop right away (a subagent must not burn its budget);
-          // main sessions get one warning reminder before the hard stop.
+          // and tool calls as the previous iteration may be stuck. Child-agent
+          // repetitions can also be legitimate retries or polling, so recover
+          // them with one corrective reminder instead of terminating the session.
           if (lastAssistantMsg && lastAssistantInfo && !lastAssistantInfo.summary && !lastAssistantInfo.error) {
             const signature = [
               lastAssistantMsg.parts
@@ -1683,7 +1699,7 @@ export const layer = Layer.effect(
               repeatedToolTurnCount = 0
             }
             if (repeatedToolTurnCount >= 2) {
-              if (session.parentID === undefined && !loopWarningIssued) {
+              if (!loopWarningIssued) {
                 loopWarningIssued = true
                 yield* slog.warn("assistant repeated an identical turn; issuing stuck-loop warning", {
                   repetitions: repeatedToolTurnCount + 1,
@@ -1696,7 +1712,11 @@ export const layer = Layer.effect(
                     "Do not issue the same tool calls again. Change your approach: use the results you already have, try a different action, or conclude with a final answer that explains what is blocking progress.",
                   ],
                 })
-              } else {
+                if (session.parentID !== undefined) {
+                  previousToolTurnSignature = undefined
+                  repeatedToolTurnCount = 0
+                }
+              } else if (session.parentID === undefined) {
                 yield* slog.warn("stopping repeated assistant turns", {
                   repetitions: repeatedToolTurnCount + 1,
                   finish: lastAssistantInfo.finish,
@@ -1709,14 +1729,12 @@ export const layer = Layer.effect(
                     completed: lastAssistantInfo.time.completed ?? Date.now(),
                   },
                 })
-                if (session.parentID === undefined) {
-                  yield* bus.publish(Session.Event.Error, {
-                    sessionID,
-                    error: new NamedError.Unknown({
-                      message: `Stopped the turn: the agent repeated the same response ${repeatedToolTurnCount + 1} times without making progress. Send a message to continue.`,
-                    }).toObject(),
-                  })
-                }
+                yield* bus.publish(Session.Event.Error, {
+                  sessionID,
+                  error: new NamedError.Unknown({
+                    message: `Stopped the turn: the agent repeated the same response ${repeatedToolTurnCount + 1} times without making progress. Send a message to continue.`,
+                  }).toObject(),
+                })
                 break
               }
             }
@@ -1762,7 +1780,7 @@ export const layer = Layer.effect(
                 maxConcurrency: clusterConfig.max_concurrency,
               })
               if (validation.valid) {
-                yield* AgentCluster.persistPlan({ sessionID, originMessageID: lastUser.id, plan }).pipe(Effect.orDie)
+                yield* WorkflowExecutor.applyMultiAgentPlan({ sessionID, plan }).pipe(Effect.orDie)
               }
               if (
                 !hasTaskToolAfter(msgs, lastUser.id) &&
@@ -1777,7 +1795,7 @@ export const layer = Layer.effect(
               lastUser.agent === "cluster" &&
               !isClusterSynthesisReminder(msgs.find((msg) => msg.info.id === lastUser.id))
             ) {
-              const state = yield* AgentCluster.getSessionState(sessionID)
+              const state = yield* WorkflowExecutor.getMultiSessionState(sessionID).pipe(Effect.orDie)
               const tasks = state.tasks
               if (tasks.length > 0 && tasks.some((task) => task.status !== "accepted")) {
                 yield* slog.info(
@@ -1992,12 +2010,35 @@ export const layer = Layer.effect(
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
+            const workflowContext =
+              session.parentID === undefined
+                ? yield* WorkflowRuntime.getSessionRunPlan(sessionID).pipe(
+                    Effect.flatMap((plan) =>
+                      WorkflowLedger.buildContext({
+                        sessionID,
+                        nodeID: plan.tasks.find((task) => task.status === "running" || task.status === "revising")?.id,
+                        budget: 8_000,
+                      }).pipe(Effect.map((context) => ({ plan, context }))),
+                    ),
+                    Effect.catchCause(() => Effect.succeed(undefined)),
+                  )
+                : undefined
             const system = [
               ...(memorySnapshot ? [memorySnapshot] : []),
               ...env,
               ...instructions,
               ...(skills ? [skills] : []),
             ]
+            if (workflowContext?.context.blocks.length) {
+              system.push(
+                [
+                  "<workflow-context>",
+                  "Use these persisted constraints and verified facts when relevant. User constraints are mandatory.",
+                  ...workflowContext.context.blocks.map((block) => `[${block.source}/${block.priority}] ${block.content}`),
+                  "</workflow-context>",
+                ].join("\n"),
+              )
+            }
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({
@@ -2012,6 +2053,21 @@ export const layer = Layer.effect(
               model,
               toolChoice: format.type === "json_schema" ? "required" : undefined,
             })
+            if (workflowContext) {
+              const task = workflowContext.plan.tasks.find((item) => item.status === "running" || item.status === "revising")
+              yield* WorkflowLedger.recordModelCall({
+                sessionID,
+                runPlanID: workflowContext.plan.id,
+                ...(task ? { nodeID: task.id } : {}),
+                role: agent.name,
+                model: `${model.providerID}/${model.id}`,
+                contextBlockIDs: workflowContext.context.blocks.map((block) => block.id),
+                inputTokens: workflowContext.context.tokenEstimate,
+                outputTokens: Math.ceil(handle.allText().length / 4),
+                status: "completed",
+                completedAt: Date.now(),
+              }).pipe(Effect.catchCause(() => Effect.void))
+            }
 
             // Pre-persist the cluster plan so concurrent task dispatch
             // tool calls can find their rows in the database. We use the
@@ -2032,9 +2088,8 @@ export const layer = Layer.effect(
                     maxConcurrency: clusterCfg.max_concurrency,
                   })
                   if (validation.valid) {
-                    yield* AgentCluster.persistPlan({
+                    yield* WorkflowExecutor.applyMultiAgentPlan({
                       sessionID: clusterSessionID,
-                      originMessageID: lastUser.id,
                       plan,
                     }).pipe(Effect.orDie)
                     yield* slog.info("cluster plan pre-persisted from in-memory text accumulator", {
@@ -2444,6 +2499,13 @@ export const PromptInput = Schema.Struct({
   ),
 })
 export type PromptInput = Schema.Schema.Type<typeof PromptInput>
+
+export function realPromptGoal(input: Pick<PromptInput, "parts">) {
+  return input.parts
+    .flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : []))
+    .join("\n")
+    .trim()
+}
 
 export class LoopInput extends Schema.Class<LoopInput>("SessionPrompt.LoopInput")({
   sessionID: SessionID,

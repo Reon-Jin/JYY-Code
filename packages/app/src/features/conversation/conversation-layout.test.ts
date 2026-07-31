@@ -5,6 +5,8 @@ const composerCSS = readFileSync("src/features/composer/composer.css", "utf8")
 const sessionsCSS = readFileSync("src/features/sessions/sessions.css", "utf8")
 const conversationCSS = readFileSync("src/features/conversation/conversation.css", "utf8")
 const multiAgentCSS = readFileSync("src/features/multi-agent/multi-agent.css", "utf8")
+const workbenchCSS = readFileSync("src/features/session-workspace/session-workspace.css", "utf8")
+const tokensCSS = readFileSync("src/styles/tokens.css", "utf8")
 
 describe("conversation layout CSS", () => {
   it("caps the workspace and reserves a scrollable timeline above the Composer", () => {
@@ -40,10 +42,11 @@ describe("conversation layout CSS", () => {
     expect(composerCSS).toMatch(/\.composer-select\s*\{[^}]*width:\s*80px;[^}]*min-width:\s*80px;/s)
     expect(composerCSS).toMatch(/\.composer-usage__item\s*\{[^}]*display:\s*flex;[^}]*align-items:\s*center;/s)
     expect(multiAgentCSS).toMatch(/\.cluster-model-control__button\s*\{[^}]*min-width:\s*360px;/s)
-    expect(multiAgentCSS).toMatch(
-      /\.multi-agent-step\[data-tone="running"\] \.multi-agent-step__marker,[^{]*\{[^}]*animation:/s,
+    expect(workbenchCSS).toMatch(
+      /\.agent-flow__nodes button\[data-status="running"\] \.agent-flow__pulse\s*\{[^}]*animation:\s*agent-node-pulse/s,
     )
-    expect(multiAgentCSS).not.toContain("multi-agent-activation-wave")
+    expect(workbenchCSS).toMatch(/\.agent-flow__network i\s*\{[^}]*animation:\s*agent-flow-signal/s)
+    expect(workbenchCSS).toMatch(/@media \(prefers-reduced-motion: reduce\)/)
   })
 
   it("aligns the user bubble and Agent content on opposite sides and keeps tool calls compact", () => {
@@ -54,7 +57,7 @@ describe("conversation layout CSS", () => {
       /\.conversation-message\[data-role="user"\] \.conversation-message__parts\s*\{[^}]*justify-items:\s*stretch;/s,
     )
     expect(conversationCSS).toMatch(
-      /\.conversation-message\[data-role="user"\]\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*50%;/s,
+      /\.conversation-message\[data-role="user"\]\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*82%;/s,
     )
     expect(conversationCSS).toMatch(
       /\.conversation-message\[data-role="user"\]\s*\{[^}]*background:\s*var\(--color-surface\);/s,
@@ -76,5 +79,23 @@ describe("conversation layout CSS", () => {
     )
     expect(conversationCSS).toMatch(/\.tool-call\s*\{[^}]*padding:\s*0;/s)
     expect(conversationCSS).not.toContain(".tool-call__details")
+  })
+
+  it("keeps generous spacing around the chat header and workbench cards", () => {
+    expect(tokensCSS).toMatch(/--space-5:\s*20px;/)
+    expect(workbenchCSS).toMatch(
+      /\.session-workbench__chat > header\s*\{[^}]*padding:\s*var\(--space-5\) var\(--space-6\);/s,
+    )
+    expect(workbenchCSS).toMatch(/\.workbench-board\s*\{[^}]*margin-bottom:\s*var\(--space-4\);/s)
+  })
+
+  it("keeps one compact task toolbar in the top header", () => {
+    expect(workbenchCSS).toMatch(
+      /\.session-workbench__command-bar \.composer--toolbar\s*\{[^}]*margin:\s*0;[^}]*border:\s*0;[^}]*background:\s*transparent;/s,
+    )
+    expect(workbenchCSS).toMatch(
+      /\.session-workbench__canvas\s*\{[^}]*grid-template-rows:\s*minmax\(0, 1fr\);/s,
+    )
+    expect(workbenchCSS).not.toContain(".session-workbench__control-shelf")
   })
 })

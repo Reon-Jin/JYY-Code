@@ -50,6 +50,7 @@ import { Skill } from "@/skill"
 import { SkillManagement } from "@/skill/management"
 import { Global } from "@jyycode-ai/core/global"
 import { Snapshot } from "@/snapshot"
+import { Database } from "@/storage/db"
 import { SyncEvent } from "@/sync"
 import { ToolRegistry } from "@/tool/registry"
 import { lazy } from "@/util/lazy"
@@ -84,6 +85,7 @@ import { syncHandlers } from "./handlers/sync"
 import { tuiHandlers } from "./handlers/tui"
 import { v2Handlers } from "./handlers/v2"
 import { workspaceHandlers } from "./handlers/workspace"
+import { workflowHandlers } from "./handlers/workflow"
 import { instanceContextLayer, instanceRouterMiddleware } from "./middleware/instance-context"
 import { workspaceRouterMiddleware, workspaceRoutingLayer } from "./middleware/workspace-routing"
 import { disposeMiddleware } from "./lifecycle"
@@ -144,6 +146,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
     v2Handlers,
     tuiHandlers,
     workspaceHandlers,
+    workflowHandlers,
   ]),
 )
 
@@ -221,6 +224,7 @@ export function createRoutes(
       Ripgrep.defaultLayer,
       RuntimeFlags.defaultLayer,
       BackgroundProcess.defaultLayer,
+      Database.layer,
       Session.defaultLayer,
       SessionCompaction.defaultLayer,
       SessionPrompt.defaultLayer,

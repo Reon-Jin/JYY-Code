@@ -1741,6 +1741,54 @@ describe("tool.task", () => {
     }),
   )
 
+  background.instance("cancelling the parent run keeps durable cluster background tasks running", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const runState = yield* SessionRunState.Service
+      const { chat } = yield* seed()
+      const child = SessionID.make("ses_durable_cluster_child")
+
+      yield* jobs.start({
+        id: child,
+        type: "task",
+        metadata: {
+          parentSessionId: chat.id,
+          sessionId: child,
+          agentCluster: { sessionID: chat.id, taskID: "durable-work" },
+        },
+        run: Effect.never,
+      })
+
+      yield* runState.cancel(chat.id)
+
+      expect((yield* jobs.get(child))?.status).toBe("running")
+    }),
+  )
+
+  background.instance("cancelling a durable child session still stops its cluster background task", () =>
+    Effect.gen(function* () {
+      const jobs = yield* BackgroundJob.Service
+      const runState = yield* SessionRunState.Service
+      const { chat } = yield* seed()
+      const child = SessionID.make("ses_durable_cluster_child_direct")
+
+      yield* jobs.start({
+        id: child,
+        type: "task",
+        metadata: {
+          parentSessionId: chat.id,
+          sessionId: child,
+          agentCluster: { sessionID: chat.id, taskID: "durable-work" },
+        },
+        run: Effect.never,
+      })
+
+      yield* runState.cancel(child)
+
+      expect((yield* jobs.get(child))?.status).toBe("cancelled")
+    }),
+  )
+
   it.instance("cancelling a parent run recursively cancels descendant background tasks", () =>
     Effect.gen(function* () {
       const jobs = yield* BackgroundJob.Service

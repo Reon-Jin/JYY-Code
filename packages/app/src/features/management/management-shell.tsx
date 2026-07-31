@@ -1,6 +1,6 @@
 import { tr } from "../../i18n/i18n-context"
 import { A, useLocation } from "@solidjs/router"
-import { Blocks, House, Plug, Settings } from "lucide-solid"
+import { Blocks, House, Plug, Settings, Workflow } from "lucide-solid"
 import type { ParentProps } from "solid-js"
 import "./management-shell.css"
 import { settingsHref } from "../settings/settings-navigation"
@@ -10,6 +10,7 @@ const items = () =>
     { href: "/", label: tr("management.front-page"), icon: House },
     { href: "/skills", label: "Skill", icon: Blocks },
     { href: "/mcp", label: "MCP", icon: Plug },
+    { href: "/workflows", label: "Workflow", icon: Workflow },
   ] as const
 
 export function ManagementShell(props: ParentProps) {

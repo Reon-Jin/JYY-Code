@@ -8,8 +8,8 @@
     "dev": "bun run --bun vite --host 127.0.0.1",
     "build": "bun run --bun vite build",
     "typecheck": "bun run --bun tsc --noEmit",
-    "test": "bun run --bun vitest run",
-    "test:watch": "bun run --bun vitest"
+    "test": "node ./node_modules/vitest/vitest.mjs run --pool=threads --maxWorkers=1 --no-file-parallelism",
+    "test:watch": "node ./node_modules/vitest/vitest.mjs --pool=threads --maxWorkers=1 --no-file-parallelism"
   },
   "dependencies": {
     "@fontsource-variable/inter": "catalog:",

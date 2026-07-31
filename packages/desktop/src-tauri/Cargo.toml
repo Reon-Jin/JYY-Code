@@ -1,6 +1,6 @@
 [package]
 name = "jyycode-desktop"
-version = "1.0.0"
+version = "1.0.13"
 description = "JYYCode desktop application"
 edition = "2024"
 

@@ -1,6 +1,6 @@
 import type { Session } from "@jyycode-ai/sdk/v2/client"
 import { MemoryRouter, Route } from "@solidjs/router"
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library"
+import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { projectShortcutIndex, WorkspaceLayoutView } from "./workspace-layout"
 
@@ -47,6 +47,70 @@ describe("WorkspaceLayoutView settings entry", () => {
       "href",
       "/settings/general?returnTo=%2Fsession%2Fses_1",
     )
+  })
+
+  it("provides an accessible Session workbench with all operational modules", () => {
+    render(() => (
+      <MemoryRouter>
+        <Route
+          path="/*all"
+          component={() => (
+            <WorkspaceLayoutView
+              projectName="demo"
+              projectDirectory={session.directory}
+              connection="connected"
+              activeSessions={[session]}
+              archivedSessions={[]}
+              statuses={{}}
+              activeSession={session}
+              activeSessionID={session.id}
+              onReturnHome={vi.fn(async () => undefined)}
+              onCreate={vi.fn(async () => undefined)}
+              onRename={vi.fn(async () => undefined)}
+              onArchive={vi.fn(async () => undefined)}
+              onDelete={vi.fn(async () => undefined)}
+            />
+          )}
+        />
+      </MemoryRouter>
+    ))
+
+    const plan = document.querySelector<HTMLButtonElement>('.workbench-module-card[data-module="plan"]')!
+    expect(document.querySelectorAll(".workbench-module-card")).toHaveLength(7)
+    fireEvent.click(plan)
+    expect(plan).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getAllByText(/尚未生成可执行方案/)).not.toHaveLength(0)
+    expect(screen.getByRole("region", { name: "Active Session" })).toBeInTheDocument()
+  })
+
+  it("waits for the requested Session instead of mounting the workspace with an undefined session", () => {
+    render(() => (
+      <MemoryRouter>
+        <Route
+          path="/*all"
+          component={() => (
+            <WorkspaceLayoutView
+              projectName="demo"
+              projectDirectory={session.directory}
+              connection="connected"
+              activeSessions={[]}
+              archivedSessions={[]}
+              statuses={{}}
+              activeSessionID="ses_loading"
+              activeLoading
+              onReturnHome={vi.fn(async () => undefined)}
+              onCreate={vi.fn(async () => undefined)}
+              onRename={vi.fn(async () => undefined)}
+              onArchive={vi.fn(async () => undefined)}
+              onDelete={vi.fn(async () => undefined)}
+            />
+          )}
+        />
+      </MemoryRouter>
+    ))
+
+    expect(screen.queryByRole("heading", { name: "Active Session" })).not.toBeInTheDocument()
+    expect(within(document.querySelector(".session-empty")!).getByRole("button", { name: "新建会话" })).toBeDisabled()
   })
 
   it("switches projects with Tab on the conversation canvas and Ctrl+1-9 globally", () => {

@@ -30,10 +30,10 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const background = yield* BackgroundJob.Service
     const status = yield* SessionStatus.Service
+    const scope = yield* Scope.Scope
 
     const state = yield* InstanceState.make(
       Effect.fn("SessionRunState.state")(function* () {
-        const scope = yield* Scope.Scope
         const runners = new Map<SessionID, Runner.Runner<MessageV2.WithParts>>()
         yield* Effect.addFinalizer(
           Effect.fnUntraced(function* () {
@@ -44,7 +44,7 @@ export const layer = Layer.effect(
             runners.clear()
           }),
         )
-        return { runners, scope }
+        return { runners }
       }),
     )
 
@@ -55,7 +55,7 @@ export const layer = Layer.effect(
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
       if (existing) return existing
-      const next = Runner.make<MessageV2.WithParts>(data.scope, {
+      const next = Runner.make<MessageV2.WithParts>(scope, {
         onIdle: Effect.gen(function* () {
           data.runners.delete(sessionID)
           yield* status.set(sessionID, { type: "idle" })
@@ -117,11 +117,17 @@ const cancelBackgroundJobs = Effect.fn("SessionRunState.cancelBackgroundJobs")(f
   sessionID: SessionID,
 ) {
   const jobs = yield* background.list()
+  const rootSessionID = sessionID
   const pending = new Set<string>([sessionID])
   const cancelled = new Set<string>()
   const matches = (job: BackgroundJob.Info) => {
     if (job.status !== "running") return false
     if (cancelled.has(job.id)) return false
+    // Cluster workers are durable session-graph assignments. Cancelling the
+    // primary runner can be a transient scheduling operation, so it must not
+    // cascade into those workers. Their own session can still be cancelled
+    // directly by explicit interruption/reassignment paths.
+    if (job.metadata?.agentCluster !== undefined && job.id !== rootSessionID) return false
     if (pending.has(job.id)) return true
     if (typeof job.metadata?.sessionId === "string" && pending.has(job.metadata.sessionId)) return true
     return typeof job.metadata?.parentSessionId === "string" && pending.has(job.metadata.parentSessionId)

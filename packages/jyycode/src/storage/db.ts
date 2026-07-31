@@ -10,6 +10,8 @@ import { EffectBridge } from "@/effect/bridge"
 import { Context, Effect, Fiber, ManagedRuntime } from "effect"
 import { Database as ScopedDatabase } from "@jyycode-ai/core/database/database"
 import { Schema } from "effect"
+import { Database as BunSqliteDatabase } from "bun:sqlite"
+import { drizzle } from "drizzle-orm/bun-sqlite"
 
 export const NotFoundError = NamedError.create("NotFoundError", {
   message: Schema.String,
@@ -72,8 +74,10 @@ const EffectTransactionRef = Context.Reference<EffectTransactionState | undefine
 export function query<A, E, R>(callback: (db: EffectTxOrDb) => Effect.Effect<A, E, R>) {
   return Effect.withFiber((fiber) => {
     const active = Context.get(fiber.context, EffectTransactionRef)
-    const db = active?.tx ?? compatibilityService().db
-    return callback(db).pipe(Effect.orDie)
+    if (active) return callback(active.tx).pipe(Effect.orDie)
+    return compatibilityServiceEffect().pipe(
+      Effect.flatMap((service) => callback(service.db).pipe(Effect.orDie)),
+    )
   })
 }
 
@@ -84,24 +88,38 @@ export function withTransaction<A, E, R>(
   return Effect.withFiber((fiber) => {
     const active = Context.get(fiber.context, EffectTransactionRef)
     if (active) return callback(active.tx).pipe(Effect.orDie)
-    const db = compatibilityService().db
-    return db
-      .transaction(
-        (tx) =>
-          Effect.gen(function* () {
-            const state: EffectTransactionState = { tx, afterCommit: [] }
-            const result = yield* callback(tx).pipe(Effect.provideService(EffectTransactionRef, state))
-            return { result, effects: state.afterCommit }
-          }),
-        options,
-      )
-      .pipe(
-        Effect.orDie,
-        Effect.tap((committed) =>
-          Effect.forEach(committed.effects, (pending) => pending.pipe(Effect.orDie), { discard: true }),
-        ),
-        Effect.map((committed) => committed.result),
-      )
+    const transact = (service: ScopedDatabase.Interface) =>
+      service.db
+        .transaction(
+          (tx) =>
+            Effect.gen(function* () {
+              const state: EffectTransactionState = { tx, afterCommit: [] }
+              const legacy: TransactionState = { tx: service.legacy, effects: [] }
+              const result = yield* callback(tx).pipe(
+                Effect.provideService(EffectTransactionRef, state),
+                // Legacy synchronous projectors run inside Effect.sync. Provide
+                // their transaction context explicitly so they use this same
+                // native connection instead of opening a competing SQLite one.
+                Effect.provideService(TransactionRef, legacy),
+              )
+              return { result, effects: state.afterCommit, legacyEffects: legacy.effects }
+            }),
+          options,
+        )
+        .pipe(
+          Effect.orDie,
+          Effect.tap((committed) =>
+            Effect.forEach(committed.effects, (pending) => pending.pipe(Effect.orDie), { discard: true }).pipe(
+              Effect.andThen(() =>
+                Effect.sync(() => {
+                  for (const pending of committed.legacyEffects) void pending()
+                }),
+              ),
+            ),
+          ),
+          Effect.map((committed) => committed.result),
+        )
+    return compatibilityServiceEffect().pipe(Effect.flatMap(transact))
   })
 }
 
@@ -124,7 +142,15 @@ export function layerFromFlags(flags: DatabaseFlags = readRuntimeFlags()) {
 export const layer = layerFromFlags()
 
 type CompatRuntime = ManagedRuntime.ManagedRuntime<ScopedDatabase.Service, never>
-let compat: { key: string; runtime: CompatRuntime } | undefined
+let effectCompat: { key: string; runtime: CompatRuntime } | undefined
+
+interface LegacyCompat {
+  readonly key: string
+  readonly native: BunSqliteDatabase
+  readonly client: Client
+}
+
+let legacyCompat: LegacyCompat | undefined
 
 function currentService() {
   const fiber = Fiber.getCurrent()
@@ -133,28 +159,58 @@ function currentService() {
   return service._tag === "Some" ? service.value : undefined
 }
 
-function compatibilityService(flags: DatabaseFlags = readRuntimeFlags()) {
+function compatibilityRuntime(flags: DatabaseFlags = readRuntimeFlags()) {
+  const key = `${getPath(flags)}\0${flags.skipMigrations ? "skip" : "migrate"}`
+  if (effectCompat && effectCompat.key !== key) {
+    void effectCompat.runtime.dispose()
+    effectCompat = undefined
+  }
+  if (!effectCompat) effectCompat = { key, runtime: ManagedRuntime.make(layerFromFlags(flags)) }
+  return effectCompat
+}
+
+function compatibilityServiceEffect(flags: DatabaseFlags = readRuntimeFlags()) {
   const active = currentService()
-  if (active) return active
+  if (active) return Effect.succeed(active)
+  return Effect.promise(() => compatibilityRuntime(flags).runtime.runPromise(ScopedDatabase.Service))
+}
+
+function compatibilityLegacy(flags: DatabaseFlags = readRuntimeFlags()): Client {
+  const active = currentService()
+  if (active) return active.legacy
 
   const key = `${getPath(flags)}\0${flags.skipMigrations ? "skip" : "migrate"}`
-  if (compat && compat.key !== key) {
-    Effect.runSync(compat.runtime.disposeEffect)
-    compat = undefined
+  if (legacyCompat && legacyCompat.key !== key) {
+    legacyCompat.native.close()
+    legacyCompat = undefined
   }
-  if (!compat) compat = { key, runtime: ManagedRuntime.make(layerFromFlags(flags)) }
-  return compat.runtime.runSync(ScopedDatabase.Service)
+  if (!legacyCompat) {
+    const native = new BunSqliteDatabase(getPath(flags))
+    native.run("PRAGMA journal_mode = WAL")
+    native.run("PRAGMA synchronous = NORMAL")
+    native.run("PRAGMA busy_timeout = 5000")
+    native.run("PRAGMA cache_size = -64000")
+    native.run("PRAGMA foreign_keys = ON")
+    native.run("PRAGMA wal_checkpoint(PASSIVE)")
+    legacyCompat = { key, native, client: drizzle({ client: native }) }
+  }
+  return legacyCompat.client
 }
 
 export function Client(flags: DatabaseFlags = readRuntimeFlags()): Client {
-  return compatibilityService(flags).legacy
+  return compatibilityLegacy(flags)
 }
 
 export function close() {
-  if (!compat) return
-  const current = compat
-  compat = undefined
-  Effect.runSync(current.runtime.disposeEffect)
+  if (legacyCompat) {
+    legacyCompat.native.close()
+    legacyCompat = undefined
+  }
+  if (effectCompat) {
+    const current = effectCompat
+    effectCompat = undefined
+    void current.runtime.dispose()
+  }
 }
 
 interface TransactionState {
@@ -182,8 +238,8 @@ export function use<T>(callback: (trx: TxOrDb) => T): T {
   if (active) return callback(active.tx)
 
   const effects: Array<() => unknown | Promise<unknown>> = []
-  const result = withTransactionState({ effects, tx: compatibilityService().legacy }, () =>
-    callback(compatibilityService().legacy),
+  const result = withTransactionState({ effects, tx: compatibilityLegacy() }, () =>
+    callback(compatibilityLegacy()),
   )
   for (const pending of effects) void pending()
   return result
@@ -211,7 +267,7 @@ export function transaction<T>(
   const active = transactionState()
   if (active) return callback(active.tx)
 
-  const database = compatibilityService().legacy
+  const database = compatibilityLegacy()
   const effects: Array<() => unknown | Promise<unknown>> = []
   const result = database.transaction(
     ((tx: Transaction) => withTransactionState({ tx, effects }, () => callback(tx))) as any,

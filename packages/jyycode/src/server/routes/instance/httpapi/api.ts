@@ -20,6 +20,7 @@ import { SessionApi } from "./groups/session"
 import { SyncApi } from "./groups/sync"
 import { TuiApi } from "./groups/tui"
 import { WorkspaceApi } from "./groups/workspace"
+import { WorkflowApi } from "./groups/workflow"
 import { V2Api } from "./groups/v2"
 import { Authorization } from "./middleware/authorization"
 import { SchemaErrorMiddleware } from "./middleware/schema-error"
@@ -51,6 +52,7 @@ export const InstanceHttpApi = HttpApi.make("jyycode-instance")
   .addHttpApi(V2Api)
   .addHttpApi(TuiApi)
   .addHttpApi(WorkspaceApi)
+  .addHttpApi(WorkflowApi)
   .middleware(SchemaErrorMiddleware)
 
 export const JYYCodeHttpApi = HttpApi.make("jyycode")

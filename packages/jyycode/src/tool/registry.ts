@@ -12,6 +12,7 @@ import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { TaskStatusTool } from "./task_status"
 import { AgentClusterReviewTool } from "./agent-cluster-review"
+import { ArtifactGetTool, ContextGetTool, ContextSearchTool } from "./workflow-context"
 import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
@@ -170,6 +171,9 @@ export const layer: Layer.Layer<
     const task = yield* TaskTool
     const taskStatus = yield* TaskStatusTool
     const agentClusterReview = yield* AgentClusterReviewTool
+    const contextSearch = yield* ContextSearchTool
+    const contextGet = yield* ContextGetTool
+    const artifactGet = yield* ArtifactGetTool
     const read = yield* ReadTool
     const ls = yield* LsTool
     const question = yield* QuestionTool
@@ -307,6 +311,9 @@ export const layer: Layer.Layer<
           task: Tool.init(task),
           task_status: Tool.init(taskStatus),
           agent_cluster_review: Tool.init(agentClusterReview),
+          context_search: Tool.init(contextSearch),
+          context_get: Tool.init(contextGet),
+          artifact_get: Tool.init(artifactGet),
           fetch: Tool.init(webfetch),
           todo: Tool.init(todo),
           search: Tool.init(websearch),
@@ -341,6 +348,9 @@ export const layer: Layer.Layer<
             tool.task,
             ...(flags.experimentalBackgroundSubagents ? [tool.task_status] : []),
             tool.agent_cluster_review,
+            tool.context_search,
+            tool.context_get,
+            tool.artifact_get,
             tool.fetch,
             tool.todo,
             tool.search,

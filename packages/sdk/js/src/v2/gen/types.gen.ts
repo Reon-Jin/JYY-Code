@@ -9,7 +9,6 @@ export type Event =
   | EventTuiCommandExecute
   | EventTuiToastShow1
   | EventTuiSessionSelect
-  | EventAgentClusterEvent1
   | EventServerConnected
   | EventGlobalDisposed
   | EventServerInstanceDisposed
@@ -812,7 +811,6 @@ export type GlobalEvent = {
     | EventTuiCommandExecute
     | EventTuiToastShow
     | EventTuiSessionSelect
-    | EventAgentClusterEvent
     | EventServerConnected
     | EventGlobalDisposed
     | EventServerInstanceDisposed
@@ -2874,34 +2872,6 @@ export type SyncEventSessionNextCompactionEnded = {
   }
 }
 
-export type EventAgentClusterEvent = {
-  id: string
-  type: "agent_cluster.event"
-  properties: {
-    sessionID: string
-    originMessageID?: string
-    taskID?: string
-    type: "run" | "task" | "review" | "artifact"
-    status?:
-      | "planned"
-      | "queued"
-      | "running"
-      | "submitted"
-      | "reviewing"
-      | "accepted"
-      | "revision_requested"
-      | "revising"
-      | "failed"
-      | "cancelled"
-      | "interrupted"
-    message: string
-    metadata?: {
-      [key: string]: unknown
-    }
-    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-  }
-}
-
 export type EventServerConnected = {
   id: string
   type: "server.connected"
@@ -4114,34 +4084,6 @@ export type EventTuiToastShow1 = {
     message: string
     variant: "info" | "success" | "warning" | "error"
     duration?: number
-  }
-}
-
-export type EventAgentClusterEvent1 = {
-  id: string
-  type: "agent_cluster.event"
-  properties: {
-    sessionID: string
-    originMessageID?: string
-    taskID?: string
-    type: "run" | "task" | "review" | "artifact"
-    status?:
-      | "planned"
-      | "queued"
-      | "running"
-      | "submitted"
-      | "reviewing"
-      | "accepted"
-      | "revision_requested"
-      | "revising"
-      | "failed"
-      | "cancelled"
-      | "interrupted"
-    message: string
-    metadata?: {
-      [key: string]: unknown
-    }
-    createdAt: number | "NaN" | "Infinity" | "-Infinity"
   }
 }
 
@@ -8149,23 +8091,12 @@ export type SessionAgentClusterResponses = {
       origin_message_id: string
       parent_task_id: string
       child_session_id: string
-      role: "researcher" | "analyst" | "writer" | "chart" | "pdf" | "coder" | "tester" | "picture_searcher" | "general"
+      role: string
       title: string
       prompt: string
-      complexity: "simple" | "complex"
+      complexity: string
       model: string
-      status:
-        | "planned"
-        | "queued"
-        | "running"
-        | "submitted"
-        | "reviewing"
-        | "accepted"
-        | "revision_requested"
-        | "revising"
-        | "failed"
-        | "cancelled"
-        | "interrupted"
+      status: string
       step: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
       dependencies: Array<string>
       review_round: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -10163,6 +10094,1710 @@ export type ExperimentalWorkspaceWarpResponses = {
 
 export type ExperimentalWorkspaceWarpResponse =
   ExperimentalWorkspaceWarpResponses[keyof ExperimentalWorkspaceWarpResponses]
+
+export type WorkflowRegisterData = {
+  body?: {
+    workflow: {
+      id: string
+      version: string
+      displayName: string
+      supports: {
+        single: boolean
+        multi: boolean
+      }
+      stages: Array<{
+        id: string
+        title: string
+        dependsOn: Array<string>
+        steps: Array<{
+          id: string
+          title: string
+          dependsOn: Array<string>
+          tasks: Array<{
+            id: string
+            title: string
+            dependsOn: Array<string>
+            acceptance: Array<{
+              id: string
+              title: string
+              required: boolean
+            }>
+          }>
+        }>
+      }>
+    }
+    scope: "builtin" | "global" | "project"
+    source: string
+    installed?: boolean
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow"
+}
+
+export type WorkflowRegisterErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowRegisterError = WorkflowRegisterErrors[keyof WorkflowRegisterErrors]
+
+export type WorkflowRegisterResponses = {
+  /**
+   * Workflow registered
+   */
+  200: boolean
+}
+
+export type WorkflowRegisterResponse = WorkflowRegisterResponses[keyof WorkflowRegisterResponses]
+
+export type WorkflowPinData = {
+  body?: {
+    workflowID: string
+    workflowVersion: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/pin"
+}
+
+export type WorkflowPinErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowPinError = WorkflowPinErrors[keyof WorkflowPinErrors]
+
+export type WorkflowPinResponses = {
+  /**
+   * Workflow pinned to session
+   */
+  200: boolean
+}
+
+export type WorkflowPinResponse = WorkflowPinResponses[keyof WorkflowPinResponses]
+
+export type WorkflowGetSessionPlanData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/run-plan"
+}
+
+export type WorkflowGetSessionPlanErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowGetSessionPlanError = WorkflowGetSessionPlanErrors[keyof WorkflowGetSessionPlanErrors]
+
+export type WorkflowGetSessionPlanResponses = {
+  /**
+   * Session run plan
+   */
+  200: {
+    id: string
+    sessionID: string
+    workflowID: string
+    workflowVersion: string
+    version: number
+    mode: "single" | "multi"
+    goal: string
+    tasks: Array<{
+      id: string
+      title: string
+      stageID: string
+      stepID: string
+      dependsOn: Array<string>
+      status:
+        | "planned"
+        | "ready"
+        | "running"
+        | "submitted"
+        | "reviewing"
+        | "accepted"
+        | "revision_requested"
+        | "revising"
+        | "interrupted"
+        | "needs_validation"
+        | "checkpointing"
+        | "checkpointed"
+        | "reassigned"
+        | "failed"
+        | "replan_requested"
+        | "blocked"
+        | "failed_with_report"
+      assignee?: string
+      role?: string
+      prompt?: string
+      model?: string
+      complexity?: "simple" | "complex"
+      expectedArtifacts?: Array<string>
+      acceptance: Array<{
+        id: string
+        title: string
+        required: boolean
+      }>
+    }>
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowGetSessionPlanResponse = WorkflowGetSessionPlanResponses[keyof WorkflowGetSessionPlanResponses]
+
+export type WorkflowCreateSessionPlanData = {
+  body?: {
+    plan: {
+      id: string
+      sessionID: string
+      workflowID: string
+      workflowVersion: string
+      version: number
+      mode: "single" | "multi"
+      goal: string
+      tasks: Array<{
+        id: string
+        title: string
+        stageID: string
+        stepID: string
+        dependsOn: Array<string>
+        status:
+          | "planned"
+          | "ready"
+          | "running"
+          | "submitted"
+          | "reviewing"
+          | "accepted"
+          | "revision_requested"
+          | "revising"
+          | "interrupted"
+          | "needs_validation"
+          | "checkpointing"
+          | "checkpointed"
+          | "reassigned"
+          | "failed"
+          | "replan_requested"
+          | "blocked"
+          | "failed_with_report"
+        assignee?: string
+        role?: string
+        prompt?: string
+        model?: string
+        complexity?: "simple" | "complex"
+        expectedArtifacts?: Array<string>
+        acceptance: Array<{
+          id: string
+          title: string
+          required: boolean
+        }>
+      }>
+      createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+    author: "user" | "main_agent"
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/run-plan"
+}
+
+export type WorkflowCreateSessionPlanErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowCreateSessionPlanError = WorkflowCreateSessionPlanErrors[keyof WorkflowCreateSessionPlanErrors]
+
+export type WorkflowCreateSessionPlanResponses = {
+  /**
+   * Run plan created
+   */
+  200: {
+    id: string
+    sessionID: string
+    workflowID: string
+    workflowVersion: string
+    version: number
+    mode: "single" | "multi"
+    goal: string
+    tasks: Array<{
+      id: string
+      title: string
+      stageID: string
+      stepID: string
+      dependsOn: Array<string>
+      status:
+        | "planned"
+        | "ready"
+        | "running"
+        | "submitted"
+        | "reviewing"
+        | "accepted"
+        | "revision_requested"
+        | "revising"
+        | "interrupted"
+        | "needs_validation"
+        | "checkpointing"
+        | "checkpointed"
+        | "reassigned"
+        | "failed"
+        | "replan_requested"
+        | "blocked"
+        | "failed_with_report"
+      assignee?: string
+      role?: string
+      prompt?: string
+      model?: string
+      complexity?: "simple" | "complex"
+      expectedArtifacts?: Array<string>
+      acceptance: Array<{
+        id: string
+        title: string
+        required: boolean
+      }>
+    }>
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowCreateSessionPlanResponse =
+  WorkflowCreateSessionPlanResponses[keyof WorkflowCreateSessionPlanResponses]
+
+export type WorkflowGetRunPlanData = {
+  body?: never
+  path: {
+    runPlanID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/run-plans/{runPlanID}"
+}
+
+export type WorkflowGetRunPlanErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowGetRunPlanError = WorkflowGetRunPlanErrors[keyof WorkflowGetRunPlanErrors]
+
+export type WorkflowGetRunPlanResponses = {
+  /**
+   * Run plan
+   */
+  200: {
+    id: string
+    sessionID: string
+    workflowID: string
+    workflowVersion: string
+    version: number
+    mode: "single" | "multi"
+    goal: string
+    tasks: Array<{
+      id: string
+      title: string
+      stageID: string
+      stepID: string
+      dependsOn: Array<string>
+      status:
+        | "planned"
+        | "ready"
+        | "running"
+        | "submitted"
+        | "reviewing"
+        | "accepted"
+        | "revision_requested"
+        | "revising"
+        | "interrupted"
+        | "needs_validation"
+        | "checkpointing"
+        | "checkpointed"
+        | "reassigned"
+        | "failed"
+        | "replan_requested"
+        | "blocked"
+        | "failed_with_report"
+      assignee?: string
+      role?: string
+      prompt?: string
+      model?: string
+      complexity?: "simple" | "complex"
+      expectedArtifacts?: Array<string>
+      acceptance: Array<{
+        id: string
+        title: string
+        required: boolean
+      }>
+    }>
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowGetRunPlanResponse = WorkflowGetRunPlanResponses[keyof WorkflowGetRunPlanResponses]
+
+export type WorkflowListVersionsData = {
+  body?: never
+  path: {
+    runPlanID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/run-plans/{runPlanID}/versions"
+}
+
+export type WorkflowListVersionsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowListVersionsError = WorkflowListVersionsErrors[keyof WorkflowListVersionsErrors]
+
+export type WorkflowListVersionsResponses = {
+  /**
+   * Run plan version history
+   */
+  200: Array<{
+    version: number
+    author: "user" | "main_agent"
+    reason: string
+    snapshot: {
+      id: string
+      sessionID: string
+      workflowID: string
+      workflowVersion: string
+      version: number
+      mode: "single" | "multi"
+      goal: string
+      tasks: Array<{
+        id: string
+        title: string
+        stageID: string
+        stepID: string
+        dependsOn: Array<string>
+        status:
+          | "planned"
+          | "ready"
+          | "running"
+          | "submitted"
+          | "reviewing"
+          | "accepted"
+          | "revision_requested"
+          | "revising"
+          | "interrupted"
+          | "needs_validation"
+          | "checkpointing"
+          | "checkpointed"
+          | "reassigned"
+          | "failed"
+          | "replan_requested"
+          | "blocked"
+          | "failed_with_report"
+        assignee?: string
+        role?: string
+        prompt?: string
+        model?: string
+        complexity?: "simple" | "complex"
+        expectedArtifacts?: Array<string>
+        acceptance: Array<{
+          id: string
+          title: string
+          required: boolean
+        }>
+      }>
+      createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    }
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }>
+}
+
+export type WorkflowListVersionsResponse = WorkflowListVersionsResponses[keyof WorkflowListVersionsResponses]
+
+export type WorkflowPatchData = {
+  body?: {
+    patch: {
+      baseVersion: number
+      reason: string
+      operations: Array<
+        | {
+            type: "add_task"
+            task: {
+              id: string
+              title: string
+              stageID: string
+              stepID: string
+              dependsOn: Array<string>
+              status:
+                | "planned"
+                | "ready"
+                | "running"
+                | "submitted"
+                | "reviewing"
+                | "accepted"
+                | "revision_requested"
+                | "revising"
+                | "interrupted"
+                | "needs_validation"
+                | "checkpointing"
+                | "checkpointed"
+                | "reassigned"
+                | "failed"
+                | "replan_requested"
+                | "blocked"
+                | "failed_with_report"
+              assignee?: string
+              role?: string
+              prompt?: string
+              model?: string
+              complexity?: "simple" | "complex"
+              expectedArtifacts?: Array<string>
+              acceptance: Array<{
+                id: string
+                title: string
+                required: boolean
+              }>
+            }
+          }
+        | {
+            type: "update_task"
+            taskID: string
+            title?: string
+            dependsOn?: Array<string>
+            role?: string
+            prompt?: string
+            model?: string
+            complexity?: "simple" | "complex"
+            expectedArtifacts?: Array<string>
+            acceptance?: Array<{
+              id: string
+              title: string
+              required: boolean
+            }>
+          }
+        | {
+            type: "remove_task"
+            taskID: string
+          }
+        | {
+            type: "set_mode"
+            mode: "single" | "multi"
+          }
+      >
+    }
+    author: "user" | "main_agent"
+  }
+  path: {
+    runPlanID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/run-plans/{runPlanID}/patch"
+}
+
+export type WorkflowPatchErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowPatchError = WorkflowPatchErrors[keyof WorkflowPatchErrors]
+
+export type WorkflowPatchResponses = {
+  /**
+   * Run plan patched
+   */
+  200: {
+    id: string
+    sessionID: string
+    workflowID: string
+    workflowVersion: string
+    version: number
+    mode: "single" | "multi"
+    goal: string
+    tasks: Array<{
+      id: string
+      title: string
+      stageID: string
+      stepID: string
+      dependsOn: Array<string>
+      status:
+        | "planned"
+        | "ready"
+        | "running"
+        | "submitted"
+        | "reviewing"
+        | "accepted"
+        | "revision_requested"
+        | "revising"
+        | "interrupted"
+        | "needs_validation"
+        | "checkpointing"
+        | "checkpointed"
+        | "reassigned"
+        | "failed"
+        | "replan_requested"
+        | "blocked"
+        | "failed_with_report"
+      assignee?: string
+      role?: string
+      prompt?: string
+      model?: string
+      complexity?: "simple" | "complex"
+      expectedArtifacts?: Array<string>
+      acceptance: Array<{
+        id: string
+        title: string
+        required: boolean
+      }>
+    }>
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowPatchResponse = WorkflowPatchResponses[keyof WorkflowPatchResponses]
+
+export type WorkflowRestoreData = {
+  body?: {
+    version: number
+    baseVersion: number
+    author: "user" | "main_agent"
+  }
+  path: {
+    runPlanID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/run-plans/{runPlanID}/restore"
+}
+
+export type WorkflowRestoreErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowRestoreError = WorkflowRestoreErrors[keyof WorkflowRestoreErrors]
+
+export type WorkflowRestoreResponses = {
+  /**
+   * Restored run plan
+   */
+  200: {
+    id: string
+    sessionID: string
+    workflowID: string
+    workflowVersion: string
+    version: number
+    mode: "single" | "multi"
+    goal: string
+    tasks: Array<{
+      id: string
+      title: string
+      stageID: string
+      stepID: string
+      dependsOn: Array<string>
+      status:
+        | "planned"
+        | "ready"
+        | "running"
+        | "submitted"
+        | "reviewing"
+        | "accepted"
+        | "revision_requested"
+        | "revising"
+        | "interrupted"
+        | "needs_validation"
+        | "checkpointing"
+        | "checkpointed"
+        | "reassigned"
+        | "failed"
+        | "replan_requested"
+        | "blocked"
+        | "failed_with_report"
+      assignee?: string
+      role?: string
+      prompt?: string
+      model?: string
+      complexity?: "simple" | "complex"
+      expectedArtifacts?: Array<string>
+      acceptance: Array<{
+        id: string
+        title: string
+        required: boolean
+      }>
+    }>
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowRestoreResponse = WorkflowRestoreResponses[keyof WorkflowRestoreResponses]
+
+export type WorkflowTransitionData = {
+  body?: {
+    from:
+      | "planned"
+      | "ready"
+      | "running"
+      | "submitted"
+      | "reviewing"
+      | "accepted"
+      | "revision_requested"
+      | "revising"
+      | "interrupted"
+      | "needs_validation"
+      | "checkpointing"
+      | "checkpointed"
+      | "reassigned"
+      | "failed"
+      | "replan_requested"
+      | "blocked"
+      | "failed_with_report"
+    to:
+      | "planned"
+      | "ready"
+      | "running"
+      | "submitted"
+      | "reviewing"
+      | "accepted"
+      | "revision_requested"
+      | "revising"
+      | "interrupted"
+      | "needs_validation"
+      | "checkpointing"
+      | "checkpointed"
+      | "reassigned"
+      | "failed"
+      | "replan_requested"
+      | "blocked"
+      | "failed_with_report"
+    detail?: {
+      [key: string]: unknown
+    }
+  }
+  path: {
+    runPlanID: string
+    nodeID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/run-plans/{runPlanID}/nodes/{nodeID}/transition"
+}
+
+export type WorkflowTransitionErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowTransitionError = WorkflowTransitionErrors[keyof WorkflowTransitionErrors]
+
+export type WorkflowTransitionResponses = {
+  /**
+   * Node transitioned
+   */
+  200: boolean
+}
+
+export type WorkflowTransitionResponse = WorkflowTransitionResponses[keyof WorkflowTransitionResponses]
+
+export type WorkflowListContextData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    query?: string
+    limit?: string
+  }
+  url: "/workflow/sessions/{sessionID}/context"
+}
+
+export type WorkflowListContextErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowListContextError = WorkflowListContextErrors[keyof WorkflowListContextErrors]
+
+export type WorkflowListContextResponses = {
+  /**
+   * Session context ledger
+   */
+  200: Array<{
+    id: string
+    sessionID: string
+    runPlanID?: string
+    nodeID?: string
+    source:
+      | "system"
+      | "workflow"
+      | "run_plan"
+      | "user_constraint"
+      | "memory"
+      | "conversation"
+      | "task"
+      | "artifact"
+      | "tool_result"
+      | "review"
+      | "compaction"
+      | "blackboard"
+    priority: "critical" | "high" | "normal" | "low"
+    tokenEstimate: number
+    provenance: string
+    retention: "turn" | "task" | "session" | "persistent"
+    cachePolicy: "stable" | "volatile" | "no_cache"
+    scope: {
+      [key: string]: unknown
+    }
+    content: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }>
+}
+
+export type WorkflowListContextResponse = WorkflowListContextResponses[keyof WorkflowListContextResponses]
+
+export type WorkflowCreateContextData = {
+  body?: {
+    source:
+      | "system"
+      | "workflow"
+      | "run_plan"
+      | "user_constraint"
+      | "memory"
+      | "conversation"
+      | "task"
+      | "artifact"
+      | "tool_result"
+      | "review"
+      | "compaction"
+      | "blackboard"
+    priority: "critical" | "high" | "normal" | "low"
+    tokenEstimate?: number
+    provenance: string
+    retention: "turn" | "task" | "session" | "persistent"
+    cachePolicy: "stable" | "volatile" | "no_cache"
+    scope: {
+      [key: string]: unknown
+    }
+    content: string
+    runPlanID?: string
+    nodeID?: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/context"
+}
+
+export type WorkflowCreateContextErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowCreateContextError = WorkflowCreateContextErrors[keyof WorkflowCreateContextErrors]
+
+export type WorkflowCreateContextResponses = {
+  /**
+   * Context block created
+   */
+  200: {
+    id: string
+    sessionID: string
+    runPlanID?: string
+    nodeID?: string
+    source:
+      | "system"
+      | "workflow"
+      | "run_plan"
+      | "user_constraint"
+      | "memory"
+      | "conversation"
+      | "task"
+      | "artifact"
+      | "tool_result"
+      | "review"
+      | "compaction"
+      | "blackboard"
+    priority: "critical" | "high" | "normal" | "low"
+    tokenEstimate: number
+    provenance: string
+    retention: "turn" | "task" | "session" | "persistent"
+    cachePolicy: "stable" | "volatile" | "no_cache"
+    scope: {
+      [key: string]: unknown
+    }
+    content: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowCreateContextResponse = WorkflowCreateContextResponses[keyof WorkflowCreateContextResponses]
+
+export type WorkflowGetContextData = {
+  body?: never
+  path: {
+    contextID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/context/{contextID}"
+}
+
+export type WorkflowGetContextErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowGetContextError = WorkflowGetContextErrors[keyof WorkflowGetContextErrors]
+
+export type WorkflowGetContextResponses = {
+  /**
+   * Context block
+   */
+  200: {
+    id: string
+    sessionID: string
+    runPlanID?: string
+    nodeID?: string
+    source:
+      | "system"
+      | "workflow"
+      | "run_plan"
+      | "user_constraint"
+      | "memory"
+      | "conversation"
+      | "task"
+      | "artifact"
+      | "tool_result"
+      | "review"
+      | "compaction"
+      | "blackboard"
+    priority: "critical" | "high" | "normal" | "low"
+    tokenEstimate: number
+    provenance: string
+    retention: "turn" | "task" | "session" | "persistent"
+    cachePolicy: "stable" | "volatile" | "no_cache"
+    scope: {
+      [key: string]: unknown
+    }
+    content: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowGetContextResponse = WorkflowGetContextResponses[keyof WorkflowGetContextResponses]
+
+export type WorkflowListArtifactsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/artifacts"
+}
+
+export type WorkflowListArtifactsErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowListArtifactsError = WorkflowListArtifactsErrors[keyof WorkflowListArtifactsErrors]
+
+export type WorkflowListArtifactsResponses = {
+  /**
+   * Session artifacts
+   */
+  200: Array<{
+    id: string
+    sessionID: string
+    runPlanID?: string
+    nodeID?: string
+    name: string
+    mediaType: string
+    uri: string
+    content?: string
+    summary: string
+    metadata: {
+      [key: string]: unknown
+    }
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }>
+}
+
+export type WorkflowListArtifactsResponse = WorkflowListArtifactsResponses[keyof WorkflowListArtifactsResponses]
+
+export type WorkflowCreateArtifactData = {
+  body?: {
+    name: string
+    mediaType: string
+    content?: string
+    summary: string
+    metadata: {
+      [key: string]: unknown
+    }
+    runPlanID?: string
+    nodeID?: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/artifacts"
+}
+
+export type WorkflowCreateArtifactErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowCreateArtifactError = WorkflowCreateArtifactErrors[keyof WorkflowCreateArtifactErrors]
+
+export type WorkflowCreateArtifactResponses = {
+  /**
+   * Artifact created
+   */
+  200: {
+    id: string
+    sessionID: string
+    runPlanID?: string
+    nodeID?: string
+    name: string
+    mediaType: string
+    uri: string
+    content?: string
+    summary: string
+    metadata: {
+      [key: string]: unknown
+    }
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowCreateArtifactResponse = WorkflowCreateArtifactResponses[keyof WorkflowCreateArtifactResponses]
+
+export type WorkflowGetArtifactData = {
+  body?: never
+  path: {
+    artifactID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/artifacts/{artifactID}"
+}
+
+export type WorkflowGetArtifactErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type WorkflowGetArtifactError = WorkflowGetArtifactErrors[keyof WorkflowGetArtifactErrors]
+
+export type WorkflowGetArtifactResponses = {
+  /**
+   * Artifact
+   */
+  200: {
+    id: string
+    sessionID: string
+    runPlanID?: string
+    nodeID?: string
+    name: string
+    mediaType: string
+    uri: string
+    content?: string
+    summary: string
+    metadata: {
+      [key: string]: unknown
+    }
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowGetArtifactResponse = WorkflowGetArtifactResponses[keyof WorkflowGetArtifactResponses]
+
+export type WorkflowListBlackboardData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/blackboard"
+}
+
+export type WorkflowListBlackboardErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowListBlackboardError = WorkflowListBlackboardErrors[keyof WorkflowListBlackboardErrors]
+
+export type WorkflowListBlackboardResponses = {
+  /**
+   * Session blackboard
+   */
+  200: Array<{
+    id: string
+    sessionID: string
+    type: "decision" | "contract" | "constraint" | "evidence" | "risk" | "proposal" | "blocker"
+    title: string
+    status: "draft" | "published" | "accepted" | "superseded" | "rejected"
+    version: number
+    authorAgentID: string
+    approvedBy?: string
+    summary: string
+    relatedTasks: Array<string>
+    replaces: Array<string>
+    impactScope: "low" | "medium" | "high"
+    artifacts: Array<string>
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }>
+}
+
+export type WorkflowListBlackboardResponse = WorkflowListBlackboardResponses[keyof WorkflowListBlackboardResponses]
+
+export type WorkflowCreateBlackboardData = {
+  body?: {
+    type: "decision" | "contract" | "constraint" | "evidence" | "risk" | "proposal" | "blocker"
+    title: string
+    authorAgentID: string
+    summary: string
+    relatedTasks: Array<string>
+    replaces: Array<string>
+    impactScope: "low" | "medium" | "high"
+    artifacts: Array<string>
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/blackboard"
+}
+
+export type WorkflowCreateBlackboardErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowCreateBlackboardError = WorkflowCreateBlackboardErrors[keyof WorkflowCreateBlackboardErrors]
+
+export type WorkflowCreateBlackboardResponses = {
+  /**
+   * Blackboard card created
+   */
+  200: {
+    id: string
+    sessionID: string
+    type: "decision" | "contract" | "constraint" | "evidence" | "risk" | "proposal" | "blocker"
+    title: string
+    status: "draft" | "published" | "accepted" | "superseded" | "rejected"
+    version: number
+    authorAgentID: string
+    approvedBy?: string
+    summary: string
+    relatedTasks: Array<string>
+    replaces: Array<string>
+    impactScope: "low" | "medium" | "high"
+    artifacts: Array<string>
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowCreateBlackboardResponse =
+  WorkflowCreateBlackboardResponses[keyof WorkflowCreateBlackboardResponses]
+
+export type WorkflowTransitionBlackboardData = {
+  body?: {
+    from: "draft" | "published" | "accepted" | "superseded" | "rejected"
+    to: "draft" | "published" | "accepted" | "superseded" | "rejected"
+    approvedBy?: string
+  }
+  path: {
+    cardID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/blackboard/{cardID}/transition"
+}
+
+export type WorkflowTransitionBlackboardErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowTransitionBlackboardError =
+  WorkflowTransitionBlackboardErrors[keyof WorkflowTransitionBlackboardErrors]
+
+export type WorkflowTransitionBlackboardResponses = {
+  /**
+   * Blackboard card transitioned
+   */
+  200: {
+    id: string
+    sessionID: string
+    type: "decision" | "contract" | "constraint" | "evidence" | "risk" | "proposal" | "blocker"
+    title: string
+    status: "draft" | "published" | "accepted" | "superseded" | "rejected"
+    version: number
+    authorAgentID: string
+    approvedBy?: string
+    summary: string
+    relatedTasks: Array<string>
+    replaces: Array<string>
+    impactScope: "low" | "medium" | "high"
+    artifacts: Array<string>
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowTransitionBlackboardResponse =
+  WorkflowTransitionBlackboardResponses[keyof WorkflowTransitionBlackboardResponses]
+
+export type WorkflowListReviewsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/reviews"
+}
+
+export type WorkflowListReviewsErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowListReviewsError = WorkflowListReviewsErrors[keyof WorkflowListReviewsErrors]
+
+export type WorkflowListReviewsResponses = {
+  /**
+   * Session review inbox
+   */
+  200: Array<{
+    id: string
+    sessionID: string
+    runPlanID?: string
+    nodeID?: string
+    authorAgentID: string
+    severity: "low" | "medium" | "high" | "critical"
+    status: "open" | "accepted" | "rejected" | "resolved"
+    summary: string
+    evidence: Array<string>
+    suggestion: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }>
+}
+
+export type WorkflowListReviewsResponse = WorkflowListReviewsResponses[keyof WorkflowListReviewsResponses]
+
+export type WorkflowCreateReviewData = {
+  body?: {
+    runPlanID?: string
+    nodeID?: string
+    authorAgentID: string
+    severity: "low" | "medium" | "high" | "critical"
+    summary: string
+    evidence: Array<string>
+    suggestion: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/reviews"
+}
+
+export type WorkflowCreateReviewErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowCreateReviewError = WorkflowCreateReviewErrors[keyof WorkflowCreateReviewErrors]
+
+export type WorkflowCreateReviewResponses = {
+  /**
+   * Review finding created
+   */
+  200: {
+    id: string
+    sessionID: string
+    runPlanID?: string
+    nodeID?: string
+    authorAgentID: string
+    severity: "low" | "medium" | "high" | "critical"
+    status: "open" | "accepted" | "rejected" | "resolved"
+    summary: string
+    evidence: Array<string>
+    suggestion: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowCreateReviewResponse = WorkflowCreateReviewResponses[keyof WorkflowCreateReviewResponses]
+
+export type WorkflowResolveReviewData = {
+  body?: {
+    status: "accepted" | "rejected" | "resolved"
+  }
+  path: {
+    findingID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/reviews/{findingID}/resolve"
+}
+
+export type WorkflowResolveReviewErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowResolveReviewError = WorkflowResolveReviewErrors[keyof WorkflowResolveReviewErrors]
+
+export type WorkflowResolveReviewResponses = {
+  /**
+   * Review finding resolved
+   */
+  200: {
+    id: string
+    sessionID: string
+    runPlanID?: string
+    nodeID?: string
+    authorAgentID: string
+    severity: "low" | "medium" | "high" | "critical"
+    status: "open" | "accepted" | "rejected" | "resolved"
+    summary: string
+    evidence: Array<string>
+    suggestion: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type WorkflowResolveReviewResponse = WorkflowResolveReviewResponses[keyof WorkflowResolveReviewResponses]
+
+export type WorkflowGeneratorPreviewData = {
+  body?: {
+    request: string
+    id?: string
+    displayName?: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/generator/preview"
+}
+
+export type WorkflowGeneratorPreviewErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowGeneratorPreviewError = WorkflowGeneratorPreviewErrors[keyof WorkflowGeneratorPreviewErrors]
+
+export type WorkflowGeneratorPreviewResponses = {
+  /**
+   * Generated workflow preview
+   */
+  200: {
+    status: "draft" | "incomplete_draft" | "validating" | "ready" | "invalid" | "installed"
+    workflow: {
+      id: string
+      version: string
+      displayName: string
+      supports: {
+        single: boolean
+        multi: boolean
+      }
+      stages: Array<{
+        id: string
+        title: string
+        dependsOn: Array<string>
+        steps: Array<{
+          id: string
+          title: string
+          dependsOn: Array<string>
+          tasks: Array<{
+            id: string
+            title: string
+            dependsOn: Array<string>
+            acceptance: Array<{
+              id: string
+              title: string
+              required: boolean
+            }>
+          }>
+        }>
+      }>
+    }
+    spec: {
+      status: "draft" | "incomplete_draft" | "validating" | "ready" | "invalid" | "installed"
+      identity: {
+        name: string
+        displayName: string
+        scope: string
+      }
+      applicability: {
+        included: Array<string>
+        excluded: Array<string>
+      }
+      outputs: Array<string>
+      unresolved: Array<string>
+      maxConcurrency: number
+      maxReplanCycles: number
+    }
+    interview: Array<{
+      id: string
+      prompt: string
+      required: boolean
+    }>
+    validation: Array<{
+      id: "schema" | "dependencies" | "state_machine" | "acceptance" | "single_simulation" | "multi_simulation"
+      valid: boolean
+      message: string
+    }>
+    dryRuns: Array<{
+      mode: "single" | "multi"
+      valid: boolean
+      steps: Array<string>
+      errors: Array<string>
+    }>
+    files: Array<{
+      path: string
+      content: string
+      kind: "workflow" | "schema" | "prompt" | "test" | "fixture" | "readme" | "report"
+    }>
+    risks: Array<string>
+  }
+}
+
+export type WorkflowGeneratorPreviewResponse =
+  WorkflowGeneratorPreviewResponses[keyof WorkflowGeneratorPreviewResponses]
+
+export type WorkflowGeneratorInstallData = {
+  body?: {
+    workflow: {
+      id: string
+      version: string
+      displayName: string
+      supports: {
+        single: boolean
+        multi: boolean
+      }
+      stages: Array<{
+        id: string
+        title: string
+        dependsOn: Array<string>
+        steps: Array<{
+          id: string
+          title: string
+          dependsOn: Array<string>
+          tasks: Array<{
+            id: string
+            title: string
+            dependsOn: Array<string>
+            acceptance: Array<{
+              id: string
+              title: string
+              required: boolean
+            }>
+          }>
+        }>
+      }>
+    }
+    confirmed: boolean
+    scope?: "global" | "project"
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/generator/install"
+}
+
+export type WorkflowGeneratorInstallErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowGeneratorInstallError = WorkflowGeneratorInstallErrors[keyof WorkflowGeneratorInstallErrors]
+
+export type WorkflowGeneratorInstallResponses = {
+  /**
+   * Generated workflow installed
+   */
+  200: {
+    id: string
+    version: string
+    displayName: string
+    supports: {
+      single: boolean
+      multi: boolean
+    }
+    stages: Array<{
+      id: string
+      title: string
+      dependsOn: Array<string>
+      steps: Array<{
+        id: string
+        title: string
+        dependsOn: Array<string>
+        tasks: Array<{
+          id: string
+          title: string
+          dependsOn: Array<string>
+          acceptance: Array<{
+            id: string
+            title: string
+            required: boolean
+          }>
+        }>
+      }>
+    }>
+  }
+}
+
+export type WorkflowGeneratorInstallResponse =
+  WorkflowGeneratorInstallResponses[keyof WorkflowGeneratorInstallResponses]
+
+export type WorkflowListAssignmentsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/assignments"
+}
+
+export type WorkflowListAssignmentsErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowListAssignmentsError = WorkflowListAssignmentsErrors[keyof WorkflowListAssignmentsErrors]
+
+export type WorkflowListAssignmentsResponses = {
+  /**
+   * Session workflow assignments
+   */
+  200: Array<{
+    id: string
+    sessionID: string
+    runPlanID: string
+    nodeID: string
+    agentID: string
+    role: string
+    workspaceID: string
+    childSessionID?: string
+    status: "assigned" | "running" | "checkpointed" | "completed" | "failed" | "interrupted"
+    checkpoint?: string
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    updatedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }>
+}
+
+export type WorkflowListAssignmentsResponse = WorkflowListAssignmentsResponses[keyof WorkflowListAssignmentsResponses]
+
+export type WorkflowListEventsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/workflow/sessions/{sessionID}/events"
+}
+
+export type WorkflowListEventsErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type WorkflowListEventsError = WorkflowListEventsErrors[keyof WorkflowListEventsErrors]
+
+export type WorkflowListEventsResponses = {
+  /**
+   * Session workflow events
+   */
+  200: Array<{
+    id: string
+    sessionID: string
+    type:
+      | "WorkflowSelected"
+      | "RunPlanCreated"
+      | "RunPlanPatched"
+      | "RunPlanConflict"
+      | "ModeSwitchRequested"
+      | "CheckpointStarted"
+      | "ModeSwitched"
+      | "TaskAssigned"
+      | "TaskStarted"
+      | "ArtifactSubmitted"
+      | "ReviewRequested"
+      | "ReviewFindingCreated"
+      | "RevisionRequested"
+      | "TaskAccepted"
+      | "BlackboardPublished"
+      | "BlackboardAccepted"
+      | "ToolAccessRequested"
+      | "ToolAccessGranted"
+      | "DeliverableReady"
+      | "SessionCompleted"
+    workflowID?: string
+    workflowVersion?: string
+    runPlanID?: string
+    nodeID?: string
+    payload: {
+      [key: string]: unknown
+    }
+    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }>
+}
+
+export type WorkflowListEventsResponse = WorkflowListEventsResponses[keyof WorkflowListEventsResponses]
 
 export type PtyConnectData = {
   body?: never

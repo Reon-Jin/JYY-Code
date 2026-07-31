@@ -38,6 +38,21 @@ export type ConversationAction =
     }
   | { kind: "part.remove"; eventID: string; sessionID: string; messageID: string; partID: string }
 
+// This event is emitted by the local cluster runtime before the generated SDK's
+// global-event union is refreshed. Keep the bridge structurally typed so a newer
+// desktop sidecar can still update an already-open cluster view.
+type AgentClusterEvent = {
+  id: string
+  type: "agent_cluster.event"
+  properties: {
+    sessionID: string
+    taskID: string
+    status: SessionAgentClusterResponse["tasks"][number]["status"]
+    createdAt: number
+    message?: string
+  }
+}
+
 export type CacheAction =
   | { kind: "server.connected"; eventID: string }
   | { kind: "session.upsert"; eventID: string; info: Session }
@@ -55,7 +70,7 @@ export type CacheAction =
       eventID: string
       directory: string
       sessionID: string
-      event: Extract<GlobalEvent["payload"], { type: "agent_cluster.event" }>
+      event: AgentClusterEvent
     }
   | ConversationAction
 
@@ -69,6 +84,17 @@ export function routeEvent(directory: string, event: GlobalEvent): CacheAction[]
     return [{ kind: "server.connected", eventID: payload.id }]
   }
   if (!sameDirectory(event.directory, directory)) return []
+
+  const agentClusterPayload = payload as unknown as AgentClusterEvent
+  if (agentClusterPayload.type === "agent_cluster.event") {
+    return [{
+      kind: "agent-cluster.event",
+      eventID: agentClusterPayload.id,
+      directory,
+      sessionID: agentClusterPayload.properties.sessionID,
+      event: agentClusterPayload,
+    }]
+  }
 
   switch (payload.type) {
     case "session.created":
@@ -181,16 +207,6 @@ export function routeEvent(directory: string, event: GlobalEvent): CacheAction[]
         { kind: "vcs.branch.set", eventID: payload.id, directory, branch: payload.properties.branch },
         { kind: "vcs.invalidate", eventID: payload.id, directory },
       ]
-    case "agent_cluster.event":
-      return [
-        {
-          kind: "agent-cluster.event",
-          eventID: payload.id,
-          directory,
-          sessionID: payload.properties.sessionID,
-          event: payload,
-        },
-      ]
     default:
       return []
   }
@@ -229,49 +245,6 @@ const conversationKinds = new Set<CacheAction["kind"]>([
   "part.delta",
   "part.remove",
 ])
-
-type AgentClusterAction = Extract<CacheAction, { kind: "agent-cluster.event" }>
-
-const taskStatuses = new Set([
-  "planned",
-  "queued",
-  "running",
-  "submitted",
-  "reviewing",
-  "accepted",
-  "revision_requested",
-  "revising",
-  "failed",
-  "cancelled",
-  "interrupted",
-] as const)
-
-type TaskStatus = SessionAgentClusterResponse["tasks"][number]["status"]
-
-function isTaskStatus(status: AgentClusterAction["event"]["properties"]["status"]): status is TaskStatus {
-  return status !== undefined && taskStatuses.has(status as TaskStatus)
-}
-
-function patchAgentClusterState(state: SessionAgentClusterResponse, actions: AgentClusterAction[]) {
-  let tasks = state.tasks
-
-  for (const action of actions) {
-    const properties = action.event.properties
-    if (!properties.taskID) continue
-    const index = tasks.findIndex((task) => task.id === properties.taskID)
-    if (index === -1) continue
-    const current = tasks[index]!
-    tasks = [...tasks]
-    tasks[index] = {
-      ...current,
-      status: isTaskStatus(properties.status) ? properties.status : current.status,
-      time_updated: properties.createdAt,
-      last_event: properties.message,
-    }
-  }
-
-  return tasks === state.tasks ? state : { tasks }
-}
 
 function isConversationAction(action: CacheAction): action is ConversationAction {
   return conversationKinds.has(action.kind)
@@ -410,8 +383,8 @@ export class EventBridge {
     if (this.#queue.length === 0 || this.#abort.signal.aborted) return
     const events = this.#queue.splice(0)
     const conversations = new Map<string, GlobalEvent[]>()
-    const agentClusters = new Map<string, AgentClusterAction[]>()
     const invalidatedVcs = new Set<string>()
+    let workflowChanged = false
 
     for (const event of events) {
       for (const action of routeEvent(this.#options.directory, event)) {
@@ -426,16 +399,16 @@ export class EventBridge {
           conversations.set(action.sessionID, current)
           continue
         }
-        if (action.kind === "agent-cluster.event") {
-          const current = agentClusters.get(action.sessionID) ?? []
-          current.push(action)
-          agentClusters.set(action.sessionID, current)
-          continue
-        }
         if (action.kind === "vcs.invalidate") {
           const key = normalizeDirectory(action.directory)
           if (invalidatedVcs.has(key)) continue
           invalidatedVcs.add(key)
+        }
+        if (
+          action.kind === "status.set" ||
+          (action.kind === "session.upsert" && action.info.parentID !== undefined)
+        ) {
+          workflowChanged = true
         }
         this.#apply(action)
       }
@@ -453,18 +426,18 @@ export class EventBridge {
       if (!current.needsRefetch && patched.needsRefetch) this.#invalidate(queryKey)
     }
 
-    for (const [sessionID, actions] of agentClusters) {
-      const queryKey = keys.agentCluster(this.#options.directory, sessionID)
-      const state = this.#options.queryClient.getQueryData<SessionAgentClusterResponse>(queryKey)
-      if (state) this.#options.queryClient.setQueryData(queryKey, patchAgentClusterState(state, actions))
-      this.#invalidate(queryKey)
+    if (workflowChanged) {
+      await this.#options.queryClient.invalidateQueries({
+        queryKey: keys.workflowScope(this.#options.directory),
+        exact: false,
+      })
     }
   }
 
   #apply(
     action: Exclude<
       CacheAction,
-      ConversationAction | AgentClusterAction | { kind: "server.connected"; eventID: string }
+      ConversationAction | { kind: "server.connected"; eventID: string }
     >,
   ) {
     const directory = this.#options.directory
@@ -549,6 +522,30 @@ export class EventBridge {
       case "todos.set":
         this.#options.queryClient.setQueryData(keys.todos(action.directory, action.sessionID), action.todos)
         break
+      case "agent-cluster.event": {
+        const queryKey = keys.agentCluster(action.directory, action.sessionID)
+        const cluster = this.#options.queryClient.getQueryData<SessionAgentClusterResponse>(queryKey)
+        const properties = action.event.properties
+        const taskIndex = cluster?.tasks.findIndex((task) => task.id === properties.taskID) ?? -1
+        if (!cluster || taskIndex === -1) {
+          this.#invalidate(queryKey)
+          break
+        }
+        this.#options.queryClient.setQueryData(queryKey, {
+          ...cluster,
+          tasks: cluster.tasks.map((task) =>
+            task.id === properties.taskID
+              ? {
+                  ...task,
+                  status: properties.status,
+                  time_updated: properties.createdAt,
+                  last_event: properties.message,
+                }
+              : task,
+          ),
+        })
+        break
+      }
       case "vcs.branch.set": {
         const queryKey = keys.vcsInfo(action.directory)
         const info = this.#options.queryClient.getQueryData<VcsInfo>(queryKey)
@@ -599,6 +596,7 @@ export class EventBridge {
         { queryKey: keys.githubStatus(directory), exact: true },
         { queryKey: keys.pullRequestsScope(directory), exact: true },
         { queryKey: keys.agentClustersScope(directory), exact: false },
+        { queryKey: keys.workflowScope(directory), exact: false },
       ]
       const sessionID = this.#options.activeSessionID?.()
       if (sessionID) {

@@ -1,22 +1,16 @@
 import * as Tool from "./tool"
 import DESCRIPTION from "./agent-cluster-review.txt"
-import { AgentCluster } from "@/agent-cluster/cluster"
-import { Event as AgentClusterEvent } from "@/agent-cluster/event"
-import { Bus } from "@/bus"
-import { AgentClusterEventTable, AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
 import { Config } from "@/config/config"
 import { ConfigAgentCluster } from "@/config/agent-cluster"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
-import * as Database from "@/storage/db"
-import { and, eq } from "@/storage/db"
 import path from "path"
-import { ulid } from "ulid"
 import { Effect, Schema } from "effect"
-import type { TaskStatus } from "@/agent-cluster/schema"
-
-type TaskRow = typeof AgentClusterTaskTable.$inferSelect
+import { WorkflowCollaboration } from "@/workflow/collaboration"
+import { WorkflowExecutor } from "@/workflow/executor"
+import { WorkflowRuntime } from "@/workflow/runtime"
+import { NodeID } from "@/workflow/schema"
 
 const Check = Schema.Struct({
   criterion: Schema.String,
@@ -63,7 +57,6 @@ export const AgentClusterReviewTool = Tool.define(
     const config = yield* Config.Service
     const sessions = yield* Session.Service
     const fsys = yield* AppFileSystem.Service
-    const bus = yield* Bus.Service
 
     const run = Effect.fn("AgentClusterReviewTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
@@ -82,23 +75,21 @@ export const AgentClusterReviewTool = Tool.define(
           ),
         )
       }
-      const rows = (yield* Database.query((db) =>
-        db.select().from(AgentClusterTaskTable).where(eq(AgentClusterTaskTable.session_id, sessionID)).all(),
-      )) as TaskRow[]
-      const matches = rows.filter((row) => row.id === params.task_id || row.child_session_id === params.task_id)
+      const state = yield* WorkflowExecutor.getMultiSessionState(sessionID)
+      const matches = state.tasks.filter((task) => task.id === params.task_id || task.child_session_id === params.task_id)
       if (matches.length !== 1) {
-        const knownIDs = rows.map((r) => `${r.id}(status=${r.status})`).join(", ")
+        const knownIDs = state.tasks.map((task) => `${task.id}(status=${task.status})`).join(", ")
         return yield* Effect.fail(
           new Error(
             matches.length === 0
-              ? `Cluster task not found in session ${sessionID}: ${params.task_id}. Known task IDs: [${knownIDs || "(none)"}]. Use the exact plan task id.`
-              : `Cluster task id is ambiguous: ${params.task_id} matches ${matches.length} tasks in session ${sessionID}.`,
+              ? `Workflow task not found in session ${sessionID}: ${params.task_id}. Known task IDs: [${knownIDs || "(none)"}]. Use the exact plan task id.`
+              : `Workflow task id is ambiguous: ${params.task_id} matches ${matches.length} tasks in session ${sessionID}.`,
           ),
         )
       }
       const task = matches[0]!
       if (task.status !== "submitted" && task.status !== "reviewing") {
-        return yield* Effect.fail(new Error(`Cluster task ${task.id} cannot be reviewed from status ${task.status}`))
+        return yield* Effect.fail(new Error(`Workflow task ${task.id} cannot be reviewed from status ${task.status}`))
       }
 
       // NOTE: every validation below runs BEFORE any status mutation. A rejected
@@ -148,8 +139,10 @@ export const AgentClusterReviewTool = Tool.define(
         }
       }
 
-      let status: TaskStatus = params.decision
-      let reviewRound = task.review_round
+      let status: "accepted" | "revision_requested" | "failed" = params.decision
+      let reviewRound = (yield* WorkflowCollaboration.listReviewFindings(sessionID)).filter(
+        (finding) => finding.nodeID === NodeID.make(task.id),
+      ).length
       let outputLines: string[]
       if (params.decision === "revision_requested") {
         if (issues.length === 0) {
@@ -158,7 +151,7 @@ export const AgentClusterReviewTool = Tool.define(
         if (!nonEmpty(params.revision_prompt)) {
           return yield* Effect.fail(new Error("revision_requested requires revision_prompt"))
         }
-        reviewRound = task.review_round + 1
+        reviewRound += 1
         status = reviewRound >= cfg.max_review_rounds ? "failed" : "revision_requested"
         outputLines =
           status === "failed"
@@ -172,7 +165,7 @@ export const AgentClusterReviewTool = Tool.define(
                 `task_id: ${task.id}`,
                 "decision: revision_requested",
                 `review_round: ${reviewRound}`,
-                `next_action: call task with task_id=${task.child_session_id} to resume the same subagent`,
+                `next_action: call task with task_id=${task.child_session_id ?? task.id} to resume the same subagent`,
                 `revision_prompt: ${params.revision_prompt!.trim()}`,
               ]
       } else if (params.decision === "failed" && issues.length === 0) {
@@ -188,58 +181,42 @@ export const AgentClusterReviewTool = Tool.define(
         ]
       }
 
-      yield* Database.query((db) =>
-        db
-          .update(AgentClusterTaskTable)
-          .set({
-            status,
-            review_round: reviewRound,
-            review_issues: status === "accepted" ? [] : issues,
-            last_event: params.decision,
-            time_updated: Date.now(),
-          })
-          .where(and(eq(AgentClusterTaskTable.session_id, sessionID), eq(AgentClusterTaskTable.id, task.id)))
-          .run(),
-      )
-      yield* Database.query((db) =>
-        db
-          .insert(AgentClusterEventTable)
-          .values({
-            id: ulid(),
-            session_id: sessionID,
-            origin_message_id: task.origin_message_id,
-            task_id: task.id,
-            type: "review",
-            message: `Review for task ${task.id}: ${status}`,
-            metadata: {
-              decision: params.decision,
-              status,
-              checks: params.checks,
-              issues,
-              reviewRound,
-            },
-            time_created: Date.now(),
-            time_updated: Date.now(),
-          })
-          .run(),
-      )
-      yield* bus.publish(AgentClusterEvent, {
-        sessionID,
-        taskID: task.id,
-        type: "review",
-        status,
-        message: `Review for task ${task.id}: ${status}`,
-        metadata: {
-          decision: params.decision,
-          checks: params.checks,
-          issues,
-          reviewRound,
-        },
-        createdAt: Date.now(),
-      })
+      const runtimePlan = yield* WorkflowRuntime.getSessionRunPlan(sessionID)
+      const nodeID = NodeID.make(task.id)
+      const runtimeTask = runtimePlan.tasks.find((item) => item.id === nodeID)
+      if (!runtimeTask) return yield* Effect.fail(new Error(`Workflow node disappeared: ${task.id}`))
+      if (runtimeTask.status === "submitted") {
+        yield* WorkflowRuntime.transitionNode({ sessionID, runPlanID: runtimePlan.id, nodeID, from: "submitted", to: "reviewing" })
+      }
+      if (status === "accepted") {
+        yield* WorkflowRuntime.transitionNode({
+          sessionID,
+          runPlanID: runtimePlan.id,
+          nodeID,
+          from: "reviewing",
+          to: "accepted",
+          detail: { validation: true, evidence: params.checks.filter((check) => check.passed).map((check) => check.evidence) },
+        })
+      } else {
+        yield* WorkflowCollaboration.createReviewFinding({
+          sessionID,
+          runPlanID: runtimePlan.id,
+          nodeID,
+          authorAgentID: "reviewer",
+          severity: status === "failed" ? "high" : "medium",
+          summary: `Review requested changes for ${task.title}`,
+          evidence: [...issues],
+          suggestion: params.revision_prompt?.trim() || issues.join("\n") || "Investigate the failed validation.",
+        })
+        yield* WorkflowRuntime.transitionNode({ sessionID, runPlanID: runtimePlan.id, nodeID, from: "reviewing", to: "revision_requested", detail: { issues } })
+        if (status === "failed") {
+          yield* WorkflowRuntime.transitionNode({ sessionID, runPlanID: runtimePlan.id, nodeID, from: "revision_requested", to: "revising" })
+          yield* WorkflowRuntime.transitionNode({ sessionID, runPlanID: runtimePlan.id, nodeID, from: "revising", to: "failed", detail: { issues } })
+        }
+      }
 
       return {
-        title: "Agent cluster review",
+        title: "Workflow review",
         metadata: {
           task_id: task.id,
           decision: params.decision,
