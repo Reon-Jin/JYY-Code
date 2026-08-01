@@ -5,7 +5,6 @@ import { AgentCluster } from "../../src/agent-cluster/cluster"
 import { BackgroundJob } from "../../src/background/job"
 import { ConfigAgentCluster } from "../../src/config/agent-cluster"
 import { ClusterPrimaryPrompt, runInstructions, singleAgentPlanInstructions } from "../../src/agent-cluster/planner"
-import { RoleSkillDefinitions } from "../../src/agent-cluster/role-skills"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 import { Session } from "../../src/session/session"
 import type { Session as SessionInfo } from "../../src/session/session"
@@ -24,12 +23,12 @@ const interruptIt = testEffect(Layer.mergeAll(Session.defaultLayer, backgroundLa
 const dispatchConfig = { simple_model: "test/simple", complex_model: "test/complex", visual_model: "test/visual" }
 
 describe("AgentCluster planner instructions", () => {
-  test("describe dependency steps as durable dispatch waves", () => {
-    expect(ClusterPrimaryPrompt).toContain("A step is a dispatch wave")
-    expect(ClusterPrimaryPrompt).toContain("Step 1 has no prior results")
-    expect(ClusterPrimaryPrompt).toContain("agent_cluster_review")
-    expect(ClusterPrimaryPrompt).toContain("ROLE CAPABILITY CATALOG")
-    expect(ClusterPrimaryPrompt).not.toContain(RoleSkillDefinitions.chart.skillName)
+  test("routes the cluster primary through self-execution until the new driver lands", () => {
+    expect(ClusterPrimaryPrompt).toContain("subagent runtime is temporarily unavailable")
+    expect(ClusterPrimaryPrompt).toContain("PLAN-FIRST")
+    expect(ClusterPrimaryPrompt).toContain("SELF-EXECUTION")
+    expect(ClusterPrimaryPrompt).not.toContain("agent_cluster_review")
+    expect(ClusterPrimaryPrompt).not.toContain("task tool")
   })
 
   test("includes session graph scheduling rules", () => {
@@ -113,12 +112,13 @@ describe("AgentCluster.canUseSingleAgentPlan", () => {
     ).toBe(false)
   })
 
-  test("single-agent plan instructions require self-execution and plan_update", () => {
+  test("single-agent plan instructions require self-execution without removed tools", () => {
     const text = singleAgentPlanInstructions({ sessionID: "ses_root" })
     expect(text).toContain("execution_mode: single-agent")
-    expect(text).toContain("plan_update")
     expect(text).toContain("SELF-EXECUTION")
-    expect(text).toContain("agent_cluster_review) is unavailable")
+    expect(text).toContain("Subagent dispatch is unavailable")
+    expect(text).not.toContain("plan_update")
+    expect(text).not.toContain("agent_cluster_review")
   })
 })
 

@@ -1024,7 +1024,7 @@ export const layer = Layer.effect(
               type: "text",
               synthetic: true,
               text:
-                " Use the above message and context to generate a prompt and call the task tool with subagent: " +
+                " Use the above message and context to continue the delegated work for: " +
                 part.name +
                 hint,
             },
@@ -1186,15 +1186,10 @@ export const layer = Layer.effect(
       const body = Effect.gen(function* () {
         const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
         const cfg = yield* config.get()
-        // noReply messages are synthetic injections (for example, background
-        // subagent completion). They must not start a new cluster planner turn.
-        const useCluster =
-          input.noReply !== true &&
-          AgentCluster.canUseAgentCluster({
-            session,
-            config: cfg.agent_cluster,
-            requested: input.agentCluster?.enabled,
-          })
+        // The old tool-driven cluster driver (task/task_status/agent_cluster_review)
+        // has been removed. Keep the multi-agent backend and UI for the next
+        // driver, but route sessions through the normal loop until it lands.
+        const useCluster = false
         const useSinglePlan = AgentCluster.canUseSingleAgentPlan({
           session,
           agent: input.agent,
@@ -1272,19 +1267,10 @@ export const layer = Layer.effect(
           agent === "cluster" || AgentCluster.canUseSingleAgentPlan({ session, agent })
         let previousToolTurnSignature: string | undefined
         let repeatedToolTurnCount = 0
-        const clusterDispatchReminderKind = "agent_cluster_dispatch_reminder"
-        const clusterSynthesisReminderKind = "agent_cluster_synthesis_gate"
         const stuckLoopReminderKind = "stuck_loop_warning"
         const emptyResponseReminderKind = "empty_response_retry"
         let loopWarningIssued = false
         let emptyResponseCount = 0
-
-        function hasTaskToolAfter(messages: MessageV2.WithParts[], userID: MessageID) {
-          const userIndex = messages.findIndex((message) => message.info.id === userID)
-          return messages
-            .slice(userIndex + 1)
-            .some((message) => message.parts.some((part) => part.type === "tool" && part.tool === "task"))
-        }
 
         function planFromMessage(message: MessageV2.WithParts | undefined) {
           if (!message || message.info.role !== "assistant") return undefined
@@ -1292,20 +1278,6 @@ export const layer = Layer.effect(
           if (!isPlanSession(agent)) return undefined
           const text = message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
           return AgentClusterRuntime.extractPlanFromText(text)
-        }
-
-        function isClusterDispatchReminder(message: MessageV2.WithParts | undefined) {
-          if (!message || message.info.role !== "user") return false
-          return message.parts.some(
-            (part) => part.type === "text" && part.synthetic && part.metadata?.kind === clusterDispatchReminderKind,
-          )
-        }
-
-        function isClusterSynthesisReminder(message: MessageV2.WithParts | undefined) {
-          if (!message || message.info.role !== "user") return false
-          return message.parts.some(
-            (part) => part.type === "text" && part.synthetic && part.metadata?.kind === clusterSynthesisReminderKind,
-          )
         }
 
         const createSyntheticReminder = Effect.fn("SessionPrompt.createSyntheticReminder")(function* (input: {
@@ -1342,103 +1314,6 @@ export const layer = Layer.effect(
             }).toObject(),
           })
         })
-
-        const createClusterDispatchReminder = Effect.fn("SessionPrompt.createClusterDispatchReminder")(
-          function* (input: {
-            lastUser: MessageV2.User
-            plan: ReturnType<typeof AgentClusterRuntime.extractPlanFromText>
-          }) {
-            const cfg = yield* config.get()
-            const clusterConfig = ConfigAgentCluster.resolve(cfg.agent_cluster)
-            const validation = input.plan
-              ? AgentClusterRuntime.validatePlan(input.plan, {
-                  maxSubagents: clusterConfig.max_subagents,
-                  maxConcurrency: clusterConfig.max_concurrency,
-                })
-              : undefined
-            const ready = input.plan
-              ? AgentClusterRuntime.nextReadyBatch(input.plan, {
-                  completed: [],
-                }).tasks
-              : []
-            const userMsg: MessageV2.User = {
-              id: MessageID.ascending(),
-              sessionID,
-              role: "user",
-              time: { created: Date.now() },
-              agent: input.lastUser.agent,
-              model: input.lastUser.model,
-            }
-            yield* sessions.updateMessage(userMsg)
-            yield* sessions.updatePart({
-              id: PartID.ascending(),
-              messageID: userMsg.id,
-              sessionID,
-              type: "text",
-              synthetic: true,
-              metadata: { kind: clusterDispatchReminderKind },
-              text: [
-                "<system-reminder>",
-                "The Multi-Agent plan has been presented, but no subagents were dispatched.",
-                ...(validation && !validation.valid
-                  ? [
-                      "The plan violates runtime scheduling rules. Fix the plan first, then dispatch ready tasks.",
-                      "Plan errors:",
-                      ...validation.errors.map((error) => `- ${error}`),
-                    ]
-                  : ready.length > 0
-                    ? [
-                        "Runtime validation passed. Immediately dispatch every ready task now using parallel task tool calls.",
-                        "Ready task ids:",
-                        ...ready.map((task) => `- ${task.id}`),
-                      ]
-                    : [
-                        "No tasks are ready. Explain the blocker or revise the plan so step-1 tasks are dependency-free.",
-                      ]),
-                "Do not repeat the plan and do not stop after text; this turn must include the task tool calls.",
-                "</system-reminder>",
-              ].join("\n"),
-            } satisfies MessageV2.TextPart)
-          },
-        )
-
-        const createClusterSynthesisReminder = Effect.fn("SessionPrompt.createClusterSynthesisReminder")(
-          function* (input: { lastUser: MessageV2.User }) {
-            const state = yield* AgentCluster.getSessionState(sessionID)
-            const tasks = state.tasks
-            const notAccepted = tasks.filter((task) => task.status !== "accepted")
-            const failed = notAccepted.filter((task) => task.status === "failed" || task.status === "cancelled")
-            const userMsg: MessageV2.User = {
-              id: MessageID.ascending(),
-              sessionID,
-              role: "user",
-              time: { created: Date.now() },
-              agent: input.lastUser.agent,
-              model: input.lastUser.model,
-            }
-            yield* sessions.updateMessage(userMsg)
-            yield* sessions.updatePart({
-              id: PartID.ascending(),
-              messageID: userMsg.id,
-              sessionID,
-              type: "text",
-              synthetic: true,
-              metadata: { kind: clusterSynthesisReminderKind },
-              text: [
-                "<system-reminder>",
-                failed.length
-                  ? "The Multi-Agent run has failed or cancelled tasks. Do not present a successful final synthesis."
-                  : "Final synthesis is blocked. Every planned task must be accepted with agent_cluster_review before final delivery.",
-                "Non-accepted tasks:",
-                ...notAccepted.map((task) => `- ${task.id}: ${task.status}`),
-                failed.length
-                  ? "Report the failure and unresolved issues."
-                  : "Continue the fixed loop: poll submitted work, review each task with agent_cluster_review, revise if needed, and only then synthesize.",
-                "</system-reminder>",
-              ].join("\n"),
-            } satisfies MessageV2.TextPart)
-          },
-        )
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
@@ -1596,30 +1471,6 @@ export const layer = Layer.effect(
                   originMessageID: lastUser.id,
                   plan,
                 }).pipe(Effect.orDie)
-              }
-            }
-            if (
-              lastUser.agent === "cluster" &&
-              plan &&
-              !hasTaskToolAfter(msgs, lastUser.id) &&
-              !isClusterDispatchReminder(msgs.find((msg) => msg.info.id === lastUser.id))
-            ) {
-              yield* slog.info("cluster plan produced without task dispatch; requesting dispatch")
-              yield* createClusterDispatchReminder({ lastUser, plan })
-              continue
-            }
-            if (
-              lastUser.agent === "cluster" &&
-              !isClusterSynthesisReminder(msgs.find((msg) => msg.info.id === lastUser.id))
-            ) {
-              const state = yield* AgentCluster.getSessionState(sessionID)
-              const tasks = state.tasks
-              if (tasks.length > 0 && tasks.some((task) => task.status !== "accepted")) {
-                yield* slog.info(
-                  "cluster attempted final response before all tasks were accepted; requesting continuation",
-                )
-                yield* createClusterSynthesisReminder({ lastUser })
-                continue
               }
             }
             yield* slog.info("exiting loop")
@@ -1843,14 +1694,11 @@ export const layer = Layer.effect(
               toolChoice: format.type === "json_schema" ? "required" : undefined,
             })
 
-            // Pre-persist the cluster plan so concurrent task dispatch
-            // tool calls can find their rows in the database. We use the
+            // Pre-persist the single-agent plan so the right sidebar can
+            // show it as soon as the plan block streams in. We use the
             // in-memory text accumulator built during the stream — not a
             // DB read — because the SyncEvent projectors may not have
-            // committed the text parts yet when concurrent tools execute.
-            // Without this early persist, every task tool independently
-            // tries to extract the plan from DB sources that may be empty,
-            // exhausting retries and failing silently.
+            // committed the text parts yet.
             if (planSessionID) {
               yield* Effect.gen(function* () {
                 const combined = handle.allText()

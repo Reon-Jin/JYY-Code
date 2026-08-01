@@ -23,7 +23,7 @@ You must use webfetch tool to recursively gather all information from URL's prov
 1. Understand the problem deeply. Carefully read the issue and think critically about what is required.
 2. Investigate the codebase. Explore relevant files, search for key functions, and gather context.
 3. Develop a clear, step-by-step plan. Break down the fix into manageable,
-incremental steps - use the todo tool to track your progress.
+incremental steps - track your progress in your response.
 4. Implement the fix incrementally. Make small, testable code changes.
 5. Debug as needed. Use debugging techniques to isolate and resolve issues.
 6. Test frequently. Run tests after each change to verify correctness.
