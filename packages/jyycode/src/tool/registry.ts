@@ -23,7 +23,6 @@ import { ProviderID, type ModelID } from "../provider/schema"
 import { WebSearchTool } from "./websearch"
 import { RepositoryCache } from "@/reference/repository-cache"
 import * as Log from "@jyycode-ai/core/util/log"
-import { LspTool } from "./lsp"
 import * as Truncate from "./truncate"
 import { Glob } from "@jyycode-ai/core/util/glob"
 import path from "path"
@@ -148,7 +147,6 @@ export const layer: Layer.Layer<
     const invalid = yield* InvalidTool
     const read = yield* ReadTool
     const question = yield* QuestionTool
-    const lsptool = yield* LspTool
     const webfetch = yield* WebFetchTool
     const websearch = yield* WebSearchTool
     const shell = yield* ShellTool
@@ -269,7 +267,6 @@ export const layer: Layer.Layer<
           search: Tool.init(websearch),
           skill: Tool.init(skilltool),
           question: Tool.init(question),
-          lsp: Tool.init(lsptool),
           memory: memtool ? Tool.init(memtool) : Effect.succeed(undefined),
         })
 
@@ -288,7 +285,6 @@ export const layer: Layer.Layer<
             tool.fetch,
             tool.search,
             tool.skill,
-            ...(flags.experimentalLspTool ? [tool.lsp] : []),
             ...(tool.memory ? [tool.memory] : []),
           ],
           read: tool.read,

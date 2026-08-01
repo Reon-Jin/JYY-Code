@@ -5,7 +5,7 @@ export const toolSearchEvalFixtures = [
   },
   {
     query: "find symbol definition",
-    expectedTopK: ["lsp", "grep"],
+    expectedTopK: ["grep"],
   },
   {
     query: "query jira mcp",

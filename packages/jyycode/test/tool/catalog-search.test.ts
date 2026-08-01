@@ -175,11 +175,6 @@ describe("CatalogSearch", () => {
         catalog: { category: "filesystem", mutability: "write", tags: ["change", "file"] },
       }),
       tool({
-        id: "lsp",
-        description: "Find symbol definitions and references",
-        catalog: { category: "code-search", mutability: "read", tags: ["find", "symbol", "definition"] },
-      }),
-      tool({
         id: "grep",
         description: "Search file contents for matching text",
         catalog: { category: "code-search", mutability: "read", tags: ["find", "symbol"] },

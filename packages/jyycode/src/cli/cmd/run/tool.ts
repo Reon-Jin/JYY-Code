@@ -22,7 +22,6 @@ import type { EditTool } from "@/tool/edit"
 import type { GlobTool } from "@/tool/glob"
 import type { GrepTool } from "@/tool/grep"
 import type { InvalidTool } from "@/tool/invalid"
-import type { LspTool } from "@/tool/lsp"
 import type { QuestionTool } from "@/tool/question"
 import type { ReadTool } from "@/tool/read"
 import type { SkillTool } from "@/tool/skill"
@@ -98,7 +97,6 @@ type ToolDefs = {
   glob: typeof GlobTool
   grep: typeof GrepTool
   list: Tool.Info
-  lsp: typeof LspTool
   webfetch: typeof WebFetchTool
   websearch: typeof WebSearchTool
   skill: typeof SkillTool
@@ -389,34 +387,6 @@ function runBatch(p: ToolProps): ToolInline {
   }
 }
 
-function lspTitle(
-  input: {
-    operation?: string
-    filePath?: string
-    line?: number
-    character?: number
-  },
-  opts: { home?: boolean } = {},
-): string {
-  const op = input.operation || "request"
-  const file = input.filePath ? toolPath(input.filePath, opts) : ""
-  const line = typeof input.line === "number" ? input.line : undefined
-  const char = typeof input.character === "number" ? input.character : undefined
-  const pos = line !== undefined && char !== undefined ? `:${line}:${char}` : ""
-  if (!file) {
-    return `LSP ${op}`
-  }
-
-  return `LSP ${op} ${file}${pos}`
-}
-
-function runLsp(p: ToolProps<typeof LspTool>): ToolInline {
-  return {
-    icon: "→",
-    title: text(p.frame.state.title) || lspTitle(p.input),
-  }
-}
-
 function snapWrite(p: ToolProps<typeof WriteTool>): ToolSnapshot | undefined {
   const file = p.input.filePath || ""
   const content = p.input.content || ""
@@ -579,10 +549,6 @@ function scrollQuestionFinal(p: ToolProps<typeof QuestionTool>): string {
   return rows.join("\n")
 }
 
-function scrollLspStart(p: ToolProps<typeof LspTool>): string {
-  return `→ ${lspTitle(p.input)}`
-}
-
 function scrollSkillStart(p: ToolProps<typeof SkillTool>): string {
   return `→ Skill "${p.input.name ?? ""}"`
 }
@@ -718,22 +684,6 @@ function permWebSearch(p: ToolPermissionProps<typeof WebSearchTool>): ToolPermis
   }
 }
 
-function permLsp(p: ToolPermissionProps<typeof LspTool>): ToolPermissionInfo {
-  const file = p.input.filePath || ""
-  const line = typeof p.input.line === "number" ? p.input.line : undefined
-  const char = typeof p.input.character === "number" ? p.input.character : undefined
-  const pos = line !== undefined && char !== undefined ? `${line}:${char}` : undefined
-  return {
-    icon: "→",
-    title: lspTitle(p.input, { home: true }),
-    lines: [
-      ...(p.input.operation ? [`Operation: ${p.input.operation}`] : []),
-      ...(file ? [`Path: ${toolPath(file, { home: true })}`] : []),
-      ...(pos ? [`Position: ${pos}`] : []),
-    ],
-  }
-}
-
 const TOOL_RULES = {
   invalid: {
     view: {
@@ -850,17 +800,6 @@ const TOOL_RULES = {
       start: scrollListStart,
     },
     permission: permList,
-  },
-  lsp: {
-    view: {
-      output: false,
-      final: false,
-    },
-    run: runLsp,
-    scroll: {
-      start: scrollLspStart,
-    },
-    permission: permLsp,
   },
   webfetch: {
     view: {

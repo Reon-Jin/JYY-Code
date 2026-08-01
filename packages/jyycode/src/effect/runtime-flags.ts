@@ -42,7 +42,6 @@ export class Service extends ConfigService.Service<Service>()("@jyycode/RuntimeF
   experimentalScout: enabledByExperimental("JYYCODE_EXPERIMENTAL_SCOUT"),
   experimentalBackgroundSubagents: enabledByExperimental("JYYCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS"),
   experimentalLspTy: bool("JYYCODE_EXPERIMENTAL_LSP_TY"),
-  experimentalLspTool: enabledByExperimental("JYYCODE_EXPERIMENTAL_LSP_TOOL"),
   experimentalOxfmt: enabledByExperimental("JYYCODE_EXPERIMENTAL_OXFMT"),
   experimentalPlanMode: enabledByExperimental("JYYCODE_EXPERIMENTAL_PLAN_MODE"),
   experimentalEventSystem: enabledByExperimental("JYYCODE_EXPERIMENTAL_EVENT_SYSTEM"),

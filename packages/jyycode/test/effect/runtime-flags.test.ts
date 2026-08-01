@@ -56,7 +56,6 @@ describe("RuntimeFlags", () => {
       expect(flags.experimentalScout).toBe(true)
       expect(flags.experimentalBackgroundSubagents).toBe(true)
       expect(flags.experimentalLspTy).toBe(false)
-      expect(flags.experimentalLspTool).toBe(true)
       expect(flags.experimentalOxfmt).toBe(true)
       expect(flags.experimentalPlanMode).toBe(true)
       expect(flags.experimentalEventSystem).toBe(true)
