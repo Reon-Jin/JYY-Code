@@ -59,6 +59,24 @@ describe("conversation state", () => {
     expect(textOf(twice, part.id)).toBe("hello")
   })
 
+  it("does not duplicate the stream tail when deltas and the full-text update land in the same batch", () => {
+    const snapshot = snapshotFromMessages(sessionID, [{ info: message, parts: [part] }])
+    const full: TextPart = { ...part, text: "你好。" }
+    const batch = [
+      delta("好", "evt_1"),
+      delta("。", "evt_2"),
+      event({
+        id: "evt_3",
+        type: "message.part.updated",
+        properties: { sessionID, part: full, time: 1 },
+      }),
+    ]
+
+    const next = applyConversationEvents(snapshot, batch)
+
+    expect(textOf(next, part.id)).toBe("你好。")
+  })
+
   it("inserts messages and parts in ID order even when a batch arrives out of order", () => {
     const messageEvent = event({
       id: "evt_message",

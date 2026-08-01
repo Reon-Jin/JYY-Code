@@ -165,21 +165,14 @@ export function applyConversationEvent(snapshot: ConversationSnapshot, event: Gl
   }
 }
 
-const eventPriority: Partial<Record<GlobalEvent["payload"]["type"], number>> = {
-  "message.updated": 0,
-  "message.part.updated": 1,
-  "message.part.delta": 2,
-  "message.part.removed": 3,
-  "message.removed": 4,
-}
-
 export function applyConversationEvents(snapshot: ConversationSnapshot, events: readonly GlobalEvent[]) {
   return [...events]
     .map((event, index) => ({ event, index }))
-    .sort(
-      (left, right) =>
-        (eventPriority[left.event.payload.type] ?? 99) - (eventPriority[right.event.payload.type] ?? 99) ||
-        left.index - right.index,
-    )
+    .sort((left, right) => {
+      const leftID = String(left.event.payload.id ?? "")
+      const rightID = String(right.event.payload.id ?? "")
+      if (leftID !== rightID) return leftID < rightID ? -1 : 1
+      return left.index - right.index
+    })
     .reduce((current, item) => applyConversationEvent(current, item.event), snapshot)
 }

@@ -73,6 +73,45 @@ function normalize(value: unknown, options: { stripNull?: boolean } = {}): unkno
       const { anyOf: _, ...rest } = schema
       return normalize({ ...withoutNull[0], ...rest })
     }
+
+    // Flatten object-only unions (e.g. discriminated tool parameters like
+    // process start/output/kill) into a single object schema. OpenAI-compatible
+    // providers require a top-level `type: "object"` and reject bare `anyOf`.
+    if (withoutNull.length > 0 && withoutNull.every((item) => isObjectBranch(item))) {
+      const properties: JsonObject = {}
+      const requiredSets: string[][] = []
+      for (const branch of withoutNull) {
+        if (isRecord(branch.properties)) {
+          for (const [name, prop] of Object.entries(branch.properties)) {
+            const existing = properties[name]
+            if (
+              existing !== undefined &&
+              isRecord(existing) &&
+              isRecord(prop) &&
+              Array.isArray(existing.enum) &&
+              Array.isArray(prop.enum)
+            ) {
+              properties[name] = { ...existing, enum: [...new Set([...existing.enum, ...prop.enum])] }
+            } else if (existing === undefined) {
+              properties[name] = prop
+            }
+          }
+        }
+        if (Array.isArray(branch.required)) {
+          requiredSets.push(branch.required.filter((item) => typeof item === "string"))
+        }
+      }
+      const required = requiredSets.length
+        ? [...new Set(requiredSets.reduce((a, b) => a.filter((item) => b.includes(item))))]
+        : []
+      const { anyOf: _, ...rest } = schema
+      return normalize({
+        type: "object",
+        properties,
+        ...(required.length > 0 ? { required } : {}),
+        ...rest,
+      })
+    }
   }
 
   if (Array.isArray(schema.allOf) && schema.allOf.every(isRecord) && canFlattenAllOf(schema.allOf, schema)) {
@@ -89,6 +128,10 @@ function normalize(value: unknown, options: { stripNull?: boolean } = {}): unkno
 
 function isRecord(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function isObjectBranch(value: unknown): value is JsonObject {
+  return isRecord(value) && (value.type === "object" || isRecord(value.properties))
 }
 
 function isJsonSchema(value: unknown): value is JSONSchema7 {

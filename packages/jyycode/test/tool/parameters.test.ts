@@ -73,6 +73,22 @@ describe("tool parameters", () => {
         properties: { value: { minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER } },
       })
     })
+
+    test("flattens object-only unions into a provider-compatible object schema", () => {
+      const schema = toJsonSchema(Process)
+      expect(schema.type).toBe("object")
+      expect(schema).toMatchObject({
+        required: ["action"],
+        properties: {
+          action: { type: "string", enum: ["start", "output", "kill"] },
+          command: { type: "string" },
+          id: { type: "string" },
+          offset: { type: "integer" },
+          forceAfterMs: { type: "integer" },
+        },
+      })
+      expect(schema).not.toHaveProperty("anyOf")
+    })
   })
 
   describe("shell", () => {
