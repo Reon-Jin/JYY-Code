@@ -52,6 +52,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Memory } from "@/memory/memory"
 import { CatalogSearch } from "./catalog-search"
 import { ToolTelemetry } from "./telemetry"
+import { PlanProtocolTools } from "@/plan/tools"
 
 const log = Log.create({ service: "tool.registry" })
 
@@ -159,6 +160,11 @@ export const layer: Layer.Layer<
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
     const memtool = memory ? yield* MemoryTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
     const agent = yield* Agent.Service
+    const planProtocolInfos = yield* Effect.all(PlanProtocolTools, { concurrency: "unbounded" })
+    const planProtocolTools = yield* Effect.all(
+      planProtocolInfos.map((item) => Tool.init(item as Tool.Info<any, any>)),
+      { concurrency: "unbounded" },
+    )
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -286,6 +292,7 @@ export const layer: Layer.Layer<
             tool.search,
             tool.skill,
             ...(tool.memory ? [tool.memory] : []),
+            ...planProtocolTools,
           ],
           read: tool.read,
         }

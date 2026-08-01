@@ -32,8 +32,8 @@ export const keys = {
   pullRequest: (directory: string, number: number) => [...project(directory), "github", "pull", number] as const,
   pullRequestDiff: (directory: string, number: number) =>
     [...project(directory), "github", "pull", number, "diff"] as const,
-  agentClustersScope: (directory: string) => [...project(directory), "agent-clusters"] as const,
-  agentCluster: (directory: string, sessionID: string) => [...project(directory), "agent-clusters", sessionID] as const,
+  plansScope: (directory: string) => [...project(directory), "plans"] as const,
+  plan: (directory: string, sessionID: string) => [...project(directory), "plans", sessionID] as const,
   skills: (directory: string, agent = "") => [...project(directory), "skills", agent] as const,
   mcp: (directory: string) => [...project(directory), "mcp"] as const,
   globalConfig: ["global", "config"] as const,

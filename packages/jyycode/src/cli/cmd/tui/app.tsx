@@ -41,7 +41,6 @@ import { DialogStatus } from "@tui/component/dialog-status"
 import { DialogThemeList } from "@tui/component/dialog-theme-list"
 import { DialogHelp } from "./ui/dialog-help"
 import { DialogAgent } from "@tui/component/dialog-agent"
-import { DialogAgentCluster } from "@tui/component/dialog-agent-cluster"
 import { DialogSessionList } from "@tui/component/dialog-session-list"
 import { ThemeProvider, useTheme } from "@tui/context/theme"
 import { Home } from "@tui/routes/home"
@@ -100,7 +99,6 @@ const appBindingCommands = [
   "model.cycle_favorite",
   "model.cycle_favorite_reverse",
   "agent.list",
-  "agent.cluster",
   "mcp.list",
   "agent.cycle",
   "agent.cycle.reverse",
@@ -574,17 +572,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
         slashName: "agents",
         run: () => {
           dialog.replace(() => <DialogAgent />)
-        },
-      },
-      {
-        name: "agent.cluster",
-        title: "Configure cluster models",
-        category: "Agent",
-        slashName: "cluster",
-        slashAliases: ["agent-config"],
-        suggested: sync.data.config.agent_cluster?.enabled !== false,
-        run: () => {
-          dialog.replace(() => <DialogAgentCluster />)
         },
       },
       {

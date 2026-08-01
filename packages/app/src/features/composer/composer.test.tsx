@@ -96,7 +96,6 @@ function renderComposer(input?: {
       identityLocked={input?.identityLocked}
       minimal={input?.minimal}
       usage={input?.usage}
-      agentClusterEnabled
       onAgentChange={vi.fn()}
       onModelChange={vi.fn()}
       onProviderConnected={vi.fn()}
@@ -244,7 +243,7 @@ describe("Composer", () => {
     const user = userEvent.setup()
     const client = renderComposer()
     expect(screen.getByLabelText("智能体")).toBeVisible()
-    expect(screen.getByRole("button", { name: "配置模型：OpenAI · GPT-5" })).toBeVisible()
+    expect(screen.getByRole("combobox", { name: "主模型" })).toHaveValue("openai/gpt-5/")
     const textbox = screen.getByRole("textbox", { name: "消息" })
 
     await user.type(textbox, "line one{shift>}{enter}{/shift}line two")
@@ -265,7 +264,7 @@ describe("Composer", () => {
     expect(selectors?.children).toHaveLength(6)
     expect(selectors?.children[0]).toContainElement(screen.getByLabelText("智能体"))
     expect(selectors?.children[1]).toContainElement(screen.getByRole("button", { name: "连接" }))
-    expect(selectors?.children[2]).toContainElement(screen.getByRole("button", { name: /配置模型/ }))
+    expect(selectors?.children[2]).toContainElement(screen.getByRole("combobox", { name: "主模型" }))
     expect(selectors?.children[3]).toContainElement(screen.getByRole("button", { name: "Branch" }))
     expect(selectors?.children[4]).toContainElement(screen.getByRole("button", { name: "Multi-Agent control" }))
     expect(selectors?.children[5]).toContainElement(screen.getByRole("button", { name: "MCP control" }))
@@ -318,7 +317,7 @@ describe("Composer", () => {
 
     expect(screen.getByLabelText("智能体")).toHaveValue("coder")
     expect(screen.getByLabelText("智能体")).toBeDisabled()
-    expect(screen.getByRole("button", { name: "当前模型：test/coder-model" })).toBeDisabled()
+    expect(screen.getByRole("combobox", { name: "主模型" })).toBeDisabled()
     const textbox = screen.getByRole("textbox", { name: "消息" })
     expect(textbox).toBeEnabled()
     await user.type(textbox, "guide child")
@@ -330,7 +329,7 @@ describe("Composer", () => {
 
     expect(screen.getByLabelText("智能体")).toBeEnabled()
     expect(screen.getByRole("button", { name: "连接" })).toBeEnabled()
-    expect(screen.getByRole("button", { name: /配置模型/ })).toBeEnabled()
+    expect(screen.getByRole("combobox", { name: "主模型" })).toBeEnabled()
   })
 
   it("renders child Sessions as a message-only Composer that still sends with Enter", async () => {

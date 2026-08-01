@@ -31,6 +31,7 @@ type PrepareInput = {
   readonly plugin: Plugin.Interface
   readonly flags: RuntimeFlags.Info
   readonly isWorkflow: boolean
+  readonly toolChoice?: "auto" | "required" | "none"
 }
 
 export type Prepared = {
@@ -88,6 +89,19 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
       })
   const options = mergeOptions(mergeOptions(mergeOptions(base, input.model.options), input.agent.options), variant)
   if (isOpenaiOauth) options.instructions = system.join("\n")
+
+  // DeepSeek V4 rejects `tool_choice` while thinking is enabled. Protocol
+  // gate turns intentionally force a tool, so switch only those turns to the
+  // provider's non-thinking mode instead of failing the assistant request.
+  if (
+    input.toolChoice === "required" &&
+    input.model.providerID === "deepseek" &&
+    input.model.api.id.includes("deepseek-v4")
+  ) {
+    options.thinking = { type: "disabled" }
+    delete options.reasoningEffort
+    delete options.reasoning_effort
+  }
 
   const messages =
     isOpenaiOauth || input.isWorkflow

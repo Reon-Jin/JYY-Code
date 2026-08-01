@@ -1,5 +1,5 @@
 import { tr } from "../../i18n/i18n-context"
-import type { AgentClusterConfig, Session } from "@jyycode-ai/sdk/v2/client"
+import type { Session } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import { createMemo, createSignal, Show } from "solid-js"
 import { InlineError } from "../../components/ui/inline-error"
@@ -8,13 +8,12 @@ import type { DesktopClient } from "../../data/sdk"
 import { errorMessage } from "../projects/project-controller"
 import "./multi-agent.css"
 
-export function effectiveMultiAgent(session: Session, config?: AgentClusterConfig) {
-  if (config?.enabled === false || session.parentID) return false
-  return session.multiAgent ?? config?.default_on ?? false
+export function effectiveMultiAgent(session: Session) {
+  if (session.parentID) return false
+  return session.multiAgent === true
 }
 
-function disabledReason(session: Session, config?: AgentClusterConfig) {
-  if (config?.enabled === false) return tr("multi-agent.multi-agent-has-been-disabled-in-global-configuration")
+function disabledReason(session: Session) {
   if (session.parentID) return tr("multi-agent.sub-agent-does-not-support-starting-multi-agent")
   return undefined
 }
@@ -33,15 +32,14 @@ export type MultiAgentControlProps = {
   queryClient: QueryClient
   directory: string
   session: Session
-  config?: AgentClusterConfig
 }
 
 export function MultiAgentControl(props: MultiAgentControlProps) {
   const [optimistic, setOptimistic] = createSignal<boolean>()
   const [saving, setSaving] = createSignal(false)
   const [failure, setFailure] = createSignal<unknown>()
-  const reason = createMemo(() => disabledReason(props.session, props.config))
-  const checked = createMemo(() => optimistic() ?? effectiveMultiAgent(props.session, props.config))
+  const reason = createMemo(() => disabledReason(props.session))
+  const checked = createMemo(() => optimistic() ?? effectiveMultiAgent(props.session))
 
   async function toggle() {
     if (reason() || saving()) return
@@ -58,7 +56,7 @@ export function MultiAgentControl(props: MultiAgentControlProps) {
       props.queryClient.setQueryData(keys.session(props.directory, session.id), session)
       patchSessionList(props.queryClient, keys.sessions(props.directory), session)
       patchSessionList(props.queryClient, keys.sessions(props.directory, true), session)
-      setOptimistic(effectiveMultiAgent(session, props.config))
+      setOptimistic(effectiveMultiAgent(session))
     } catch (cause) {
       setOptimistic(undefined)
       setFailure(cause)

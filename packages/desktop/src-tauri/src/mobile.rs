@@ -359,10 +359,12 @@ struct RelayEnvelope {
     route_id: String,
     sender_id: String,
     recipient_id: String,
-    message_id: String,
+    #[serde(rename = "messageId")]
+    _message_id: String,
     correlation_id: Option<String>,
     pairing_public_key: Option<String>,
-    sequence: u64,
+    #[serde(rename = "sequence")]
+    _sequence: u64,
     ciphertext: String,
 }
 
@@ -890,7 +892,7 @@ async fn wait_for_backend_event(backend: &BackendSupervisor) -> Result<Option<&'
         if event.contains("permission.asked") || event.contains("question.asked") { return Ok(Some("attention")); }
         if event.contains("session.error") || event.contains("workspace.failed") { return Ok(Some("failed")); }
         if event.contains("session.idle") { return Ok(Some("completed")); }
-        if ["session.status", "todo.updated", "agent_cluster.event"].iter().any(|kind| event.contains(kind)) { return Ok(None); }
+        if ["session.status", "todo.updated", "plan.runtime.event"].iter().any(|kind| event.contains(kind)) { return Ok(None); }
     }
     Err("local JYYCode event stream closed".into())
 }

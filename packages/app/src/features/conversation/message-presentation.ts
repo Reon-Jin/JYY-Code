@@ -1,23 +1,7 @@
 import type { Message, Part, TextPart } from "@jyycode-ai/sdk/v2/client"
 import type { ConversationMessage } from "./conversation-state"
 
-export type MessageTextPresentation = { kind: "hidden" } | { kind: "plan" } | { kind: "text"; text: string }
-
-function isPlan(value: unknown) {
-  if (!value || typeof value !== "object") return false
-  const candidate = value as { goal?: unknown; tasks?: unknown }
-  return typeof candidate.goal === "string" && Array.isArray(candidate.tasks)
-}
-
-function containsPlanJSON(text: string) {
-  const fenced = /```json\s*([\s\S]*?)```/i.exec(text)
-  if (!fenced?.[1]) return false
-  try {
-    return isPlan(JSON.parse(fenced[1]))
-  } catch {
-    return false
-  }
-}
+export type MessageTextPresentation = { kind: "hidden" } | { kind: "text"; text: string }
 
 export function presentMessageText(input: {
   part: Pick<TextPart, "text" | "synthetic">
@@ -25,13 +9,6 @@ export function presentMessageText(input: {
   agent?: string
 }): MessageTextPresentation {
   if (input.part.synthetic) return { kind: "hidden" }
-  if (
-    input.role === "assistant" &&
-    (input.agent === "cluster" || input.agent === "build") &&
-    containsPlanJSON(input.part.text)
-  ) {
-    return { kind: "plan" }
-  }
   return { kind: "text", text: input.part.text }
 }
 

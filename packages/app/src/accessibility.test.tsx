@@ -116,7 +116,7 @@ describe("desktop accessibility contract", () => {
     expect(await screen.findByRole("complementary", { name: "项目与 Session 导航" }, { timeout: 5_000 })).toBeVisible()
     expect(screen.getByRole("navigation", { name: "活动 Session" })).toBeVisible()
     expect(await screen.findByRole("combobox", { name: "智能体" }, { timeout: 5_000 })).toBeVisible()
-    expect(screen.getByRole("button", { name: "配置模型：Test · Test Model" })).toBeVisible()
+    expect(screen.getByRole("combobox", { name: "主模型" })).toHaveValue("test/test-model/")
     expect(screen.getByRole("region", { name: "消息编辑器" })).toBeVisible()
     expect(screen.getByRole("textbox", { name: "消息" })).toBeVisible()
     expect(screen.getByRole("navigation", { name: "工作栏页面" })).toBeVisible()
@@ -173,7 +173,7 @@ describe("desktop accessibility contract", () => {
     await waitFor(() => expect(screen.getByRole("link", { name: "设置" })).toHaveFocus())
   })
 
-  it("keeps the Multi-Agent drawer, task, model dialog, and child route keyboard-operable", async () => {
+  it("keeps the plan drawer, task, model selector, and child route keyboard-operable", async () => {
     const user = userEvent.setup()
     const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_root" } })
     const backend = createFakeJyycode(desktop.directory)
@@ -186,30 +186,27 @@ describe("desktop accessibility contract", () => {
       agent: "coder",
       model: { providerID: "test", id: "test-complex" },
     })
-    backend.setAgentCluster("ses_root", {
-      tasks: [
+    backend.setPlan("ses_root", {
+      title: "Keyboard plan",
+      goal: "Verify keyboard operation",
+      status: "active",
+      revision: 1,
+      current_step: "s1",
+      pending_review: 0,
+      inbox_pending: 0,
+      steps: [
         {
-          id: "code",
-          session_id: "ses_root",
-          origin_message_id: "msg_parent",
-          parent_task_id: "",
-          child_session_id: "ses_child",
-          role: "coder",
-          title: "Keyboard task",
-          prompt: "Implement",
-          complexity: "complex",
-          model: "test/test-complex",
-          status: "running",
-          step: 1,
-          dependencies: [],
-          review_round: 0,
-          acceptance_criteria: [],
-          artifact_paths: [],
-          result_summary: "",
-          review_issues: [],
-          last_event: "Started coding",
-          time_created: 2,
-          time_updated: 2,
+          id: "s1",
+          title: "Implementation",
+          status: "active",
+          tasks: [
+            {
+              id: "s1_t1",
+              title: "Keyboard task",
+              status: "running",
+              child: { session_id: "ses_child", elapsed_sec: 1, last_activity: "Started coding" },
+            },
+          ],
         },
       ],
     })
@@ -244,33 +241,17 @@ describe("desktop accessibility contract", () => {
     await user.click(disclosure)
     expect(screen.getByText("Started coding")).toBeVisible()
 
-    const modelButton = screen.getByRole("button", { name: /配置模型/ })
-    modelButton.focus()
-    await user.keyboard("{Enter}")
-    const modelDialog = screen.getByRole("dialog", { name: "配置模型" })
-    const selects = await modelDialog.querySelectorAll("select")
-    expect(selects).toHaveLength(8)
-    for (const select of selects) {
-      select.focus()
-      expect(select).toHaveFocus()
-    }
-    const close = screen.getByRole("button", { name: "关闭" })
-    close.focus()
-    await user.keyboard("{Enter}")
-    await waitFor(() => expect(modelButton).toHaveFocus())
-
-    await user.keyboard("{Enter}")
-    const save = await screen.findByRole("button", { name: "保存" })
-    save.focus()
-    await user.keyboard("{Enter}")
-    await waitFor(() => expect(modelButton).toHaveFocus())
+    const modelSelect = screen.getByRole("combobox", { name: "主模型" })
+    modelSelect.focus()
+    expect(modelSelect).toHaveFocus()
+    expect(modelSelect).toBeEnabled()
 
     const openChild = screen.getByRole("button", { name: "审阅：Keyboard task" })
     openChild.focus()
     await user.keyboard("{Enter}")
     expect(await screen.findByRole("heading", { name: "Coder Session" })).toBeVisible()
     expect(screen.getByRole("link", { name: /Root Session/ })).toHaveAttribute("aria-current", "page")
-    expect(screen.queryByRole("button", { name: /当前模型/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "主模型" })).not.toBeInTheDocument()
     expect(screen.getByRole("textbox", { name: "消息" })).toBeEnabled()
     const back = screen.getByRole("button", { name: "返回主 Session" })
     back.focus()

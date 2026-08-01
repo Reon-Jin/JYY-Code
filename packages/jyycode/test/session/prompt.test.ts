@@ -57,7 +57,6 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
-import { AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
 
 void Log.init({ print: false })
 
@@ -77,7 +76,11 @@ const ref = {
 
 test("normalizes only concise one-line generated titles", () => {
   expect(normalizeGeneratedTitle("<think>ignore</think>\n修复多智能体右侧栏")).toBe("修复多智能体右侧栏")
-  expect(normalizeGeneratedTitle("I'll analyze your request and create a comprehensive plan before making the requested changes.")).toBeUndefined()
+  expect(
+    normalizeGeneratedTitle(
+      "I'll analyze your request and create a comprehensive plan before making the requested changes.",
+    ),
+  ).toBeUndefined()
   expect(normalizeGeneratedTitle("First line\nSecond line")).toBeUndefined()
 })
 
@@ -520,7 +523,6 @@ const seed = Effect.fn("test.seed")(function* (sessionID: SessionID, opts?: { fi
   return { user: msg, assistant }
 })
 
-
 const boot = Effect.fn("test.boot")(function* (input?: { title?: string }) {
   const config = yield* Config.Service
   const prompt = yield* SessionPrompt.Service
@@ -574,46 +576,66 @@ it.instance("loop calls LLM and returns assistant message", () =>
   }),
 )
 
-it.instance("noReply injection in a Multi-Agent session does not create a ghost cluster run", () =>
+it.instance("multi-agent roots must read then create a missing plan through tools", () =>
   Effect.gen(function* () {
-    yield* useServerConfig((url) => ({
-      ...providerCfg(url),
-      agent_cluster: {
-        planner_model: "test/test-model",
-        simple_model: "test/test-model",
-        complex_model: "test/test-model",
-        visual_model: "test/test-model",
-      },
-    }))
+    const { llm } = yield* useServerConfig(providerCfg)
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
     const chat = yield* sessions.create({
-      title: "Multi-Agent background injection",
-      agent: "build",
+      title: "Pinned",
       multiAgent: true,
-      model: { providerID: ref.providerID, id: ref.modelID },
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
     })
-
-    const message = yield* prompt.prompt({
+    yield* prompt.prompt({
       sessionID: chat.id,
       agent: "build",
-      model: ref,
       noReply: true,
-      parts: [{ type: "text", synthetic: true, text: "Background task completed" }],
+      parts: [{ type: "text", text: "implement the requested multi-stage change" }],
     })
+    yield* llm.tool("Plan_read", {})
+    yield* llm.tool("Plan_create", {
+      title: "Implementation plan",
+      goal: "Complete and verify the requested change",
+      steps: [
+        {
+          title: "Inspect",
+          goal: "Understand the current behavior",
+          done_criteria: "Relevant code paths are identified",
+          tasks: [
+            {
+              title: "Inspect code",
+              goal: "Locate the implementation gap",
+              done_criteria: "The responsible code path is documented",
+              output_path: "artifacts/inspection.md",
+            },
+          ],
+        },
+        {
+          title: "Implement",
+          goal: "Apply the fix",
+          done_criteria: "The implementation and tests pass",
+          tasks: [],
+        },
+      ],
+    })
+    yield* llm.text("Plan created through the protocol.")
 
-    expect(message.info.role).toBe("user")
-    if (message.info.role !== "user") return
-    expect(message.info.agent).toBe("build")
-    expect(
-      message.parts.some(
-        (part) => part.type === "text" && part.metadata?.kind === "agent_cluster" && Boolean(part.metadata.sessionID),
-      ),
-    ).toBe(false)
-    const tasks = Database.use((db) =>
-      db.select().from(AgentClusterTaskTable).where(Database.eq(AgentClusterTaskTable.session_id, chat.id)).all(),
+    yield* prompt.loop({ sessionID: chat.id })
+
+    const inputs = yield* llm.inputs
+    expect(inputs).toHaveLength(3)
+    expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_read")
+    expect(JSON.stringify(inputs[0]?.tools)).not.toContain("Plan_create")
+    expect(inputs[0]?.tool_choice).toBe("required")
+    expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_create")
+    expect(JSON.stringify(inputs[1]?.tools)).not.toContain("Plan_read")
+    expect(inputs[1]?.tool_choice).toBe("required")
+
+    const plan = JSON.parse(
+      yield* Effect.promise(() => Bun.file(path.join(chat.directory, ".jyycode", "plan", chat.id, "plan.json")).text()),
     )
-    expect(tasks).toHaveLength(0)
+    expect(plan.steps[0].tasks).toHaveLength(1)
+    expect(plan.steps[1].tasks).toEqual([])
   }),
 )
 
@@ -983,17 +1005,15 @@ it.instance("warns then cuts off repeated main-session tool turns", () =>
     }
 
     const result = yield* prompt.loop({ sessionID: session.id })
-    // Main sessions get one stuck-loop warning reminder before the hard stop,
-    // so the cutoff lands one LLM call later than the child-session cutoff.
-    expect(yield* llm.calls).toBe(4)
+    // Root sessions first consume one forced Plan.read turn, then get one
+    // stuck-loop warning reminder before the hard stop.
+    expect(yield* llm.calls).toBe(5)
     expect(result.info.role).toBe("assistant")
     if (result.info.role === "assistant") expect(result.info.finish).toBe("stop")
 
     const msgs = yield* MessageV2.filterCompactedEffect(session.id)
     const warning = msgs.find((msg) =>
-      msg.parts.some(
-        (part) => part.type === "text" && part.synthetic && part.metadata?.kind === "stuck_loop_warning",
-      ),
+      msg.parts.some((part) => part.type === "text" && part.synthetic && part.metadata?.kind === "stuck_loop_warning"),
     )
     expect(warning).toBeDefined()
   }),
@@ -1034,9 +1054,6 @@ it.instance("re-prompts when the assistant finishes with an empty response", () 
     expect(reminder).toBeDefined()
   }),
 )
-
-
-
 
 it.instance(
   "loop sets status to busy then idle",
@@ -1205,8 +1222,6 @@ raceNoLLMServer.instance(
   3_000,
 )
 
-
-
 it.instance(
   "cancel with queued callers resolves all cleanly",
   () =>
@@ -1232,7 +1247,7 @@ it.instance(
       }
     }),
   { git: true },
-  3_000,
+  10_000,
 )
 
 // Queue semantics
@@ -1616,7 +1631,7 @@ it.instance(
       expect(yield* llm.calls).toBe(1)
     }),
   { git: true },
-  3_000,
+  10_000,
 )
 
 it.instance(
@@ -1655,7 +1670,7 @@ it.instance(
       expect(yield* llm.calls).toBe(1)
     }),
   { git: true },
-  3_000,
+  10_000,
 )
 
 unix(

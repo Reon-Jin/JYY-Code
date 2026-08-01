@@ -21,7 +21,6 @@ export type ComposerControllerInput = {
   sessionID: Value<string>
   agent: Value<string>
   model: Value<ModelSelection>
-  agentClusterEnabled: Value<boolean>
   draftStore?: Map<string, string>
 }
 
@@ -89,7 +88,6 @@ export function createComposerController(input: ComposerControllerInput) {
               agent,
               model: { providerID: model.providerID, modelID: model.modelID },
               ...(model.variant ? { variant: model.variant } : {}),
-              agentCluster: { enabled: resolve(input.agentClusterEnabled) },
               parts: [...(text ? [{ type: "text" as const, text }] : []), ...attachments],
             },
             { throwOnError: true },
@@ -143,7 +141,6 @@ export function createComposerController(input: ComposerControllerInput) {
             agent,
             model: { providerID: model.providerID, modelID: model.modelID },
             ...(model.variant ? { variant: model.variant } : {}),
-            agentCluster: { enabled: false },
             parts: [...(text ? [{ type: "text" as const, text }] : []), ...attachments],
           },
           { throwOnError: true },

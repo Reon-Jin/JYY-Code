@@ -24,7 +24,6 @@ import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { containsPath, type InstanceContext } from "../project/instance-context"
 import { NonNegativeInt, PositiveInt, type DeepMutable } from "@jyycode-ai/core/schema"
 import { ConfigAgent } from "./agent"
-import { ConfigAgentCluster } from "./agent-cluster"
 import { ConfigAttachment } from "./attachment"
 import { ConfigCommand } from "./command"
 import { ConfigFormatter } from "./formatter"
@@ -84,6 +83,11 @@ function normalizeLoadedConfig(data: unknown, source: string) {
     delete copy[alias]
     log.warn(`${alias} in jyycode config is deprecated; use ${canonical}`, { path: source })
   }
+
+  // The agent-cluster protocol was removed. Drop its former configuration
+  // section before schema validation so upgrades do not make the application
+  // fail to start on an otherwise valid user config.
+  delete copy.agent_cluster
 
   const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
   if (!hadLegacy) return copy
@@ -238,9 +242,6 @@ export const Info = Schema.Struct({
       [Schema.Record(Schema.String, ConfigAgent.Info)],
     ),
   ).annotate({ description: "Agent configuration, see https://jyycode.ai/docs/agents" }),
-  agent_cluster: Schema.optional(ConfigAgentCluster.Info).annotate({
-    description: "Multi-Agent cluster execution configuration.",
-  }),
   provider: Schema.optional(Schema.Record(Schema.String, ConfigProvider.Info)).annotate({
     description: "Custom provider configurations and model overrides",
   }),
@@ -461,9 +462,18 @@ export const layer = Layer.effect(
       if (!("path" in options)) return data
 
       yield* Effect.promise(() => resolveLoadedPlugins(data, options.path))
+      let updated = text
+      if (isRecord(parsed) && "agent_cluster" in parsed) {
+        const edits = modify(updated, ["agent_cluster"], undefined, {
+          formattingOptions: { insertSpaces: true, tabSize: 2 },
+        })
+        updated = applyEdits(updated, edits)
+      }
       if (!data.$schema) {
         data.$schema = "https://jyycode.ai/config.json"
-        const updated = text.replace(/^\s*\{/, '{\n  "$schema": "https://jyycode.ai/config.json",')
+        updated = updated.replace(/^\s*\{/, '{\n  "$schema": "https://jyycode.ai/config.json",')
+      }
+      if (updated !== text) {
         yield* fs.writeFileString(options.path, updated).pipe(Effect.catch(() => Effect.void))
       }
       return data

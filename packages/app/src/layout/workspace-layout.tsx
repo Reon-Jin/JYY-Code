@@ -30,9 +30,9 @@ import {
 import { ProviderEmpty } from "../features/composer/provider-empty"
 import { effectiveMultiAgent, MultiAgentControl } from "../features/multi-agent/multi-agent-control"
 import { McpControl } from "../features/mcp/mcp-control"
-import { agentClusterQueryOptions } from "../features/multi-agent/multi-agent-query"
-import { findTaskByChildSessionID, projectAgentClusterState } from "../features/multi-agent/multi-agent-state"
 import { PlanPanel } from "../features/plan/plan-panel"
+import { planQueryOptions } from "../features/plan/plan-query"
+import { findTaskByChildSessionID, projectPlanState } from "../features/plan/plan-state"
 import { PermissionBar } from "../features/requests/permission-bar"
 import { QuestionPanel } from "../features/requests/question-panel"
 import {
@@ -69,7 +69,6 @@ export type WorkspaceLayoutViewProps = {
   activeError?: string
   archivedError?: string
   conversationError?: string
-  planStatus?: "planning" | "ready"
   operationError?: string
   projectTabs?: JSX.Element
   requestArea?: JSX.Element
@@ -317,7 +316,6 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
               messages={props.conversation?.messages ?? []}
               loading={props.conversationLoading}
               error={props.conversationError}
-              planStatus={props.planStatus}
               onRetry={props.onRetryConversation}
             />
             <div class="workspace-conversation__footer">
@@ -427,9 +425,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return [...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])].find((session) => session.id === rootID)
   })
   const isChildSession = createMemo(() => Boolean(parentSessionID()))
-  const clusterQuery = createQuery(
+  const planQuery = createQuery(
     () => ({
-      ...agentClusterQueryOptions({
+      ...planQueryOptions({
         client: data.client(),
         directory: data.directory(),
         sessionID: rootSessionID() ?? "",
@@ -438,24 +436,17 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }),
     data.queryClient,
   )
-  const clusterSnapshot = createMemo(() => projectAgentClusterState(clusterQuery.data ?? { tasks: [] }))
-  const activeChildTask = createMemo(() => findTaskByChildSessionID(clusterSnapshot(), activeSession()?.id))
+  const planSnapshot = createMemo(() => projectPlanState(planQuery.data ?? { plan: null }))
+  const activeChildTask = createMemo(() => findTaskByChildSessionID(planSnapshot(), activeSession()?.id))
   const childTaskRunning = createMemo(() => {
     const task = activeChildTask()
-    return task?.status === "running" || task?.status === "revising"
+    return task?.status === "running"
   })
   const rootMultiAgentEnabled = createMemo(() =>
-    rootSession() ? effectiveMultiAgent(rootSession()!, catalogQuery.data?.agentCluster) : false,
+    rootSession() ? effectiveMultiAgent(rootSession()!) : false,
   )
-  const planStatus = createMemo<"planning" | "ready" | undefined>(() => {
-    if (isChildSession()) return undefined
-    const snapshot = clusterSnapshot()
-    const rootStatus = statusQuery.data?.[rootSessionID() ?? ""]
-    const active = rootStatus?.type === "busy" || rootStatus?.type === "retry"
-    return snapshot.totalAgents === 0 && active ? "planning" : "ready"
-  })
   const planBadge = createMemo(() => {
-    const snapshot = clusterSnapshot()
+    const snapshot = planSnapshot()
     if (snapshot.failedAgents > 0) return `${snapshot.runningAgents}/${snapshot.failedAgents}`
     if (snapshot.runningAgents > 0) return String(snapshot.runningAgents)
     return undefined
@@ -467,7 +458,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return [
       ...new Set([
         session.id,
-        ...clusterSnapshot().tasks.flatMap((task) => (task.childSessionID ? [task.childSessionID] : [])),
+        ...planSnapshot().tasks.flatMap((task) => (task.childSessionID ? [task.childSessionID] : [])),
       ]),
     ]
   })
@@ -677,7 +668,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           ? errorMessage(conversationQuery.error, tr("layout.unable-to-load-session-message"))
           : undefined
       }
-      planStatus={planStatus()}
       operationError={operationError()}
       projectTabs={
         <ProjectTabs
@@ -709,7 +699,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                   <p class="request-panel__source">
                     {tr("layout.from-subagent")}{" "}
                     {capitalize(
-                      clusterSnapshot().tasks.find((task) => task.childSessionID === pending.sourceSessionID)?.role ??
+                      planSnapshot().tasks.find((task) => task.childSessionID === pending.sourceSessionID)?.role ??
                         tr("composer.agent"),
                     )}
                   </p>
@@ -766,9 +756,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     models={catalogQuery.data?.models ?? []}
                     selectedAgent={composerAgent()}
                     selectedModel={composerModel()!}
-                    agentClusterEnabled={
-                      activeSession() ? effectiveMultiAgent(activeSession()!, catalogQuery.data?.agentCluster) : false
-                    }
                     status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
                     requestPending={Boolean(activeRequest())}
                     childSteering={isChildSession() && childTaskRunning()}
@@ -798,7 +785,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                             queryClient={data.queryClient()}
                             directory={data.directory()}
                             session={session}
-                            config={catalogQuery.data?.agentCluster}
                           />
                         )}
                       </Show>

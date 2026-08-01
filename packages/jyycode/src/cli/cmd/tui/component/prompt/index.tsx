@@ -1220,11 +1220,6 @@ export function Prompt(props: PromptProps) {
           agent: agent.name,
           model: selectedModel,
           variant,
-          agentCluster: {
-            enabled: props.sessionID
-              ? (workspaceSession?.multiAgent ?? sync.data.config.agent_cluster?.default_on) === true
-              : multiAgentEnabled(),
-          },
           parts: [
             ...editorParts,
             {

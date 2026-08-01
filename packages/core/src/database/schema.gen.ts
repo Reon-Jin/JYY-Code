@@ -2,8 +2,6 @@ import { Effect } from "effect"
 import type { DatabaseMigration } from "./migration"
 
 const statements = [
-  "CREATE TABLE `agent_cluster_event` (\n\t`id` text PRIMARY KEY,\n\t`session_id` text NOT NULL,\n\t`origin_message_id` text,\n\t`task_id` text,\n\t`type` text NOT NULL,\n\t`message` text NOT NULL,\n\t`metadata` text,\n\t`time_created` integer NOT NULL,\n\t`time_updated` integer NOT NULL,\n\tCONSTRAINT `fk_agent_cluster_event_session_id_session_id_fk` FOREIGN KEY (`session_id`) REFERENCES `session`(`id`) ON DELETE CASCADE\n);",
-  "CREATE TABLE `agent_cluster_task` (\n\t`id` text NOT NULL,\n\t`session_id` text NOT NULL,\n\t`origin_message_id` text,\n\t`parent_task_id` text,\n\t`child_session_id` text,\n\t`role` text NOT NULL,\n\t`title` text NOT NULL,\n\t`prompt` text NOT NULL,\n\t`complexity` text NOT NULL,\n\t`model` text NOT NULL,\n\t`status` text NOT NULL,\n\t`step` integer DEFAULT 1 NOT NULL,\n\t`dependencies` text DEFAULT '[]' NOT NULL,\n\t`review_round` integer DEFAULT 0 NOT NULL,\n\t`acceptance_criteria` text NOT NULL,\n\t`artifact_paths` text NOT NULL,\n\t`result_summary` text,\n\t`review_issues` text DEFAULT '[]' NOT NULL,\n\t`last_event` text,\n\t`time_created` integer NOT NULL,\n\t`time_updated` integer NOT NULL,\n\tCONSTRAINT `agent_cluster_task_session_id_id_pk` PRIMARY KEY(`session_id`, `id`),\n\tCONSTRAINT `fk_agent_cluster_task_session_id_session_id_fk` FOREIGN KEY (`session_id`) REFERENCES `session`(`id`) ON DELETE CASCADE\n);",
   "CREATE TABLE `workspace` (\n\t`id` text PRIMARY KEY,\n\t`type` text NOT NULL,\n\t`name` text DEFAULT '' NOT NULL,\n\t`branch` text,\n\t`directory` text,\n\t`extra` text,\n\t`project_id` text NOT NULL,\n\t`time_used` integer NOT NULL,\n\tCONSTRAINT `fk_workspace_project_id_project_id_fk` FOREIGN KEY (`project_id`) REFERENCES `project`(`id`) ON DELETE CASCADE\n);",
   "CREATE TABLE `data_migration` (\n\t`name` text PRIMARY KEY,\n\t`time_completed` integer NOT NULL\n);",
   "CREATE TABLE `project` (\n\t`id` text PRIMARY KEY,\n\t`worktree` text NOT NULL,\n\t`vcs` text,\n\t`name` text,\n\t`icon_url` text,\n\t`icon_url_override` text,\n\t`icon_color` text,\n\t`time_created` integer NOT NULL,\n\t`time_updated` integer NOT NULL,\n\t`time_initialized` integer,\n\t`sandboxes` text NOT NULL,\n\t`commands` text\n);",
@@ -16,10 +14,6 @@ const statements = [
   "CREATE TABLE `session_share` (\n\t`session_id` text PRIMARY KEY,\n\t`id` text NOT NULL,\n\t`secret` text NOT NULL,\n\t`url` text NOT NULL,\n\t`time_created` integer NOT NULL,\n\t`time_updated` integer NOT NULL,\n\tCONSTRAINT `fk_session_share_session_id_session_id_fk` FOREIGN KEY (`session_id`) REFERENCES `session`(`id`) ON DELETE CASCADE\n);",
   "CREATE TABLE `event_sequence` (\n\t`aggregate_id` text PRIMARY KEY,\n\t`seq` integer NOT NULL,\n\t`owner_id` text\n);",
   "CREATE TABLE `event` (\n\t`id` text PRIMARY KEY,\n\t`aggregate_id` text NOT NULL,\n\t`seq` integer NOT NULL,\n\t`type` text NOT NULL,\n\t`data` text NOT NULL,\n\tCONSTRAINT `fk_event_aggregate_id_event_sequence_aggregate_id_fk` FOREIGN KEY (`aggregate_id`) REFERENCES `event_sequence`(`aggregate_id`) ON DELETE CASCADE\n);",
-  "CREATE INDEX `agent_cluster_event_session_idx` ON `agent_cluster_event` (`session_id`);",
-  "CREATE INDEX `agent_cluster_event_task_idx` ON `agent_cluster_event` (`task_id`);",
-  "CREATE INDEX `agent_cluster_task_session_idx` ON `agent_cluster_task` (`session_id`);",
-  "CREATE INDEX `agent_cluster_task_child_session_idx` ON `agent_cluster_task` (`child_session_id`);",
   "CREATE INDEX `message_session_time_created_id_idx` ON `message` (`session_id`,`time_created`,`id`);",
   "CREATE INDEX `part_message_id_id_idx` ON `part` (`message_id`,`id`);",
   "CREATE INDEX `part_session_idx` ON `part` (`session_id`);",

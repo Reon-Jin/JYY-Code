@@ -777,6 +777,75 @@ describe("session.llm.stream", () => {
     },
   )
 
+  it.instance(
+    "disables DeepSeek V4 thinking for required protocol tools",
+    Effect.gen(function* () {
+      const fixture = loadFixture("deepseek", "deepseek-v4-flash")
+      const request = waitRequest(
+        "/chat/completions",
+        new Response(createChatStream("tool-ready"), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      )
+      const resolved = yield* Provider.use.getModel(ProviderID.make("deepseek"), ModelID.make(fixture.model.id))
+      const sessionID = SessionID.make("session-deepseek-plan-gate")
+      const agent = {
+        name: "test",
+        mode: "primary",
+        options: {},
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      } satisfies Agent.Info
+
+      yield* drain({
+        user: {
+          id: MessageID.make("msg_deepseek-plan-gate"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make("deepseek"), modelID: resolved.id, variant: "low" },
+        },
+        sessionID,
+        model: resolved,
+        agent,
+        system: ["Use the protocol tool."],
+        messages: [{ role: "user", content: "Read the current plan." }],
+        tools: {
+          Plan_read: tool({
+            description: "Read the current plan.",
+            inputSchema: z.object({}),
+            execute: async () => ({ output: "{}", title: "Plan", metadata: {} }),
+          }),
+        },
+        toolChoice: "required",
+      })
+
+      const body = (yield* Effect.promise(() => request)).body
+      expect(body.tool_choice).toBe("required")
+      expect(body.thinking).toEqual({ type: "disabled" })
+      expect(body.reasoning_effort).toBeUndefined()
+    }),
+    {
+      config: () => {
+        const fixture = loadFixture("deepseek", "deepseek-v4-flash")
+        return {
+          enabled_providers: ["deepseek"],
+          provider: {
+            deepseek: {
+              name: "DeepSeek",
+              env: ["DEEPSEEK_API_KEY"],
+              npm: "@ai-sdk/openai-compatible",
+              api: "https://api.deepseek.com/v1",
+              models: { [fixture.model.id]: configModel(fixture.model) as ConfigModel },
+              options: { apiKey: "test-deepseek-key", baseURL: `${state.server!.url.origin}/v1` },
+            },
+          },
+        }
+      },
+    },
+  )
+
   const alibabaQwenFixture = { providerID: "alibaba", modelID: "qwen-plus" }
   it.instance(
     "service stream cancellation cancels provider response body promptly",

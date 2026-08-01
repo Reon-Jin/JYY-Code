@@ -404,7 +404,6 @@ export type TuiState = {
     status: (sessionID: string) => SessionStatus | undefined
     permission: (sessionID: string) => ReadonlyArray<PermissionRequest>
     question: (sessionID: string) => ReadonlyArray<QuestionRequest>
-    agentCluster: (sessionID: string) => TuiAgentClusterState
   }
   part: (messageID: string) => ReadonlyArray<Part>
   lsp: () => ReadonlyArray<TuiSidebarLspItem>
@@ -589,51 +588,6 @@ export type TuiPluginInstallResult =
 export type TuiWorkspace = {
   current: () => string | undefined
   set: (workspaceID?: string) => void
-}
-
-export type TuiAgentClusterTask = {
-  id: string
-  session_id: string
-  origin_message_id: string | null
-  parent_task_id: string | null
-  child_session_id: string | null
-  role:
-    | "researcher"
-    | "analyst"
-    | "writer"
-    | "chart"
-    | "pdf"
-    | "coder"
-    | "tester"
-    | "reviewer"
-    | "picture_searcher"
-    | "general"
-  title: string
-  prompt: string
-  complexity: "simple" | "complex"
-  model: string
-  status:
-    | "planned"
-    | "queued"
-    | "running"
-    | "submitted"
-    | "reviewing"
-    | "accepted"
-    | "revision_requested"
-    | "revising"
-    | "failed"
-    | "cancelled"
-    | "interrupted"
-  review_round: number
-  acceptance_criteria: string[]
-  artifact_paths: string[]
-  last_event: string | null
-  time_created: number
-  time_updated: number
-}
-
-export type TuiAgentClusterState = {
-  tasks: ReadonlyArray<TuiAgentClusterTask>
 }
 
 export type TuiPluginApi = {

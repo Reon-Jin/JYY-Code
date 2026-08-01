@@ -4,8 +4,8 @@ import { createMemo, Show } from "solid-js"
 import { useData } from "../../data/context"
 import { errorMessage } from "../projects/project-controller"
 import { MultiAgentPanelView } from "../multi-agent/multi-agent-panel"
-import { agentClusterQueryOptions } from "../multi-agent/multi-agent-query"
-import { projectAgentClusterState } from "../multi-agent/multi-agent-state"
+import { planQueryOptions } from "./plan-query"
+import { projectPlanState } from "./plan-state"
 import { TodoPanelView } from "../todos/todo-panel"
 import { todoQueryOptions } from "../todos/todo-query"
 
@@ -21,9 +21,9 @@ export function PlanPanel(props: {
   onOpenChild: (sessionID: string) => void
 }) {
   const data = useData()
-  const clusterQuery = createQuery(
+  const planQuery = createQuery(
     () => ({
-      ...agentClusterQueryOptions({
+      ...planQueryOptions({
         client: data.client(),
         directory: props.directory,
         sessionID: props.rootSessionID ?? "",
@@ -32,8 +32,9 @@ export function PlanPanel(props: {
     }),
     data.queryClient,
   )
-  const snapshot = createMemo(() => projectAgentClusterState(clusterQuery.data ?? { tasks: [] }))
-  const showPlan = () => snapshot().tasks.length > 0 || clusterQuery.isPending || Boolean(clusterQuery.error)
+  const snapshot = createMemo(() => projectPlanState(planQuery.data ?? { plan: null }))
+  const showPlan = () =>
+    (planQuery.data ? !("plan" in planQuery.data) : false) || planQuery.isPending || Boolean(planQuery.error)
   const todoQuery = createQuery(
     () => ({
       ...todoQueryOptions({
@@ -69,11 +70,11 @@ export function PlanPanel(props: {
         progressLabel={tr("plan.progress")}
         waitingForPlanMessage={tr("plan.waiting-for-plan")}
         noPlanMessage={tr("plan.no-plan")}
-        loading={Boolean(props.rootSessionID) && clusterQuery.isPending}
+        loading={Boolean(props.rootSessionID) && planQuery.isPending}
         error={
-          clusterQuery.error ? errorMessage(clusterQuery.error, tr("plan.unable-to-load-plan")) : undefined
+          planQuery.error ? errorMessage(planQuery.error, tr("plan.unable-to-load-plan")) : undefined
         }
-        onRetry={() => void clusterQuery.refetch()}
+        onRetry={() => void planQuery.refetch()}
         onOpenChild={props.onOpenChild}
       />
     </Show>

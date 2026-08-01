@@ -10,6 +10,8 @@ mod window_effects;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     #[cfg(target_os = "macos")]
     let _ = fix_path_env::fix();
 

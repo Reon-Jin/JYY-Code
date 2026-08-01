@@ -1,5 +1,4 @@
 import { Agent } from "@/agent/agent"
-import { AgentCluster } from "@/agent-cluster/cluster"
 import { Bus } from "@/bus"
 import { Command } from "@/command"
 import { Config } from "@/config/config"
@@ -18,6 +17,7 @@ import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
+import { PlanProtocol } from "@/plan/protocol"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NamedError } from "@jyycode-ai/core/util/error"
 import { Cause, Effect, Exit, Option, Schema, Scope } from "effect"
@@ -123,11 +123,15 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       }
     })
 
-    const agentCluster = Effect.fn("SessionHttpApi.agentCluster")(function* (ctx: {
+    const plan = Effect.fn("SessionHttpApi.plan")(function* (ctx: {
       params: { sessionID: SessionID }
     }) {
-      yield* requireSession(ctx.params.sessionID)
-      return yield* AgentCluster.getSessionState(ctx.params.sessionID)
+      const root = yield* requireSession(ctx.params.sessionID)
+      return new PlanProtocol().snapshot({
+        workspaceRoot: root.directory,
+        sessionId: root.id,
+        mode: root.multiAgent === true ? "multi" : "single",
+      })
     })
 
     const todo = Effect.fn("SessionHttpApi.todo")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -281,13 +285,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       const child = yield* requireSession(ctx.params.sessionID)
-      if (child.parentID) {
-        yield* AgentCluster.interruptActiveChildAssignment({
-          sessionID: child.parentID,
-          childSessionID: child.id,
-          reason: "Interrupted by a user steering message.",
-        })
-      }
       yield* promptSvc.prompt({ ...ctx.payload, sessionID: child.id }).pipe(
         Effect.catchCause((cause) =>
           Effect.gen(function* () {
@@ -487,7 +484,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("get", get)
       .handle("children", children)
       .handle("context", context)
-      .handle("agentCluster", agentCluster)
+      .handle("plan", plan)
       .handle("todo", todo)
       .handle("diff", diff)
       .handle("messages", messages)

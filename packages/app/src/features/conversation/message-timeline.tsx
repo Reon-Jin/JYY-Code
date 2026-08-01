@@ -18,7 +18,6 @@ export type MessageTimelineProps = {
   messages: readonly ConversationMessage[]
   loading?: boolean
   error?: string
-  planStatus?: "planning" | "ready"
   onRetry?: () => void
 }
 
@@ -45,7 +44,6 @@ function PresentedGroupView(props: {
   group: PresentedMessageGroup
   messageRole: string
   messageAgent?: string
-  planStatus?: "planning" | "ready"
 }) {
   const partIDs = createMemo(() => props.group.parts.map((part) => part.id))
   const partsByID = createMemo(() => new Map(props.group.parts.map((part) => [part.id, part])))
@@ -61,7 +59,6 @@ function PresentedGroupView(props: {
           part={partsByID().get(partID)!}
           messageRole={props.messageRole}
           messageAgent={props.messageAgent}
-          planStatus={props.planStatus}
         />
       )}
     </For>
@@ -80,7 +77,7 @@ function PresentedGroupView(props: {
   )
 }
 
-function PresentedMessageView(props: { message: PresentedConversationMessage; planStatus?: "planning" | "ready" }) {
+function PresentedMessageView(props: { message: PresentedConversationMessage }) {
   const groupKeys = createMemo(() => props.message.groups.map(groupKey))
   const groupsByKey = createMemo(() => new Map(props.message.groups.map((group) => [groupKey(group), group])))
   const agent = () =>
@@ -104,7 +101,6 @@ function PresentedMessageView(props: { message: PresentedConversationMessage; pl
               group={groupsByKey().get(key)!}
               messageRole={props.message.info.role}
               messageAgent={agent()}
-              planStatus={props.planStatus}
             />
           )}
         </For>
@@ -197,7 +193,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
               <div class="message-timeline__content">
                 <For each={messageIDs()}>
                   {(messageID) => (
-                    <PresentedMessageView message={messagesByID().get(messageID)!} planStatus={props.planStatus} />
+                    <PresentedMessageView message={messagesByID().get(messageID)!} />
                   )}
                 </For>
               </div>

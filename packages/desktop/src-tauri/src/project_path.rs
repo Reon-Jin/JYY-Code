@@ -5,6 +5,7 @@ const WINDOWS_INVALID_CHARACTERS: [char; 9] = ['<', '>', ':', '"', '/', '\\', '|
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PathPlatform {
     Windows,
+    #[allow(dead_code)]
     MacOS,
 }
 
@@ -127,10 +128,6 @@ fn validate_global_config_file_for(path: &str, platform: PathPlatform) -> Result
         return Err("global config path must name jyycode.jsonc or jyycode.json".into());
     }
     Ok(path)
-}
-
-pub fn validate_global_config_file(path: &str) -> Result<&str, String> {
-    validate_global_config_file_for(path, current_platform())
 }
 
 fn reveal_command_for(

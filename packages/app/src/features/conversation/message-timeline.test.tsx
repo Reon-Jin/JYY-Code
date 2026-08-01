@@ -41,11 +41,9 @@ function conversation(parts: Part[], message = info): ConversationMessage {
 afterEach(cleanup)
 
 describe("MessageTimeline", () => {
-  it("hides synthetic prompts and replaces cluster plan JSON with a planning state", () => {
-    const clusterInfo: Message = { ...assistantInfo, agent: "cluster", mode: "cluster" }
+  it("hides synthetic prompts but leaves JSON-shaped assistant text visible", () => {
     render(() => (
       <MessageTimeline
-        planStatus="planning"
         messages={[
           conversation(
             [
@@ -66,12 +64,12 @@ describe("MessageTimeline", () => {
               {
                 id: "part_plan",
                 sessionID,
-                messageID: clusterInfo.id,
+                messageID: assistantInfo.id,
                 type: "text",
                 text: '准备计划\n```json\n{"goal":"Ship","tasks":[]}\n```',
               },
             ],
-            clusterInfo,
+            assistantInfo,
           ),
         ]}
       />
@@ -79,8 +77,7 @@ describe("MessageTimeline", () => {
 
     expect(screen.getByText("创建任务")).toBeVisible()
     expect(screen.queryByText(/CURRENT TURN SCOPE/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/\"goal\"/)).not.toBeInTheDocument()
-    expect(screen.getByRole("status")).toHaveTextContent("正在生成计划")
+    expect(screen.getByText(/\"goal\"/)).toBeVisible()
   })
   it("omits the visible user label and renders distinct user/Agent alignment", () => {
     render(() => (
@@ -164,30 +161,27 @@ describe("MessageTimeline", () => {
     expect(screen.getByRole("button", { name: "思考过程" })).toBeVisible()
   })
 
-  it("uses the lightweight planning state while cluster plan JSON is still streaming", () => {
-    const clusterInfo: Message = { ...assistantInfo, agent: "cluster", mode: "cluster" }
+  it("shows partial JSON-shaped assistant text while it is streaming", () => {
     render(() => (
       <MessageTimeline
-        planStatus="planning"
         messages={[
           conversation(
             [
               {
                 id: "part_partial_plan",
                 sessionID,
-                messageID: clusterInfo.id,
+                messageID: assistantInfo.id,
                 type: "text",
                 text: '```json\n{"goal":"Ship","tasks":[{"id":"long partial payload',
               },
             ],
-            clusterInfo,
+            assistantInfo,
           ),
         ]}
       />
     ))
 
-    expect(screen.getByRole("status")).toHaveTextContent("正在生成计划")
-    expect(screen.queryByText(/long partial payload/)).not.toBeInTheDocument()
+    expect(screen.getByText(/long partial payload/)).toBeVisible()
   })
 
   it("keeps reasoning collapsed until explicitly expanded", async () => {

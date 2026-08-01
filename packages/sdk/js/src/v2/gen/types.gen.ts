@@ -9,7 +9,7 @@ export type Event =
   | EventTuiCommandExecute
   | EventTuiToastShow1
   | EventTuiSessionSelect
-  | EventAgentClusterEvent1
+  | EventPlanRuntimeEvent1
   | EventServerConnected
   | EventGlobalDisposed
   | EventServerInstanceDisposed
@@ -36,12 +36,12 @@ export type Event =
   | EventToolSearchExecuted1
   | EventToolExecutionCompleted1
   | EventSessionCompacted
-  | EventWorktreeReady
-  | EventWorktreeFailed
   | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
   | EventWorkspaceStatus
+  | EventWorktreeReady
+  | EventWorktreeFailed
   | EventPtyCreated
   | EventPtyUpdated
   | EventPtyExited
@@ -812,7 +812,7 @@ export type GlobalEvent = {
     | EventTuiCommandExecute
     | EventTuiToastShow
     | EventTuiSessionSelect
-    | EventAgentClusterEvent
+    | EventPlanRuntimeEvent
     | EventServerConnected
     | EventGlobalDisposed
     | EventServerInstanceDisposed
@@ -839,12 +839,12 @@ export type GlobalEvent = {
     | EventToolSearchExecuted
     | EventToolExecutionCompleted
     | EventSessionCompacted
-    | EventWorktreeReady
-    | EventWorktreeFailed
     | EventVcsBranchUpdated
     | EventWorkspaceReady
     | EventWorkspaceFailed
     | EventWorkspaceStatus
+    | EventWorktreeReady
+    | EventWorktreeFailed
     | EventPtyCreated
     | EventPtyUpdated
     | EventPtyExited
@@ -1036,26 +1036,6 @@ export type AgentConfig = {
     | number
     | PermissionConfig
     | undefined
-}
-
-export type AgentClusterConfig = {
-  enabled?: boolean
-  default_on?: boolean
-  disable_for_routes?: Array<string>
-  planner_model?: string
-  planner_variant?: string
-  reviewer_model?: string
-  reviewer_variant?: string
-  complex_model?: string
-  complex_variant?: string
-  simple_model?: string
-  simple_variant?: string
-  visual_model?: string
-  visual_variant?: string
-  max_subagents?: number
-  max_concurrency?: number
-  max_review_rounds?: number
-  artifact_dir?: string
 }
 
 export type ProviderConfig = {
@@ -1253,13 +1233,11 @@ export type Config = {
     build?: AgentConfig
     general?: AgentConfig
     explore?: AgentConfig
-    scout?: AgentConfig
     title?: AgentConfig
     summary?: AgentConfig
     compaction?: AgentConfig
     [key: string]: AgentConfig | undefined
   }
-  agent_cluster?: AgentClusterConfig
   provider?: {
     [key: string]: ProviderConfig
   }
@@ -1340,32 +1318,6 @@ export type Config = {
     primary_tools?: Array<string>
     continue_loop_on_deny?: boolean
     mcp_timeout?: number
-  }
-  communication?: {
-    email?: {
-      smtpHost: string
-      smtpPort?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      imapHost?: string
-      imapPort?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      mailbox?: string
-      username: string
-      password: string
-      from: string
-      authMethod?: "password" | "oauth2"
-      clientId?: string
-      tenant?: string
-      refreshToken?: string
-    }
-    finish?: {
-      enabled?: boolean
-      to?: string
-      subject?: string
-    }
-    inbox?: {
-      enabled?: boolean
-      owner?: string
-      pollSeconds?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    }
   }
 }
 
@@ -2874,32 +2826,18 @@ export type SyncEventSessionNextCompactionEnded = {
   }
 }
 
-export type EventAgentClusterEvent = {
+export type EventPlanRuntimeEvent = {
   id: string
-  type: "agent_cluster.event"
+  type: "plan.runtime.event"
   properties: {
-    sessionID: string
-    originMessageID?: string
-    taskID?: string
-    type: "run" | "task" | "review" | "artifact"
-    status?:
-      | "planned"
-      | "queued"
-      | "running"
-      | "submitted"
-      | "reviewing"
-      | "accepted"
-      | "completed"
-      | "revision_requested"
-      | "revising"
-      | "failed"
-      | "cancelled"
-      | "interrupted"
-    message: string
-    metadata?: {
+    seq: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    type: "plan.updated" | "child.activity" | "report_arrived" | "check_point" | "user_message"
+    session_id: string
+    revision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    at: string
+    payload: {
       [key: string]: unknown
     }
-    createdAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   }
 }
 
@@ -3146,23 +3084,6 @@ export type EventSessionCompacted = {
   }
 }
 
-export type EventWorktreeReady = {
-  id: string
-  type: "worktree.ready"
-  properties: {
-    name: string
-    branch?: string
-  }
-}
-
-export type EventWorktreeFailed = {
-  id: string
-  type: "worktree.failed"
-  properties: {
-    message: string
-  }
-}
-
 export type EventVcsBranchUpdated = {
   id: string
   type: "vcs.branch.updated"
@@ -3193,6 +3114,23 @@ export type EventWorkspaceStatus = {
   properties: {
     workspaceID: string
     status: "connected" | "connecting" | "disconnected" | "error"
+  }
+}
+
+export type EventWorktreeReady = {
+  id: string
+  type: "worktree.ready"
+  properties: {
+    name: string
+    branch?: string
+  }
+}
+
+export type EventWorktreeFailed = {
+  id: string
+  type: "worktree.failed"
+  properties: {
+    message: string
   }
 }
 
@@ -4118,32 +4056,18 @@ export type EventTuiToastShow1 = {
   }
 }
 
-export type EventAgentClusterEvent1 = {
+export type EventPlanRuntimeEvent1 = {
   id: string
-  type: "agent_cluster.event"
+  type: "plan.runtime.event"
   properties: {
-    sessionID: string
-    originMessageID?: string
-    taskID?: string
-    type: "run" | "task" | "review" | "artifact"
-    status?:
-      | "planned"
-      | "queued"
-      | "running"
-      | "submitted"
-      | "reviewing"
-      | "accepted"
-      | "completed"
-      | "revision_requested"
-      | "revising"
-      | "failed"
-      | "cancelled"
-      | "interrupted"
-    message: string
-    metadata?: {
+    seq: number | "NaN" | "Infinity" | "-Infinity"
+    type: "plan.updated" | "child.activity" | "report_arrived" | "check_point" | "user_message"
+    session_id: string
+    revision?: number | "NaN" | "Infinity" | "-Infinity"
+    at: string
+    payload: {
       [key: string]: unknown
     }
-    createdAt: number | "NaN" | "Infinity" | "-Infinity"
   }
 }
 
@@ -8115,7 +8039,7 @@ export type SessionContextResponses = {
 
 export type SessionContextResponse = SessionContextResponses[keyof SessionContextResponses]
 
-export type SessionAgentClusterData = {
+export type SessionPlanData = {
   body?: never
   path: {
     sessionID: string
@@ -8124,10 +8048,10 @@ export type SessionAgentClusterData = {
     directory?: string
     workspace?: string
   }
-  url: "/session/{sessionID}/agent-cluster"
+  url: "/session/{sessionID}/plan"
 }
 
-export type SessionAgentClusterErrors = {
+export type SessionPlanErrors = {
   /**
    * BadRequest | InvalidRequestError
    */
@@ -8138,52 +8062,44 @@ export type SessionAgentClusterErrors = {
   404: NotFoundError
 }
 
-export type SessionAgentClusterError = SessionAgentClusterErrors[keyof SessionAgentClusterErrors]
+export type SessionPlanError = SessionPlanErrors[keyof SessionPlanErrors]
 
-export type SessionAgentClusterResponses = {
+export type SessionPlanResponses = {
   /**
-   * Agent cluster state
+   * Plan snapshot
    */
-  200: {
-    tasks: Array<{
-      id: string
-      session_id: string
-      origin_message_id: string
-      parent_task_id: string
-      child_session_id: string
-      role: "researcher" | "analyst" | "writer" | "chart" | "pdf" | "coder" | "tester" | "picture_searcher" | "general"
-      title: string
-      prompt: string
-      complexity: "simple" | "complex"
-      model: string
-      status:
-        | "planned"
-        | "queued"
-        | "running"
-        | "submitted"
-        | "reviewing"
-        | "accepted"
-        | "completed"
-        | "revision_requested"
-        | "revising"
-        | "failed"
-        | "cancelled"
-        | "interrupted"
-      step: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      dependencies: Array<string>
-      review_round: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      acceptance_criteria: Array<string>
-      artifact_paths: Array<string>
-      result_summary: string
-      review_issues: Array<string>
-      last_event: string
-      time_created: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-      time_updated: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    }>
-  }
+  200:
+    | {
+        plan: null
+      }
+    | {
+        title: string
+        goal: string
+        status: "draft" | "active" | "done"
+        revision: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        current_step: string
+        steps: Array<{
+          id: string
+          title: string
+          status: "pending" | "active" | "done"
+          tasks: Array<{
+            id: string
+            title: string
+            status: "pending" | "dispatched" | "running" | "reported" | "approved" | "rejected"
+            child?: {
+              session_id: string
+              elapsed_sec: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+              last_activity?: string
+              last_activity_at?: string
+            }
+          }>
+        }>
+        pending_review: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+        inbox_pending: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+      }
 }
 
-export type SessionAgentClusterResponse = SessionAgentClusterResponses[keyof SessionAgentClusterResponses]
+export type SessionPlanResponse = SessionPlanResponses[keyof SessionPlanResponses]
 
 export type SessionTodoData = {
   body?: never
@@ -8304,9 +8220,6 @@ export type SessionPromptData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    agentCluster?: {
-      enabled?: boolean
-    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -8502,9 +8415,6 @@ export type SessionInterruptPromptData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    agentCluster?: {
-      enabled?: boolean
-    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
@@ -8706,9 +8616,6 @@ export type SessionPromptAsyncData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    agentCluster?: {
-      enabled?: boolean
-    }
     parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {

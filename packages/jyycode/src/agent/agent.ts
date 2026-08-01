@@ -6,10 +6,6 @@ import { generateObject, streamObject, type ModelMessage } from "ai"
 import { Truncate } from "@/tool/truncate"
 import { Auth } from "../auth"
 import { ProviderTransform } from "@/provider/transform"
-import { ClusterPrimaryPrompt } from "@/agent-cluster/planner"
-import { SubagentDescriptions, subagentPrompt } from "@/agent-cluster/dispatcher"
-import { primarySkillPermission, roleSkillPermission, roleSystemPrompt } from "@/agent-cluster/role-skills"
-import type { TaskRole } from "@/agent-cluster/schema"
 
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
@@ -103,7 +99,8 @@ export const layer = Layer.effect(
             return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)
           })
           .map((item) => item.name)
-        const primarySkills = primarySkillPermission(globalSkillNames)
+        const primarySkills: Record<string, "allow" | "deny"> = { "*": "deny", "customize-jyycode": "allow" }
+        for (const name of globalSkillNames) primarySkills[name] = "allow"
         const whitelistedDirs = [
           Truncate.GLOB,
           path.join(Global.Path.tmp, "*"),
@@ -124,7 +121,6 @@ export const layer = Layer.effect(
           question: "deny",
           plan_enter: "deny",
           plan_exit: "deny",
-          agent_cluster_review: "deny",
           repo_clone: "deny",
           repo_overview: "deny",
           // mirrors github.com/github/gitignore Node.gitignore pattern for .env files
@@ -137,25 +133,6 @@ export const layer = Layer.effect(
         })
 
         const user = Permission.fromConfig(cfg.permission ?? {})
-        const clusterSubagent = (role: Exclude<TaskRole, "general">): Info => ({
-          name: role,
-          description: SubagentDescriptions[role],
-          prompt: subagentPrompt(role),
-          permission: Permission.merge(
-            defaults,
-            Permission.fromConfig({
-              todowrite: "deny",
-              plan_update: "deny",
-              task: "deny",
-            }),
-            user,
-            Permission.fromConfig({ skill: roleSkillPermission(role) }),
-          ),
-          options: {},
-          mode: "subagent",
-          native: true,
-        })
-
         const agents: Record<string, Info> = {
           build: {
             name: "build",
@@ -198,50 +175,22 @@ export const layer = Layer.effect(
             mode: "primary",
             native: true,
           },
-          cluster: {
-            name: "cluster",
-            description:
-              "Multi-Agent cluster primary. Plans, dispatches, reviews, revises, and synthesizes subagent work.",
-            prompt: ClusterPrimaryPrompt,
-            options: {},
-            permission: Permission.merge(
-              defaults,
-              Permission.fromConfig({
-                question: "allow",
-                plan_enter: "allow",
-              }),
-              user,
-              Permission.fromConfig({ skill: primarySkills }),
-            ),
-            mode: "primary",
-            native: true,
-            hidden: true,
-          },
           general: {
             name: "general",
             description: `General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.`,
-            prompt: subagentPrompt("general"),
+            prompt: "Execute the delegated task directly, use tools as needed, and return a concise evidence-based result.",
             permission: Permission.merge(
               defaults,
               Permission.fromConfig({
                 todowrite: "deny",
                 plan_update: "deny",
-                skill: roleSkillPermission("general"),
               }),
               user,
-              Permission.fromConfig({ skill: roleSkillPermission("general") }),
             ),
             options: {},
             mode: "subagent",
             native: true,
           },
-          researcher: clusterSubagent("researcher"),
-          analyst: clusterSubagent("analyst"),
-          writer: clusterSubagent("writer"),
-          chart: clusterSubagent("chart"),
-          office: clusterSubagent("office"),
-          coder: clusterSubagent("coder"),
-          tester: clusterSubagent("tester"),
           explore: {
             name: "explore",
             permission: Permission.merge(
@@ -256,13 +205,11 @@ export const layer = Layer.effect(
                 websearch: "allow",
                 read: "allow",
                 external_directory: readonlyExternalDirectory,
-                skill: roleSkillPermission("explore"),
               }),
               user,
-              Permission.fromConfig({ skill: roleSkillPermission("explore") }),
             ),
             description: `Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions.`,
-            prompt: [roleSystemPrompt("explore"), PROMPT_EXPLORE].join("\n\n"),
+            prompt: PROMPT_EXPLORE,
             options: {},
             mode: "subagent",
             native: true,

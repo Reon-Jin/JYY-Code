@@ -1,7 +1,6 @@
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
-import { Complexity, TaskID, TaskRole, TaskStatus } from "@/agent-cluster/schema"
 import { Session } from "@/session/session"
 import { WorkspaceID } from "@/control-plane/schema"
 import { MessageV2 } from "@/session/message-v2"
@@ -91,32 +90,39 @@ export const RevertPayload = Schema.Struct(Struct.omit(SessionRevert.RevertInput
 export const PermissionResponsePayload = Schema.Struct({
   response: Permission.Reply,
 })
-const AgentClusterTaskRow = Schema.Struct({
-  id: TaskID,
-  session_id: SessionID,
-  origin_message_id: Schema.NullOr(MessageID),
-  parent_task_id: Schema.NullOr(TaskID),
-  child_session_id: Schema.NullOr(SessionID),
-  role: TaskRole,
+const PlanSnapshotTask = Schema.Struct({
+  id: Schema.String,
   title: Schema.String,
-  prompt: Schema.String,
-  complexity: Complexity,
-  model: Schema.String,
-  status: TaskStatus,
-  step: Schema.Number,
-  dependencies: Schema.Array(Schema.String),
-  review_round: Schema.Number,
-  acceptance_criteria: Schema.Array(Schema.String),
-  artifact_paths: Schema.Array(Schema.String),
-  result_summary: Schema.NullOr(Schema.String),
-  review_issues: Schema.Array(Schema.String),
-  last_event: Schema.NullOr(Schema.String),
-  time_created: Schema.Number,
-  time_updated: Schema.Number,
+  status: Schema.Literals(["pending", "dispatched", "running", "reported", "approved", "rejected"]),
+  child: Schema.optional(
+    Schema.Struct({
+      session_id: Schema.String,
+      elapsed_sec: Schema.Number,
+      last_activity: Schema.optional(Schema.String),
+      last_activity_at: Schema.optional(Schema.String),
+    }),
+  ),
 })
-export const AgentClusterStatePayload = Schema.Struct({
-  tasks: Schema.Array(AgentClusterTaskRow),
-})
+export const PlanSnapshotPayload = Schema.Union([
+  Schema.Struct({ plan: Schema.Null }),
+  Schema.Struct({
+    title: Schema.String,
+    goal: Schema.String,
+    status: Schema.Literals(["draft", "active", "done"]),
+    revision: Schema.Number,
+    current_step: Schema.Union([Schema.String, Schema.Null]),
+    steps: Schema.Array(
+      Schema.Struct({
+        id: Schema.String,
+        title: Schema.String,
+        status: Schema.Literals(["pending", "active", "done"]),
+        tasks: Schema.Array(PlanSnapshotTask),
+      }),
+    ),
+    pending_review: Schema.Number,
+    inbox_pending: Schema.Number,
+  }),
+])
 export const ContextPayload = Schema.Struct({
   totalTokens: Schema.Finite,
   textTokens: Schema.Finite,
@@ -134,7 +140,7 @@ export const SessionPaths = {
   get: `${root}/:sessionID`,
   children: `${root}/:sessionID/children`,
   context: `${root}/:sessionID/context`,
-  agentCluster: `${root}/:sessionID/agent-cluster`,
+  plan: `${root}/:sessionID/plan`,
   todo: `${root}/:sessionID/todo`,
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
@@ -221,16 +227,16 @@ export const SessionApi = HttpApi.make("session")
             description: "Retrieve a media-aware active context estimate for a session, including decoded media bytes.",
           }),
         ),
-        HttpApiEndpoint.get("agentCluster", SessionPaths.agentCluster, {
+        HttpApiEndpoint.get("plan", SessionPaths.plan, {
           params: { sessionID: SessionID },
           query: WorkspaceRoutingQuery,
-          success: described(AgentClusterStatePayload, "Agent cluster state"),
+          success: described(PlanSnapshotPayload, "Plan snapshot"),
           error: [HttpApiError.BadRequest, ApiNotFoundError],
         }).annotateMerge(
           OpenApi.annotations({
-            identifier: "session.agentCluster",
-            summary: "Get session agent cluster state",
-            description: "Retrieve the durable session task graph for a specific session.",
+            identifier: "session.plan",
+            summary: "Get session plan snapshot",
+            description: "Retrieve the file-backed plan projection for a specific root session.",
           }),
         ),
         HttpApiEndpoint.get("todo", SessionPaths.todo, {
@@ -353,7 +359,7 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.interrupt_prompt",
             summary: "Interrupt child assignment and send message",
             description:
-              "Stop a running cluster child assignment before sending a steering message to that child session.",
+              "Stop a running plan child assignment before sending a steering message to that child session.",
           }),
         ),
         HttpApiEndpoint.post("init", SessionPaths.init, {

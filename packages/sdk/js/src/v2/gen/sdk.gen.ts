@@ -216,8 +216,6 @@ import type {
   QuestionReplyResponses,
   SessionAbortErrors,
   SessionAbortResponses,
-  SessionAgentClusterErrors,
-  SessionAgentClusterResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
   SessionCommandErrors,
@@ -247,6 +245,8 @@ import type {
   SessionMessageResponses,
   SessionMessagesErrors,
   SessionMessagesResponses,
+  SessionPlanErrors,
+  SessionPlanResponses,
   SessionPromptAsyncErrors,
   SessionPromptAsyncResponses,
   SessionPromptErrors,
@@ -4644,11 +4644,11 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
-   * Get session agent cluster state
+   * Get session plan snapshot
    *
-   * Retrieve the durable session task graph for a specific session.
+   * Retrieve the file-backed plan projection for a specific root session.
    */
-  public agentCluster<ThrowOnError extends boolean = false>(
+  public plan<ThrowOnError extends boolean = false>(
     parameters: {
       sessionID: string
       directory?: string
@@ -4668,8 +4668,8 @@ export class Session2 extends HeyApiClient {
         },
       ],
     )
-    return (options?.client ?? this.client).get<SessionAgentClusterResponses, SessionAgentClusterErrors, ThrowOnError>({
-      url: "/session/{sessionID}/agent-cluster",
+    return (options?.client ?? this.client).get<SessionPlanResponses, SessionPlanErrors, ThrowOnError>({
+      url: "/session/{sessionID}/plan",
       ...options,
       ...params,
     })
@@ -4800,9 +4800,6 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
-      agentCluster?: {
-        enabled?: boolean
-      }
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -4823,7 +4820,6 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
-            { in: "body", key: "agentCluster" },
             { in: "body", key: "parts" },
           ],
         },
@@ -4987,7 +4983,7 @@ export class Session2 extends HeyApiClient {
   /**
    * Interrupt child assignment and send message
    *
-   * Stop a running cluster child assignment before sending a steering message to that child session.
+   * Stop a running plan child assignment before sending a steering message to that child session.
    */
   public interruptPrompt<ThrowOnError extends boolean = false>(
     parameters: {
@@ -5007,9 +5003,6 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
-      agentCluster?: {
-        enabled?: boolean
-      }
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -5030,7 +5023,6 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
-            { in: "body", key: "agentCluster" },
             { in: "body", key: "parts" },
           ],
         },
@@ -5225,9 +5217,6 @@ export class Session2 extends HeyApiClient {
       format?: OutputFormat
       system?: string
       variant?: string
-      agentCluster?: {
-        enabled?: boolean
-      }
       parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
     },
     options?: Options<never, ThrowOnError>,
@@ -5248,7 +5237,6 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "format" },
             { in: "body", key: "system" },
             { in: "body", key: "variant" },
-            { in: "body", key: "agentCluster" },
             { in: "body", key: "parts" },
           ],
         },

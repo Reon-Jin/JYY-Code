@@ -59,8 +59,6 @@ import { DialogForkFromTimeline } from "./dialog-fork-from-timeline"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
 import { Sidebar } from "./sidebar"
 import { SubagentFooter } from "./subagent-footer.tsx"
-import { MultiAgentPanel } from "./multi-agent-panel"
-import { stripAgentClusterPlanText } from "./agent-cluster-state"
 import { LANGUAGE_EXTENSIONS } from "@/lsp/language"
 import parsers from "../../../../../../parsers-config.ts"
 import * as Clipboard from "../../util/clipboard"
@@ -202,14 +200,14 @@ export function Session() {
   })
   const visible = createMemo(() => !session()?.parentID && permissions().length === 0 && questions().length === 0)
   const disabled = createMemo(() => permissions().length > 0 || questions().length > 0)
-  const agentClusterDisabled = createMemo(() => {
+  const multiAgentDisabled = createMemo(() => {
     const current = session()
     if (!current) return false
     return Boolean(current.parentID)
   })
-  const agentClusterEnabled = createMemo(() => {
-    if (agentClusterDisabled()) return false
-    return (session()?.multiAgent ?? sync.data.config.agent_cluster?.default_on) === true
+  const multiAgentEnabled = createMemo(() => {
+    if (multiAgentDisabled()) return false
+    return session()?.multiAgent === true
   })
 
   const pending = createMemo(() => {
@@ -692,13 +690,13 @@ export function Session() {
       },
     },
     {
-      title: agentClusterEnabled() ? "Disable Multi-Agent" : "Enable Multi-Agent",
+      title: multiAgentEnabled() ? "Disable Multi-Agent" : "Enable Multi-Agent",
       value: "session.toggle.multi_agent",
       category: "Session",
       run: async () => {
         const current = session()
         if (!current) return
-        if (agentClusterDisabled()) {
+        if (multiAgentDisabled()) {
           toast.show({
             message: "Multi-Agent is unavailable for this session",
             variant: "warning",
@@ -707,7 +705,7 @@ export function Session() {
           dialog.clear()
           return
         }
-        const next = !agentClusterEnabled()
+        const next = !multiAgentEnabled()
         await sdk.client.session
           .update(
             {
@@ -1294,13 +1292,6 @@ export function Session() {
                 </For>
               </scrollbox>
               <box flexShrink={0}>
-                <Show when={!session()?.parentID}>
-                  <MultiAgentPanel
-                    sessionID={route.sessionID}
-                    enabled={agentClusterEnabled()}
-                    disabled={agentClusterDisabled()}
-                  />
-                </Show>
                 <Show when={permissions().length > 0}>
                   <PermissionPrompt request={permissions()[0]} />
                 </Show>
@@ -1332,14 +1323,14 @@ export function Session() {
                         <box flexDirection="row" gap={1}>
                           <text
                             fg={
-                              agentClusterDisabled()
+                              multiAgentDisabled()
                                 ? theme.textMuted
-                                : agentClusterEnabled()
+                                : multiAgentEnabled()
                                   ? theme.success
                                   : theme.textMuted
                             }
                           >
-                            Multi-Agent {agentClusterDisabled() ? "disabled" : agentClusterEnabled() ? "●" : "○"}
+                            Multi-Agent {multiAgentDisabled() ? "disabled" : multiAgentEnabled() ? "●" : "○"}
                           </text>
                           <TuiPluginRuntime.Slot name="session_prompt_right" session_id={route.sessionID} />
                         </box>
@@ -1675,16 +1666,7 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
   const ctx = use()
   const { theme, syntax } = useTheme()
   const content = createMemo(() => {
-    const text = props.part.text.trim()
-    if (
-      props.message.agent !== "cluster" &&
-      props.message.mode !== "cluster" &&
-      props.message.agent !== "build" &&
-      props.message.mode !== "build"
-    ) {
-      return text
-    }
-    return stripAgentClusterPlanText(text).trim()
+    return props.part.text.trim()
   })
   return (
     <Show when={content()}>

@@ -1,37 +1,34 @@
 // @ts-nocheck
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library"
-import type { SessionAgentClusterResponse } from "@jyycode-ai/sdk/v2/client"
+import type { SessionPlanResponse } from "@jyycode-ai/sdk/v2/client"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { App } from "./app"
 import { createFakeDesktop } from "./test/fake-desktop"
 import { createFakeJyycode } from "./test/fake-jyycode"
 
-function clusterSnapshot(): SessionAgentClusterResponse {
+function planSnapshot(): SessionPlanResponse {
   return {
-    tasks: [
+    title: "Implement feature",
+    goal: "Implement and verify the feature",
+    status: "active",
+    revision: 2,
+    current_step: "s1",
+    pending_review: 0,
+    inbox_pending: 0,
+    steps: [
       {
-        id: "code",
-        session_id: "ses_root",
-        origin_message_id: "msg_parent",
-        parent_task_id: "",
-        child_session_id: "ses_child",
-        role: "coder",
-        title: "Implement feature",
-        prompt: "Implement the feature",
-        complexity: "complex" as const,
-        model: "test/test-complex",
-        status: "running" as const,
-        step: 1,
-        dependencies: [],
-        review_round: 0,
-        acceptance_criteria: ["Tests pass"],
-        artifact_paths: [],
-        result_summary: "",
-        review_issues: [],
-        last_event: "Started coding",
-        time_created: 2,
-        time_updated: 2,
+        id: "s1",
+        title: "Implementation",
+        status: "active",
+        tasks: [
+          {
+            id: "s1_t1",
+            title: "Implement feature",
+            status: "running",
+            child: { session_id: "ses_child", elapsed_sec: 1, last_activity: "Started coding" },
+          },
+        ],
       },
     ],
   }
@@ -218,7 +215,7 @@ describe("desktop GUI journey", () => {
       () => {
         expect(screen.getByRole("main")).toBeVisible()
         expect(screen.getByRole("combobox", { name: "智能体" })).toHaveValue("build")
-        expect(screen.getByRole("button", { name: "配置模型：Test · Test Model" })).toBeVisible()
+        expect(screen.getByRole("combobox", { name: "主模型" })).toHaveValue("test/test-model/")
       },
       { timeout: 5_000 },
     )
@@ -345,15 +342,13 @@ describe("desktop GUI journey", () => {
     await user.click(screen.getByRole("button", { name: "方案" }))
     expect(screen.getByRole("button", { name: "方案" })).toHaveAttribute("aria-pressed", "true")
 
-    backend.setAgentCluster("ses_root", clusterSnapshot())
-    backend.emitAgentCluster({
-      sessionID: "ses_root",
-      runID: "run_1",
-      taskID: "code",
-      type: "task",
-      status: "running",
-      message: "Started coding",
-      createdAt: 3,
+    backend.setPlan("ses_root", planSnapshot())
+    backend.emitPlan({
+      seq: 1,
+      type: "child.activity",
+      session_id: "ses_root",
+      at: new Date(3).toISOString(),
+      payload: { taskId: "s1_t1" },
     })
     expect(await screen.findByRole("progressbar", { name: "方案进度" })).toHaveAttribute("aria-valuenow", "0")
     const taskCounts = document.querySelector(".multi-agent-panel__counts")
@@ -375,24 +370,7 @@ describe("desktop GUI journey", () => {
     expect(screen.getByRole("progressbar", { name: "方案进度" })).toBeVisible()
     expect(screen.getByRole("textbox", { name: "消息" })).toHaveValue("保留根草稿")
 
-    await user.click(screen.getByRole("button", { name: /配置模型/ }))
-    const modelDialog = screen.getByRole("dialog", { name: "配置模型" })
-    const selects = await within(modelDialog).findAllByRole("combobox")
-    const modelSelects = selects.filter((select) => !select.closest(".cluster-model-dialog__variant"))
-    expect(modelSelects).toHaveLength(4)
-    await user.selectOptions(modelSelects[0]!, "test/test-simple")
-    await user.selectOptions(modelSelects[1]!, "test/test-planner")
-    await user.selectOptions(modelSelects[2]!, "test/test-visual")
-    await user.selectOptions(modelSelects[3]!, "test/test-complex")
-    await user.click(within(modelDialog).getByRole("button", { name: "保存" }))
-    await waitFor(() => expect(modelDialog).not.toHaveAttribute("open"))
-    expect(backend.globalConfig().agent_cluster).toMatchObject({
-      planner_model: "test/test-simple",
-      simple_model: "test/test-planner",
-      complex_model: "test/test-visual",
-      visual_model: "test/test-complex",
-      max_concurrency: 4,
-    })
+    await user.selectOptions(screen.getByRole("combobox", { name: "主模型" }), "test/test-simple/")
 
     await user.click(screen.getByRole("switch", { name: "多智能体" }))
     const rootDraft = screen.getByRole("textbox", { name: "消息" })
@@ -417,17 +395,16 @@ describe("desktop GUI journey", () => {
     await waitFor(() => {
       const prompts = backend.requests.filter((request) => request.path === "/session/ses_root/prompt_async")
       expect(prompts.at(-1)?.body.model).toEqual({ providerID: "test", modelID: "test-simple" })
-      expect(prompts.at(-1)?.body.agentCluster).toEqual({ enabled: true })
     })
     await user.click(await screen.findByRole("button", { name: "停止" }))
 
-    const beforeReconnect = backend.requests.filter((request) => request.path.endsWith("/agent-cluster")).length
+    const beforeReconnect = backend.requests.filter((request) => request.path.endsWith("/plan")).length
     backend.disconnectStreams()
     expect(await screen.findByText("连接已中断，正在重新连接…")).toBeVisible()
     await waitFor(
       () => {
         expect(screen.getByText("后端已连接")).toBeVisible()
-        const after = backend.requests.filter((request) => request.path.endsWith("/agent-cluster")).length
+        const after = backend.requests.filter((request) => request.path.endsWith("/plan")).length
         expect(after).toBe(beforeReconnect + 1)
         expect(screen.getByRole("progressbar", { name: "方案进度" })).toBeVisible()
       },
@@ -446,7 +423,7 @@ describe("desktop GUI journey", () => {
     window.history.replaceState(null, "", "/")
     render(() => <App bridge={desktop.bridge} />)
     const restoredBack = await screen.findByRole("button", { name: "返回主 Session" }, { timeout: 5_000 })
-    expect(screen.queryByRole("button", { name: /当前模型/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "主模型" })).not.toBeInTheDocument()
     await user.click(restoredBack)
     await waitFor(() => expect(screen.queryByRole("button", { name: "返回主 Session" })).not.toBeInTheDocument())
     expect(screen.getByText("多智能体模式")).toBeVisible()
@@ -477,53 +454,23 @@ describe("desktop GUI journey", () => {
       model: { providerID: "test", id: "test-simple" },
       time: { created: 3, updated: 3 },
     })
-    backend.setAgentCluster("ses_root", {
-      tasks: [
+    backend.setPlan("ses_root", {
+      title: "Feature work",
+      goal: "Implement and research",
+      status: "active",
+      revision: 2,
+      current_step: "s1",
+      pending_review: 0,
+      inbox_pending: 0,
+      steps: [
         {
-          id: "code",
-          session_id: "ses_root",
-          origin_message_id: "msg_parent",
-          parent_task_id: "",
-          child_session_id: "ses_child",
-          role: "coder",
-          title: "Implement",
-          prompt: "Implement",
-          complexity: "complex",
-          model: "test/coder-model",
-          status: "running",
-          step: 1,
-          dependencies: [],
-          review_round: 0,
-          acceptance_criteria: [],
-          artifact_paths: [],
-          result_summary: "",
-          review_issues: [],
-          last_event: "Started",
-          time_created: 2,
-          time_updated: 2,
-        },
-        {
-          id: "research",
-          session_id: "ses_root",
-          origin_message_id: "msg_parent",
-          parent_task_id: "",
-          child_session_id: "ses_sibling",
-          role: "researcher",
-          title: "Research",
-          prompt: "Research",
-          complexity: "simple",
-          model: "test/test-simple",
-          status: "queued",
-          step: 1,
-          dependencies: [],
-          review_round: 0,
-          acceptance_criteria: [],
-          artifact_paths: [],
-          result_summary: "",
-          review_issues: [],
-          last_event: "Queued",
-          time_created: 3,
-          time_updated: 3,
+          id: "s1",
+          title: "Work",
+          status: "active",
+          tasks: [
+            { id: "s1_t1", title: "Implement", status: "running", child: { session_id: "ses_child", elapsed_sec: 1 } },
+            { id: "s1_t2", title: "Research", status: "dispatched", child: { session_id: "ses_sibling", elapsed_sec: 0 } },
+          ],
         },
       ],
     })
@@ -555,7 +502,7 @@ describe("desktop GUI journey", () => {
     expect(screen.getByRole("button", { name: "返回主 Session" })).toBeVisible()
     expect(screen.getByText(/子智能体 · Coder/)).toBeVisible()
     expect(screen.queryByLabelText("智能体")).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /当前模型/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "主模型" })).not.toBeInTheDocument()
     expect(screen.getByText("child command")).toBeVisible()
     expect(screen.queryByText("sibling command")).not.toBeInTheDocument()
     expect(await screen.findByRole("button", { name: "发送并中断" })).toBeVisible()

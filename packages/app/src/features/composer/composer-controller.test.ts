@@ -13,7 +13,7 @@ function deferred() {
   return { promise, resolve }
 }
 
-function setup(draftStore = new Map<string, string>(), agentClusterEnabled = true) {
+function setup(draftStore = new Map<string, string>()) {
   const client = {
     session: {
       promptAsync: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
@@ -28,14 +28,13 @@ function setup(draftStore = new Map<string, string>(), agentClusterEnabled = tru
     sessionID: () => sessionID,
     agent: () => "build",
     model: () => model,
-    agentClusterEnabled: () => agentClusterEnabled,
     draftStore,
   })
   return { client, controller }
 }
 
 describe("createComposerController", () => {
-  it("submits exactly one async prompt with the effective root cluster mode", async () => {
+  it("submits exactly one async prompt", async () => {
     const { client, controller } = setup()
     const pending = deferred()
     client.session.promptAsync.mockImplementationOnce(() => pending.promise.then(() => ({ data: undefined })))
@@ -53,23 +52,11 @@ describe("createComposerController", () => {
         sessionID,
         agent: "build",
         model,
-        agentCluster: { enabled: true },
         parts: [{ type: "text", text: "hello" }],
       },
       { throwOnError: true },
     )
     expect(controller.draft()).toBe("")
-  })
-
-  it("always disables nested cluster dispatch for a child prompt", async () => {
-    const { client, controller } = setup(new Map(), false)
-
-    await controller.send("guide child")
-
-    expect(client.session.promptAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ agentCluster: { enabled: false } }),
-      { throwOnError: true },
-    )
   })
 
   it("submits file parts and allows an attachment-only prompt", async () => {
@@ -165,7 +152,6 @@ describe("createComposerController", () => {
         directory,
         sessionID,
         agent: "build",
-        agentCluster: { enabled: false },
         parts: [{ type: "text", text: "Please stop and explain the blocker" }],
       }),
       { throwOnError: true },

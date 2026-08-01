@@ -1068,10 +1068,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           suppliedUserText && suppliedAssistantText ? [] : yield* sessions.messages({ sessionID }).pipe(Effect.orDie)
         const userText = suppliedUserText || latestRealMessageText(msgs, "user")
         if (!userText) return { status: "skipped" as const, reason: "no_user" as const }
-        // Find the last assistant message with non-synthetic text content.
-        // In cluster mode the immediate child of the original user message is the
-        // planning response — we want the final synthesis, which is always the
-        // chronologically last assistant with real text.
+        // Find the chronologically last assistant message with non-synthetic text.
         const assistantText = suppliedAssistantText || latestRealMessageText(msgs, "assistant")
         if (!assistantText) return { status: "skipped" as const, reason: "no_assistant" as const }
 

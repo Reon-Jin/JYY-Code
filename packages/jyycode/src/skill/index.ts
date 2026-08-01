@@ -17,7 +17,6 @@ import { Discovery } from "./discovery"
 import CUSTOMIZE_JYYCODE_SKILL_BODY from "./prompt/customize-jyycode.md" with { type: "text" }
 import { isRecord } from "@/util/record"
 import { createHash } from "crypto"
-import { allRoleSkillModules } from "@/agent-cluster/role-skills"
 
 const log = Log.create({ service: "skill" })
 const JYYCODE_EXTERNAL_DIR = ".jyycode"
@@ -340,19 +339,6 @@ export const layer = Layer.effect(
           origin: "built_in",
           ...capability.built_in,
           revision: revision(CUSTOMIZE_JYYCODE_SKILL_BODY),
-        }
-        for (const module of allRoleSkillModules()) {
-          if (s.skills[module.name]) continue
-          s.skills[module.name] = {
-            name: module.name,
-            description: module.description,
-            location: "<built-in>",
-            content: module.content,
-            origin: "built_in",
-            source: module.source,
-            ...capability.built_in,
-            revision: revision(module.content),
-          }
         }
         yield* loadSkills(s, yield* InstanceState.get(discovered), bus, fsys)
         return s

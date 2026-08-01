@@ -95,37 +95,6 @@
   gap: var(--space-2);
 }
 
-.conversation-plan-status {
-  display: inline-flex;
-  width: fit-content;
-  min-height: 30px;
-  align-items: center;
-  gap: var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  padding: 0 var(--space-3);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  font-family: var(--font-code);
-  font-size: var(--text-xs);
-}
-
-.conversation-plan-status > span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 70%, transparent);
-  animation: conversation-plan-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes conversation-plan-pulse {
-  50% {
-    opacity: 0.35;
-    transform: scale(0.72);
-  }
-}
-
 .conversation-markdown {
   min-width: 0;
   color: var(--color-text);

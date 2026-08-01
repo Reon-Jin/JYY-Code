@@ -12,13 +12,12 @@ describe("presentMessageText", () => {
     ).toEqual({ kind: "hidden" })
   })
 
-  it("classifies valid plan JSON for both single-agent and multi-agent", () => {
+  it("keeps JSON-shaped assistant text visible instead of treating it as protocol state", () => {
     const plan = '准备计划\n```json\n{"goal":"Ship","tasks":[]}\n```'
-    expect(presentMessageText({ part: { text: plan }, role: "assistant", agent: "cluster" })).toEqual({ kind: "plan" })
-    expect(presentMessageText({ part: { text: plan }, role: "assistant", agent: "build" })).toEqual({ kind: "plan" })
-    expect(
-      presentMessageText({ part: { text: '```json\n{"goal":"Ship"}\n```' }, role: "assistant", agent: "cluster" }),
-    ).toEqual({ kind: "text", text: '```json\n{"goal":"Ship"}\n```' })
+    expect(presentMessageText({ part: { text: plan }, role: "assistant", agent: "build" })).toEqual({
+      kind: "text",
+      text: plan,
+    })
   })
 })
 
@@ -32,8 +31,8 @@ describe("presentConversationMessages", () => {
     parentID: "msg_user",
     modelID: "gpt-5",
     providerID: "openai",
-    mode: "cluster",
-    agent: "cluster",
+    mode: "build",
+    agent: "build",
     path: { cwd: "D:\\code", root: "D:\\code" },
     cost: 0,
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },

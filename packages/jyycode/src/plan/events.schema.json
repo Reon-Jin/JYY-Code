@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "plan-events.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["seq", "type", "session_id", "at", "payload"],
+  "properties": {
+    "seq": { "type": "integer", "minimum": 0 },
+    "type": { "enum": ["plan.updated", "child.activity", "report_arrived", "check_point", "user_message"] },
+    "session_id": { "type": "string", "minLength": 1 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "at": { "type": "string", "format": "date-time" },
+    "payload": { "type": "object" }
+  }
+}

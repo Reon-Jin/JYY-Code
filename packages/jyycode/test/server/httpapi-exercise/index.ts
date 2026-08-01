@@ -825,16 +825,14 @@ const scenarios: Scenario[] = [
       )
     }),
   http.protected
-    .get("/session/{sessionID}/agent-cluster", "session.agentCluster")
-    .seeded((ctx) => ctx.session({ title: "Cluster state session" }))
+    .get("/session/{sessionID}/plan", "session.plan")
+    .seeded((ctx) => ctx.session({ title: "Plan state session" }))
     .at((ctx) => ({
-      path: route("/session/{sessionID}/agent-cluster", { sessionID: ctx.state.id }),
+      path: route("/session/{sessionID}/plan", { sessionID: ctx.state.id }),
       headers: ctx.headers(),
     }))
     .json(200, (body) => {
-      object(body)
-      check(Array.isArray(body.runs), "agent cluster state should include runs")
-      check(Array.isArray(body.tasks), "agent cluster state should include tasks")
+      check(body === null, "a Session without a created plan should return null")
     }),
   http.protected
     .get("/session/{sessionID}/todo", "session.todo")

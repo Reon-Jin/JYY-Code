@@ -4806,6 +4806,14 @@
               "enum": ["global"]
             },
             "required": false
+          },
+          {
+            "name": "agent",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
           }
         ],
         "responses": {
@@ -8870,10 +8878,10 @@
         ]
       }
     },
-    "/session/{sessionID}/agent-cluster": {
+    "/session/{sessionID}/plan": {
       "get": {
         "tags": ["session"],
-        "operationId": "session.agentCluster",
+        "operationId": "session.plan",
         "parameters": [
           {
             "name": "sessionID",
@@ -8903,232 +8911,200 @@
         ],
         "responses": {
           "200": {
-            "description": "Agent cluster state",
+            "description": "Plan snapshot",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "tasks": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "session_id": {
-                            "type": "string",
-                            "pattern": "^ses"
-                          },
-                          "origin_message_id": {
-                            "type": "string",
-                            "pattern": "^msg"
-                          },
-                          "parent_task_id": {
-                            "type": "string"
-                          },
-                          "child_session_id": {
-                            "type": "string",
-                            "pattern": "^ses"
-                          },
-                          "role": {
-                            "type": "string",
-                            "enum": [
-                              "researcher",
-                              "analyst",
-                              "writer",
-                              "chart",
-                              "pdf",
-                              "coder",
-                              "tester",
-                              "picture_searcher",
-                              "general"
-                            ]
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "prompt": {
-                            "type": "string"
-                          },
-                          "complexity": {
-                            "type": "string",
-                            "enum": ["simple", "complex"]
-                          },
-                          "model": {
-                            "type": "string"
-                          },
-                          "status": {
-                            "type": "string",
-                            "enum": [
-                              "planned",
-                              "queued",
-                              "running",
-                              "submitted",
-                              "reviewing",
-                              "accepted",
-                              "completed",
-                              "revision_requested",
-                              "revising",
-                              "failed",
-                              "cancelled",
-                              "interrupted"
-                            ]
-                          },
-                          "step": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["NaN"]
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["Infinity"]
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["-Infinity"]
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["Infinity", "-Infinity", "NaN"]
-                              }
-                            ]
-                          },
-                          "dependencies": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "plan": {
+                          "type": "null"
+                        }
+                      },
+                      "required": ["plan"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "title": {
+                          "type": "string"
+                        },
+                        "goal": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["draft", "active", "done"]
+                        },
+                        "revision": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["NaN"]
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["Infinity"]
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["-Infinity"]
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["Infinity", "-Infinity", "NaN"]
                             }
-                          },
-                          "review_round": {
-                            "anyOf": [
-                              {
-                                "type": "number"
+                          ]
+                        },
+                        "current_step": {
+                          "type": "string"
+                        },
+                        "steps": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
                               },
-                              {
-                                "type": "string",
-                                "enum": ["NaN"]
+                              "title": {
+                                "type": "string"
                               },
-                              {
+                              "status": {
                                 "type": "string",
-                                "enum": ["Infinity"]
+                                "enum": ["pending", "active", "done"]
                               },
-                              {
-                                "type": "string",
-                                "enum": ["-Infinity"]
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["Infinity", "-Infinity", "NaN"]
+                              "tasks": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "title": {
+                                      "type": "string"
+                                    },
+                                    "status": {
+                                      "type": "string",
+                                      "enum": ["pending", "dispatched", "running", "reported", "approved", "rejected"]
+                                    },
+                                    "child": {
+                                      "type": "object",
+                                      "properties": {
+                                        "session_id": {
+                                          "type": "string"
+                                        },
+                                        "elapsed_sec": {
+                                          "anyOf": [
+                                            {
+                                              "type": "number"
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": ["NaN"]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": ["Infinity"]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": ["-Infinity"]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": ["Infinity", "-Infinity", "NaN"]
+                                            }
+                                          ]
+                                        },
+                                        "last_activity": {
+                                          "type": "string"
+                                        },
+                                        "last_activity_at": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": ["session_id", "elapsed_sec"],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "required": ["id", "title", "status"],
+                                  "additionalProperties": false
+                                }
                               }
-                            ]
-                          },
-                          "acceptance_criteria": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "artifact_paths": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "result_summary": {
-                            "type": "string"
-                          },
-                          "review_issues": {
-                            "type": "array",
-                            "items": {
-                              "type": "string"
-                            }
-                          },
-                          "last_event": {
-                            "type": "string"
-                          },
-                          "time_created": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["NaN"]
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["Infinity"]
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["-Infinity"]
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["Infinity", "-Infinity", "NaN"]
-                              }
-                            ]
-                          },
-                          "time_updated": {
-                            "anyOf": [
-                              {
-                                "type": "number"
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["NaN"]
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["Infinity"]
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["-Infinity"]
-                              },
-                              {
-                                "type": "string",
-                                "enum": ["Infinity", "-Infinity", "NaN"]
-                              }
-                            ]
+                            },
+                            "required": ["id", "title", "status", "tasks"],
+                            "additionalProperties": false
                           }
                         },
-                        "required": [
-                          "id",
-                          "session_id",
-                          "origin_message_id",
-                          "parent_task_id",
-                          "child_session_id",
-                          "role",
-                          "title",
-                          "prompt",
-                          "complexity",
-                          "model",
-                          "status",
-                          "step",
-                          "dependencies",
-                          "review_round",
-                          "acceptance_criteria",
-                          "artifact_paths",
-                          "result_summary",
-                          "review_issues",
-                          "last_event",
-                          "time_created",
-                          "time_updated"
-                        ],
-                        "additionalProperties": false
-                      }
+                        "pending_review": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["NaN"]
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["Infinity"]
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["-Infinity"]
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["Infinity", "-Infinity", "NaN"]
+                            }
+                          ]
+                        },
+                        "inbox_pending": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["NaN"]
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["Infinity"]
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["-Infinity"]
+                            },
+                            {
+                              "type": "string",
+                              "enum": ["Infinity", "-Infinity", "NaN"]
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "title",
+                        "goal",
+                        "status",
+                        "revision",
+                        "current_step",
+                        "steps",
+                        "pending_review",
+                        "inbox_pending"
+                      ],
+                      "additionalProperties": false
                     }
-                  },
-                  "required": ["tasks"],
-                  "additionalProperties": false,
-                  "description": "Agent cluster state"
+                  ],
+                  "description": "Plan snapshot"
                 }
               }
             }
@@ -9161,12 +9137,12 @@
             }
           }
         },
-        "description": "Retrieve the durable session task graph for a specific session.",
-        "summary": "Get session agent cluster state",
+        "description": "Retrieve the file-backed plan projection for a specific root session.",
+        "summary": "Get session plan snapshot",
         "x-codeSamples": [
           {
             "lang": "js",
-            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.session.agentCluster({\n  ...\n})"
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.session.plan({\n  ...\n})"
           }
         ]
       }
@@ -9571,15 +9547,6 @@
                   },
                   "variant": {
                     "type": "string"
-                  },
-                  "agentCluster": {
-                    "type": "object",
-                    "properties": {
-                      "enabled": {
-                        "type": "boolean"
-                      }
-                    },
-                    "additionalProperties": false
                   },
                   "parts": {
                     "type": "array",
@@ -10046,7 +10013,7 @@
             }
           }
         },
-        "description": "Stop a running cluster child assignment before sending a steering message to that child session.",
+        "description": "Stop a running plan child assignment before sending a steering message to that child session.",
         "summary": "Interrupt child assignment and send message",
         "requestBody": {
           "content": {
@@ -10091,15 +10058,6 @@
                   },
                   "variant": {
                     "type": "string"
-                  },
-                  "agentCluster": {
-                    "type": "object",
-                    "properties": {
-                      "enabled": {
-                        "type": "boolean"
-                      }
-                    },
-                    "additionalProperties": false
                   },
                   "parts": {
                     "type": "array",
@@ -10614,15 +10572,6 @@
                   },
                   "variant": {
                     "type": "string"
-                  },
-                  "agentCluster": {
-                    "type": "object",
-                    "properties": {
-                      "enabled": {
-                        "type": "boolean"
-                      }
-                    },
-                    "additionalProperties": false
                   },
                   "parts": {
                     "type": "array",
@@ -14202,7 +14151,7 @@
             "$ref": "#/components/schemas/Event.tui.session.select"
           },
           {
-            "$ref": "#/components/schemas/EventAgent_clusterEvent1"
+            "$ref": "#/components/schemas/EventPlanRuntimeEvent1"
           },
           {
             "$ref": "#/components/schemas/EventServerConnected"
@@ -14283,12 +14232,6 @@
             "$ref": "#/components/schemas/EventSessionCompacted"
           },
           {
-            "$ref": "#/components/schemas/EventWorktreeReady"
-          },
-          {
-            "$ref": "#/components/schemas/EventWorktreeFailed"
-          },
-          {
             "$ref": "#/components/schemas/EventVcsBranchUpdated"
           },
           {
@@ -14299,6 +14242,12 @@
           },
           {
             "$ref": "#/components/schemas/EventWorkspaceStatus"
+          },
+          {
+            "$ref": "#/components/schemas/EventWorktreeReady"
+          },
+          {
+            "$ref": "#/components/schemas/EventWorktreeFailed"
           },
           {
             "$ref": "#/components/schemas/EventPtyCreated"
@@ -16634,7 +16583,7 @@
                 "$ref": "#/components/schemas/Event.tui.session.select"
               },
               {
-                "$ref": "#/components/schemas/EventAgent_clusterEvent"
+                "$ref": "#/components/schemas/EventPlanRuntimeEvent"
               },
               {
                 "$ref": "#/components/schemas/EventServerConnected"
@@ -16715,12 +16664,6 @@
                 "$ref": "#/components/schemas/EventSessionCompacted"
               },
               {
-                "$ref": "#/components/schemas/EventWorktreeReady"
-              },
-              {
-                "$ref": "#/components/schemas/EventWorktreeFailed"
-              },
-              {
                 "$ref": "#/components/schemas/EventVcsBranchUpdated"
               },
               {
@@ -16731,6 +16674,12 @@
               },
               {
                 "$ref": "#/components/schemas/EventWorkspaceStatus"
+              },
+              {
+                "$ref": "#/components/schemas/EventWorktreeReady"
+              },
+              {
+                "$ref": "#/components/schemas/EventWorktreeFailed"
               },
               {
                 "$ref": "#/components/schemas/EventPtyCreated"
@@ -17259,69 +17208,6 @@
           }
         },
         "additionalProperties": {}
-      },
-      "AgentClusterConfig": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          },
-          "default_on": {
-            "type": "boolean"
-          },
-          "disable_for_routes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "planner_model": {
-            "type": "string"
-          },
-          "planner_variant": {
-            "type": "string"
-          },
-          "reviewer_model": {
-            "type": "string"
-          },
-          "reviewer_variant": {
-            "type": "string"
-          },
-          "complex_model": {
-            "type": "string"
-          },
-          "complex_variant": {
-            "type": "string"
-          },
-          "simple_model": {
-            "type": "string"
-          },
-          "simple_variant": {
-            "type": "string"
-          },
-          "visual_model": {
-            "type": "string"
-          },
-          "visual_variant": {
-            "type": "string"
-          },
-          "max_subagents": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          },
-          "max_concurrency": {
-            "type": "integer",
-            "exclusiveMinimum": 0
-          },
-          "max_review_rounds": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "artifact_dir": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
       },
       "ProviderConfig": {
         "type": "object",
@@ -17864,9 +17750,6 @@
               "explore": {
                 "$ref": "#/components/schemas/AgentConfig"
               },
-              "scout": {
-                "$ref": "#/components/schemas/AgentConfig"
-              },
               "title": {
                 "$ref": "#/components/schemas/AgentConfig"
               },
@@ -17880,9 +17763,6 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/AgentConfig"
             }
-          },
-          "agent_cluster": {
-            "$ref": "#/components/schemas/AgentClusterConfig"
           },
           "provider": {
             "type": "object",
@@ -18113,146 +17993,6 @@
               "mcp_timeout": {
                 "type": "integer",
                 "exclusiveMinimum": 0
-              }
-            },
-            "additionalProperties": false
-          },
-          "communication": {
-            "type": "object",
-            "properties": {
-              "email": {
-                "type": "object",
-                "properties": {
-                  "smtpHost": {
-                    "type": "string"
-                  },
-                  "smtpPort": {
-                    "anyOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["NaN"]
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["Infinity"]
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["-Infinity"]
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["Infinity", "-Infinity", "NaN"]
-                      }
-                    ]
-                  },
-                  "imapHost": {
-                    "type": "string"
-                  },
-                  "imapPort": {
-                    "anyOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["NaN"]
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["Infinity"]
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["-Infinity"]
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["Infinity", "-Infinity", "NaN"]
-                      }
-                    ]
-                  },
-                  "mailbox": {
-                    "type": "string"
-                  },
-                  "username": {
-                    "type": "string"
-                  },
-                  "password": {
-                    "type": "string"
-                  },
-                  "from": {
-                    "type": "string"
-                  },
-                  "authMethod": {
-                    "type": "string",
-                    "enum": ["password", "oauth2"]
-                  },
-                  "clientId": {
-                    "type": "string"
-                  },
-                  "tenant": {
-                    "type": "string"
-                  },
-                  "refreshToken": {
-                    "type": "string"
-                  }
-                },
-                "required": ["smtpHost", "username", "password", "from"],
-                "additionalProperties": false
-              },
-              "finish": {
-                "type": "object",
-                "properties": {
-                  "enabled": {
-                    "type": "boolean"
-                  },
-                  "to": {
-                    "type": "string"
-                  },
-                  "subject": {
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false
-              },
-              "inbox": {
-                "type": "object",
-                "properties": {
-                  "enabled": {
-                    "type": "boolean"
-                  },
-                  "owner": {
-                    "type": "string"
-                  },
-                  "pollSeconds": {
-                    "anyOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["NaN"]
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["Infinity"]
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["-Infinity"]
-                      },
-                      {
-                        "type": "string",
-                        "enum": ["Infinity", "-Infinity", "NaN"]
-                      }
-                    ]
-                  }
-                },
-                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -23121,7 +22861,7 @@
         "required": ["type", "name", "id", "seq", "aggregateID", "data"],
         "additionalProperties": false
       },
-      "EventAgent_clusterEvent": {
+      "EventPlanRuntimeEvent": {
         "type": "object",
         "properties": {
           "id": {
@@ -23129,49 +22869,12 @@
           },
           "type": {
             "type": "string",
-            "enum": ["agent_cluster.event"]
+            "enum": ["plan.runtime.event"]
           },
           "properties": {
             "type": "object",
             "properties": {
-              "sessionID": {
-                "type": "string",
-                "pattern": "^ses"
-              },
-              "originMessageID": {
-                "type": "string"
-              },
-              "taskID": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": ["run", "task", "review", "artifact"]
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "planned",
-                  "queued",
-                  "running",
-                  "submitted",
-                  "reviewing",
-                  "accepted",
-                  "completed",
-                  "revision_requested",
-                  "revising",
-                  "failed",
-                  "cancelled",
-                  "interrupted"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "metadata": {
-                "type": "object"
-              },
-              "createdAt": {
+              "seq": {
                 "anyOf": [
                   {
                     "type": "number"
@@ -23193,9 +22896,45 @@
                     "enum": ["Infinity", "-Infinity", "NaN"]
                   }
                 ]
+              },
+              "type": {
+                "type": "string",
+                "enum": ["plan.updated", "child.activity", "report_arrived", "check_point", "user_message"]
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "revision": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity", "-Infinity", "NaN"]
+                  }
+                ]
+              },
+              "at": {
+                "type": "string"
+              },
+              "payload": {
+                "type": "object"
               }
             },
-            "required": ["sessionID", "type", "message", "createdAt"],
+            "required": ["seq", "type", "session_id", "at", "payload"],
             "additionalProperties": false
           }
         },
@@ -24016,57 +23755,6 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
-      "EventWorktreeReady": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["worktree.ready"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "branch": {
-                "type": "string"
-              }
-            },
-            "required": ["name"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventWorktreeFailed": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["worktree.failed"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "message": {
-                "type": "string"
-              }
-            },
-            "required": ["message"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
       "EventVcsBranchUpdated": {
         "type": "object",
         "properties": {
@@ -24161,6 +23849,57 @@
               }
             },
             "required": ["workspaceID", "status"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventWorktreeReady": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["worktree.ready"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "branch": {
+                "type": "string"
+              }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventWorktreeFailed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["worktree.failed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["message"],
             "additionalProperties": false
           }
         },
@@ -26947,7 +26686,7 @@
         "required": ["id", "type", "properties"],
         "additionalProperties": false
       },
-      "EventAgent_clusterEvent1": {
+      "EventPlanRuntimeEvent1": {
         "type": "object",
         "properties": {
           "id": {
@@ -26955,49 +26694,12 @@
           },
           "type": {
             "type": "string",
-            "enum": ["agent_cluster.event"]
+            "enum": ["plan.runtime.event"]
           },
           "properties": {
             "type": "object",
             "properties": {
-              "sessionID": {
-                "type": "string",
-                "pattern": "^ses"
-              },
-              "originMessageID": {
-                "type": "string"
-              },
-              "taskID": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": ["run", "task", "review", "artifact"]
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "planned",
-                  "queued",
-                  "running",
-                  "submitted",
-                  "reviewing",
-                  "accepted",
-                  "completed",
-                  "revision_requested",
-                  "revising",
-                  "failed",
-                  "cancelled",
-                  "interrupted"
-                ]
-              },
-              "message": {
-                "type": "string"
-              },
-              "metadata": {
-                "type": "object"
-              },
-              "createdAt": {
+              "seq": {
                 "anyOf": [
                   {
                     "type": "number"
@@ -27015,9 +26717,41 @@
                     "enum": ["-Infinity"]
                   }
                 ]
+              },
+              "type": {
+                "type": "string",
+                "enum": ["plan.updated", "child.activity", "report_arrived", "check_point", "user_message"]
+              },
+              "session_id": {
+                "type": "string"
+              },
+              "revision": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["NaN"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["Infinity"]
+                  },
+                  {
+                    "type": "string",
+                    "enum": ["-Infinity"]
+                  }
+                ]
+              },
+              "at": {
+                "type": "string"
+              },
+              "payload": {
+                "type": "object"
               }
             },
-            "required": ["sessionID", "type", "message", "createdAt"],
+            "required": ["seq", "type", "session_id", "at", "payload"],
             "additionalProperties": false
           }
         },

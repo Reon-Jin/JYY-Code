@@ -34,45 +34,6 @@ import path from "path"
 import { useKV } from "./kv"
 import { aggregateFailures } from "./aggregate-failures"
 
-export type AgentClusterTask = {
-  id: string
-  session_id: string
-  origin_message_id: string | null
-  parent_task_id: string | null
-  child_session_id: string | null
-  role: "researcher" | "analyst" | "writer" | "chart" | "office" | "coder" | "tester" | "general"
-  title: string
-  prompt: string
-  complexity: "simple" | "complex"
-  model: string
-  status:
-    | "planned"
-    | "queued"
-    | "running"
-    | "submitted"
-    | "reviewing"
-    | "accepted"
-    | "revision_requested"
-    | "revising"
-    | "failed"
-    | "cancelled"
-    | "interrupted"
-  step: number
-  dependencies: string[]
-  review_round: number
-  acceptance_criteria: string[]
-  artifact_paths: string[]
-  result_summary: string | null
-  review_issues: string[]
-  last_event: string | null
-  time_created: number
-  time_updated: number
-}
-
-export type AgentClusterState = {
-  tasks: AgentClusterTask[]
-}
-
 export type SessionContextEstimate = {
   totalTokens: number
   textTokens: number
@@ -82,26 +43,6 @@ export type SessionContextEstimate = {
   overheadTokens: number
   thresholdTokens?: number
   shouldCompact?: boolean
-}
-
-export function applyAgentClusterEvent(
-  state: AgentClusterState,
-  event: Extract<Event, { type: "agent_cluster.event" }>,
-) {
-  const next: AgentClusterState = {
-    tasks: state.tasks.map((task) => ({ ...task })),
-  }
-  const properties = event.properties
-  const updatedAt = typeof properties.createdAt === "number" ? properties.createdAt : Date.now()
-  if (properties.taskID && properties.status) {
-    const task = next.tasks.find((item) => item.id === properties.taskID)
-    if (task) {
-      task.status = properties.status as AgentClusterTask["status"]
-      task.last_event = properties.message
-      task.time_updated = updatedAt
-    }
-  }
-  return next
 }
 
 export const { use: useSync, provider: SyncProvider } = createSimpleContext({
@@ -131,9 +72,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       }
       session_context: {
         [sessionID: string]: SessionContextEstimate
-      }
-      agent_cluster: {
-        [sessionID: string]: AgentClusterState
       }
       todo: {
         [sessionID: string]: Todo[]
@@ -172,7 +110,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       session_status: {},
       session_diff: {},
       session_context: {},
-      agent_cluster: {},
       todo: {},
       message: {},
       part: {},
@@ -189,8 +126,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const kv = useKV()
 
     const fullSyncedSessions = new Set<string>()
-    const agentClusterRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
-
     function sessionListQuery(): { scope?: "project"; path?: string } {
       if (!kv.get("session_directory_filter_enabled", true)) return { scope: "project" }
       if (!project.data.instance.path.worktree || !project.data.instance.path.directory) return { scope: "project" }
@@ -207,17 +142,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         .then((x) => (x.data ?? []).toSorted((a, b) => a.id.localeCompare(b.id)))
     }
 
-    async function fetchAgentCluster(sessionID: string) {
-      const url = new URL(`/session/${encodeURIComponent(sessionID)}/agent-cluster`, sdk.url)
-      const headers = new Headers(sdk.headers)
-      if (sdk.directory && !headers.has("x-jyycode-directory")) {
-        headers.set("x-jyycode-directory", encodeURIComponent(sdk.directory))
-      }
-      const response = await sdk.fetch(url, { headers })
-      if (!response.ok) throw new Error(await response.text())
-      return (await response.json()) as AgentClusterState
-    }
-
     async function fetchSessionContext(sessionID: string) {
       const url = new URL(`/session/${encodeURIComponent(sessionID)}/context`, sdk.url)
       const headers = new Headers(sdk.headers)
@@ -232,23 +156,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     async function refreshSessionContext(sessionID: string) {
       const state = await fetchSessionContext(sessionID)
       setStore("session_context", sessionID, reconcile(state))
-    }
-
-    async function refreshAgentCluster(sessionID: string) {
-      const state = await fetchAgentCluster(sessionID)
-      setStore("agent_cluster", sessionID, reconcile(state))
-    }
-
-    function scheduleAgentClusterRefresh(sessionID: string) {
-      const existing = agentClusterRefreshTimers.get(sessionID)
-      if (existing) clearTimeout(existing)
-      agentClusterRefreshTimers.set(
-        sessionID,
-        setTimeout(() => {
-          agentClusterRefreshTimers.delete(sessionID)
-          void refreshAgentCluster(sessionID)
-        }, 100),
-      )
     }
 
     event.subscribe((event, { workspace }) => {
@@ -338,17 +245,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         case "session.diff":
           setStore("session_diff", event.properties.sessionID, event.properties.diff)
           break
-
-        case "agent_cluster.event": {
-          const sessionID = event.properties.sessionID
-          const current = store.agent_cluster[sessionID] ?? { tasks: [] }
-          setStore("agent_cluster", sessionID, reconcile(applyAgentClusterEvent(current, event)))
-          // Apply the status immediately, then always fetch the authoritative
-          // session JSON. The refresh is debounced, so a burst of task events
-          // becomes one request while still picking up new rows and metadata.
-          scheduleAgentClusterRefresh(sessionID)
-          break
-        }
 
         case "session.deleted": {
           const result = Binary.search(store.session, event.properties.info.id, (s) => s.id)
@@ -661,12 +557,11 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         },
         async sync(sessionID: string) {
           if (fullSyncedSessions.has(sessionID)) return
-          const [session, messages, todo, diff, agentCluster, context] = await Promise.all([
+          const [session, messages, todo, diff, context] = await Promise.all([
             sdk.client.session.get({ sessionID }, { throwOnError: true }),
             sdk.client.session.messages({ sessionID, limit: 100 }),
             sdk.client.session.todo({ sessionID }),
             sdk.client.session.diff({ sessionID }),
-            fetchAgentCluster(sessionID),
             fetchSessionContext(sessionID),
           ])
           setStore(
@@ -682,7 +577,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               }
               draft.message[sessionID] = infos
               draft.session_diff[sessionID] = diff.data ?? []
-              draft.agent_cluster[sessionID] = agentCluster
               draft.session_context[sessionID] = context
             }),
           )

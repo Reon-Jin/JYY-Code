@@ -27,7 +27,7 @@ export function Home() {
   const editor = useEditorContext()
   const { theme } = useTheme()
   const kv = useKV()
-  const defaultMultiAgent = createMemo(() => sync.data.config.agent_cluster?.default_on === true)
+  const defaultMultiAgent = createMemo(() => false)
   const [multiAgentTouched, setMultiAgentTouched] = createSignal(false)
   const [multiAgent, setMultiAgent] = createSignal(defaultMultiAgent())
   let sent = false

@@ -1,5 +1,4 @@
 import { tr } from "../../i18n/i18n-context"
-import { createQuery } from "@tanstack/solid-query"
 import {
   Bot,
   Bug,
@@ -19,15 +18,11 @@ import { createEffect, createMemo, createSignal, For, Index, Show } from "solid-
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
-import { useData } from "../../data/context"
-import { errorMessage } from "../projects/project-controller"
-import { agentClusterQueryOptions } from "./multi-agent-query"
 import {
-  projectAgentClusterState,
   type MultiAgentSnapshot,
   type MultiAgentTaskTone,
   type MultiAgentTaskView,
-} from "./multi-agent-state"
+} from "../plan/plan-state"
 import { roleAvatar, type MultiAgentRoleAvatar } from "./role-capabilities"
 import "./multi-agent.css"
 
@@ -48,7 +43,6 @@ function roleLabel(value: string) {
   }
   return labels[value.toLowerCase()] ?? value
 }
-
 function eventLabel(value: string) {
   const labels: Record<string, string> = {
     planned: tr("multi-agent.planned"),
@@ -397,40 +391,5 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
         </Show>
       </Show>
     </section>
-  )
-}
-
-export function MultiAgentPanel(props: {
-  directory: string
-  sessionID?: string
-  enabled: boolean
-  selectedChildSessionID?: string
-  onOpenChild: (sessionID: string) => void
-}) {
-  const data = useData()
-  const query = createQuery(
-    () => ({
-      ...agentClusterQueryOptions({
-        client: data.client(),
-        directory: props.directory,
-        sessionID: props.sessionID ?? "",
-      }),
-      enabled: Boolean(props.sessionID),
-    }),
-    data.queryClient,
-  )
-  const snapshot = createMemo(() => projectAgentClusterState(query.data ?? { tasks: [] }))
-
-  return (
-    <MultiAgentPanelView
-      sessionID={props.sessionID}
-      enabled={props.enabled}
-      snapshot={snapshot()}
-      selectedChildSessionID={props.selectedChildSessionID}
-      loading={Boolean(props.sessionID) && query.isPending}
-      error={query.error ? errorMessage(query.error, tr("multi-agent.unable-to-load-multi-agent-task")) : undefined}
-      onRetry={() => void query.refetch()}
-      onOpenChild={props.onOpenChild}
-    />
   )
 }

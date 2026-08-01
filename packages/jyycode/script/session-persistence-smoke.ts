@@ -15,6 +15,14 @@ type RunningServer = {
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 const smokeModel = { providerID: "persistence-smoke", modelID: "test-model" }
+const smokeUsername = "jyycode"
+const smokePassword = "persistence-smoke-password"
+
+function smokeAuthHeaders(init?: HeadersInit) {
+  const headers = new Headers(init)
+  headers.set("Authorization", `Basic ${Buffer.from(`${smokeUsername}:${smokePassword}`).toString("base64")}`)
+  return headers
+}
 const smokeConfig = JSON.stringify({
   model: `${smokeModel.providerID}/${smokeModel.modelID}`,
   provider: {
@@ -77,6 +85,8 @@ async function startServer(input: { binary: string; database: string; directory:
         JYYCODE_CONFIG_DIR: path.join(path.dirname(input.database), "config"),
         JYYCODE_CONFIG_CONTENT: smokeConfig,
         JYYCODE_AUTH_CONTENT: "{}",
+        JYYCODE_SERVER_USERNAME: smokeUsername,
+        JYYCODE_SERVER_PASSWORD: smokePassword,
         JYYCODE_DISABLE_AUTOUPDATE: "1",
         JYYCODE_DISABLE_MODELS_FETCH: "1",
         JYYCODE_DISABLE_PROJECT_CONFIG: "1",
@@ -99,7 +109,10 @@ async function startServer(input: { binary: string; database: string; directory:
       throw new Error(`Server exited before becoming ready.\n${stdout}\n${stderr}`)
     }
     try {
-      const response = await fetch(`${baseUrl}/global/health`, { signal: AbortSignal.timeout(500) })
+      const response = await fetch(`${baseUrl}/global/health`, {
+        headers: smokeAuthHeaders(),
+        signal: AbortSignal.timeout(500),
+      })
       if (response.ok) return { ...running, baseUrl }
     } catch {
       // The listener is still starting.
@@ -114,9 +127,11 @@ async function startServer(input: { binary: string; database: string; directory:
 
 async function stopServer(server: RunningServer, baseUrl: string) {
   console.log(`disposing ${baseUrl}`)
-  await fetch(`${baseUrl}/global/dispose`, { method: "POST", signal: AbortSignal.timeout(5_000) }).catch(
-    () => undefined,
-  )
+  await fetch(`${baseUrl}/global/dispose`, {
+    method: "POST",
+    headers: smokeAuthHeaders(),
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => undefined)
   console.log(`stopping ${baseUrl}`)
   server.process.kill("SIGTERM")
   if (process.platform === "win32") {
@@ -150,7 +165,11 @@ function processAlive(pid: number) {
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(15_000), ...init })
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(15_000),
+    ...init,
+    headers: smokeAuthHeaders(init?.headers),
+  })
   const text = await response.text()
   if (!response.ok) throw new Error(`${init?.method ?? "GET"} ${url} failed (${response.status}): ${text}`)
   return JSON.parse(text) as T

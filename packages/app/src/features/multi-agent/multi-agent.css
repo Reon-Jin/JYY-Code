@@ -24,8 +24,7 @@
   border-color: var(--color-text);
 }
 
-.multi-agent-switch:focus-visible,
-.cluster-model-dialog__role select:focus-visible {
+.multi-agent-switch:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
@@ -45,106 +44,6 @@
 .multi-agent-control .ui-inline-error {
   max-width: 280px;
   font-size: var(--text-xs);
-}
-
-.cluster-model-control {
-  display: grid;
-  max-width: 100%;
-  align-self: end;
-}
-
-.cluster-model-control__button {
-  width: max-content;
-  min-width: 360px;
-  max-width: 100%;
-  min-height: 30px;
-  justify-content: flex-start;
-  gap: var(--space-2);
-  padding-inline: var(--space-3);
-}
-
-.cluster-model-control__button svg { width: 14px; }
-
-.cluster-model-control__button span {
-  flex: 0 0 auto;
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-}
-
-.cluster-model-control__button strong {
-  flex: 0 0 auto;
-  font-family: var(--font-code);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.cluster-model-control__status {
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  margin: -1px;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-.cluster-model-dialog { width: min(620px, calc(100vw - var(--space-6))); }
-
-.cluster-model-dialog__loading {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
-.cluster-model-dialog__roles { display: grid; gap: var(--space-4); }
-.cluster-model-dialog__role { display: grid; gap: var(--space-1); }
-
-.cluster-model-dialog__role > span {
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  font-weight: 650;
-}
-
-.cluster-model-dialog__role > small {
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  line-height: 1.45;
-}
-
-.cluster-model-dialog__controls {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.cluster-model-dialog__controls > select { flex: 1 1 auto; min-width: 0; }
-
-.cluster-model-dialog__variant {
-  display: flex;
-  flex: 0 0 156px;
-  align-items: center;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.cluster-model-dialog__variant > span {
-  flex: 0 0 auto;
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-}
-
-.cluster-model-dialog__variant select { flex: 1 1 auto; min-width: 0; }
-
-.cluster-model-dialog__role select {
-  min-height: 36px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  padding: 0 var(--space-2);
-  background: var(--color-surface);
-  color: var(--color-text);
 }
 
 /* Mission Control: a compact, monochrome task rail. */
@@ -578,16 +477,12 @@
 }
 
 @media (max-width: 640px) {
-  .cluster-model-control,
-  .cluster-model-control__button { width: 100%; min-width: 0; }
   .multi-agent-panel__header { flex-wrap: wrap; }
   .multi-agent-panel__counts { width: 100%; margin-left: 24px; }
   .multi-agent-task__details { padding-left: 11px; }
 }
 
 @media (max-width: 520px) {
-  .cluster-model-dialog__variant { flex-basis: 136px; }
-  .cluster-model-dialog__variant > span { display: none; }
   .multi-agent-task { margin-left: 20px; }
   .multi-agent-task::before { width: 20px; }
   .multi-agent-task summary { grid-template-columns: 28px minmax(0, 1fr); }

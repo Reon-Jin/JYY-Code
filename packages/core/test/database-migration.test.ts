@@ -39,11 +39,16 @@ describe("database migrations", () => {
             session: db.get<{ name: string }>(
               sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session'`,
             ),
+            removedProtocolTables: db.all<{ name: string }>(sql`
+              SELECT name FROM sqlite_master
+              WHERE type = 'table' AND name IN ('agent_cluster_task', 'agent_cluster_event')
+            `),
             applied: db.all<{ id: string }>(sql`SELECT id FROM migration ORDER BY id`),
           }),
         ),
       )
       expect(result.session?.name).toBe("session")
+      expect(result.removedProtocolTables).toEqual([])
       expect(result.applied.map((item) => item.id)).toEqual(migrations.map((item) => item.id))
     } finally {
       await cleanup(dir)

@@ -91,7 +91,6 @@ export type SessionTurnInput = {
   prompt: RunPrompt
   files: RunFilePart[]
   includeFiles: boolean
-  agentCluster?: { enabled: boolean }
   signal?: AbortSignal
 }
 
@@ -1024,7 +1023,6 @@ function createLayer(input: StreamInput) {
             agent: next.agent,
             model: next.model,
             variant: next.variant,
-            agentCluster: next.agentCluster,
             parts: [
               ...(next.includeFiles ? next.files : []),
               { type: "text" as const, text: next.prompt.text },

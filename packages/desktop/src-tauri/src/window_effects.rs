@@ -7,6 +7,7 @@ enum GlassEffect {
     Acrylic,
     MicaDark,
     MicaLight,
+    #[allow(dead_code)]
     UnderWindowBackground,
 }
 

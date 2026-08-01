@@ -220,7 +220,7 @@ export const RunCommand = effectCmd({
       })
       .option("multi-agent", {
         type: "boolean",
-        describe: "enable Multi-Agent cluster mode",
+        describe: "enable Multi-Agent mode",
       })
       .option("replay", {
         type: "boolean",
@@ -462,6 +462,7 @@ export const RunCommand = effectCmd({
         const name = title()
         const result = await sdk.session.create({
           title: name,
+          multiAgent: args["multi-agent"] === true,
           permission: [...rules],
         })
         const id = result.data?.id
@@ -506,6 +507,7 @@ export const RunCommand = effectCmd({
               }
             : undefined,
           permission: [...rules],
+          multiAgent: args["multi-agent"] === true,
         })
         const id = result.data?.id
         if (!id) {
@@ -618,6 +620,9 @@ export const RunCommand = effectCmd({
           process.exit(1)
         }
         const sessionID = sess.id
+        if (args["multi-agent"] === true) {
+          await sdk.session.update({ sessionID, multiAgent: true })
+        }
 
         function emit(type: string, data: Record<string, unknown>) {
           if (args.format === "json") {
@@ -799,7 +804,6 @@ export const RunCommand = effectCmd({
             model,
             variant: args.variant,
             parts: [...files, { type: "text", text: message }],
-            ...(args["multi-agent"] ? { agentCluster: { enabled: true } } : {}),
           })
           if (result.error) {
             if (!emit("error", { error: result.error })) UI.error(formatRunError(result.error))

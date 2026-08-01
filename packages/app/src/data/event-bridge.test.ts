@@ -5,7 +5,7 @@ import type {
   PermissionRequest,
   QuestionRequest,
   Session,
-  SessionAgentClusterResponse,
+  SessionPlanResponse,
   TextPart,
   Todo,
   VcsInfo,
@@ -44,32 +44,15 @@ const part: TextPart = {
   text: "Hello",
 }
 
-const clusterState: SessionAgentClusterResponse = {
-  tasks: [
-    {
-      id: "task_1",
-      session_id: "ses_root",
-      origin_message_id: "msg_parent",
-      parent_task_id: "",
-      child_session_id: "ses_child",
-      role: "coder",
-      title: "Implement",
-      prompt: "Implement the feature",
-      complexity: "complex",
-      model: "test/coder",
-      status: "running",
-      step: 1,
-      dependencies: [],
-      review_round: 0,
-      acceptance_criteria: [],
-      artifact_paths: [],
-      result_summary: "",
-      review_issues: [],
-      last_event: "Started",
-      time_created: 11,
-      time_updated: 11,
-    },
-  ],
+const planState: SessionPlanResponse = {
+  title: "Implement",
+  goal: "Implement the feature",
+  status: "active",
+  revision: 1,
+  current_step: "s1",
+  pending_review: 0,
+  inbox_pending: 0,
+  steps: [{ id: "s1", title: "Implement", status: "active", tasks: [{ id: "s1_t1", title: "Code", status: "running" }] }],
 }
 
 afterEach(() => {
@@ -89,8 +72,8 @@ describe("desktop data boundary", () => {
     expect(keys.pullRequests("C:/A/", "open")).toEqual(["project", "c:\\a", "github", "pulls", "open"])
     expect(keys.pullRequest("C:/A/", 12)).toEqual(["project", "c:\\a", "github", "pull", 12])
     expect(keys.pullRequestDiff("C:/A/", 12)).toEqual(["project", "c:\\a", "github", "pull", 12, "diff"])
-    expect(keys.agentClustersScope("C:/A/")).toEqual(["project", "c:\\a", "agent-clusters"])
-    expect(keys.agentCluster("C:/A/", "ses_root")).toEqual(["project", "c:\\a", "agent-clusters", "ses_root"])
+    expect(keys.plansScope("C:/A/")).toEqual(["project", "c:\\a", "plans"])
+    expect(keys.plan("C:/A/", "ses_root")).toEqual(["project", "c:\\a", "plans", "ses_root"])
     expect(keys.globalConfig).toEqual(["global", "config"])
   })
 
@@ -148,34 +131,32 @@ describe("desktop data boundary", () => {
 })
 
 describe("event routing", () => {
-  it("routes same-project cluster events and ignores other projects", () => {
-    const clusterEvent = {
+  it("routes same-project plan events and ignores other projects", () => {
+    const planEvent = {
       directory: "C:\\a",
       payload: {
-        id: "evt_cluster_1",
-        type: "agent_cluster.event",
+        id: "evt_plan_1",
+        type: "plan.runtime.event",
         properties: {
-          sessionID: "ses_root",
-          runID: "run_1",
-          taskID: "task_1",
-          type: "task",
-          status: "reviewing",
-          message: "Review started",
-          createdAt: 20,
+          seq: 1,
+          type: "report_arrived",
+          session_id: "ses_root",
+          at: new Date(20).toISOString(),
+          payload: { taskId: "s1_t1" },
         },
       },
     } as GlobalEvent
 
-    expect(routeEvent("C:\\a", clusterEvent)).toEqual([
+    expect(routeEvent("C:\\a", planEvent)).toEqual([
       {
-        kind: "agent-cluster.event",
-        eventID: "evt_cluster_1",
+        kind: "plan.event",
+        eventID: "evt_plan_1",
         directory: "C:\\a",
         sessionID: "ses_root",
-        event: clusterEvent.payload,
+        event: planEvent.payload,
       },
     ])
-    expect(routeEvent("C:\\b", clusterEvent)).toEqual([])
+    expect(routeEvent("C:\\b", planEvent)).toEqual([])
   })
 
   it("routes workspace inspector events to explicit cache actions", () => {
@@ -403,44 +384,43 @@ describe("event routing", () => {
     releaseStream()
   })
 
-  it("patches known cluster rows and refetches once per root session per frame", async () => {
+  it("invalidates a plan snapshot once per root session per frame", async () => {
     const queryClient = createDesktopQueryClient()
-    const queryKey = keys.agentCluster("C:\\a", "ses_root")
-    queryClient.setQueryData(queryKey, structuredClone(clusterState))
+    const queryKey = keys.plan("C:\\a", "ses_root")
+    queryClient.setQueryData(queryKey, structuredClone(planState))
     const invalidate = vi.spyOn(queryClient, "invalidateQueries")
 
     let releaseStream = () => {}
     const streamWait = new Promise<void>((resolve) => {
       releaseStream = resolve
     })
-    const clusterEvents = [
+    const planEvents = [
       {
-        id: "evt_cluster_task",
-        type: "agent_cluster.event",
+        id: "evt_plan_task",
+        type: "plan.runtime.event",
         properties: {
-          sessionID: "ses_root",
-          taskID: "task_1",
-          type: "task",
-          status: "revision_requested",
-          message: "Needs another pass",
-          createdAt: 21,
+          seq: 1,
+          type: "plan.updated",
+          session_id: "ses_root",
+          revision: 2,
+          at: new Date(21).toISOString(),
+          payload: {},
         },
       },
       {
-        id: "evt_cluster_unknown",
-        type: "agent_cluster.event",
+        id: "evt_plan_activity",
+        type: "plan.runtime.event",
         properties: {
-          sessionID: "ses_root",
-          taskID: "task_new",
-          type: "task",
-          status: "queued",
-          message: "New task queued",
-          createdAt: 22,
+          seq: 2,
+          type: "child.activity",
+          session_id: "ses_root",
+          at: new Date(22).toISOString(),
+          payload: { taskId: "s1_t1" },
         },
       },
     ] as const
     const stream = (async function* () {
-      for (const payload of clusterEvents) yield { directory: "C:\\a", payload } as GlobalEvent
+      for (const payload of planEvents) yield { directory: "C:\\a", payload } as GlobalEvent
       await streamWait
     })()
     let scheduled: FrameRequestCallback | undefined
@@ -461,13 +441,7 @@ describe("event routing", () => {
     scheduled?.(0)
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey, exact: true }))
 
-    const patched = queryClient.getQueryData<SessionAgentClusterResponse>(queryKey)
-    expect(patched?.tasks[0]).toMatchObject({
-      status: "revision_requested",
-      time_updated: 21,
-      last_event: "Needs another pass",
-    })
-    expect(patched?.tasks.map((task) => task.id)).toEqual(["task_1"])
+    expect(queryClient.getQueryData<SessionPlanResponse>(queryKey)).toEqual(planState)
     expect(
       invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(queryKey)),
     ).toHaveLength(1)
@@ -683,11 +657,11 @@ describe("event routing", () => {
       keys.vcsDiff("C:\\a"),
       keys.githubStatus("C:\\a"),
       keys.pullRequestsScope("C:\\a"),
-      keys.agentClustersScope("C:\\a"),
+      keys.plansScope("C:\\a"),
       keys.messages("C:\\a", session.id),
       keys.todos("C:\\a", session.id),
     ])
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.agentClustersScope("C:\\a"), exact: false })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.plansScope("C:\\a"), exact: false })
     expect(states.at(-1)).toBe("connected")
 
     bridge.abort()

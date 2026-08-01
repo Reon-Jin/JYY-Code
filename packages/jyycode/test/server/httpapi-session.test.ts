@@ -20,8 +20,7 @@ import { MessageID, PartID, SessionID, type SessionID as SessionIDType } from ".
 import { MessageV2 } from "../../src/session/message-v2"
 import { Database } from "@/storage/db"
 import { SessionMessageTable, SessionTable } from "@/session/session.sql"
-import { AgentClusterTaskTable } from "@/agent-cluster/cluster.sql"
-import type { TaskID } from "@/agent-cluster/schema"
+import { PlanProtocol } from "@/plan/protocol"
 import { SessionMessage } from "@jyycode-ai/core/session-message"
 import { ModelV2 } from "@jyycode-ai/core/model"
 import { ProviderV2 } from "@jyycode-ai/core/provider"
@@ -358,32 +357,31 @@ describe("session HttpApi", () => {
           context.textTokens + context.toolTokens + context.mediaTokens + context.overheadTokens,
         )
 
-        const now = Date.now()
-        Database.use((db) => {
-          db.insert(AgentClusterTaskTable)
-            .values({
-              id: "inspect" as TaskID,
-              session_id: parent.id,
-              origin_message_id: message.info.id,
-              role: "researcher",
+        const createdPlan = yield* Effect.promise(() =>
+          new PlanProtocol().create(
+            { workspaceRoot: parent.directory, sessionId: parent.id, mode: "single" },
+            {
               title: "Inspect code",
-              prompt: "Inspect the code",
-              complexity: "simple",
-              model: "test/simple",
-              status: "running",
-              acceptance_criteria: ["notes written"],
-              artifact_paths: [],
-              time_created: now,
-              time_updated: now,
-            })
-            .run()
-        })
+              goal: "Inspect and verify the code",
+              steps: [
+                {
+                  title: "Inspect",
+                  goal: "Inspect the code",
+                  done_criteria: "notes written",
+                  tasks: [{ title: "Inspect code", goal: "Inspect the code", done_criteria: "notes written" }],
+                },
+                { title: "Verify", goal: "Verify findings", done_criteria: "verification complete" },
+              ],
+            },
+          ),
+        )
+        expect(createdPlan.ok).toBe(true)
 
-        const cluster = yield* requestJson<{ tasks: Array<{ status: string }> }>(
-          pathFor(SessionPaths.agentCluster, { sessionID: parent.id }),
+        const plan = yield* requestJson<{ steps: Array<{ tasks: Array<{ status: string }> }> }>(
+          pathFor(SessionPaths.plan, { sessionID: parent.id }),
           { headers },
         )
-        expect(cluster.tasks[0]?.status).toBe("running")
+        expect(plan.steps[0]?.tasks[0]?.status).toBe("pending")
 
         expect(
           yield* requestJson<unknown[]>(pathFor(SessionPaths.diff, { sessionID: parent.id }), { headers }),

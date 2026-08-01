@@ -13,14 +13,14 @@ import type {
   PermissionRequest,
   Project,
   Session,
-  SessionAgentClusterResponse,
+  SessionPlanResponse,
   Todo,
   VcsBranches,
   VcsFileDiff,
 } from "@jyycode-ai/sdk/v2/client"
 
 const encoder = new TextEncoder()
-type AgentClusterEvent = Extract<GlobalEvent["payload"], { type: "agent_cluster.event" }>
+type PlanEvent = Extract<GlobalEvent["payload"], { type: "plan.runtime.event" }>
 
 function model(providerID = "test", modelID = "test-model") {
   return {
@@ -68,7 +68,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   const sessions: Session[] = []
   const messages = new Map<string, Array<{ info: Message; parts: Part[] }>>()
   const todos = new Map<string, Todo[]>()
-  const agentClusters = new Map<string, SessionAgentClusterResponse>()
+  const plans = new Map<string, SessionPlanResponse>()
   const permissions: PermissionRequest[] = []
   const skills: AppSkillsResponse = [
     {
@@ -108,21 +108,9 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     available: true,
     repository: { nameWithOwner: "example/demo", url: "https://github.com/example/demo", defaultBranch: "main" },
   }
-  let globalConfig: Record<string, unknown> & { agent_cluster: Record<string, unknown> } = {
+  let globalConfig: Record<string, unknown> = {
     default_agent: "build",
     model: "test/test-model",
-    agent_cluster: {
-      enabled: true,
-      default_on: false,
-      planner_model: "test/test-planner",
-      reviewer_model: "test/test-planner",
-      simple_model: "test/test-simple",
-      complex_model: "test/test-complex",
-      visual_model: "test/test-visual",
-      max_subagents: 8,
-      max_concurrency: 4,
-      max_review_rounds: 2,
-    },
   }
   const defaultGlobalCompaction = (): GlobalCompaction => ({
     auto: true,
@@ -327,16 +315,9 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     }
     if (url.pathname === "/global/config" && request.method === "GET") return json(globalConfig)
     if (url.pathname === "/global/config" && request.method === "PATCH") {
-      const nextAgentCluster =
-        typeof value.agent_cluster === "object" && value.agent_cluster !== null
-          ? (value.agent_cluster as Record<string, unknown>)
-          : undefined
       globalConfig = {
         ...globalConfig,
         ...value,
-        agent_cluster: nextAgentCluster
-          ? { ...globalConfig.agent_cluster, ...nextAgentCluster }
-          : globalConfig.agent_cluster,
       }
       if (value.shell === "") delete globalConfig.shell
       return json(globalConfig)
@@ -499,8 +480,8 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       event("session.updated", { sessionID, info: session })
       return json(session)
     }
-    if (sessionID && url.pathname.endsWith("/agent-cluster") && request.method === "GET") {
-      return json(agentClusters.get(sessionID) ?? { tasks: [] })
+    if (sessionID && url.pathname.endsWith("/plan") && request.method === "GET") {
+      return json(plans.get(sessionID) ?? { plan: null })
     }
     if (sessionID && url.pathname.endsWith("/message") && request.method === "GET") {
       return json(messages.get(sessionID) ?? [])
@@ -723,12 +704,12 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     event("todo.updated", { sessionID, todos: next })
   }
 
-  function setAgentCluster(sessionID: string, state: SessionAgentClusterResponse) {
-    agentClusters.set(sessionID, structuredClone(state))
+  function setPlan(sessionID: string, state: SessionPlanResponse) {
+    plans.set(sessionID, structuredClone(state))
   }
 
-  function emitAgentCluster(properties: AgentClusterEvent["properties"]) {
-    event("agent_cluster.event", properties)
+  function emitPlan(properties: PlanEvent["properties"]) {
+    event("plan.runtime.event", properties)
   }
 
   function disconnectStreams() {
@@ -758,7 +739,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     addSession,
     messages,
     todos,
-    agentClusters,
+    plans,
     globalConfig: () => structuredClone(globalConfig),
     permissions,
     changes,
@@ -769,8 +750,8 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     requests,
     emit,
     setTodos,
-    setAgentCluster,
-    emitAgentCluster,
+    setPlan,
+    emitPlan,
     disconnectStreams,
     setGitHubStatus,
   }

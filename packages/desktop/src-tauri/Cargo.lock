@@ -2140,6 +2140,7 @@ dependencies = [
  "notify-rust",
  "rand 0.10.2",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",

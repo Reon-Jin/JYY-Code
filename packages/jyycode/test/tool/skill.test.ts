@@ -6,7 +6,6 @@ import { pathToFileURL } from "url"
 import type { Permission } from "../../src/permission"
 import type { Tool } from "@/tool/tool"
 import { SkillTool } from "../../src/tool/skill"
-import { allRoleSkillModules } from "../../src/agent-cluster/role-skills"
 import { ToolRegistry } from "@/tool/registry"
 import { disposeAllInstances, provideTmpdirInstance } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
@@ -31,42 +30,6 @@ const node = CrossSpawnSpawner.defaultLayer
 const it = testEffect(Layer.mergeAll(ToolRegistry.defaultLayer, node))
 
 describe("tool.skill", () => {
-  it.live("loads a built-in role skill without a filesystem resource directory", () =>
-    provideTmpdirInstance((dir) =>
-      Effect.gen(function* () {
-        const home = process.env.JYYCODE_TEST_HOME
-        process.env.JYYCODE_TEST_HOME = dir
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => {
-            process.env.JYYCODE_TEST_HOME = home
-          }),
-        )
-
-        const registry = yield* ToolRegistry.Service
-        const agent = { name: "researcher", mode: "subagent" as const, permission: [], options: {} }
-        const tool = (yield* registry.tools({
-          providerID: "jyycode" as any,
-          modelID: "gpt-5" as any,
-          agent,
-        })).find((tool) => tool.id === SkillTool.id)
-        if (!tool) throw new Error("Skill tool not found")
-
-        for (const module of allRoleSkillModules().filter((module) => module.upstream)) {
-          const result = yield* tool.execute(
-            { name: module.name },
-            { ...baseCtx, agent: "researcher", ask: () => Effect.void },
-          )
-
-          expect(result.metadata.dir).toBe("<built-in>")
-          expect(result.output).toContain(`<skill_content name="${module.name}">`)
-          expect(result.output).toContain(module.content.trim())
-          expect(result.output).toContain("(built-in skill has no external resource directory)")
-        }
-      }),
-    ),
-    30_000,
-  )
-
   it.live("execute returns skill content block with files", () =>
     provideTmpdirInstance((dir) =>
       Effect.gen(function* () {

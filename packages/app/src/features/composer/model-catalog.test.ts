@@ -1,4 +1,4 @@
-import type { Agent, AgentClusterConfig, Config, Path, Provider } from "@jyycode-ai/sdk/v2/client"
+import type { Agent, Config, Path, Provider } from "@jyycode-ai/sdk/v2/client"
 import { describe, expect, it, vi } from "vitest"
 import {
   loadComposerPreference,
@@ -60,7 +60,6 @@ function createClient(input?: {
   connected?: string[]
   defaults?: Record<string, string>
   config?: Config
-  agentCluster?: AgentClusterConfig
   path?: Path
 }) {
   const providers = input?.providers ?? [provider("openai", ["gpt-4.1", "gpt-5"])]
@@ -87,11 +86,6 @@ function createClient(input?: {
         response(input?.path ?? { home: "C:\\Users\\dev", state: "state", config: "C:\\Users\\dev\\.config\\jyycode" }),
       ),
     },
-    global: {
-      config: {
-        get: vi.fn(() => response({ agent_cluster: input?.agentCluster ?? { enabled: true, default_on: false } })),
-      },
-    },
   }
 }
 
@@ -105,14 +99,12 @@ describe("loadModelCatalog", () => {
     expect(client.provider.list).toHaveBeenCalledWith({ directory }, { throwOnError: true })
     expect(client.config.get).toHaveBeenCalledWith({ directory }, { throwOnError: true })
     expect(client.path.get).toHaveBeenCalledWith({ directory }, { throwOnError: true })
-    expect(client.global.config.get).toHaveBeenCalledWith({ throwOnError: true })
 
     const catalog = await promise
     expect(catalog.selectedAgent).toBe("plan")
     expect(catalog.selectedModel).toEqual({ providerID: "openai", modelID: "gpt-5" })
     expect(catalog.models.find((model) => model.modelID === "gpt-5")?.contextWindow).toBe(100_000)
     expect(catalog.configPath).toBe("C:\\Users\\dev\\.config\\jyycode\\jyycode.jsonc")
-    expect(catalog.agentCluster.default_on).toBe(false)
   })
 
   it("keeps subagents available for child identity without exposing them to root selection", async () => {
@@ -156,35 +148,23 @@ describe("loadModelCatalog", () => {
     expect(catalog.selectedModel).toBeUndefined()
   })
 
-  it("prefers the global planner model over a stale local preference", async () => {
-    const catalog = await loadModelCatalog({
-      client: createClient({
-        agentCluster: { enabled: true, planner_model: "openai/gpt-4.1" },
-      }) as never,
-      directory,
-      preference: { model: { providerID: "openai", modelID: "gpt-5" } },
-    })
-
-    expect(catalog.selectedModel).toEqual({ providerID: "openai", modelID: "gpt-4.1" })
-  })
-
-  it("exposes and selects the configured planner reasoning variant", async () => {
+  it("exposes and preserves the preferred reasoning variant", async () => {
     const openai = provider("openai", ["gpt-4.1", "gpt-5"])
     openai.models["gpt-5"]!.variants = { low: {}, high: {} }
     const catalog = await loadModelCatalog({
       client: createClient({
         providers: [openai],
         configuredProviders: [openai],
-        agentCluster: { planner_model: "openai/gpt-5", planner_variant: "high" },
       }) as never,
       directory,
+      preference: { model: { providerID: "openai", modelID: "gpt-5", variant: "high" } },
     })
 
     expect(catalog.models.find((model) => model.modelID === "gpt-5")?.variants).toEqual(["low", "high"])
     expect(catalog.selectedModel).toEqual({ providerID: "openai", modelID: "gpt-5", variant: "high" })
   })
 
-  it("accepts a unique bare global planner ID and excludes deprecated models", async () => {
+  it("excludes deprecated models", async () => {
     const openai = provider("openai", ["planner", "legacy"])
     openai.models.legacy!.status = "deprecated"
     const catalog = await loadModelCatalog({
@@ -192,7 +172,6 @@ describe("loadModelCatalog", () => {
         providers: [openai],
         configuredProviders: [openai],
         defaults: { openai: "planner" },
-        agentCluster: { planner_model: "planner" },
       }) as never,
       directory,
     })

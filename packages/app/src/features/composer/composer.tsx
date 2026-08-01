@@ -6,7 +6,6 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show, type JSX } f
 import { Button, IconButton } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import type { DesktopClient } from "../../data/sdk"
-import { ClusterModelControl } from "../multi-agent/cluster-model-control"
 import { errorMessage } from "../projects/project-controller"
 import { AgentSelect } from "./agent-select"
 import { createComposerController, type ComposerAttachment } from "./composer-controller"
@@ -16,6 +15,7 @@ import { ComposerUsage } from "./composer-usage"
 import type { CatalogModel, ModelSelection } from "./model-catalog"
 import type { ComposerUsageMetrics } from "./usage-metrics"
 import { ProviderConnectButton } from "./provider-connect"
+import { ModelControl } from "./model-control"
 import { SkillAutocomplete, type SkillAutocompleteHandle } from "./skill-autocomplete"
 import "./composer.css"
 
@@ -28,7 +28,6 @@ export type ComposerProps = {
   models: readonly CatalogModel[]
   selectedAgent: string
   selectedModel: ModelSelection
-  agentClusterEnabled: boolean
   status: SessionStatus
   requestPending?: boolean
   childSteering?: boolean
@@ -129,7 +128,6 @@ export function Composer(props: ComposerProps) {
     sessionID: () => props.sessionID,
     agent: () => props.selectedAgent,
     model: () => props.selectedModel,
-    agentClusterEnabled: () => props.agentClusterEnabled,
   })
   const queue = createComposerQueue({
     directory: props.directory,
@@ -294,14 +292,11 @@ export function Composer(props: ComposerProps) {
               disabled={controller.sending() || props.disabled}
               onConnected={props.onProviderConnected}
             />
-            <ClusterModelControl
-              client={props.client}
-              queryClient={props.queryClient}
+            <ModelControl
               models={props.models}
-              currentModel={props.selectedModel}
+              value={props.selectedModel}
               disabled={props.identityLocked || controller.sending() || props.disabled}
-              identityLocked={props.identityLocked}
-              onModelChange={props.onModelChange}
+              onChange={props.onModelChange}
             />
             {props.branchControl}
             {props.multiAgentControl}

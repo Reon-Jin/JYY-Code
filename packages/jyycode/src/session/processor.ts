@@ -37,12 +37,6 @@ export type Result = "compact" | "stop" | "continue"
 
 export interface Handle {
   readonly message: MessageV2.Assistant
-  /** All text parts accumulated during this LLM step, in order.
-   *  Available immediately after the stream — no DB round-trip needed.
-   *  Cluster mode uses this to extract and persist the plan JSON before
-   *  concurrent task tool calls execute, eliminating a race between the
-   *  SyncEvent projector commit and the tool's DB read. */
-  readonly allText: () => string
   readonly updateToolCall: (
     toolCallID: string,
     update: (part: MessageV2.ToolPart) => MessageV2.ToolPart,
@@ -85,9 +79,6 @@ interface ProcessorContext extends Input {
   needsCompaction: boolean
   currentText: MessageV2.TextPart | undefined
   reasoningMap: Record<string, MessageV2.ReasoningPart>
-  /** Accumulates text from all streamed text parts so cluster-mode
-   *  plan extraction can read text without a DB round-trip. */
-  textAccumulator: string[]
 }
 
 type StreamEvent = LLMEvent
@@ -128,7 +119,6 @@ export const layer = Layer.effect(
         needsCompaction: false,
         currentText: undefined,
         reasoningMap: {},
-        textAccumulator: [],
       }
       let aborted = false
       const slog = log.clone().tag("session.id", input.sessionID).tag("messageID", input.assistantMessage.id)
@@ -667,14 +657,12 @@ export const layer = Layer.effect(
               time: { start: Date.now() },
               metadata: value.providerMetadata,
             }
-            ctx.textAccumulator.push("")
             yield* session.updatePart(ctx.currentText)
             return
 
           case "text-delta":
             if (!ctx.currentText) return
             ctx.currentText.text += value.text
-            ctx.textAccumulator[ctx.textAccumulator.length - 1]! += value.text
             if (value.providerMetadata) ctx.currentText.metadata = value.providerMetadata
             yield* session.updatePartDelta({
               sessionID: ctx.currentText.sessionID,
@@ -820,7 +808,6 @@ export const layer = Layer.effect(
           yield* Effect.gen(function* () {
             ctx.currentText = undefined
             ctx.reasoningMap = {}
-            ctx.textAccumulator = []
             yield* status.set(ctx.sessionID, { type: "busy" })
             const stream = llm.stream(streamInput)
 
@@ -887,7 +874,6 @@ export const layer = Layer.effect(
         get message() {
           return ctx.assistantMessage
         },
-        allText: () => ctx.textAccumulator.join(""),
         updateToolCall,
         completeToolCall,
         process,

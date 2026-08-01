@@ -19,18 +19,49 @@ import * as Log from "@jyycode-ai/core/util/log"
 import { EffectBridge } from "@/effect/bridge"
 import { Bus } from "@/bus"
 import { ToolTelemetry } from "@/tool/telemetry"
+import { PLAN_TOOL_IDS } from "@/plan/tools"
 
 const log = Log.create({ service: "session.tools" })
+
+/**
+ * OpenAI-compatible providers reject dots in function names. Keep the
+ * protocol/tool IDs stable internally, but expose provider-safe names on the
+ * wire and let the closure below continue dispatching by the original ID.
+ */
+export function toolNameForModel(id: string) {
+  return PLAN_TOOL_IDS.has(id) ? id.replaceAll(".", "_") : id
+}
+
+/** Keep a required protocol entry point as the only model-visible tool. */
+export function retainOnlyTool(tools: Record<string, AITool>, requiredTool: string) {
+  const selected = tools[requiredTool]
+  if (!selected) throw new Error(`Required tool is unavailable: ${requiredTool}`)
+  for (const name of Object.keys(tools)) {
+    if (name !== requiredTool) delete tools[name]
+  }
+}
+
+/** Select protocol gates that models are not allowed to bypass with plain text. */
+export function requiredPlanTool(input: {
+  root: boolean
+  multiAgent: boolean
+  step: number
+  planExists?: boolean
+}) {
+  if (!input.root) return undefined
+  if (input.step === 1) return "Plan_read"
+  if (input.multiAgent && input.planExists === false) return "Plan_create"
+  return undefined
+}
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
   loop(input: SessionPrompt.LoopInput): Effect.Effect<MessageV2.WithParts>
-  /** Set when running in Agent Cluster mode; the durable root session id. */
-  agentClusterSessionID?: SessionID
-  /** Live text accumulated for the current assistant step before tool execution. */
-  currentAssistantText?: () => string
+  wake(input: { sessionID: SessionID; text: string; kind: string }): Effect.Effect<MessageV2.WithParts>
+  /** Runtime-injected run id for the file-backed Report protocol. */
+  agentRunID?: string
 }
 
 export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
@@ -41,7 +72,6 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   bypassAgentCheck: boolean
   messages: MessageV2.WithParts[]
   promptOps: TaskPromptOps
-  agentClusterSessionID?: string
 }) {
   using _ = log.time("resolveTools")
   const tools: Record<string, AITool> = {}
@@ -62,7 +92,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
       model: input.model,
       bypassAgentCheck: input.bypassAgentCheck,
       promptOps: input.promptOps,
-      ...(input.agentClusterSessionID ? { agentClusterSessionID: input.agentClusterSessionID } : {}),
+      ...(input.promptOps.agentRunID ? { agentRunID: input.promptOps.agentRunID } : {}),
     },
     agent: input.agent.name,
     messages: input.messages,
@@ -92,9 +122,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   })
 
   const addToolDef = (item: Tool.Def) => {
+    const modelToolName = toolNameForModel(item.id)
     const schema = ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
     schemaBytes += ToolTelemetry.approximateSchemaBytes(schema)
-    tools[item.id] = tool({
+    tools[modelToolName] = tool({
       description: item.description,
       inputSchema: jsonSchema(schema),
       execute(args, options) {
@@ -169,7 +200,13 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     includeMemory: input.session.parentID === undefined,
   })
   const mcpDefs = yield* mcp.toolDefs()
-  for (const item of [...registryDefs, ...mcpDefs]) {
+  const visibleRegistryDefs = registryDefs.filter((item) => {
+    if (!PLAN_TOOL_IDS.has(item.id)) return true
+    if (input.session.parentID !== undefined) return item.id === "Report"
+    if (input.session.multiAgent === true) return true
+    return !item.id.startsWith("Dispatch.") && item.id !== "Report"
+  })
+  for (const item of [...visibleRegistryDefs, ...mcpDefs]) {
     addToolDef(item)
   }
 

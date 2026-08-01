@@ -11,6 +11,7 @@ pub struct SaveTextFileResult {
 #[derive(Clone, Copy)]
 enum FilenamePlatform {
     Windows,
+    #[allow(dead_code)]
     MacOS,
 }
 

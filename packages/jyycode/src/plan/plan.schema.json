@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "plan.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "goal", "status", "revision", "current_step", "steps", "created_at", "updated_at"],
+  "properties": {
+    "title": { "type": "string", "minLength": 1, "maxLength": 60 },
+    "goal": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["draft", "active", "done"] },
+    "revision": { "type": "integer", "minimum": 1 },
+    "current_step": { "type": ["string", "null"] },
+    "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/step" } },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "goal", "done_criteria", "status", "tasks"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^s[1-9]\\d*$" },
+        "title": { "type": "string", "minLength": 1 },
+        "goal": { "type": "string", "minLength": 1 },
+        "done_criteria": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["pending", "active", "done"] },
+        "tasks": { "type": "array", "items": { "$ref": "#/$defs/task" } }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "goal", "done_criteria", "output_path", "status", "dispatch", "report"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^s[1-9]\\d*_t[1-9]\\d*$" },
+        "title": { "type": "string", "minLength": 1 },
+        "goal": { "type": "string", "minLength": 1 },
+        "done_criteria": { "type": "string", "minLength": 1 },
+        "output_path": { "type": ["string", "null"] },
+        "status": { "enum": ["pending", "dispatched", "running", "reported", "approved", "rejected"] },
+        "dispatch": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/dispatch" }] },
+        "report": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/report" }] }
+      }
+    },
+    "dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "child_session_id", "dispatched_at", "cancelled_at"],
+      "properties": {
+        "run_id": { "type": "string", "pattern": "^run__[A-Za-z0-9_-]+__s[1-9]\\d*_t[1-9]\\d*$" },
+        "child_session_id": { "type": "string", "minLength": 1 },
+        "dispatched_at": { "type": "string", "format": "date-time" },
+        "cancelled_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "summary", "artifacts", "issues", "reported_at", "review_feedback"],
+      "properties": {
+        "status": { "enum": ["done", "partial", "failed"] },
+        "summary": { "type": "string", "minLength": 1 },
+        "artifacts": { "type": "array", "items": { "type": "string" } },
+        "issues": { "type": "array", "items": { "type": "string" } },
+        "reported_at": { "type": "string", "format": "date-time" },
+        "review_feedback": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
