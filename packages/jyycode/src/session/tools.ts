@@ -41,16 +41,43 @@ export function retainOnlyTool(tools: Record<string, AITool>, requiredTool: stri
   }
 }
 
+type PlanToolGateState = {
+  current_step: string | null
+  steps: Array<{
+    id: string
+    tasks: Array<{ id: string; status: string; done_criteria: string; output_path: string | null }>
+  }>
+}
+
+function pendingDispatchTasks(plan: PlanToolGateState | undefined) {
+  if (!plan?.current_step) return []
+  const currentStep = plan.steps.find((step) => step.id === plan.current_step)
+  return currentStep?.tasks.filter((task) => task.status === "pending" || task.status === "rejected") ?? []
+}
+
+/** A root turn must yield after dispatching work; child reports wake it when action is needed. */
+export function hasInFlightPlanTasks(plan: PlanToolGateState | undefined) {
+  return plan?.steps.some((step) => step.tasks.some((task) => task.status === "dispatched" || task.status === "running")) ?? false
+}
+
 /** Select protocol gates that models are not allowed to bypass with plain text. */
 export function requiredPlanTool(input: {
   root: boolean
   multiAgent: boolean
   step: number
   planExists?: boolean
+  plan?: PlanToolGateState
 }) {
   if (!input.root) return undefined
   if (input.step === 1) return "Plan_read"
   if (input.multiAgent && input.planExists === false) return "Plan_create"
+  if (input.multiAgent) {
+    const pending = pendingDispatchTasks(input.plan)
+    if (pending.length > 0)
+      return pending.every((task) => task.done_criteria.trim() && task.output_path?.trim())
+        ? "Dispatch_dispatch"
+        : "Plan_update"
+  }
   return undefined
 }
 

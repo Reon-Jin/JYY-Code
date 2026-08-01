@@ -157,6 +157,7 @@
 
 .multi-agent-step h3 {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 9px;
   margin: 0;
@@ -165,6 +166,12 @@
   font-size: 0.68rem;
   font-weight: 650;
   letter-spacing: 0.055em;
+}
+
+.multi-agent-step__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .multi-agent-step__marker {

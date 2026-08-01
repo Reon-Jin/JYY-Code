@@ -1580,6 +1580,7 @@ export const layer = Layer.effect(
               multiAgent: session.multiAgent === true,
               step,
               planExists: planState?.ok ? planState.plan !== null : undefined,
+              plan: planState?.ok ? planState.plan ?? undefined : undefined,
             })
             if (requiredPlanTool) {
               SessionTools.retainOnlyTool(tools, requiredPlanTool)
@@ -1671,6 +1672,21 @@ export const layer = Layer.effect(
               model,
               toolChoice: requiredPlanTool || format.type === "json_schema" ? "required" : undefined,
             })
+
+            // Dispatch starts child sessions asynchronously. Do not give the root model another
+            // turn while it has nothing actionable: child Report calls wake this session again.
+            if (requiredPlanTool === "Dispatch_dispatch") {
+              const afterDispatch = yield* Effect.promise(() =>
+                defaultPlanProtocol.read({
+                  workspaceRoot: session.directory,
+                  sessionId: session.id,
+                  mode: "multi",
+                }),
+              )
+              if (afterDispatch.ok && SessionTools.hasInFlightPlanTasks(afterDispatch.plan ?? undefined)) {
+                return "break" as const
+              }
+            }
 
             if (structured !== undefined) {
               handle.message.structured = structured

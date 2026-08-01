@@ -289,6 +289,9 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                         get index() {
                           return wave().index
                         },
+                        get title() {
+                          return wave().title
+                        },
                         get tone() {
                           return wave().tone
                         },
@@ -306,6 +309,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                           <h3 id={`multi-agent-step-${wave().index}`}>
                             <span class="multi-agent-step__marker" aria-hidden="true" />
                             <span>{tr("multi-agent.wave", { index: String(step.index).padStart(2, "0"), status: waveLabel(step.tone) })}</span>
+                            <span class="multi-agent-step__title">— {step.title}</span>
                           </h3>
                           <div class="multi-agent-step__actions">
                             <span class="multi-agent-step__ratio">

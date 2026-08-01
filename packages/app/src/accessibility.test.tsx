@@ -226,6 +226,7 @@ describe("desktop accessibility contract", () => {
     expect(progress).toHaveAttribute("aria-valuemin", "0")
     expect(progress).toHaveAttribute("aria-valuemax", "1")
     expect(progress).toHaveAttribute("aria-valuenow", "0")
+    expect(screen.getByRole("heading", { name: /Implementation/ })).toBeVisible()
 
     for (const name of ["方案", "工作区变更"]) {
       const button = screen.getByRole("button", { name })

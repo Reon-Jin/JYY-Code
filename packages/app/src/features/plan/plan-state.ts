@@ -33,6 +33,7 @@ export type MultiAgentTaskView = {
 
 export type MultiAgentStepView = {
   index: number
+  title: string
   tone: MultiAgentTaskTone
   collapsed: boolean
   tasks: MultiAgentTaskView[]
@@ -124,7 +125,7 @@ export function projectPlanState(state: SessionPlanResponse): MultiAgentSnapshot
               : step.status === "active"
                 ? "running"
                 : "queued"
-    return { index, tone, collapsed: tone === "done", tasks }
+    return { index, title: step.title, tone, collapsed: tone === "done", tasks }
   })
   const tasks = steps.flatMap((step) => step.tasks)
   const currentStep = state.current_step

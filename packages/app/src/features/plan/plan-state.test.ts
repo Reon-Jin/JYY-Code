@@ -35,6 +35,7 @@ describe("projectPlanState", () => {
     expect(result.totalSteps).toBe(2)
     expect(result.currentStep).toBe(1)
     expect(result.runningAgents).toBe(2)
+    expect(result.steps[0]?.title).toBe("\u5b9e\u73b0")
     expect(result.steps[1]?.tasks).toEqual([])
     expect(findTaskByChildSessionID(result, "ses_child")?.lastEvent).toBe("执行测试")
   })

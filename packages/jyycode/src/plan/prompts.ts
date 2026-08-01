@@ -10,6 +10,8 @@ export const PLAN_BASE_PROMPT = `# 新版方案管理协议（强制）
 - 每轮处理完 Inbox、审核、当前 Step 明细展开、派发和当前可推进工作后再结束；不要空转等待子 Agent。`
 
 export const PLAN_MULTI_PROMPT = `# 新版子 Agent 管理协议
+- 当前 active Step 只要有 pending/rejected Task，主 Agent 不得亲自执行这些 Task；运行时会只开放 Plan_update（补全任务）或 Dispatch_dispatch（派发）。
+- 每个可派发 Task 必须有明确且互不冲突的 output_path；若运行时只开放 Plan_update，先用 edit_task 补齐 output_path，下一步立即 Dispatch_dispatch。
 - 独立、耗时且产出明确的当前 Step 任务，用 Dispatch_dispatch 派给子 Agent；需要连续上下文的判断由主 Agent 自己执行。
 - Dispatch_dispatch 只能接收方案中当前 active Step 的 pending/rejected taskId，禁止自行构造任务或一次派发未来阶段。
 - Plan_read 显示 pending_review > 0 时，用 Plan_update(review_task) 逐项对照 done_criteria，并抽查 artifacts 后裁决。

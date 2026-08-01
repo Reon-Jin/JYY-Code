@@ -11,6 +11,7 @@ import {
   parentSessionIdForRunId,
   registerChildRun,
   runIdForChildSession,
+  type DispatchBrief,
   type PlanExecutionContext,
 } from "./protocol"
 import { RuntimeEvent } from "./runtime-event"
@@ -247,20 +248,32 @@ function promptOps(ctx: Tool.Context) {
   return value as TaskPromptOps
 }
 
+/** Keep the child task brief readable in the session timeline as well as by the model. */
+export function childTaskBrief(brief: DispatchBrief) {
+  return [
+    "## 主 Agent 派发的任务简报",
+    "",
+    "```json",
+    JSON.stringify(brief, null, 2),
+    "```",
+    "",
+    "请严格按简报执行：先写入 `output_path`，再调用 `Report`；不要创建或输出父方案。",
+  ].join("\n")
+}
+
 function protocolFor(
   sessions: Session.Interface,
   bus: Bus.Interface,
-  runtime?: { bridge: EffectBridgeShape; promptOps?: TaskPromptOps },
+  runtime: { bridge: EffectBridgeShape; promptOps?: TaskPromptOps },
 ) {
   let protocol: PlanProtocol
   protocol = new PlanProtocol({
     eventSink: (event) => {
-      if (runtime) runtime.bridge.fork(bus.publish(RuntimeEvent, event).pipe(Effect.ignore))
-      else void Effect.runPromise(bus.publish(RuntimeEvent, event)).catch(() => undefined)
+      runtime.bridge.fork(bus.publish(RuntimeEvent, event).pipe(Effect.ignore))
     },
     children: {
       async create(input) {
-        const run = runtime?.bridge.promise ?? Effect.runPromise
+        const run = runtime.bridge.promise
         const parent = await run(sessions.get(input.parentSessionId as SessionID).pipe(Effect.orDie))
         const child = await run(
           sessions.create({
@@ -276,15 +289,10 @@ function protocolFor(
         return child.id
       },
       async start(input) {
-        if (!runtime?.promptOps) return
+        if (!runtime.promptOps) return
         const ops = runtime.promptOps
         registerChildRun(input.childSessionId, input.brief.run_id)
-        const brief = [
-          "<plan-task-brief>",
-          JSON.stringify(input.brief, null, 2),
-          "</plan-task-brief>",
-          "严格按简报执行。先写入 output_path，再调用 Report；不要创建或输出父方案。",
-        ].join("\n")
+        const brief = childTaskBrief(input.brief)
         runtime.bridge.fork(
           ops
             .prompt({
@@ -316,7 +324,7 @@ function protocolFor(
         )
       },
       async terminate(sessionId) {
-        const run = runtime?.bridge.promise ?? Effect.runPromise
+        const run = runtime.bridge.promise
         await run(sessions.setArchived({ sessionID: sessionId as SessionID }))
       },
     },
@@ -329,7 +337,6 @@ export const PlanReadTool = Tool.define(
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
-    const protocol = protocolFor(sessions, bus)
     return {
       description: "读取当前主 session 的持久化方案和进度。",
       parameters: Empty,
@@ -341,6 +348,8 @@ export const PlanReadTool = Tool.define(
       },
       execute: (_input: {}, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          const bridge = yield* EffectBridge.make()
+          const protocol = protocolFor(sessions, bus, { bridge })
           const session = yield* getSession(sessions, ctx.sessionID)
           return jsonResult("Plan.read", yield* Effect.promise(() => protocol.read(protocolContext(session, ctx))))
         }),
@@ -353,7 +362,6 @@ export const InboxTool = Tool.define(
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
-    const protocol = protocolFor(sessions, bus)
     return {
       description: "读取主 session 的异常 Inbox，并可标记已处理条目。",
       parameters: AnyObject,
@@ -366,6 +374,8 @@ export const InboxTool = Tool.define(
       },
       execute: (input: unknown, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          const bridge = yield* EffectBridge.make()
+          const protocol = protocolFor(sessions, bus, { bridge })
           const session = yield* getSession(sessions, ctx.sessionID)
           return jsonResult(
             "Inbox",
@@ -381,7 +391,6 @@ export const PlanCreateTool = Tool.define(
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
-    const protocol = protocolFor(sessions, bus)
     return {
       description: "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan.update 展开。",
       parameters: AnyObject,
@@ -394,6 +403,8 @@ export const PlanCreateTool = Tool.define(
       },
       execute: (input: unknown, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          const bridge = yield* EffectBridge.make()
+          const protocol = protocolFor(sessions, bus, { bridge })
           const session = yield* getSession(sessions, ctx.sessionID)
           return jsonResult(
             "Plan.create",
@@ -409,7 +420,6 @@ export const PlanUpdateTool = Tool.define(
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
-    const protocol = protocolFor(sessions, bus)
     return {
       description: "以 revision 乐观锁原子修改方案、展开任务、推进单智能体状态或审核子 Agent 汇报。",
       parameters: AnyObject,
@@ -422,6 +432,8 @@ export const PlanUpdateTool = Tool.define(
       },
       execute: (input: unknown, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          const bridge = yield* EffectBridge.make()
+          const protocol = protocolFor(sessions, bus, { bridge })
           const session = yield* getSession(sessions, ctx.sessionID)
           return jsonResult(
             "Plan.update",
@@ -437,7 +449,6 @@ export const DispatchDispatchTool = Tool.define(
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
-    const bridge = yield* EffectBridge.make()
     return {
       description: "在多智能体模式把 pending/rejected 任务派给子 session。",
       parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String) }),
@@ -450,6 +461,7 @@ export const DispatchDispatchTool = Tool.define(
       },
       execute: (input: { taskIds: string[] }, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          const bridge = yield* EffectBridge.make()
           const session = yield* getSession(sessions, ctx.sessionID)
           const protocol = protocolFor(sessions, bus, { bridge, promptOps: promptOps(ctx) })
           return jsonResult(
@@ -466,7 +478,6 @@ export const DispatchCancelTool = Tool.define(
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
-    const bridge = yield* EffectBridge.make()
     return {
       description: "取消多智能体任务并终止其子 session。",
       parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String) }),
@@ -479,6 +490,7 @@ export const DispatchCancelTool = Tool.define(
       },
       execute: (input: { taskIds: string[] }, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          const bridge = yield* EffectBridge.make()
           const session = yield* getSession(sessions, ctx.sessionID)
           const protocol = protocolFor(sessions, bus, { bridge })
           return jsonResult(
@@ -495,7 +507,6 @@ export const ReportTool = Tool.define(
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
-    const bridge = yield* EffectBridge.make()
     return {
       description: "子 session 唯一的任务汇报入口；先写入产出文件，再提交 done/partial/failed 汇报。",
       parameters: AnyObject,
@@ -508,6 +519,7 @@ export const ReportTool = Tool.define(
       },
       execute: (input: unknown, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          const bridge = yield* EffectBridge.make()
           const session = yield* getSession(sessions, ctx.sessionID)
           const ops = promptOps(ctx)
           const protocol = protocolFor(sessions, bus, { bridge, promptOps: ops })
