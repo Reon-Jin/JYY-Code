@@ -384,3 +384,85 @@ export function runInstructions(input: {
     "</agent-cluster-session>",
   ].join("\n")
 }
+
+export function singleAgentPlanInstructions(input: {
+  sessionID: string
+  taskGraph?: readonly {
+    id: string
+    step: number
+    status: string
+    title: string
+    role: string
+    prompt: string
+    complexity: string
+    model: string
+    dependencies: readonly string[]
+    acceptance_criteria: readonly string[]
+    artifact_paths: readonly string[]
+    review_issues: readonly string[]
+    last_event: string | null
+  }[]
+}) {
+  return [
+    "<single-agent-plan-session>",
+    `session_id: ${input.sessionID}`,
+    "execution_mode: single-agent. You plan the work and execute every task yourself. Subagent dispatch (task, task_status, agent_cluster_review) is unavailable.",
+    "",
+    "current_task_graph:",
+    input.taskGraph?.length
+      ? JSON.stringify(
+          input.taskGraph.map((task) => ({
+            id: task.id,
+            step: task.step,
+            status: task.status,
+            title: task.title,
+            role: task.role,
+            prompt: task.prompt,
+            complexity: task.complexity,
+            model: task.model,
+            dependencies: task.dependencies,
+            acceptanceCriteria: task.acceptance_criteria,
+            expectedArtifacts: task.artifact_paths,
+            reviewIssues: task.review_issues,
+            lastEvent: task.last_event,
+          })),
+        )
+      : "[]",
+    "",
+    "=== PLAN-FIRST (CRITICAL) ===",
+    "For any non-trivial request, your FIRST response must output a COMPLETE plan as a ```json fenced code block containing \"goal\" (string) and \"tasks\" (array). The runtime persists this plan and the right sidebar shows it as your plan.",
+    "Copy this exact JSON shape:",
+    "```json",
+    "{",
+    '  "goal": "One sentence describing what this session should accomplish",',
+    '  "tasks": [',
+    "    {",
+    '      "id": "task-1",',
+    '      "step": 1,',
+    '      "title": "Short task title",',
+    '      "role": "general",',
+    '      "complexity": "simple",',
+    '      "model": "-",',
+    '      "dependencies": [],',
+    '      "prompt": "Detailed execution notes for yourself: what to do, which files to read/write, and how to verify.",',
+    '      "acceptanceCriteria": ["Specific, verifiable condition"],',
+    '      "expectedArtifacts": ["path/to/output.md"]',
+    "    }",
+    "  ]",
+    "}",
+    "```",
+    "JSON rules: double quotes only, no trailing commas, every task must have all fields, ids are unique kebab-case strings, step is a positive integer, dependencies only reference earlier steps, role/complexity/model follow the same catalog as multi-agent.",
+    "",
+    "=== SELF-EXECUTION ===",
+    "Execute every task yourself in dependency order. Before starting a task, call plan_update(task_id=..., status=\"running\"). After the work is actually done and you verified its acceptance criteria (including expected artifacts), call plan_update(task_id=..., status=\"completed\"). Use status=\"cancelled\" or \"failed\" with a note when a task cannot be completed.",
+    "Do not batch status updates; keep the plan panel live as you work.",
+    "TodoWrite remains available only as an optional finer-grained checklist inside a single plan step; the plan itself is the source of truth.",
+    "",
+    "=== PLAN UPDATES ON LATER TURNS ===",
+    "On later turns, inspect current_task_graph first. To change unfinished work, output another complete JSON plan: repeat existing tasks with their existing ids and updated fields, add new tasks with new ids, and include \"cancelTaskIDs\" to remove unfinished tasks. Never duplicate an existing id and never edit an accepted/completed task.",
+    "",
+    "=== FINAL SYNTHESIS ===",
+    "Do not deliver the final answer until every plan task is completed, cancelled, or failed. Then summarize the outcome, artifact paths, and any unresolved risks.",
+    "</single-agent-plan-session>",
+  ].join("\n")
+}

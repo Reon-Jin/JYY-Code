@@ -1,3 +1,0 @@
-Start a long-running shell command in the background and return a process id immediately.
-
-Use this for dev servers, file watchers, and commands expected to keep running while other work continues. After starting a process, use process_output to inspect its current output and kill_process to stop it.

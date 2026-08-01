@@ -27,7 +27,7 @@ const referenceLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
 const it = testEffect(
   Layer.mergeAll(AppFileSystem.defaultLayer, CrossSpawnSpawner.defaultLayer, Git.defaultLayer, referenceLayer()),
 )
-const scout = testEffect(
+const gitRefs = testEffect(
   Layer.mergeAll(
     AppFileSystem.defaultLayer,
     CrossSpawnSpawner.defaultLayer,
@@ -197,7 +197,7 @@ describe("reference", () => {
     }),
   )
 
-  scout.live("materializes configured git references during init", () =>
+  gitRefs.live("materializes configured git references during init", () =>
     provideTmpdirInstance(
       (_dir) =>
         Effect.gen(function* () {
@@ -243,7 +243,7 @@ describe("reference", () => {
     ),
   )
 
-  scout.live("refreshes configured git references on new instance init", () =>
+  gitRefs.live("refreshes configured git references on new instance init", () =>
     Effect.gen(function* () {
       const fs = yield* AppFileSystem.Service
       const cache = path.join(Global.Path.repos, "github.com", "jyycode-reference-refresh", "repo")

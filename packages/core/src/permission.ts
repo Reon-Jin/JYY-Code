@@ -16,7 +16,7 @@ export type Rule = typeof Rule.Type
 export const Ruleset = Schema.Array(Rule).annotate({ identifier: "PermissionV2.Ruleset" })
 export type Ruleset = typeof Ruleset.Type
 
-const EDIT_TOOLS = ["edit", "write", "apply_patch"]
+const EDIT_TOOLS = ["edit", "write"]
 
 export function evaluate(permission: string, pattern: string, ...rulesets: Ruleset[]): Rule {
   return (

@@ -62,7 +62,7 @@ export type Info = Schema.Schema.Type<typeof Info>
 export const Default = {
   enabled: true,
   default_on: false,
-  disable_for_routes: ["mail"],
+  disable_for_routes: [],
   planner_model: "deepseek-v4-flash",
   complex_model: "deepseek-v4-flash",
   simple_model: "deepseek-v4-flash",

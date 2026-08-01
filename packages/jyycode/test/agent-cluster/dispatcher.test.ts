@@ -142,8 +142,6 @@ describe("SubagentDescriptions", () => {
     expect(RoleSkillDefinitions).not.toHaveProperty("pdf")
     expect(roleSkillNames("explore")).toContain("acquire-codebase-knowledge")
     expect(roleSkillNames("explore")).not.toContain("what-context-needed")
-    expect(roleSkillNames("scout")).toContain("source-driven-development")
-    expect(roleSkillNames("scout")).not.toContain("web-search")
     expect(roleSkillNames("general")).toEqual(["cluster-general-handoff"])
     expect(RoleSkillDefinitions).not.toHaveProperty("picture_searcher")
     expect(roleSkillNames("coder")).not.toContain("literature-review")

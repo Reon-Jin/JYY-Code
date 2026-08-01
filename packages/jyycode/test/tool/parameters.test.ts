@@ -9,19 +9,16 @@ import { ToolJsonSchema } from "../../src/tool/json-schema"
 // prompt.ts` uses to emit tool schemas to the LLM, so the snapshots stay
 // provider-compatible while tools use Effect Schema internally.
 
-import { Parameters as ApplyPatch } from "../../src/tool/apply_patch"
 import { Parameters as Edit } from "../../src/tool/edit"
 import { Parameters as Glob } from "../../src/tool/glob"
 import { Parameters as Grep } from "../../src/tool/grep"
 import { Parameters as Invalid } from "../../src/tool/invalid"
 import { Parameters as Lsp } from "../../src/tool/lsp"
-import { Parameters as Plan } from "../../src/tool/plan"
+import { Parameters as Process } from "../../src/tool/process"
 import { Parameters as Question } from "../../src/tool/question"
 import { Parameters as Read } from "../../src/tool/read"
 import { Parameters as Shell } from "../../src/tool/shell"
 import { Parameters as Skill } from "../../src/tool/skill"
-import { Parameters as Task } from "../../src/tool/task"
-import { Parameters as Todo } from "../../src/tool/todo"
 import { Parameters as WebFetch } from "../../src/tool/webfetch"
 import { Parameters as WebSearch } from "../../src/tool/websearch"
 import { Parameters as Write } from "../../src/tool/write"
@@ -36,19 +33,15 @@ const toJsonSchema = ToolJsonSchema.fromSchema
 
 describe("tool parameters", () => {
   describe("JSON Schema (wire shape)", () => {
-    test("apply_patch", () => expect(toJsonSchema(ApplyPatch)).toMatchSnapshot())
     test("bash", () => expect(toJsonSchema(Shell)).toMatchSnapshot())
     test("edit", () => expect(toJsonSchema(Edit)).toMatchSnapshot())
     test("glob", () => expect(toJsonSchema(Glob)).toMatchSnapshot())
     test("grep", () => expect(toJsonSchema(Grep)).toMatchSnapshot())
     test("invalid", () => expect(toJsonSchema(Invalid)).toMatchSnapshot())
     test("lsp", () => expect(toJsonSchema(Lsp)).toMatchSnapshot())
-    test("plan", () => expect(toJsonSchema(Plan)).toMatchSnapshot())
     test("question", () => expect(toJsonSchema(Question)).toMatchSnapshot())
     test("read", () => expect(toJsonSchema(Read)).toMatchSnapshot())
     test("skill", () => expect(toJsonSchema(Skill)).toMatchSnapshot())
-    test("task", () => expect(toJsonSchema(Task)).toMatchSnapshot())
-    test("todo", () => expect(toJsonSchema(Todo)).toMatchSnapshot())
     test("webfetch", () => expect(toJsonSchema(WebFetch)).toMatchSnapshot())
     test("websearch", () => expect(toJsonSchema(WebSearch)).toMatchSnapshot())
     test("write", () => expect(toJsonSchema(Write)).toMatchSnapshot())
@@ -84,20 +77,6 @@ describe("tool parameters", () => {
     })
   })
 
-  describe("apply_patch", () => {
-    test("accepts patchText", () => {
-      expect(parse(ApplyPatch, { patchText: "*** Begin Patch\n*** End Patch" })).toEqual({
-        patchText: "*** Begin Patch\n*** End Patch",
-      })
-    })
-    test("rejects missing patchText", () => {
-      expect(accepts(ApplyPatch, {})).toBe(false)
-    })
-    test("rejects non-string patchText", () => {
-      expect(accepts(ApplyPatch, { patchText: 123 })).toBe(false)
-    })
-  })
-
   describe("shell", () => {
     test("accepts minimum: command + description", () => {
       expect(parse(Shell, { command: "ls", description: "list" })).toEqual({ command: "ls", description: "list" })
@@ -116,20 +95,24 @@ describe("tool parameters", () => {
   })
 
   describe("edit", () => {
-    test("accepts all four fields", () => {
-      expect(parse(Edit, { filePath: "/a", oldString: "x", newString: "y", replaceAll: true })).toEqual({
+    test("accepts one or more edits", () => {
+      expect(parse(Edit, { filePath: "/a", edits: [{ oldString: "x", newString: "y" }] })).toEqual({
         filePath: "/a",
-        oldString: "x",
-        newString: "y",
-        replaceAll: true,
+        edits: [{ oldString: "x", newString: "y" }],
       })
     })
-    test("replaceAll is optional", () => {
-      const parsed = parse(Edit, { filePath: "/a", oldString: "x", newString: "y" })
-      expect(parsed.replaceAll).toBeUndefined()
+    test("replaceAll is optional per edit", () => {
+      const parsed = parse(Edit, {
+        filePath: "/a",
+        edits: [{ oldString: "x", newString: "y", replaceAll: true }],
+      })
+      expect(parsed.edits[0]?.replaceAll).toBe(true)
     })
-    test("rejects missing filePath", () => {
-      expect(accepts(Edit, { oldString: "x", newString: "y" })).toBe(false)
+    test("rejects missing edits", () => {
+      expect(accepts(Edit, { filePath: "/a" })).toBe(false)
+    })
+    test("rejects an empty edits array", () => {
+      expect(accepts(Edit, { filePath: "/a", edits: [] })).toBe(false)
     })
   })
 
@@ -210,6 +193,33 @@ describe("tool parameters", () => {
     })
   })
 
+  describe("process", () => {
+    test("accepts start with command and description", () => {
+      expect(parse(Process, { action: "start", command: "node --version", description: "run node" })).toMatchObject({
+        action: "start",
+        command: "node --version",
+      })
+    })
+    test("accepts output with id and optional limit", () => {
+      expect(parse(Process, { action: "output", id: "proc_1", limit: 50 })).toMatchObject({
+        action: "output",
+        limit: 50,
+      })
+    })
+    test("accepts kill with id and forceAfterMs", () => {
+      expect(parse(Process, { action: "kill", id: "proc_1", forceAfterMs: 500 })).toMatchObject({
+        action: "kill",
+        forceAfterMs: 500,
+      })
+    })
+    test("rejects a missing action", () => {
+      expect(accepts(Process, { command: "node --version", description: "run node" })).toBe(false)
+    })
+    test("rejects start without a command", () => {
+      expect(accepts(Process, { action: "start", description: "run node" })).toBe(false)
+    })
+  })
+
   describe("read", () => {
     test("accepts filePath-only", () => {
       expect(parse(Read, { filePath: "/a" }).filePath).toBe("/a")
@@ -227,42 +237,6 @@ describe("tool parameters", () => {
     })
     test("rejects missing name", () => {
       expect(accepts(Skill, {})).toBe(false)
-    })
-  })
-
-  describe("task", () => {
-    test("accepts description + prompt + subagent_type", () => {
-      const parsed = parse(Task, { description: "d", prompt: "p", subagent_type: "general" })
-      expect(parsed.subagent_type).toBe("general")
-    })
-    test("accepts optional background flag", () => {
-      const parsed = parse(Task, { description: "d", prompt: "p", subagent_type: "general", background: true })
-      expect(parsed.background).toBe(true)
-    })
-    test("accepts a reusable cluster subagent session", () => {
-      const parsed = parse(Task, {
-        description: "d",
-        prompt: "p",
-        subagent_type: "general",
-        task_id: "new-plan-task",
-        resume_session_id: "ses_existing",
-      })
-      expect(parsed.resume_session_id).toBe("ses_existing")
-    })
-    test("rejects missing prompt", () => {
-      expect(accepts(Task, { description: "d", subagent_type: "general" })).toBe(false)
-    })
-  })
-
-  describe("todo", () => {
-    test("accepts todos array", () => {
-      const parsed = parse(Todo, {
-        todos: [{ id: "t1", content: "do x", status: "pending", priority: "medium" }],
-      })
-      expect(parsed.todos.length).toBe(1)
-    })
-    test("rejects missing todos", () => {
-      expect(accepts(Todo, {})).toBe(false)
     })
   })
 

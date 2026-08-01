@@ -227,10 +227,9 @@ file, `disable: true` in frontmatter.
 
 ### Built-in agents
 
-JYYCode ships with `build`, `plan`, `general`, `explore`, plus optionally
-`scout` (gated on `JYYCODE_EXPERIMENTAL_SCOUT`). Hidden internal agents:
-`compaction`, `title`, `summary`. To override a built-in's fields, define the
-same key in `agent: { <name>: { ... } }`.
+JYYCode ships with `build`, `plan`, `general`, and `explore`. Hidden internal
+agents: `compaction`, `title`, `summary`. To override a built-in's fields,
+define the same key in `agent: { <name>: { ... } }`.
 
 ## Plugins
 

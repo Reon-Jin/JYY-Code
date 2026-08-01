@@ -553,7 +553,7 @@ function taskRuns(input: SnapshotInput, statuses: Map<string, AgentClusterTaskSt
 }
 
 function clusterTaskStatus(status: string): AgentClusterTaskStatus {
-  if (status === "accepted") return "done"
+  if (status === "accepted" || status === "completed") return "done"
   if (status === "failed" || status === "cancelled") return "failed"
   if (["running", "submitted", "reviewing", "revision_requested", "revising"].includes(status)) return "running"
   return "queued"

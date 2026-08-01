@@ -5,7 +5,6 @@ import {
   Bug,
   ChartNoAxesCombined,
   Code,
-  Compass,
   FileText,
   FolderSearch,
   Grid2x2,
@@ -44,7 +43,6 @@ function roleLabel(value: string) {
     pdf: tr("multi-agent.role-pdf"),
     picture_searcher: tr("multi-agent.role-picture-searcher"),
     explore: tr("multi-agent.role-explore"),
-    scout: tr("multi-agent.role-scout"),
     reviewer: tr("multi-agent.review"),
     planner: tr("multi-agent.planning"),
   }
@@ -103,7 +101,6 @@ function RoleAvatar(props: { role: string }) {
     file: FileText,
     image: Image,
     folder: FolderSearch,
-    compass: Compass,
     shield: ShieldCheck,
     map: Map,
   }
@@ -184,6 +181,10 @@ export type MultiAgentPanelViewProps = {
   enabled: boolean
   snapshot: MultiAgentSnapshot
   selectedChildSessionID?: string
+  title?: string
+  progressLabel?: string
+  waitingForPlanMessage?: string
+  noPlanMessage?: string
   loading?: boolean
   error?: string
   onRetry?: () => void
@@ -229,7 +230,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
     <section class="multi-agent-panel" aria-labelledby="multi-agent-panel-title">
       <header class="multi-agent-panel__header">
         <Bot aria-hidden="true" />
-        <h2 id="multi-agent-panel-title">{tr("multi-agent.multi-agent")}</h2>
+        <h2 id="multi-agent-panel-title">{props.title ?? tr("multi-agent.multi-agent")}</h2>
         <span class="multi-agent-panel__counts">
           {props.snapshot.totalAgents} {tr("multi-agent.count-tasks")} · {props.snapshot.doneAgents}{" "}
           {tr("multi-agent.count-done")} · {props.snapshot.runningAgents} {tr("multi-agent.count-active")} ·{" "}
@@ -239,7 +240,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
       <div class="multi-agent-panel__progress-row">
         <progress
           class="multi-agent-panel__progress"
-          aria-label={tr("multi-agent.multi-agent-progress")}
+          aria-label={props.progressLabel ?? tr("multi-agent.multi-agent-progress")}
           aria-valuemin={0}
           aria-valuemax={Math.max(props.snapshot.totalAgents, 1)}
           aria-valuenow={props.snapshot.doneAgents}
@@ -280,8 +281,8 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
               fallback={
                 <p class="multi-agent-panel__empty">
                   {props.enabled
-                    ? tr("multi-agent.waiting-for-master-agent-to-generate-plan")
-                    : tr("multi-agent.multi-agent-is-not-enabled-for-the-current")}
+                    ? (props.waitingForPlanMessage ?? tr("multi-agent.waiting-for-master-agent-to-generate-plan"))
+                    : (props.noPlanMessage ?? tr("multi-agent.multi-agent-is-not-enabled-for-the-current"))}
                 </p>
               }
             >

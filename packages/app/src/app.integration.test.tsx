@@ -229,8 +229,8 @@ describe("desktop GUI journey", () => {
 
     const composer = screen.getByRole("textbox", { name: "消息" })
     await user.type(composer, "保留这段草稿")
-    await user.click(screen.getByRole("button", { name: "待办" }))
-    await user.click(screen.getByRole("button", { name: "待办" }))
+    await user.click(screen.getByRole("button", { name: "方案" }))
+    await user.click(screen.getByRole("button", { name: "方案" }))
     expect(composer).toHaveValue("保留这段草稿")
     await user.clear(composer)
     await user.type(composer, "检查当前工作区")
@@ -342,8 +342,8 @@ describe("desktop GUI journey", () => {
 
     const draft = screen.getByRole("textbox", { name: "消息" })
     await user.type(draft, "保留根草稿")
-    await user.click(screen.getByRole("button", { name: "多智能体" }))
-    expect(screen.getByRole("button", { name: "多智能体" })).toHaveAttribute("aria-pressed", "true")
+    await user.click(screen.getByRole("button", { name: "方案" }))
+    expect(screen.getByRole("button", { name: "方案" })).toHaveAttribute("aria-pressed", "true")
 
     backend.setAgentCluster("ses_root", clusterSnapshot())
     backend.emitAgentCluster({
@@ -355,11 +355,11 @@ describe("desktop GUI journey", () => {
       message: "Started coding",
       createdAt: 3,
     })
-    expect(await screen.findByRole("progressbar", { name: "多智能体进度" })).toHaveAttribute("aria-valuenow", "0")
+    expect(await screen.findByRole("progressbar", { name: "方案进度" })).toHaveAttribute("aria-valuenow", "0")
     const taskCounts = document.querySelector(".multi-agent-panel__counts")
     await waitFor(() => expect(taskCounts).toHaveTextContent(/1 (?:TASKS|任务).*1 (?:ACTIVE|进行中)/i))
 
-    const railButton = screen.getByRole("button", { name: "多智能体" })
+    const railButton = screen.getByRole("button", { name: "方案" })
     await user.click(railButton)
     expect(screen.queryByRole("complementary", { name: "Multi-Agent" })).not.toBeInTheDocument()
     expect(draft).toHaveValue("保留根草稿")
@@ -372,7 +372,7 @@ describe("desktop GUI journey", () => {
     expect(within(rootList).getByRole("link", { name: /Root Session/ })).toHaveAttribute("aria-current", "page")
     await user.click(screen.getByRole("button", { name: "返回主 Session" }))
     expect(await screen.findByRole("heading", { name: "Root Session" })).toBeVisible()
-    expect(screen.getByRole("progressbar", { name: "多智能体进度" })).toBeVisible()
+    expect(screen.getByRole("progressbar", { name: "方案进度" })).toBeVisible()
     expect(screen.getByRole("textbox", { name: "消息" })).toHaveValue("保留根草稿")
 
     await user.click(screen.getByRole("button", { name: /配置模型/ }))
@@ -429,7 +429,7 @@ describe("desktop GUI journey", () => {
         expect(screen.getByText("后端已连接")).toBeVisible()
         const after = backend.requests.filter((request) => request.path.endsWith("/agent-cluster")).length
         expect(after).toBe(beforeReconnect + 1)
-        expect(screen.getByRole("progressbar", { name: "多智能体进度" })).toBeVisible()
+        expect(screen.getByRole("progressbar", { name: "方案进度" })).toBeVisible()
       },
       { timeout: 4_000 },
     )

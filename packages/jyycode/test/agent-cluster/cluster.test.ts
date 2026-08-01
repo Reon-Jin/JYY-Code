@@ -4,7 +4,7 @@ import { Deferred, Effect, Layer } from "effect"
 import { AgentCluster } from "../../src/agent-cluster/cluster"
 import { BackgroundJob } from "../../src/background/job"
 import { ConfigAgentCluster } from "../../src/config/agent-cluster"
-import { ClusterPrimaryPrompt, runInstructions } from "../../src/agent-cluster/planner"
+import { ClusterPrimaryPrompt, runInstructions, singleAgentPlanInstructions } from "../../src/agent-cluster/planner"
 import { RoleSkillDefinitions } from "../../src/agent-cluster/role-skills"
 import { AgentClusterRuntime } from "../../src/agent-cluster/runtime"
 import { Session } from "../../src/session/session"
@@ -81,7 +81,7 @@ describe("AgentCluster.canUseAgentCluster", () => {
     parentID: undefined,
   } satisfies Pick<SessionInfo.Info, "title" | "agent" | "path" | "multiAgent" | "parentID">
 
-  test("respects config and excludes child and mail sessions", () => {
+  test("respects config and excludes child sessions", () => {
     expect(AgentCluster.canUseAgentCluster({ session: baseSession, config: { ...baseConfig, enabled: false } })).toBe(
       false,
     )
@@ -92,14 +92,33 @@ describe("AgentCluster.canUseAgentCluster", () => {
         requested: true,
       }),
     ).toBe(false)
-    expect(
-      AgentCluster.canUseAgentCluster({
-        session: { ...baseSession, title: "Email: welcome" },
-        config: baseConfig,
-        requested: true,
-      }),
-    ).toBe(false)
     expect(AgentCluster.canUseAgentCluster({ session: baseSession, config: baseConfig, requested: true })).toBe(true)
+  })
+})
+
+describe("AgentCluster.canUseSingleAgentPlan", () => {
+  const baseSession = {
+    title: "Help me write a function",
+    agent: "build" as const,
+    path: undefined,
+    parentID: undefined,
+  } satisfies Pick<SessionInfo.Info, "title" | "agent" | "path" | "parentID">
+
+  test("applies to native build root sessions only", () => {
+    expect(AgentCluster.canUseSingleAgentPlan({ session: baseSession, agent: "build" })).toBe(true)
+    expect(AgentCluster.canUseSingleAgentPlan({ session: baseSession, agent: "plan" })).toBe(false)
+    expect(AgentCluster.canUseSingleAgentPlan({ session: baseSession, noReply: true })).toBe(false)
+    expect(
+      AgentCluster.canUseSingleAgentPlan({ session: { ...baseSession, parentID: "ses_parent" as any } }),
+    ).toBe(false)
+  })
+
+  test("single-agent plan instructions require self-execution and plan_update", () => {
+    const text = singleAgentPlanInstructions({ sessionID: "ses_root" })
+    expect(text).toContain("execution_mode: single-agent")
+    expect(text).toContain("plan_update")
+    expect(text).toContain("SELF-EXECUTION")
+    expect(text).toContain("agent_cluster_review) is unavailable")
   })
 })
 
@@ -309,6 +328,41 @@ describe("AgentCluster session task graph", () => {
         status: "planned",
       })
       expect(state.tasks.find((item) => item.id === "remove-me")).toMatchObject({ status: "cancelled" })
+    }),
+  )
+
+  it.instance("updates single-agent plan task statuses through plan_update", () =>
+    Effect.gen(function* () {
+      const chat = yield* (yield* Session.Service).create({ title: "Single-agent plan status" })
+      yield* AgentCluster.persistPlan({
+        sessionID: chat.id,
+        plan: {
+          goal: "Write docs",
+          tasks: [
+            {
+              id: "write-docs" as any,
+              step: 1,
+              title: "Write docs",
+              role: "writer",
+              complexity: "simple",
+              model: "test/simple",
+              dependencies: [],
+              prompt: "Write the docs",
+              acceptanceCriteria: ["docs exist"],
+              expectedArtifacts: ["docs.md"],
+            },
+          ],
+        },
+      })
+
+      yield* AgentCluster.updatePlanTaskStatus({ sessionID: chat.id, taskID: "write-docs", status: "running" })
+      let state = yield* AgentCluster.getSessionState(chat.id)
+      expect(state.tasks[0]).toMatchObject({ status: "running" })
+
+      yield* AgentCluster.updatePlanTaskStatus({ sessionID: chat.id, taskID: "write-docs", status: "completed" })
+      state = yield* AgentCluster.getSessionState(chat.id)
+      expect(state.tasks[0]).toMatchObject({ status: "completed" })
+      expect(yield* AgentCluster.sessionTaskStatus(chat.id)).toBe("completed")
     }),
   )
 

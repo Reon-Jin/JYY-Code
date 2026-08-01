@@ -487,12 +487,6 @@ function AssistantTool(props: { part: SessionMessageAssistantTool; sessionID: st
       <Match when={props.part.name === "edit"}>
         <Edit {...toolprops} />
       </Match>
-      <Match when={props.part.name === "apply_patch"}>
-        <ApplyPatch {...toolprops} />
-      </Match>
-      <Match when={props.part.name === "todowrite"}>
-        <TodoWrite {...toolprops} />
-      </Match>
       <Match when={props.part.name === "question"}>
         <Question {...toolprops} />
       </Match>
@@ -889,97 +883,7 @@ function Edit(props: ToolProps) {
       </Match>
       <Match when={true}>
         <InlineTool icon="←" pending="Preparing edit..." complete={filePath()} part={props.part}>
-          Edit {normalizePath(filePath())} {input({ replaceAll: props.input.replaceAll })}
-        </InlineTool>
-      </Match>
-    </Switch>
-  )
-}
-
-function ApplyPatch(props: ToolProps) {
-  const { theme, syntax } = useTheme()
-  const dimensions = useTerminalDimensions()
-  const files = createMemo(() => arrayValue(props.metadata.files).flatMap((item) => (isRecord(item) ? [item] : [])))
-  const fileTitle = (file: Record<string, unknown>) => {
-    const type = stringValue(file.type)
-    const relativePath = stringValue(file.relativePath) ?? stringValue(file.filePath) ?? "patch"
-    if (type === "delete") return "# Deleted " + relativePath
-    if (type === "add") return "# Created " + relativePath
-    if (type === "move") return "# Moved " + normalizePath(stringValue(file.filePath)) + " → " + relativePath
-    return "← Patched " + relativePath
-  }
-  return (
-    <Switch>
-      <Match when={files().length > 0}>
-        <For each={files()}>
-          {(file) => (
-            <BlockTool title={fileTitle(file)} part={props.part}>
-              <Show
-                when={stringValue(file.patch)}
-                fallback={
-                  <text fg={theme.diffRemoved}>
-                    -{numberValue(file.deletions) ?? 0} line{numberValue(file.deletions) === 1 ? "" : "s"}
-                  </text>
-                }
-              >
-                {(patch) => (
-                  <box paddingLeft={1}>
-                    <diff
-                      diff={patch()}
-                      view={dimensions().width > 120 ? "split" : "unified"}
-                      filetype={filetype(stringValue(file.filePath) ?? stringValue(file.relativePath))}
-                      syntaxStyle={syntax()}
-                      showLineNumbers={true}
-                      width="100%"
-                      wrapMode="word"
-                      fg={theme.text}
-                      addedBg={theme.diffAddedBg}
-                      removedBg={theme.diffRemovedBg}
-                      contextBg={theme.diffContextBg}
-                      addedSignColor={theme.diffHighlightAdded}
-                      removedSignColor={theme.diffHighlightRemoved}
-                      lineNumberFg={theme.diffLineNumber}
-                      lineNumberBg={theme.diffContextBg}
-                      addedLineNumberBg={theme.diffAddedLineNumberBg}
-                      removedLineNumberBg={theme.diffRemovedLineNumberBg}
-                    />
-                  </box>
-                )}
-              </Show>
-            </BlockTool>
-          )}
-        </For>
-      </Match>
-      <Match when={true}>
-        <InlineTool icon="%" pending="Preparing patch..." complete={false} part={props.part}>
-          Patch
-        </InlineTool>
-      </Match>
-    </Switch>
-  )
-}
-
-function TodoWrite(props: ToolProps) {
-  const { theme } = useTheme()
-  const todos = createMemo(() => arrayValue(props.input.todos).flatMap((item) => (isRecord(item) ? [item] : [])))
-  return (
-    <Switch>
-      <Match when={todos().length > 0 && props.part.state.status === "completed"}>
-        <BlockTool title="# Todos" part={props.part}>
-          <box>
-            <For each={todos()}>
-              {(todo) => (
-                <text fg={theme.text}>
-                  {todoIcon(stringValue(todo.status))} {stringValue(todo.content)}
-                </text>
-              )}
-            </For>
-          </box>
-        </BlockTool>
-      </Match>
-      <Match when={true}>
-        <InlineTool icon="⚙" pending="Updating todos..." complete={false} part={props.part}>
-          Updating todos...
+          Edit {normalizePath(filePath())} {input({ edits: arrayValue(props.input.edits).length })}
         </InlineTool>
       </Match>
     </Switch>
@@ -1129,13 +1033,6 @@ function filetype(input?: string) {
   const language = LANGUAGE_EXTENSIONS[path.extname(input)]
   if (["typescriptreact", "javascriptreact", "javascript"].includes(language)) return "typescript"
   return language
-}
-
-function todoIcon(status?: string) {
-  if (status === "completed") return "✓"
-  if (status === "in_progress") return "~"
-  if (status === "cancelled") return "✕"
-  return "☐"
 }
 
 function formatAnswer(answer: unknown) {

@@ -28,6 +28,7 @@ export const TaskStatus = Schema.Literals([
   "submitted",
   "reviewing",
   "accepted",
+  "completed",
   "revision_requested",
   "revising",
   "failed",

@@ -41,7 +41,7 @@ const toolLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
   )
 
 const it = testEffect(toolLayer())
-const scout = testEffect(toolLayer({ experimentalScout: true }))
+const gitRefs = testEffect(toolLayer({ experimentalScout: true }))
 
 const ctx = {
   sessionID: SessionID.make("ses_test"),
@@ -213,7 +213,7 @@ describe("tool.grep", () => {
     }),
   )
 
-  scout.instance(
+  gitRefs.instance(
     "does not ask for external_directory permission inside configured git references",
     () =>
       Effect.gen(function* () {

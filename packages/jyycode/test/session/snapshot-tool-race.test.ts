@@ -2,7 +2,7 @@
  * Reproducer for snapshot race condition with instant tool execution.
  *
  * When the mock LLM returns a tool call response instantly, the AI SDK
- * processes the tool call and executes the tool (e.g. apply_patch) before
+ * processes the tool call and executes the tool (e.g. edit) before
  * the processor's start-step handler can capture a pre-tool snapshot.
  * Both the "before" and "after" snapshots end up with the same git tree
  * hash, so computeDiff returns empty and the session summary shows 0 files.

@@ -3,7 +3,6 @@ import type { InternalTuiPlugin } from "../../plugin/internal"
 import { createMemo, For, Show } from "solid-js"
 import { Locale } from "@/util/locale"
 import { agentClusterSnapshot, type AgentClusterTaskStatus } from "../../routes/session/agent-cluster-state"
-import { MailSession } from "@/communication/mail-session"
 import { ProgressBar } from "../../component/progress-bar"
 
 const id = "internal:sidebar-multi-agent"
@@ -28,10 +27,7 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   const disabled = createMemo(() => {
     const current = session()
     if (!current) return false
-    if (current.parentID) return true
-    if (MailSession.isMailSessionTitle(current.title)) return true
-    if (current.agent === "mail") return true
-    return current.path === "mail"
+    return Boolean(current.parentID)
   })
   const enabled = createMemo(
     () => !disabled() && (session()?.multiAgent ?? props.api.state.config.agent_cluster?.default_on) === true,

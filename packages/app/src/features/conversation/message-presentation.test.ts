@@ -12,13 +12,10 @@ describe("presentMessageText", () => {
     ).toEqual({ kind: "hidden" })
   })
 
-  it("classifies only valid cluster plan JSON", () => {
+  it("classifies valid plan JSON for both single-agent and multi-agent", () => {
     const plan = '准备计划\n```json\n{"goal":"Ship","tasks":[]}\n```'
     expect(presentMessageText({ part: { text: plan }, role: "assistant", agent: "cluster" })).toEqual({ kind: "plan" })
-    expect(presentMessageText({ part: { text: plan }, role: "assistant", agent: "build" })).toEqual({
-      kind: "text",
-      text: plan,
-    })
+    expect(presentMessageText({ part: { text: plan }, role: "assistant", agent: "build" })).toEqual({ kind: "plan" })
     expect(
       presentMessageText({ part: { text: '```json\n{"goal":"Ship"}\n```' }, role: "assistant", agent: "cluster" }),
     ).toEqual({ kind: "text", text: '```json\n{"goal":"Ship"}\n```' })

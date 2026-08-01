@@ -9,7 +9,7 @@ import { Plugin } from "@/plugin"
 import { Config } from "@/config/config"
 import { Truncate } from "@/tool/truncate"
 import { Tool } from "@/tool/tool"
-import { KillProcessTool, ProcessOutputTool, ProcessStartTool } from "@/tool/process"
+import { ProcessTool } from "@/tool/process"
 import { MessageID, SessionID } from "@/session/schema"
 import { Permission } from "@/permission"
 import { disposeAllInstances, TestInstance, provideInstance } from "../fixture/fixture"
@@ -112,39 +112,17 @@ const layer = Layer.mergeAll(
 
 const it = testEffect(layer)
 
-const startTool = Effect.fn("ProcessToolTest.startTool")(function* () {
-  const info = yield* ProcessStartTool
+const processTool = Effect.fn("ProcessToolTest.processTool")(function* () {
+  const info = yield* ProcessTool
   return yield* info.init()
 })
 
-const outputTool = Effect.fn("ProcessToolTest.outputTool")(function* () {
-  const info = yield* ProcessOutputTool
-  return yield* info.init()
-})
-
-const killTool = Effect.fn("ProcessToolTest.killTool")(function* () {
-  const info = yield* KillProcessTool
-  return yield* info.init()
-})
-
-const runStart = Effect.fn("ProcessToolTest.runStart")(function* (
-  args: Tool.InferParameters<typeof ProcessStartTool>,
+const run = Effect.fn("ProcessToolTest.run")(function* (
+  args: Tool.InferParameters<typeof ProcessTool>,
   next: Tool.Context = ctx,
 ) {
-  const tool = yield* startTool()
+  const tool = yield* processTool()
   return yield* tool.execute(args, next)
-})
-
-const runOutput = Effect.fn("ProcessToolTest.runOutput")(function* (
-  args: Tool.InferParameters<typeof ProcessOutputTool>,
-) {
-  const tool = yield* outputTool()
-  return yield* tool.execute(args, ctx)
-})
-
-const runKill = Effect.fn("ProcessToolTest.runKill")(function* (args: Tool.InferParameters<typeof KillProcessTool>) {
-  const tool = yield* killTool()
-  return yield* tool.execute(args, ctx)
 })
 
 const asks = () => {
@@ -167,7 +145,8 @@ describe("tool.process", () => {
     () =>
       Effect.gen(function* () {
         const test = yield* TestInstance
-        const started = yield* runStart({
+        const started = yield* run({
+          action: "start",
           command: "node --version",
           workdir: test.directory,
           description: "Run test background process",
@@ -177,11 +156,11 @@ describe("tool.process", () => {
         expect(id.startsWith("proc_")).toBe(true)
         expect(started.output).toContain("Started background process")
 
-        const output = yield* runOutput({ id })
+        const output = yield* run({ action: "output", id })
         expect(output.output).toContain("ready")
         expect(output.metadata.status).toBe("running")
 
-        const killed = yield* runKill({ id, forceAfterMs: 100 })
+        const killed = yield* run({ action: "kill", id, forceAfterMs: 100 })
         expect(killed.metadata.status).toBe("cancelled")
       }),
     20_000,
@@ -193,8 +172,9 @@ describe("tool.process", () => {
       Effect.gen(function* () {
         const test = yield* TestInstance
         const { items, next } = asks()
-        const started = yield* runStart(
+        const started = yield* run(
           {
+            action: "start",
             command: "node --version",
             workdir: test.directory,
             description: "Run permission process",
@@ -211,7 +191,7 @@ describe("tool.process", () => {
 
   it.instance("reports missing process ids", () =>
     Effect.gen(function* () {
-      const result = yield* provideInstance(path.resolve("."))(runOutput({ id: "proc_missing" }))
+      const result = yield* provideInstance(path.resolve("."))(run({ action: "output", id: "proc_missing" }))
 
       expect(result.metadata.status).toBe("missing")
       expect(result.output).toContain("No background process found")

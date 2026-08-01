@@ -62,6 +62,7 @@ const taskStatusPresentation: Record<
   reviewing: { tone: "review", labelKey: "multi-agent.task-status-reviewing" },
   revision_requested: { tone: "review", labelKey: "multi-agent.task-status-revision-requested" },
   accepted: { tone: "done", labelKey: "multi-agent.task-status-accepted" },
+  completed: { tone: "done", labelKey: "multi-agent.task-status-completed" },
   failed: { tone: "failed", labelKey: "multi-agent.task-status-failed" },
   cancelled: { tone: "failed", labelKey: "multi-agent.task-status-cancelled" },
   interrupted: { tone: "interrupted", labelKey: "multi-agent.task-status-interrupted" },

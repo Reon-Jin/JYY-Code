@@ -2,7 +2,6 @@ import type { TuiPlugin, TuiPluginApi } from "@jyycode-ai/plugin/tui"
 import type { InternalTuiPlugin } from "../../plugin/internal"
 import { createMemo, Match, Show, Switch } from "solid-js"
 import { Global } from "@jyycode-ai/core/global"
-import { EmailStatsText } from "../../component/email-stats"
 
 const id = "internal:home-footer"
 
@@ -69,10 +68,6 @@ function View(props: { api: TuiPluginApi }) {
       gap={2}
     >
       <Directory api={props.api} />
-      <EmailStatsText
-        directory={() => props.api.state.path.directory || process.cwd()}
-        theme={() => props.api.theme.current}
-      />
       <Mcp api={props.api} />
       <box flexGrow={1} />
       <Version api={props.api} />

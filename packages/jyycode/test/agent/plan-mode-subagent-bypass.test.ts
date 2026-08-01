@@ -52,7 +52,7 @@ it.instance("[#26514] subagent spawned from plan mode inherits read-only restric
     expect(planAgent).toBeDefined()
     expect(generalAgent).toBeDefined()
     // Sanity: the plan agent itself blocks edit. (Note: `write` and
-    // `apply_patch` route through the `edit` permission at the runtime
+    // `edit` route through the `edit` permission at the runtime
     // tool layer — see Permission.disabled / EDIT_TOOLS.)
     expect(Permission.evaluate("edit", "/some/file.ts", planAgent!.permission).action).toBe("deny")
 
@@ -183,9 +183,7 @@ it.effect("[#26700] controller self-restrictions do not erase executor permissio
     expect(Permission.evaluate("bash", "git status", effective).action).toBe("allow")
     expect(Permission.evaluate("task", "worker", effective).action).toBe("allow")
     expect(Permission.evaluate("task", "other", effective).action).toBe("deny")
-    expect(Permission.disabled(["edit", "write", "apply_patch"], effective)).toEqual(
-      new Set(["edit", "write", "apply_patch"]),
-    )
+    expect(Permission.disabled(["edit", "write"], effective)).toEqual(new Set(["edit", "write"]))
   }),
 )
 

@@ -1,16 +1,15 @@
 import { tr } from "../../i18n/i18n-context"
-import { FileDiff, ListTodo, Network } from "lucide-solid"
+import { FileDiff, ListTodo } from "lucide-solid"
 import { For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { IconButton } from "../../components/ui/button"
 import { ChangesPanel } from "../changes/changes-panel"
-import { TodoPanel } from "../todos/todo-panel"
+import { PlanPanel } from "../plan/plan-panel"
 import { normalizeInspectorRatios, type InspectorPane, type InspectorPreferences } from "./inspector-preferences"
 import "./workspace-inspector.css"
 
 function paneLabel(pane: InspectorPane) {
   const labels: Record<InspectorPane, string> = {
-    todo: tr("workspace-inspector.to-do"),
-    "multi-agent": tr("multi-agent.multi-agent"),
+    plan: tr("workspace-inspector.plan"),
     changes: tr("changes.workspace-changes"),
   }
   return labels[pane]
@@ -28,11 +27,9 @@ function clampWidth(width: number) {
 export type WorkspaceInspectorViewProps = {
   preferences: InspectorPreferences
   onPreferencesChange: (preferences: InspectorPreferences) => void
-  todo: JSX.Element
-  multiAgent: JSX.Element
+  plan: JSX.Element
   changes: JSX.Element
-  todoBadge?: JSX.Element
-  multiAgentBadge?: JSX.Element
+  planBadge?: JSX.Element
   changesBadge?: JSX.Element
 }
 
@@ -55,8 +52,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
   }
 
   const panel = (pane: InspectorPane) => {
-    if (pane === "todo") return props.todo
-    if (pane === "multi-agent") return props.multiAgent
+    if (pane === "plan") return props.plan
     return props.changes
   }
 
@@ -208,8 +204,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
         </div>
       </Show>
       <nav class="workspace-activity-rail" aria-label={tr("workspace-inspector.taskbar-page")}>
-        <ActivityButton pane="todo" icon={<ListTodo aria-hidden="true" />} badge={props.todoBadge} />
-        <ActivityButton pane="multi-agent" icon={<Network aria-hidden="true" />} badge={props.multiAgentBadge} />
+        <ActivityButton pane="plan" icon={<ListTodo aria-hidden="true" />} badge={props.planBadge} />
         <ActivityButton pane="changes" icon={<FileDiff aria-hidden="true" />} badge={props.changesBadge} />
       </nav>
     </>
@@ -221,24 +216,25 @@ export function WorkspaceInspector(props: {
   sessionID?: string
   preferences: InspectorPreferences
   onPreferencesChange: (preferences: InspectorPreferences) => void
-  multiAgent?: JSX.Element
-  multiAgentBadge?: JSX.Element
+  plan?: JSX.Element
+  planBadge?: JSX.Element
 }) {
   return (
     <WorkspaceInspectorView
       preferences={props.preferences}
       onPreferencesChange={props.onPreferencesChange}
-      todo={<TodoPanel directory={props.directory} sessionID={props.sessionID} />}
-      multiAgent={
-        props.multiAgent ?? (
-          <section class="workspace-drawer__placeholder" aria-labelledby="multi-agent-placeholder-title">
-            <h2 id="multi-agent-placeholder-title">{tr("multi-agent.multi-agent")}</h2>
-            <p>{tr("workspace-inspector.after-selecting-a-session-you-can-view-the")}</p>
-          </section>
+      plan={
+        props.plan ?? (
+          <PlanPanel
+            directory={props.directory}
+            sessionID={props.sessionID}
+            rootSessionID={props.sessionID}
+            onOpenChild={() => undefined}
+          />
         )
       }
       changes={<ChangesPanel directory={props.directory} />}
-      multiAgentBadge={props.multiAgentBadge}
+      planBadge={props.planBadge}
     />
   )
 }

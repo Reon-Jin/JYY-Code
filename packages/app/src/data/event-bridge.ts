@@ -239,6 +239,7 @@ const taskStatuses = new Set([
   "submitted",
   "reviewing",
   "accepted",
+  "completed",
   "revision_requested",
   "revising",
   "failed",

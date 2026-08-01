@@ -1,7 +1,6 @@
 export * as AgentCluster from "./cluster"
 
 import { ConfigAgentCluster } from "@/config/agent-cluster"
-import { MailSession } from "@/communication/mail-session"
 import { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import type { Session } from "@/session/session"
@@ -18,7 +17,7 @@ import path from "path"
 import { ulid } from "ulid"
 import { AgentClusterEventTable, AgentClusterTaskTable } from "./cluster.sql"
 import { Event } from "./event"
-import { runInstructions } from "./planner"
+import { runInstructions, singleAgentPlanInstructions } from "./planner"
 import { buildTaskBrief, modelForComplexity } from "./dispatcher"
 import { stepGate } from "./runtime"
 import type { Plan, PlannedTask, TaskID, TaskStatus } from "./schema"
@@ -71,10 +70,10 @@ function sameTaskPlan(row: TaskRow, task: PlannedTask) {
 }
 
 export function incrementalPlan(plan: Plan, history: readonly TaskRow[]): Plan {
-  const accepted = history.filter((task) => task.status === "accepted")
+  const terminal = history.filter((task) => task.status === "accepted" || task.status === "completed")
   const completed = new Set(
     plan.tasks
-      .filter((task) => accepted.some((row) => row.id === task.id && sameTaskPlan(row, task)))
+      .filter((task) => terminal.some((row) => row.id === task.id && sameTaskPlan(row, task)))
       .map((task) => task.id),
   )
   const remaining = plan.tasks.filter((task) => !completed.has(task.id))
@@ -139,12 +138,6 @@ const publishTaskState = Effect.fn("AgentCluster.publishTaskState")(function* (i
   })
 })
 
-export function isMailSession(session: Pick<Session.Info, "title" | "agent" | "path">) {
-  if (MailSession.isMailSessionTitle(session.title)) return true
-  if (session.agent === "mail") return true
-  return session.path === "mail"
-}
-
 export function canUseAgentCluster(input: {
   session: Pick<Session.Info, "title" | "agent" | "path" | "multiAgent" | "parentID">
   config: ConfigAgentCluster.Info | undefined
@@ -152,9 +145,24 @@ export function canUseAgentCluster(input: {
 }) {
   const config = ConfigAgentCluster.resolve(input.config)
   if (config.enabled !== true) return false
-  if (isMailSession(input.session)) return false
   if (input.session.parentID) return false
   return (input.requested ?? input.session.multiAgent ?? config.default_on) === true
+}
+
+/**
+ * Single-agent plan mode uses the same durable plan task graph as cluster
+ * mode, but the main agent executes every task itself. It applies to native
+ * root "build" sessions only; subagents and plan-mode sessions keep
+ * their existing behavior.
+ */
+export function canUseSingleAgentPlan(input: {
+  session: Pick<Session.Info, "title" | "agent" | "path" | "parentID">
+  agent?: string
+  noReply?: boolean
+}) {
+  if (input.noReply === true) return false
+  if (input.session.parentID) return false
+  return (input.agent ?? input.session.agent) === "build"
 }
 
 export const resolveModelRef = Effect.fn("AgentCluster.resolveModelRef")(function* (model: string, variant?: string) {
@@ -271,6 +279,45 @@ export function decoratePromptInput(input: {
         }),
         metadata: {
           kind: "agent_cluster",
+          sessionID: input.sessionID,
+        },
+      },
+    ],
+  }
+}
+
+export function decorateSinglePlanPromptInput(input: {
+  prompt: PromptInput
+  sessionID: SessionID
+  taskGraph?: readonly {
+    id: string
+    step: number
+    status: string
+    title: string
+    role: string
+    prompt: string
+    complexity: string
+    model: string
+    dependencies: readonly string[]
+    acceptance_criteria: readonly string[]
+    artifact_paths: readonly string[]
+    review_issues: readonly string[]
+    last_event: string | null
+  }[]
+}): PromptInput {
+  return {
+    ...input.prompt,
+    parts: [
+      ...input.prompt.parts,
+      {
+        type: "text" as const,
+        synthetic: true,
+        text: singleAgentPlanInstructions({
+          sessionID: input.sessionID,
+          taskGraph: input.taskGraph,
+        }),
+        metadata: {
+          kind: "agent_plan",
           sessionID: input.sessionID,
         },
       },
@@ -469,6 +516,64 @@ export const markTaskRunning = Effect.fn("AgentCluster.markTaskRunning")(functio
   yield* publishTaskState({ sessionID, taskID: input.taskID as TaskID })
 })
 
+/**
+ * Single-agent plan execution updates task statuses directly through
+ * plan_update. Only non-terminal transitions are allowed so the durable plan
+ * stays consistent with the multi-agent state machine.
+ */
+export const updatePlanTaskStatus = Effect.fn("AgentCluster.updatePlanTaskStatus")(function* (input: {
+  sessionID: SessionID
+  taskID: string
+  status: Extract<TaskStatus, "running" | "completed" | "cancelled" | "failed">
+  note?: string
+}) {
+  const task = (yield* Database.query((db) =>
+    db
+      .select()
+      .from(AgentClusterTaskTable)
+      .where(
+        and(eq(AgentClusterTaskTable.session_id, input.sessionID), eq(AgentClusterTaskTable.id, input.taskID as TaskID)),
+      )
+      .get(),
+  )) as TaskRow | undefined
+  if (!task) {
+    return yield* Effect.fail(
+      new Error(`Plan task ${input.taskID} does not exist in session ${input.sessionID}.`),
+    )
+  }
+  if (task.status === input.status) return
+  const allowed: Record<typeof input.status, readonly TaskStatus[]> = {
+    running: ["planned", "queued"],
+    completed: ["planned", "queued", "running"],
+    cancelled: ["planned", "queued", "running"],
+    failed: ["planned", "queued", "running"],
+  }
+  if (!allowed[input.status].includes(task.status)) {
+    return yield* Effect.fail(
+      new Error(`Plan task ${input.taskID} cannot transition from ${task.status} to ${input.status}.`),
+    )
+  }
+  yield* Database.query((db) =>
+    db
+      .update(AgentClusterTaskTable)
+      .set({
+        status: input.status,
+        ...(input.note ? { review_issues: [...task.review_issues, input.note] } : {}),
+        last_event: input.status,
+        time_updated: Date.now(),
+      })
+      .where(
+        and(eq(AgentClusterTaskTable.session_id, input.sessionID), eq(AgentClusterTaskTable.id, input.taskID as TaskID)),
+      )
+      .run(),
+  )
+  yield* publishTaskState({
+    sessionID: input.sessionID,
+    taskID: input.taskID as TaskID,
+    message: `task ${input.taskID}: ${input.status}`,
+  })
+})
+
 export const submitTaskResult = Effect.fn("AgentCluster.submitTaskResult")(function* (input: {
   sessionID?: SessionID
   taskID?: string
@@ -639,7 +744,7 @@ export const sessionTaskStatus = Effect.fn("AgentCluster.sessionTaskStatus")(fun
     (task) => task.status === "failed" || task.status === "cancelled" || task.status === "interrupted",
   )
     ? "failed"
-    : tasks.length > 0 && tasks.every((task) => task.status === "accepted")
+    : tasks.length > 0 && tasks.every((task) => task.status === "accepted" || task.status === "completed")
       ? "completed"
       : "open"
 

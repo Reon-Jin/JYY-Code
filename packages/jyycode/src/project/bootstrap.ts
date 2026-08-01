@@ -13,7 +13,6 @@ import { Effect, Layer } from "effect"
 import { Config } from "@/config/config"
 import { Service } from "./bootstrap-service"
 import { Reference } from "@/reference/reference"
-import { MailMonitor } from "@/communication/mail-monitor"
 
 export { Service } from "./bootstrap-service"
 export type { Interface } from "./bootstrap-service"
@@ -35,7 +34,6 @@ export const layer = Layer.effect(
     const shareNext = yield* ShareNext.Service
     const snapshot = yield* Snapshot.Service
     const vcs = yield* Vcs.Service
-    const mail = yield* MailMonitor.Service
 
     const run = Effect.gen(function* () {
       const ctx = yield* InstanceState.context
@@ -51,7 +49,6 @@ export const layer = Layer.effect(
         (s) => s.init().pipe(Effect.catchCause((cause) => Effect.logWarning("init failed", { cause }))),
         { concurrency: "unbounded", discard: true },
       ).pipe(Effect.withSpan("InstanceBootstrap.init"))
-      yield* mail.init().pipe(Effect.catchCause((cause) => Effect.logWarning("mail monitor init failed", { cause })))
     }).pipe(Effect.withSpan("InstanceBootstrap"))
 
     return Service.of({ run })
@@ -69,7 +66,6 @@ export const defaultLayer: Layer.Layer<Service> = layer.pipe(
     Plugin.defaultLayer,
     Project.defaultLayer,
     Reference.defaultLayer,
-    MailMonitor.defaultLayer,
     ShareNext.defaultLayer,
     Snapshot.defaultLayer,
     Vcs.defaultLayer,

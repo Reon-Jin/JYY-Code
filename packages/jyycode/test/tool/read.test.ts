@@ -56,7 +56,7 @@ const readLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
   )
 
 const it = testEffect(readLayer())
-const scout = testEffect(readLayer({ experimentalScout: true }))
+const gitRefs = testEffect(readLayer({ experimentalScout: true }))
 
 const init = Effect.fn("ReadToolTest.init")(function* () {
   const info = yield* ReadTool
@@ -257,7 +257,7 @@ describe("tool.read external_directory permission", () => {
     }),
   )
 
-  scout.live("does not ask for external_directory permission when reading configured references", () =>
+  gitRefs.live("does not ask for external_directory permission when reading configured references", () =>
     Effect.gen(function* () {
       const fs = yield* AppFileSystem.Service
       const cache = path.join(Global.Path.repos, "github.com", "jyycode-read-reference", "repo")

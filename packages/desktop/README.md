@@ -42,14 +42,16 @@ starting the backend so apps launched from Finder can still discover Git, langua
 Tauri validates configured external binaries during its Cargo build script, so a clean checkout must stage the sidecar
 before running `cargo test`.
 
-## Multi-Agent workflow
+## Plan workflow
 
 The Composer's Multi-Agent switch controls the current root Session. New Sessions inherit the global setting, which is
-off by default, until the user explicitly enables or disables it. Todo, Multi-Agent, and Changes share the permanent
-activity rail on the right; selecting an item opens its one on-demand drawer without replacing the conversation.
+off by default, until the user explicitly enables or disables it. Both single-agent and multi-agent sessions produce the
+same durable plan (goal, steps, tasks, and status); the only difference is that single-agent executes every task itself
+instead of dispatching subagents. Plan and Changes share the permanent activity rail on the right; selecting an item
+opens its one on-demand drawer without replacing the conversation.
 
-The Multi-Agent drawer shows the backend's current plan, progress, and task states. A task with a child Session can be
-opened in the main conversation, where the child keeps its assigned Agent and model but remains writable for direct
+The Plan drawer shows the backend's current plan, progress, and task states. A multi-agent task with a child Session can
+be opened in the main conversation, where the child keeps its assigned Agent and model but remains writable for direct
 guidance. The header returns to the root Session, which stays selected in the Session list while a child is open.
 
 The Composer model button configures four global roles: Main, Simple, Complex, and Visual & Documents. Main is used for

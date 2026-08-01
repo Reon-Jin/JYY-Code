@@ -80,14 +80,11 @@ import {
 import type { EventSource } from "./context/sdk"
 import { DialogVariant } from "./component/dialog-variant"
 import { Global } from "@jyycode-ai/core/global"
-import path from "path"
 
 const appBindingCommands = [
   "command.palette.show",
   "session.list",
   "session.new",
-  "session.email.view",
-  "session.email.back",
   "session.quick_switch.1",
   "session.quick_switch.2",
   "session.quick_switch.3",
@@ -339,20 +336,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
     },
     { priority: 1 },
   )
-  const offEmailSessionKeys = keymap.intercept(
-    "key",
-    ({ event }) => {
-      if (!event.ctrl) return
-      const command = event.name === "right" ? "session.email.view" : event.name === "left" ? "session.email.back" : ""
-      if (!command) return
-      keymap.dispatchCommand(command)
-      event.preventDefault()
-      event.stopPropagation()
-    },
-    { priority: 2 },
-  )
   onCleanup(() => {
-    offEmailSessionKeys()
     offSelectionKeys()
     attention.dispose()
   })
@@ -471,7 +455,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   )
 
   const connected = useConnected()
-  let previousEmailSessionID: string | undefined
   const currentWorktreeWorkspace = createMemo(() => {
     const workspaceID = project.workspace.current()
     if (!workspaceID) return
@@ -512,51 +495,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
           route.navigate({
             type: "home",
           })
-          dialog.clear()
-        },
-      },
-      {
-        name: "session.email.view",
-        title: "View email processing session",
-        category: "Session",
-        run: async () => {
-          const sessionID = await readEmailSessionID(sync.path.directory)
-          if (!sessionID) {
-            toast.show({
-              message: "No email processing session found",
-              variant: "warning",
-              duration: 3000,
-            })
-            dialog.clear()
-            return
-          }
-          if (route.data.type === "session" && route.data.sessionID !== sessionID) {
-            previousEmailSessionID = route.data.sessionID
-          }
-          route.navigate({
-            type: "session",
-            sessionID,
-          })
-          dialog.clear()
-        },
-      },
-      {
-        name: "session.email.back",
-        title: "Return from email processing session",
-        category: "Session",
-        run: () => {
-          if (!previousEmailSessionID) {
-            route.navigate({
-              type: "home",
-            })
-            dialog.clear()
-            return
-          }
-          route.navigate({
-            type: "session",
-            sessionID: previousEmailSessionID,
-          })
-          previousEmailSessionID = undefined
           dialog.clear()
         },
       },
@@ -1051,14 +989,4 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       <StartupLoading ready={ready} />
     </box>
   )
-}
-
-async function readEmailSessionID(_directory: string | undefined) {
-  const value = await Bun.file(path.join(Global.Path.data, "email-stats.json"))
-    .json()
-    .catch(() => undefined)
-  if (!value || typeof value !== "object" || Array.isArray(value)) return
-  const stats = value as Record<string, unknown>
-  if (typeof stats.activeSessionID === "string" && stats.activeSessionID) return stats.activeSessionID
-  if (typeof stats.emailSessionID === "string" && stats.emailSessionID) return stats.emailSessionID
 }

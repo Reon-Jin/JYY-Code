@@ -16,7 +16,6 @@ export type MultiAgentRoleAvatar =
   | "file"
   | "image"
   | "folder"
-  | "compass"
   | "shield"
   | "map"
 
@@ -83,11 +82,6 @@ export const multiAgentRoleCapabilities: Record<string, MultiAgentRoleCapability
     skills: ["cluster-codebase-exploration", "acquire-codebase-knowledge", "repo-story-time", "what-context-needed"],
     summary: "file map · symbol search · call graph",
   },
-  scout: {
-    skill: "cluster-external-source-scout",
-    skills: ["cluster-external-source-scout", "web-search", "llm-context", "answers", "source-driven-development"],
-    summary: "official docs · versions · dependency source",
-  },
 }
 
 const UNKNOWN_ROLE_CAPABILITY: MultiAgentRoleCapability = {
@@ -112,7 +106,6 @@ export function roleAvatar(role: string): MultiAgentRoleAvatar {
     pdf: "file",
     picture_searcher: "image",
     explore: "folder",
-    scout: "compass",
     reviewer: "shield",
     planner: "map",
   }

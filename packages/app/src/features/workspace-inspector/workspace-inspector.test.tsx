@@ -22,7 +22,7 @@ describe("workspace inspector preferences", () => {
     expect(defaultInspectorPreferences).toEqual({ panes: [], ratios: [], width: 420 })
   })
 
-  it.each(["todo", "multi-agent", "changes"] as const)("round-trips the %s pane per normalized project", (pane) => {
+  it.each(["plan", "changes"] as const)("round-trips the %s pane per normalized project", (pane) => {
     saveInspectorPreferences("C:/Work/Demo/", { panes: [pane], ratios: [1], width: 360 })
 
     expect(loadInspectorPreferences("c:\\work\\demo")).toEqual({ panes: [pane], ratios: [1], width: 360 })
@@ -37,21 +37,35 @@ describe("workspace inspector preferences", () => {
     expect(loadInspectorPreferences("C:\\partial")).toEqual({ panes: [], ratios: [], width: 420 })
   })
 
-  it("migrates the legacy open state to Todo and legacy closed state to no pane", () => {
+  it("migrates the legacy open state and panes to the unified Plan pane", () => {
     localStorage.setItem("jyycode:workspace-inspector:c:\\open", JSON.stringify({ open: true, todoRatio: 0.42 }))
     localStorage.setItem("jyycode:workspace-inspector:c:\\closed", JSON.stringify({ open: false, todoRatio: 0.8 }))
+    localStorage.setItem(
+      "jyycode:workspace-inspector:c:\\legacy",
+      JSON.stringify({ panes: ["todo", "multi-agent", "changes"], ratios: [1, 2], width: 500 }),
+    )
+    localStorage.setItem(
+      "jyycode:workspace-inspector:c:\\legacy-single",
+      JSON.stringify({ pane: "multi-agent", width: 360 }),
+    )
 
-    expect(loadInspectorPreferences("C:\\open")).toEqual({ panes: ["todo"], ratios: [1], width: 420 })
+    expect(loadInspectorPreferences("C:\\open")).toEqual({ panes: ["plan"], ratios: [1], width: 420 })
     expect(loadInspectorPreferences("C:\\closed")).toEqual({ panes: [], ratios: [], width: 420 })
+    expect(loadInspectorPreferences("C:\\legacy")).toEqual({
+      panes: ["plan", "changes"],
+      ratios: [1 / 3, 2 / 3],
+      width: 500,
+    })
+    expect(loadInspectorPreferences("C:\\legacy-single")).toEqual({ panes: ["plan"], ratios: [1], width: 360 })
   })
 
   it("normalizes ordered panes, ratios, and duplicate values", () => {
     localStorage.setItem(
       "jyycode:workspace-inspector:c:\\stack",
-      JSON.stringify({ panes: ["changes", "todo", "changes", "bad"], ratios: [2, 1], width: 500 }),
+      JSON.stringify({ panes: ["changes", "plan", "changes", "bad"], ratios: [2, 1], width: 500 }),
     )
     expect(loadInspectorPreferences("C:\\stack")).toEqual({
-      panes: ["changes", "todo"],
+      panes: ["changes", "plan"],
       ratios: [2 / 3, 1 / 3],
       width: 500,
     })
@@ -68,10 +82,9 @@ function InspectorHarness(props: { initial?: InspectorPane; badge?: string }) {
     <WorkspaceInspectorView
       preferences={preferences()}
       onPreferencesChange={setPreferences}
-      todo={<div>todo content</div>}
-      multiAgent={<div>cluster content</div>}
+      plan={<div>plan content</div>}
       changes={<div>changes content</div>}
-      multiAgentBadge={props.badge}
+      planBadge={props.badge}
     />
   )
 }
@@ -82,29 +95,27 @@ describe("WorkspaceInspectorView", () => {
     render(() => <InspectorHarness />)
 
     expect(screen.getByRole("navigation", { name: "工作栏页面" })).toBeVisible()
-    const todo = screen.getByRole("button", { name: "待办" })
-    const multiAgent = screen.getByRole("button", { name: "多智能体" })
+    const plan = screen.getByRole("button", { name: "方案" })
     const changes = screen.getByRole("button", { name: "工作区变更" })
-    expect(todo).toBeVisible()
-    expect(multiAgent).toBeVisible()
+    expect(plan).toBeVisible()
     expect(changes).toBeVisible()
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument()
 
-    await user.click(todo)
-    expect(todo).toHaveAttribute("aria-pressed", "true")
-    expect(screen.getByRole("group", { name: "待办" })).toHaveTextContent("todo content")
+    await user.click(plan)
+    expect(plan).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("group", { name: "方案" })).toHaveTextContent("plan content")
 
     await user.click(changes)
-    expect(screen.getByRole("group", { name: "待办" })).toHaveTextContent("todo content")
+    expect(screen.getByRole("group", { name: "方案" })).toHaveTextContent("plan content")
     expect(screen.getByRole("group", { name: "工作区变更" })).toHaveTextContent("changes content")
     const regions = screen.getAllByRole("group")
-    expect(regions[0]).toHaveAccessibleName("待办")
+    expect(regions[0]).toHaveAccessibleName("方案")
     expect(regions[1]).toHaveAccessibleName("工作区变更")
-    expect(screen.getByRole("separator", { name: "调整 待办 高度" })).toBeVisible()
+    expect(screen.getByRole("separator", { name: "调整 方案 高度" })).toBeVisible()
 
     await user.click(changes)
     expect(changes).toHaveAttribute("aria-pressed", "false")
-    expect(screen.getByRole("group", { name: "待办" })).toBeVisible()
+    expect(screen.getByRole("group", { name: "方案" })).toBeVisible()
   })
 
   it("closes an overlay drawer with Escape at narrow width", () => {
@@ -112,18 +123,18 @@ describe("WorkspaceInspectorView", () => {
       configurable: true,
       value: vi.fn(() => ({ matches: true }) as MediaQueryList),
     })
-    render(() => <InspectorHarness initial="multi-agent" />)
-    expect(screen.getByRole("group", { name: "多智能体" })).toBeVisible()
+    render(() => <InspectorHarness initial="plan" />)
+    expect(screen.getByRole("group", { name: "方案" })).toBeVisible()
 
     fireEvent.keyDown(window, { key: "Escape" })
 
-    expect(screen.queryByRole("group", { name: "多智能体" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("group", { name: "方案" })).not.toBeInTheDocument()
   })
 
   it("keeps badge text out of the icon button accessible name", () => {
     render(() => <InspectorHarness badge="3 running" />)
 
-    expect(screen.getByRole("button", { name: "多智能体" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "方案" })).toBeVisible()
     expect(screen.queryByRole("button", { name: /3 running/ })).not.toBeInTheDocument()
     expect(screen.getByText("3 running")).toHaveAttribute("aria-hidden", "true")
   })
@@ -131,7 +142,7 @@ describe("WorkspaceInspectorView", () => {
   it("supports keyboard resizing for the drawer width and stacked pane boundary", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1920 })
     const user = userEvent.setup()
-    const { container } = render(() => <InspectorHarness initial="todo" />)
+    const { container } = render(() => <InspectorHarness initial="plan" />)
     await user.click(screen.getByRole("button", { name: "工作区变更" }))
 
     const widthHandle = screen.getByRole("separator", { name: "调整工作栏宽度" })
@@ -141,7 +152,7 @@ describe("WorkspaceInspectorView", () => {
 
     const stack = container.querySelector<HTMLElement>(".workspace-drawer__stack")!
     expect(stack.style.gridTemplateRows).toContain("0.5fr")
-    fireEvent.keyDown(screen.getByRole("separator", { name: "调整 待办 高度" }), { key: "ArrowDown" })
+    fireEvent.keyDown(screen.getByRole("separator", { name: "调整 方案 高度" }), { key: "ArrowDown" })
     expect(stack.style.gridTemplateRows).toContain("0.55fr")
   })
 
@@ -151,10 +162,9 @@ describe("WorkspaceInspectorView", () => {
     const { container } = render(() => (
       <div class="workspace-shell">
         <WorkspaceInspectorView
-          preferences={{ panes: ["todo"], ratios: [1], width: 420 }}
+          preferences={{ panes: ["plan"], ratios: [1], width: 420 }}
           onPreferencesChange={onPreferencesChange}
-          todo={<div>todo content</div>}
-          multiAgent={<div>cluster content</div>}
+          plan={<div>plan content</div>}
           changes={<div>changes content</div>}
         />
       </div>
@@ -169,7 +179,7 @@ describe("WorkspaceInspectorView", () => {
 
     fireEvent.pointerUp(window, { clientX: 540 })
     expect(onPreferencesChange).toHaveBeenCalledOnce()
-    expect(onPreferencesChange).toHaveBeenCalledWith({ panes: ["todo"], ratios: [1], width: 480 })
+    expect(onPreferencesChange).toHaveBeenCalledWith({ panes: ["plan"], ratios: [1], width: 480 })
     expect(shell).not.toHaveAttribute("data-inspector-resizing")
   })
 })

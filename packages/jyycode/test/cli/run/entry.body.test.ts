@@ -159,40 +159,6 @@ describe("run entry body", () => {
         ],
       },
     },
-    {
-      name: "keeps completed apply_patch tool finals structured",
-      commit: toolCommit({
-        tool: "apply_patch",
-        state: {
-          status: "completed",
-          input: {},
-          output: "",
-          title: "",
-          metadata: {
-            files: [
-              {
-                type: "update",
-                filePath: "src/a.ts",
-                relativePath: "src/a.ts",
-                patch: "@@ -1 +1 @@\n-old\n+new\n",
-              },
-            ],
-          },
-          time: { start: 1, end: 2 },
-        },
-      }),
-      snapshot: {
-        kind: "diff",
-        items: [
-          {
-            title: "# Patched src/a.ts",
-            diff: "@@ -1 +1 @@\n-old\n+new\n",
-            file: "src/a.ts",
-            deletions: 0,
-          },
-        ],
-      },
-    },
   ] satisfies Array<{ name: string; commit: StreamCommit; snapshot: ToolSnapshot }>) {
     test(item.name, () => {
       expect(structured(item.commit)).toEqual(item.snapshot)
@@ -423,75 +389,6 @@ describe("run entry body", () => {
     ).toEqual({
       type: "text",
       content: "\n/tmp/demo",
-    })
-  })
-
-  test("falls back to patch summary when apply_patch has no visible diff items", () => {
-    expect(
-      entryBody(
-        toolCommit({
-          tool: "apply_patch",
-          state: {
-            status: "completed",
-            input: {
-              patchText: "*** Begin Patch\n*** End Patch",
-            },
-            output: "",
-            title: "",
-            metadata: {
-              files: [
-                {
-                  type: "update",
-                  filePath: "src/a.ts",
-                  relativePath: "src/a.ts",
-                  diff: "@@ -1 +1 @@\n-old\n+new\n",
-                },
-              ],
-            },
-            time: { start: 1, end: 2 },
-          },
-        }),
-      ),
-    ).toEqual({
-      type: "text",
-      content: "~ Patched src/a.ts",
-    })
-  })
-
-  test("suppresses redundant patched rows when apply_patch also created a file", () => {
-    expect(
-      entryBody(
-        toolCommit({
-          tool: "apply_patch",
-          state: {
-            status: "completed",
-            input: {
-              patchText: "*** Begin Patch\n*** End Patch",
-            },
-            output: "",
-            title: "",
-            metadata: {
-              files: [
-                {
-                  type: "update",
-                  filePath: "src/a.ts",
-                  relativePath: "src/a.ts",
-                  diff: "@@ -1 +1 @@\n-old\n+new\n",
-                },
-                {
-                  type: "add",
-                  filePath: "README-demo.md",
-                  relativePath: "README-demo.md",
-                },
-              ],
-            },
-            time: { start: 1, end: 2 },
-          },
-        }),
-      ),
-    ).toEqual({
-      type: "text",
-      content: "+ Created README-demo.md",
     })
   })
 

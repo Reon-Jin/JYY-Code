@@ -1,3 +1,0 @@
-Review a submitted Multi-Agent cluster task with structured evidence.
-
-Only the cluster primary agent may use this tool. It records accepted, revision_requested, or failed decisions for a planned cluster task and enforces the runtime review state machine.

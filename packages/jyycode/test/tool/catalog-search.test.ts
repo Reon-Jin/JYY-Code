@@ -64,8 +64,8 @@ describe("CatalogSearch", () => {
           catalog: { category: "web", mutability: "external" },
         }),
         tool({
-          id: "apply_patch",
-          description: "Apply changes to files",
+          id: "write",
+          description: "Write content to files",
           catalog: { category: "filesystem", mutability: "write", tags: ["edit", "file"] },
         }),
         tool({
@@ -76,7 +76,7 @@ describe("CatalogSearch", () => {
       ],
     })
 
-    expect(results.slice(0, 2).map((item) => item.tool.id)).toEqual(["edit", "apply_patch"])
+    expect(results.slice(0, 2).map((item) => item.tool.id)).toEqual(["edit", "write"])
   })
 
   it("clamps limits to the supported range", () => {
@@ -165,18 +165,13 @@ describe("CatalogSearch", () => {
   it("keeps deterministic tool search eval fixtures meaningful", () => {
     const evalTools = [
       tool({
-        id: "apply_patch",
-        description: "Apply a patch to change one or more files",
+        id: "write",
+        description: "Write content to one or more files",
         catalog: { category: "filesystem", mutability: "write", tags: ["change", "edit", "file"] },
       }),
       tool({
         id: "edit",
         description: "Edit one existing file",
-        catalog: { category: "filesystem", mutability: "write", tags: ["change", "file"] },
-      }),
-      tool({
-        id: "write",
-        description: "Write content to a file",
         catalog: { category: "filesystem", mutability: "write", tags: ["change", "file"] },
       }),
       tool({
@@ -188,11 +183,6 @@ describe("CatalogSearch", () => {
         id: "grep",
         description: "Search file contents for matching text",
         catalog: { category: "code-search", mutability: "read", tags: ["find", "symbol"] },
-      }),
-      tool({
-        id: "send_file",
-        description: "Send a file to a user",
-        catalog: { category: "communication", mutability: "external", tags: ["send", "file", "user"] },
       }),
       tool({
         id: "mcp_call",

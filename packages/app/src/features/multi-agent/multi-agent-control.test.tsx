@@ -92,7 +92,6 @@ describe("MultiAgentControl", () => {
 
   it.each([
     [{ ...session, parentID: "ses_parent" }, { enabled: true }, "子智能体不支持启动多智能体"],
-    [{ ...session, title: "Email: Process inbox" }, { enabled: true }, "邮件会话不支持多智能体"],
     [session, { enabled: false }, "多智能体已在全局配置中禁用"],
   ] as const)("disables unsupported Session modes with a reason", (value, config, reason) => {
     renderControl({ session: value, config })

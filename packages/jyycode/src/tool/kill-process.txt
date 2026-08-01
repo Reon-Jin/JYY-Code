@@ -1,3 +1,0 @@
-Stop a background process started with process_start.
-
-Use this when a dev server, watcher, or other long-running process is no longer needed.

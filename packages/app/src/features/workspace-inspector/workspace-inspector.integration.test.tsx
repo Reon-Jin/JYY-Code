@@ -66,7 +66,7 @@ describe("workspace inspector Git and GitHub journey", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Workspace flow" })).toBeVisible(), {
       timeout: 5_000,
     })
-    await user.click(screen.getByRole("button", { name: "待办" }))
+    await user.click(screen.getByRole("button", { name: "方案" }))
     expect(await screen.findByText("Inspect workspace")).toBeVisible()
     expect(await screen.findByText("后端已连接")).toBeVisible()
     expect(screen.getByText("Inspect workspace").closest("li")).toHaveTextContent("未开始")

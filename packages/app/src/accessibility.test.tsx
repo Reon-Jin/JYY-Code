@@ -120,8 +120,7 @@ describe("desktop accessibility contract", () => {
     expect(screen.getByRole("region", { name: "消息编辑器" })).toBeVisible()
     expect(screen.getByRole("textbox", { name: "消息" })).toBeVisible()
     expect(screen.getByRole("navigation", { name: "工作栏页面" })).toBeVisible()
-    expect(screen.getByRole("button", { name: "待办" })).toHaveAttribute("aria-pressed", "false")
-    expect(screen.getByRole("button", { name: "多智能体" })).toHaveAttribute("aria-pressed", "false")
+    expect(screen.getByRole("button", { name: "方案" })).toHaveAttribute("aria-pressed", "false")
     expect(screen.getByRole("button", { name: "工作区变更" })).toHaveAttribute("aria-pressed", "false")
     expect(container.querySelector(".branch-control__trigger")).toHaveAttribute("aria-haspopup", "dialog")
     expect(container.querySelector(".workspace-connection__status")).toHaveAttribute("aria-live", "polite")
@@ -222,22 +221,22 @@ describe("desktop accessibility contract", () => {
     expect(mode).toHaveFocus()
     expect(mode).toHaveAttribute("aria-checked", "true")
 
-    const openPanel = screen.getByRole("button", { name: "多智能体" })
+    const openPanel = screen.getByRole("button", { name: "方案" })
     openPanel.focus()
     await user.keyboard("{Enter}")
     expect(openPanel).toHaveFocus()
-    const progress = await screen.findByRole("progressbar", { name: "多智能体进度" })
+    const progress = await screen.findByRole("progressbar", { name: "方案进度" })
     expect(progress).toHaveAttribute("aria-valuemin", "0")
     expect(progress).toHaveAttribute("aria-valuemax", "1")
     expect(progress).toHaveAttribute("aria-valuenow", "0")
 
-    for (const name of ["待办", "多智能体", "工作区变更"]) {
+    for (const name of ["方案", "工作区变更"]) {
       const button = screen.getByRole("button", { name })
       button.focus()
       expect(button).toHaveFocus()
       expect(button).toHaveAttribute("aria-pressed")
     }
-    expect(screen.getByRole("button", { name: "多智能体" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "方案" })).toHaveAttribute("aria-pressed", "true")
 
     const disclosure = screen.getByText("Keyboard task").closest("summary")!
     disclosure.focus()

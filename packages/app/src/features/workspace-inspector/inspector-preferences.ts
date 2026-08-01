@@ -1,6 +1,6 @@
 import { normalizeDirectory } from "../../data/query-keys"
 
-export type InspectorPane = "todo" | "multi-agent" | "changes"
+export type InspectorPane = "plan" | "changes"
 export type InspectorPreferences = {
   panes: InspectorPane[]
   ratios: number[]
@@ -9,7 +9,17 @@ export type InspectorPreferences = {
 
 export const defaultInspectorPreferences: InspectorPreferences = { panes: [], ratios: [], width: 420 }
 
-const panes = new Set<InspectorPane>(["todo", "multi-agent", "changes"])
+const panes = new Set<InspectorPane>(["plan", "changes"])
+
+const legacyPanes: Record<string, InspectorPane> = {
+  todo: "plan",
+  "multi-agent": "plan",
+}
+
+function migratePane(value: string): InspectorPane | undefined {
+  if (panes.has(value as InspectorPane)) return value as InspectorPane
+  return legacyPanes[value]
+}
 
 function preferenceKey(directory: string) {
   return `jyycode:workspace-inspector:${normalizeDirectory(directory)}`
@@ -29,10 +39,14 @@ export function loadInspectorPreferences(directory: string, storage?: Storage): 
     if (typeof parsed !== "object" || parsed === null) return { ...defaultInspectorPreferences }
     const record = parsed as Record<string, unknown>
     if (Array.isArray(record.panes)) {
-      const ordered = record.panes.filter(
-        (pane, index, values): pane is InspectorPane =>
-          typeof pane === "string" && panes.has(pane as InspectorPane) && values.indexOf(pane) === index,
-      )
+      const seen = new Set<InspectorPane>()
+      const ordered = record.panes.flatMap((pane) => {
+        if (typeof pane !== "string") return []
+        const migrated = migratePane(pane)
+        if (!migrated || seen.has(migrated)) return []
+        seen.add(migrated)
+        return [migrated]
+      })
       return {
         panes: ordered,
         ratios: normalizeInspectorRatios(ordered.length, record.ratios),
@@ -40,12 +54,12 @@ export function loadInspectorPreferences(directory: string, storage?: Storage): 
       }
     }
     if (typeof record.pane === "string") {
-      const pane = panes.has(record.pane as InspectorPane) ? (record.pane as InspectorPane) : undefined
+      const pane = migratePane(record.pane)
       return pane ? { panes: [pane], ratios: [1], width: validWidth(record.width) } : { ...defaultInspectorPreferences }
     }
     if (typeof record.open === "boolean") {
       return record.open
-        ? { panes: ["todo"], ratios: [1], width: validWidth(record.width) }
+        ? { panes: ["plan"], ratios: [1], width: validWidth(record.width) }
         : { ...defaultInspectorPreferences }
     }
     return { ...defaultInspectorPreferences }

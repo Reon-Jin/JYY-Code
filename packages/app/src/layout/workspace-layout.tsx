@@ -31,8 +31,8 @@ import { ProviderEmpty } from "../features/composer/provider-empty"
 import { effectiveMultiAgent, MultiAgentControl } from "../features/multi-agent/multi-agent-control"
 import { McpControl } from "../features/mcp/mcp-control"
 import { agentClusterQueryOptions } from "../features/multi-agent/multi-agent-query"
-import { MultiAgentPanel } from "../features/multi-agent/multi-agent-panel"
 import { findTaskByChildSessionID, projectAgentClusterState } from "../features/multi-agent/multi-agent-state"
+import { PlanPanel } from "../features/plan/plan-panel"
 import { PermissionBar } from "../features/requests/permission-bar"
 import { QuestionPanel } from "../features/requests/question-panel"
 import {
@@ -447,14 +447,14 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const rootMultiAgentEnabled = createMemo(() =>
     rootSession() ? effectiveMultiAgent(rootSession()!, catalogQuery.data?.agentCluster) : false,
   )
-  const clusterPlanStatus = createMemo<"planning" | "ready" | undefined>(() => {
-    if (isChildSession() || !rootMultiAgentEnabled()) return undefined
+  const planStatus = createMemo<"planning" | "ready" | undefined>(() => {
+    if (isChildSession()) return undefined
     const snapshot = clusterSnapshot()
     const rootStatus = statusQuery.data?.[rootSessionID() ?? ""]
     const active = rootStatus?.type === "busy" || rootStatus?.type === "retry"
     return snapshot.totalAgents === 0 && active ? "planning" : "ready"
   })
-  const multiAgentBadge = createMemo(() => {
+  const planBadge = createMemo(() => {
     const snapshot = clusterSnapshot()
     if (snapshot.failedAgents > 0) return `${snapshot.runningAgents}/${snapshot.failedAgents}`
     if (snapshot.runningAgents > 0) return String(snapshot.runningAgents)
@@ -677,7 +677,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           ? errorMessage(conversationQuery.error, tr("layout.unable-to-load-session-message"))
           : undefined
       }
-      planStatus={clusterPlanStatus()}
+      planStatus={planStatus()}
       operationError={operationError()}
       projectTabs={
         <ProjectTabs
@@ -831,16 +831,16 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           sessionID={props.activeSessionID}
           preferences={inspectorPreferences()}
           onPreferencesChange={updateInspectorPreferences}
-          multiAgent={
-            <MultiAgentPanel
+          plan={
+            <PlanPanel
               directory={data.directory()}
-              sessionID={rootSessionID()}
-              enabled={rootMultiAgentEnabled()}
+              sessionID={props.activeSessionID}
+              rootSessionID={rootSessionID()}
               selectedChildSessionID={isChildSession() ? activeSession()?.id : undefined}
               onOpenChild={(sessionID) => navigate(`/session/${encodeURIComponent(sessionID)}`)}
             />
           }
-          multiAgentBadge={multiAgentBadge()}
+          planBadge={planBadge()}
         />
       }
       busy={busy()}

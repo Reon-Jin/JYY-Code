@@ -200,7 +200,7 @@ describe("ToolTelemetry", () => {
         query: "edit file",
         detail: "schema",
         category: "filesystem",
-        resultIDs: ["edit", "apply_patch"],
+        resultIDs: ["edit", "write"],
       })
       const search = yield* pollWithTimeout(
         Effect.sync(() => events.find((event) => event.type === ToolTelemetry.Event.SearchExecuted.type)),
@@ -213,7 +213,7 @@ describe("ToolTelemetry", () => {
         detail: "schema",
         category: "filesystem",
         matches: 2,
-        resultIDs: ["edit", "apply_patch"],
+        resultIDs: ["edit", "write"],
       })
     }),
   )

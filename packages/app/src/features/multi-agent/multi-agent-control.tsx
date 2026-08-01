@@ -8,24 +8,14 @@ import type { DesktopClient } from "../../data/sdk"
 import { errorMessage } from "../projects/project-controller"
 import "./multi-agent.css"
 
-export function isMailSession(session: Pick<Session, "title" | "agent" | "path">) {
-  return (
-    session.title.startsWith("Email: ") ||
-    session.title.startsWith("Reply email: ") ||
-    session.agent === "mail" ||
-    session.path === "mail"
-  )
-}
-
 export function effectiveMultiAgent(session: Session, config?: AgentClusterConfig) {
-  if (config?.enabled === false || session.parentID || isMailSession(session)) return false
+  if (config?.enabled === false || session.parentID) return false
   return session.multiAgent ?? config?.default_on ?? false
 }
 
 function disabledReason(session: Session, config?: AgentClusterConfig) {
   if (config?.enabled === false) return tr("multi-agent.multi-agent-has-been-disabled-in-global-configuration")
   if (session.parentID) return tr("multi-agent.sub-agent-does-not-support-starting-multi-agent")
-  if (isMailSession(session)) return tr("multi-agent.mail-conversations-do-not-support-multi-agent")
   return undefined
 }
 

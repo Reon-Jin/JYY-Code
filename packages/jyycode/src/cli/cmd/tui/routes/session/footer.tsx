@@ -5,7 +5,6 @@ import { useDirectory } from "../../context/directory"
 import { useConnected } from "../../component/use-connected"
 import { createStore } from "solid-js/store"
 import { useRoute } from "../../context/route"
-import { EmailStatsText } from "../../component/email-stats"
 
 export function Footer() {
   const { theme } = useTheme()
@@ -70,7 +69,6 @@ export function Footer() {
             <text fg={theme.text}>
               <span style={{ fg: lsp().length > 0 ? theme.success : theme.textMuted }}>•</span> {lsp().length} LSP
             </text>
-            <EmailStatsText directory={() => sync.path.directory} theme={() => theme} />
             <Show when={mcp()}>
               <text fg={theme.text}>
                 <Switch>

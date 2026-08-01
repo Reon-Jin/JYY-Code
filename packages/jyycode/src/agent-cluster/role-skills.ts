@@ -9,7 +9,6 @@ import CHART_SKILL from "./role-skills/chart/SKILL.md" with { type: "text" }
 import OFFICE_SKILL from "./role-skills/office/SKILL.md" with { type: "text" }
 import GENERAL_SKILL from "./role-skills/general/SKILL.md" with { type: "text" }
 import EXPLORE_SKILL from "./role-skills/explore/SKILL.md" with { type: "text" }
-import SCOUT_SKILL from "./role-skills/scout/SKILL.md" with { type: "text" }
 
 import K_DENSE_LITERATURE_REVIEW from "./role-skills/upstream/k-dense/literature-review/SKILL.md" with { type: "text" }
 import K_DENSE_RESEARCH_LOOKUP from "./role-skills/upstream/k-dense/research-lookup/SKILL.md" with { type: "text" }
@@ -24,14 +23,13 @@ import ADDY_SECURITY_AND_HARDENING from "./role-skills/upstream/addy/security-an
 import ADDY_CODE_REVIEW_AND_QUALITY from "./role-skills/upstream/addy/code-review-and-quality/SKILL.md" with { type: "text" }
 import ADDY_DEBUGGING_AND_ERROR_RECOVERY from "./role-skills/upstream/addy/debugging-and-error-recovery/SKILL.md" with { type: "text" }
 import ADDY_DOCUMENTATION_AND_ADRS from "./role-skills/upstream/addy/documentation-and-adrs/SKILL.md" with { type: "text" }
-import ADDY_SOURCE_DRIVEN_DEVELOPMENT from "./role-skills/upstream/addy/source-driven-development/SKILL.md" with { type: "text" }
 
 import GITHUB_ACQUIRE_CODEBASE_KNOWLEDGE from "./role-skills/upstream/github/acquire-codebase-knowledge/SKILL.md" with { type: "text" }
 import GITHUB_REPO_STORY_TIME from "./role-skills/upstream/github/repo-story-time/SKILL.md" with { type: "text" }
 
 import OPENAI_PDF from "./role-skills/upstream/openai/pdf/SKILL.md" with { type: "text" }
 
-export type AgentRole = TaskRole | "explore" | "scout"
+export type AgentRole = TaskRole | "explore"
 
 export type RoleSkillModule = {
   name: string
@@ -118,7 +116,6 @@ const local = {
   office: localSkill("cluster-office-production", OFFICE_SKILL),
   general: localSkill("cluster-general-handoff", GENERAL_SKILL),
   explore: localSkill("cluster-codebase-exploration", EXPLORE_SKILL),
-  scout: localSkill("cluster-external-source-scout", SCOUT_SKILL),
 } as const
 
 export const RoleSkillDefinitions = {
@@ -256,21 +253,6 @@ export const RoleSkillDefinitions = {
         "MIT",
       ),
       upstreamSkill("repo-story-time", GITHUB_REPO_STORY_TIME, `${SOURCE.github}/repo-story-time`, "MIT"),
-    ],
-  }),
-  scout: defineRole({
-    role: "scout",
-    label: "Scout",
-    description: "Investigates external documentation and dependency source.",
-    capabilitySummary: "official docs 路 versions 路 dependency source",
-    skillModules: [
-      local.scout,
-      upstreamSkill(
-        "source-driven-development",
-        ADDY_SOURCE_DRIVEN_DEVELOPMENT,
-        `${SOURCE.addy}/source-driven-development`,
-        "MIT",
-      ),
     ],
   }),
 } satisfies Record<AgentRole, RoleSkillDefinition>

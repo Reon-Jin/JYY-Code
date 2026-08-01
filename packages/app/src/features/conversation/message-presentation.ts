@@ -25,7 +25,11 @@ export function presentMessageText(input: {
   agent?: string
 }): MessageTextPresentation {
   if (input.part.synthetic) return { kind: "hidden" }
-  if (input.role === "assistant" && input.agent === "cluster" && containsPlanJSON(input.part.text)) {
+  if (
+    input.role === "assistant" &&
+    (input.agent === "cluster" || input.agent === "build") &&
+    containsPlanJSON(input.part.text)
+  ) {
     return { kind: "plan" }
   }
   return { kind: "text", text: input.part.text }

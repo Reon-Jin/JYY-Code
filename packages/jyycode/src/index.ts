@@ -33,7 +33,6 @@ import { WebCommand } from "./cli/cmd/web"
 import { PrCommand } from "./cli/cmd/pr"
 import { SessionCommand } from "./cli/cmd/session"
 import { DbCommand } from "./cli/cmd/db"
-import { FinishCommand } from "./cli/cmd/finish"
 import { Global } from "@jyycode-ai/core/global"
 import { JsonMigration } from "@/storage/json-migration"
 import { Database } from "@/storage/db"
@@ -192,7 +191,6 @@ const cli = yargs(args)
   .command(SessionCommand)
   .command(PluginCommand)
   .command(DbCommand)
-  .command(FinishCommand)
   .fail((msg, err) => {
     if (
       msg?.startsWith("Unknown argument") ||

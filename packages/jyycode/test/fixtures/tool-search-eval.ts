@@ -1,15 +1,11 @@
 export const toolSearchEvalFixtures = [
   {
     query: "change one file",
-    expectedTopK: ["edit", "apply_patch", "write"],
+    expectedTopK: ["edit", "write"],
   },
   {
     query: "find symbol definition",
     expectedTopK: ["lsp", "grep"],
-  },
-  {
-    query: "send file to user",
-    expectedTopK: ["send_file"],
   },
   {
     query: "query jira mcp",

@@ -15,7 +15,7 @@
 // Demo mode also handles permission and question replies locally, completing
 // or failing the synthetic tool parts as appropriate.
 import path from "path"
-import type { Event, ToolPart } from "@jyycode-ai/sdk/v2"
+import type { Event } from "@jyycode-ai/sdk/v2"
 import { createSessionData, reduceSessionData, type SessionData } from "./session-data"
 import { writeSessionOutput } from "./stream"
 import type { FooterApi, PermissionReply, QuestionReject, QuestionReply, RunPrompt, StreamCommit } from "./types"
@@ -29,13 +29,11 @@ const KINDS = [
   "write",
   "edit",
   "patch",
-  "task",
-  "todo",
   "question",
   "error",
   "mix",
 ]
-const PERMISSIONS = ["edit", "bash", "read", "task", "external", "doom"] as const
+const PERMISSIONS = ["edit", "bash", "read", "external", "doom"] as const
 const QUESTIONS = ["multi", "single", "checklist", "custom"] as const
 
 type PermissionKind = (typeof PERMISSIONS)[number]
@@ -167,48 +165,6 @@ function clearSubagent(footer: FooterApi): void {
     state: {
       tabs: [],
       details: {},
-      permissions: [],
-      questions: [],
-    },
-  })
-}
-
-function showSubagent(
-  state: State,
-  input: {
-    sessionID: string
-    partID: string
-    callID: string
-    label: string
-    description: string
-    status: "running" | "completed" | "error"
-    title?: string
-    toolCalls?: number
-    commits: StreamCommit[]
-  },
-) {
-  state.footer.event({
-    type: "stream.subagent",
-    state: {
-      tabs: [
-        {
-          sessionID: input.sessionID,
-          partID: input.partID,
-          callID: input.callID,
-          label: input.label,
-          description: input.description,
-          status: input.status,
-          title: input.title,
-          toolCalls: input.toolCalls,
-          lastUpdatedAt: Date.now(),
-        },
-      ],
-      details: {
-        [input.sessionID]: {
-          sessionID: input.sessionID,
-          commits: input.commits,
-        },
-      },
       permissions: [],
       questions: [],
     },
@@ -626,134 +582,21 @@ function emitEdit(state: State): void {
   })
 }
 
-function emitPatch(state: State): void {
+function emitEditBatch(state: State): void {
   const file = path.join(process.cwd(), "src", "demo-format.ts")
-  const ref = make(state, "apply_patch", {
-    patchText: "*** Begin Patch\n*** End Patch",
-  })
-  doneTool(state, ref, {
-    title: "apply_patch",
-    output: "",
-    metadata: {
-      files: [
-        {
-          type: "update",
-          filePath: file,
-          relativePath: "src/demo-format.ts",
-          diff: "@@ -1 +1 @@\n-export const demo = 1\n+export const demo = 42\n",
-          deletions: 1,
-        },
-        {
-          type: "add",
-          filePath: path.join(process.cwd(), "README-demo.md"),
-          relativePath: "README-demo.md",
-          diff: "@@ -0,0 +1,4 @@\n+# Demo\n+This is a generated preview file.\n",
-          deletions: 0,
-        },
-      ],
-    },
-  })
-}
-
-function emitTask(state: State): void {
-  const ref = make(state, "task", {
-    description: "Scan run/* for reducer touchpoints",
-    subagent_type: "explore",
-  })
-  doneTool(state, ref, {
-    title: "Reducer touchpoints found",
-    output: "",
-    metadata: {
-      toolcalls: 4,
-      sessionId: "sub_demo_1",
-    },
-  })
-  const part = {
-    id: "sub_demo_tool_1",
-    type: "tool",
-    sessionID: "sub_demo_1",
-    messageID: "sub_demo_msg_tool",
-    callID: "sub_demo_call_1",
-    tool: "read",
-    state: {
-      status: "running",
-      input: {
-        filePath: "packages/jyycode/src/cli/cmd/run/stream.ts",
-        offset: 1,
-        limit: 200,
-      },
-      time: {
-        start: Date.now(),
-      },
-    },
-  } satisfies ToolPart
-  showSubagent(state, {
-    sessionID: "sub_demo_1",
-    partID: ref.part,
-    callID: ref.call,
-    label: "Explore",
-    description: "Scan run/* for reducer touchpoints",
-    status: "completed",
-    title: "Reducer touchpoints found",
-    toolCalls: 4,
-    commits: [
-      {
-        kind: "user",
-        text: "Scan run/* for reducer touchpoints",
-        phase: "start",
-        source: "system",
-      },
-      {
-        kind: "reasoning",
-        text: "Thinking: tracing reducer and footer boundaries",
-        phase: "progress",
-        source: "reasoning",
-        messageID: "sub_demo_msg_reasoning",
-        partID: "sub_demo_reasoning_1",
-      },
-      {
-        kind: "tool",
-        text: "running read",
-        phase: "start",
-        source: "tool",
-        messageID: "sub_demo_msg_tool",
-        partID: "sub_demo_tool_1",
-        tool: "read",
-        part,
-      },
-      {
-        kind: "assistant",
-        text: "Footer updates flow through stream.ts into RunFooter",
-        phase: "progress",
-        source: "assistant",
-        messageID: "sub_demo_msg_text",
-        partID: "sub_demo_text_1",
-      },
-    ],
-  })
-}
-
-function emitTodo(state: State): void {
-  const ref = make(state, "todowrite", {
-    todos: [
-      {
-        content: "Trigger permission UI",
-        status: "completed",
-      },
-      {
-        content: "Trigger question UI",
-        status: "in_progress",
-      },
-      {
-        content: "Tune tool formatting",
-        status: "pending",
-      },
+  const ref = make(state, "edit", {
+    filePath: file,
+    edits: [
+      { oldString: "export const demo = 1", newString: "export const demo = 42" },
+      { oldString: "// legacy comment", newString: "// updated comment" },
     ],
   })
   doneTool(state, ref, {
-    title: "todowrite",
+    title: "edit",
     output: "",
-    metadata: {},
+    metadata: {
+      diff: "@@ -1 +1 @@\n-export const demo = 1\n+export const demo = 42\n",
+    },
   })
 }
 
@@ -838,28 +681,6 @@ function emitPermission(state: State, kind: PermissionKind = "edit"): void {
     return
   }
 
-  if (kind === "task") {
-    const ref = make(state, "task", {
-      description: "Inspect footer spacing across direct-mode prompts",
-      subagent_type: "explore",
-    })
-    askPermission(state, {
-      ref,
-      permission: "task",
-      patterns: ["explore"],
-      always: ["*"],
-      done: {
-        title: "Footer spacing checked",
-        output: "",
-        metadata: {
-          toolcalls: 3,
-          sessionId: "sub_demo_perm_1",
-        },
-      },
-    })
-    return
-  }
-
   if (kind === "external") {
     const dir = path.join(path.dirname(root), "demo-shared")
     const target = path.join(dir, "README.md")
@@ -887,9 +708,9 @@ function emitPermission(state: State, kind: PermissionKind = "edit"): void {
   }
 
   if (kind === "doom") {
-    const ref = make(state, "task", {
+    const ref = make(state, "bash", {
+      command: "bun format",
       description: "Retry the formatter after repeated failures",
-      subagent_type: "general",
     })
     askPermission(state, {
       ref,
@@ -951,8 +772,6 @@ function emitQuestion(state: State, kind: QuestionKind = "multi"): void {
           question: "Select the direct-mode cases you want to inspect next",
           options: [
             { label: "Diff", description: "Show an edit diff in the footer" },
-            { label: "Task", description: "Show a structured task summary" },
-            { label: "Todo", description: "Show a todo snapshot" },
             { label: "Error", description: "Show an error transcript row" },
           ],
           multiple: true,
@@ -991,8 +810,6 @@ function emitQuestion(state: State, kind: QuestionKind = "multi"): void {
         question: "Pick formatting previews",
         options: [
           { label: "Diff", description: "Emit edit diff" },
-          { label: "Task", description: "Emit task card" },
-          { label: "Todo", description: "Emit todo card" },
         ],
         multiple: true,
         custom: true,
@@ -1057,17 +874,7 @@ async function emitFmt(state: State, kind: string, body: string, signal?: AbortS
   }
 
   if (kind === "patch") {
-    emitPatch(state)
-    return true
-  }
-
-  if (kind === "task") {
-    emitTask(state)
-    return true
-  }
-
-  if (kind === "todo") {
-    emitTodo(state)
+    emitEditBatch(state)
     return true
   }
 
@@ -1089,9 +896,7 @@ async function emitFmt(state: State, kind: string, body: string, signal?: AbortS
     await emitBash(state, signal)
     emitWrite(state)
     emitEdit(state)
-    emitPatch(state)
-    emitTask(state)
-    emitTodo(state)
+    emitEditBatch(state)
     emitQuestionTool(state)
     emitError(state, "demo mixed scenario error")
     return true

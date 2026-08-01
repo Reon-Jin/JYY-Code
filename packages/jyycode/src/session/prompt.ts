@@ -46,7 +46,7 @@ import { Process } from "@/util/process"
 import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import * as EffectLogger from "@jyycode-ai/core/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
-import { TaskTool, type TaskPromptOps } from "@/tool/task"
+import type { TaskPromptOps } from "./tools"
 import { SessionRunState } from "./run-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
@@ -460,198 +460,6 @@ export const layer = Layer.effect(
         .pipe(Effect.catchCause((cause) => elog.error("failed to generate title", { error: Cause.squash(cause) })))
     })
 
-    const handleSubtask = Effect.fn("SessionPrompt.handleSubtask")(function* (input: {
-      task: MessageV2.SubtaskPart
-      model: Provider.Model
-      lastUser: MessageV2.User
-      sessionID: SessionID
-      session: Session.Info
-      msgs: MessageV2.WithParts[]
-    }) {
-      const { task, model, lastUser, sessionID, session, msgs } = input
-      const ctx = yield* InstanceState.context
-      const promptOps = yield* ops()
-      const { task: taskTool } = yield* registry.named()
-      const taskModel = task.model ? yield* getModel(task.model.providerID, task.model.modelID, sessionID) : model
-      const assistantMessage: MessageV2.Assistant = yield* sessions.updateMessage({
-        id: MessageID.ascending(),
-        role: "assistant",
-        parentID: lastUser.id,
-        sessionID,
-        mode: task.agent,
-        agent: task.agent,
-        variant: lastUser.model.variant,
-        path: { cwd: ctx.directory, root: ctx.worktree },
-        cost: 0,
-        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-        modelID: taskModel.id,
-        providerID: taskModel.providerID,
-        time: { created: Date.now() },
-      })
-      let part: MessageV2.ToolPart = yield* sessions.updatePart({
-        id: PartID.ascending(),
-        messageID: assistantMessage.id,
-        sessionID: assistantMessage.sessionID,
-        type: "tool",
-        callID: ulid(),
-        tool: TaskTool.id,
-        state: {
-          status: "running",
-          input: {
-            prompt: task.prompt,
-            description: task.description,
-            subagent_type: task.agent,
-            command: task.command,
-          },
-          time: { start: Date.now() },
-        },
-      })
-      const taskArgs = {
-        prompt: task.prompt,
-        description: task.description,
-        subagent_type: task.agent,
-        command: task.command,
-      }
-      yield* plugin.trigger(
-        "tool.execute.before",
-        { tool: TaskTool.id, sessionID, callID: part.id },
-        { args: taskArgs },
-      )
-
-      const taskAgent = yield* agents.get(task.agent)
-      if (!taskAgent) {
-        const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
-        const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
-        const error = new NamedError.Unknown({ message: `Agent not found: "${task.agent}".${hint}` })
-        yield* bus.publish(Session.Event.Error, { sessionID, error: error.toObject() })
-        throw error
-      }
-
-      let error: Error | undefined
-      const taskAbort = new AbortController()
-      const result = yield* taskTool
-        .execute(taskArgs, {
-          agent: task.agent,
-          messageID: assistantMessage.id,
-          sessionID,
-          abort: taskAbort.signal,
-          callID: part.callID,
-          extra: { bypassAgentCheck: true, promptOps },
-          messages: msgs,
-          metadata: (val: { title?: string; metadata?: Record<string, any> }) =>
-            Effect.gen(function* () {
-              part = yield* sessions.updatePart({
-                ...part,
-                type: "tool",
-                state: { ...part.state, ...val },
-              } satisfies MessageV2.ToolPart)
-            }),
-          ask: (req: any) =>
-            permission
-              .ask({
-                ...req,
-                sessionID,
-                ruleset: Permission.merge(taskAgent.permission, session.permission ?? []),
-              })
-              .pipe(Effect.orDie),
-        })
-        .pipe(
-          Effect.catchCause((cause) => {
-            const defect = Cause.squash(cause)
-            error = defect instanceof Error ? defect : new Error(String(defect))
-            log.error("subtask execution failed", { error, agent: task.agent, description: task.description })
-            return Effect.void
-          }),
-          Effect.onInterrupt(() =>
-            Effect.gen(function* () {
-              taskAbort.abort()
-              assistantMessage.finish = "tool-calls"
-              assistantMessage.time.completed = Date.now()
-              yield* sessions.updateMessage(assistantMessage)
-              if (part.state.status === "running") {
-                yield* sessions.updatePart({
-                  ...part,
-                  state: {
-                    status: "error",
-                    error: "Cancelled",
-                    time: { start: part.state.time.start, end: Date.now() },
-                    metadata: part.state.metadata,
-                    input: part.state.input,
-                  },
-                } satisfies MessageV2.ToolPart)
-              }
-            }),
-          ),
-        )
-
-      const attachments = result?.attachments?.map((attachment) => ({
-        ...attachment,
-        id: PartID.ascending(),
-        sessionID,
-        messageID: assistantMessage.id,
-      }))
-
-      yield* plugin.trigger(
-        "tool.execute.after",
-        { tool: TaskTool.id, sessionID, callID: part.id, args: taskArgs },
-        result,
-      )
-
-      assistantMessage.finish = "tool-calls"
-      assistantMessage.time.completed = Date.now()
-      yield* sessions.updateMessage(assistantMessage)
-
-      if (result && part.state.status === "running") {
-        yield* sessions.updatePart({
-          ...part,
-          state: {
-            status: "completed",
-            input: part.state.input,
-            title: result.title,
-            metadata: result.metadata,
-            output: result.output,
-            attachments,
-            time: { ...part.state.time, end: Date.now() },
-          },
-        } satisfies MessageV2.ToolPart)
-      }
-
-      if (!result) {
-        yield* sessions.updatePart({
-          ...part,
-          state: {
-            status: "error",
-            error: error ? `Tool execution failed: ${error.message}` : "Tool execution failed",
-            time: {
-              start: part.state.status === "running" ? part.state.time.start : Date.now(),
-              end: Date.now(),
-            },
-            metadata: part.state.status === "pending" ? undefined : part.state.metadata,
-            input: part.state.input,
-          },
-        } satisfies MessageV2.ToolPart)
-      }
-
-      if (!task.command) return
-
-      const summaryUserMsg: MessageV2.User = {
-        id: MessageID.ascending(),
-        sessionID,
-        role: "user",
-        time: { created: Date.now() },
-        agent: lastUser.agent,
-        model: lastUser.model,
-      }
-      yield* sessions.updateMessage(summaryUserMsg)
-      yield* sessions.updatePart({
-        id: PartID.ascending(),
-        messageID: summaryUserMsg.id,
-        sessionID,
-        type: "text",
-        text: "Summarize the task tool output above and continue with your task.",
-        synthetic: true,
-      } satisfies MessageV2.TextPart)
-    })
 
     const shellImpl = Effect.fn("SessionPrompt.shellImpl")(function* (input: ShellInput, ready?: Latch.Latch) {
       return yield* Effect.uninterruptibleMask((restore) =>
@@ -1387,10 +1195,15 @@ export const layer = Layer.effect(
             config: cfg.agent_cluster,
             requested: input.agentCluster?.enabled,
           })
+        const useSinglePlan = AgentCluster.canUseSingleAgentPlan({
+          session,
+          agent: input.agent,
+          noReply: input.noReply,
+        })
         const clusterModels = useCluster
           ? yield* AgentCluster.resolveModels(cfg.agent_cluster ?? {}).pipe(Effect.orDie)
           : undefined
-        const clusterTaskGraph = useCluster ? yield* AgentCluster.getSessionState(session.id) : undefined
+        const planTaskGraph = useCluster || useSinglePlan ? yield* AgentCluster.getSessionState(session.id) : undefined
         const reusableSubagents = useCluster ? yield* AgentCluster.reusableSubagents(session.id) : undefined
         const promptInput =
           useCluster && clusterModels
@@ -1400,10 +1213,16 @@ export const layer = Layer.effect(
                 session,
                 config: cfg.agent_cluster ?? {},
                 models: clusterModels,
-                taskGraph: clusterTaskGraph?.tasks,
+                taskGraph: planTaskGraph?.tasks,
                 reusableSubagents,
               })
-            : input
+            : useSinglePlan
+              ? AgentCluster.decorateSinglePlanPromptInput({
+                  prompt: input,
+                  sessionID: session.id,
+                  taskGraph: planTaskGraph?.tasks,
+                })
+              : input
         yield* revert.cleanup(session)
         const message = yield* createUserMessage(promptInput)
         yield* sessions.touch(input.sessionID)
@@ -1449,6 +1268,8 @@ export const layer = Layer.effect(
         let step = 0
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
         const canUsePersistentMemory = session.parentID === undefined
+        const isPlanSession = (agent: string) =>
+          agent === "cluster" || AgentCluster.canUseSingleAgentPlan({ session, agent })
         let previousToolTurnSignature: string | undefined
         let repeatedToolTurnCount = 0
         const clusterDispatchReminderKind = "agent_cluster_dispatch_reminder"
@@ -1465,9 +1286,10 @@ export const layer = Layer.effect(
             .some((message) => message.parts.some((part) => part.type === "tool" && part.tool === "task"))
         }
 
-        function clusterPlan(message: MessageV2.WithParts | undefined) {
-          if (!message || message.info.role !== "assistant") return false
-          if (message.info.agent !== "cluster" && message.info.mode !== "cluster") return false
+        function planFromMessage(message: MessageV2.WithParts | undefined) {
+          if (!message || message.info.role !== "assistant") return undefined
+          const agent = message.info.agent ?? message.info.mode
+          if (!isPlanSession(agent)) return undefined
           const text = message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n")
           return AgentClusterRuntime.extractPlanFromText(text)
         }
@@ -1628,6 +1450,7 @@ export const layer = Layer.effect(
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+          const planSessionID = isPlanSession(lastUser.agent) ? sessionID : undefined
 
           if (step === 0 && canUsePersistentMemory && memory && (!lastAssistant || lastUser.id > lastAssistant.id)) {
             const updated = yield* memory
@@ -1754,24 +1577,36 @@ export const layer = Layer.effect(
               })
               continue
             }
-            const plan = clusterPlan(lastAssistantMsg)
-            if (lastUser.agent === "cluster" && plan) {
+            const plan = planFromMessage(lastAssistantMsg)
+            if (planSessionID && plan) {
               const clusterConfig = ConfigAgentCluster.resolve((yield* config.get()).agent_cluster)
-              const validation = AgentClusterRuntime.validatePlan(plan, {
-                maxSubagents: clusterConfig.max_subagents,
-                maxConcurrency: clusterConfig.max_concurrency,
-              })
+              const validation =
+                lastUser.agent === "cluster"
+                  ? AgentClusterRuntime.validatePlan(plan, {
+                      maxSubagents: clusterConfig.max_subagents,
+                      maxConcurrency: clusterConfig.max_concurrency,
+                    })
+                  : AgentClusterRuntime.validatePlan(plan, {
+                      maxSubagents: 64,
+                      maxConcurrency: 64,
+                    })
               if (validation.valid) {
-                yield* AgentCluster.persistPlan({ sessionID, originMessageID: lastUser.id, plan }).pipe(Effect.orDie)
+                yield* AgentCluster.persistPlan({
+                  sessionID: planSessionID,
+                  originMessageID: lastUser.id,
+                  plan,
+                }).pipe(Effect.orDie)
               }
-              if (
-                !hasTaskToolAfter(msgs, lastUser.id) &&
-                !isClusterDispatchReminder(msgs.find((msg) => msg.info.id === lastUser.id))
-              ) {
-                yield* slog.info("cluster plan produced without task dispatch; requesting dispatch")
-                yield* createClusterDispatchReminder({ lastUser, plan })
-                continue
-              }
+            }
+            if (
+              lastUser.agent === "cluster" &&
+              plan &&
+              !hasTaskToolAfter(msgs, lastUser.id) &&
+              !isClusterDispatchReminder(msgs.find((msg) => msg.info.id === lastUser.id))
+            ) {
+              yield* slog.info("cluster plan produced without task dispatch; requesting dispatch")
+              yield* createClusterDispatchReminder({ lastUser, plan })
+              continue
             }
             if (
               lastUser.agent === "cluster" &&
@@ -1802,11 +1637,6 @@ export const layer = Layer.effect(
 
           const model = yield* getModel(lastUser.model.providerID, lastUser.model.modelID, sessionID)
           const task = tasks.pop()
-
-          if (task?.type === "subtask") {
-            yield* handleSubtask({ task, model, lastUser, sessionID, session, msgs })
-            continue
-          }
 
           if (task?.type === "compaction") {
             const result = yield* compaction.process({
@@ -1909,7 +1739,7 @@ export const layer = Layer.effect(
             const promptOps: TaskPromptOps = yield* ops()
 
             // Cluster task routing is rooted in this durable parent session.
-            const clusterSessionID = lastUser.agent === "cluster" ? sessionID : undefined
+            const clusterSessionID = lastUser.agent === "cluster" ? planSessionID : undefined
             // Tools execute inside handle.process(), so wire the live text
             // accessor before SessionTools.resolve() creates AI SDK callbacks.
             if (clusterSessionID) {
@@ -2021,40 +1851,46 @@ export const layer = Layer.effect(
             // Without this early persist, every task tool independently
             // tries to extract the plan from DB sources that may be empty,
             // exhausting retries and failing silently.
-            if (lastUser.agent === "cluster" && clusterSessionID) {
+            if (planSessionID) {
               yield* Effect.gen(function* () {
                 const combined = handle.allText()
                 const plan = AgentClusterRuntime.extractPlanFromText(combined)
                 if (plan) {
                   const clusterCfg = ConfigAgentCluster.resolve((yield* config.get()).agent_cluster)
-                  const validation = AgentClusterRuntime.validatePlan(plan, {
-                    maxSubagents: clusterCfg.max_subagents,
-                    maxConcurrency: clusterCfg.max_concurrency,
-                  })
+                  const validation =
+                    lastUser.agent === "cluster"
+                      ? AgentClusterRuntime.validatePlan(plan, {
+                          maxSubagents: clusterCfg.max_subagents,
+                          maxConcurrency: clusterCfg.max_concurrency,
+                        })
+                      : AgentClusterRuntime.validatePlan(plan, {
+                          maxSubagents: 64,
+                          maxConcurrency: 64,
+                        })
                   if (validation.valid) {
                     yield* AgentCluster.persistPlan({
-                      sessionID: clusterSessionID,
+                      sessionID: planSessionID,
                       originMessageID: lastUser.id,
                       plan,
                     }).pipe(Effect.orDie)
-                    yield* slog.info("cluster plan pre-persisted from in-memory text accumulator", {
-                      sessionID: clusterSessionID,
+                    yield* slog.info("plan pre-persisted from in-memory text accumulator", {
+                      sessionID: planSessionID,
                       taskCount: plan.tasks.length,
                       textLen: combined.length,
                     })
                   } else {
-                    yield* slog.warn("cluster plan validation failed", { errors: validation.errors.join("; ") })
+                    yield* slog.warn("plan validation failed", { errors: validation.errors.join("; ") })
                   }
                 } else {
-                  yield* slog.warn("cluster plan not found in in-memory text accumulator", {
-                    sessionID: clusterSessionID,
+                  yield* slog.warn("plan not found in in-memory text accumulator", {
+                    sessionID: planSessionID,
                     textLen: combined.length,
                     preview: combined.slice(0, 200),
                   })
                 }
               }).pipe(
                 Effect.catchCause((cause) =>
-                  elog.warn("failed to pre-persist cluster plan", { error: Cause.squash(cause) }),
+                  elog.warn("failed to pre-persist plan", { error: Cause.squash(cause) }),
                 ),
               )
             }

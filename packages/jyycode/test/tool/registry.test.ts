@@ -36,7 +36,6 @@ import { ProviderID, ModelID } from "@/provider/schema"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { MessageID, SessionID } from "@/session/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { Permission } from "@/permission"
 
 const node = CrossSpawnSpawner.defaultLayer
 const configLayer = TestConfig.layer({
@@ -101,12 +100,6 @@ const brokenPluginLayer = Layer.succeed(
 )
 
 const it = testEffect(Layer.mergeAll(registryLayer(), node, Agent.defaultLayer))
-const scout = testEffect(
-  Layer.mergeAll(registryLayer({ flags: { experimentalScout: true } }), node, Agent.defaultLayer),
-)
-const background = testEffect(
-  Layer.mergeAll(registryLayer({ flags: { experimentalBackgroundSubagents: true } }), node, Agent.defaultLayer),
-)
 const withBrokenPlugin = testEffect(
   Layer.mergeAll(registryLayer({ plugin: brokenPluginLayer }), node, Agent.defaultLayer),
 )
@@ -116,26 +109,12 @@ afterEach(async () => {
 })
 
 describe("tool.registry", () => {
-  it.instance("hides repo research tools unless experimental", () =>
-    Effect.gen(function* () {
-      const registry = yield* ToolRegistry.Service
-      const ids = yield* registry.ids()
-
-      expect(ids).not.toContain("repo_clone")
-      expect(ids).not.toContain("repo_overview")
-    }),
-  )
-
   it.instance("exposes filesystem and process helper tools", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service
       const ids = yield* registry.ids()
 
-      expect(ids).toContain("ls")
-      expect(ids).toContain("multi_edit")
-      expect(ids).toContain("process_start")
-      expect(ids).toContain("process_output")
-      expect(ids).toContain("kill_process")
+      expect(ids).toContain("process")
     }),
   )
 
@@ -150,9 +129,8 @@ describe("tool.registry", () => {
       })
       const read = tools.find((tool) => tool.id === "read")
       const grep = tools.find((tool) => tool.id === "grep")
-      const ls = tools.find((tool) => tool.id === "ls")
-      const multiEdit = tools.find((tool) => tool.id === "multi_edit")
-      const processStart = tools.find((tool) => tool.id === "process_start")
+      const edit = tools.find((tool) => tool.id === "edit")
+      const process = tools.find((tool) => tool.id === "process")
 
       expect(read?.catalog).toMatchObject({
         category: "filesystem",
@@ -164,17 +142,12 @@ describe("tool.registry", () => {
         mutability: "read",
         risk: "low",
       })
-      expect(ls?.catalog).toMatchObject({
-        category: "filesystem",
-        mutability: "read",
-        risk: "low",
-      })
-      expect(multiEdit?.catalog).toMatchObject({
+      expect(edit?.catalog).toMatchObject({
         category: "filesystem",
         mutability: "write",
         risk: "high",
       })
-      expect(processStart?.catalog).toMatchObject({
+      expect(process?.catalog).toMatchObject({
         category: "execution",
         mutability: "execute",
         risk: "high",
@@ -197,100 +170,12 @@ describe("tool.registry", () => {
         { query: "write a new file", expected: "write" },
         { query: "search text across project files", expected: "grep" },
         { query: "fetch a web page url", expected: "webfetch" },
-        { query: "delegate work to a subagent", expected: "task" },
       ]
 
       for (const item of cases) {
         const ranked = CatalogSearch.search({ tools, query: item.query, limit: 5 }).map((result) => result.tool.id)
         expect(ranked.slice(0, 3), item.query).toContain(item.expected)
       }
-    }),
-  )
-
-  scout.instance("shows repo research tools when experimental scout is enabled", () =>
-    Effect.gen(function* () {
-      const registry = yield* ToolRegistry.Service
-      const ids = yield* registry.ids()
-
-      expect(ids).toContain("repo_clone")
-      expect(ids).toContain("repo_overview")
-    }),
-  )
-
-  it.instance("hides task_status unless experimental background subagents are enabled", () =>
-    Effect.gen(function* () {
-      const registry = yield* ToolRegistry.Service
-      const ids = yield* registry.ids()
-
-      expect(ids).not.toContain("task_status")
-    }),
-  )
-
-  it.instance("hides task background parameter unless experimental background subagents are enabled", () =>
-    Effect.gen(function* () {
-      const registry = yield* ToolRegistry.Service
-      const agent = yield* Agent.Service
-      const build = yield* agent.get("build")
-      if (!build) throw new Error("build agent not found")
-      const task = (yield* registry.tools({
-        providerID: ProviderID.jyycode,
-        modelID: ModelID.make("test"),
-        agent: build,
-      })).find((tool) => tool.id === "task")
-
-      expect(task?.jsonSchema).toBeDefined()
-      expect((task?.jsonSchema?.properties as Record<string, unknown> | undefined)?.background).toBeUndefined()
-    }),
-  )
-
-  it.instance("exposes background task controls to the cluster agent without the experiment flag", () =>
-    Effect.gen(function* () {
-      const registry = yield* ToolRegistry.Service
-      const agent = yield* Agent.Service
-      const cluster = yield* agent.get("cluster")
-      if (!cluster) throw new Error("cluster agent not found")
-      const tools = yield* registry.tools({
-        providerID: ProviderID.jyycode,
-        modelID: ModelID.make("test"),
-        agent: cluster,
-      })
-      const task = tools.find((tool) => tool.id === "task")
-
-      expect(tools.map((tool) => tool.id)).toContain("task_status")
-      if (!task) throw new Error("task tool not found")
-      expect(task.description).toContain("background subagents by default")
-      expect(
-        (ToolJsonSchema.fromTool(task).properties as Record<string, unknown> | undefined)?.background,
-      ).toBeDefined()
-    }),
-  )
-
-  it.instance("allows agent_cluster_review only for the cluster primary by default", () =>
-    Effect.gen(function* () {
-      const registry = yield* ToolRegistry.Service
-      const agent = yield* Agent.Service
-      const cluster = yield* agent.get("cluster")
-      const build = yield* agent.get("build")
-      if (!cluster || !build) throw new Error("expected native agents")
-      const ids = (yield* registry.tools({
-        providerID: ProviderID.jyycode,
-        modelID: ModelID.make("test"),
-        agent: cluster,
-      })).map((tool) => tool.id)
-
-      expect(ids).toContain("agent_cluster_review")
-      expect(Permission.evaluate("agent_cluster_review", "*", cluster.permission).action).toBe("allow")
-      expect(Permission.evaluate("question", "*", cluster.permission).action).toBe("deny")
-      expect(Permission.evaluate("agent_cluster_review", "*", build.permission).action).toBe("deny")
-    }),
-  )
-
-  background.instance("shows task_status when experimental background subagents are enabled", () =>
-    Effect.gen(function* () {
-      const registry = yield* ToolRegistry.Service
-      const ids = yield* registry.ids()
-
-      expect(ids).toContain("task_status")
     }),
   )
 

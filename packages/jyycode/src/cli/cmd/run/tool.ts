@@ -17,19 +17,15 @@ import path from "path"
 import stripAnsi from "strip-ansi"
 import type { ToolPart } from "@jyycode-ai/sdk/v2"
 import type * as Tool from "@/tool/tool"
-import type { ApplyPatchTool } from "@/tool/apply_patch"
 import type { ShellTool as BashTool } from "@/tool/shell"
 import type { EditTool } from "@/tool/edit"
 import type { GlobTool } from "@/tool/glob"
 import type { GrepTool } from "@/tool/grep"
 import type { InvalidTool } from "@/tool/invalid"
 import type { LspTool } from "@/tool/lsp"
-import type { PlanExitTool } from "@/tool/plan"
 import type { QuestionTool } from "@/tool/question"
 import type { ReadTool } from "@/tool/read"
 import type { SkillTool } from "@/tool/skill"
-import type { TaskTool } from "@/tool/task"
-import type { TodoWriteTool } from "@/tool/todo"
 import type { WebFetchTool } from "@/tool/webfetch"
 import { webSearchProviderLabel, type WebSearchTool } from "@/tool/websearch"
 import type { WriteTool } from "@/tool/write"
@@ -96,10 +92,7 @@ type ToolDefs = {
   bash: typeof BashTool
   write: typeof WriteTool
   edit: typeof EditTool
-  apply_patch: typeof ApplyPatchTool
   batch: Tool.Info
-  task: typeof TaskTool
-  todowrite: typeof TodoWriteTool
   question: typeof QuestionTool
   read: typeof ReadTool
   glob: typeof GlobTool
@@ -109,7 +102,6 @@ type ToolDefs = {
   webfetch: typeof WebFetchTool
   websearch: typeof WebSearchTool
   skill: typeof SkillTool
-  plan_exit: typeof PlanExitTool
 }
 
 type ToolName = keyof ToolDefs
@@ -363,55 +355,10 @@ function runWebSearch(p: ToolProps<typeof WebSearchTool>): ToolInline {
   }
 }
 
-function runTask(p: ToolProps<typeof TaskTool>): ToolInline {
-  const kind = Locale.titlecase(p.input.subagent_type || "unknown")
-  const desc = p.input.description
-  const icon = p.frame.status === "error" ? "✗" : p.frame.status === "running" ? "•" : "✓"
-  return {
-    icon,
-    title: desc || `${kind} Task`,
-    description: desc ? `${kind} Agent` : undefined,
-  }
-}
-
-function runTodo(p: ToolProps<typeof TodoWriteTool>): ToolInline {
-  return {
-    icon: "#",
-    title: "Todos",
-    mode: "block",
-    body: list<{ status?: string; content?: string }>(p.frame.input.todos)
-      .flatMap((item) => {
-        const body = typeof item?.content === "string" ? item.content : ""
-        if (!body) {
-          return []
-        }
-
-        const mark = item.status === "completed" ? "[✓]" : item.status === "in_progress" ? "[•]" : "[ ]"
-        return [`${mark} ${body}`]
-      })
-      .join("\n"),
-  }
-}
-
 function runSkill(p: ToolProps<typeof SkillTool>): ToolInline {
   return {
     icon: "→",
     title: `Skill "${p.input.name ?? ""}"`,
-  }
-}
-
-function runPatch(p: ToolProps<typeof ApplyPatchTool>): ToolInline {
-  const files = p.metadata.files?.length ?? 0
-  if (files === 0) {
-    return {
-      icon: "%",
-      title: "Patch",
-    }
-  }
-
-  return {
-    icon: "%",
-    title: `Patch ${files} file${files === 1 ? "" : "s"}`,
   }
 }
 
@@ -470,33 +417,6 @@ function runLsp(p: ToolProps<typeof LspTool>): ToolInline {
   }
 }
 
-function runPlanExit(p: ToolProps<typeof PlanExitTool>): ToolInline {
-  return {
-    icon: "→",
-    title: text(p.frame.state.title) || "Switching to build agent",
-    mode: "block",
-    body: p.frame.status === "completed" ? text(p.frame.state.output) : undefined,
-  }
-}
-
-type PatchFile = Tool.InferMetadata<typeof ApplyPatchTool>["files"][number]
-
-function patchTitle(file: PatchFile): string {
-  const rel = file.relativePath
-  const from = file.filePath
-  if (file.type === "add") {
-    return `# Created ${rel || toolPath(from)}`
-  }
-  if (file.type === "delete") {
-    return `# Deleted ${rel || toolPath(from)}`
-  }
-  if (file.type === "move") {
-    return `# Moved ${toolPath(from)} -> ${rel || toolPath(file.movePath)}`
-  }
-
-  return `# Patched ${rel || toolPath(from)}`
-}
-
 function snapWrite(p: ToolProps<typeof WriteTool>): ToolSnapshot | undefined {
   const file = p.input.filePath || ""
   const content = p.input.content || ""
@@ -528,79 +448,6 @@ function snapEdit(p: ToolProps<typeof EditTool>): ToolSnapshot | undefined {
         file,
       },
     ],
-  }
-}
-
-function snapPatch(p: ToolProps<typeof ApplyPatchTool>): ToolSnapshot | undefined {
-  const files = list<PatchFile>(p.frame.meta.files)
-  if (files.length === 0) {
-    return undefined
-  }
-
-  const items = files.flatMap((file) => {
-    if (!file || typeof file !== "object") {
-      return []
-    }
-
-    const diff = typeof file.patch === "string" ? file.patch : ""
-    if (!diff.trim()) {
-      return []
-    }
-
-    const name = file.movePath || file.filePath || file.relativePath
-    return [
-      {
-        title: patchTitle(file),
-        diff,
-        file: name,
-        deletions: typeof file.deletions === "number" ? file.deletions : 0,
-      },
-    ]
-  })
-
-  if (items.length === 0) {
-    return undefined
-  }
-
-  return {
-    kind: "diff",
-    items,
-  }
-}
-
-function snapTask(p: ToolProps<typeof TaskTool>): ToolSnapshot {
-  const kind = Locale.titlecase(p.input.subagent_type || "general")
-  const desc = p.input.description
-  const title = text(p.frame.state.title)
-  const rows = [desc || title].filter((item): item is string => Boolean(item))
-
-  return {
-    kind: "task",
-    title: `# ${kind} Task`,
-    rows,
-    tail: "",
-  }
-}
-
-function snapTodo(p: ToolProps<typeof TodoWriteTool>): ToolSnapshot {
-  const items = list<{ status?: string; content?: string }>(p.frame.input.todos).flatMap((item) => {
-    const content = typeof item?.content === "string" ? item.content : ""
-    if (!content) {
-      return []
-    }
-
-    return [
-      {
-        status: typeof item.status === "string" ? item.status : "",
-        content,
-      },
-    ]
-  })
-
-  return {
-    kind: "todo",
-    items,
-    tail: "",
   }
 }
 
@@ -699,131 +546,6 @@ function scrollWriteStart(_: ToolProps<typeof WriteTool>): string {
 
 function scrollEditStart(_: ToolProps<typeof EditTool>): string {
   return ""
-}
-
-function scrollPatchStart(_: ToolProps<typeof ApplyPatchTool>): string {
-  return ""
-}
-
-function patchLine(file: PatchFile): string {
-  const type = file.type
-  const rel = file.relativePath
-  const from = file.filePath
-
-  if (type === "add") {
-    return `+ Created ${rel || toolPath(from)}`
-  }
-
-  if (type === "delete") {
-    return `- Deleted ${rel || toolPath(from)}`
-  }
-
-  if (type === "move") {
-    return `→ Moved ${toolPath(from)} → ${rel || toolPath(file.movePath)}`
-  }
-
-  return `~ Patched ${rel || toolPath(from)}`
-}
-
-function scrollPatchFinal(p: ToolProps<typeof ApplyPatchTool>): string {
-  if (p.frame.status === "error") {
-    return fail(p.frame)
-  }
-
-  const files = list<PatchFile>(p.frame.meta.files)
-  if (files.length === 0) {
-    const time = span(p.frame.state)
-    if (!time) {
-      return "patch"
-    }
-
-    return `patch · ${time}`
-  }
-
-  const show_updates = !files.some((file) => file?.type && file.type !== "update")
-  const shown = files.filter((file) => show_updates || file.type !== "update")
-  const rows = shown.slice(0, 6).map(patchLine)
-  if (shown.length > 6) {
-    rows.push(`... and ${shown.length - 6} more`)
-  }
-
-  if (rows.length > 0) {
-    return rows.join("\n")
-  }
-
-  return patchLine(files[0]!)
-}
-
-function scrollTaskStart(_: ToolProps<typeof TaskTool>): string {
-  return ""
-}
-
-function taskResult(output: string): string | undefined {
-  if (!output.trim()) {
-    return undefined
-  }
-
-  const match = output.match(/<task_result>\s*([\s\S]*?)\s*<\/task_result>/)
-  if (match) {
-    return match[1].trim() || undefined
-  }
-
-  const next = output
-    .split("\n")
-    .filter((line) => !line.startsWith("task_id:"))
-    .join("\n")
-    .trim()
-  return next || undefined
-}
-
-function scrollTaskFinal(p: ToolProps<typeof TaskTool>): string {
-  if (p.frame.status === "error") {
-    return fail(p.frame)
-  }
-
-  const kind = Locale.titlecase(p.input.subagent_type || "general")
-  const row = p.input.description || text(p.frame.state.title)
-  if (!row) {
-    return `# ${kind} Task`
-  }
-
-  return `# ${kind} Task\n${row}`
-}
-
-function scrollTodoStart(_: ToolProps<typeof TodoWriteTool>): string {
-  return ""
-}
-
-function scrollTodoFinal(p: ToolProps<typeof TodoWriteTool>): string {
-  const items = list<{ status?: string }>(p.input.todos)
-  const time = span(p.frame.state)
-  if (items.length === 0) {
-    if (!time) {
-      return "0 todos"
-    }
-
-    return `0 todos · ${time}`
-  }
-
-  const doneN = items.filter((item) => item.status === "completed").length
-  const runN = items.filter((item) => item.status === "in_progress").length
-  const left = items.length - doneN - runN
-  const tail = [`${items.length} total`]
-  if (doneN > 0) {
-    tail.push(`${doneN} done`)
-  }
-  if (runN > 0) {
-    tail.push(`${runN} active`)
-  }
-  if (left > 0) {
-    tail.push(`${left} pending`)
-  }
-
-  if (time) {
-    tail.push(time)
-  }
-
-  return tail.join(" · ")
 }
 
 function scrollQuestionStart(_: ToolProps<typeof QuestionTool>): string {
@@ -977,16 +699,6 @@ function permBash(p: ToolPermissionProps<typeof BashTool>): ToolPermissionInfo {
   }
 }
 
-function permTask(p: ToolPermissionProps<typeof TaskTool>): ToolPermissionInfo {
-  const type = p.input.subagent_type || "general"
-  const desc = p.input.description
-  return {
-    icon: "#",
-    title: `${Locale.titlecase(type)} Task`,
-    lines: desc ? [`◉ ${desc}`] : [],
-  }
-}
-
 function permWebfetch(p: ToolPermissionProps<typeof WebFetchTool>): ToolPermissionInfo {
   const url = p.input.url || ""
   return {
@@ -1071,19 +783,6 @@ const TOOL_RULES = {
     },
     permission: permEdit,
   },
-  apply_patch: {
-    view: {
-      output: false,
-      final: true,
-      snap: "diff",
-    },
-    run: runPatch,
-    snap: snapPatch,
-    scroll: {
-      start: scrollPatchStart,
-      final: scrollPatchFinal,
-    },
-  },
   batch: {
     view: {
       output: true,
@@ -1092,33 +791,6 @@ const TOOL_RULES = {
     run: runBatch,
     scroll: {
       start: () => "",
-    },
-  },
-  task: {
-    view: {
-      output: false,
-      final: true,
-      snap: "structured",
-    },
-    run: runTask,
-    snap: snapTask,
-    scroll: {
-      start: scrollTaskStart,
-      final: scrollTaskFinal,
-    },
-    permission: permTask,
-  },
-  todowrite: {
-    view: {
-      output: false,
-      final: true,
-      snap: "structured",
-    },
-    run: runTodo,
-    snap: snapTodo,
-    scroll: {
-      start: scrollTodoStart,
-      final: scrollTodoFinal,
     },
   },
   question: {
@@ -1220,16 +892,6 @@ const TOOL_RULES = {
     run: runSkill,
     scroll: {
       start: scrollSkillStart,
-    },
-  },
-  plan_exit: {
-    view: {
-      output: true,
-      final: false,
-    },
-    run: runPlanExit,
-    scroll: {
-      start: () => "",
     },
   },
 } as const satisfies ToolRegistry
@@ -1384,17 +1046,6 @@ function textBody(content: string): RunEntryBody | undefined {
   }
 }
 
-function markdownBody(content: string): RunEntryBody | undefined {
-  if (!content) {
-    return undefined
-  }
-
-  return {
-    type: "markdown",
-    content,
-  }
-}
-
 function structuredBody(commit: StreamCommit, raw: string): RunEntryBody | undefined {
   const snap = toolSnapshot(commit, raw)
   if (!snap) {
@@ -1435,19 +1086,6 @@ export function toolEntryBody(commit: StreamCommit, raw: string): RunEntryBody |
 
   const ctx = toolFrame(commit, raw)
   const view = toolView(ctx.name)
-
-  if (ctx.name === "task") {
-    if (commit.phase === "start") {
-      return undefined
-    }
-
-    if (commit.phase === "final" && ctx.status === "completed") {
-      const result = taskResult(text(ctx.state.output))
-      if (result) {
-        return markdownBody(result)
-      }
-    }
-  }
 
   if (commit.phase === "progress" && !view.output) {
     return undefined

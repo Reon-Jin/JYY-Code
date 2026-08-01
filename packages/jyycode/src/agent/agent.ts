@@ -14,7 +14,6 @@ import type { TaskRole } from "@/agent-cluster/schema"
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
 import PROMPT_EXPLORE from "./prompt/explore.txt"
-import PROMPT_SCOUT from "./prompt/scout.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import { Permission } from "@/permission"
@@ -146,6 +145,7 @@ export const layer = Layer.effect(
             defaults,
             Permission.fromConfig({
               todowrite: "deny",
+              plan_update: "deny",
               task: "deny",
             }),
             user,
@@ -182,6 +182,7 @@ export const layer = Layer.effect(
               Permission.fromConfig({
                 question: "allow",
                 plan_exit: "allow",
+                plan_update: "deny",
                 external_directory: {
                   [path.join(Global.Path.data, "plans", "*")]: "allow",
                 },
@@ -205,27 +206,12 @@ export const layer = Layer.effect(
             options: {},
             permission: Permission.merge(
               defaults,
-              user,
               Permission.fromConfig({
-                "*": "deny",
-                task: "allow",
-                task_status: "allow",
-                agent_cluster_review: "allow",
-                todowrite: "allow",
-                // Read-only verification tools — the primary MUST directly
-                // verify subagent outputs before calling agent_cluster_review.
-                read: "allow",
-                glob: "allow",
-                grep: "allow",
-                bash: "allow",
-                ls: "allow",
-                // Write/edit tools — the primary may need to fix integration
-                // issues between subagent outputs (e.g. mismatched exports).
-                write: "allow",
-                edit: "allow",
-                multi_edit: "allow",
-                skill: { "*": "deny" },
+                question: "allow",
+                plan_enter: "allow",
               }),
+              user,
+              Permission.fromConfig({ skill: primarySkills }),
             ),
             mode: "primary",
             native: true,
@@ -239,6 +225,7 @@ export const layer = Layer.effect(
               defaults,
               Permission.fromConfig({
                 todowrite: "deny",
+                plan_update: "deny",
                 skill: roleSkillPermission("general"),
               }),
               user,
@@ -280,38 +267,6 @@ export const layer = Layer.effect(
             mode: "subagent",
             native: true,
           },
-          ...(flags.experimentalScout
-            ? {
-                scout: {
-                  name: "scout",
-                  permission: Permission.merge(
-                    defaults,
-                    Permission.fromConfig({
-                      "*": "deny",
-                      grep: "allow",
-                      glob: "allow",
-                      webfetch: "allow",
-                      websearch: "allow",
-                      read: "allow",
-                      skill: roleSkillPermission("scout"),
-                      repo_clone: "allow",
-                      repo_overview: "allow",
-                      external_directory: {
-                        ...readonlyExternalDirectory,
-                        [path.join(Global.Path.repos, "*")]: "allow",
-                      },
-                    }),
-                    user,
-                    Permission.fromConfig({ skill: roleSkillPermission("scout") }),
-                  ),
-                  description: `Docs and dependency-source specialist. Use this when you need to inspect external documentation, clone dependency repositories into the managed cache, and research library implementation details without modifying the user's workspace.`,
-                  prompt: [roleSystemPrompt("scout"), PROMPT_SCOUT].join("\n\n"),
-                  options: {},
-                  mode: "subagent" as const,
-                  native: true,
-                },
-              }
-            : {}),
           compaction: {
             name: "compaction",
             mode: "primary",

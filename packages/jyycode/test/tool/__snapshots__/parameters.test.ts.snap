@@ -1,21 +1,5 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
-exports[`tool parameters JSON Schema (wire shape) apply_patch 1`] = `
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "properties": {
-    "patchText": {
-      "description": "The full patch text that describes all changes to be made",
-      "type": "string",
-    },
-  },
-  "required": [
-    "patchText",
-  ],
-  "type": "object",
-}
-`;
-
 exports[`tool parameters JSON Schema (wire shape) bash 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -65,27 +49,41 @@ exports[`tool parameters JSON Schema (wire shape) edit 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "edits": {
+      "description": "Ordered edits to apply atomically to one file",
+      "items": {
+        "properties": {
+          "newString": {
+            "description": "Replacement text. Must differ from oldString.",
+            "type": "string",
+          },
+          "oldString": {
+            "description": "The exact text to replace",
+            "type": "string",
+          },
+          "replaceAll": {
+            "description": "Replace all occurrences of oldString for this edit. Defaults to false.",
+            "type": "boolean",
+          },
+        },
+        "required": [
+          "oldString",
+          "newString",
+        ],
+        "type": "object",
+      },
+      "maxItems": 50,
+      "minItems": 1,
+      "type": "array",
+    },
     "filePath": {
       "description": "The absolute path to the file to modify",
       "type": "string",
     },
-    "newString": {
-      "description": "The text to replace it with (must be different from oldString)",
-      "type": "string",
-    },
-    "oldString": {
-      "description": "The text to replace",
-      "type": "string",
-    },
-    "replaceAll": {
-      "description": "Replace all occurrences of oldString (default false)",
-      "type": "boolean",
-    },
   },
   "required": [
     "filePath",
-    "oldString",
-    "newString",
+    "edits",
   ],
   "type": "object",
 }
@@ -315,138 +313,7 @@ exports[`tool parameters JSON Schema (wire shape) skill 1`] = `
 }
 `;
 
-exports[`tool parameters JSON Schema (wire shape) task 1`] = `
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "properties": {
-    "background": {
-      "description": "When true, launch the subagent in the background and return immediately",
-      "type": "boolean",
-    },
-    "command": {
-      "description": "The command that triggered this task",
-      "type": "string",
-    },
-    "context": {
-      "description": "Optional structured context for the subagent. Use text for short notes, file for a relevant file path, and directory for a relevant directory path.",
-      "items": {
-        "properties": {
-          "note": {
-            "type": "string",
-          },
-          "type": {
-            "enum": [
-              "text",
-              "file",
-              "directory",
-            ],
-            "type": "string",
-          },
-          "value": {
-            "type": "string",
-          },
-        },
-        "required": [
-          "type",
-          "value",
-        ],
-        "type": "object",
-      },
-      "type": "array",
-    },
-    "description": {
-      "description": "A short (3-5 words) description of the task",
-      "type": "string",
-    },
-    "fork": {
-      "description": "When true, inherit recent parent conversation context. Use for continuing a multi-file investigation or refactor where the child needs the same background.",
-      "type": "boolean",
-    },
-    "isolation": {
-      "description": "Optional isolation mode. Set to worktree when the subagent may edit files in parallel without touching the parent working tree.",
-      "enum": [
-        "worktree",
-      ],
-      "type": "string",
-    },
-    "merge": {
-      "description": "When isolation=worktree, set merge=auto to review the child worktree, commit its changes on the child branch, and merge that branch into the parent session branch after the task succeeds.",
-      "enum": [
-        "auto",
-      ],
-      "type": "string",
-    },
-    "model": {
-      "description": "Optional model override for this subagent task. Use provider/model when possible; a bare model id must match exactly one configured provider.",
-      "type": "string",
-    },
-    "prompt": {
-      "description": "The task for the agent to perform",
-      "type": "string",
-    },
-    "resume_session_id": {
-      "description": "In cluster mode, resume an existing completed subagent session for a new planned task while task_id remains the new plan task id",
-      "type": "string",
-    },
-    "subagent_type": {
-      "description": "The type of specialized agent to use for this task",
-      "type": "string",
-    },
-    "task_id": {
-      "description": "In cluster mode, use the current plan task id for initial dispatch or a prior ses_... id for revision. Outside cluster mode, pass a prior task_id only to resume that subagent session.",
-      "type": "string",
-    },
-    "worktree_name": {
-      "description": "Optional short name for the isolated worktree when isolation=worktree",
-      "type": "string",
-    },
-  },
-  "required": [
-    "description",
-    "prompt",
-    "subagent_type",
-  ],
-  "type": "object",
-}
-`;
 
-exports[`tool parameters JSON Schema (wire shape) todo 1`] = `
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "properties": {
-    "todos": {
-      "description": "The updated todo list",
-      "items": {
-        "properties": {
-          "content": {
-            "description": "Brief description of the task",
-            "type": "string",
-          },
-          "priority": {
-            "description": "Priority level of the task: high, medium, low",
-            "type": "string",
-          },
-          "status": {
-            "description": "Current status of the task: pending, in_progress, completed, cancelled",
-            "type": "string",
-          },
-        },
-        "required": [
-          "content",
-          "status",
-          "priority",
-        ],
-        "type": "object",
-      },
-      "type": "array",
-    },
-  },
-  "required": [
-    "todos",
-  ],
-  "type": "object",
-}
-`;
 
 exports[`tool parameters JSON Schema (wire shape) webfetch 1`] = `
 {

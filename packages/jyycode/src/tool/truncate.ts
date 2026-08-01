@@ -3,7 +3,6 @@ import { Cause, Duration, Effect, Layer, Option, Schedule, Context } from "effec
 import path from "path"
 import type { Agent } from "../agent/agent"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
-import { evaluate } from "@/permission/evaluate"
 import { Config } from "@/config/config"
 import { Identifier } from "../id/id"
 import * as Log from "@jyycode-ai/core/util/log"
@@ -55,11 +54,6 @@ export interface Options {
   maxBytes?: number
   direction?: "head" | "tail"
   toolName?: string
-}
-
-function hasTaskTool(agent?: Agent.Info) {
-  if (!agent?.permission) return false
-  return evaluate("task", "*", agent.permission).action !== "deny"
 }
 
 export interface Interface {
@@ -122,7 +116,7 @@ export const layer = Layer.effect(
     const output = Effect.fn("Truncate.output")(function* (
       text: string,
       options: Options = {},
-      agent?: Agent.Info,
+      _agent?: Agent.Info,
       sessionId?: string,
     ) {
       const resolved = yield* limits(options.toolName)
@@ -168,9 +162,7 @@ export const layer = Layer.effect(
       const preview = out.join("\n")
       const file = yield* write(text, sessionId)
 
-      const hint = hasTaskTool(agent)
-        ? `The tool call succeeded but the output was truncated. Full output saved to: ${file}\nUse the Task tool to have explore agent process this file with Grep and Read (with offset/limit). Do NOT read the full file yourself - delegate to save context.`
-        : `The tool call succeeded but the output was truncated. Full output saved to: ${file}\nUse Grep to search the full content or Read with offset/limit to view specific sections.`
+      const hint = `The tool call succeeded but the output was truncated. Full output saved to: ${file}\nUse Grep to search the full content or Read with offset/limit to view specific sections.`
 
       return {
         content:

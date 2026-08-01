@@ -76,16 +76,16 @@ describe("TodoPanel", () => {
       </DataProvider>
     ))
 
-    const panel = screen.getByRole("region", { name: "计划" })
+    const panel = screen.getByRole("region", { name: "方案" })
     expect(await screen.findByRole("listitem")).toHaveTextContent("未开始")
 
     backend.setTodos("ses_1", [{ content: "Realtime task", status: "in_progress", priority: "high" }])
     await waitFor(() => expect(screen.getByRole("listitem")).toHaveTextContent("进行中"))
     expect(screen.getByRole("listitem")).toHaveAttribute("aria-current", "step")
-    expect(screen.getByRole("region", { name: "计划" })).toBe(panel)
+    expect(screen.getByRole("region", { name: "方案" })).toBe(panel)
 
     backend.setTodos("ses_1", [{ content: "Realtime task", status: "completed", priority: "high" }])
     await waitFor(() => expect(screen.getByRole("listitem")).toHaveTextContent("已完成"))
-    expect(screen.getByRole("region", { name: "计划" })).toBe(panel)
+    expect(screen.getByRole("region", { name: "方案" })).toBe(panel)
   })
 })

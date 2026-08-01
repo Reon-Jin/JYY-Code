@@ -1,27 +1,17 @@
-import { PlanExitTool } from "./plan"
 import { Session } from "@/session/session"
 import { QuestionTool } from "./question"
 import { ShellTool } from "./shell"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
-import { LsTool } from "./ls"
-import { MultiEditTool } from "./multi-edit"
-import { KillProcessTool, ProcessOutputTool, ProcessStartTool } from "./process"
+import { ProcessTool } from "./process"
 import { ReadTool } from "./read"
-import { TaskTool } from "./task"
-import { TaskStatusTool } from "./task_status"
-import { AgentClusterReviewTool } from "./agent-cluster-review"
-import { TodoWriteTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
-import { SendMessageTool } from "./send-message"
-import { SendFileTool } from "./send-file"
 import { MemoryTool } from "./memory"
 import * as Tool from "./tool"
-import { ToolJsonSchema } from "./json-schema"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@jyycode-ai/plugin"
 import type { JSONSchema7, JSONSchema7Definition } from "@ai-sdk/provider"
@@ -31,13 +21,10 @@ import { Plugin } from "../plugin"
 import { Provider } from "@/provider/provider"
 import { ProviderID, type ModelID } from "../provider/schema"
 import { WebSearchTool } from "./websearch"
-import { RepoCloneTool } from "./repo_clone"
-import { RepoOverviewTool } from "./repo_overview"
 import { RepositoryCache } from "@/reference/repository-cache"
 import * as Log from "@jyycode-ai/core/util/log"
 import { LspTool } from "./lsp"
 import * as Truncate from "./truncate"
-import { ApplyPatchTool } from "./apply_patch"
 import { Glob } from "@jyycode-ai/core/util/glob"
 import path from "path"
 import { pathToFileURL } from "url"
@@ -58,7 +45,6 @@ import { Bus } from "../bus"
 import { Agent } from "../agent/agent"
 import { Git } from "@/git"
 import { Skill } from "../skill"
-import { Permission } from "@/permission"
 import { Reference } from "@/reference/reference"
 import { BackgroundJob } from "@/background/job"
 import { BackgroundProcess } from "@/process/job"
@@ -74,17 +60,11 @@ export function webSearchEnabled(_providerID: ProviderID, _flags = { exa: false,
   return true
 }
 
-type TaskDef = Tool.InferDef<typeof TaskTool>
-type TaskStatusDef = Tool.InferDef<typeof TaskStatusTool>
-type AgentClusterReviewDef = Tool.InferDef<typeof AgentClusterReviewTool>
 type ReadDef = Tool.InferDef<typeof ReadTool>
 
 type State = {
   custom: Tool.Def[]
   builtin: Tool.Def[]
-  task: TaskDef
-  taskStatus: TaskStatusDef
-  agentClusterReview: AgentClusterReviewDef
   read: ReadDef
 }
 
@@ -116,7 +96,7 @@ const ToolSearchParameters = Schema.Struct({
 export interface Interface {
   readonly ids: () => Effect.Effect<string[]>
   readonly all: () => Effect.Effect<Tool.Def[]>
-  readonly named: () => Effect.Effect<{ task: TaskDef; read: ReadDef }>
+  readonly named: () => Effect.Effect<{ read: ReadDef }>
   readonly tools: (model: {
     providerID: ProviderID
     modelID: ModelID
@@ -160,39 +140,24 @@ export const layer: Layer.Layer<
   Effect.gen(function* () {
     const config = yield* Config.Service
     const plugin = yield* Plugin.Service
-    const agents = yield* Agent.Service
     const skill = yield* Skill.Service
     const truncate = yield* Truncate.Service
     const flags = yield* RuntimeFlags.Service
     const bus = yield* Bus.Service
 
     const invalid = yield* InvalidTool
-    const task = yield* TaskTool
-    const taskStatus = yield* TaskStatusTool
-    const agentClusterReview = yield* AgentClusterReviewTool
     const read = yield* ReadTool
-    const ls = yield* LsTool
     const question = yield* QuestionTool
-    const todo = yield* TodoWriteTool
     const lsptool = yield* LspTool
-    const plan = yield* PlanExitTool
     const webfetch = yield* WebFetchTool
     const websearch = yield* WebSearchTool
-    const repoClone = yield* RepoCloneTool
-    const repoOverview = yield* RepoOverviewTool
     const shell = yield* ShellTool
     const globtool = yield* GlobTool
     const writetool = yield* WriteTool
     const edit = yield* EditTool
-    const multiEdit = yield* MultiEditTool
-    const processStart = yield* ProcessStartTool
-    const processOutput = yield* ProcessOutputTool
-    const killProcess = yield* KillProcessTool
+    const process = yield* ProcessTool
     const greptool = yield* GrepTool
-    const patchtool = yield* ApplyPatchTool
     const skilltool = yield* SkillTool
-    const sendMessage = yield* SendMessageTool
-    const sendFile = yield* SendFileTool
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
     const memtool = memory ? yield* MemoryTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
     const agent = yield* Agent.Service
@@ -295,30 +260,16 @@ export const layer: Layer.Layer<
           invalid: Tool.init(invalid),
           shell: Tool.init(shell),
           read: Tool.init(read),
-          ls: Tool.init(ls),
           glob: Tool.init(globtool),
           grep: Tool.init(greptool),
           edit: Tool.init(edit),
-          multi_edit: Tool.init(multiEdit),
-          process_start: Tool.init(processStart),
-          process_output: Tool.init(processOutput),
-          kill_process: Tool.init(killProcess),
+          process: Tool.init(process),
           write: Tool.init(writetool),
-          task: Tool.init(task),
-          task_status: Tool.init(taskStatus),
-          agent_cluster_review: Tool.init(agentClusterReview),
           fetch: Tool.init(webfetch),
-          todo: Tool.init(todo),
           search: Tool.init(websearch),
-          repo_clone: Tool.init(repoClone),
-          repo_overview: Tool.init(repoOverview),
           skill: Tool.init(skilltool),
-          patch: Tool.init(patchtool),
           question: Tool.init(question),
           lsp: Tool.init(lsptool),
-          plan: Tool.init(plan),
-          send_message: Tool.init(sendMessage),
-          send_file: Tool.init(sendFile),
           memory: memtool ? Tool.init(memtool) : Effect.succeed(undefined),
         })
 
@@ -329,33 +280,17 @@ export const layer: Layer.Layer<
             ...(questionEnabled ? [tool.question] : []),
             tool.shell,
             tool.read,
-            tool.ls,
             tool.glob,
             tool.grep,
             tool.edit,
-            tool.multi_edit,
-            tool.process_start,
-            tool.process_output,
-            tool.kill_process,
+            tool.process,
             tool.write,
-            tool.task,
-            ...(flags.experimentalBackgroundSubagents ? [tool.task_status] : []),
-            tool.agent_cluster_review,
             tool.fetch,
-            tool.todo,
             tool.search,
-            ...(flags.experimentalScout ? [tool.repo_clone, tool.repo_overview] : []),
             tool.skill,
-            tool.patch,
             ...(flags.experimentalLspTool ? [tool.lsp] : []),
-            ...(flags.experimentalPlanMode && flags.client === "cli" ? [tool.plan] : []),
             ...(tool.memory ? [tool.memory] : []),
-            tool.send_message,
-            tool.send_file,
           ],
-          task: tool.task,
-          taskStatus: tool.task_status,
-          agentClusterReview: tool.agent_cluster_review,
           read: tool.read,
         }
       }),
@@ -389,48 +324,14 @@ export const layer: Layer.Layer<
       ].join("\n")
     })
 
-    const describeTask = Effect.fn("ToolRegistry.describeTask")(function* (agent: Agent.Info) {
-      const list = yield* allowedTaskAgents(agent)
-      const description = list
-        .map(
-          (item) =>
-            `- ${item.name}: ${item.description ?? "This subagent should only be called manually by the user."}`,
-        )
-        .join("\n")
-      return ["Available agent types and the tools they have access to:", description].join("\n")
-    })
-
-    const allowedTaskAgents = Effect.fn("ToolRegistry.allowedTaskAgents")(function* (agent: Agent.Info) {
-      const items = (yield* agents.list()).filter((item) => item.mode !== "primary" && item.hidden !== true)
-      const filtered = items.filter(
-        (item) => Permission.evaluate("task", item.name, agent.permission).action !== "deny",
-      )
-      return filtered.toSorted((a, b) => a.name.localeCompare(b.name))
-    })
-
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
       const s = yield* InstanceState.get(state)
       const available = [
         ...s.builtin.filter((tool) => input.includeMemory !== false || tool.id !== MemoryTool.id),
-        ...(input.agent.name === "cluster" && !s.builtin.some((tool) => tool.id === TaskStatusTool.id)
-          ? [s.taskStatus]
-          : []),
-        ...(input.agent.name === "cluster" && !s.builtin.some((tool) => tool.id === AgentClusterReviewTool.id)
-          ? [s.agentClusterReview]
-          : []),
         ...s.custom,
       ]
-      const filtered = available.filter((tool) => {
-        const usePatch =
-          input.modelID.includes("gpt-") && !input.modelID.includes("oss") && !input.modelID.includes("gpt-4")
-        if (tool.id === ApplyPatchTool.id) return usePatch
-        if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
-
-        return true
-      })
-
       const resolved = yield* Effect.forEach(
-        filtered,
+        available,
         Effect.fnUntraced(function* (tool: Tool.Def) {
           using _ = log.time(tool.id)
           const output = {
@@ -443,31 +344,17 @@ export const layer: Layer.Layer<
             output.parameters === tool.parameters || output.jsonSchema !== tool.jsonSchema
               ? output.jsonSchema
               : undefined
-          const clusterTask = tool.id === TaskTool.id && input.agent.name === "cluster"
-          const taskAgents = tool.id === TaskTool.id ? yield* allowedTaskAgents(input.agent) : undefined
-          const taskJsonSchema = taskAgents
-            ? withTaskAgentEnum(
-                clusterTask
-                  ? ToolJsonSchema.fromSchema(output.parameters as Schema.Top)
-                  : (output.jsonSchema ?? ToolJsonSchema.fromSchema(output.parameters as Schema.Top)),
-                taskAgents,
-              )
-            : undefined
           return {
             id: tool.id,
             description: [
               output.description,
-              clusterTask
-                ? "Cluster mode: task calls run as background subagents by default. Dispatch all ready independent tasks first, then use task_status to poll or wait for results."
-                : undefined,
-              tool.id === TaskTool.id ? yield* describeTask(input.agent) : undefined,
               tool.id === SkillTool.id ? yield* describeSkill(input.agent) : undefined,
             ]
               .filter(Boolean)
               .join("\n"),
             parameters: output.parameters,
             catalog: tool.catalog,
-            jsonSchema: taskJsonSchema ?? (clusterTask ? undefined : jsonSchema),
+            jsonSchema,
             execute: tool.execute,
             formatValidationError: tool.formatValidationError,
           }
@@ -479,7 +366,7 @@ export const layer: Layer.Layer<
 
     const named: Interface["named"] = Effect.fn("ToolRegistry.named")(function* () {
       const s = yield* InstanceState.get(state)
-      return { task: s.task, read: s.read }
+      return { read: s.read }
     })
 
     return Service.of({ ids, all, named, tools })
@@ -555,29 +442,6 @@ function toolSearchDef(tools: Tool.Def[], bus: Bus.Interface): Tool.Def<typeof T
         }
       }),
   }
-}
-
-function withTaskAgentEnum(schema: JSONSchema7, agents: Agent.Info[]): JSONSchema7 {
-  const cloned = JSON.parse(JSON.stringify(schema)) as JSONSchema7
-  if (typeof cloned === "boolean") return cloned
-  const properties = cloned.properties
-  if (!properties || typeof properties !== "object") return cloned
-  const subagent = properties.subagent_type
-  if (!subagent || typeof subagent === "boolean") return cloned
-  const enumValues = agents.map((item) => item.name)
-  properties.subagent_type = {
-    ...subagent,
-    enum: enumValues,
-    description: [
-      typeof subagent.description === "string" ? subagent.description : "The type of specialized agent to use",
-      "",
-      "Allowed values:",
-      ...agents.map(
-        (item) => `- ${item.name}: ${item.description ?? "This subagent should only be called manually by the user."}`,
-      ),
-    ].join("\n"),
-  }
-  return cloned
 }
 
 function isZodType(value: unknown): value is z.ZodType {

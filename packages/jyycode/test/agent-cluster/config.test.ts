@@ -10,10 +10,6 @@ describe("ConfigAgentCluster.Default", () => {
     expect(ConfigAgentCluster.Default.default_on).toBe(false)
   })
 
-  test("disable_for_routes contains 'mail'", () => {
-    expect(ConfigAgentCluster.Default.disable_for_routes).toContain("mail")
-  })
-
   test("planner_model defaults to deepseek-v4-flash", () => {
     expect(ConfigAgentCluster.Default.planner_model).toBe("deepseek-v4-flash")
   })
@@ -100,7 +96,7 @@ describe("ConfigAgentCluster.resolve", () => {
 
   test("disable_for_routes preserves default when not provided", () => {
     const result = ConfigAgentCluster.resolve({})
-    expect(result.disable_for_routes).toEqual(["mail"])
+    expect(result.disable_for_routes).toEqual([])
   })
 
   test("disable_for_routes can be overridden", () => {

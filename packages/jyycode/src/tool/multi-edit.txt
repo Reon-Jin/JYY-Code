@@ -1,3 +1,0 @@
-Apply multiple exact string replacements to a single file atomically.
-
-Use this when you need to make several coordinated edits in one file. The edits are applied in order to an in-memory copy first; if any edit fails, the file is not changed.

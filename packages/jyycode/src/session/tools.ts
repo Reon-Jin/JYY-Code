@@ -8,21 +8,30 @@ import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
 import { ModelID } from "@/provider/schema"
 import { Plugin } from "@/plugin"
-import type { TaskPromptOps } from "@/tool/task"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions } from "ai"
 import { Effect } from "effect"
 import { MessageV2 } from "./message-v2"
 import * as Session from "./session"
 import { SessionProcessor } from "./processor"
-import { PartID } from "./schema"
+import { PartID, type SessionID } from "./schema"
+import type { SessionPrompt } from "./prompt"
 import * as Log from "@jyycode-ai/core/util/log"
 import { EffectBridge } from "@/effect/bridge"
 import { Bus } from "@/bus"
 import { ToolTelemetry } from "@/tool/telemetry"
-import { RuntimeFlags } from "@/effect/runtime-flags"
-import { Config } from "@/config/config"
 
 const log = Log.create({ service: "session.tools" })
+
+export interface TaskPromptOps {
+  cancel(sessionID: SessionID): Effect.Effect<void>
+  resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
+  prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
+  loop(input: SessionPrompt.LoopInput): Effect.Effect<MessageV2.WithParts>
+  /** Set when running in Agent Cluster mode; the durable root session id. */
+  agentClusterSessionID?: SessionID
+  /** Live text accumulated for the current assistant step before tool execution. */
+  currentAssistantText?: () => string
+}
 
 export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   agent: Agent.Info
@@ -42,8 +51,6 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const registry = yield* ToolRegistry.Service
   const mcp = yield* MCP.Service
   const bus = yield* Bus.Service
-  const flags = yield* RuntimeFlags.Service
-  const config = yield* Config.Service
   let schemaBytes = 0
 
   const context = (args: Record<string, unknown>, options: ToolExecutionOptions): Tool.Context => ({

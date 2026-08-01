@@ -230,7 +230,6 @@ export const Info = Schema.Struct({
         // subagent
         general: Schema.optional(ConfigAgent.Info),
         explore: Schema.optional(ConfigAgent.Info),
-        scout: Schema.optional(ConfigAgent.Info),
         // specialized
         title: Schema.optional(ConfigAgent.Info),
         summary: Schema.optional(ConfigAgent.Info),
@@ -341,40 +340,6 @@ export const Info = Schema.Struct({
       }),
     }),
   ),
-  communication: Schema.optional(
-    Schema.Struct({
-      email: Schema.optional(
-        Schema.Struct({
-          smtpHost: Schema.String,
-          smtpPort: Schema.optional(Schema.Number),
-          imapHost: Schema.optional(Schema.String),
-          imapPort: Schema.optional(Schema.Number),
-          mailbox: Schema.optional(Schema.String),
-          username: Schema.String,
-          password: Schema.String,
-          from: Schema.String,
-          authMethod: Schema.optional(Schema.Literals(["password", "oauth2"])),
-          clientId: Schema.optional(Schema.String),
-          tenant: Schema.optional(Schema.String),
-          refreshToken: Schema.optional(Schema.String),
-        }),
-      ),
-      finish: Schema.optional(
-        Schema.Struct({
-          enabled: Schema.optional(Schema.Boolean),
-          to: Schema.optional(Schema.String),
-          subject: Schema.optional(Schema.String),
-        }),
-      ),
-      inbox: Schema.optional(
-        Schema.Struct({
-          enabled: Schema.optional(Schema.Boolean),
-          owner: Schema.optional(Schema.String),
-          pollSeconds: Schema.optional(Schema.Number),
-        }),
-      ),
-    }),
-  ).annotate({ description: "Communication settings for WeChat, QQ, and Email messaging" }),
 }).annotate({ identifier: "Config" })
 
 // Uses the shared `DeepMutable` from `@jyycode-ai/core/schema`. See the definition

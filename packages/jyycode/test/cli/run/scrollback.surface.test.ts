@@ -227,50 +227,8 @@ test("holds markdown code blocks until final commit and keeps newline ownership"
   }
 })
 
-test("renders todo and question summaries without boilerplate footer copy", async () => {
+test("renders question summaries without boilerplate footer copy", async () => {
   const cases = [
-    {
-      title: "# Todos",
-      include: [
-        "[✓] List files under `run/`",
-        "[•] Count functions in each `run/` file",
-        "[ ] Mark each tracking item complete",
-      ],
-      exclude: ["Updating", "todos completed"],
-      start: toolCommit({
-        tool: "todowrite",
-        phase: "start",
-        toolState: "running",
-        state: {
-          status: "running",
-          input: {
-            todos: [
-              { status: "completed", content: "List files under `run/`" },
-              { status: "in_progress", content: "Count functions in each `run/` file" },
-              { status: "pending", content: "Mark each tracking item complete" },
-            ],
-          },
-          time: { start: 1 },
-        },
-      }),
-      final: toolCommit({
-        tool: "todowrite",
-        phase: "final",
-        toolState: "completed",
-        state: {
-          status: "completed",
-          input: {
-            todos: [
-              { status: "completed", content: "List files under `run/`" },
-              { status: "in_progress", content: "Count functions in each `run/` file" },
-              { status: "pending", content: "Mark each tracking item complete" },
-            ],
-          },
-          metadata: {},
-          time: { start: 1, end: 4 },
-        },
-      }),
-    },
     {
       title: "# Questions",
       include: ["What should I work on in the codebase next?", "Bug fix"],
@@ -768,31 +726,19 @@ test("does not emit blank patch snapshots between edit and task", async () => {
     take()
     await out.scrollback.append(
       toolCommit({
-        tool: "apply_patch",
+        tool: "edit",
         phase: "final",
         toolState: "completed",
         state: {
           status: "completed",
           input: {
-            patchText: "*** Begin Patch\n*** End Patch",
+            filePath: "src/demo-format.ts",
+            edits: [{ oldString: "export const demo = 1", newString: "export const demo = 42" }],
           },
           output: "",
-          title: "apply_patch",
+          title: "edit",
           metadata: {
-            files: [
-              {
-                type: "update",
-                filePath: "src/demo-format.ts",
-                relativePath: "src/demo-format.ts",
-                diff: "@@ -1 +1 @@\n-export const demo = 1\n+export const demo = 42\n",
-                deletions: 1,
-              },
-              {
-                type: "add",
-                filePath: "README-demo.md",
-                relativePath: "README-demo.md",
-              },
-            ],
+            diff: "@@ -1 +1 @@\n-export const demo = 1\n+export const demo = 42\n",
           },
           time: { start: 2, end: 3 },
         },
@@ -822,10 +768,9 @@ test("does not emit blank patch snapshots between edit and task", async () => {
     take()
 
     const output = lines.join("\n")
-    expect(output).toContain("+ Created README-demo.md")
+    expect(output).toContain("# Edited src/demo-format.ts")
     expect(output).not.toContain("~ Patched src/demo-format.ts")
-    expect(output).toContain("+ Created README-demo.md\n\n# Explore Task")
-    expect(output).not.toContain("+ Created README-demo.md\n\n\n# Explore Task")
+    expect(output).not.toContain("\n\n\n# Explore Task")
   } finally {
     out.scrollback.destroy()
   }
@@ -914,54 +859,6 @@ test("renders structured write finals once as code blocks", async () => {
       expect(output).toContain("# Wrote src/a.ts")
       expect(output).toMatch(/1\s+const x = 1/)
       expect(output).toMatch(/2\s+const y = 2/)
-    } finally {
-      destroy(commits)
-    }
-  } finally {
-    out.scrollback.destroy()
-  }
-})
-
-test("renders promoted task markdown without a leading blank row", async () => {
-  const out = await setup()
-
-  try {
-    await out.scrollback.append(
-      toolCommit({
-        tool: "task",
-        phase: "final",
-        toolState: "completed",
-        state: {
-          status: "completed",
-          input: {
-            description: "Explore run.ts",
-            subagent_type: "explore",
-          },
-          output: [
-            "task_id: child-1 (for resuming to continue this task if needed)",
-            "",
-            "<task_result>",
-            "Location: `/tmp/run.ts`",
-            "",
-            "Summary:",
-            "- Local interactive mode",
-            "- Attach mode",
-            "</task_result>",
-          ].join("\n"),
-          metadata: {
-            sessionId: "child-1",
-          },
-          time: { start: 1, end: 2 },
-        },
-      }),
-    )
-
-    const commits = claim(out.renderer)
-    try {
-      const output = render(commits)
-      expect(output.startsWith("\n")).toBe(false)
-      expect(output).toContain("Summary:")
-      expect(output).toContain("Local interactive mode")
     } finally {
       destroy(commits)
     }
