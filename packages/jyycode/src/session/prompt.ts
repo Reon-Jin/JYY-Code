@@ -172,17 +172,14 @@ export const layer = Layer.effect(
           .join("\n")
         const isUserPhase = input.phase === "user"
         const prompt = [
-          "You are a semantic memory compressor. Rewrite the single task-memory entry for this session and output a JSON object.",
-          "This is semantic compression: preserve intent, constraints, decisions, and outcomes in concise natural language. Never shorten by slicing text and never use ellipses as a truncation marker.",
-          "The task entry is a session-wide executive summary, not a summary of the latest turn. Merge the previous task memory, the full conversation history, and the current turn. Preserve the original goal, material constraints and decisions, completed milestones, and the current result or next state; only discard superseded or low-value details. The returned task is a complete replacement, not a delta.",
+          "You are a semantic memory compressor. Rewrite this session's single task-memory entry and output one JSON object.",
+          "Merge the previous task memory, the full conversation history, and the current turn into a session-wide executive summary: a complete replacement, not a delta, and never a summary of only the latest exchange. Preserve intent, constraints, decisions, milestones, and the current state; discard superseded details. Never shorten by slicing text or using ellipses.",
           isUserPhase
-            ? 'This update runs immediately after a user prompt. Summarize the request as A and task.content must have exactly the form "用户要求<A>"; do not include method or learned knowledge because the assistant has not answered yet.'
-            : 'This update runs immediately before the assistant answer is returned. Summarize the request as A, the method/steps used as B, and the learned knowledge or reusable experience as C. task.content must have exactly the form "用户要求<A>，我用了<B>，最终学会了<C>".',
-          "A and C must each be at most 100 Unicode characters, and B must be at most 180 Unicode characters. Prefixes and punctuation do not count. Rephrase semantically to fit; never truncate or add ellipses. The LLM must summarize A, B, and C from the previous memory, conversation, and current turn; never produce an entry that describes only the latest user/assistant exchange.",
-          "A task entry is mandatory on every phase, including greetings and prompts containing stable user facts. Always set shouldUpdate to true and always return task.",
-          "Put explicit stable user identity facts or long-term preferences in user as well; this never replaces the mandatory task entry.",
-          "Every keyword must contain 2 to 4 characters. Return one to three keywords per candidate.",
-          "The service supplies sessionID and date. Do not include them.",
+            ? 'This update runs immediately after a user prompt. task.content must have exactly the form "用户要求<A>" — no method or learned knowledge yet.'
+            : 'This update runs immediately before the assistant answer is returned. task.content must have exactly the form "用户要求<A>，我用了<B>，最终学会了<C>".',
+          "Limits excluding prefixes and punctuation: A ≤100, B ≤180, C ≤100 Unicode chars. Rephrase semantically to fit; never truncate.",
+          "A task entry is mandatory on every phase, including greetings: always set shouldUpdate to true and always return task. Put explicit stable user identity facts or long-term preferences in user as well; that never replaces the task entry.",
+          "Every keyword must contain 2 to 4 characters; one to three keywords per candidate. The service supplies sessionID and date — do not include them.",
           "",
           "EXPECTED JSON OUTPUT FORMAT (output a valid JSON object matching this shape):",
           "{",
@@ -1657,8 +1654,15 @@ export const layer = Layer.effect(
               enabled: canUsePersistentMemory,
             })
 
+            // Environment and the persistent-memory snapshot are session-static
+            // context: inject them only during the session's first turn instead
+            // of paying their token cost on every request. The skill catalog is
+            // not injected here at all — the skill tool description already
+            // lists the available skills on every request.
+            const firstSessionTurn = !msgs.some((message) => message.info.role === "assistant")
+
             const memorySnapshot =
-              step === 1 && canUsePersistentMemory && memory
+              firstSessionTurn && step === 1 && canUsePersistentMemory && memory
                 ? yield* memory.formatWithHeader(sessionID, "memory").pipe(
                     Effect.andThen((mem) =>
                       memory!.formatWithHeader(sessionID, "user").pipe(Effect.map((user) => [mem, user].join("\n"))),
@@ -1667,9 +1671,10 @@ export const layer = Layer.effect(
                   )
                 : undefined
 
-            const [skills, env, instructions, modelMsgs] = yield* Effect.all([
-              sys.skills(agent),
-              sys.environment(model, { includeMemory: canUsePersistentMemory }),
+            const [env, instructions, modelMsgs] = yield* Effect.all([
+              firstSessionTurn
+                ? sys.environment(model, { includeMemory: canUsePersistentMemory })
+                : Effect.succeed([] as string[]),
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
@@ -1677,7 +1682,6 @@ export const layer = Layer.effect(
               ...(memorySnapshot ? [memorySnapshot] : []),
               ...env,
               ...instructions,
-              ...(skills ? [skills] : []),
             ]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)

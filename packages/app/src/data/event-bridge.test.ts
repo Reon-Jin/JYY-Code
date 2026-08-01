@@ -541,7 +541,7 @@ describe("event routing", () => {
       yield {
         directory: "C:\\a",
         payload: {
-          id: "evt_live_message",
+          id: "evt_live_1",
           type: "message.updated",
           properties: { sessionID: session.id, info: message },
         },
@@ -549,7 +549,7 @@ describe("event routing", () => {
       yield {
         directory: "C:\\a",
         payload: {
-          id: "evt_live_part",
+          id: "evt_live_2",
           type: "message.part.updated",
           properties: { sessionID: session.id, part: livePart, time: 1 },
         },
@@ -557,7 +557,7 @@ describe("event routing", () => {
       yield {
         directory: "C:\\a",
         payload: {
-          id: "evt_live_delta",
+          id: "evt_live_3",
           type: "message.part.delta",
           properties: {
             sessionID: session.id,

@@ -2,46 +2,23 @@ import { Context, Effect, Layer } from "effect"
 
 import { InstanceState } from "@/effect/instance-state"
 
-import PROMPT_ANTHROPIC from "./prompt/anthropic.txt"
-import PROMPT_DEFAULT from "./prompt/default.txt"
-import PROMPT_BEAST from "./prompt/beast.txt"
-import PROMPT_GEMINI from "./prompt/gemini.txt"
-import PROMPT_GPT from "./prompt/gpt.txt"
-import PROMPT_KIMI from "./prompt/kimi.txt"
-
-import PROMPT_CODEX from "./prompt/codex.txt"
-import PROMPT_TRINITY from "./prompt/trinity.txt"
+import PROMPT from "./prompt/default.txt"
 import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
 
-function withoutPersistentMemoryPrompt(prompt: string) {
-  const start = prompt.indexOf("# Memory")
-  if (start === -1) return prompt
-  const end = prompt.indexOf("# Reading Files and Folders", start)
-  return end === -1 ? prompt.slice(0, start).trimEnd() : `${prompt.slice(0, start)}${prompt.slice(end)}`
+// Single unified base prompt for every model — no per-vendor variants.
+export function provider() {
+  return [PROMPT]
 }
 
-export function provider(model: Provider.Model, options?: { includeMemory?: boolean }) {
-  const prompts = (() => {
-    if (model.api.id.includes("gpt-4") || model.api.id.includes("o1") || model.api.id.includes("o3"))
-      return [PROMPT_BEAST]
-    if (model.api.id.includes("gpt")) {
-      if (model.api.id.includes("codex")) {
-        return [PROMPT_CODEX]
-      }
-      return [PROMPT_GPT]
-    }
-    if (model.api.id.includes("gemini-")) return [PROMPT_GEMINI]
-    if (model.api.id.includes("claude")) return [PROMPT_ANTHROPIC]
-    if (model.api.id.toLowerCase().includes("trinity")) return [PROMPT_TRINITY]
-    if (model.api.id.toLowerCase().includes("kimi")) return [PROMPT_KIMI]
-    return [PROMPT_DEFAULT]
-  })()
-
-  return options?.includeMemory === false ? prompts.map(withoutPersistentMemoryPrompt) : prompts
-}
+const MEMORY_RULES = [
+  "Persistent memory lives in the memory directory: MEMORY.json holds one cumulative task entry per session (20,000-char limit) and USER.json holds stable user facts keyed by 2-4 character keywords (2,000-char limit).",
+  "Task memory is updated automatically by the runtime twice per turn — never call the memory tool for these routine updates; use it only when the user explicitly asks to manage memories.",
+  "Entries are semantic compressions, never sliced text or ellipses: 用户要求 ≤100, 我用了 ≤180, 最终学会了 ≤100 Unicode chars (prefixes excluded).",
+  "Never store secrets or credentials, and never create .md files in the memory directory. A top-10 snapshot of each store is injected at session start; subagents are read-only.",
+].join("\n")
 
 export interface Interface {
   readonly environment: (model: Provider.Model, options?: { includeMemory?: boolean }) => Effect.Effect<string[]>
@@ -63,22 +40,15 @@ export const layer = Layer.effect(
         const ctx = yield* InstanceState.context
         return [
           [
-            `You are JYYCode, a personal AI assistant.`,
-            `You are currently powered by the model: ${model.providerID}/${model.api.id}.`,
-            `Here is some useful information about the environment you are running in:`,
+            `You are JYYCode, a personal AI assistant powered by the model ${model.providerID}/${model.api.id}.`,
             `<env>`,
-            `  Working directory: ${ctx.directory}`,
-            `  Workspace root folder: ${ctx.worktree}`,
-            `  Is directory a git repo: ${ctx.project.vcs === "git" ? "yes" : "no"}`,
-            `  Platform: ${process.platform}`,
-            `  Today's date: ${new Date().toDateString()}`,
+            `Working directory: ${ctx.directory}`,
+            `Workspace root: ${ctx.worktree}`,
+            `Git repo: ${ctx.project.vcs === "git" ? "yes" : "no"}`,
+            `Platform: ${process.platform}`,
+            `Date: ${new Date().toDateString()}`,
             `</env>`,
-            ``,
-            ...(options?.includeMemory === false
-              ? []
-              : [
-                  `Persistent memory is stored as structured JSON entries in D:/jyycode/memory/: MEMORY.json contains exactly one cumulatively updated task entry per session (limit 10,000 chars), and USER.json contains stable user facts keyed by normalized keywords (limit 2,000 chars). The primary agent (the Planner in Multi-Agent mode) is the only writer and the runtime automatically updates task memory twice per turn: after the user prompt with semantic content in the exact form "用户要求A", then before returning the answer with "用户要求A，我用了B，最终学会了C". Do not call the memory tool for these routine per-turn updates; doing so duplicates the automatic lifecycle. A and C are each limited to 20 Unicode characters and B is limited to 50 Unicode characters, excluding prefixes and separator punctuation. The LLM summarizes A, B, and C; each update semantically recompresses the prior entry plus the new turn. Never truncate by slicing or use ellipses as a truncation marker. Stable user facts may also be stored in USER.json but never replace the mandatory task entry. Subagents are read-only. Every keyword must contain 2-4 characters. A formatted top-10 snapshot from each store (20 entries maximum) is injected at session start; raw JSON files are not injected. Use the memory tool only when the user explicitly asks to manage, remove, replace, or compact stored memories. old_text matches entry content only and must identify exactly one entry. When usage exceeds 80%, consolidate entries before adding new ones. Never store secrets, credentials, or unsupported guesses. NEVER create .md files in the memory directory — only use the memory tool for JSON.`,
-                ]),
+            ...(options?.includeMemory === false ? [] : ["", MEMORY_RULES]),
           ].join("\n"),
         ]
       }),

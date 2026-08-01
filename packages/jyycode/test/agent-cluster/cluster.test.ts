@@ -23,12 +23,11 @@ const interruptIt = testEffect(Layer.mergeAll(Session.defaultLayer, backgroundLa
 const dispatchConfig = { simple_model: "test/simple", complex_model: "test/complex", visual_model: "test/visual" }
 
 describe("AgentCluster planner instructions", () => {
-  test("routes the cluster primary through self-execution until the new driver lands", () => {
-    expect(ClusterPrimaryPrompt).toContain("subagent runtime is temporarily unavailable")
+  test("cluster primary prompt covers the orchestration contract", () => {
     expect(ClusterPrimaryPrompt).toContain("PLAN-FIRST")
-    expect(ClusterPrimaryPrompt).toContain("SELF-EXECUTION")
-    expect(ClusterPrimaryPrompt).not.toContain("agent_cluster_review")
-    expect(ClusterPrimaryPrompt).not.toContain("task tool")
+    expect(ClusterPrimaryPrompt).toContain("agent_cluster_review")
+    expect(ClusterPrimaryPrompt).toContain("task tool")
+    expect(ClusterPrimaryPrompt).toContain("MANDATORY REVIEW")
   })
 
   test("includes session graph scheduling rules", () => {
@@ -117,7 +116,7 @@ describe("AgentCluster.canUseSingleAgentPlan", () => {
     expect(text).toContain("execution_mode: single-agent")
     expect(text).toContain("SELF-EXECUTION")
     expect(text).toContain("Subagent dispatch is unavailable")
-    expect(text).not.toContain("plan_update")
+    expect(text).toContain("plan_update")
     expect(text).not.toContain("agent_cluster_review")
   })
 })

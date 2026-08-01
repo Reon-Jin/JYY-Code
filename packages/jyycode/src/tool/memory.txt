@@ -1,15 +1,12 @@
-Manage persistent structured memory with add, replace, remove, or compact actions when the user explicitly requests memory management. Routine per-turn task memory is updated automatically; do not duplicate it with this tool. Only use MEMORY.json / USER.json — never create .md files in the memory directory.
+Manage persistent structured memory with add, replace, remove, or compact actions — only when the user explicitly requests memory management. Routine per-turn task memory is updated automatically; never duplicate it with this tool. Only MEMORY.json / USER.json; never create .md files in the memory directory.
 
-MEMORY.json (target="memory"): store durable project outcomes, conventions, environment facts, workflows, and lessons. One JSON entry is maintained per session, within a 10,000-character store limit.
-USER.json (target="user"): store explicit, stable user identity facts and reusable preferences. JSON entries are upserted by normalized keywords, within a 2,000-character store limit.
+MEMORY.json (target="memory"): durable project outcomes, conventions, environment facts, and lessons. One cumulative entry per session, 20,000-char store limit.
+USER.json (target="user"): explicit, stable user identity facts and preferences, upserted by normalized keywords, 2,000-char store limit.
 
 Actions:
-- add: upsert a structured entry. Provide importance (1-10), one to three keywords (each 2-4 characters), and concise content. The current session ID is injected automatically and must not be placed in content.
-- replace: find an entry by old_text substring match and replace it with new content. old_text must uniquely identify a single entry. Use this to update or consolidate entries.
-- For add and replace, MEMORY content must use `用户要求A` during the user-input phase or `用户要求A，我用了B，最终学会了C` during the assistant-completion phase. A and C are each limited to 20 Unicode characters, and B is limited to 50 Unicode characters; prefixes and separator punctuation do not count. Automatic updates ask the LLM to summarize and semantically recompress the session entry; never truncate by slicing or use ellipses as a truncation marker.
-- remove: delete an entry found by old_text substring match. old_text must uniquely identify a single entry.
-- compact: organize the selected store. Capacity compaction is deterministic and never permits a subagent write.
+- add: upsert an entry with importance (1-10), one to three keywords (2-4 chars each), and concise content. The session ID is injected automatically — do not place it in content.
+- replace / remove: target the entry found by old_text substring match (case-insensitive, must match exactly one entry; on multiple matches the tool lists them — use a more specific substring).
+- For MEMORY content use `用户要求A` during the user-input phase or `用户要求A，我用了B，最终学会了C` during the assistant-completion phase. Limits excluding prefixes and punctuation: A ≤100, B ≤180, C ≤100 Unicode chars. Rephrase semantically to fit; never slice text or use ellipses.
+- compact: deterministically organize the selected store to free capacity.
 
-Substring matching: old_text is matched case-insensitively against entry content. If multiple entries match, the tool returns an error listing which entries matched — use a more specific substring.
-
-Only primary sessions may mutate either store. In Multi-Agent mode this writer is the Planner. Subagent sessions can read and search memory but mutation attempts are rejected by the service.
+Only primary sessions may mutate either store (the Planner in Multi-Agent mode). Subagent sessions are read-only; mutation attempts are rejected.

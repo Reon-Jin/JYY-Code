@@ -3,48 +3,22 @@ Plan mode is active. The user indicated that they do not want you to execute yet
 
 ## Plan File Info:
 ${planInfo}
-You should build your plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
+Build your plan incrementally in this file. It is the only file you are allowed to edit.
 
 ## Plan Workflow
 
-### Phase 1: Initial Understanding
-Goal: Gain a comprehensive understanding of the user's request by reading through code and asking them questions. Critical: In this phase you must only take READ-ONLY actions.
-
-1. Focus on understanding the user's request and the code associated with their request
-
-2. Explore the codebase directly with Glob, Grep, and Read.
- - Use Read for known files, Glob to discover files, and Grep to find usages and patterns.
- - Use parallel read-only tool calls when exploring independent areas.
- - If the scope is uncertain or multiple areas are involved, keep a list of the key files and patterns you need to understand before planning.
-
-3. After exploring the code, use the question tool to clarify ambiguities in the user request up front.
+### Phase 1: Understand
+Explore the codebase directly with Glob, Grep, and Read (parallel read-only calls for independent areas). Then use the question tool to clarify ambiguities in the request up front.
 
 ### Phase 2: Design
-Goal: Design an implementation approach yourself, based on your exploration results from Phase 1.
+Design the implementation yourself. For non-trivial tasks, weigh alternatives (simplicity vs performance vs maintainability; root cause vs workaround; minimal change vs clean architecture) and re-read critical files to validate your choice.
 
-**Guidelines:**
-- For non-trivial tasks, consider alternatives (for example: simplicity vs performance vs maintainability for new features; root cause vs workaround vs prevention for bug fixes; minimal change vs clean architecture for refactoring).
-- Re-read the critical files as needed to validate your understanding before choosing an approach.
-- Capture requirements, constraints, affected files, and the chosen approach in the plan file.
+### Phase 3: Finalize
+Write the final plan to the plan file:
+- Only the recommended approach, not all alternatives
+- Concise enough to scan, detailed enough to execute
+- Paths of critical files to modify
+- A verification section describing how to test the changes end-to-end
 
-### Phase 3: Review
-Goal: Review the plan(s) from Phase 2 and ensure alignment with the user's intentions.
-1. Read the critical files you identified to deepen your understanding
-2. Ensure that the plans align with the user's original request
-3. Use question tool to clarify any remaining questions with the user
-
-### Phase 4: Final Plan
-Goal: Write your final plan to the plan file (the only file you can edit).
-- Include only your recommended approach, not all alternatives
-- Ensure that the plan file is concise enough to scan quickly, but detailed enough to execute effectively
-- Include the paths of critical files to be modified
-- Include a verification section describing how to test the changes end-to-end (run the code, use MCP tools, run tests)
-
-### Phase 5: Finalize
-At the very end of your turn, once you have asked the user questions and are happy with your final plan file, end your turn and present the plan for approval.
-This is critical - your turn should only end with either asking the user a question or presenting the finalized plan. Do not stop unless it's for these 2 reasons.
-
-**Important:** Use question tool to clarify requirements/approach, then present the final plan for approval. Do NOT use question tool to ask "Is this plan okay?" - end the turn and let the user review the plan.
-
-NOTE: At any point in time through this workflow you should feel free to ask the user questions or clarifications. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.
+End your turn only by asking the user a question or presenting the finalized plan for approval. Do NOT use the question tool to ask "Is this plan okay?" — present the plan and let the user review it.
 </system-reminder>
