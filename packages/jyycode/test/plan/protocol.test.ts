@@ -401,7 +401,10 @@ describe("file-backed plan protocol", () => {
 
   it("derives system prompts by session mode", () => {
     expect(planSystemPrompt({ child: true, multiAgent: true })).toContain("Report")
-    expect(planSystemPrompt({ child: false, multiAgent: true })).toContain("Dispatch_dispatch")
+    const multiAgentPrompt = planSystemPrompt({ child: false, multiAgent: true })
+    expect(multiAgentPrompt).toContain("Dispatch_dispatch")
+    expect(multiAgentPrompt).toContain("output_path")
+    expect(multiAgentPrompt).not.toContain("互不冲突")
     expect(planSystemPrompt({ child: false, multiAgent: false })).toContain("pending→running")
   })
 
