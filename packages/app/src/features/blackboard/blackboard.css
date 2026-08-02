@@ -3,9 +3,10 @@
   flex-direction: column;
   min-height: 0;
   height: 100%;
-  gap: 10px;
-  padding: 14px;
-  color: var(--text-primary);
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-panel);
+  color: var(--color-text);
 }
 
 .blackboard-panel__header,
@@ -17,135 +18,195 @@
 .blackboard-composer__reply {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .blackboard-panel__header {
   justify-content: space-between;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-3);
+}
+
+.blackboard-panel__header > div:first-child {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.blackboard-panel__header > div:first-child::before {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 26%, transparent);
+  content: "";
+  animation: blackboard-pulse 2.8s ease-in-out infinite;
 }
 
 .blackboard-panel__header h2 {
   margin: 0;
-  font-size: 15px;
-}
-
-.blackboard-panel__root {
-  display: block;
-  color: var(--text-secondary);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
+  font-size: var(--text-md);
+  letter-spacing: -0.01em;
 }
 
 .blackboard-panel__unread,
 .blackboard-chip {
+  border: 1px solid var(--color-border);
   border-radius: 999px;
-  background: var(--surface-strong, var(--surface-raised));
-  padding: 2px 7px;
-  font-size: 11px;
+  background: var(--color-surface);
+  padding: 3px var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: 1;
 }
 
 .blackboard-panel__unread {
-  color: var(--accent, #4f8cff);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+  font-family: var(--font-code);
 }
 
 .blackboard-panel__filters {
   flex-wrap: wrap;
+  padding-inline: 1px;
 }
 
 .blackboard-panel__filters label,
 .blackboard-composer__controls label {
   display: grid;
-  gap: 3px;
   min-width: 0;
-  color: var(--text-secondary);
-  font-size: 11px;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
 }
 
 .blackboard-panel__filters select,
 .blackboard-composer select,
 .blackboard-composer input,
 .blackboard-composer textarea {
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  background: var(--surface-raised);
-  color: inherit;
-  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: var(--space-2) var(--space-3);
+  transition:
+    border-color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease;
 }
 
 .blackboard-panel__filters select {
   max-width: 170px;
 }
 
+.blackboard-panel__filters select:hover,
+.blackboard-composer select:hover,
+.blackboard-composer input:hover,
+.blackboard-composer textarea:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.blackboard-panel__filters select:focus-visible,
+.blackboard-composer select:focus-visible,
+.blackboard-composer input:focus-visible,
+.blackboard-composer textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
 .blackboard-panel__timeline {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
   display: flex;
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
-  gap: 8px;
-  padding-right: 2px;
+  gap: var(--space-2);
+  overflow: auto;
+  padding: 1px 2px 1px 1px;
+  scrollbar-color: var(--color-border-strong) transparent;
 }
 
 .blackboard-panel__empty,
 .blackboard-panel__readonly {
   margin: auto;
-  color: var(--text-secondary);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface) 72%, var(--color-panel));
+  padding: var(--space-4);
+  color: var(--color-text-muted);
   text-align: center;
+  line-height: 1.6;
 }
 
 .blackboard-panel__readonly {
   margin: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 12px;
+  border-style: solid;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
 }
 
 .blackboard-message {
-  border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--accent, #4f8cff);
-  border-radius: 8px;
-  padding: 9px;
-  background: var(--surface-raised);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: var(--space-3);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 8%);
+  animation: blackboard-message-in var(--motion-normal) ease both;
+  transition:
+    border-color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
 }
 
 .blackboard-message[data-kind="risk"],
 .blackboard-message[data-kind="blocker"] {
-  border-left-color: var(--danger, #d75a5a);
+  border-left-color: var(--color-border-strong);
 }
 
 .blackboard-message[data-kind="decision"] {
-  border-left-color: var(--success, #4caa72);
+  border-left-width: 4px;
+}
+
+.blackboard-message:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 13%);
+  transform: translateY(-1px);
 }
 
 .blackboard-message__header {
   flex-wrap: wrap;
-  color: var(--text-secondary);
-  font-size: 11px;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
 }
 
 .blackboard-message__header strong {
-  color: var(--text-primary);
+  color: var(--color-text);
+  font-weight: 650;
 }
 
 .blackboard-message__header time {
   margin-left: auto;
+  font-family: var(--font-code);
+  font-size: 0.68rem;
 }
 
 .blackboard-message__kind {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  font-weight: 600;
+  gap: var(--space-1);
+  font-weight: 650;
 }
 
 .blackboard-message__body {
-  margin-top: 7px;
+  margin-top: var(--space-2);
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: var(--text-sm);
+  line-height: 1.65;
 }
 
 .blackboard-message__body > :first-child {
@@ -160,50 +221,55 @@
 .blackboard-composer__tasks {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 7px;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
 }
 
 .blackboard-message__attachments,
 .blackboard-composer__attachments {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: var(--space-1);
   list-style: none;
+  margin: var(--space-2) 0 0;
   padding: 0;
-  margin: 7px 0 0;
 }
 
 .blackboard-message__attachments li,
 .blackboard-composer__attachments li {
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
   max-width: 100%;
-  border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  padding: 3px 6px;
-  font-size: 11px;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
 }
 
 .blackboard-message__attachments button {
+  max-width: 180px;
   overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: transparent;
-  border: 0;
-  color: var(--accent, #4f8cff);
-  cursor: pointer;
-  max-width: 180px;
+}
+
+.blackboard-message__attachments button:hover {
+  color: var(--color-accent);
 }
 
 .blackboard-message__footer {
-  margin-top: 6px;
+  margin-top: var(--space-2);
 }
 
 .blackboard-message__footer button,
 .blackboard-message__footer summary {
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .blackboard-message__reply-details summary {
@@ -221,48 +287,69 @@
 
 .blackboard-message__replies {
   display: grid;
-  gap: 5px;
-  margin-top: 6px;
-  padding-left: 10px;
-  border-left: 2px solid var(--border-subtle);
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  border-left: 2px solid var(--color-border-strong);
+  padding-left: var(--space-3);
 }
 
 .blackboard-reply {
-  font-size: 12px;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
 }
 
 .blackboard-composer {
   position: relative;
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 9px;
+  margin-top: auto;
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
 }
 
 .blackboard-composer[data-dragging="true"] {
-  outline: 2px dashed var(--accent, #4f8cff);
+  outline: 2px dashed var(--color-accent);
   outline-offset: 3px;
 }
 
 .blackboard-composer__reply {
   justify-content: space-between;
-  color: var(--text-secondary);
-  font-size: 11px;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
 }
 
 .blackboard-composer__controls {
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: var(--space-2);
+}
+
+.blackboard-composer__tasks .blackboard-chip {
+  border-color: var(--color-border);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    border-color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+
+.blackboard-composer__tasks .blackboard-chip:hover,
+.blackboard-composer__tasks .blackboard-chip[aria-pressed="true"] {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 .blackboard-composer textarea {
   display: block;
+  box-sizing: border-box;
   width: 100%;
   min-height: 56px;
   resize: vertical;
-  box-sizing: border-box;
 }
 
 .blackboard-composer__footer {
-  margin-top: 6px;
+  margin-top: var(--space-2);
 }
 
 .blackboard-composer__footer > input:not([type="file"]) {
@@ -275,38 +362,86 @@
 }
 
 .blackboard-composer__error {
-  margin: 5px 0 0;
-  color: var(--danger, #d75a5a);
-  font-size: 12px;
+  margin: var(--space-1) 0 0;
+  color: var(--color-danger-ink);
+  font-size: var(--text-xs);
 }
 
 .blackboard-mentions {
   position: absolute;
   right: 0;
   bottom: calc(100% - 6px);
+  z-index: 2;
   display: grid;
   gap: 2px;
-  z-index: 2;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  background: var(--surface-raised);
-  padding: 4px;
-  box-shadow: var(--shadow-md, 0 8px 20px rgb(0 0 0 / 15%));
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel);
+  padding: var(--space-1);
+  box-shadow: var(--shadow-panel);
+  animation: blackboard-pop-in var(--motion-fast) ease both;
 }
 
 .blackboard-mentions button {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
   border: 0;
   background: transparent;
-  color: inherit;
-  text-align: left;
-  padding: 5px 7px;
+  color: var(--color-text);
   cursor: pointer;
+  padding: var(--space-2) var(--space-2);
+  text-align: left;
 }
 
 .blackboard-mentions button:hover,
 .blackboard-mentions button:focus-visible {
-  background: var(--surface-hover);
+  background: var(--color-surface-hover);
+}
+
+@keyframes blackboard-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes blackboard-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes blackboard-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 0%, transparent);
+  }
+
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 14%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blackboard-panel__header > div:first-child::before,
+  .blackboard-message,
+  .blackboard-mentions {
+    animation: none;
+  }
+
+  .blackboard-message {
+    transition: none;
+  }
 }

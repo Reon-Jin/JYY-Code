@@ -439,6 +439,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     data.queryClient,
   )
   const planSnapshot = createMemo(() => projectPlanState(planQuery.data ?? { plan: null }))
+  const rootMultiAgentEnabled = createMemo(() =>
+    rootSession() ? effectiveMultiAgent(rootSession()!) : false,
+  )
   const blackboardQuery = createQuery(
     () => ({
       ...blackboardQueryOptions({
@@ -446,7 +449,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         directory: data.directory(),
         rootSessionID: rootSessionID() ?? "",
       }),
-      enabled: Boolean(rootSessionID()),
+      enabled: Boolean(rootSessionID()) && rootMultiAgentEnabled(),
     }),
     data.queryClient,
   )
@@ -455,9 +458,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     const task = activeChildTask()
     return task?.status === "running"
   })
-  const rootMultiAgentEnabled = createMemo(() =>
-    rootSession() ? effectiveMultiAgent(rootSession()!) : false,
-  )
   const planBadge = createMemo(() => {
     const snapshot = planSnapshot()
     if (snapshot.failedAgents > 0) return `${snapshot.runningAgents}/${snapshot.failedAgents}`
@@ -465,6 +465,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return undefined
   })
   const blackboardBadge = createMemo(() => {
+    if (!rootMultiAgentEnabled()) return undefined
     const unreadCount = Number(blackboardQuery.data?.unreadCount ?? 0)
     return unreadCount > 0 ? String(unreadCount) : undefined
   })
@@ -848,6 +849,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           blackboard={
             <BlackboardPanel
               directory={data.directory()}
+              enabled={rootMultiAgentEnabled()}
               rootSessionID={rootSessionID()}
               steps={planSnapshot().steps.map((step) => ({ id: `s${step.index}`, title: step.title }))}
               taskLabels={Object.fromEntries(planSnapshot().tasks.map((task) => [task.id, task.title]))}

@@ -52,6 +52,7 @@ function uniqueSteps(
 
 export type BlackboardPanelProps = {
   directory: string
+  enabled?: boolean
   rootSessionID?: string
   steps?: readonly { id: string; title: string }[]
   taskLabels?: Record<string, string>
@@ -59,6 +60,7 @@ export type BlackboardPanelProps = {
 
 export function BlackboardPanel(props: BlackboardPanelProps) {
   const data = useData()
+  const enabled = () => props.enabled !== false
   const [selectedStep, setSelectedStep] = createSignal<string>()
   const [selectedTask, setSelectedTask] = createSignal<string>("all")
   const [draft, setDraft] = createSignal("")
@@ -82,7 +84,7 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
         rootSessionID: props.rootSessionID ?? "",
         stepID: selectedStep(),
       }),
-      enabled: Boolean(props.rootSessionID),
+      enabled: enabled() && Boolean(props.rootSessionID),
     }),
     data.queryClient,
   )
@@ -112,7 +114,7 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
       (Boolean(snapshot()?.currentStepID) && Boolean(activeStep()) && snapshot()?.currentStepID !== activeStep()),
   )
   const canCompose = createMemo(
-    () => Boolean(props.rootSessionID) && Boolean(snapshot()?.currentStepID) && !readonly() && !query.error,
+    () => enabled() && Boolean(props.rootSessionID) && Boolean(snapshot()?.currentStepID) && !readonly() && !query.error,
   )
   const mentionOpen = createMemo(() => /(^|\s)@[\w-]*$/u.test(draft()))
 
@@ -228,7 +230,6 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
       <header class="blackboard-panel__header">
         <div>
           <h2>{tr("blackboard.title")}</h2>
-          <span class="blackboard-panel__root">{props.rootSessionID ?? ""}</span>
         </div>
         <Show when={Number(snapshot()?.unreadCount ?? 0) > 0}>
           <span class="blackboard-panel__unread">{Number(snapshot()?.unreadCount ?? 0)}</span>
@@ -251,13 +252,16 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
         </label>
       </div>
 
-      <Show when={!props.rootSessionID}>
+      <Show when={!enabled()}>
+        <p class="blackboard-panel__empty">{tr("blackboard.multi-agent-only")}</p>
+      </Show>
+      <Show when={enabled() && !props.rootSessionID}>
         <p class="blackboard-panel__empty">{tr("blackboard.no-plan")}</p>
       </Show>
-      <Show when={props.rootSessionID && query.isPending}>
+      <Show when={enabled() && props.rootSessionID && query.isPending}>
         <p class="blackboard-panel__empty" role="status">{tr("blackboard.loading")}</p>
       </Show>
-      <Show when={query.error}>
+      <Show when={enabled() && query.error}>
         <div class="blackboard-panel__empty">
           <p>{errorMessage(query.error, tr("blackboard.unable-to-load"))}</p>
           <Button size="small" variant="secondary" onClick={() => void query.refetch()}>
@@ -265,7 +269,7 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
           </Button>
         </div>
       </Show>
-      <Show when={props.rootSessionID && !query.isPending && !query.error}>
+      <Show when={enabled() && props.rootSessionID && !query.isPending && !query.error}>
         <div class="blackboard-panel__timeline" aria-live="polite">
           <Show when={visibleMessages().length > 0} fallback={<p class="blackboard-panel__empty">{tr("blackboard.no-messages")}</p>}>
             <For each={visibleMessages()}>

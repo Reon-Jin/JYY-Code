@@ -84,6 +84,7 @@ describe("BlackboardPanel", () => {
     renderPanel(backend, root.id)
 
     expect(await screen.findByText("Blocked")).toBeVisible()
+    expect(screen.queryByText(root.id)).not.toBeInTheDocument()
     expect(screen.getByText("子 Agent · Investigate")).toBeVisible()
     expect(screen.getByText("src/app.ts")).toBeVisible()
     expect(screen.getByText(/展开回复/)).toBeVisible()

@@ -303,6 +303,23 @@ describe("desktop GUI journey", () => {
     expect(desktop.lastLocation()).toEqual({})
   })
 
+  it("keeps the blackboard safe for a single-agent Session", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_single" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.addSession({ id: "ses_single", slug: "single", title: "Single Session" })
+    vi.stubGlobal("fetch", backend.fetch)
+
+    render(() => <App bridge={desktop.bridge} />)
+
+    expect(await screen.findByRole("heading", { name: "Single Session" }, { timeout: 5_000 })).toBeVisible()
+    await user.click(await screen.findByRole("button", { name: "协作黑板" }))
+
+    const panel = await screen.findByRole("group", { name: "协作黑板" })
+    expect(panel).toHaveTextContent("多智能体 Session 才支持协作黑板")
+    expect(backend.requests.some((request) => request.path === "/session/ses_single/blackboard")).toBe(false)
+  }, 15_000)
+
   it("keeps the workspace mounted while creating and opening a new Session", async () => {
     const user = userEvent.setup()
     const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_1" } })
@@ -581,7 +598,6 @@ describe("desktop GUI journey", () => {
     const panel = await screen.findByRole("group", { name: "协作黑板" })
     expect(panel).toHaveTextContent("Child found a blocker")
     expect(panel).toHaveTextContent("Implement feature")
-    expect(panel).toHaveTextContent("ses_root")
     const rootBlackboardGets = () =>
       backend.requests.filter((request) => request.method === "GET" && request.path === "/session/ses_root/blackboard")
     expect(rootBlackboardGets().length).toBeGreaterThan(0)
@@ -591,7 +607,6 @@ describe("desktop GUI journey", () => {
     await user.click(await screen.findByRole("button", { name: "审阅：Implement feature" }))
     expect(await screen.findByRole("heading", { name: "Implement feature" })).toBeVisible()
     expect(screen.getByRole("group", { name: "协作黑板" })).toHaveTextContent("Child found a blocker")
-    expect(screen.getByRole("group", { name: "协作黑板" })).toHaveTextContent("ses_root")
     expect(backend.requests.some((request) => request.path === "/session/ses_child/blackboard")).toBe(false)
   }, 15_000)
 })
