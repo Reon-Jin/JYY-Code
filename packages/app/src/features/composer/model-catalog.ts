@@ -14,12 +14,6 @@ export type ComposerPreference = {
   model?: ModelSelection
 }
 
-export type AgentModelProfile = {
-  agentName: string
-  model: ModelSelection
-  configured: boolean
-}
-
 export type CatalogModel = ModelSelection & {
   providerName: string
   modelName: string
@@ -33,7 +27,6 @@ export type ModelCatalog = {
   models: CatalogModel[]
   selectedAgent: string
   selectedModel?: ModelSelection
-  subAgent?: AgentModelProfile
   configPath: string
 }
 
@@ -109,15 +102,6 @@ function modelKey(model: ModelSelection) {
   return `${model.providerID}/${model.modelID}`
 }
 
-function modelSelectionFromAgent(agent: Agent | undefined) {
-  if (!agent?.model) return undefined
-  return {
-    providerID: agent.model.providerID,
-    modelID: agent.model.modelID,
-    ...(agent.variant && agent.variant !== "default" ? { variant: agent.variant } : {}),
-  }
-}
-
 function chooseModel(candidates: Array<ModelSelection | undefined>, models: readonly CatalogModel[]) {
   const available = new Set(models.map(modelKey))
   const selected = candidates.find((candidate) => candidate && available.has(modelKey(candidate)))
@@ -189,21 +173,12 @@ export async function loadModelCatalog(input: {
     [preference.model, agentModel, parseModel(config.model), ...defaultModels, models[0]],
     models,
   )
-  const childAgent =
-    allAgents.find((candidate) => candidate.name === "build") ??
-    allAgents.find((candidate) => candidate.mode === "subagent" || candidate.mode === "all")
-  const configuredChildModel = modelSelectionFromAgent(childAgent)
-  const childModel = configuredChildModel ?? selectedModel
-
   return {
     agents,
     allAgents,
     models,
     selectedAgent,
     selectedModel,
-    ...(childAgent && childModel
-      ? { subAgent: { agentName: childAgent.name, model: childModel, configured: Boolean(configuredChildModel) } }
-      : {}),
     configPath: globalConfigPath(paths.config),
   }
 }

@@ -97,6 +97,7 @@ describe("desktop accessibility contract", () => {
   })
 
   it("labels the project, Session, Agent, model, and Composer controls after restore", async () => {
+    const user = userEvent.setup()
     const desktop = createFakeDesktop({
       lastLocation: { project: "C:\\work\\demo", sessionID: "ses_1" },
     })
@@ -118,6 +119,10 @@ describe("desktop accessibility contract", () => {
     expect(screen.getByRole("navigation", { name: "活动 Session" })).toBeVisible()
     expect(await screen.findByRole("combobox", { name: "智能体" }, { timeout: 5_000 })).toBeVisible()
     expect(screen.getByRole("button", { name: "配置模型" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "配置模型" }))
+    expect(screen.queryByRole("combobox", { name: "子 Agent 模型" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "子 Agent 思考深度" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "完成" }))
     expect(screen.getByRole("region", { name: "消息编辑器" })).toBeVisible()
     expect(screen.getByRole("textbox", { name: "消息" })).toBeVisible()
     expect(screen.getByRole("navigation", { name: "工作栏页面" })).toBeVisible()

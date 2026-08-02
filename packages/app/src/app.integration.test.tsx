@@ -96,6 +96,43 @@ describe("desktop GUI journey", () => {
     vi.unstubAllGlobals()
   })
 
+  it("refreshes the Composer catalog and open Plan after saving a subagent profile", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_profile" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.addSession({ id: "ses_profile", slug: "profile", title: "Profile Session" })
+    vi.stubGlobal("fetch", backend.fetch)
+    render(() => <App bridge={desktop.bridge} />)
+
+    expect(await screen.findByRole("heading", { name: "Profile Session" }, { timeout: 5_000 })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "方案" }))
+    await user.click(screen.getByRole("button", { name: "子 Agent" }))
+    expect(await screen.findByRole("heading", { name: "子 Agent" })).toBeVisible()
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存角色" })).toBeEnabled())
+
+    const before = {
+      profiles: backend.requests.filter((request) => request.path === "/subagents" && request.method === "GET").length,
+      agents: backend.requests.filter((request) => request.path === "/agent").length,
+      providers: backend.requests.filter((request) => request.path === "/config/providers").length,
+      models: backend.requests.filter((request) => request.path === "/provider").length,
+      config: backend.requests.filter((request) => request.path === "/config").length,
+      plans: backend.requests.filter((request) => request.path.endsWith("/plan")).length,
+    }
+
+    await user.click(screen.getByRole("button", { name: "保存角色" }))
+    await waitFor(() =>
+      expect(backend.requests.some((request) => request.path === "/subagents" && request.method === "PUT")).toBe(true),
+    )
+    await waitFor(() => {
+      expect(backend.requests.filter((request) => request.path === "/subagents" && request.method === "GET").length).toBeGreaterThan(before.profiles)
+      expect(backend.requests.filter((request) => request.path === "/agent").length).toBeGreaterThan(before.agents)
+      expect(backend.requests.filter((request) => request.path === "/config/providers").length).toBeGreaterThan(before.providers)
+      expect(backend.requests.filter((request) => request.path === "/provider").length).toBeGreaterThan(before.models)
+      expect(backend.requests.filter((request) => request.path === "/config").length).toBeGreaterThan(before.config)
+      expect(backend.requests.filter((request) => request.path.endsWith("/plan")).length).toBeGreaterThan(before.plans)
+    })
+  }, 20_000)
+
   it("manages global Skill and MCP state, then opens a recent project from Home", async () => {
     const user = userEvent.setup()
     const directory = "C:\\work\\demo"

@@ -164,7 +164,7 @@ describe("loadModelCatalog", () => {
     expect(catalog.selectedModel).toEqual({ providerID: "openai", modelID: "gpt-5", variant: "high" })
   })
 
-  it("exposes the configured child Agent model and reasoning variant separately", async () => {
+  it("does not expose child Agent model settings to the Composer catalog", async () => {
     const openai = provider("openai", ["gpt-5", "gpt-4.1"])
     openai.models["gpt-5"]!.variants = { low: {}, high: {} }
     const catalog = await loadModelCatalog({
@@ -180,24 +180,16 @@ describe("loadModelCatalog", () => {
     })
 
     expect(catalog.selectedModel).toEqual({ providerID: "openai", modelID: "gpt-5" })
-    expect(catalog.subAgent).toEqual({
-      agentName: "build",
-      model: { providerID: "openai", modelID: "gpt-5", variant: "high" },
-      configured: true,
-    })
+    expect(catalog).not.toHaveProperty("subAgent")
   })
 
-  it("uses the main model for the child Agent when it has no explicit model", async () => {
+  it("does not fall back to the main model for a child Agent", async () => {
     const catalog = await loadModelCatalog({
       client: createClient({ agents: [agent("build")] }) as never,
       directory,
     })
 
-    expect(catalog.subAgent).toEqual({
-      agentName: "build",
-      model: { providerID: "openai", modelID: "gpt-5" },
-      configured: false,
-    })
+    expect(catalog).not.toHaveProperty("subAgent")
   })
 
   it("excludes deprecated models", async () => {

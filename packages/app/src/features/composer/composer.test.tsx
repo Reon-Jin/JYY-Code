@@ -6,7 +6,7 @@ import { createDesktopQueryClient } from "../../data/query-client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { attachmentFromPath, Composer, type ComposerProps } from "./composer"
 import { createComposerQueueStore } from "./composer-queue"
-import type { AgentModelProfile, CatalogModel, ModelSelection } from "./model-catalog"
+import type { CatalogModel, ModelSelection } from "./model-catalog"
 
 let desktopDropHandler: ((event: { payload: unknown }) => void) | undefined
 vi.mock("@tauri-apps/api/webview", () => ({
@@ -61,10 +61,8 @@ function renderComposer(input?: {
   minimal?: boolean
   selectedAgent?: string
   selectedModel?: ModelSelection
-  subAgent?: AgentModelProfile
   agents?: Agent[]
   models?: CatalogModel[]
-  onSubAgentModelChange?: (model: ModelSelection) => void | Promise<void>
   usage?: ComposerProps["usage"]
   skills?: Array<{ name: string; description?: string; location: string; content: string }>
 }) {
@@ -95,13 +93,6 @@ function renderComposer(input?: {
       models={input?.models ?? models}
       selectedAgent={input?.selectedAgent ?? "build"}
       selectedModel={input?.selectedModel ?? { providerID: "openai", modelID: "gpt-5" }}
-      subAgent={
-        input?.subAgent ?? {
-          agentName: "build",
-          model: { providerID: "openai", modelID: "gpt-5", variant: "high" },
-          configured: true,
-        }
-      }
       status={status()}
       requestPending={input?.requestPending}
       childSteering={input?.childSteering}
@@ -115,7 +106,6 @@ function renderComposer(input?: {
       usage={input?.usage}
       onAgentChange={vi.fn()}
       onModelChange={vi.fn()}
-      onSubAgentModelChange={input?.onSubAgentModelChange}
       onProviderConnected={vi.fn()}
       queueStore={createComposerQueueStore()}
     />
@@ -283,8 +273,8 @@ describe("Composer", () => {
     expect(screen.getByRole("dialog", { name: "模型设置" })).toBeVisible()
     expect(screen.getByRole("combobox", { name: "主 Agent 模型" })).toHaveValue("openai/gpt-5")
     expect(screen.getByRole("combobox", { name: "主 Agent 思考深度" })).toHaveValue("")
-    expect(screen.getByRole("combobox", { name: "子 Agent 模型" })).toHaveValue("openai/gpt-5")
-    expect(screen.getByRole("combobox", { name: "子 Agent 思考深度" })).toHaveValue("high")
+    expect(screen.queryByRole("combobox", { name: "子 Agent 模型" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "子 Agent 思考深度" })).not.toBeInTheDocument()
     await user.selectOptions(screen.getByRole("combobox", { name: "主 Agent 思考深度" }), "low")
     expect(screen.getByRole("combobox", { name: "主 Agent 思考深度" })).toHaveValue("low")
     const textbox = screen.getByRole("textbox", { name: "消息" })
@@ -313,20 +303,13 @@ describe("Composer", () => {
     expect(selectors?.children[5]).toContainElement(screen.getByRole("button", { name: "MCP control" }))
   })
 
-  it("keeps main and child model choices independent", async () => {
-    const user = userEvent.setup()
-    const onSubAgentModelChange = vi.fn()
-    renderComposer({ onSubAgentModelChange })
+  it("keeps child model controls out of the Composer", async () => {
+    renderComposer()
 
-    await user.click(screen.getByRole("button", { name: "配置模型" }))
-    await user.selectOptions(screen.getByRole("combobox", { name: "主 Agent 思考深度" }), "low")
-    await user.selectOptions(screen.getByRole("combobox", { name: "子 Agent 模型" }), "openai/gpt-4.1")
-
-    expect(screen.getByRole("combobox", { name: "主 Agent 模型" })).toHaveValue("openai/gpt-5")
-    expect(screen.getByRole("combobox", { name: "主 Agent 思考深度" })).toHaveValue("low")
-    expect(screen.getByRole("combobox", { name: "子 Agent 模型" })).toHaveValue("openai/gpt-4.1")
-    expect(screen.getByRole("combobox", { name: "子 Agent 思考深度" })).toHaveValue("")
-    expect(onSubAgentModelChange).toHaveBeenLastCalledWith({ providerID: "openai", modelID: "gpt-4.1" })
+    await userEvent.setup().click(screen.getByRole("button", { name: "配置模型" }))
+    expect(screen.queryByText("子 Agent")).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "子 Agent 模型" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "子 Agent 思考深度" })).not.toBeInTheDocument()
   })
 
   it("opens Skill suggestions for a slash query and selects them without submitting", async () => {

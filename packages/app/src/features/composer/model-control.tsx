@@ -1,9 +1,9 @@
 import { tr } from "../../i18n/i18n-context"
 import { BrainCircuit, Check, SlidersHorizontal } from "lucide-solid"
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { createMemo, createSignal, For } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
-import type { AgentModelProfile, CatalogModel, ModelSelection } from "./model-catalog"
+import type { CatalogModel, ModelSelection } from "./model-catalog"
 
 function modelKey(model: ModelSelection) {
   return `${model.providerID}/${model.modelID}`
@@ -46,17 +46,11 @@ function modelOptions(value: ModelSelection, models: readonly CatalogModel[]) {
 }
 
 function ModelProfile(props: {
-  role: "main" | "subagent"
   value: ModelSelection
   models: readonly CatalogModel[]
   disabled?: boolean
   onChange: (model: ModelSelection) => void
 }) {
-  const modelLabelKey = (): "composer.main-agent-model" | "composer.subagent-model" =>
-    props.role === "main" ? "composer.main-agent-model" : "composer.subagent-model"
-  const depthLabelKey = (): "composer.main-agent-thinking-depth" | "composer.subagent-thinking-depth" =>
-    props.role === "main" ? "composer.main-agent-thinking-depth" : "composer.subagent-thinking-depth"
-
   function changeModel(value: string) {
     const selected = props.models.find((model) => modelKey(model) === value)
     if (!selected) return
@@ -72,23 +66,21 @@ function ModelProfile(props: {
   }
 
   return (
-    <div class="model-control__profile" data-role={props.role}>
+    <div class="model-control__profile">
       <div class="model-control__profile-heading">
         <span class="model-control__profile-icon" aria-hidden="true">
           <BrainCircuit />
         </span>
         <div>
-          <h3>{props.role === "main" ? tr("composer.main-agent") : tr("composer.subagent-agent")}</h3>
-          <p>
-            {props.role === "main" ? tr("composer.main-agent-description") : tr("composer.subagent-description")}
-          </p>
+          <h3>{tr("composer.main-agent")}</h3>
+          <p>{tr("composer.main-agent-description")}</p>
         </div>
       </div>
       <div class="model-control__fields">
         <label class="model-control__field">
-          <span>{tr(modelLabelKey())}</span>
+          <span>{tr("composer.main-agent-model")}</span>
           <select
-            aria-label={tr(modelLabelKey())}
+            aria-label={tr("composer.main-agent-model")}
             value={modelKey(props.value)}
             disabled={props.disabled}
             onChange={(event) => changeModel(event.currentTarget.value)}
@@ -99,9 +91,9 @@ function ModelProfile(props: {
           </select>
         </label>
         <label class="model-control__field">
-          <span>{tr(depthLabelKey())}</span>
+          <span>{tr("composer.main-agent-thinking-depth")}</span>
           <select
-            aria-label={tr(depthLabelKey())}
+            aria-label={tr("composer.main-agent-thinking-depth")}
             value={props.value.variant ?? ""}
             disabled={props.disabled}
             onChange={(event) => changeVariant(event.currentTarget.value)}
@@ -126,38 +118,25 @@ function ModelProfile(props: {
 export function ModelControl(props: {
   models: readonly CatalogModel[]
   value: ModelSelection
-  subAgent?: AgentModelProfile
   disabled?: boolean
   onChange: (model: ModelSelection) => void
-  onSubAgentChange?: (model: ModelSelection) => void | Promise<void>
 }) {
   const [opened, setOpened] = createSignal(false)
   const [mainValue, setMainValue] = createSignal(props.value)
-  const [subAgentValue, setSubAgentValue] = createSignal(props.subAgent?.model)
-  const [failure, setFailure] = createSignal<unknown>()
   const currentLabel = createMemo(() => `${modelLabel(props.value, props.models)} · ${variantLabel(props.value.variant)}`)
 
   function open() {
     setMainValue(props.value)
-    setSubAgentValue(props.subAgent?.model)
-    setFailure(undefined)
     setOpened(true)
   }
 
   function close() {
     setOpened(false)
-    setFailure(undefined)
   }
 
   function changeMain(model: ModelSelection) {
     setMainValue(model)
     props.onChange(model)
-  }
-
-  function changeSubAgent(model: ModelSelection) {
-    setSubAgentValue(model)
-    const result = props.onSubAgentChange?.(model)
-    if (result && typeof result.then === "function") void result.catch(setFailure)
   }
 
   return (
@@ -189,30 +168,13 @@ export function ModelControl(props: {
           </Button>
         }
       >
-        <Show when={failure()}>
-          <p class="model-control__failure" role="alert">
-            {tr("composer.unable-to-save-model-settings")}
-          </p>
-        </Show>
         <div class="model-control__profiles">
           <ModelProfile
-            role="main"
             value={mainValue()}
             models={props.models}
             disabled={props.disabled}
             onChange={changeMain}
           />
-          <Show when={subAgentValue()} keyed>
-            {(value) => (
-              <ModelProfile
-                role="subagent"
-                value={value}
-                models={props.models}
-                disabled={props.disabled}
-                onChange={changeSubAgent}
-              />
-            )}
-          </Show>
         </div>
       </Dialog>
     </div>

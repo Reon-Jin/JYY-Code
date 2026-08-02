@@ -320,7 +320,7 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
   )
 }
 
-export function SubagentProfilesPanel(props: { directory: string }) {
+export function SubagentProfilesPanel(props: { directory: string; onSaved?: () => void | Promise<void> }) {
   const data = useData()
   const query = createQuery(
     () => ({
@@ -333,12 +333,14 @@ export function SubagentProfilesPanel(props: { directory: string }) {
   const save = async (profiles: readonly SubagentProfile[]) => {
     await updateSubagentProfiles({ client: data.client(), directory: props.directory, profiles })
     await query.refetch()
+    await props.onSaved?.()
   }
 
   const createSkill = async (roleID: string, input: { name: string; content: string }) => {
     await createSubagentSkill({ client: data.client(), directory: props.directory, roleID, ...input })
     await refreshSubagentProfiles(data.queryClient(), props.directory)
     await query.refetch()
+    await props.onSaved?.()
   }
 
   return (

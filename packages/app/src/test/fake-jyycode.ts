@@ -86,6 +86,17 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       revision: "revision-1",
     },
   ]
+  let subagentProfiles: Array<Record<string, unknown>> = [
+    {
+      id: "general",
+      name: "General",
+      description: "General-purpose execution.",
+      prompt: "",
+      avatar: "bot",
+      enabled: true,
+      skills: [],
+    },
+  ]
   const skillSources = {
     path: [] as string[],
     url: [] as string[],
@@ -410,6 +421,37 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     }
     if (url.pathname === "/config") return json({ default_agent: "build", model: "test/test-model" })
     if (url.pathname === "/path") return json({ home: "C:\\Users\\test", state: "state", config: "C:\\config" })
+
+    if (url.pathname === "/subagents" && request.method === "GET") return json(subagentProfiles)
+    if (url.pathname === "/subagents" && request.method === "PUT") {
+      const profiles = Array.isArray(value.profiles) ? value.profiles : []
+      subagentProfiles = profiles.map((profile) => {
+        const next = profile as Record<string, unknown>
+        const current = subagentProfiles.find((candidate) => candidate.id === next.id)
+        return { ...next, skills: current?.skills ?? [] }
+      })
+      return json(subagentProfiles)
+    }
+    const roleSkill = /^\/subagents\/([^/]+)\/skills$/u.exec(url.pathname)
+    if (roleSkill && request.method === "POST") {
+      const roleID = decodeURIComponent(roleSkill[1] ?? "")
+      const profile = subagentProfiles.find((candidate) => candidate.id === roleID)
+      if (!profile) return json({ name: "SubagentNotFoundError", message: "Subagent not found" }, 404)
+      const name = String(value.name ?? "")
+      const skill = {
+        id: `role:${roleID}:${name}`,
+        name,
+        description: undefined,
+        location: `C:\\Users\\test\\.jyycode\\role\\${roleID}\\skills\\${name}\\SKILL.md`,
+        content: String(value.content ?? ""),
+        origin: "role",
+        editable: true,
+        deletable: true,
+        revision: "revision-1",
+      }
+      profile.skills = [...((profile.skills as Array<unknown> | undefined) ?? []), skill]
+      return json(skill)
+    }
 
     if (url.pathname === "/skill" && request.method === "GET") return json(skills)
     if (url.pathname === "/skill" && request.method === "POST") {

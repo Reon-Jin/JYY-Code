@@ -152,7 +152,7 @@
   background: color-mix(in srgb, var(--color-surface) 86%, transparent);
 }
 
-.model-control__profile[data-role="main"] {
+.model-control__profile {
   border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
   background: color-mix(in srgb, var(--color-accent) 6%, var(--color-surface));
 }
@@ -250,16 +250,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.model-control__failure {
-  margin: 0 0 var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-danger) 36%, var(--color-border));
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-danger-surface);
-  color: var(--color-danger-ink);
-  font-size: var(--text-xs);
 }
 
 .composer__input {
