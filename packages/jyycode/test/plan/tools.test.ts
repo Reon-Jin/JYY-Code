@@ -23,12 +23,18 @@ describe("plan runtime event bridge", () => {
         done_criteria: "notes.md exists",
         output_path: "notes.md",
         report_format: "Report(...)",
+        step_directory: [
+          { task_id: "s1_t1", title: "Data model", status: "running", has_agent: true, is_self: true },
+          { task_id: "s1_t2", title: "API", status: "pending", has_agent: false, is_self: false },
+        ],
       })
 
       expect(brief).toContain("## 主 Agent 派发的任务简报")
       expect(brief).toContain('\"output_path\": \"notes.md\"')
       expect(brief).toContain("```json")
       expect(brief).not.toContain("<plan-task-brief>")
+      expect(brief).toContain('"task_id": "s1_t2"')
+      expect(brief).not.toContain("child_session_id")
     })
   )
 

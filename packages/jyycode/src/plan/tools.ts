@@ -15,6 +15,7 @@ import {
   type PlanExecutionContext,
 } from "./protocol"
 import { RuntimeEvent } from "./runtime-event"
+import { Blackboard } from "./blackboard"
 
 const Empty = Schema.Struct({})
 const AnyObject = Schema.declare<unknown>((_u): _u is unknown => true)
@@ -220,6 +221,18 @@ const inboxSchema: JSONSchema7 = {
   },
 }
 
+export const BLACKBOARD_INPUT_SCHEMA: JSONSchema7 = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    message: nonEmptyStringSchema,
+    kind: { enum: ["info", "risk", "blocker", "decision", "help"] },
+    task_ids: { type: "array", uniqueItems: true, items: taskIdSchema },
+    reply_to: nonEmptyStringSchema,
+    attachments: { type: "array", items: nonEmptyStringSchema },
+  },
+}
+
 function runId(ctx: Tool.Context) {
   const candidates = [ctx.extra?.run_id, ctx.extra?.runID, ctx.extra?.agentRunID, runIdForChildSession(ctx.sessionID)]
   return candidates.find((value): value is string => typeof value === "string" && value.length > 0)
@@ -386,6 +399,42 @@ export const InboxTool = Tool.define(
   }),
 )
 
+export const BlackboardTool = Tool.define(
+  "Blackboard",
+  Effect.gen(function* () {
+    return {
+      description: "无参读取当前 Step 的 Task 与新消息；仅在风险、阻塞、决策或求助时带 message 发布。",
+      parameters: AnyObject,
+      jsonSchema: BLACKBOARD_INPUT_SCHEMA,
+      catalog: {
+        category: "communication" as const,
+        mutability: "write" as const,
+        risk: "low" as const,
+        detail: "standard" as const,
+      },
+      execute: (input: unknown, ctx: Tool.Context) =>
+        Effect.gen(function* () {
+          const board = yield* Blackboard.Service
+          const value = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
+          if (typeof value.message === "string") {
+            const message = yield* board.postAgent({
+              sessionID: ctx.sessionID,
+              message: value.message,
+              kind: typeof value.kind === "string" ? (value.kind as Blackboard.BlackboardKind) : undefined,
+              taskIDs: Array.isArray(value.task_ids) ? value.task_ids.filter((item): item is string => typeof item === "string") : undefined,
+              replyTo: typeof value.reply_to === "string" ? value.reply_to : undefined,
+              attachments: Array.isArray(value.attachments)
+                ? value.attachments.filter((item): item is string => typeof item === "string")
+                : undefined,
+            })
+            return jsonResult("Blackboard", message)
+          }
+          return jsonResult("Blackboard", yield* board.readAgent(ctx.sessionID))
+        }).pipe(Effect.provide(Blackboard.defaultLayer)),
+    }
+  }),
+)
+
 export const PlanCreateTool = Tool.define(
   "Plan.create",
   Effect.gen(function* () {
@@ -546,6 +595,7 @@ export const ReportTool = Tool.define(
 export const PlanProtocolTools = [
   PlanReadTool,
   InboxTool,
+  BlackboardTool,
   PlanCreateTool,
   PlanUpdateTool,
   DispatchDispatchTool,

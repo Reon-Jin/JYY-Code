@@ -60,6 +60,12 @@ export function hasInFlightPlanTasks(plan: PlanToolGateState | undefined) {
   return plan?.steps.some((step) => step.tasks.some((task) => task.status === "dispatched" || task.status === "running")) ?? false
 }
 
+export function isPlanToolVisible(itemID: string, session: Pick<Session.Info, "parentID" | "multiAgent">) {
+  if (session.parentID !== undefined) return itemID === "Report" || itemID === "Blackboard"
+  if (session.multiAgent === true) return true
+  return !itemID.startsWith("Dispatch.") && itemID !== "Report" && itemID !== "Blackboard"
+}
+
 /** Select protocol gates that models are not allowed to bypass with plain text. */
 export function requiredPlanTool(input: {
   root: boolean
@@ -229,9 +235,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const mcpDefs = yield* mcp.toolDefs()
   const visibleRegistryDefs = registryDefs.filter((item) => {
     if (!PLAN_TOOL_IDS.has(item.id)) return true
-    if (input.session.parentID !== undefined) return item.id === "Report"
-    if (input.session.multiAgent === true) return true
-    return !item.id.startsWith("Dispatch.") && item.id !== "Report"
+    return isPlanToolVisible(item.id, input.session)
   })
   for (const item of [...visibleRegistryDefs, ...mcpDefs]) {
     addToolDef(item)

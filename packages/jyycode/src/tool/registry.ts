@@ -386,9 +386,7 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),
       Layer.provide(Session.defaultLayer),
-      Layer.provide(
-        Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer, BackgroundProcess.defaultLayer),
-      ),
+      Layer.provide(Layer.mergeAll(SessionStatus.defaultLayer, BackgroundJob.defaultLayer, BackgroundProcess.defaultLayer)),
       Layer.provide(Provider.defaultLayer),
       Layer.provide(Layer.mergeAll(Git.defaultLayer, RepositoryCache.defaultLayer)),
       Layer.provide(Reference.defaultLayer),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
-import { hasInFlightPlanTasks, requiredPlanTool, retainOnlyTool, toolNameForModel } from "../../src/session/tools"
-import { PLAN_CREATE_INPUT_SCHEMA, PLAN_UPDATE_INPUT_SCHEMA } from "../../src/plan/tools"
+import { hasInFlightPlanTasks, isPlanToolVisible, requiredPlanTool, retainOnlyTool, toolNameForModel } from "../../src/session/tools"
+import { BLACKBOARD_INPUT_SCHEMA, PLAN_CREATE_INPUT_SCHEMA, PLAN_UPDATE_INPUT_SCHEMA, PLAN_TOOL_IDS } from "../../src/plan/tools"
 
 describe("model-facing plan tool names", () => {
   it("uses provider-safe names without changing ordinary tools", () => {
@@ -8,6 +8,27 @@ describe("model-facing plan tool names", () => {
     expect(toolNameForModel("Dispatch.dispatch")).toBe("Dispatch_dispatch")
     expect(toolNameForModel("Report")).toBe("Report")
     expect(toolNameForModel("read")).toBe("read")
+    expect(toolNameForModel("Blackboard")).toBe("Blackboard")
+  })
+
+  it("exposes one context-free Blackboard tool with only optional write fields", () => {
+    expect(PLAN_TOOL_IDS.has("Blackboard")).toBe(true)
+    expect(BLACKBOARD_INPUT_SCHEMA.required).toBeUndefined()
+    expect(Object.keys(BLACKBOARD_INPUT_SCHEMA.properties!)).toEqual([
+      "message",
+      "kind",
+      "task_ids",
+      "reply_to",
+      "attachments",
+    ])
+    expect(Object.keys(BLACKBOARD_INPUT_SCHEMA.properties!).some((key) => /step|sender|session|author|mention/i.test(key))).toBe(false)
+  })
+
+  it("limits plan protocol tools by session role", () => {
+    expect(isPlanToolVisible("Blackboard", { parentID: "ses_parent" as never, multiAgent: undefined })).toBe(true)
+    expect(isPlanToolVisible("Plan.read", { parentID: "ses_parent" as never, multiAgent: undefined })).toBe(false)
+    expect(isPlanToolVisible("Blackboard", { parentID: undefined, multiAgent: false })).toBe(false)
+    expect(isPlanToolVisible("Blackboard", { parentID: undefined, multiAgent: true })).toBe(true)
   })
 
   it("forces Plan_read to be the only first-step tool", () => {

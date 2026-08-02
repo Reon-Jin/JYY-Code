@@ -61,6 +61,14 @@ export type DispatchBrief = {
   done_criteria: string
   output_path: string
   report_format: string
+  step_directory?: Array<{
+    task_id: string
+    title: string
+    status: TaskStatus
+    has_agent: boolean
+    is_self: boolean
+  }>
+  blackboard_summary?: Array<{ id: string; kind: string; summary: string; task_ids: string[] }>
   previous_feedback?: { review_feedback: string; issues: string[] }
 }
 
@@ -813,6 +821,13 @@ export class PlanProtocol {
           output_path: task.output_path!,
           report_format:
             "调用 Report({run_id,status,summary,artifacts?,issues?})；status=done 时 artifacts 必须列出真实存在的产出文件。",
+          step_directory: (plan.steps.find((step) => step.id === plan.current_step)?.tasks ?? []).map((item) => ({
+            task_id: item.id,
+            title: item.title,
+            status: item.status,
+            has_agent: !!item.dispatch?.child_session_id,
+            is_self: item.id === task.id,
+          })),
           ...(task.report?.review_feedback
             ? { previous_feedback: { review_feedback: task.report.review_feedback, issues: task.report.issues } }
             : {}),
