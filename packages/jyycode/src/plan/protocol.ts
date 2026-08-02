@@ -174,7 +174,7 @@ function requiredText(value: unknown, field: string) {
 export type DispatchInput = { taskIds: string[]; role: string }
 
 function validateDispatchInput(input: unknown): asserts input is DispatchInput {
-  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Dispatch.dispatch input must be an object")
+  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Dispatch_dispatch input must be an object")
   const value = input as Record<string, unknown>
   assertOnly(value, ["taskIds", "role"], "dispatch")
   if (
@@ -196,7 +196,7 @@ function assertOnly(value: Record<string, unknown>, allowed: readonly string[], 
 }
 
 function validateCreateInput(input: unknown): asserts input is CreatePlanInput {
-  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Plan.create 入参必须是对象")
+  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Plan_create 入参必须是对象")
   const value = input as Record<string, unknown>
   assertOnly(value, ["title", "goal", "steps"], "create")
   requiredText(value.title, "title")
@@ -213,7 +213,7 @@ function validateCreateInput(input: unknown): asserts input is CreatePlanInput {
     if (index > 0 && Array.isArray(step.tasks) && step.tasks.length > 0) {
       inputError(
         `steps[${index}].tasks 不允许携带任务明细`,
-        "只有 steps[0] 可以携带 tasks；后续阶段用 Plan.update(add_task) 展开",
+        "只有 steps[0] 可以携带 tasks；后续阶段用 Plan_update(add_task) 展开",
       )
     }
     for (const [taskIndex, rawTask] of (Array.isArray(step.tasks) ? step.tasks : []).entries()) {
@@ -239,7 +239,7 @@ function validateCreateInput(input: unknown): asserts input is CreatePlanInput {
 }
 
 function validateUpdateInput(input: unknown): asserts input is PlanUpdateInput {
-  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Plan.update 入参必须是对象")
+  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Plan_update 入参必须是对象")
   const value = input as Record<string, unknown>
   assertOnly(value, ["revision", "ops"], "update")
   if (!Number.isInteger(value.revision) || Number(value.revision) < 1) inputError("revision 必须是正整数")
@@ -276,7 +276,7 @@ function nextActionHint(plan: PlanFile, inboxPending: number) {
   if (reported.length) return `有 ${reported.length} 个任务待审核：${reported.map((task) => task.id).join("、")}`
   const current = plan.current_step ? plan.steps.find((step) => step.id === plan.current_step) : undefined
   if (!current) return "方案已完成，可向用户交付总结"
-  if (current.tasks.length === 0) return `${current.id} 当前没有任务，请用 Plan.update(add_task) 展开明细`
+  if (current.tasks.length === 0) return `${current.id} 当前没有任务，请用 Plan_update(add_task) 展开明细`
   const pending = current.tasks.filter((task) => task.status === "pending" || task.status === "rejected")
   if (pending.length) return `${current.id} 有 ${pending.length} 个 pending/rejected 任务，可开始派发或执行`
   if (plan.status === "done") return "方案已完成，可向用户交付总结"
@@ -467,7 +467,7 @@ function applyOp(
         throw new PlanProtocolError({
           code: ERROR_CODES.INVALID_STATE,
           message: `任务 ${task.id} 当前为 ${task.status}，不允许 edit_task`,
-          hint: "执行中任务先 Dispatch.cancel 再 edit",
+          hint: "执行中任务先 Dispatch_cancel 再 edit",
         })
       }
       if (op.fields.title !== undefined) task.title = requiredText(op.fields.title, "title")
@@ -562,7 +562,7 @@ function applyOp(
         throw new PlanProtocolError({
           code: ERROR_CODES.INVALID_STATE,
           message: "所有 candidate task 必须先提交 report",
-          hint: "等待所有候选完成 Candidate.submit 后再选择",
+          hint: "等待所有候选完成 Candidate_submit 后再选择",
         })
       if (selected.status !== "reported" || selected.report?.status !== "done")
         throw new PlanProtocolError({
@@ -598,7 +598,7 @@ function parseRunId(runId: string) {
 }
 
 function validateCandidateDeclarationInput(input: unknown) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Candidate.declare input must be an object")
+  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Candidate_declare input must be an object")
   const value = input as Record<string, unknown>
   assertOnly(value, ["approach", "assumptions", "risks", "differentiator"], "candidate.declare")
   const approach = requiredText(value.approach, "approach")
@@ -611,7 +611,7 @@ function validateCandidateDeclarationInput(input: unknown) {
 }
 
 function validateCandidateSubmitInput(input: unknown) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Candidate.submit input must be an object")
+  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Candidate_submit input must be an object")
   const value = input as Record<string, unknown>
   assertOnly(value, ["run_id", "status", "summary", "proposal"], "candidate.submit")
   const runId = requiredText(value.run_id, "run_id")
@@ -688,7 +688,7 @@ export class PlanProtocol {
       throw new PlanProtocolError({
         code: ERROR_CODES.FORBIDDEN_CHILD_SESSION,
         message: "Candidate 工具只能由候选 child session 调用",
-        hint: "root session 使用 Candidate.begin 或 Plan.update(select_candidate)",
+        hint: "root session 使用 Candidate_begin 或 Plan_update(select_candidate)",
       })
     const parsed = parseRunId(ctx.runId)
     if (!parsed)
@@ -777,8 +777,8 @@ export class PlanProtocol {
           (entry.kind === "report_precheck_failed"
             ? [
                 "确认 output_path 下的产出文件已写入后，用同一 run_id 重新提交 Report",
-                "检查任务定义与 output_path，必要时用 Plan.update(edit_task) 修正后重新 dispatch",
-                "主 Agent 直接执行该任务并用 Plan.update 推进状态",
+                "检查任务定义与 output_path，必要时用 Plan_update(edit_task) 修正后重新 dispatch",
+                "主 Agent 直接执行该任务并用 Plan_update 推进状态",
               ]
             : entry.kind === "cancelled"
               ? ["重新评估任务是否仍需执行", "修正任务定义后重新 dispatch"]
@@ -824,7 +824,7 @@ export class PlanProtocol {
           throw new PlanProtocolError({
             code: ERROR_CODES.INVALID_STATE,
             message: "已有方案",
-            hint: "已有方案，请用 Plan.update 修改",
+            hint: "已有方案，请用 Plan_update 修改",
           })
         }
         const value = input as CreatePlanInput
@@ -887,7 +887,7 @@ export class PlanProtocol {
           throw new PlanProtocolError({
             code: ERROR_CODES.INVALID_STATE,
             message: "当前 session 没有方案",
-            hint: "先调用 Plan.create 创建方案",
+            hint: "先调用 Plan_create 创建方案",
           })
         if (latest.revision !== value.revision) {
           throw new PlanProtocolError({
@@ -950,7 +950,7 @@ export class PlanProtocol {
   > {
     try {
       assertMain(ctx)
-      assertMode(ctx, "multi", "Dispatch.dispatch")
+      assertMode(ctx, "multi", "Dispatch_dispatch")
       validateDispatchInput(input)
       const taskIds = input.taskIds
       const plan = this.store.read(this.path(ctx))
@@ -958,7 +958,7 @@ export class PlanProtocol {
         throw new PlanProtocolError({
           code: ERROR_CODES.INVALID_STATE,
           message: "当前 session 没有方案",
-          hint: "先调用 Plan.create",
+          hint: "先调用 Plan_create",
         })
       const targets = (taskIds as string[]).map((id) => {
         const step = plan.steps.find((item) => item.tasks.some((task) => task.id === id))
@@ -978,7 +978,7 @@ export class PlanProtocol {
       })
       const candidateSteps = [...new Map(targets.filter(({ task }) => task.mode === "candidate").map(({ step }) => [step.id, step])).values()]
       if (candidateSteps.length > 1)
-        inputError("一次 Dispatch.dispatch 不能跨越多个 candidate Step")
+        inputError("一次 Dispatch_dispatch 不能跨越多个 candidate Step")
       const candidateStep = candidateSteps[0]
       if (candidateStep) {
         const candidateTaskIDs = candidateStep.tasks.map((task) => task.id)
@@ -988,7 +988,7 @@ export class PlanProtocol {
           taskIds.length !== candidateTaskIDs.length ||
           candidateTaskIDs.some((id) => !taskIds.includes(id))
         )
-          inputError("candidate Step 必须在一次 Dispatch.dispatch 中包含全部候选 Task")
+          inputError("candidate Step 必须在一次 Dispatch_dispatch 中包含全部候选 Task")
       }
       const dispatched: Array<{ taskId: string; run_id: string; child_session_id: string; idempotent: boolean }> = []
       const prepared = new Map<string, { dispatch: DispatchRecord; brief: DispatchBrief; role: LaunchSnapshot }>()
@@ -1017,7 +1017,7 @@ export class PlanProtocol {
             `任务 ${task.id} 缺少 output_path 或 done_criteria`,
             "派发型任务必须提供 output_path 与 done_criteria",
           )
-        if (!role) throw new Error("Dispatch.dispatch role resolution failed")
+        if (!role) throw new Error("Dispatch_dispatch role resolution failed")
         const runId = `run__${ctx.sessionId}__${task.id}`
         const childSessionId = `child_${ctx.sessionId}_${task.id}`
         const brief: DispatchBrief = {
@@ -1062,7 +1062,7 @@ export class PlanProtocol {
             throw new PlanProtocolError({
               code: ERROR_CODES.INVALID_STATE,
               message: "当前 session 没有方案",
-              hint: "先调用 Plan.create",
+              hint: "先调用 Plan_create",
             })
           const next = clonePlan(latest)
           for (const [taskId, item] of prepared) {
@@ -1119,7 +1119,7 @@ export class PlanProtocol {
   > {
     try {
       assertMain(ctx)
-      assertMode(ctx, "multi", "Dispatch.cancel")
+      assertMode(ctx, "multi", "Dispatch_cancel")
       if (
         !Array.isArray(taskIds) ||
         taskIds.length < 1 ||
@@ -1133,7 +1133,7 @@ export class PlanProtocol {
         throw new PlanProtocolError({
           code: ERROR_CODES.INVALID_STATE,
           message: "当前 session 没有方案",
-          hint: "先调用 Plan.create",
+          hint: "先调用 Plan_create",
         })
       const targets = (taskIds as string[]).map((id) => {
         const step = plan.steps.find((item) => item.tasks.some((task) => task.id === id))
@@ -1161,7 +1161,7 @@ export class PlanProtocol {
           throw new PlanProtocolError({
             code: ERROR_CODES.INVALID_STATE,
             message: "当前 session 没有方案",
-            hint: "先调用 Plan.create",
+            hint: "先调用 Plan_create",
           })
         const next = clonePlan(latest)
         const cancelled = targets.map((source) => {
@@ -1207,7 +1207,7 @@ export class PlanProtocol {
         throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "当前不在 declaring 阶段", hint: "等待候选讨论阶段开始" })
       const declarations = await board.candidateDeclarations({ rootSessionID: state.parsed.parentSessionId, stepID: state.step.id })
       if (declarations.some((item) => item.authorTaskID === state.task.id))
-        throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "该 candidate 已完成声明", hint: "不要重复调用 Candidate.declare" })
+        throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "该 candidate 已完成声明", hint: "不要重复调用 Candidate_declare" })
       await board.postCandidateDeclaration({ sessionID: ctx.sessionId, ...value })
       const latestDeclarations = await board.candidateDeclarations({ rootSessionID: state.parsed.parentSessionId, stepID: state.step.id })
       const candidateTasks = state.step.tasks.filter((task) => task.mode === "candidate")
@@ -1259,7 +1259,7 @@ export class PlanProtocol {
         throw new PlanProtocolError({
           code: ERROR_CODES.INVALID_STATE,
           message: `候选尚未回复所有同伴：${coverage.missingTaskIDs.join(", ")}`,
-          hint: "对每个同伴的顶层声明直接回复后再调用 Candidate.ready",
+          hint: "对每个同伴的顶层声明直接回复后再调用 Candidate_ready",
         })
       const result = await this.write(state.parentContext, (latest) => {
         if (!latest) throw new PlanProtocolError({ code: ERROR_CODES.RUN_NOT_FOUND, message: "找不到父 plan", hint: "候选 run 已失效" })
@@ -1298,14 +1298,14 @@ export class PlanProtocol {
     try {
       assertMain(ctx)
       const plan = this.store.read(this.path(ctx))
-      if (!plan) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "当前 session 没有方案", hint: "先调用 Plan.create" })
+      if (!plan) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "当前 session 没有方案", hint: "先调用 Plan_create" })
       const step = plan.current_step ? findStep(plan, plan.current_step) : undefined
       if (!step?.candidate_discussion || step.candidate_discussion.phase !== "awaiting_main")
-        throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "候选尚未全部 ready", hint: "等待所有候选 Candidate.ready" })
+        throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "候选尚未全部 ready", hint: "等待所有候选 Candidate_ready" })
       if (!step.tasks.every((task) => task.mode === "candidate" && step.candidate_discussion!.ready_task_ids.includes(task.id)))
-        throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "候选尚未全部 ready", hint: "等待所有候选 Candidate.ready" })
+        throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "候选尚未全部 ready", hint: "等待所有候选 Candidate_ready" })
       const result = await this.write(ctx, (latest) => {
-        if (!latest) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "当前 session 没有方案", hint: "先调用 Plan.create" })
+        if (!latest) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "当前 session 没有方案", hint: "先调用 Plan_create" })
         const next = clonePlan(latest)
         const current = next.current_step ? findStep(next, next.current_step) : undefined
         if (!current?.candidate_discussion || current.candidate_discussion.phase !== "awaiting_main")
@@ -1337,7 +1337,7 @@ export class PlanProtocol {
       if (value.runId !== ctx.runId)
         throw new PlanProtocolError({ code: ERROR_CODES.RUN_STALE, message: "run_id 与当前候选 child 不一致", hint: "使用当前 dispatch 提供的 run_id" })
       if (state.step.candidate_discussion?.phase !== "running")
-        throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "候选尚未开始独立执行", hint: "等待根会话调用 Candidate.begin" })
+        throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "候选尚未开始独立执行", hint: "等待根会话调用 Candidate_begin" })
       const proposalPath = state.task.output_path
       if (!proposalPath) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "candidate 缺少隔离提案路径", hint: "重新创建 candidate task" })
       const absolutePath = path.resolve(ctx.workspaceRoot, proposalPath)
@@ -1392,7 +1392,7 @@ export class PlanProtocol {
         throw new PlanProtocolError({
           code: ERROR_CODES.FORBIDDEN_CHILD_SESSION,
           message: "主 session 不允许调用 Report",
-          hint: "主 session 请用 Plan.update 推进状态",
+          hint: "主 session 请用 Plan_update 推进状态",
         })
       if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Report 入参必须是对象")
       const value = input as Record<string, unknown>
@@ -1416,8 +1416,8 @@ export class PlanProtocol {
       if (candidateTask?.mode === "candidate")
         throw new PlanProtocolError({
           code: ERROR_CODES.FORBIDDEN_CHILD_SESSION,
-          message: "candidate task must submit through Candidate.submit",
-          hint: "Write the isolated proposal and call Candidate.submit with the same run_id.",
+          message: "candidate task must submit through Candidate_submit",
+          hint: "Write the isolated proposal and call Candidate_submit with the same run_id.",
         })
       if (this.beforeReport) await this.beforeReport({ ...ctx, runId })
       const status = value.status

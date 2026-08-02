@@ -359,7 +359,7 @@ export const InstanceApi = HttpApi.make("instance")
           OpenApi.annotations({
             identifier: "subagents.list",
             summary: "List subagent profiles",
-            description: "List normalized project subagent profiles and the private skills discovered for each role.",
+            description: "List global subagent profiles and the private skills discovered for each role.",
           }),
         ),
         HttpApiEndpoint.put("subagentsUpdate", InstancePaths.subagents, {
@@ -371,7 +371,7 @@ export const InstanceApi = HttpApi.make("instance")
           OpenApi.annotations({
             identifier: "subagents.update",
             summary: "Replace subagent profiles",
-            description: "Atomically replace the project-level subagent profile configuration.",
+            description: "Atomically replace the global subagent profile configuration.",
           }),
         ),
         HttpApiEndpoint.post("subagentSkillCreate", InstancePaths.subagentSkills, {

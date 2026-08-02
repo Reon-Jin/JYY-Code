@@ -186,7 +186,7 @@ export const Info = Schema.Struct({
     Schema.Struct({
       profiles: Schema.optional(Schema.mutable(Schema.Array(SubagentProfileSchema))),
     }),
-  ).annotate({ description: "Project-level subagent profiles" }),
+  ).annotate({ description: "Global subagent profiles" }),
   reference: Schema.optional(ConfigReference.Info).annotate({
     description: "Named git or local directory references that can be mentioned as @alias or @alias/path",
   }),

@@ -19,7 +19,7 @@ import * as Log from "@jyycode-ai/core/util/log"
 import { EffectBridge } from "@/effect/bridge"
 import { Bus } from "@/bus"
 import { ToolTelemetry } from "@/tool/telemetry"
-import { PLAN_TOOL_IDS } from "@/plan/tools"
+import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
 import { Skill } from "@/skill"
 import { planFilePath, readPlanFileSync, type CandidateDiscussionPhase } from "@/plan/schema"
 
@@ -31,7 +31,7 @@ const log = Log.create({ service: "session.tools" })
  * wire and let the closure below continue dispatching by the original ID.
  */
 export function toolNameForModel(id: string) {
-  return PLAN_TOOL_IDS.has(id) ? id.replaceAll(".", "_") : id
+  return PLAN_TOOL_IDS.has(id) ? modelFacingPlanToolName(id) : id
 }
 
 /** Keep a required protocol entry point as the only model-visible tool. */
@@ -41,6 +41,26 @@ export function retainOnlyTool(tools: Record<string, AITool>, requiredTool: stri
   for (const name of Object.keys(tools)) {
     if (name !== requiredTool) delete tools[name]
   }
+}
+
+/**
+ * Keep a mandatory plan action while allowing the main agent to refresh its
+ * state after a rejected update or dispatch. The protocol prompt explicitly
+ * directs the agent to read the latest revision before it rewrites a patch;
+ * hiding that read tool caused a repeated unknown-tool loop.
+ */
+export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredTool: string) {
+  if (requiredTool === "Plan_update" || requiredTool === "Dispatch_dispatch") {
+    const read = tools.Plan_read
+    const required = tools[requiredTool]
+    if (!required) throw new Error(`Required tool is unavailable: ${requiredTool}`)
+    if (!read) throw new Error("Plan_read is unavailable for plan recovery")
+    for (const name of Object.keys(tools)) {
+      if (name !== requiredTool && name !== "Plan_read") delete tools[name]
+    }
+    return
+  }
+  retainOnlyTool(tools, requiredTool)
 }
 
 type PlanToolGateState = {

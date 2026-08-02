@@ -346,11 +346,12 @@ describe("instance HttpApi", () => {
     }),
   )
 
-  it.live("manages project subagent profiles and private role skills", () =>
+  it.live("manages global subagent profiles and private role skills", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped({
         git: true,
         config: {
+          model: "openai/gpt-5",
           subagents: {
             profiles: [
               {
@@ -365,6 +366,12 @@ describe("instance HttpApi", () => {
           },
         },
       })
+      const previousGlobalConfig = Global.Path.config
+      const globalConfigDirectory = path.join(dir, "global-config")
+      yield* Effect.promise(() => fs.mkdir(globalConfigDirectory, { recursive: true }))
+      yield* Effect.promise(() => fs.writeFile(path.join(globalConfigDirectory, "jyycode.json"), "{}\n"))
+      Global.Path.config = globalConfigDirectory
+      yield* Effect.addFinalizer(() => Effect.sync(() => (Global.Path.config = previousGlobalConfig)))
       const roleID = `review-${path.basename(dir)}`
       const roleRoot = path.join(Global.Path.home, ".jyycode", "role", roleID, "skills")
       yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(path.dirname(path.dirname(roleRoot)), { recursive: true, force: true })))
@@ -374,6 +381,15 @@ describe("instance HttpApi", () => {
       const initial = yield* list.json
       expect(initial).toEqual([
         expect.objectContaining({ id: "general", skills: [] }),
+      ])
+      const projectConfig = JSON.parse(yield* Effect.promise(() => fs.readFile(path.join(dir, "jyycode.json"), "utf8")))
+      expect(projectConfig.model).toBe("openai/gpt-5")
+      expect(projectConfig.subagents).toBeUndefined()
+      const globalConfig = JSON.parse(
+        yield* Effect.promise(() => fs.readFile(path.join(globalConfigDirectory, "jyycode.json"), "utf8")),
+      )
+      expect(globalConfig.subagents.profiles).toEqual([
+        expect.objectContaining({ id: "general", name: "General", enabled: true }),
       ])
 
       const profiles = [
@@ -409,6 +425,32 @@ describe("instance HttpApi", () => {
       const persistedBody = yield* persisted.json
       expect(persisted.status, JSON.stringify(persistedBody)).toBe(200)
       expect(persistedBody).toEqual(expect.arrayContaining([expect.objectContaining({ id: roleID })]))
+
+      const migratedProjectConfig = JSON.parse(
+        yield* Effect.promise(() => fs.readFile(path.join(dir, "jyycode.json"), "utf8")),
+      )
+      expect(migratedProjectConfig.model).toBe("openai/gpt-5")
+      expect(migratedProjectConfig.subagents).toBeUndefined()
+      const updatedGlobalConfig = JSON.parse(
+        yield* Effect.promise(() => fs.readFile(path.join(globalConfigDirectory, "jyycode.json"), "utf8")),
+      )
+      expect(updatedGlobalConfig.subagents.profiles).toEqual(profiles)
+
+      const otherDir = yield* tmpdirScoped({ git: true })
+      const otherList = yield* HttpClientRequest.get("/subagents").pipe(directoryHeader(otherDir), HttpClient.execute)
+      expect(otherList.status).toBe(200)
+      expect(yield* otherList.json).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: roleID,
+            name: "Review",
+            description: "Review assigned artifacts",
+            prompt: "Read the private role skill first.",
+            avatar: "file",
+            enabled: true,
+          }),
+        ]),
+      )
 
       yield* Effect.promise(() => fs.mkdir(path.join(roleRoot, "manual"), { recursive: true }))
       yield* Effect.promise(() =>

@@ -1598,7 +1598,7 @@ export const layer = Layer.effect(
               plan: planState?.ok ? planState.plan ?? undefined : undefined,
             })
             if (requiredPlanTool) {
-              SessionTools.retainOnlyTool(tools, requiredPlanTool)
+              SessionTools.retainRequiredPlanTools(tools, requiredPlanTool)
             } else if (lastUser.format?.type === "json_schema") {
               tools["StructuredOutput"] = createStructuredOutputTool({
                 schema: lastUser.format.schema,

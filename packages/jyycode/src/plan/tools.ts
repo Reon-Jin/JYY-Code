@@ -25,6 +25,11 @@ import { Blackboard } from "./blackboard"
 const Empty = Schema.Struct({})
 const AnyObject = Schema.declare<unknown>((_u): _u is unknown => true)
 
+/** The one public name used in model requests, prompts, results, and errors. */
+export function modelFacingPlanToolName(id: string) {
+  return id.replaceAll(".", "_")
+}
+
 const nonEmptyStringSchema: JSONSchema7 = { type: "string", minLength: 1 }
 const stepIdSchema: JSONSchema7 = { type: "string", pattern: "^s[1-9]\\d*$" }
 const taskIdSchema: JSONSchema7 = { type: "string", pattern: "^s[1-9]\\d*_t[1-9]\\d*$" }
@@ -276,8 +281,8 @@ function protocolContext(session: Session.Info, ctx: Tool.Context): PlanExecutio
   }
 }
 
-function jsonResult(title: string, value: unknown) {
-  return { title, metadata: { protocol: "plan-v1" }, output: JSON.stringify(value, null, 2) }
+function jsonResult(tool: string, value: unknown) {
+  return { title: modelFacingPlanToolName(tool), metadata: { protocol: "plan-v1" }, output: JSON.stringify(value, null, 2) }
 }
 
 function getSession(sessions: Session.Interface, sessionID: Tool.Context["sessionID"]) {
@@ -306,8 +311,8 @@ export function childTaskBrief(brief: DispatchBrief) {
     standard,
     "",
     "## Candidate execution",
-    "This is a candidate task. Use Candidate.declare once, then read peer declarations with Blackboard and reply directly to every other candidate before Candidate.ready.",
-    "After the root calls Candidate.begin, work independently. Write only the isolated proposal described by this brief and submit it with Candidate.submit; do not call Report or use Blackboard during running.",
+    "This is a candidate task. Use Candidate_declare once, then read peer declarations with Blackboard and reply directly to every other candidate before Candidate_ready.",
+    "After the root calls Candidate_begin, work independently. Write only the isolated proposal described by this brief and submit it with Candidate_submit; do not call Report or use Blackboard during running.",
   ].join("\n")
 }
 
@@ -546,7 +551,7 @@ export const PlanCreateTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description: "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan.update 展开。",
+      description: "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan_update 展开。",
       parameters: AnyObject,
       jsonSchema: PLAN_CREATE_INPUT_SCHEMA,
       catalog: {

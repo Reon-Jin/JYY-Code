@@ -213,9 +213,16 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     })
 
     const profiles = Effect.fn("InstanceHttpApi.subagentProfiles")(function* () {
-      const current = yield* config.get()
+      const global = yield* config.getGlobal()
+      const current = global.subagents !== undefined ? global : yield* config.get()
       try {
-        return resolveProfiles(current.subagents?.profiles)
+        const resolved = resolveProfiles(current.subagents?.profiles)
+        if (global.subagents === undefined && current.subagents !== undefined) {
+          yield* config.updateGlobal({ subagents: { profiles: resolved } })
+          yield* config.updateProject({ subagents: undefined })
+          yield* markInstanceForDisposal(yield* InstanceState.context)
+        }
+        return resolved
       } catch (error) {
         return yield* new ApiSubagentInvalidError({
           name: "SubagentInvalidError",
@@ -251,7 +258,8 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
           data: { message: error instanceof Error ? error.message : String(error) },
         })
       }
-      yield* config.updateProject({ subagents: { profiles: resolved } })
+      yield* config.updateGlobal({ subagents: { profiles: resolved } })
+      yield* config.updateProject({ subagents: undefined })
       yield* markInstanceForDisposal(yield* InstanceState.context)
       return yield* profileViews(resolved)
     })

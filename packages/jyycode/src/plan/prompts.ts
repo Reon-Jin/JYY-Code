@@ -6,14 +6,16 @@ export const PLAN_BASE_PROMPT = `# 新版方案管理协议（强制）
 - 禁止在普通回复、Markdown 代码块或 JSON 文本中创建、更新或模拟方案；文字回复不是方案状态。
 - 无方案且任务满足以下任一条件时，用 Plan_create 建立方案：可拆成至少 3 个有先后的阶段、阶段间有依赖、需要派发子 Agent，或需要阶段性汇报。
 - Plan_create 只建立 Step 骨架。仅第一个 Step 可以携带当前需要执行的 Task；后续 Step 的 tasks 必须为空。
+- Plan_create 在一个根 session 中只能成功一次。需要多个并行子 Agent 时，把所有当前可并行的 Task 放进同一个 steps[0].tasks 数组；不要为每个 Agent 重复调用 Plan_create。
 - 只有当前 active Step 可以用 Plan_update(add_task) 展开 Task。当前 Step 未完成前，禁止提前生成后续 Step 的全部 Task。
 - done_criteria 必须可观察、可判定，例如“产出 X 文件且包含 Y”或“测试全部通过”，不要写“完成/做好/分析清楚”。
 - 修改方案一律用 Plan_update 并携带最新 revision；冲突时根据返回的最新方案重新决策，不要机械重发旧 patch。
+- 每次模型回复至多调用一次 Plan_create、Plan_update 或 Dispatch_dispatch。必须先读取这次调用的结果、revision 和 next_action_hint，才能发起下一次状态写入或派发。
 - 每轮处理完 Inbox、审核、当前 Step 明细展开、派发和当前可推进工作后再结束；不要空转等待子 Agent。
 - 主 Agent：黑板有未读时先调用 Blackboard；只发布风险、阻塞、决策或求助。`
 
 export const PLAN_MULTI_PROMPT = `# 新版子 Agent 管理协议
-- 当前 active Step 只要有 pending/rejected Task，主 Agent 不得亲自执行这些 Task；运行时会只开放 Plan_update（补全任务）或 Dispatch_dispatch（派发）。
+- 当前 active Step 只要有 pending/rejected Task，主 Agent 不得亲自执行这些 Task；运行时会只开放 Plan_update（补全任务）或 Dispatch_dispatch（派发）。若该调用被拒绝，可使用 Plan_read 获取最新状态后修正一次调用。
 - 每个可派发 Task 必须有明确的 output_path；若运行时只开放 Plan_update，先用 edit_task 补齐 output_path，下一步立即 Dispatch_dispatch。
 - 独立、耗时且产出明确的当前 Step 任务，用 Dispatch_dispatch 派给子 Agent；需要连续上下文的判断由主 Agent 自己执行。
 - Dispatch_dispatch 只能接收方案中当前 active Step 的 pending/rejected taskId，禁止自行构造任务或一次派发未来阶段。
@@ -35,8 +37,8 @@ export const PLAN_CHILD_PROMPT = `# 子 Agent 执行协议
 
 export const PLAN_CANDIDATE_PROMPT = `## Candidate task protocol
 - A candidate Step contains 2-3 independent candidate Tasks and must be dispatched as one complete group.
-- During declaring, each candidate uses Candidate.declare exactly once. During cross_review, use Blackboard to read peer declarations, reply directly to every other candidate, then call Candidate.ready.
-- The root session starts the running phase with Candidate.begin. In running, candidates work independently and submit only through Candidate.submit; do not use Report, Blackboard, shell, edit, write, process, MCP, or plugin tools.
+- During declaring, each candidate uses Candidate_declare exactly once. During cross_review, use Blackboard to read peer declarations, reply directly to every other candidate, then call Candidate_ready.
+- The root session starts the running phase with Candidate_begin. In running, candidates work independently and submit only through Candidate_submit; do not use Report, Blackboard, shell, edit, write, process, MCP, or plugin tools.
 - The root session must choose exactly one approved candidate, may record contributing candidates, and must provide a real synthesis artifact before the Step can complete.`
 
 function dispatchRosterPrompt(profiles: readonly SubagentProfile[] | undefined) {

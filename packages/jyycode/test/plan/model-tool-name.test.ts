@@ -8,6 +8,7 @@ import {
   hasInFlightPlanTasks,
   isPlanToolVisible,
   requiredPlanTool,
+  retainRequiredPlanTools,
   retainOnlyTool,
   toolNameForModel,
 } from "../../src/session/tools"
@@ -16,13 +17,16 @@ import {
   childLaunchPrompt,
   childModelForRole,
   DISPATCH_INPUT_SCHEMA,
+  modelFacingPlanToolName,
   PLAN_CREATE_INPUT_SCHEMA,
   PLAN_UPDATE_INPUT_SCHEMA,
   PLAN_TOOL_IDS,
 } from "../../src/plan/tools"
 
 describe("model-facing plan tool names", () => {
-  it("uses provider-safe names without changing ordinary tools", () => {
+  it("uses one underscore-separated name on the model wire", () => {
+    expect(modelFacingPlanToolName("Plan.read")).toBe("Plan_read")
+    expect(modelFacingPlanToolName("Candidate.submit")).toBe("Candidate_submit")
     expect(toolNameForModel("Plan.read")).toBe("Plan_read")
     expect(toolNameForModel("Dispatch.dispatch")).toBe("Dispatch_dispatch")
     expect(toolNameForModel("Report")).toBe("Report")
@@ -140,6 +144,26 @@ describe("model-facing plan tool names", () => {
     retainOnlyTool(tools, "Plan_read")
     expect(Object.keys(tools)).toEqual(["Plan_read"])
     expect(() => retainOnlyTool({}, "Plan_read")).toThrow("Required tool is unavailable")
+  })
+
+  it("keeps Plan_read available to recover a rejected update or dispatch", () => {
+    const updateTools = {
+      Plan_read: {} as never,
+      Plan_update: {} as never,
+      Dispatch_dispatch: {} as never,
+      bash: {} as never,
+    }
+    retainRequiredPlanTools(updateTools, "Plan_update")
+    expect(Object.keys(updateTools)).toEqual(["Plan_read", "Plan_update"])
+
+    const dispatchTools = {
+      Plan_read: {} as never,
+      Plan_update: {} as never,
+      Dispatch_dispatch: {} as never,
+      bash: {} as never,
+    }
+    retainRequiredPlanTools(dispatchTools, "Dispatch_dispatch")
+    expect(Object.keys(dispatchTools)).toEqual(["Plan_read", "Dispatch_dispatch"])
   })
 
   it("forces multi-agent roots to create, prepare, and dispatch active work instead of doing it themselves", () => {

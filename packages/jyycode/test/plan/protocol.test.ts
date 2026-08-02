@@ -194,7 +194,7 @@ describe("file-backed plan protocol", () => {
     expect((await protocol.create(context(root), createInput())).ok).toBe(true)
     const duplicate = await protocol.create(context(root), createInput())
     expect(duplicate.ok).toBe(false)
-    if (!duplicate.ok) expect(duplicate.error.hint).toContain("Plan.update")
+    if (!duplicate.ok) expect(duplicate.error.hint).toContain("Plan_update")
   })
 
   it("rejects caller-supplied priority so write priority remains runtime-derived", async () => {
@@ -586,6 +586,8 @@ describe("file-backed plan protocol", () => {
       ],
     })
     expect(multiAgentPrompt).toContain("Dispatch_dispatch")
+    expect(multiAgentPrompt).toContain("Candidate_declare")
+    expect(multiAgentPrompt).not.toMatch(/\b(?:Plan|Dispatch|Candidate)\./)
     expect(multiAgentPrompt).toContain("output_path")
     expect(multiAgentPrompt).toContain("reviewer")
     expect(planSystemPrompt({ child: false, multiAgent: true, profiles: [] })).toContain("general")

@@ -91,6 +91,7 @@ export const layer = Layer.effect(
     const state = yield* InstanceState.make<State>(
       Effect.fn("Agent.state")(function* (ctx) {
         const cfg = yield* config.get()
+        const global = yield* config.getGlobal()
         const skillDirs = yield* skill.dirs()
         // Root sessions may use every skill in the root catalog, including
         // project, path, URL, managed, and built-in skills. Child sessions
@@ -223,7 +224,8 @@ export const layer = Layer.effect(
           }),
           user,
         )
-        for (const profile of enabledProfiles(resolveProfiles(cfg.subagents?.profiles))) {
+        const subagentConfig = global.subagents !== undefined ? global.subagents : cfg.subagents
+        for (const profile of enabledProfiles(resolveProfiles(subagentConfig?.profiles))) {
           const name = profileAgentName(profile.id)
           agents[name] = {
             name,

@@ -1,5 +1,6 @@
 import { afterEach, expect } from "bun:test"
 import { Cause, Effect, Exit, Layer } from "effect"
+import fs from "fs/promises"
 import path from "path"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
@@ -177,6 +178,62 @@ it.instance(
             prompt: "Review the delegated task carefully.",
             avatar: "bug",
             enabled: false,
+          },
+        ],
+      },
+    },
+  },
+)
+
+it.instance(
+  "global subagent profiles override project profiles",
+  () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const previous = Global.Path.config
+      const configDirectory = path.join(test.directory, "global-config")
+      yield* Effect.promise(async () => {
+        await fs.mkdir(configDirectory, { recursive: true })
+        await Bun.write(
+          path.join(configDirectory, "jyycode.json"),
+          JSON.stringify({
+            subagents: {
+              profiles: [
+                defaultGeneralProfile,
+                {
+                  id: "global_review",
+                  name: "Global Review",
+                  description: "Uses the global profile.",
+                  prompt: "Global prompt",
+                  avatar: "bug",
+                  enabled: true,
+                },
+              ],
+            },
+          }),
+        )
+      })
+      Global.Path.config = configDirectory
+      yield* Effect.addFinalizer(() => Effect.sync(() => (Global.Path.config = previous)))
+
+      const agents = yield* load((svc) => svc.list())
+      expect(agents.map((agent) => agent.name)).toContain(profileAgentName("global_review"))
+      expect(agents.map((agent) => agent.name)).not.toContain(profileAgentName("project_review"))
+      const globalReview = yield* load((svc) => svc.get(profileAgentName("global_review")))
+      expect(globalReview?.description).toBe("Uses the global profile.")
+    }),
+  {
+    config: {
+      subagents: {
+        profiles: [
+          defaultGeneralProfile,
+          {
+            id: "project_review",
+            name: "Project Review",
+            description: "Uses the project profile.",
+            prompt: "Project prompt",
+            avatar: "file",
+            enabled: true,
           },
         ],
       },
