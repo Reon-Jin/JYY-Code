@@ -6,6 +6,7 @@ export function make(overrides: Partial<Config.Interface> = {}) {
     get: () => Effect.succeed({}),
     getGlobal: () => Effect.succeed({}),
     update: () => Effect.void,
+    updateProject: () => Effect.void,
     updateGlobal: (config) => Effect.succeed({ info: config, changed: false }),
     updateGlobalPath: () => Effect.succeed({ info: {}, changed: false }),
     invalidate: () => Effect.void,

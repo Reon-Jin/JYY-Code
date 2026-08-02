@@ -125,6 +125,36 @@ const scenarios: Scenario[] = [
     .status(400, undefined, "status"),
   http.protected.get("/command", "command.list").json(200, array, "status"),
   http.protected.get("/agent", "app.agents").json(200, array, "status"),
+  http.protected.get("/subagents", "subagents.list").json(200, array, "status"),
+  http.protected
+    .put("/subagents", "subagents.update")
+    .mutating()
+    .at((ctx) => ({
+      path: "/subagents",
+      headers: ctx.headers(),
+      body: {
+        profiles: [
+          {
+            id: "general",
+            name: "General",
+            description: "General-purpose agent for delegated execution.",
+            prompt: "",
+            avatar: "bot",
+            enabled: true,
+          },
+        ],
+      },
+    }))
+    .json(200, array, "status"),
+  http.protected
+    .post("/subagents/{roleID}/skills", "subagents.skillCreate")
+    .mutating()
+    .at((ctx) => ({
+      path: route("/subagents/{roleID}/skills", { roleID: "general" }),
+      headers: ctx.headers(),
+      body: { name: `exercise-private-${process.pid}`, content: "# Exercise private skill\n" },
+    }))
+    .json(200, object, "status"),
   http.protected.get("/skill", "app.skills").json(200, array, "status"),
   http.protected.get("/lsp", "lsp.status").json(200, array),
   http.protected.get("/formatter", "formatter.status").json(200, array),

@@ -383,6 +383,7 @@ export interface Interface {
   readonly get: () => Effect.Effect<Info>
   readonly getGlobal: () => Effect.Effect<Info>
   readonly update: (config: Info) => Effect.Effect<void>
+  readonly updateProject: (config: Pick<Info, "subagents">) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<{ info: Info; changed: boolean }>
   readonly updateGlobalPath: (
     path: readonly string[],
@@ -848,6 +849,23 @@ export const layer = Layer.effect(
         .pipe(Effect.orDie)
     })
 
+    const updateProject = Effect.fn("Config.updateProject")(function* (config: Pick<Info, "subagents">) {
+      const dir = yield* InstanceState.directory
+      const candidates = [path.join(dir, "jyycode.jsonc"), path.join(dir, "jyycode.json")]
+      const file = candidates.find((candidate) => existsSync(candidate)) ?? candidates[1]
+      const before = (yield* readConfigFile(file)) ?? "{}"
+      const patch = writable({ subagents: config.subagents })
+      const serialized = file.endsWith(".jsonc")
+        ? patchJsonc(before, patch)
+        : JSON.stringify({ ...writable(yield* loadFile(file)), ...patch }, null, 2)
+      const temp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`)
+      yield* fs.writeFileString(temp, serialized).pipe(
+        Effect.flatMap(() => fs.rename(temp, file)),
+        Effect.ensuring(fs.remove(temp, { force: true }).pipe(Effect.ignore)),
+        Effect.orDie,
+      )
+    })
+
     const invalidate = Effect.fn("Config.invalidate")(function* () {
       yield* invalidateGlobal
     })
@@ -922,6 +940,7 @@ export const layer = Layer.effect(
       get,
       getGlobal,
       update,
+      updateProject,
       updateGlobal,
       updateGlobalPath,
       invalidate,

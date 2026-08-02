@@ -1,10 +1,12 @@
 import { Agent } from "@/agent/agent"
+import { SubagentProfile } from "@/agent/subagent-profile"
 import { Command } from "@/command"
 import { Format } from "@/format"
 import { LSP } from "@/lsp/lsp"
 import { Vcs } from "@/project/vcs"
 import { Skill } from "@/skill"
 import { SkillManagement } from "@/skill/management"
+import { RoleSkillManagement } from "@/skill/role-management"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
@@ -101,6 +103,40 @@ export class ApiSkillUnsafePathError extends Schema.ErrorClass<ApiSkillUnsafePat
   { httpApiStatus: 400 },
 ) {}
 
+export class ApiSubagentInvalidError extends Schema.ErrorClass<ApiSubagentInvalidError>("SubagentInvalidError")(
+  {
+    name: Schema.Literal("SubagentInvalidError"),
+    data: Schema.Struct({ message: Schema.String }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+export class ApiSubagentNotFoundError extends Schema.ErrorClass<ApiSubagentNotFoundError>("SubagentNotFoundError")(
+  {
+    name: Schema.Literal("SubagentNotFoundError"),
+    data: Schema.Struct({ message: Schema.String, roleID: Schema.String }),
+  },
+  { httpApiStatus: 404 },
+) {}
+
+export class ApiSubagentDuplicateError extends Schema.ErrorClass<ApiSubagentDuplicateError>("SubagentDuplicateError")(
+  {
+    name: Schema.Literal("SubagentDuplicateError"),
+    data: Schema.Struct({ message: Schema.String, roleID: Schema.String, skill: Schema.String }),
+  },
+  { httpApiStatus: 409 },
+) {}
+
+export class ApiSubagentUnsafePathError extends Schema.ErrorClass<ApiSubagentUnsafePathError>(
+  "SubagentUnsafePathError",
+)(
+  {
+    name: Schema.Literal("SubagentUnsafePathError"),
+    data: Schema.Struct({ message: Schema.String, roleID: Schema.String, path: Schema.String }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
 const SkillMutationErrors = [
   ApiSkillInvalidError,
   ApiSkillProtectedError,
@@ -109,6 +145,22 @@ const SkillMutationErrors = [
   ApiSkillDuplicateError,
   ApiSkillUnsafePathError,
 ] as const
+
+const SubagentMutationErrors = [
+  ApiSubagentInvalidError,
+  ApiSubagentNotFoundError,
+  ApiSubagentDuplicateError,
+  ApiSubagentUnsafePathError,
+] as const
+
+export const SubagentProfileView = Schema.Struct({
+  ...SubagentProfile.Profile.fields,
+  skills: Schema.Array(Skill.Info),
+}).annotate({ identifier: "SubagentProfileView" })
+
+export const SubagentProfilesUpdate = Schema.Struct({
+  profiles: Schema.mutable(Schema.Array(SubagentProfile.Profile)),
+}).annotate({ identifier: "SubagentProfilesUpdate" })
 
 export const SkillListQuery = Schema.Struct({
   ...WorkspaceRoutingQueryFields,
@@ -131,6 +183,8 @@ export const InstancePaths = {
   vcsPush: "/vcs/push",
   command: "/command",
   agent: "/agent",
+  subagents: "/subagents",
+  subagentSkills: "/subagents/:roleID/skills",
   skill: "/skill",
   skillByName: "/skill/:name",
   skillSource: "/skill/source",
@@ -295,6 +349,42 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "app.agents",
             summary: "List agents",
             description: "Get a list of all available AI agents in the JYYCode system.",
+          }),
+        ),
+        HttpApiEndpoint.get("subagents", InstancePaths.subagents, {
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Array(SubagentProfileView), "List subagent profiles and private skills"),
+          error: SubagentMutationErrors,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "subagents.list",
+            summary: "List subagent profiles",
+            description: "List normalized project subagent profiles and the private skills discovered for each role.",
+          }),
+        ),
+        HttpApiEndpoint.put("subagentsUpdate", InstancePaths.subagents, {
+          query: WorkspaceRoutingQuery,
+          payload: SubagentProfilesUpdate,
+          success: described(Schema.Array(SubagentProfileView), "Updated subagent profiles"),
+          error: SubagentMutationErrors,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "subagents.update",
+            summary: "Replace subagent profiles",
+            description: "Atomically replace the project-level subagent profile configuration.",
+          }),
+        ),
+        HttpApiEndpoint.post("subagentSkillCreate", InstancePaths.subagentSkills, {
+          params: { roleID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          payload: RoleSkillManagement.CreateInput,
+          success: described(Skill.Info, "Private role skill created"),
+          error: SubagentMutationErrors,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "subagents.skillCreate",
+            summary: "Create private role skill",
+            description: "Create a role-scoped SKILL.md under the selected subagent profile.",
           }),
         ),
         HttpApiEndpoint.get("skill", InstancePaths.skill, {

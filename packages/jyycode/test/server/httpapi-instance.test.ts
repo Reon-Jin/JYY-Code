@@ -3,6 +3,9 @@ import { Flag } from "@jyycode-ai/core/flag/flag"
 import { describe, expect } from "bun:test"
 import { Config, Context, Effect, FileSystem, Layer, Path } from "effect"
 import { HttpClient, HttpClientRequest, HttpRouter, HttpServer } from "effect/unstable/http"
+import { Global } from "@jyycode-ai/core/global"
+import fs from "fs/promises"
+import path from "path"
 import * as Socket from "effect/unstable/socket/Socket"
 import { WorkspaceID } from "../../src/control-plane/schema"
 import { ControlPaths } from "../../src/server/routes/instance/httpapi/groups/control"
@@ -13,6 +16,7 @@ import { ProjectID } from "../../src/project/schema"
 import { Git } from "../../src/git"
 import { QuestionID } from "../../src/question/schema"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
+import { disposeMiddleware } from "../../src/server/routes/instance/httpapi/lifecycle"
 import { HEADER as FenceHeader } from "../../src/server/shared/fence"
 import { resetDatabase } from "../fixture/db"
 import { tmpdirScoped } from "../fixture/fixture"
@@ -42,7 +46,7 @@ const testStateLayer = Layer.effectDiscard(
 // keeps the test wired directly through the same route layer production uses.
 const servedRoutes: Layer.Layer<never, Config.ConfigError, HttpServer.HttpServer> = HttpRouter.serve(
   HttpApiApp.routes,
-  { disableListenLog: true, disableLogger: true },
+  { disableListenLog: true, disableLogger: true, middleware: disposeMiddleware },
 )
 
 const httpApiServerLayer = servedRoutes.pipe(
@@ -339,6 +343,120 @@ describe("instance HttpApi", () => {
         name: "VcsOperationError",
         data: { message: "The branch name is invalid", reason: "invalid-name" },
       })
+    }),
+  )
+
+  it.live("manages project subagent profiles and private role skills", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({
+        git: true,
+        config: {
+          subagents: {
+            profiles: [
+              {
+                id: "general",
+                name: "General",
+                description: "General delegated execution",
+                prompt: "",
+                avatar: "bot",
+                enabled: true,
+              },
+            ],
+          },
+        },
+      })
+      const roleID = `review-${path.basename(dir)}`
+      const roleRoot = path.join(Global.Path.home, ".jyycode", "role", roleID, "skills")
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(path.dirname(path.dirname(roleRoot)), { recursive: true, force: true })))
+
+      const list = yield* HttpClientRequest.get("/subagents").pipe(directoryHeader(dir), HttpClient.execute)
+      expect(list.status).toBe(200)
+      const initial = yield* list.json
+      expect(initial).toEqual([
+        expect.objectContaining({ id: "general", skills: [] }),
+      ])
+
+      const profiles = [
+        {
+          id: "general",
+          name: "General",
+          description: "General delegated execution",
+          prompt: "",
+          avatar: "bot",
+          enabled: true,
+        },
+        {
+          id: roleID,
+          name: "Review",
+          description: "Review assigned artifacts",
+          prompt: "Read the private role skill first.",
+          avatar: "file",
+          enabled: true,
+        },
+      ]
+      const updated = yield* HttpClientRequest.put("/subagents").pipe(
+        directoryHeader(dir),
+        HttpClientRequest.bodyJson({ profiles }),
+        Effect.flatMap(HttpClient.execute),
+      )
+      expect(updated.status).toBe(200)
+      expect(yield* updated.json).toEqual([
+        expect.objectContaining({ id: "general" }),
+        expect.objectContaining({ id: roleID, name: "Review", skills: [] }),
+      ])
+
+      const persisted = yield* HttpClientRequest.get("/subagents").pipe(directoryHeader(dir), HttpClient.execute)
+      const persistedBody = yield* persisted.json
+      expect(persisted.status, JSON.stringify(persistedBody)).toBe(200)
+      expect(persistedBody).toEqual(expect.arrayContaining([expect.objectContaining({ id: roleID })]))
+
+      yield* Effect.promise(() => fs.mkdir(path.join(roleRoot, "manual"), { recursive: true }))
+      yield* Effect.promise(() =>
+        fs.writeFile(
+          path.join(roleRoot, "manual", "SKILL.md"),
+          "---\nname: manual\ndescription: Manual role skill\n---\n\n# Manual\n",
+        ),
+      )
+
+      const created = yield* HttpClientRequest.post(`/subagents/${roleID}/skills`).pipe(
+        directoryHeader(dir),
+        HttpClientRequest.bodyJson({ name: "notes", content: "# Notes\n" }),
+        Effect.flatMap(HttpClient.execute),
+      )
+      const createdBody = yield* created.json
+      expect(created.status, JSON.stringify(createdBody)).toBe(200)
+      expect(createdBody).toEqual(expect.objectContaining({ id: `role:${roleID}:notes`, name: "notes" }))
+      expect(yield* Effect.promise(() => Bun.file(path.join(roleRoot, "notes", "SKILL.md")).text())).toContain(
+        "name: notes",
+      )
+
+      const afterCreate = yield* HttpClientRequest.get("/subagents").pipe(directoryHeader(dir), HttpClient.execute)
+      const afterCreateBody = yield* afterCreate.json
+      const role = (afterCreateBody as Array<{ id: string; skills: Array<{ name: string }> }>).find(
+        (profile) => profile.id === roleID,
+      )
+      expect(role?.skills.map((skill) => skill.name)).toEqual(["manual", "notes"])
+
+      const duplicate = yield* HttpClientRequest.post(`/subagents/${roleID}/skills`).pipe(
+        directoryHeader(dir),
+        HttpClientRequest.bodyJson({ name: "notes", content: "# Again\n" }),
+        Effect.flatMap(HttpClient.execute),
+      )
+      expect(duplicate.status).toBe(409)
+
+      const unsafe = yield* HttpClientRequest.post(`/subagents/${roleID}/skills`).pipe(
+        directoryHeader(dir),
+        HttpClientRequest.bodyJson({ name: "../escape", content: "# Unsafe\n" }),
+        Effect.flatMap(HttpClient.execute),
+      )
+      expect(unsafe.status).toBe(400)
+
+      const unknown = yield* HttpClientRequest.post("/subagents/missing/skills").pipe(
+        directoryHeader(dir),
+        HttpClientRequest.bodyJson({ name: "notes", content: "# Missing\n" }),
+        Effect.flatMap(HttpClient.execute),
+      )
+      expect(unknown.status).toBe(404)
     }),
   )
 })

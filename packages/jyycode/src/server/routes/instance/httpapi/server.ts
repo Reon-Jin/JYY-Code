@@ -49,6 +49,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { BackgroundProcess } from "@/process/job"
 import { Skill } from "@/skill"
 import { SkillManagement } from "@/skill/management"
+import { RoleSkillManagement } from "@/skill/role-management"
 import { Global } from "@jyycode-ai/core/global"
 import { Snapshot } from "@/snapshot"
 import { SyncEvent } from "@/sync"
@@ -237,6 +238,7 @@ export function createRoutes(
       EventV2Bridge.defaultLayer,
       Skill.defaultLayer,
       SkillManagement.defaultLayer,
+      RoleSkillManagement.defaultLayer,
       Todo.defaultLayer,
       ToolRegistry.defaultLayer,
       Vcs.defaultLayer,

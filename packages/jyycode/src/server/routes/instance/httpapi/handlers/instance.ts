@@ -1,4 +1,5 @@
 import { Agent } from "@/agent/agent"
+import { Config } from "@/config/config"
 import { Command } from "@/command"
 import * as InstanceState from "@/effect/instance-state"
 import { Format } from "@/format"
@@ -7,6 +8,8 @@ import { LSP } from "@/lsp/lsp"
 import { Vcs } from "@/project/vcs"
 import { Skill } from "@/skill"
 import { SkillManagement } from "@/skill/management"
+import { RoleSkillManagement } from "@/skill/role-management"
+import { profileByID, resolveProfiles } from "@/agent/subagent-profile"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
@@ -17,6 +20,11 @@ import {
   ApiSkillNotFoundError,
   ApiSkillProtectedError,
   ApiSkillUnsafePathError,
+  ApiSubagentDuplicateError,
+  ApiSubagentInvalidError,
+  ApiSubagentNotFoundError,
+  ApiSubagentUnsafePathError,
+  SubagentProfilesUpdate,
   ApiVcsApplyError,
   ApiVcsOperationError,
 } from "../groups/instance"
@@ -75,14 +83,49 @@ const mapSkillError = (error: SkillManagement.Error) => {
   }
 }
 
+const mapSubagentError = (error: RoleSkillManagement.Error) => {
+  switch (error._tag) {
+    case "RoleSkillManagementInvalidRoleIDError":
+      return new ApiSubagentInvalidError({
+        name: "SubagentInvalidError",
+        data: { message: `Invalid subagent role ID: ${error.roleID}` },
+      })
+    case "RoleSkillManagementInvalidContentError":
+      return new ApiSubagentInvalidError({
+        name: "SubagentInvalidError",
+        data: { message: error.message },
+      })
+    case "RoleSkillManagementDuplicateError":
+      return new ApiSubagentDuplicateError({
+        name: "SubagentDuplicateError",
+        data: {
+          message: `Private skill "${error.name}" already exists for role "${error.roleID}"`,
+          roleID: error.roleID,
+          skill: error.name,
+        },
+      })
+    case "RoleSkillManagementUnsafePathError":
+      return new ApiSubagentUnsafePathError({
+        name: "SubagentUnsafePathError",
+        data: {
+          message: `Unsafe private skill path for role "${error.roleID}"`,
+          roleID: error.roleID,
+          path: error.path,
+        },
+      })
+  }
+}
+
 export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance", (handlers) =>
   Effect.gen(function* () {
     const agent = yield* Agent.Service
+    const config = yield* Config.Service
     const command = yield* Command.Service
     const format = yield* Format.Service
     const lsp = yield* LSP.Service
     const skill = yield* Skill.Service
     const skillManagement = yield* SkillManagement.Service
+    const roleSkillManagement = yield* RoleSkillManagement.Service
     const vcs = yield* Vcs.Service
 
     const dispose = Effect.fn("InstanceHttpApi.dispose")(function* () {
@@ -169,6 +212,68 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* agent.list()
     })
 
+    const profiles = Effect.fn("InstanceHttpApi.subagentProfiles")(function* () {
+      const current = yield* config.get()
+      try {
+        return resolveProfiles(current.subagents?.profiles)
+      } catch (error) {
+        return yield* new ApiSubagentInvalidError({
+          name: "SubagentInvalidError",
+          data: { message: error instanceof Error ? error.message : String(error) },
+        })
+      }
+    })
+
+    const profileViews = Effect.fn("InstanceHttpApi.subagentProfileViews")(function* (
+      resolved: ReturnType<typeof resolveProfiles>,
+    ) {
+      const result = []
+      for (const profile of resolved) {
+        const skills = yield* roleSkillManagement.list(profile.id).pipe(Effect.mapError(mapSubagentError))
+        result.push({ ...profile, skills })
+      }
+      return result
+    })
+
+    const getSubagents = Effect.fn("InstanceHttpApi.subagentsList")(function* () {
+      return yield* profileViews(yield* profiles())
+    })
+
+    const updateSubagents = Effect.fn("InstanceHttpApi.subagentsUpdate")(function* (ctx: {
+      payload: typeof SubagentProfilesUpdate.Type
+    }) {
+      let resolved: ReturnType<typeof resolveProfiles>
+      try {
+        resolved = resolveProfiles(ctx.payload.profiles as readonly unknown[])
+      } catch (error) {
+        return yield* new ApiSubagentInvalidError({
+          name: "SubagentInvalidError",
+          data: { message: error instanceof Error ? error.message : String(error) },
+        })
+      }
+      yield* config.updateProject({ subagents: { profiles: resolved } })
+      yield* markInstanceForDisposal(yield* InstanceState.context)
+      return yield* profileViews(resolved)
+    })
+
+    const createSubagentSkill = Effect.fn("InstanceHttpApi.subagentsSkillCreate")(function* (ctx: {
+      params: { roleID: string }
+      payload: RoleSkillManagement.CreateInput
+    }) {
+      const resolved = yield* profiles()
+      if (!profileByID(resolved, ctx.params.roleID)) {
+        return yield* new ApiSubagentNotFoundError({
+          name: "SubagentNotFoundError",
+          data: { message: `Subagent role "${ctx.params.roleID}" was not found`, roleID: ctx.params.roleID },
+        })
+      }
+      const result = yield* roleSkillManagement.create(ctx.params.roleID, ctx.payload).pipe(
+        Effect.mapError(mapSubagentError),
+      )
+      yield* markInstanceForDisposal(yield* InstanceState.context)
+      return result
+    })
+
     const getSkill = Effect.fn("InstanceHttpApi.skill")(function* (ctx: { query: { agent?: string } }) {
       if (!ctx.query.agent) return yield* skill.all()
       return yield* skill.available(Skill.rootScope, yield* agent.get(ctx.query.agent))
@@ -240,6 +345,9 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       .handle("vcsPush", pushVcs)
       .handle("command", getCommand)
       .handle("agent", getAgent)
+      .handle("subagents", getSubagents)
+      .handle("subagentsUpdate", updateSubagents)
+      .handle("subagentSkillCreate", createSubagentSkill)
       .handle("skill", getSkill)
       .handle("skillCreate", createSkill)
       .handle("skillUpdate", updateSkill)

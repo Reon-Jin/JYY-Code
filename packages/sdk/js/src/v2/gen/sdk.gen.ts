@@ -285,6 +285,13 @@ import type {
   SkillSourceRemoveResponses,
   SkillUpdateErrors,
   SkillUpdateResponses,
+  SubagentProfilesUpdate,
+  SubagentsListErrors,
+  SubagentsListResponses,
+  SubagentsSkillCreateErrors,
+  SubagentsSkillCreateResponses,
+  SubagentsUpdateErrors,
+  SubagentsUpdateResponses,
   SubtaskPartInput,
   SyncHistoryListErrors,
   SyncHistoryListResponses,
@@ -2889,6 +2896,120 @@ export class Command extends HeyApiClient {
       url: "/command",
       ...options,
       ...params,
+    })
+  }
+}
+
+export class Subagents extends HeyApiClient {
+  /**
+   * List subagent profiles
+   *
+   * List normalized project subagent profiles and the private skills discovered for each role.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SubagentsListResponses, SubagentsListErrors, ThrowOnError>({
+      url: "/subagents",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Replace subagent profiles
+   *
+   * Atomically replace the project-level subagent profile configuration.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      subagentProfilesUpdate?: SubagentProfilesUpdate
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "subagentProfilesUpdate", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<SubagentsUpdateResponses, SubagentsUpdateErrors, ThrowOnError>({
+      url: "/subagents",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Create private role skill
+   *
+   * Create a role-scoped SKILL.md under the selected subagent profile.
+   */
+  public skillCreate<ThrowOnError extends boolean = false>(
+    parameters: {
+      roleID: string
+      directory?: string
+      workspace?: string
+      name?: string
+      content?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roleID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "name" },
+            { in: "body", key: "content" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SubagentsSkillCreateResponses,
+      SubagentsSkillCreateErrors,
+      ThrowOnError
+    >({
+      url: "/subagents/{roleID}/skills",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 }
@@ -6677,6 +6798,11 @@ export class JyycodeClient extends HeyApiClient {
   private _command?: Command
   get command(): Command {
     return (this._command ??= new Command({ client: this.client }))
+  }
+
+  private _subagents?: Subagents
+  get subagents(): Subagents {
+    return (this._subagents ??= new Subagents({ client: this.client }))
   }
 
   private _skill?: Skill

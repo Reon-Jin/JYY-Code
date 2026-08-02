@@ -36,6 +36,7 @@ const configLayer = Layer.succeed(
     get: () => Effect.succeed({ shell: process.platform === "win32" ? "powershell" : "bash" }),
     getGlobal: () => Effect.succeed({}),
     update: () => Effect.void,
+    updateProject: () => Effect.void,
     updateGlobal: (config) => Effect.succeed({ info: config, changed: false }),
     updateGlobalPath: () => Effect.succeed({ info: {}, changed: false }),
     invalidate: () => Effect.void,

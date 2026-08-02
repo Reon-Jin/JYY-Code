@@ -939,6 +939,17 @@ export type ServerConfig = {
   cors?: Array<string>
 }
 
+export type SubagentProfile = {
+  id: string
+  name: string
+  description: string
+  prompt: string
+  avatar: "bot" | "search" | "code" | "bug" | "chart" | "file" | "image" | "folder" | "pen" | "sparkles"
+  model?: string
+  variant?: string
+  enabled: boolean
+}
+
 export type ReferenceConfigEntry =
   | string
   | {
@@ -1199,6 +1210,9 @@ export type Config = {
     paths?: Array<string>
     urls?: Array<string>
   }
+  subagents?: {
+    profiles?: Array<SubagentProfile>
+  }
   reference?: ReferenceConfig
   watcher?: {
     ignore?: Array<string>
@@ -1233,8 +1247,6 @@ export type Config = {
   agent?: {
     plan?: AgentConfig
     build?: AgentConfig
-    general?: AgentConfig
-    explore?: AgentConfig
     title?: AgentConfig
     summary?: AgentConfig
     compaction?: AgentConfig
@@ -1913,6 +1925,66 @@ export type Agent = {
     [key: string]: unknown
   }
   steps?: number
+}
+
+export type SubagentProfileView = {
+  id: string
+  name: string
+  description: string
+  prompt: string
+  avatar: "bot" | "search" | "code" | "bug" | "chart" | "file" | "image" | "folder" | "pen" | "sparkles"
+  model?: string
+  variant?: string
+  enabled: boolean
+  skills: Array<{
+    id: string
+    name: string
+    description?: string
+    location: string
+    content: string
+    origin: "built_in" | "managed" | "path" | "url" | "role"
+    source?: string
+    editable: boolean
+    deletable: boolean
+    revision: string
+  }>
+}
+
+export type SubagentInvalidError = {
+  name: "SubagentInvalidError"
+  data: {
+    message: string
+  }
+}
+
+export type SubagentUnsafePathError = {
+  name: "SubagentUnsafePathError"
+  data: {
+    message: string
+    roleID: string
+    path: string
+  }
+}
+
+export type SubagentNotFoundError = {
+  name: "SubagentNotFoundError"
+  data: {
+    message: string
+    roleID: string
+  }
+}
+
+export type SubagentDuplicateError = {
+  name: "SubagentDuplicateError"
+  data: {
+    message: string
+    roleID: string
+    skill: string
+  }
+}
+
+export type SubagentProfilesUpdate = {
+  profiles: Array<SubagentProfile>
 }
 
 export type SkillInvalidError = {
@@ -6379,6 +6451,130 @@ export type AppAgentsResponses = {
 
 export type AppAgentsResponse = AppAgentsResponses[keyof AppAgentsResponses]
 
+export type SubagentsListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/subagents"
+}
+
+export type SubagentsListErrors = {
+  /**
+   * SubagentInvalidError | SubagentUnsafePathError | InvalidRequestError
+   */
+  400: SubagentInvalidError | SubagentUnsafePathError | InvalidRequestError
+  /**
+   * SubagentNotFoundError
+   */
+  404: SubagentNotFoundError
+  /**
+   * SubagentDuplicateError
+   */
+  409: SubagentDuplicateError
+}
+
+export type SubagentsListError = SubagentsListErrors[keyof SubagentsListErrors]
+
+export type SubagentsListResponses = {
+  /**
+   * List subagent profiles and private skills
+   */
+  200: Array<SubagentProfileView>
+}
+
+export type SubagentsListResponse = SubagentsListResponses[keyof SubagentsListResponses]
+
+export type SubagentsUpdateData = {
+  body?: SubagentProfilesUpdate
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/subagents"
+}
+
+export type SubagentsUpdateErrors = {
+  /**
+   * SubagentInvalidError | SubagentUnsafePathError | InvalidRequestError
+   */
+  400: SubagentInvalidError | SubagentUnsafePathError | InvalidRequestError
+  /**
+   * SubagentNotFoundError
+   */
+  404: SubagentNotFoundError
+  /**
+   * SubagentDuplicateError
+   */
+  409: SubagentDuplicateError
+}
+
+export type SubagentsUpdateError = SubagentsUpdateErrors[keyof SubagentsUpdateErrors]
+
+export type SubagentsUpdateResponses = {
+  /**
+   * Updated subagent profiles
+   */
+  200: Array<SubagentProfileView>
+}
+
+export type SubagentsUpdateResponse = SubagentsUpdateResponses[keyof SubagentsUpdateResponses]
+
+export type SubagentsSkillCreateData = {
+  body?: {
+    name: string
+    content: string
+  }
+  path: {
+    roleID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/subagents/{roleID}/skills"
+}
+
+export type SubagentsSkillCreateErrors = {
+  /**
+   * SubagentInvalidError | SubagentUnsafePathError | InvalidRequestError
+   */
+  400: SubagentInvalidError | SubagentUnsafePathError | InvalidRequestError
+  /**
+   * SubagentNotFoundError
+   */
+  404: SubagentNotFoundError
+  /**
+   * SubagentDuplicateError
+   */
+  409: SubagentDuplicateError
+}
+
+export type SubagentsSkillCreateError = SubagentsSkillCreateErrors[keyof SubagentsSkillCreateErrors]
+
+export type SubagentsSkillCreateResponses = {
+  /**
+   * Private role skill created
+   */
+  200: {
+    id: string
+    name: string
+    description?: string
+    location: string
+    content: string
+    origin: "built_in" | "managed" | "path" | "url" | "role"
+    source?: string
+    editable: boolean
+    deletable: boolean
+    revision: string
+  }
+}
+
+export type SubagentsSkillCreateResponse = SubagentsSkillCreateResponses[keyof SubagentsSkillCreateResponses]
+
 export type AppSkillsData = {
   body?: never
   path?: never
@@ -6405,11 +6601,12 @@ export type AppSkillsResponses = {
    * List of skills
    */
   200: Array<{
+    id: string
     name: string
     description?: string
     location: string
     content: string
-    origin: "built_in" | "managed" | "path" | "url"
+    origin: "built_in" | "managed" | "path" | "url" | "role"
     source?: string
     editable: boolean
     deletable: boolean
@@ -6459,11 +6656,12 @@ export type SkillCreateResponses = {
    * Skill created
    */
   200: {
+    id: string
     name: string
     description?: string
     location: string
     content: string
-    origin: "built_in" | "managed" | "path" | "url"
+    origin: "built_in" | "managed" | "path" | "url" | "role"
     source?: string
     editable: boolean
     deletable: boolean
@@ -6556,11 +6754,12 @@ export type SkillUpdateResponses = {
    * Skill updated
    */
   200: {
+    id: string
     name: string
     description?: string
     location: string
     content: string
-    origin: "built_in" | "managed" | "path" | "url"
+    origin: "built_in" | "managed" | "path" | "url" | "role"
     source?: string
     editable: boolean
     deletable: boolean

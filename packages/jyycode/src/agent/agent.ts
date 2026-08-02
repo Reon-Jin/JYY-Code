@@ -92,13 +92,10 @@ export const layer = Layer.effect(
       Effect.fn("Agent.state")(function* (ctx) {
         const cfg = yield* config.get()
         const skillDirs = yield* skill.dirs()
-        const globalSkillRoot = path.resolve(Global.Path.home, ".jyycode", "skills")
-        const globalSkillNames = (yield* skill.all())
-          .filter((item) => {
-            const relative = path.relative(globalSkillRoot, item.location)
-            return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)
-          })
-          .map((item) => item.name)
+        // Root sessions may use every skill in the root catalog, including
+        // project, path, URL, managed, and built-in skills. Child sessions
+        // receive a separate role catalog through SkillAccessScope.
+        const globalSkillNames = (yield* skill.all()).map((item) => item.name)
         const primarySkills: Record<string, "allow" | "deny"> = { "*": "deny", "customize-jyycode": "allow" }
         for (const name of globalSkillNames) primarySkills[name] = "allow"
         const whitelistedDirs = [
