@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { SessionPlanResponse } from "@jyycode-ai/sdk/v2/client"
 import { findTaskByChildSessionID, projectPlanState } from "./plan-state"
 
-const snapshot: SessionPlanResponse = {
+const snapshot = {
   title: "重构",
   goal: "完成重构",
   status: "active",
@@ -20,6 +20,12 @@ const snapshot: SessionPlanResponse = {
           id: "s1_t1",
           title: "编码",
           status: "running",
+          role: {
+            id: "reviewer",
+            name: "Reviewer",
+            description: "Checks delegated work.",
+            avatar: "code",
+          },
           child: { session_id: "ses_child", elapsed_sec: 12, last_activity: "执行测试" },
         },
         { id: "s1_t2", title: "审核", status: "reported" },
@@ -27,7 +33,7 @@ const snapshot: SessionPlanResponse = {
     },
     { id: "s2", title: "验收", status: "pending", tasks: [] },
   ],
-}
+} as unknown as SessionPlanResponse
 
 describe("projectPlanState", () => {
   it("projects the new plan snapshot without reconstructing a legacy task graph", () => {
@@ -40,6 +46,18 @@ describe("projectPlanState", () => {
     expect(result.steps[0]?.title).toBe("\u5b9e\u73b0")
     expect(result.steps[1]?.tasks).toEqual([])
     expect(findTaskByChildSessionID(result, "ses_child")?.lastEvent).toBe("执行测试")
+    expect(result.tasks[0]?.role).toEqual({
+      id: "reviewer",
+      name: "Reviewer",
+      description: "Checks delegated work.",
+      avatar: "code",
+    })
+    expect(result.tasks[1]?.role).toBeUndefined()
+
+    ;(
+      snapshot as unknown as { steps: Array<{ tasks: Array<{ role: { name: string } }> }> }
+    ).steps[0]!.tasks[0]!.role!.name = "Changed later"
+    expect(result.tasks[0]?.role?.name).toBe("Reviewer")
   })
 
   it("returns an empty projection when no plan exists", () => {

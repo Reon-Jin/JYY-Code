@@ -1,6 +1,7 @@
 import type { SessionPlanResponse } from "@jyycode-ai/sdk/v2/client"
 import { tr } from "../../i18n/i18n-context"
-import { roleCapability } from "../multi-agent/role-capabilities"
+import { SUBAGENT_AVATAR_IDS, type SubagentAvatarID } from "../subagents/subagent-avatar-catalog"
+import type { PlanRoleSnapshot } from "./plan-role-presentation"
 
 type PlanData = Exclude<SessionPlanResponse, { plan: null }>
 type PlanTask = PlanData["steps"][number]["tasks"][number]
@@ -11,10 +12,7 @@ export type MultiAgentTaskView = {
   key: string
   id: string
   step: number
-  role: string
-  skillName: string
-  skillNames: string[]
-  capabilitySummary: string
+  role?: PlanRoleSnapshot
   title: string
   model: string
   status: PlanTask["status"]
@@ -86,21 +84,38 @@ function emptySnapshot(): MultiAgentSnapshot {
   }
 }
 
+function snapshotRole(item: PlanTask): PlanRoleSnapshot | undefined {
+  const role = (item as PlanTask & { role?: unknown }).role
+  if (!role || typeof role !== "object" || Array.isArray(role)) return undefined
+  const candidate = role as Record<string, unknown>
+  if (
+    typeof candidate.id !== "string" ||
+    typeof candidate.name !== "string" ||
+    typeof candidate.description !== "string" ||
+    typeof candidate.avatar !== "string" ||
+    !(SUBAGENT_AVATAR_IDS as readonly string[]).includes(candidate.avatar)
+  )
+    return undefined
+  return {
+    id: candidate.id,
+    name: candidate.name,
+    description: candidate.description,
+    avatar: candidate.avatar as SubagentAvatarID,
+  }
+}
+
 export function projectPlanState(state: SessionPlanResponse): MultiAgentSnapshot {
   if ("plan" in state) return emptySnapshot()
-  const capability = roleCapability("general")
   const steps = state.steps.map((step, stepIndex): MultiAgentStepView => {
     const index = Number(step.id.replace(/^s/, "")) || stepIndex + 1
     const tasks = step.tasks.map((item): MultiAgentTaskView => {
       const presentation = statusPresentation[item.status]
+      const role = snapshotRole(item)
       return {
         key: item.id,
         id: item.id,
         step: index,
-        role: "general",
-        skillName: capability.skill,
-        skillNames: [...capability.skills],
-        capabilitySummary: capability.summary,
+        ...(role ? { role } : {}),
         title: item.title,
         model: "",
         status: item.status,

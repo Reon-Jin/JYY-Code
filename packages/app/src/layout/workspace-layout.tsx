@@ -33,6 +33,7 @@ import { McpControl } from "../features/mcp/mcp-control"
 import { PlanPanel } from "../features/plan/plan-panel"
 import { planQueryOptions } from "../features/plan/plan-query"
 import { findTaskByChildSessionID, projectPlanState } from "../features/plan/plan-state"
+import { planRoleLabel } from "../features/plan/plan-role-presentation"
 import { blackboardQueryOptions } from "../features/blackboard/blackboard-query"
 import { BlackboardPanel } from "../features/blackboard/blackboard-panel"
 import { PermissionBar } from "../features/requests/permission-bar"
@@ -709,7 +710,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         />
       }
       multiAgentEnabled={rootMultiAgentEnabled()}
-      childRole={activeChildTask()?.role}
+      childRole={planRoleLabel(activeChildTask()?.role)}
       requestArea={
         <Show
           when={!requestError()}
@@ -726,8 +727,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                   <p class="request-panel__source">
                     {tr("layout.from-subagent")}{" "}
                     {capitalize(
-                      planSnapshot().tasks.find((task) => task.childSessionID === pending.sourceSessionID)?.role ??
-                        tr("composer.agent"),
+                      planRoleLabel(
+                        planSnapshot().tasks.find((task) => task.childSessionID === pending.sourceSessionID)?.role,
+                      ),
                     )}
                   </p>
                 </Show>

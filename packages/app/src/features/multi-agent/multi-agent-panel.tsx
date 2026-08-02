@@ -1,19 +1,5 @@
 import { tr } from "../../i18n/i18n-context"
-import {
-  Bot,
-  Bug,
-  ChartNoAxesCombined,
-  Code,
-  FileText,
-  FolderSearch,
-  Grid2x2,
-  Image,
-  Map,
-  PenLine,
-  RefreshCw,
-  Search,
-  ShieldCheck,
-} from "lucide-solid"
+import { Bot, CircleHelp, RefreshCw } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, Index, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
@@ -23,26 +9,10 @@ import {
   type MultiAgentTaskTone,
   type MultiAgentTaskView,
 } from "../plan/plan-state"
-import { roleAvatar, type MultiAgentRoleAvatar } from "./role-capabilities"
+import { planRoleDescription, planRoleLabel } from "../plan/plan-role-presentation"
+import { SubagentAvatar } from "../subagents/subagent-avatar-catalog"
 import "./multi-agent.css"
 
-function roleLabel(value: string) {
-  const labels: Record<string, string> = {
-    general: tr("multi-agent.universal"),
-    researcher: tr("multi-agent.research"),
-    analyst: tr("multi-agent.role-analyst"),
-    writer: tr("multi-agent.role-writer"),
-    coder: tr("multi-agent.coding"),
-    tester: tr("multi-agent.role-tester"),
-    chart: tr("multi-agent.role-chart"),
-    pdf: tr("multi-agent.role-pdf"),
-    picture_searcher: tr("multi-agent.role-picture-searcher"),
-    explore: tr("multi-agent.role-explore"),
-    reviewer: tr("multi-agent.review"),
-    planner: tr("multi-agent.planning"),
-  }
-  return labels[value.toLowerCase()] ?? value
-}
 function eventLabel(value: string) {
   const labels: Record<string, string> = {
     planned: tr("multi-agent.planned"),
@@ -79,29 +49,17 @@ function roleMeta(task: MultiAgentTaskView) {
       : task.tone === "interrupted"
         ? tr("multi-agent.count-interrupted")
         : task.statusLabel
-  return `[${status}] · ${roleLabel(task.role).toUpperCase()}`
+  return `[${status}] · ${planRoleLabel(task.role).toUpperCase()}`
 }
 
-function RoleAvatar(props: { role: string }) {
-  const avatar = roleAvatar(props.role)
-  const icons: Record<MultiAgentRoleAvatar, typeof Bot> = {
-    bot: Bot,
-    search: Search,
-    grid: Grid2x2,
-    pen: PenLine,
-    code: Code,
-    bug: Bug,
-    chart: ChartNoAxesCombined,
-    file: FileText,
-    image: Image,
-    folder: FolderSearch,
-    shield: ShieldCheck,
-    map: Map,
-  }
-  const Icon = icons[avatar]
+function RoleAvatar(props: { role: MultiAgentTaskView["role"] }) {
   return (
-    <span class="multi-agent-task__avatar" data-avatar={avatar} aria-label={roleLabel(props.role)}>
-      <Icon aria-hidden="true" />
+    <span
+      class="multi-agent-task__avatar"
+      data-avatar={props.role?.avatar ?? "unassigned"}
+      aria-label={planRoleLabel(props.role)}
+    >
+      {props.role ? <SubagentAvatar id={props.role.avatar} /> : <CircleHelp aria-hidden="true" />}
     </span>
   )
 }
@@ -126,14 +84,8 @@ function TaskDetails(props: { task: MultiAgentTaskView }) {
         <div>
           <dt>{tr("multi-agent.role")}</dt>
           <dd>
-            <span class="multi-agent-task__role">{roleLabel(props.task.role)}</span>
-            <span class="multi-agent-task__capability">{props.task.capabilitySummary}</span>
-          </dd>
-        </div>
-        <div>
-          <dt>{tr("multi-agent.active-skills")}</dt>
-          <dd class="multi-agent-task__skills">
-            <For each={props.task.skillNames}>{(skill) => <span class="multi-agent-skill-chip">{skill}</span>}</For>
+            <span class="multi-agent-task__role">{planRoleLabel(props.task.role)}</span>
+            <span class="multi-agent-task__role-description">{planRoleDescription(props.task.role)}</span>
           </dd>
         </div>
         <div>
