@@ -34,7 +34,9 @@ describe("projectPlanState", () => {
     const result = projectPlanState(snapshot)
     expect(result.totalSteps).toBe(2)
     expect(result.currentStep).toBe(1)
+    expect(result.currentStepID).toBe("s1")
     expect(result.runningAgents).toBe(2)
+    expect(result.steps[0]?.id).toBe("s1")
     expect(result.steps[0]?.title).toBe("\u5b9e\u73b0")
     expect(result.steps[1]?.tasks).toEqual([])
     expect(findTaskByChildSessionID(result, "ses_child")?.lastEvent).toBe("执行测试")
@@ -42,5 +44,12 @@ describe("projectPlanState", () => {
 
   it("returns an empty projection when no plan exists", () => {
     expect(projectPlanState({ plan: null })).toMatchObject({ tasks: [], steps: [], totalAgents: 0 })
+  })
+
+  it("does not invent a current step after a plan is complete", () => {
+    const result = projectPlanState({ ...snapshot, status: "done", current_step: null as unknown as string })
+
+    expect(result.currentStepID).toBe("")
+    expect(result.currentStep).toBe(0)
   })
 })

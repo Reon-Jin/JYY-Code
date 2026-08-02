@@ -32,6 +32,7 @@ export type MultiAgentTaskView = {
 }
 
 export type MultiAgentStepView = {
+  id: string
   index: number
   title: string
   tone: MultiAgentTaskTone
@@ -48,6 +49,7 @@ export type MultiAgentSnapshot = {
   failedAgents: number
   interruptedAgents: number
   totalSteps: number
+  currentStepID: string
   currentStep: number
   completedSteps: number
 }
@@ -78,6 +80,7 @@ function emptySnapshot(): MultiAgentSnapshot {
     failedAgents: 0,
     interruptedAgents: 0,
     totalSteps: 0,
+    currentStepID: "",
     currentStep: 0,
     completedSteps: 0,
   }
@@ -125,12 +128,13 @@ export function projectPlanState(state: SessionPlanResponse): MultiAgentSnapshot
               : step.status === "active"
                 ? "running"
                 : "queued"
-    return { index, title: step.title, tone, collapsed: tone === "done", tasks }
+    return { id: step.id, index, title: step.title, tone, collapsed: tone === "done", tasks }
   })
   const tasks = steps.flatMap((step) => step.tasks)
-  const currentStep = state.current_step
-    ? Number(state.current_step.replace(/^s/, "")) || steps.find((step) => step.tone !== "done")?.index || 0
-    : steps.at(-1)?.index ?? 0
+  const currentStepID = state.current_step ?? ""
+  const currentStep = currentStepID
+    ? Number(currentStepID.replace(/^s/, "")) || steps.find((step) => step.id === currentStepID)?.index || 0
+    : 0
   return {
     steps,
     tasks,
@@ -140,6 +144,7 @@ export function projectPlanState(state: SessionPlanResponse): MultiAgentSnapshot
     failedAgents: tasks.filter((task) => task.tone === "failed").length,
     interruptedAgents: 0,
     totalSteps: steps.length,
+    currentStepID,
     currentStep,
     completedSteps: steps.filter((step) => step.tone === "done").length,
   }

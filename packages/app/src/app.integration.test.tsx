@@ -339,6 +339,35 @@ describe("desktop GUI journey", () => {
     expect(backend.requests.some((request) => request.path === "/session/ses_multi/blackboard")).toBe(false)
   }, 15_000)
 
+  it("does not query the blackboard after a multi-agent plan is complete", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_done" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.addSession({ id: "ses_done", slug: "done", title: "Completed Multi-Agent Session", multiAgent: true })
+    const completedPlan = planSnapshot()
+    backend.setPlan("ses_done", {
+      ...completedPlan,
+      status: "done",
+      current_step: null as unknown as string,
+      steps: completedPlan.steps.map((step) => ({
+        ...step,
+        status: "done",
+        tasks: step.tasks.map((task) => ({ ...task, status: "approved" })),
+      })),
+    })
+    vi.stubGlobal("fetch", backend.fetch)
+
+    render(() => <App bridge={desktop.bridge} />)
+
+    expect(await screen.findByRole("heading", { name: "Completed Multi-Agent Session" }, { timeout: 5_000 })).toBeVisible()
+    await user.click(await screen.findByRole("button", { name: "协作黑板" }))
+
+    const panel = await screen.findByRole("group", { name: "协作黑板" })
+    expect(panel).toHaveTextContent("方案已完成，当前没有可用的 Step")
+    expect(panel).not.toHaveTextContent("Unexpected server error")
+    expect(backend.requests.some((request) => request.path === "/session/ses_done/blackboard")).toBe(false)
+  }, 15_000)
+
   it("keeps the workspace mounted while creating and opening a new Session", async () => {
     const user = userEvent.setup()
     const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_1" } })
