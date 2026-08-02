@@ -74,6 +74,8 @@ describe("desktop data boundary", () => {
     expect(keys.pullRequestDiff("C:/A/", 12)).toEqual(["project", "c:\\a", "github", "pull", 12, "diff"])
     expect(keys.plansScope("C:/A/")).toEqual(["project", "c:\\a", "plans"])
     expect(keys.plan("C:/A/", "ses_root")).toEqual(["project", "c:\\a", "plans", "ses_root"])
+    expect(keys.blackboardsScope("C:/A/")).toEqual(["project", "c:\\a", "blackboards"])
+    expect(keys.blackboard("C:/A/", "ses_root")).toEqual(["project", "c:\\a", "blackboards", "ses_root"])
     expect(keys.globalConfig).toEqual(["global", "config"])
   })
 
@@ -157,6 +159,27 @@ describe("event routing", () => {
       },
     ])
     expect(routeEvent("C:\\b", planEvent)).toEqual([])
+  })
+
+  it("routes blackboard updates to the root board without mixing them with plan events", () => {
+    const blackboardEvent = {
+      directory: "C:\\a",
+      payload: {
+        id: "evt_blackboard_1",
+        type: "blackboard.updated",
+        properties: { rootSessionID: "ses_root", stepID: "step_1", messageID: "bb_1" },
+      },
+    } as GlobalEvent
+
+    expect(routeEvent("C:\\a", blackboardEvent)).toEqual([
+      {
+        kind: "blackboard.updated",
+        eventID: "evt_blackboard_1",
+        directory: "C:\\a",
+        rootSessionID: "ses_root",
+      },
+    ])
+    expect(routeEvent("C:\\b", blackboardEvent)).toEqual([])
   })
 
   it("routes workspace inspector events to explicit cache actions", () => {
@@ -450,6 +473,59 @@ describe("event routing", () => {
     releaseStream()
   })
 
+  it("invalidates each changed root blackboard once per frame and does not patch the payload", async () => {
+    const queryClient = createDesktopQueryClient()
+    const firstKey = keys.blackboard("C:\\a", "ses_root")
+    const secondKey = keys.blackboard("C:\\a", "ses_other")
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    const stream = (async function* () {
+      for (const [id, rootSessionID] of [
+        ["evt_bb_1", "ses_root"],
+        ["evt_bb_2", "ses_root"],
+        ["evt_bb_3", "ses_other"],
+      ] as const) {
+        yield {
+          directory: "C:\\a",
+          payload: {
+            id,
+            type: "blackboard.updated",
+            properties: { rootSessionID, stepID: "step_1", messageID: id },
+          },
+        } as GlobalEvent
+      }
+      await streamWait
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+    scheduled?.(0)
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: firstKey, exact: true }))
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: secondKey, exact: true })
+    expect(
+      invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(firstKey)),
+    ).toHaveLength(1)
+    expect(queryClient.getQueryData(firstKey)).toBeUndefined()
+
+    bridge.abort()
+    releaseStream()
+  })
+
   it("patches the active conversation snapshot without replaying a duplicate delta", async () => {
     const queryClient = createDesktopQueryClient()
     queryClient.setQueryData(
@@ -658,10 +734,12 @@ describe("event routing", () => {
       keys.githubStatus("C:\\a"),
       keys.pullRequestsScope("C:\\a"),
       keys.plansScope("C:\\a"),
+      keys.blackboardsScope("C:\\a"),
       keys.messages("C:\\a", session.id),
       keys.todos("C:\\a", session.id),
     ])
     expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.plansScope("C:\\a"), exact: false })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.blackboardsScope("C:\\a"), exact: false })
     expect(states.at(-1)).toBe("connected")
 
     bridge.abort()

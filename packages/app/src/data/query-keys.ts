@@ -34,6 +34,9 @@ export const keys = {
     [...project(directory), "github", "pull", number, "diff"] as const,
   plansScope: (directory: string) => [...project(directory), "plans"] as const,
   plan: (directory: string, sessionID: string) => [...project(directory), "plans", sessionID] as const,
+  blackboardsScope: (directory: string) => [...project(directory), "blackboards"] as const,
+  blackboard: (directory: string, rootSessionID: string) =>
+    [...keys.blackboardsScope(directory), rootSessionID] as const,
   skills: (directory: string, agent = "") => [...project(directory), "skills", agent] as const,
   mcp: (directory: string) => [...project(directory), "mcp"] as const,
   globalConfig: ["global", "config"] as const,

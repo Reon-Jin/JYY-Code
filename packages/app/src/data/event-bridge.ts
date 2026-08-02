@@ -56,6 +56,7 @@ export type CacheAction =
       sessionID: string
       event: Extract<GlobalEvent["payload"], { type: "plan.runtime.event" }>
     }
+  | { kind: "blackboard.updated"; eventID: string; directory: string; rootSessionID: string }
   | ConversationAction
 
 function sameDirectory(left: string | undefined, right: string) {
@@ -188,6 +189,15 @@ export function routeEvent(directory: string, event: GlobalEvent): CacheAction[]
           directory,
           sessionID: payload.properties.session_id,
           event: payload,
+        },
+      ]
+    case "blackboard.updated":
+      return [
+        {
+          kind: "blackboard.updated",
+          eventID: payload.id,
+          directory,
+          rootSessionID: payload.properties.rootSessionID,
         },
       ]
     default:
@@ -369,6 +379,7 @@ export class EventBridge {
     const events = this.#queue.splice(0)
     const conversations = new Map<string, GlobalEvent[]>()
     const changedPlans = new Set<string>()
+    const changedBlackboards = new Set<string>()
     const invalidatedVcs = new Set<string>()
 
     for (const event of events) {
@@ -386,6 +397,10 @@ export class EventBridge {
         }
         if (action.kind === "plan.event") {
           changedPlans.add(action.sessionID)
+          continue
+        }
+        if (action.kind === "blackboard.updated") {
+          changedBlackboards.add(action.rootSessionID)
           continue
         }
         if (action.kind === "vcs.invalidate") {
@@ -410,12 +425,15 @@ export class EventBridge {
     }
 
     for (const sessionID of changedPlans) this.#invalidate(keys.plan(this.#options.directory, sessionID))
+    for (const rootSessionID of changedBlackboards) {
+      this.#invalidate(keys.blackboard(this.#options.directory, rootSessionID))
+    }
   }
 
   #apply(
     action: Exclude<
       CacheAction,
-      ConversationAction | PlanAction | { kind: "server.connected"; eventID: string }
+      ConversationAction | PlanAction | Extract<CacheAction, { kind: "blackboard.updated" }> | { kind: "server.connected"; eventID: string }
     >,
   ) {
     const directory = this.#options.directory
@@ -550,6 +568,7 @@ export class EventBridge {
         { queryKey: keys.githubStatus(directory), exact: true },
         { queryKey: keys.pullRequestsScope(directory), exact: true },
         { queryKey: keys.plansScope(directory), exact: false },
+        { queryKey: keys.blackboardsScope(directory), exact: false },
       ]
       const sessionID = this.#options.activeSessionID?.()
       if (sessionID) {

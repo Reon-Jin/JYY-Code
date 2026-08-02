@@ -12,6 +12,7 @@ import type {
   Part,
   PermissionRequest,
   Project,
+  SessionBlackboardResponse,
   Session,
   SessionPlanResponse,
   Todo,
@@ -69,6 +70,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   const messages = new Map<string, Array<{ info: Message; parts: Part[] }>>()
   const todos = new Map<string, Todo[]>()
   const plans = new Map<string, SessionPlanResponse>()
+  const blackboards = new Map<string, SessionBlackboardResponse>()
   const permissions: PermissionRequest[] = []
   const skills: AppSkillsResponse = [
     {
@@ -159,6 +161,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   }> = []
   let sequence = 0
   let streamSequence = 0
+  let blackboardSequence = 0
 
   function emit(payload: GlobalEvent["payload"]) {
     const event: GlobalEvent = { directory, payload }
@@ -175,6 +178,44 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   function event(type: string, properties: Record<string, unknown>) {
     sequence += 1
     emit({ id: `event_${sequence}`, type, properties } as GlobalEvent["payload"])
+  }
+
+  function rootSessionIDFor(sessionID: string) {
+    const visited = new Set<string>()
+    let current = sessions.find((session) => session.id === sessionID)
+    while (current?.parentID && !visited.has(current.id)) {
+      visited.add(current.id)
+      current = sessions.find((session) => session.id === current?.parentID)
+    }
+    return current?.id ?? sessionID
+  }
+
+  function defaultBlackboard(rootSessionID: string): SessionBlackboardResponse {
+    return {
+      rootSessionID,
+      currentStepID: "step_1",
+      selectedStepID: "step_1",
+      readonly: false,
+      tasks: [
+        {
+          id: "task_1",
+          title: "Inspect workspace",
+          status: "pending",
+          hasAgent: false,
+          isSelf: false,
+        },
+      ],
+      messages: [],
+      unreadCount: 0,
+    }
+  }
+
+  function boardFor(rootSessionID: string) {
+    const existing = blackboards.get(rootSessionID)
+    if (existing) return existing
+    const created = defaultBlackboard(rootSessionID)
+    blackboards.set(rootSessionID, created)
+    return created
   }
 
   function addSession(overrides: Partial<Session> = {}) {
@@ -194,6 +235,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     sessions.push(session)
     messages.set(session.id, [])
     todos.set(session.id, [])
+    if (!session.parentID) boardFor(session.id)
     return session
   }
 
@@ -480,6 +522,69 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       event("session.updated", { sessionID, info: session })
       return json(session)
     }
+    if (sessionID && url.pathname.endsWith("/blackboard") && request.method === "GET") {
+      const rootID = rootSessionIDFor(sessionID)
+      const board = boardFor(rootID)
+      const stepID = url.searchParams.get("stepID")
+      const taskID = url.searchParams.get("taskID")
+      const before = url.searchParams.get("before")
+      const limitValue = Number(url.searchParams.get("limit") ?? "50")
+      const limit = Number.isFinite(limitValue) ? Math.min(100, Math.max(1, Math.floor(limitValue))) : 50
+      let boardMessages = board.messages
+      if (stepID) boardMessages = boardMessages.filter((message) => message.stepID === stepID)
+      if (taskID) boardMessages = boardMessages.filter((message) => message.taskIDs.includes(taskID))
+      if (before) {
+        const index = boardMessages.findIndex((message) => message.id === before)
+        if (index >= 0) boardMessages = boardMessages.slice(0, index)
+      }
+      return json({ ...board, messages: boardMessages.slice(-limit) })
+    }
+    if (sessionID && url.pathname.endsWith("/blackboard") && request.method === "POST") {
+      const rootID = rootSessionIDFor(sessionID)
+      const board = boardFor(rootID)
+      const message = String(value.message ?? "").trim()
+      if (!message) return json({ name: "InvalidRequestError", message: "message is required" }, 400)
+      const kind = ["info", "risk", "blocker", "decision", "help"].includes(String(value.kind))
+        ? (value.kind as "info" | "risk" | "blocker" | "decision" | "help")
+        : "info"
+      const attachments = Array.isArray(value.attachments)
+        ? value.attachments.map((attachment) => {
+            const value = String(attachment)
+            return { type: /^https?:\/\//u.test(value) ? ("url" as const) : ("path" as const), value }
+          })
+        : []
+      const created = {
+        id: `bb_${++blackboardSequence}`,
+        rootSessionID: rootID,
+        stepID: board.currentStepID,
+        ...(typeof value.reply_to === "string" ? { parentMessageID: value.reply_to } : {}),
+        authorKind: "user" as const,
+        kind,
+        body: message,
+        mentions: [],
+        attachments,
+        taskIDs: Array.isArray(value.task_ids) ? value.task_ids.map(String) : [],
+        timeCreated: Date.now(),
+        replies: [],
+      }
+      board.messages.push(created)
+      board.unreadCount = Number(board.unreadCount) + 1
+      event("blackboard.updated", {
+        rootSessionID: rootID,
+        stepID: created.stepID,
+        messageID: created.id,
+      })
+      return json(created)
+    }
+    if (sessionID && url.pathname.endsWith("/blackboard/read") && request.method === "POST") {
+      const rootID = rootSessionIDFor(sessionID)
+      const board = boardFor(rootID)
+      if (typeof value.stepID !== "string" || typeof value.throughMessageID !== "string") {
+        return json({ name: "InvalidRequestError", message: "stepID and throughMessageID are required" }, 400)
+      }
+      board.unreadCount = 0
+      return json(true)
+    }
     if (sessionID && url.pathname.endsWith("/plan") && request.method === "GET") {
       return json(plans.get(sessionID) ?? { plan: null })
     }
@@ -708,6 +813,16 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     plans.set(sessionID, structuredClone(state))
   }
 
+  function setBlackboard(rootSessionID: string, state: SessionBlackboardResponse) {
+    blackboards.set(rootSessionID, structuredClone(state))
+    const latest = state.messages.at(-1)
+    event("blackboard.updated", {
+      rootSessionID,
+      stepID: state.currentStepID,
+      messageID: latest?.id ?? "",
+    })
+  }
+
   function emitPlan(properties: PlanEvent["properties"]) {
     event("plan.runtime.event", properties)
   }
@@ -740,6 +855,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     messages,
     todos,
     plans,
+    blackboards,
     globalConfig: () => structuredClone(globalConfig),
     permissions,
     changes,
@@ -751,6 +867,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     emit,
     setTodos,
     setPlan,
+    setBlackboard,
     emitPlan,
     disconnectStreams,
     setGitHubStatus,
