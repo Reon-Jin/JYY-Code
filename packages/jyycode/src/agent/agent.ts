@@ -9,7 +9,6 @@ import { ProviderTransform } from "@/provider/transform"
 
 import PROMPT_GENERATE from "./generate.txt"
 import PROMPT_COMPACTION from "./prompt/compaction.txt"
-import PROMPT_EXPLORE from "./prompt/explore.txt"
 import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import { Permission } from "@/permission"
@@ -24,6 +23,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import * as Option from "effect/Option"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { type DeepMutable } from "@jyycode-ai/core/schema"
+import { enabledProfiles, profileAgentName, resolveProfiles } from "./subagent-profile"
 
 export const Info = Schema.Struct({
   name: Schema.String,
@@ -106,11 +106,6 @@ export const layer = Layer.effect(
           path.join(Global.Path.tmp, "*"),
           ...skillDirs.map((dir) => path.join(dir, "*")),
         ]
-        const readonlyExternalDirectory = {
-          "*": "ask",
-          ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
-        } satisfies Record<string, "allow" | "ask" | "deny">
-
         const defaults = Permission.fromConfig({
           "*": "allow",
           doom_loop: "ask",
@@ -175,45 +170,6 @@ export const layer = Layer.effect(
             mode: "primary",
             native: true,
           },
-          general: {
-            name: "general",
-            description: `General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.`,
-            prompt: "Execute the delegated task directly, use tools as needed, and return a concise evidence-based result.",
-            permission: Permission.merge(
-              defaults,
-              Permission.fromConfig({
-                todowrite: "deny",
-                plan_update: "deny",
-              }),
-              user,
-            ),
-            options: {},
-            mode: "subagent",
-            native: true,
-          },
-          explore: {
-            name: "explore",
-            permission: Permission.merge(
-              defaults,
-              Permission.fromConfig({
-                "*": "deny",
-                grep: "allow",
-                glob: "allow",
-                list: "allow",
-                bash: "allow",
-                webfetch: "allow",
-                websearch: "allow",
-                read: "allow",
-                external_directory: readonlyExternalDirectory,
-              }),
-              user,
-            ),
-            description: `Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions.`,
-            prompt: PROMPT_EXPLORE,
-            options: {},
-            mode: "subagent",
-            native: true,
-          },
           compaction: {
             name: "compaction",
             mode: "primary",
@@ -262,7 +218,30 @@ export const layer = Layer.effect(
           },
         }
 
+        const subagentPermission = Permission.merge(
+          defaults,
+          Permission.fromConfig({
+            todowrite: "deny",
+            plan_update: "deny",
+          }),
+          user,
+        )
+        for (const profile of enabledProfiles(resolveProfiles(cfg.subagents?.profiles))) {
+          const name = profileAgentName(profile.id)
+          agents[name] = {
+            name,
+            description: profile.description,
+            options: { subagentProfileID: profile.id },
+            permission: subagentPermission,
+            mode: "subagent",
+            native: profile.id === "general",
+          }
+        }
+
         for (const [key, value] of Object.entries(cfg.agent ?? {})) {
+          // Profile-backed subagents are controlled only by subagents.profiles;
+          // a legacy agent entry must not override their role identity.
+          if (agents[key]?.mode === "subagent") continue
           if (value.disable) {
             delete agents[key]
             continue

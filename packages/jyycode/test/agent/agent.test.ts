@@ -13,6 +13,7 @@ import { Plugin } from "../../src/plugin"
 import { Provider } from "../../src/provider/provider"
 import { Skill } from "../../src/skill"
 import { Truncate } from "../../src/tool/truncate"
+import { defaultGeneralProfile, profileAgentName } from "../../src/agent/subagent-profile"
 
 const agentLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
   Agent.layer.pipe(
@@ -53,8 +54,9 @@ it.instance("returns default native agents when no config", () =>
     const names = agents.map((a) => a.name)
     expect(names).toContain("build")
     expect(names).toContain("plan")
-    expect(names).toContain("general")
-    expect(names).toContain("explore")
+    expect(names).toContain(profileAgentName("general"))
+    expect(names).not.toContain("general")
+    expect(names).not.toContain("explore")
     expect(names).not.toContain("scout")
     expect(names).toContain("compaction")
     expect(names).toContain("title")
@@ -83,29 +85,6 @@ it.instance("plan agent denies edits except .jyycode/plans/*", () =>
     expect(evalPerm(plan, "edit")).toBe("deny")
     // But specific path is allowed
     expect(Permission.evaluate("edit", ".jyycode/plans/foo.md", plan!.permission).action).toBe("allow")
-  }),
-)
-
-it.instance("explore agent denies edit and write", () =>
-  Effect.gen(function* () {
-    const explore = yield* load((svc) => svc.get("explore"))
-    expect(explore).toBeDefined()
-    expect(explore?.mode).toBe("subagent")
-    expect(evalPerm(explore, "edit")).toBe("deny")
-    expect(evalPerm(explore, "write")).toBe("deny")
-    expect(evalPerm(explore, "todowrite")).toBe("deny")
-  }),
-)
-
-it.instance("explore agent asks for external directories and allows whitelisted external paths", () =>
-  Effect.gen(function* () {
-    const explore = yield* load((svc) => svc.get("explore"))
-    expect(explore).toBeDefined()
-    expect(Permission.evaluate("external_directory", "/some/other/path", explore!.permission).action).toBe("ask")
-    expect(Permission.evaluate("external_directory", Truncate.GLOB, explore!.permission).action).toBe("allow")
-    expect(
-      Permission.evaluate("external_directory", path.join(Global.Path.tmp, "agent-work"), explore!.permission).action,
-    ).toBe("allow")
   }),
 )
 
@@ -139,12 +118,70 @@ withGitRefs.instance(
 
 it.instance("general agent denies todo tools", () =>
   Effect.gen(function* () {
-    const general = yield* load((svc) => svc.get("general"))
+    const general = yield* load((svc) => svc.get(profileAgentName("general")))
     expect(general).toBeDefined()
     expect(general?.mode).toBe("subagent")
     expect(general?.hidden).toBeUndefined()
     expect(evalPerm(general, "todowrite")).toBe("deny")
   }),
+)
+
+it.instance(
+  "enabled custom subagent profiles materialize with stable internal names",
+  () =>
+    Effect.gen(function* () {
+      const review = yield* load((svc) => svc.get(profileAgentName("role_review")))
+      expect(review).toBeDefined()
+      expect(review?.mode).toBe("subagent")
+      expect(review?.options.subagentProfileID).toBe("role_review")
+      expect(review?.name).toBe(profileAgentName("role_review"))
+      expect(review?.description).toBe("Reviews implementation changes.")
+      expect(review?.prompt).toBeUndefined()
+      expect(review?.model).toBeUndefined()
+    }),
+  {
+    config: {
+      subagents: {
+        profiles: [
+          defaultGeneralProfile,
+          {
+            id: "role_review",
+            name: "Review",
+            description: "Reviews implementation changes.",
+            prompt: "Review the delegated task carefully.",
+            avatar: "bug",
+            enabled: true,
+          },
+        ],
+      },
+    },
+  },
+)
+
+it.instance(
+  "disabled custom subagent profiles are not materialized",
+  () =>
+    Effect.gen(function* () {
+      const review = yield* load((svc) => svc.get(profileAgentName("role_review")))
+      expect(review).toBeUndefined()
+    }),
+  {
+    config: {
+      subagents: {
+        profiles: [
+          defaultGeneralProfile,
+          {
+            id: "role_review",
+            name: "Review",
+            description: "Reviews implementation changes.",
+            prompt: "Review the delegated task carefully.",
+            avatar: "bug",
+            enabled: false,
+          },
+        ],
+      },
+    },
+  },
 )
 
 it.instance("compaction agent denies all permissions", () =>
@@ -613,16 +650,6 @@ it.instance(
           description: "My custom agent",
         },
       },
-    },
-  },
-)
-
-it.instance(
-  "defaultAgent throws when default_agent points to subagent",
-  () => expectDefaultAgentError('default agent "explore" is a subagent'),
-  {
-    config: {
-      default_agent: "explore",
     },
   },
 )
