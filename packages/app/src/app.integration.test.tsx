@@ -599,7 +599,13 @@ describe("desktop GUI journey", () => {
           title: "Work",
           status: "active",
           tasks: [
-            { id: "s1_t1", title: "Implement", status: "running", child: { session_id: "ses_child", elapsed_sec: 1 } },
+            {
+              id: "s1_t1",
+              title: "Implement",
+              status: "running",
+              role: { id: "worker", name: "Worker", description: "Implementation work", avatar: "code" },
+              child: { session_id: "ses_child", elapsed_sec: 1 },
+            },
             { id: "s1_t2", title: "Research", status: "dispatched", child: { session_id: "ses_sibling", elapsed_sec: 0 } },
           ],
         },
@@ -631,7 +637,7 @@ describe("desktop GUI journey", () => {
     expect(within(sessionList).getAllByRole("link")).toHaveLength(1)
     expect(within(sessionList).getByRole("link", { name: /Root Session/ })).toHaveAttribute("aria-current", "page")
     expect(screen.getByRole("button", { name: "返回主 Session" })).toBeVisible()
-    expect(screen.getByText(/子智能体 · Worker/)).toBeVisible()
+    expect(screen.getByText(/子智能体/)).toBeVisible()
     expect(screen.queryByLabelText("智能体")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "配置模型" })).not.toBeInTheDocument()
     expect(screen.getByText("child command")).toBeVisible()

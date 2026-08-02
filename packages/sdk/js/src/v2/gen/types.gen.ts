@@ -8297,6 +8297,12 @@ export type SessionPlanResponses = {
             id: string
             title: string
             status: "pending" | "dispatched" | "running" | "reported" | "approved" | "rejected"
+            role?: {
+              id: string
+              name: string
+              description: string
+              avatar: string
+            }
             child?: {
               session_id: string
               elapsed_sec: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
