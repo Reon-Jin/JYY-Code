@@ -53,6 +53,7 @@ function uniqueSteps(
 export type BlackboardPanelProps = {
   directory: string
   enabled?: boolean
+  waitingForPlan?: boolean
   rootSessionID?: string
   steps?: readonly { id: string; title: string }[]
   taskLabels?: Record<string, string>
@@ -253,7 +254,9 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
       </div>
 
       <Show when={!enabled()}>
-        <p class="blackboard-panel__empty">{tr("blackboard.multi-agent-only")}</p>
+        <p class="blackboard-panel__empty">
+          {tr(props.waitingForPlan ? "blackboard.waiting-for-plan" : "blackboard.multi-agent-only")}
+        </p>
       </Show>
       <Show when={enabled() && !props.rootSessionID}>
         <p class="blackboard-panel__empty">{tr("blackboard.no-plan")}</p>

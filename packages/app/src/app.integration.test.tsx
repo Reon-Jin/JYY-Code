@@ -320,6 +320,25 @@ describe("desktop GUI journey", () => {
     expect(backend.requests.some((request) => request.path === "/session/ses_single/blackboard")).toBe(false)
   }, 15_000)
 
+  it("waits for a multi-agent plan before querying the blackboard", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_multi" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.addSession({ id: "ses_multi", slug: "multi", title: "Multi Session" })
+    vi.stubGlobal("fetch", backend.fetch)
+
+    render(() => <App bridge={desktop.bridge} />)
+
+    const mode = await screen.findByRole("switch", { name: "多智能体" }, { timeout: 5_000 })
+    await user.click(mode)
+    await waitFor(() => expect(mode).toHaveAttribute("aria-checked", "true"))
+    await user.click(await screen.findByRole("button", { name: "协作黑板" }))
+
+    const panel = await screen.findByRole("group", { name: "协作黑板" })
+    expect(panel).toHaveTextContent("正在等待主智能体生成方案")
+    expect(backend.requests.some((request) => request.path === "/session/ses_multi/blackboard")).toBe(false)
+  }, 15_000)
+
   it("keeps the workspace mounted while creating and opening a new Session", async () => {
     const user = userEvent.setup()
     const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_1" } })

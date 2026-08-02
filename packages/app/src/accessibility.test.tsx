@@ -288,6 +288,16 @@ describe("desktop accessibility contract", () => {
       ],
       unreadCount: 3,
     }
+    backend.setPlan("ses_root", {
+      title: "Accessibility plan",
+      goal: "Verify blackboard controls",
+      status: "active",
+      revision: 1,
+      current_step: "s1",
+      pending_review: 0,
+      inbox_pending: 0,
+      steps: [{ id: "s1", title: "Accessibility", status: "active", tasks: [] }],
+    })
     backend.setBlackboard("ses_root", board)
     vi.stubGlobal("fetch", backend.fetch)
     const { container } = render(() => <App bridge={desktop.bridge} />)

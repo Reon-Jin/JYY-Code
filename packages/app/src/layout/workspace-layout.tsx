@@ -439,6 +439,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     data.queryClient,
   )
   const planSnapshot = createMemo(() => projectPlanState(planQuery.data ?? { plan: null }))
+  const planReady = createMemo(() => planSnapshot().totalSteps > 0 && planSnapshot().currentStep > 0)
   const rootMultiAgentEnabled = createMemo(() =>
     rootSession() ? effectiveMultiAgent(rootSession()!) : false,
   )
@@ -449,7 +450,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         directory: data.directory(),
         rootSessionID: rootSessionID() ?? "",
       }),
-      enabled: Boolean(rootSessionID()) && rootMultiAgentEnabled(),
+      enabled: Boolean(rootSessionID()) && rootMultiAgentEnabled() && planReady(),
     }),
     data.queryClient,
   )
@@ -465,7 +466,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return undefined
   })
   const blackboardBadge = createMemo(() => {
-    if (!rootMultiAgentEnabled()) return undefined
+    if (!rootMultiAgentEnabled() || !planReady()) return undefined
     const unreadCount = Number(blackboardQuery.data?.unreadCount ?? 0)
     return unreadCount > 0 ? String(unreadCount) : undefined
   })
@@ -849,7 +850,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           blackboard={
             <BlackboardPanel
               directory={data.directory()}
-              enabled={rootMultiAgentEnabled()}
+              enabled={rootMultiAgentEnabled() && planReady()}
+              waitingForPlan={rootMultiAgentEnabled() && !planReady()}
               rootSessionID={rootSessionID()}
               steps={planSnapshot().steps.map((step) => ({ id: `s${step.index}`, title: step.title }))}
               taskLabels={Object.fromEntries(planSnapshot().tasks.map((task) => [task.id, task.title]))}
