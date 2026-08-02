@@ -29,7 +29,7 @@ export const SkillTool = Tool.define(
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const info = yield* skill
-            .require(params.name)
+            .requireAvailable(ctx.skillScope ?? Skill.rootScope, params.name)
             .pipe(Effect.catchTag("Skill.NotFoundError", (error) => Effect.die(new Error(error.message))))
 
           yield* ctx.ask({

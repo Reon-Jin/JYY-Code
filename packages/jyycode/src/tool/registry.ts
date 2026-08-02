@@ -101,6 +101,7 @@ export interface Interface {
     providerID: ProviderID
     modelID: ModelID
     agent: Agent.Info
+    skillScope?: Skill.SkillAccessScope
     /** Persistent memory is only available to root sessions. */
     includeMemory?: boolean
   }) => Effect.Effect<Tool.Def[]>
@@ -308,8 +309,11 @@ export const layer: Layer.Layer<
       return (yield* all()).map((tool) => tool.id)
     })
 
-    const describeSkill = Effect.fn("ToolRegistry.describeSkill")(function* (agent: Agent.Info) {
-      const list = yield* skill.available(agent)
+    const describeSkill = Effect.fn("ToolRegistry.describeSkill")(function* (
+      agent: Agent.Info,
+      scope: Skill.SkillAccessScope,
+    ) {
+      const list = yield* skill.available(scope, agent)
       if (list.length === 0) return "No skills are currently available."
       return [
         "Load a specialized skill that provides domain-specific instructions and workflows.",
@@ -351,7 +355,9 @@ export const layer: Layer.Layer<
             id: tool.id,
             description: [
               output.description,
-              tool.id === SkillTool.id ? yield* describeSkill(input.agent) : undefined,
+              tool.id === SkillTool.id
+                ? yield* describeSkill(input.agent, input.skillScope ?? Skill.rootScope)
+                : undefined,
             ]
               .filter(Boolean)
               .join("\n"),

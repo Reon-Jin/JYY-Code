@@ -93,7 +93,7 @@ export function isSafeName(name: string) {
   )
 }
 
-function canonicalContent(input: CreateInput) {
+export function canonicalContent(input: CreateInput) {
   if (/^---\r?\n/.test(input.content)) return input.content
   const description = input.description === undefined ? "" : `description: ${yamlScalar(input.description)}\n`
   return `---\nname: ${input.name}\n${description}---\n\n${input.content}`
@@ -103,7 +103,7 @@ function yamlScalar(value: string) {
   return /^[^\s:#][^\r\n:#]*?(?: [^\r\n:#]+)*$/.test(value) ? value : JSON.stringify(value)
 }
 
-function frontmatter(content: string, name: string) {
+export function frontmatter(content: string, name: string) {
   if (Buffer.byteLength(content, "utf8") > MAX_CONTENT_BYTES) {
     return Effect.fail(new InvalidContentError({ name, message: "Skill content exceeds 1 MiB" }))
   }
@@ -135,9 +135,18 @@ function frontmatter(content: string, name: string) {
   )
 }
 
-function contained(parent: string, child: string) {
+export function contained(parent: string, child: string) {
   const relative = path.relative(parent, child)
   return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
+
+export function writeAtomic(fs: AppFileSystem.Interface, target: string, content: string) {
+  const temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomUUID()}.tmp`)
+  return fs.writeFileString(temp, content).pipe(
+    Effect.flatMap(() => fs.rename(temp, target)),
+    Effect.ensuring(fs.remove(temp, { force: true }).pipe(Effect.ignore)),
+    Effect.orDie,
+  )
 }
 
 export const layer = Layer.effect(
@@ -148,15 +157,6 @@ export const layer = Layer.effect(
     const config = yield* Config.Service
     const skill = yield* Skill.Service
     const managedRoot = path.join(global.home, ".jyycode", "skills")
-
-    const writeAtomic = Effect.fn("SkillManagement.writeAtomic")(function* (target: string, content: string) {
-      const temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${randomUUID()}.tmp`)
-      yield* fs.writeFileString(temp, content).pipe(
-        Effect.flatMap(() => fs.rename(temp, target)),
-        Effect.ensuring(fs.remove(temp, { force: true }).pipe(Effect.ignore)),
-        Effect.orDie,
-      )
-    })
 
     const find = Effect.fn("SkillManagement.find")(function* (name: string) {
       const found = yield* skill.get(name)
@@ -207,6 +207,7 @@ export const layer = Layer.effect(
       origin: "managed" | "path",
       source?: string,
     ): Skill.Info => ({
+      id: `global:${name}`,
       name,
       description,
       location,
@@ -241,7 +242,7 @@ export const layer = Layer.effect(
       }
 
       const target = path.join(realDirectory, "SKILL.md")
-      yield* writeAtomic(target, content)
+      yield* writeAtomic(fs, target, content)
       return makeInfo(input.name, parsed.description, target, content, "managed")
     })
 
@@ -254,7 +255,7 @@ export const layer = Layer.effect(
       if (input.revision !== latestRevision) return yield* new ConflictError({ name, latestRevision })
 
       const parsed = yield* frontmatter(input.content, name)
-      yield* writeAtomic(target.file, input.content)
+      yield* writeAtomic(fs, target.file, input.content)
       const origin = info.origin === "path" ? "path" : "managed"
       return makeInfo(name, parsed.description, target.file, input.content, origin, info.source)
     })

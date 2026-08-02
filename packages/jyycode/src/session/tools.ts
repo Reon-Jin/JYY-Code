@@ -20,6 +20,7 @@ import { EffectBridge } from "@/effect/bridge"
 import { Bus } from "@/bus"
 import { ToolTelemetry } from "@/tool/telemetry"
 import { PLAN_TOOL_IDS } from "@/plan/tools"
+import { Skill } from "@/skill"
 
 const log = Log.create({ service: "session.tools" })
 
@@ -123,6 +124,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     abort: options.abortSignal!,
     messageID: input.processor.message.id,
     callID: options.toolCallId,
+    skillScope: Skill.scopeForSession(input.session, input.agent),
     extra: {
       model: input.model,
       bypassAgentCheck: input.bypassAgentCheck,
@@ -232,6 +234,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     modelID: ModelID.make(input.model.api.id),
     providerID: input.model.providerID,
     agent: input.agent,
+    skillScope: Skill.scopeForSession(input.session, input.agent),
     includeMemory: input.session.parentID === undefined,
   })
   const mcpDefs = yield* mcp.toolDefs()

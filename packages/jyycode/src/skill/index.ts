@@ -1,6 +1,6 @@
 import path from "path"
 import { pathToFileURL } from "url"
-import { Effect, Layer, Context, Schema } from "effect"
+import { Effect, Layer, Context, Option, Schema } from "effect"
 import { NamedError } from "@jyycode-ai/core/util/error"
 import type { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
@@ -34,10 +34,31 @@ const CUSTOMIZE_JYYCODE_SKILL_NAME = "customize-jyycode"
 const CUSTOMIZE_JYYCODE_SKILL_DESCRIPTION =
   "Use ONLY when the user is editing or creating jyycode's own configuration: jyycode.json, jyycode.jsonc, files under .jyycode/, or files under ~/.config/jyycode/. Also use when creating or fixing jyycode agents, subagents, skills, plugins, MCP servers, or permission rules. Do not use for the user's own application code, or for any project that is not configuring jyycode itself."
 
-export const Origin = Schema.Literals(["built_in", "managed", "path", "url"])
+export const Origin = Schema.Literals(["built_in", "managed", "path", "url", "role"])
 export type Origin = Schema.Schema.Type<typeof Origin>
 
+export type SkillAccessScope =
+  | { readonly child: false; readonly roleID?: undefined }
+  | { readonly child: true; readonly roleID?: string }
+
+export const rootScope: SkillAccessScope = Object.freeze({ child: false })
+
+export function roleScope(roleID: string): SkillAccessScope {
+  return { child: true, roleID }
+}
+
+export function childScope(): SkillAccessScope {
+  return { child: true }
+}
+
+export function scopeForSession(input: { parentID?: unknown }, agent: Agent.Info): SkillAccessScope {
+  if (input.parentID === undefined) return rootScope
+  const roleID = agent.options.subagentProfileID
+  return typeof roleID === "string" ? roleScope(roleID) : childScope()
+}
+
 export const Info = Schema.Struct({
+  id: Schema.String,
   name: Schema.String,
   description: Schema.optional(Schema.String),
   location: Schema.String,
@@ -113,6 +134,7 @@ export const capability = {
   managed: { editable: true, deletable: true },
   path: { editable: true, deletable: true },
   url: { editable: false, deletable: true },
+  role: { editable: true, deletable: true },
 } as const satisfies Record<Origin, { editable: boolean; deletable: boolean }>
 
 export function revision(content: string) {
@@ -120,11 +142,12 @@ export function revision(content: string) {
 }
 
 export interface Interface {
-  readonly get: (name: string) => Effect.Effect<Info | undefined>
-  readonly require: (name: string) => Effect.Effect<Info, NotFoundError>
-  readonly all: () => Effect.Effect<Info[]>
+  readonly get: (name: string, scope?: SkillAccessScope) => Effect.Effect<Info | undefined>
+  readonly require: (name: string, scope?: SkillAccessScope) => Effect.Effect<Info, NotFoundError>
+  readonly requireAvailable: (scope: SkillAccessScope, name: string) => Effect.Effect<Info, NotFoundError>
+  readonly all: (scope?: SkillAccessScope) => Effect.Effect<Info[]>
   readonly dirs: () => Effect.Effect<string[]>
-  readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
+  readonly available: (scope?: SkillAccessScope, agent?: Agent.Info) => Effect.Effect<Info[]>
 }
 
 const add = Effect.fnUntraced(function* (
@@ -180,7 +203,8 @@ const add = Effect.fnUntraced(function* (
 
   const capabilities = capability[discovered.origin]
   state.dirs.add(path.dirname(discovered.location))
-  state.skills[md.data.name] = {
+  state.skills[`global:${md.data.name}`] = {
+    id: `global:${md.data.name}`,
     name: md.data.name,
     description: md.data.description,
     location: discovered.location,
@@ -331,7 +355,8 @@ export const layer = Layer.effect(
         const s: State = { skills: {}, dirs: new Set() }
         // Register the built-in skill BEFORE disk discovery so a user-disk
         // skill with the same name can override it.
-        s.skills[CUSTOMIZE_JYYCODE_SKILL_NAME] = {
+        s.skills[`global:${CUSTOMIZE_JYYCODE_SKILL_NAME}`] = {
+          id: `global:${CUSTOMIZE_JYYCODE_SKILL_NAME}`,
           name: CUSTOMIZE_JYYCODE_SKILL_NAME,
           description: CUSTOMIZE_JYYCODE_SKILL_DESCRIPTION,
           location: "<built-in>",
@@ -345,35 +370,102 @@ export const layer = Layer.effect(
       }),
     )
 
-    const get = Effect.fn("Skill.get")(function* (name: string) {
-      const s = yield* InstanceState.get(state)
-      return s.skills[name]
+    const roleSkills = Effect.fn("Skill.roleSkills")(function* (roleID: string) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(roleID)) return [] as Info[]
+
+      const root = path.join(Global.Path.home, ".jyycode", "role", roleID, "skills")
+      if (!(yield* fsys.isDir(root))) return [] as Info[]
+      const realRoot = yield* fsys.realPath(root).pipe(Effect.catch(() => Effect.succeed(path.resolve(root))))
+      const matches = yield* Effect.matchEffect(
+        Effect.tryPromise({
+          try: () => Glob.scan("**/SKILL.md", { cwd: root, absolute: true, include: "file", symlink: true, dot: true }),
+          catch: (error) => error,
+        }),
+        {
+          onFailure: () => Effect.succeed([] as string[]),
+          onSuccess: (value) => Effect.succeed(value),
+        },
+      )
+
+      const result: Info[] = []
+      for (const match of matches) {
+        const location = yield* fsys.realPath(match).pipe(Effect.catch(() => Effect.succeed(path.resolve(match))))
+        const relative = path.relative(realRoot, location)
+        if (
+          relative === "" ||
+          relative === ".." ||
+          relative.startsWith(`..${path.sep}`) ||
+          path.isAbsolute(relative)
+        )
+          continue
+
+        const name = path.basename(path.dirname(location))
+        if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) continue
+        const raw = yield* fsys.readFileString(location).pipe(Effect.option)
+        if (Option.isNone(raw)) continue
+        const parsed = yield* Effect.try({
+          try: () => ConfigMarkdown.parseContent(raw.value, location),
+          catch: (error) => error,
+        }).pipe(Effect.option)
+        if (Option.isNone(parsed)) continue
+        const md = parsed.value
+        if (!isSkillFrontmatter(md.data) || md.data.name !== name) continue
+
+        result.push({
+          id: `role:${roleID}:${name}`,
+          name,
+          description: md.data.description,
+          location,
+          content: raw.value,
+          origin: "role",
+          ...capability.role,
+          revision: revision(raw.value),
+        })
+      }
+
+      return result.toSorted((a, b) => a.name.localeCompare(b.name))
     })
 
-    const require = Effect.fn("Skill.require")(function* (name: string) {
-      const s = yield* InstanceState.get(state)
-      const info = s.skills[name]
-      if (info) return info
-      return yield* new NotFoundError({ name, available: Object.keys(s.skills).toSorted() })
-    })
-
-    const all = Effect.fn("Skill.all")(function* () {
+    const all = Effect.fn("Skill.all")(function* (scope: SkillAccessScope = rootScope) {
+      if (scope.child) return yield* roleSkills(scope.roleID ?? "")
       const s = yield* InstanceState.get(state)
       return Object.values(s.skills)
+    })
+
+    const get = Effect.fn("Skill.get")(function* (name: string, scope: SkillAccessScope = rootScope) {
+      return (yield* all(scope)).find((skill) => skill.name === name)
+    })
+
+    const requireAvailable = Effect.fn("Skill.requireAvailable")(function* (
+      scope: SkillAccessScope,
+      name: string,
+    ) {
+      const info = yield* get(name, scope)
+      if (info) return info
+      return yield* new NotFoundError({
+        name,
+        available: (yield* all(scope)).map((skill) => skill.name).toSorted(),
+      })
+    })
+
+    const require = Effect.fn("Skill.require")(function* (name: string, scope: SkillAccessScope = rootScope) {
+      return yield* requireAvailable(scope, name)
     })
 
     const dirs = Effect.fn("Skill.dirs")(function* () {
       return (yield* InstanceState.get(discovered)).dirs
     })
 
-    const available = Effect.fn("Skill.available")(function* (agent?: Agent.Info) {
-      const s = yield* InstanceState.get(state)
-      const list = Object.values(s.skills).toSorted((a, b) => a.name.localeCompare(b.name))
+    const available = Effect.fn("Skill.available")(function* (
+      scope: SkillAccessScope = rootScope,
+      agent?: Agent.Info,
+    ) {
+      const list = (yield* all(scope)).toSorted((a, b) => a.name.localeCompare(b.name))
       if (!agent) return list
       return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
     })
 
-    return Service.of({ get, require, all, dirs, available })
+    return Service.of({ get, require, requireAvailable, all, dirs, available })
   }),
 )
 

@@ -22,7 +22,10 @@ const MEMORY_RULES = [
 
 export interface Interface {
   readonly environment: (model: Provider.Model, options?: { includeMemory?: boolean }) => Effect.Effect<string[]>
-  readonly skills: (agent: Agent.Info) => Effect.Effect<string | undefined>
+  readonly skills: (
+    agent: Agent.Info,
+    scope?: Skill.SkillAccessScope,
+  ) => Effect.Effect<string | undefined>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/SystemPrompt") {}
@@ -53,10 +56,13 @@ export const layer = Layer.effect(
         ]
       }),
 
-      skills: Effect.fn("SystemPrompt.skills")(function* (agent: Agent.Info) {
+      skills: Effect.fn("SystemPrompt.skills")(function* (
+        agent: Agent.Info,
+        scope: Skill.SkillAccessScope = Skill.rootScope,
+      ) {
         if (Permission.disabled(["skill"], agent.permission).has("skill")) return
 
-        const list = yield* skill.available(agent)
+        const list = yield* skill.available(scope, agent)
 
         return [
           "Skills provide specialized instructions and workflows for specific tasks.",

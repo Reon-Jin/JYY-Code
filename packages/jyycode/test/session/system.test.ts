@@ -9,6 +9,7 @@ import { testEffect } from "../lib/effect"
 
 const skills: Skill.Info[] = [
   {
+    id: "global:zeta-skill",
     name: "zeta-skill",
     description: "Zeta skill.",
     location: "/tmp/zeta-skill/SKILL.md",
@@ -19,6 +20,7 @@ const skills: Skill.Info[] = [
     revision: "zeta-revision",
   },
   {
+    id: "global:alpha-skill",
     name: "alpha-skill",
     description: "Alpha skill.",
     location: "/tmp/alpha-skill/SKILL.md",
@@ -29,6 +31,7 @@ const skills: Skill.Info[] = [
     revision: "alpha-revision",
   },
   {
+    id: "global:middle-skill",
     name: "middle-skill",
     description: "Middle skill.",
     location: "/tmp/middle-skill/SKILL.md",
@@ -39,6 +42,7 @@ const skills: Skill.Info[] = [
     revision: "middle-revision",
   },
   {
+    id: "global:manual-skill",
     name: "manual-skill",
     location: "/tmp/manual-skill/SKILL.md",
     content: "# manual-skill",
@@ -63,6 +67,11 @@ const it = testEffect(
         Skill.Service,
         Skill.Service.of({
           get: (name) => Effect.succeed(skills.find((skill) => skill.name === name)),
+          requireAvailable: (_scope, name) => {
+            const info = skills.find((skill) => skill.name === name)
+            if (info) return Effect.succeed(info)
+            return Effect.fail(new Skill.NotFoundError({ name, available: skills.map((skill) => skill.name) }))
+          },
           require: (name) => {
             const info = skills.find((skill) => skill.name === name)
             if (info) return Effect.succeed(info)

@@ -5,6 +5,7 @@ import type { Permission } from "../permission"
 import type { SessionID, MessageID } from "../session/schema"
 import * as Truncate from "./truncate"
 import { Agent } from "@/agent/agent"
+import type { SkillAccessScope } from "@/skill"
 
 interface Metadata {
   [key: string]: any
@@ -35,6 +36,8 @@ export type Context<M extends Metadata = Metadata> = {
   sessionID: SessionID
   messageID: MessageID
   agent: string
+  /** Filesystem-enforced skill visibility for the current session. */
+  skillScope?: SkillAccessScope
   abort: AbortSignal
   callID?: string
   extra?: { [key: string]: unknown }
