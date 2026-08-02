@@ -71,11 +71,13 @@ export function requiredPlanTool(input: {
   root: boolean
   multiAgent: boolean
   step: number
+  blackboardUnread?: number
   planExists?: boolean
   plan?: PlanToolGateState
 }) {
   if (!input.root) return undefined
   if (input.step === 1) return "Plan_read"
+  if ((input.blackboardUnread ?? 0) > 0) return "Blackboard"
   if (input.multiAgent && input.planExists === false) return "Plan_create"
   if (input.multiAgent) {
     const pending = pendingDispatchTasks(input.plan)

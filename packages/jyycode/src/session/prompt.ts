@@ -65,6 +65,7 @@ import { LLMEvent } from "@jyycode-ai/llm"
 import { planSystemPrompt } from "@/plan/prompts"
 import { defaultPlanProtocol } from "@/plan/protocol"
 import { Memory } from "@/memory/memory"
+import { Blackboard } from "@/plan/blackboard"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -112,6 +113,7 @@ const elog = EffectLogger.create({ service: "session.prompt" })
 
 export interface Interface {
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
+  readonly wake: (input: { sessionID: SessionID; text: string; kind: string }) => Effect.Effect<MessageV2.WithParts>
   readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts, Image.Error>
   readonly loop: (input: LoopInput) => Effect.Effect<MessageV2.WithParts>
   readonly shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts, Session.BusyError>
@@ -152,6 +154,7 @@ export const layer = Layer.effect(
     const references = yield* Reference.Service
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
+    const blackboard = Option.getOrUndefined(yield* Effect.serviceOption(Blackboard.Service))
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
     const evaluateMemoryDecision: Memory.DecisionEvaluator = (input) =>
       Effect.gen(function* () {
@@ -1575,10 +1578,21 @@ export const layer = Layer.effect(
                     }),
                   )
                 : undefined
+            const blackboardUnread =
+              rootSession &&
+              session.multiAgent === true &&
+              step > 1 &&
+              planState?.ok === true &&
+              planState.plan !== null &&
+              planState.plan.current_step &&
+              blackboard
+                ? yield* blackboard.unreadForMain(session.id)
+                : 0
             const requiredPlanTool = SessionTools.requiredPlanTool({
               root: rootSession,
               multiAgent: session.multiAgent === true,
               step,
+              blackboardUnread,
               planExists: planState?.ok ? planState.plan !== null : undefined,
               plan: planState?.ok ? planState.plan ?? undefined : undefined,
             })
@@ -1885,6 +1899,7 @@ export const layer = Layer.effect(
 
     return Service.of({
       cancel,
+      wake,
       prompt,
       loop,
       shell,
@@ -1926,6 +1941,7 @@ export const defaultLayer = Layer.suspend(() =>
         Bus.layer,
         CrossSpawnSpawner.defaultLayer,
         RuntimeFlags.defaultLayer,
+        Blackboard.defaultLayer,
       ),
     ),
   ),
