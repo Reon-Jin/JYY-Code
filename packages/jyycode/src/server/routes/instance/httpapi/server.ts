@@ -35,6 +35,7 @@ import { Pty } from "@/pty"
 import { PtyTicket } from "@/pty/ticket"
 import { Question } from "@/question"
 import { Session } from "@/session/session"
+import { Blackboard } from "@/plan/blackboard"
 import { SessionCompaction } from "@/session/compaction"
 import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
@@ -221,6 +222,7 @@ export function createRoutes(
       Ripgrep.defaultLayer,
       RuntimeFlags.defaultLayer,
       BackgroundProcess.defaultLayer,
+      Blackboard.defaultLayer,
       Session.defaultLayer,
       SessionCompaction.defaultLayer,
       SessionPrompt.defaultLayer,

@@ -134,6 +134,64 @@ export const ContextPayload = Schema.Struct({
   shouldCompact: Schema.optional(Schema.Boolean),
 })
 
+const BlackboardKind = Schema.Literals(["info", "risk", "blocker", "decision", "help"])
+const BlackboardAuthorKind = Schema.Literals(["user", "main_agent", "sub_agent"])
+const BlackboardAttachment = Schema.Struct({
+  type: Schema.Literals(["path", "directory", "url"]),
+  value: Schema.String,
+})
+const BlackboardMessagePayload = Schema.Struct({
+  id: Schema.String,
+  rootSessionID: SessionID,
+  stepID: Schema.String,
+  parentMessageID: Schema.optional(Schema.String),
+  authorKind: BlackboardAuthorKind,
+  authorSessionID: Schema.optional(SessionID),
+  authorTaskID: Schema.optional(Schema.String),
+  kind: BlackboardKind,
+  body: Schema.String,
+  mentions: Schema.Array(Schema.String),
+  attachments: Schema.Array(BlackboardAttachment),
+  taskIDs: Schema.Array(Schema.String),
+  timeCreated: Schema.Finite,
+  replies: Schema.Array(Schema.Any),
+})
+const BlackboardTask = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  status: Schema.Literals(["pending", "dispatched", "running", "reported", "approved", "rejected"]),
+  hasAgent: Schema.Boolean,
+  isSelf: Schema.Boolean,
+})
+export const BlackboardSnapshotPayload = Schema.Struct({
+  rootSessionID: SessionID,
+  currentStepID: Schema.String,
+  selectedStepID: Schema.String,
+  readonly: Schema.Boolean,
+  tasks: Schema.Array(BlackboardTask),
+  messages: Schema.Array(BlackboardMessagePayload),
+  nextBefore: Schema.optional(Schema.String),
+  unreadCount: Schema.Number,
+})
+export const BlackboardQuery = Schema.Struct({
+  ...WorkspaceRoutingQueryFields,
+  stepID: Schema.optional(Schema.String),
+  taskID: Schema.optional(Schema.String),
+  before: Schema.optional(Schema.String),
+  limit: Schema.optional(Schema.NumberFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1))),
+})
+export const BlackboardPostPayload = Schema.Struct({
+  message: Schema.String,
+  kind: Schema.optional(BlackboardKind),
+  task_ids: Schema.optional(Schema.Array(Schema.String)),
+  reply_to: Schema.optional(Schema.String),
+  attachments: Schema.optional(Schema.Array(Schema.String)),
+})
+export const BlackboardReadPayload = Schema.Struct({
+  stepID: Schema.String,
+  throughMessageID: Schema.String,
+})
+
 export const SessionPaths = {
   list: root,
   status: `${root}/status`,
@@ -141,6 +199,8 @@ export const SessionPaths = {
   children: `${root}/:sessionID/children`,
   context: `${root}/:sessionID/context`,
   plan: `${root}/:sessionID/plan`,
+  blackboard: `${root}/:sessionID/blackboard`,
+  blackboardRead: `${root}/:sessionID/blackboard/read`,
   todo: `${root}/:sessionID/todo`,
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
@@ -237,6 +297,18 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.plan",
             summary: "Get session plan snapshot",
             description: "Retrieve the file-backed plan projection for a specific root session.",
+          }),
+        ),
+        HttpApiEndpoint.get("blackboard", SessionPaths.blackboard, {
+          params: { sessionID: SessionID },
+          query: BlackboardQuery,
+          success: described(BlackboardSnapshotPayload, "Blackboard snapshot"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.blackboard",
+            summary: "Get step blackboard",
+            description: "Read the shared blackboard for the current or selected plan step.",
           }),
         ),
         HttpApiEndpoint.get("todo", SessionPaths.todo, {
@@ -346,6 +418,32 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.abort",
             summary: "Abort session",
             description: "Abort an active session and stop any ongoing AI processing or command execution.",
+          }),
+        ),
+        HttpApiEndpoint.post("blackboardPost", SessionPaths.blackboard, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          payload: BlackboardPostPayload,
+          success: described(BlackboardMessagePayload, "Blackboard message"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.blackboard.post",
+            summary: "Post user blackboard message",
+            description: "Post a user message to the active step blackboard and wake the root session.",
+          }),
+        ),
+        HttpApiEndpoint.post("blackboardRead", SessionPaths.blackboardRead, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          payload: BlackboardReadPayload,
+          success: described(Schema.Boolean, "Blackboard read cursor updated"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.blackboard.read",
+            summary: "Mark blackboard messages read",
+            description: "Advance the user's read cursor for a plan step.",
           }),
         ),
         HttpApiEndpoint.post("interruptPrompt", SessionPaths.interruptPrompt, {

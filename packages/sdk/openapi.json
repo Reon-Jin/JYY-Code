@@ -9147,6 +9147,480 @@
         ]
       }
     },
+    "/session/{sessionID}/blackboard": {
+      "get": {
+        "tags": ["session"],
+        "operationId": "session.blackboard",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "stepID",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "taskID",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/GitHubPullRequestNumber"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Blackboard snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rootSessionID": {
+                      "type": "string",
+                      "pattern": "^ses"
+                    },
+                    "currentStepID": {
+                      "type": "string"
+                    },
+                    "selectedStepID": {
+                      "type": "string"
+                    },
+                    "readonly": {
+                      "type": "boolean"
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": ["pending", "dispatched", "running", "reported", "approved", "rejected"]
+                          },
+                          "hasAgent": {
+                            "type": "boolean"
+                          },
+                          "isSelf": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["id", "title", "status", "hasAgent", "isSelf"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "rootSessionID": {
+                            "type": "string",
+                            "pattern": "^ses"
+                          },
+                          "stepID": {
+                            "type": "string"
+                          },
+                          "parentMessageID": {
+                            "type": "string"
+                          },
+                          "authorKind": {
+                            "type": "string",
+                            "enum": ["user", "main_agent", "sub_agent"]
+                          },
+                          "authorSessionID": {
+                            "type": "string",
+                            "pattern": "^ses"
+                          },
+                          "authorTaskID": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": ["info", "risk", "blocker", "decision", "help"]
+                          },
+                          "body": {
+                            "type": "string"
+                          },
+                          "mentions": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "attachments": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "type": "string",
+                                  "enum": ["path", "directory", "url"]
+                                },
+                                "value": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["type", "value"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "taskIDs": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "timeCreated": {
+                            "type": "number"
+                          },
+                          "replies": {
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "rootSessionID",
+                          "stepID",
+                          "authorKind",
+                          "kind",
+                          "body",
+                          "mentions",
+                          "attachments",
+                          "taskIDs",
+                          "timeCreated",
+                          "replies"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "nextBefore": {
+                      "type": "string"
+                    },
+                    "unreadCount": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["NaN"]
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["Infinity"]
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["-Infinity"]
+                        },
+                        {
+                          "type": "string",
+                          "enum": ["Infinity", "-Infinity", "NaN"]
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "rootSessionID",
+                    "currentStepID",
+                    "selectedStepID",
+                    "readonly",
+                    "tasks",
+                    "messages",
+                    "unreadCount"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Blackboard snapshot"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BadRequest | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read the shared blackboard for the current or selected plan step.",
+        "summary": "Get step blackboard",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.session.blackboard({\n  ...\n})"
+          }
+        ]
+      },
+      "post": {
+        "tags": ["session"],
+        "operationId": "session.blackboard.post",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Blackboard message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "rootSessionID": {
+                      "type": "string",
+                      "pattern": "^ses"
+                    },
+                    "stepID": {
+                      "type": "string"
+                    },
+                    "parentMessageID": {
+                      "type": "string"
+                    },
+                    "authorKind": {
+                      "type": "string",
+                      "enum": ["user", "main_agent", "sub_agent"]
+                    },
+                    "authorSessionID": {
+                      "type": "string",
+                      "pattern": "^ses"
+                    },
+                    "authorTaskID": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": ["info", "risk", "blocker", "decision", "help"]
+                    },
+                    "body": {
+                      "type": "string"
+                    },
+                    "mentions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "attachments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": ["path", "directory", "url"]
+                          },
+                          "value": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["type", "value"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "taskIDs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "timeCreated": {
+                      "type": "number"
+                    },
+                    "replies": {
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "rootSessionID",
+                    "stepID",
+                    "authorKind",
+                    "kind",
+                    "body",
+                    "mentions",
+                    "attachments",
+                    "taskIDs",
+                    "timeCreated",
+                    "replies"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Blackboard message"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BadRequest | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Post a user message to the active step blackboard and wake the root session.",
+        "summary": "Post user blackboard message",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": ["info", "risk", "blocker", "decision", "help"]
+                  },
+                  "task_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "reply_to": {
+                    "type": "string"
+                  },
+                  "attachments": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["message"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.session.blackboard.post({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/session/{sessionID}/todo": {
       "get": {
         "tags": ["session"],
@@ -9946,6 +10420,106 @@
           {
             "lang": "js",
             "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.session.abort({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/session/{sessionID}/blackboard/read": {
+      "post": {
+        "tags": ["session"],
+        "operationId": "session.blackboard.read",
+        "parameters": [
+          {
+            "name": "sessionID",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses"
+            },
+            "required": true
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Blackboard read cursor updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "Blackboard read cursor updated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BadRequest | InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/effect_HttpApiError_BadRequest"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFoundError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Advance the user's read cursor for a plan step.",
+        "summary": "Mark blackboard messages read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "stepID": {
+                    "type": "string"
+                  },
+                  "throughMessageID": {
+                    "type": "string"
+                  }
+                },
+                "required": ["stepID", "throughMessageID"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createJyycodeClient } from \"@jyycode-ai/sdk\n\nconst client = createJyycodeClient()\nawait client.session.blackboard.read({\n  ...\n})"
           }
         ]
       }
@@ -14232,6 +14806,9 @@
             "$ref": "#/components/schemas/EventSessionCompacted"
           },
           {
+            "$ref": "#/components/schemas/EventBlackboardUpdated"
+          },
+          {
             "$ref": "#/components/schemas/EventVcsBranchUpdated"
           },
           {
@@ -16662,6 +17239,9 @@
               },
               {
                 "$ref": "#/components/schemas/EventSessionCompacted"
+              },
+              {
+                "$ref": "#/components/schemas/EventBlackboardUpdated"
               },
               {
                 "$ref": "#/components/schemas/EventVcsBranchUpdated"
@@ -23749,6 +24329,37 @@
               }
             },
             "required": ["sessionID"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventBlackboardUpdated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["blackboard.updated"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "rootSessionID": {
+                "type": "string",
+                "pattern": "^ses"
+              },
+              "stepID": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              }
+            },
+            "required": ["rootSessionID", "stepID", "messageID"],
             "additionalProperties": false
           }
         },

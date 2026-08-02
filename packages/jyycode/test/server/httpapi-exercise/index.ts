@@ -20,6 +20,7 @@
 import { Effect } from "effect"
 import { OpenApi } from "effect/unstable/httpapi"
 import { TestLLMServer } from "../../lib/llm-server"
+import { mkdir } from "node:fs/promises"
 import path from "path"
 import { array, boolean, check, isRecord, message, object, stable } from "./assertions"
 import { controlledPtyInput, http, route } from "./dsl"
@@ -833,6 +834,159 @@ const scenarios: Scenario[] = [
     }))
     .json(200, (body) => {
       check(body === null, "a Session without a created plan should return null")
+    }),
+  http.protected
+    .get("/session/{sessionID}/blackboard", "session.blackboard")
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Blackboard read session" })
+        const directory = ctx.directory!
+        yield* Effect.promise(() => mkdir(path.join(directory, ".jyycode", "plan", session.id), { recursive: true }))
+        const now = new Date().toISOString()
+        yield* ctx.file(
+          `.jyycode/plan/${session.id}/plan.json`,
+          JSON.stringify({
+            title: "Blackboard plan",
+            goal: "Exercise blackboard reads",
+            status: "active",
+            revision: 1,
+            current_step: "s1",
+            steps: [
+              {
+                id: "s1",
+                title: "Blackboard step",
+                goal: "Read blackboard",
+                done_criteria: "snapshot returned",
+                status: "active",
+                tasks: [
+                  {
+                    id: "s1_t1",
+                    title: "Read task",
+                    goal: "Read blackboard",
+                    done_criteria: "snapshot returned",
+                    output_path: null,
+                    status: "pending",
+                    dispatch: null,
+                    report: null,
+                  },
+                ],
+              },
+            ],
+            created_at: now,
+            updated_at: now,
+          }),
+        )
+        return session
+      }),
+    )
+    .at((ctx) => ({
+      path: `${route("/session/{sessionID}/blackboard", { sessionID: ctx.state.id })}?limit=20`,
+      headers: ctx.headers(),
+    }))
+    .json(200, (body, ctx) => {
+      object(body)
+      check(body.rootSessionID === ctx.state.id, "blackboard should resolve the root session")
+      check(body.currentStepID === "s1", "blackboard should expose the current step")
+      check(Array.isArray(body.messages) && body.messages.length === 0, "new blackboard should have no messages")
+    }),
+  http.protected
+    .post("/session/{sessionID}/blackboard", "session.blackboard.post")
+    .mutating()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Blackboard post session" })
+        const directory = ctx.directory!
+        yield* Effect.promise(() => mkdir(path.join(directory, ".jyycode", "plan", session.id), { recursive: true }))
+        const now = new Date().toISOString()
+        yield* ctx.file(
+          `.jyycode/plan/${session.id}/plan.json`,
+          JSON.stringify({
+            title: "Blackboard plan",
+            goal: "Exercise blackboard posts",
+            status: "active",
+            revision: 1,
+            current_step: "s1",
+            steps: [
+              {
+                id: "s1",
+                title: "Blackboard step",
+                goal: "Post blackboard message",
+                done_criteria: "message persisted",
+                status: "active",
+                tasks: [
+                  {
+                    id: "s1_t1",
+                    title: "Post task",
+                    goal: "Post a risk",
+                    done_criteria: "message persisted",
+                    output_path: null,
+                    status: "pending",
+                    dispatch: null,
+                    report: null,
+                  },
+                ],
+              },
+            ],
+            created_at: now,
+            updated_at: now,
+          }),
+        )
+        return session
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/blackboard", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: { message: "Please check @s1_t1", kind: "risk" },
+    }))
+    .json(200, (body, ctx) => {
+      object(body)
+      check(body.rootSessionID === ctx.state.id, "posted blackboard message should use the root session")
+      check(body.authorKind === "user", "HTTP blackboard posts should be authored by the user")
+      const taskIDs = Array.isArray(body.taskIDs) ? [...body.taskIDs] : []
+      check(taskIDs.some((taskID) => taskID === "s1_t1"), "task mentions should link the blackboard message")
+    }),
+  http.protected
+    .post("/session/{sessionID}/blackboard/read", "session.blackboard.read")
+    .mutating()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Blackboard cursor session" })
+        const directory = ctx.directory!
+        yield* Effect.promise(() => mkdir(path.join(directory, ".jyycode", "plan", session.id), { recursive: true }))
+        const now = new Date().toISOString()
+        yield* ctx.file(
+          `.jyycode/plan/${session.id}/plan.json`,
+          JSON.stringify({
+            title: "Blackboard plan",
+            goal: "Exercise blackboard read cursor",
+            status: "active",
+            revision: 1,
+            current_step: "s1",
+            steps: [
+              {
+                id: "s1",
+                title: "Blackboard step",
+                goal: "Mark messages read",
+                done_criteria: "cursor advanced",
+                status: "active",
+                tasks: [],
+              },
+            ],
+            created_at: now,
+            updated_at: now,
+          }),
+        )
+        return session
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/blackboard/read", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: { stepID: "s1", throughMessageID: "bbm_exercise" },
+    }))
+    .json(200, (body) => {
+      check(body === true, "blackboard read should advance the cursor")
     }),
   http.protected
     .get("/session/{sessionID}/todo", "session.todo")

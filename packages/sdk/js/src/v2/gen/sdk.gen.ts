@@ -216,6 +216,12 @@ import type {
   QuestionReplyResponses,
   SessionAbortErrors,
   SessionAbortResponses,
+  SessionBlackboardErrors,
+  SessionBlackboardPostErrors,
+  SessionBlackboardPostResponses,
+  SessionBlackboardReadErrors,
+  SessionBlackboardReadResponses,
+  SessionBlackboardResponses,
   SessionChildrenErrors,
   SessionChildrenResponses,
   SessionCommandErrors,
@@ -4340,6 +4346,104 @@ export class Provider extends HeyApiClient {
   }
 }
 
+export class Blackboard extends HeyApiClient {
+  /**
+   * Post user blackboard message
+   *
+   * Post a user message to the active step blackboard and wake the root session.
+   */
+  public post<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      message?: string
+      kind?: "info" | "risk" | "blocker" | "decision" | "help"
+      task_ids?: Array<string>
+      reply_to?: string
+      attachments?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "message" },
+            { in: "body", key: "kind" },
+            { in: "body", key: "task_ids" },
+            { in: "body", key: "reply_to" },
+            { in: "body", key: "attachments" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionBlackboardPostResponses,
+      SessionBlackboardPostErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/blackboard",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Mark blackboard messages read
+   *
+   * Advance the user's read cursor for a plan step.
+   */
+  public read<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      stepID?: string
+      throughMessageID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "stepID" },
+            { in: "body", key: "throughMessageID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionBlackboardReadResponses,
+      SessionBlackboardReadErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/blackboard/read",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
 export class Session2 extends HeyApiClient {
   /**
    * List sessions
@@ -4670,6 +4774,46 @@ export class Session2 extends HeyApiClient {
     )
     return (options?.client ?? this.client).get<SessionPlanResponses, SessionPlanErrors, ThrowOnError>({
       url: "/session/{sessionID}/plan",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get step blackboard
+   *
+   * Read the shared blackboard for the current or selected plan step.
+   */
+  public blackboard<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      stepID?: string
+      taskID?: string
+      before?: string
+      limit?: GitHubPullRequestNumber
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "stepID" },
+            { in: "query", key: "taskID" },
+            { in: "query", key: "before" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionBlackboardResponses, SessionBlackboardErrors, ThrowOnError>({
+      url: "/session/{sessionID}/blackboard",
       ...options,
       ...params,
     })
@@ -5431,6 +5575,11 @@ export class Session2 extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  private _blackboard?: Blackboard
+  get blackboard2(): Blackboard {
+    return (this._blackboard ??= new Blackboard({ client: this.client }))
   }
 }
 

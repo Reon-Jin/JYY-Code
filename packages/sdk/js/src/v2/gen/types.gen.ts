@@ -36,6 +36,7 @@ export type Event =
   | EventToolSearchExecuted1
   | EventToolExecutionCompleted1
   | EventSessionCompacted
+  | EventBlackboardUpdated
   | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
@@ -839,6 +840,7 @@ export type GlobalEvent = {
     | EventToolSearchExecuted
     | EventToolExecutionCompleted
     | EventSessionCompacted
+    | EventBlackboardUpdated
     | EventVcsBranchUpdated
     | EventWorkspaceReady
     | EventWorkspaceFailed
@@ -3081,6 +3083,16 @@ export type EventSessionCompacted = {
   type: "session.compacted"
   properties: {
     sessionID: string
+  }
+}
+
+export type EventBlackboardUpdated = {
+  id: string
+  type: "blackboard.updated"
+  properties: {
+    rootSessionID: string
+    stepID: string
+    messageID: string
   }
 }
 
@@ -8101,6 +8113,135 @@ export type SessionPlanResponses = {
 
 export type SessionPlanResponse = SessionPlanResponses[keyof SessionPlanResponses]
 
+export type SessionBlackboardData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+    stepID?: string
+    taskID?: string
+    before?: string
+    limit?: GitHubPullRequestNumber
+  }
+  url: "/session/{sessionID}/blackboard"
+}
+
+export type SessionBlackboardErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionBlackboardError = SessionBlackboardErrors[keyof SessionBlackboardErrors]
+
+export type SessionBlackboardResponses = {
+  /**
+   * Blackboard snapshot
+   */
+  200: {
+    rootSessionID: string
+    currentStepID: string
+    selectedStepID: string
+    readonly: boolean
+    tasks: Array<{
+      id: string
+      title: string
+      status: "pending" | "dispatched" | "running" | "reported" | "approved" | "rejected"
+      hasAgent: boolean
+      isSelf: boolean
+    }>
+    messages: Array<{
+      id: string
+      rootSessionID: string
+      stepID: string
+      parentMessageID?: string
+      authorKind: "user" | "main_agent" | "sub_agent"
+      authorSessionID?: string
+      authorTaskID?: string
+      kind: "info" | "risk" | "blocker" | "decision" | "help"
+      body: string
+      mentions: Array<string>
+      attachments: Array<{
+        type: "path" | "directory" | "url"
+        value: string
+      }>
+      taskIDs: Array<string>
+      timeCreated: number
+      replies: Array<unknown>
+    }>
+    nextBefore?: string
+    unreadCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
+}
+
+export type SessionBlackboardResponse = SessionBlackboardResponses[keyof SessionBlackboardResponses]
+
+export type SessionBlackboardPostData = {
+  body?: {
+    message: string
+    kind?: "info" | "risk" | "blocker" | "decision" | "help"
+    task_ids?: Array<string>
+    reply_to?: string
+    attachments?: Array<string>
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/blackboard"
+}
+
+export type SessionBlackboardPostErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionBlackboardPostError = SessionBlackboardPostErrors[keyof SessionBlackboardPostErrors]
+
+export type SessionBlackboardPostResponses = {
+  /**
+   * Blackboard message
+   */
+  200: {
+    id: string
+    rootSessionID: string
+    stepID: string
+    parentMessageID?: string
+    authorKind: "user" | "main_agent" | "sub_agent"
+    authorSessionID?: string
+    authorTaskID?: string
+    kind: "info" | "risk" | "blocker" | "decision" | "help"
+    body: string
+    mentions: Array<string>
+    attachments: Array<{
+      type: "path" | "directory" | "url"
+      value: string
+    }>
+    taskIDs: Array<string>
+    timeCreated: number
+    replies: Array<unknown>
+  }
+}
+
+export type SessionBlackboardPostResponse = SessionBlackboardPostResponses[keyof SessionBlackboardPostResponses]
+
 export type SessionTodoData = {
   body?: never
   path: {
@@ -8399,6 +8540,43 @@ export type SessionAbortResponses = {
 }
 
 export type SessionAbortResponse = SessionAbortResponses[keyof SessionAbortResponses]
+
+export type SessionBlackboardReadData = {
+  body?: {
+    stepID: string
+    throughMessageID: string
+  }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/blackboard/read"
+}
+
+export type SessionBlackboardReadErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionBlackboardReadError = SessionBlackboardReadErrors[keyof SessionBlackboardReadErrors]
+
+export type SessionBlackboardReadResponses = {
+  /**
+   * Blackboard read cursor updated
+   */
+  200: boolean
+}
+
+export type SessionBlackboardReadResponse = SessionBlackboardReadResponses[keyof SessionBlackboardReadResponses]
 
 export type SessionInterruptPromptData = {
   body?: {

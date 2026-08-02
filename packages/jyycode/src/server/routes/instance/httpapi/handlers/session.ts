@@ -18,6 +18,7 @@ import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { PlanProtocol } from "@/plan/protocol"
+import { Blackboard } from "@/plan/blackboard"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NamedError } from "@jyycode-ai/core/util/error"
 import { Cause, Effect, Exit, Option, Schema, Scope } from "effect"
@@ -29,6 +30,9 @@ import {
   CommandPayload,
   ContextPayload,
   CreatePayload,
+  BlackboardPostPayload,
+  BlackboardQuery,
+  BlackboardReadPayload,
   DiffQuery,
   ForkPayload,
   InitPayload,
@@ -65,6 +69,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const statusSvc = yield* SessionStatus.Service
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
+    const blackboard = yield* Blackboard.Service
     const bus = yield* Bus.Service
     const scope = yield* Scope.Scope
 
@@ -87,6 +92,12 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
 
     const requireSession = Effect.fn("SessionHttpApi.requireSession")(function* (sessionID: SessionID) {
       return yield* SessionError.mapStorageNotFound(session.get(sessionID))
+    })
+
+    const rootSession = Effect.fn("SessionHttpApi.rootSession")(function* (sessionID: SessionID) {
+      let current = yield* requireSession(sessionID)
+      while (current.parentID) current = yield* requireSession(current.parentID)
+      return current
     })
 
     const get = Effect.fn("SessionHttpApi.get")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -132,6 +143,62 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         sessionId: root.id,
         mode: root.multiAgent === true ? "multi" : "single",
       })
+    })
+
+    const blackboardSnapshot = Effect.fn("SessionHttpApi.blackboardSnapshot")(function* (ctx: {
+      params: { sessionID: SessionID }
+      query: typeof BlackboardQuery.Type
+    }) {
+      const root = yield* rootSession(ctx.params.sessionID)
+      return yield* blackboard
+        .listUser({
+          rootSessionID: root.id,
+          stepID: ctx.query.stepID,
+          taskID: ctx.query.taskID,
+          before: ctx.query.before,
+          limit: ctx.query.limit,
+        })
+        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+    })
+
+    const blackboardPost = Effect.fn("SessionHttpApi.blackboardPost")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: typeof BlackboardPostPayload.Type
+    }) {
+      const root = yield* rootSession(ctx.params.sessionID)
+      const message = yield* blackboard
+        .postUser({
+          rootSessionID: root.id,
+          message: ctx.payload.message,
+          kind: ctx.payload.kind,
+          taskIDs: ctx.payload.task_ids ? [...ctx.payload.task_ids] : undefined,
+          replyTo: ctx.payload.reply_to,
+          attachments: ctx.payload.attachments ? [...ctx.payload.attachments] : undefined,
+        })
+        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      yield* promptSvc
+        .wake({
+          sessionID: root.id,
+          kind: "blackboard_user_message",
+          text: "黑板有新用户消息。先调用 Blackboard，处理后继续当前任务。",
+        })
+        .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+      return message
+    })
+
+    const blackboardRead = Effect.fn("SessionHttpApi.blackboardRead")(function* (ctx: {
+      params: { sessionID: SessionID }
+      payload: typeof BlackboardReadPayload.Type
+    }) {
+      const root = yield* rootSession(ctx.params.sessionID)
+      yield* blackboard
+        .markUserRead({
+          rootSessionID: root.id,
+          stepID: ctx.payload.stepID,
+          throughMessageID: ctx.payload.throughMessageID,
+        })
+        .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      return true
     })
 
     const todo = Effect.fn("SessionHttpApi.todo")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -485,6 +552,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("children", children)
       .handle("context", context)
       .handle("plan", plan)
+      .handle("blackboard", blackboardSnapshot)
       .handle("todo", todo)
       .handle("diff", diff)
       .handle("messages", messages)
@@ -494,6 +562,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("update", update)
       .handleRaw("fork", forkRaw)
       .handle("abort", abort)
+      .handle("blackboardPost", blackboardPost)
+      .handle("blackboardRead", blackboardRead)
       .handle("interruptPrompt", interruptPrompt)
       .handle("init", init)
       .handle("share", share)
