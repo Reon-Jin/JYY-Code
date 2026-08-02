@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library"
-import type { SessionPlanResponse } from "@jyycode-ai/sdk/v2/client"
+import type { SessionBlackboardResponse, SessionPlanResponse } from "@jyycode-ai/sdk/v2/client"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { App } from "./app"
@@ -31,6 +31,33 @@ function planSnapshot(): SessionPlanResponse {
         ],
       },
     ],
+  }
+}
+
+function blackboardSnapshot(rootSessionID: string): SessionBlackboardResponse {
+  return {
+    rootSessionID,
+    currentStepID: "s1",
+    selectedStepID: "s1",
+    readonly: false,
+    tasks: [{ id: "s1_t1", title: "Implement feature", status: "running", hasAgent: true, isSelf: false }],
+    messages: [
+      {
+        id: "bb_child",
+        rootSessionID,
+        stepID: "s1",
+        authorKind: "sub_agent",
+        authorTaskID: "s1_t1",
+        kind: "blocker",
+        body: "Child found a blocker",
+        mentions: [],
+        attachments: [],
+        taskIDs: ["s1_t1"],
+        timeCreated: 2,
+        replies: [],
+      },
+    ],
+    unreadCount: 2,
   }
 }
 
@@ -526,5 +553,46 @@ describe("desktop GUI journey", () => {
     expect(await screen.findByRole("heading", { name: "Root Session" })).toBeVisible()
     expect(screen.queryByText("child command")).not.toBeInTheDocument()
   }, 20_000)
+
+  it("keeps one root-scoped blackboard visible across root and child Sessions", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_root" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.addSession({ id: "ses_root", slug: "root", title: "Root Session", multiAgent: true })
+    backend.addSession({
+      id: "ses_child",
+      slug: "child",
+      title: "Implement feature",
+      parentID: "ses_root",
+      agent: "coder",
+      model: { providerID: "test", id: "test-complex" },
+    })
+    backend.setPlan("ses_root", planSnapshot())
+    backend.setBlackboard("ses_root", blackboardSnapshot("ses_root"))
+    vi.stubGlobal("fetch", backend.fetch)
+
+    render(() => <App bridge={desktop.bridge} />)
+
+    expect(await screen.findByRole("heading", { name: "Root Session" }, { timeout: 5_000 })).toBeVisible()
+    const blackboardButton = await screen.findByRole("button", { name: "协作黑板" })
+    await waitFor(() => expect(blackboardButton.querySelector(".workspace-activity-button__badge")).toHaveTextContent("2"))
+    await user.click(blackboardButton)
+
+    const panel = await screen.findByRole("group", { name: "协作黑板" })
+    expect(panel).toHaveTextContent("Child found a blocker")
+    expect(panel).toHaveTextContent("Implement feature")
+    expect(panel).toHaveTextContent("ses_root")
+    const rootBlackboardGets = () =>
+      backend.requests.filter((request) => request.method === "GET" && request.path === "/session/ses_root/blackboard")
+    expect(rootBlackboardGets().length).toBeGreaterThan(0)
+    expect(backend.requests.some((request) => request.path === "/session/ses_child/blackboard")).toBe(false)
+
+    await user.click(screen.getByRole("button", { name: "方案" }))
+    await user.click(await screen.findByRole("button", { name: "审阅：Implement feature" }))
+    expect(await screen.findByRole("heading", { name: "Implement feature" })).toBeVisible()
+    expect(screen.getByRole("group", { name: "协作黑板" })).toHaveTextContent("Child found a blocker")
+    expect(screen.getByRole("group", { name: "协作黑板" })).toHaveTextContent("ses_root")
+    expect(backend.requests.some((request) => request.path === "/session/ses_child/blackboard")).toBe(false)
+  }, 15_000)
 })
 // @ts-nocheck

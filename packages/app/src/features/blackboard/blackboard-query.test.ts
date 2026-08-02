@@ -26,7 +26,7 @@ describe("blackboard query boundary", () => {
         stepID: "step_1",
         taskID: "task_1",
         before: "bb_10",
-        limit: 20,
+        limit: "20",
       },
       { throwOnError: true },
     )

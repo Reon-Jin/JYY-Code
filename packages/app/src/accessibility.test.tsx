@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { readFileSync } from "node:fs"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { SessionBlackboardResponse } from "@jyycode-ai/sdk/v2/client"
 import { App } from "./app"
 import { createFakeDesktop } from "./test/fake-desktop"
 import { createFakeJyycode } from "./test/fake-jyycode"
@@ -259,6 +260,52 @@ describe("desktop accessibility contract", () => {
     await user.keyboard("{Enter}")
     expect(await screen.findByRole("heading", { name: "Root Session" })).toBeVisible()
   }, 15_000)
+
+  it("labels the blackboard activity button, unread badge, timeline, and composer", async () => {
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_root" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.addSession({ id: "ses_root", slug: "root", title: "Root Session", multiAgent: true })
+    const board: SessionBlackboardResponse = {
+      rootSessionID: "ses_root",
+      currentStepID: "step_1",
+      selectedStepID: "step_1",
+      readonly: false,
+      tasks: [],
+      messages: [
+        {
+          id: "bb_accessible",
+          rootSessionID: "ses_root",
+          stepID: "step_1",
+          authorKind: "main_agent",
+          kind: "info",
+          body: "Accessible update",
+          mentions: [],
+          attachments: [],
+          taskIDs: [],
+          timeCreated: 1,
+          replies: [],
+        },
+      ],
+      unreadCount: 3,
+    }
+    backend.setBlackboard("ses_root", board)
+    vi.stubGlobal("fetch", backend.fetch)
+    const { container } = render(() => <App bridge={desktop.bridge} />)
+
+    expect(await screen.findByRole("heading", { name: "Root Session" }, { timeout: 5_000 })).toBeVisible()
+    const blackboardButton = await screen.findByRole("button", { name: "协作黑板" })
+    await waitFor(() => expect(blackboardButton.querySelector(".workspace-activity-button__badge")).toBeTruthy())
+    expect(blackboardButton.querySelector(".workspace-activity-button__badge")).toHaveAttribute("aria-hidden", "true")
+    expect(blackboardButton).toHaveAccessibleName("协作黑板")
+    await userEvent.setup().click(blackboardButton)
+
+    expect(screen.getByRole("group", { name: "协作黑板" })).toBeVisible()
+    expect(screen.getByRole("combobox", { name: "当前 Step" })).toBeEnabled()
+    expect(screen.getByRole("combobox", { name: /Task/ })).toBeEnabled()
+    expect(screen.getByRole("textbox", { name: /发送黑板消息/ })).toBeEnabled()
+    expect(screen.getByRole("button", { name: /发送黑板消息/ })).toBeDisabled()
+    expect(unnamedIconButtons(container)).toEqual([])
+  })
 
   it("defines a reduced-motion override for nonessential transitions", () => {
     const stylesheet = readFileSync("src/styles/global.css", "utf8")
