@@ -537,13 +537,8 @@ export const DispatchDispatchTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     const config = yield* Config.Service
-    const profiles = enabledProfiles(resolveProfiles((yield* config.get()).subagents?.profiles))
     return {
-      description: [
-        "在多智能体模式把 pending/rejected 任务派给指定角色。必须选择一个当前启用的 role。",
-        "可用角色:",
-        ...profiles.map((profile) => `- ${profile.id}: ${profile.name} — ${profile.description}`),
-      ].join("\n"),
+      description: "在多智能体模式把 pending/rejected 任务派给指定角色。必须选择一个当前启用的 role。",
       parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String), role: Schema.String }),
       jsonSchema: DISPATCH_INPUT_SCHEMA,
       catalog: {
