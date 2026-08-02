@@ -24,6 +24,12 @@ import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { containsPath, type InstanceContext } from "../project/instance-context"
 import { NonNegativeInt, PositiveInt, type DeepMutable } from "@jyycode-ai/core/schema"
 import { ConfigAgent } from "./agent"
+import {
+  LEGACY_SUBAGENT_AGENT_KEYS,
+  normalizeLegacyAgentConfig,
+  Profile as SubagentProfileSchema,
+  resolveProfiles,
+} from "@/agent/subagent-profile"
 import { ConfigAttachment } from "./attachment"
 import { ConfigCommand } from "./command"
 import { ConfigFormatter } from "./formatter"
@@ -88,6 +94,18 @@ function normalizeLoadedConfig(data: unknown, source: string) {
   // section before schema validation so upgrades do not make the application
   // fail to start on an otherwise valid user config.
   delete copy.agent_cluster
+
+  if (isRecord(copy.agent)) {
+    const agent = normalizeLegacyAgentConfig(copy.agent)
+    if (agent && Object.keys(agent).length > 0) copy.agent = agent
+    else delete copy.agent
+  }
+
+  if (isRecord(copy.subagents) && "profiles" in copy.subagents) {
+    // Validate the cross-profile invariants before the regular config schema
+    // so duplicate display names and a missing General profile fail at load.
+    resolveProfiles(copy.subagents.profiles as readonly unknown[])
+  }
 
   const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
   if (!hadLegacy) return copy
@@ -172,6 +190,11 @@ export const Info = Schema.Struct({
     description: "Command configuration, see https://jyycode.ai/docs/commands",
   }),
   skills: Schema.optional(ConfigSkills.Info).annotate({ description: "Additional skill folder paths" }),
+  subagents: Schema.optional(
+    Schema.Struct({
+      profiles: Schema.optional(Schema.mutable(Schema.Array(SubagentProfileSchema))),
+    }),
+  ).annotate({ description: "Project-level subagent profiles" }),
   reference: Schema.optional(ConfigReference.Info).annotate({
     description: "Named git or local directory references that can be mentioned as @alias or @alias/path",
   }),
@@ -232,8 +255,6 @@ export const Info = Schema.Struct({
         plan: Schema.optional(ConfigAgent.Info),
         build: Schema.optional(ConfigAgent.Info),
         // subagent
-        general: Schema.optional(ConfigAgent.Info),
-        explore: Schema.optional(ConfigAgent.Info),
         // specialized
         title: Schema.optional(ConfigAgent.Info),
         summary: Schema.optional(ConfigAgent.Info),
@@ -468,6 +489,15 @@ export const layer = Layer.effect(
           formattingOptions: { insertSpaces: true, tabSize: 2 },
         })
         updated = applyEdits(updated, edits)
+      }
+      if (isRecord(parsed) && isRecord(parsed.agent)) {
+        for (const key of LEGACY_SUBAGENT_AGENT_KEYS) {
+          if (!(key in parsed.agent)) continue
+          const edits = modify(updated, ["agent", key], undefined, {
+            formattingOptions: { insertSpaces: true, tabSize: 2 },
+          })
+          updated = applyEdits(updated, edits)
+        }
       }
       if (!data.$schema) {
         data.$schema = "https://jyycode.ai/config.json"

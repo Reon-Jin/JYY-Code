@@ -75,24 +75,6 @@ it.instance("build agent has correct default properties", () =>
   }),
 )
 
-it.instance("scopes role skills to the assigned child agent", () =>
-  Effect.gen(function* () {
-    const researcher = yield* load((svc) => svc.get("researcher"))
-    const analyst = yield* load((svc) => svc.get("analyst"))
-    const build = yield* load((svc) => svc.get("build"))
-    expect(researcher).toBeDefined()
-    expect(analyst).toBeDefined()
-    expect(build).toBeDefined()
-    expect(Permission.evaluate("skill", "literature-review", researcher!.permission).action).toBe("allow")
-    expect(Permission.evaluate("skill", "statistical-analysis", researcher!.permission).action).toBe("deny")
-    expect(Permission.evaluate("skill", "skill", researcher!.permission).action).toBe("allow")
-    expect(Permission.evaluate("skill", "statistical-analysis", analyst!.permission).action).toBe("allow")
-    expect(Permission.evaluate("skill", "literature-review", analyst!.permission).action).toBe("deny")
-    expect(Permission.evaluate("skill", "literature-review", build!.permission).action).toBe("deny")
-    expect(Permission.evaluate("skill", "skill", build!.permission).action).toBe("allow")
-  }),
-)
-
 it.instance("plan agent denies edits except .jyycode/plans/*", () =>
   Effect.gen(function* () {
     const plan = yield* load((svc) => svc.get("plan"))
@@ -232,25 +214,6 @@ it.instance(
 )
 
 it.instance(
-  "agent disable removes agent from list",
-  () =>
-    Effect.gen(function* () {
-      const explore = yield* load((svc) => svc.get("explore"))
-      expect(explore).toBeUndefined()
-      const agents = yield* load((svc) => svc.list())
-      const names = agents.map((a) => a.name)
-      expect(names).not.toContain("explore")
-    }),
-  {
-    config: {
-      agent: {
-        explore: { disable: true },
-      },
-    },
-  },
-)
-
-it.instance(
   "agent permission config merges with defaults",
   () =>
     Effect.gen(function* () {
@@ -307,22 +270,6 @@ it.instance(
       agent: {
         build: { steps: 50 },
         plan: { maxSteps: 100 },
-      },
-    },
-  },
-)
-
-it.instance(
-  "agent mode can be overridden",
-  () =>
-    Effect.gen(function* () {
-      const explore = yield* load((svc) => svc.get("explore"))
-      expect(explore?.mode).toBe("primary")
-    }),
-  {
-    config: {
-      agent: {
-        explore: { mode: "primary" },
       },
     },
   },
