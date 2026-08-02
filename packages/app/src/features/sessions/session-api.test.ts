@@ -24,7 +24,7 @@ function createHarness() {
       list: vi.fn(async () => ({ data: [] })),
       status: vi.fn(async () => ({ data: {} })),
       get: vi.fn(async ({ sessionID }: { sessionID: string }) => ({
-        data: sessionID === "ses_child" ? { ...session, id: sessionID, parentID: "ses_1", agent: "coder" } : session,
+        data: sessionID === "ses_child" ? { ...session, id: sessionID, parentID: "ses_1", agent: "worker" } : session,
       })),
       create: vi.fn(async () => ({ data: session })),
       update: vi.fn(async () => ({ data: undefined })),

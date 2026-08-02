@@ -187,9 +187,9 @@ describe("desktop accessibility contract", () => {
     backend.addSession({
       id: "ses_child",
       slug: "child",
-      title: "Coder Session",
+      title: "Worker Session",
       parentID: "ses_root",
-      agent: "coder",
+      agent: "worker",
       model: { providerID: "test", id: "test-complex" },
     })
     backend.setPlan("ses_root", {
@@ -256,7 +256,7 @@ describe("desktop accessibility contract", () => {
     const openChild = screen.getByRole("button", { name: "审阅：Keyboard task" })
     openChild.focus()
     await user.keyboard("{Enter}")
-    expect(await screen.findByRole("heading", { name: "Coder Session" })).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "Worker Session" })).toBeVisible()
     expect(screen.getByRole("link", { name: /Root Session/ })).toHaveAttribute("aria-current", "page")
     expect(screen.queryByRole("button", { name: "配置模型" })).not.toBeInTheDocument()
     expect(screen.getByRole("textbox", { name: "消息" })).toBeEnabled()

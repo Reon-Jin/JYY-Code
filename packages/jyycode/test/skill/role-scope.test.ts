@@ -78,6 +78,9 @@ it.live(
           expect(review.map((item) => item.name)).toEqual(["pdf"])
           expect(general.map((item) => item.name)).toEqual(["check"])
           expect(unknown).toEqual([])
+          for (const child of [review, general, unknown]) {
+            expect(child.map((item) => item.name)).not.toContain("customize-jyycode")
+          }
 
           const error = yield* skill.requireAvailable(Skill.roleScope("review"), "global-only").pipe(Effect.flip)
           expect(error).toBeInstanceOf(Skill.NotFoundError)

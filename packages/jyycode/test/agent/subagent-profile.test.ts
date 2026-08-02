@@ -3,7 +3,6 @@ import { expect, it } from "bun:test"
 import {
   defaultGeneralProfile,
   enabledProfiles,
-  normalizeLegacyAgentConfig,
   profileAgentName,
   profileByID,
   resolveProfiles,
@@ -37,16 +36,4 @@ it("rejects duplicate ids, duplicate display names, invalid avatars, and missing
   expect(() => resolveProfiles([defaultGeneralProfile, { ...customProfile, name: "general" }])).toThrow()
   expect(() => resolveProfiles([defaultGeneralProfile, { ...customProfile, avatar: "rocket" as never }])).toThrow()
   expect(() => resolveProfiles([customProfile])).toThrow()
-})
-
-it("removes legacy role configuration without removing unrelated user agents", () => {
-  const cleaned = normalizeLegacyAgentConfig({
-    general: { description: "old" },
-    explore: { description: "old" },
-    researcher: { description: "old" },
-    coder: { description: "old" },
-    my_custom_agent: { description: "keep" },
-  })
-
-  expect(cleaned).toEqual({ my_custom_agent: { description: "keep" } })
 })

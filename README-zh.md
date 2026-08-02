@@ -22,7 +22,7 @@ JYY-Code 是一个面向真实代码与文档工作的终端 Multi-Agent 系统�
 
 **安装：** `npm install -g jyycode-ai` · **启动：** `jyy`
 
-按 **F9** 启动 Multi-Agent 工作流；运行 **`/cluster`**，可分别为规划、复杂任务、简单任务和视觉任务选择模型。
+按 **F9** 启动 Multi-Agent 工作流；可在工作区右侧栏配置项目子 Agent Profile 及其模型。
 
 ## 为什么是 JYY-Code
 
@@ -37,14 +37,14 @@ JYY-Code 是一个面向真实代码与文档工作的终端 Multi-Agent 系统�
 
 ### 有闭环的 Multi-Agent 工程工作流
 
-按 **F9** 启动 Multi-Agent 模式，把复杂目标变成带依赖关系的执行计划。使用 **`/cluster`**，可为 planner、complex、simple、visual 等不同角色分别选择模型，让每个阶段使用更适合它的模型。
+按 **F9** 启动 Multi-Agent 模式，把复杂目标变成带依赖关系的执行计划。主 Agent 从工作区右侧栏选择已启用的项目 Profile 派发任务；每项任务都会固定派发时的角色、模型和启动指令。
 
 - **计划：** 主 Agent 把目标拆成明确任务，写清依赖关系、验收标准和预期产物。
-- **派发：** researcher、coder、tester、analyst、visual、chart、PDF 等专业 Agent 获取聚焦后的上下文，并可并行执行。
+- **派发：** 已启用的项目 Profile 获取聚焦后的上下文，并可并行执行。
 - **审核：** 每项结果都必须对照验收标准检查；仍在运行或未审核的任务无法越过完成门控。
 - **打回：** 不合格结果会带着具体问题退回同一个子 Agent 会话修改，保留已有上下文并支持多轮复审。
 - **汇总：** 所有任务进入终态后，主 Agent 只把验收通过的结果整合为一致的代码或文档交付物。
-- 支持并发控制和按角色配置模型，在质量、速度与成本之间灵活取舍。
+- 支持并发控制和按 Profile 配置模型，在质量、速度与成本之间灵活取舍。
 - Git worktree 隔离并行编码任务，减少互相覆盖。
 
 规划、生产与质量控制彼此分离，使 JYY-Code 在代码实现和复杂文档交付上，比让单 Agent 在一个上下文窗口里同时研究、执行、验证和自审更可靠。
@@ -119,7 +119,7 @@ jyy
 }
 ```
 
-项目配置位于 `.jyycode/jyycode.jsonc`。主要配置项包括 `provider`、`permission`、`agent_cluster`、`mcp`、`skills` 和 `plugin`。
+项目配置位于 `.jyycode/jyycode.jsonc`。主要配置项包括 `provider`、`permission`、`subagents`、`mcp`、`skills` 和 `plugin`。
 
 ## 工作流程
 
@@ -134,11 +134,11 @@ jyy
   → 对话结束后评估长期记忆
 ```
 
-集群模式：
+Multi-Agent 模式：
 
 ```text
 目标
-  → 规划器
+  → 主 Agent 规划
   → 持久化任务依赖图
   → 专业子 Agent 并行执行
   → 审查器

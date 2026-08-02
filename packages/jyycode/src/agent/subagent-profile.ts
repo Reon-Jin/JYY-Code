@@ -41,31 +41,6 @@ export const defaultGeneralProfile: SubagentProfile = {
   enabled: true,
 }
 
-/** Role names from the removed built-in subagent catalog. */
-export const LEGACY_SUBAGENT_AGENT_KEYS = [
-  "general",
-  "explore",
-  "scout",
-  "researcher",
-  "analyst",
-  "writer",
-  "chart",
-  "office",
-  "coder",
-  "tester",
-  "picture_searcher",
-  "picture-searcher",
-  "visual",
-  "pdf",
-] as const
-
-const LEGACY_KEYS = new Set<string>(LEGACY_SUBAGENT_AGENT_KEYS)
-
-export function normalizeLegacyAgentConfig(agent: Record<string, unknown> | undefined) {
-  if (!agent) return agent
-  return Object.fromEntries(Object.entries(agent).filter(([key]) => !LEGACY_KEYS.has(key)))
-}
-
 function validateProfile(profile: SubagentProfile, index: number) {
   if (!profile.id.trim() || !profile.name.trim() || !profile.description.trim()) {
     throw new Error(`subagents.profiles[${index}] has an empty required field`)

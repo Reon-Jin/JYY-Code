@@ -25,8 +25,6 @@ import { containsPath, type InstanceContext } from "../project/instance-context"
 import { NonNegativeInt, PositiveInt, type DeepMutable } from "@jyycode-ai/core/schema"
 import { ConfigAgent } from "./agent"
 import {
-  LEGACY_SUBAGENT_AGENT_KEYS,
-  normalizeLegacyAgentConfig,
   Profile as SubagentProfileSchema,
   resolveProfiles,
 } from "@/agent/subagent-profile"
@@ -94,12 +92,6 @@ function normalizeLoadedConfig(data: unknown, source: string) {
   // section before schema validation so upgrades do not make the application
   // fail to start on an otherwise valid user config.
   delete copy.agent_cluster
-
-  if (isRecord(copy.agent)) {
-    const agent = normalizeLegacyAgentConfig(copy.agent)
-    if (agent && Object.keys(agent).length > 0) copy.agent = agent
-    else delete copy.agent
-  }
 
   if (isRecord(copy.subagents) && "profiles" in copy.subagents) {
     // Validate the cross-profile invariants before the regular config schema
@@ -490,15 +482,6 @@ export const layer = Layer.effect(
           formattingOptions: { insertSpaces: true, tabSize: 2 },
         })
         updated = applyEdits(updated, edits)
-      }
-      if (isRecord(parsed) && isRecord(parsed.agent)) {
-        for (const key of LEGACY_SUBAGENT_AGENT_KEYS) {
-          if (!(key in parsed.agent)) continue
-          const edits = modify(updated, ["agent", key], undefined, {
-            formattingOptions: { insertSpaces: true, tabSize: 2 },
-          })
-          updated = applyEdits(updated, edits)
-        }
       }
       if (!data.$schema) {
         data.$schema = "https://jyycode.ai/config.json"

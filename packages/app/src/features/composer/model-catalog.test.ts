@@ -109,12 +109,12 @@ describe("loadModelCatalog", () => {
 
   it("keeps subagents available for child identity without exposing them to root selection", async () => {
     const catalog = await loadModelCatalog({
-      client: createClient({ agents: [agent("build"), agent("coder", "subagent")] }) as never,
+      client: createClient({ agents: [agent("build"), agent("worker", "subagent")] }) as never,
       directory,
     })
 
-    expect(catalog.agents.map((candidate) => candidate.name)).not.toContain("coder")
-    expect(catalog.allAgents.map((candidate) => candidate.name)).toContain("coder")
+    expect(catalog.agents.map((candidate) => candidate.name)).not.toContain("worker")
+    expect(catalog.allAgents.map((candidate) => candidate.name)).toContain("worker")
   })
 
   it("revalidates stored IDs and ignores disconnected providers", async () => {
@@ -171,7 +171,7 @@ describe("loadModelCatalog", () => {
       client: createClient({
         agents: [
           { ...agent("build"), model: { providerID: "openai", modelID: "gpt-5" }, variant: "high" },
-          agent("coder", "subagent"),
+          agent("worker", "subagent"),
         ],
         providers: [openai],
         configuredProviders: [openai],

@@ -447,7 +447,7 @@ describe("desktop GUI journey", () => {
       slug: "child",
       title: "Implement feature",
       parentID: "ses_root",
-      agent: "coder",
+      agent: "worker",
       model: { providerID: "test", id: "test-complex" },
     })
     vi.stubGlobal("fetch", backend.fetch)
@@ -572,8 +572,8 @@ describe("desktop GUI journey", () => {
       slug: "child",
       title: "Implement feature",
       parentID: "ses_root",
-      agent: "coder",
-      model: { providerID: "test", id: "coder-model" },
+      agent: "worker",
+      model: { providerID: "test", id: "worker-model" },
       time: { created: 2, updated: 2 },
     })
     backend.addSession({
@@ -581,7 +581,7 @@ describe("desktop GUI journey", () => {
       slug: "sibling",
       title: "Research feature",
       parentID: "ses_root",
-      agent: "researcher",
+      agent: "investigator",
       model: { providerID: "test", id: "test-simple" },
       time: { created: 3, updated: 3 },
     })
@@ -631,7 +631,7 @@ describe("desktop GUI journey", () => {
     expect(within(sessionList).getAllByRole("link")).toHaveLength(1)
     expect(within(sessionList).getByRole("link", { name: /Root Session/ })).toHaveAttribute("aria-current", "page")
     expect(screen.getByRole("button", { name: "返回主 Session" })).toBeVisible()
-    expect(screen.getByText(/子智能体 · Coder/)).toBeVisible()
+    expect(screen.getByText(/子智能体 · Worker/)).toBeVisible()
     expect(screen.queryByLabelText("智能体")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "配置模型" })).not.toBeInTheDocument()
     expect(screen.getByText("child command")).toBeVisible()
@@ -668,7 +668,7 @@ describe("desktop GUI journey", () => {
       slug: "child",
       title: "Implement feature",
       parentID: "ses_root",
-      agent: "coder",
+      agent: "worker",
       model: { providerID: "test", id: "test-complex" },
     })
     backend.setPlan("ses_root", planSnapshot())

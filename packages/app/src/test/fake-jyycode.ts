@@ -382,7 +382,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     if (url.pathname === "/agent") {
       return json([
         { name: "build", mode: "primary", permission: [], options: {} },
-        { name: "coder", mode: "subagent", model: "test/test-complex", permission: [], options: {} },
+        { name: "worker", mode: "subagent", model: "test/test-complex", permission: [], options: {} },
       ])
     }
     if (url.pathname === "/config/providers") {

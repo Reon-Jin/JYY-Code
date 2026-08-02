@@ -351,13 +351,13 @@ describe("Composer", () => {
     const user = userEvent.setup()
     renderComposer({
       identityLocked: true,
-      selectedAgent: "coder",
-      selectedModel: { providerID: "test", modelID: "coder-model" },
-      agents: [{ name: "coder", mode: "subagent", permission: [], options: {} }],
+      selectedAgent: "worker",
+      selectedModel: { providerID: "test", modelID: "worker-model" },
+      agents: [{ name: "worker", mode: "subagent", permission: [], options: {} }],
       models: [],
     })
 
-    expect(screen.getByLabelText("智能体")).toHaveValue("coder")
+    expect(screen.getByLabelText("智能体")).toHaveValue("worker")
     expect(screen.getByLabelText("智能体")).toBeDisabled()
     expect(screen.getByRole("button", { name: "配置模型" })).toBeDisabled()
     const textbox = screen.getByRole("textbox", { name: "消息" })

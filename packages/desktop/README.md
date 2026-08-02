@@ -50,14 +50,15 @@ same durable plan (goal, steps, tasks, and status); the only difference is that 
 instead of dispatching subagents. Plan and Changes share the permanent activity rail on the right; selecting an item
 opens its one on-demand drawer without replacing the conversation.
 
-The Plan drawer shows the backend's current plan, progress, and task states. A multi-agent task with a child Session can
-be opened in the main conversation, where the child keeps its assigned Agent and model but remains writable for direct
-guidance. The header returns to the root Session, which stays selected in the Session list while a child is open.
+The Plan drawer shows the backend's current plan, progress, and task states. The Subagents panel in the same right rail
+edits project profiles, including each profile's description, launch prompt, avatar, model, variant, and enabled state.
+A multi-agent task with a child Session can be opened in the main conversation, where the child keeps its assigned Agent
+and model but remains writable for direct guidance. The header returns to the root Session, which stays selected in the
+Session list while a child is open.
 
-The Composer model button configures four global roles: Main, Simple, Complex, and Visual & Documents. Main is used for
-ordinary single-Agent prompts and for Multi-Agent planning, coordination, review, and final synthesis; the other three
-roles select models for their corresponding child tasks. Changes apply to every project and do not switch models for
-tasks already running.
+The Composer model button configures the main Agent model and thinking depth. It is used for ordinary single-Agent
+prompts and for Multi-Agent planning, coordination, review, and final synthesis. Child models are selected on project
+sub-agent profiles in the right rail; changes do not switch models for tasks already running.
 
 Desktop and the TUI share the same Sessions, SQLite-backed state, HTTP API, and SSE events. Actions and progress remain
 authoritative in the shared backend and are visible from either interface.
@@ -70,9 +71,11 @@ enters the project workspace; the global rail is not shown beside project Sessio
 
 Skill management shows the effective global Skill set and renders each `SKILL.md`. Managed Skills are stored under
 `~/.jyycode/skills/<name>/SKILL.md`; additional local paths and synchronized URLs come from the `skills` section of the
-global configuration at `~/.config/jyycode/jyycode.jsonc`. Built-in Skills are read-only and cannot be deleted. Remote
-URL Skills are also not edited in place: removing one removes its configured source, not its cached files. Explicit
-local-path Skills may be edited, but deletion removes only their selected `SKILL.md`.
+global configuration at `~/.config/jyycode/jyycode.jsonc`. Built-in Skills are read-only and cannot be deleted. Role
+skills live under `~/.jyycode/role/<role-id>/skills/<name>/SKILL.md` and are visible only to that role's child Agent.
+The right rail can create private role skills with the required frontmatter. Remote URL Skills are also not edited in
+place: removing one removes its configured source, not its cached files. Explicit local-path Skills may be edited, but
+deletion removes only their selected `SKILL.md`.
 
 MCP management edits the persisted global `mcp` entries in `~/.config/jyycode/jyycode.jsonc`, so its add, edit,
 enable/disable, and delete actions apply across projects. The Composer's MCP control remains project-scoped and only

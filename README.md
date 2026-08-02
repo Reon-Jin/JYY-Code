@@ -22,7 +22,7 @@ Plan → Delegate → Execute in parallel → Review → Revise → Synthesize
 
 **Install:** `npm install -g jyycode-ai` · **Launch:** `jyy`
 
-Press **F9** to enable the Multi-Agent workflow. Run **`/cluster`** to choose models for the planner, complex tasks, simple tasks, and visual tasks.
+Press **F9** to enable the Multi-Agent workflow. Configure project sub-agent profiles and their models from the workspace right rail.
 
 ## Why JYY-Code
 
@@ -37,14 +37,14 @@ Press **F9** to enable the Multi-Agent workflow. Run **`/cluster`** to choose mo
 
 ### A Closed-Loop Multi-Agent Workflow
 
-Press **F9** to enable Multi-Agent mode and turn a large request into a dependency-aware execution plan. Use **`/cluster`** to route different models to the planner, complex, simple, and visual roles, so each stage can use the model best suited to it.
+Press **F9** to enable Multi-Agent mode and turn a large request into a dependency-aware execution plan. The main Agent dispatches enabled project profiles from the workspace right rail, with each task capturing its selected role, model, and launch instructions.
 
-- **Plan:** the cluster primary converts the goal into explicit tasks, dependencies, acceptance criteria, and expected artifacts.
-- **Delegate:** researcher, coder, tester, analyst, visual, chart, PDF, and other specialists receive focused context and can run in parallel.
+- **Plan:** the main Agent converts the goal into explicit tasks, dependencies, acceptance criteria, and expected artifacts.
+- **Delegate:** enabled project profiles receive focused context and can run in parallel.
 - **Review:** every submitted result is checked against its acceptance criteria; unfinished tasks cannot pass the completion gate.
 - **Revise:** rejected work is returned to the same specialist session with concrete issues, preserving context across review rounds.
 - **Synthesize:** the primary waits for terminal task states and combines only accepted outputs into one coherent code or document delivery.
-- Configurable concurrency and per-role model routing balance quality, speed, and cost.
+- Configurable concurrency and per-profile model routing balance quality, speed, and cost.
 - Git worktree isolation keeps parallel coding tasks from stepping on each other.
 
 This separation of planning, production, and quality control gives JYY-Code stronger code and document delivery than a single agent that must research, implement, verify, and self-review inside one context window.
@@ -119,7 +119,7 @@ Global config: `~/.config/jyycode/jyycode.jsonc`
 }
 ```
 
-Project config lives in `.jyycode/jyycode.jsonc`. Main areas are `provider`, `permission`, `agent_cluster`, `mcp`, `skills`, and `plugin`.
+Project config lives in `.jyycode/jyycode.jsonc`. Main areas are `provider`, `permission`, `subagents`, `mcp`, `skills`, and `plugin`.
 
 ## How It Works
 
@@ -134,11 +134,11 @@ User request
   → Evaluate durable memory after the turn
 ```
 
-In cluster mode:
+In Multi-Agent mode:
 
 ```text
 Goal
-  → Planner
+  → Main Agent plan
   → Persisted dependency graph
   → Parallel sub-agents
   → Reviewer

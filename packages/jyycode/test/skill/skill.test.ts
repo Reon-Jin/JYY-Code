@@ -83,26 +83,17 @@ const withHome = <A, E, R>(home: string, self: Effect.Effect<A, E, R>) =>
   )
 
 describe("skill", () => {
-  it.instance("registers curated role skills as built-ins", () =>
+  it.instance("registers the built-in customization skill without legacy role skills", () =>
     Effect.gen(function* () {
       const skill = yield* Skill.Service
       const records = new Map((yield* skill.all()).map((record) => [record.name, record]))
 
-      expect(records.get("literature-review")).toMatchObject({
-        origin: "built_in",
-        source: expect.stringContaining("K-Dense"),
-      })
-      expect(records.get("code-review-and-quality")).toMatchObject({
-        origin: "built_in",
-        source: expect.stringContaining("addyosmani"),
-      })
+      expect(records.get("customize-jyycode")).toMatchObject({ origin: "built_in", editable: false })
+      expect(records.get("customize-jyycode")?.content).toContain("Project sub-agent profiles")
+      expect(records.get("literature-review")).toBeUndefined()
+      expect(records.get("code-review-and-quality")).toBeUndefined()
       expect(records.get("images-search")).toBeUndefined()
-      expect(records.get("pdf")).toMatchObject({ origin: "built_in", source: expect.stringContaining("openai") })
-      expect(records.get("pdf")?.content).toContain("Get-Command")
-      expect(records.get("pdf")?.content).not.toContain("python3 -m pip")
-      expect(records.get("pdf")?.content).not.toContain("brew install")
-      expect(records.get("pdf")?.content).not.toContain("sudo apt-get")
-      expect(records.get("literature-review")?.content).toContain("# Literature Review")
+      expect(records.get("pdf")).toBeUndefined()
     }),
   )
 
