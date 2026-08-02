@@ -12,7 +12,7 @@ import { createComposerController, type ComposerAttachment } from "./composer-co
 import { createComposerQueue, type ComposerQueueStore } from "./composer-queue"
 import { ComposerQueuePanel } from "./composer-queue-panel"
 import { ComposerUsage } from "./composer-usage"
-import type { CatalogModel, ModelSelection } from "./model-catalog"
+import type { AgentModelProfile, CatalogModel, ModelSelection } from "./model-catalog"
 import type { ComposerUsageMetrics } from "./usage-metrics"
 import { ProviderConnectButton } from "./provider-connect"
 import { ModelControl } from "./model-control"
@@ -28,6 +28,7 @@ export type ComposerProps = {
   models: readonly CatalogModel[]
   selectedAgent: string
   selectedModel: ModelSelection
+  subAgent?: AgentModelProfile
   status: SessionStatus
   requestPending?: boolean
   childSteering?: boolean
@@ -41,6 +42,7 @@ export type ComposerProps = {
   usage?: ComposerUsageMetrics
   onAgentChange: (name: string) => void
   onModelChange: (model: ModelSelection) => void
+  onSubAgentModelChange?: (model: ModelSelection) => void | Promise<void>
   onProviderConnected: (providerID: string) => void | Promise<void>
   queueStore?: ComposerQueueStore
 }
@@ -295,8 +297,10 @@ export function Composer(props: ComposerProps) {
             <ModelControl
               models={props.models}
               value={props.selectedModel}
+              subAgent={props.subAgent}
               disabled={props.identityLocked || controller.sending() || props.disabled}
               onChange={props.onModelChange}
+              onSubAgentChange={props.onSubAgentModelChange}
             />
             {props.branchControl}
             {props.multiAgentControl}

@@ -242,7 +242,7 @@ describe("desktop GUI journey", () => {
       () => {
         expect(screen.getByRole("main")).toBeVisible()
         expect(screen.getByRole("combobox", { name: "智能体" })).toHaveValue("build")
-        expect(screen.getByRole("combobox", { name: "主模型" })).toHaveValue("test/test-model/")
+        expect(screen.getByRole("button", { name: "配置模型" })).toBeVisible()
       },
       { timeout: 5_000 },
     )
@@ -462,7 +462,9 @@ describe("desktop GUI journey", () => {
     expect(screen.getByRole("progressbar", { name: "方案进度" })).toBeVisible()
     expect(screen.getByRole("textbox", { name: "消息" })).toHaveValue("保留根草稿")
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "主模型" }), "test/test-simple/")
+    await user.click(screen.getByRole("button", { name: "配置模型" }))
+    await user.selectOptions(screen.getByRole("combobox", { name: "主 Agent 模型" }), "test/test-simple")
+    await user.click(screen.getByRole("button", { name: "完成" }))
 
     await user.click(screen.getByRole("switch", { name: "多智能体" }))
     const rootDraft = screen.getByRole("textbox", { name: "消息" })
@@ -515,7 +517,7 @@ describe("desktop GUI journey", () => {
     window.history.replaceState(null, "", "/")
     render(() => <App bridge={desktop.bridge} />)
     const restoredBack = await screen.findByRole("button", { name: "返回主 Session" }, { timeout: 5_000 })
-    expect(screen.queryByRole("combobox", { name: "主模型" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "配置模型" })).not.toBeInTheDocument()
     await user.click(restoredBack)
     await waitFor(() => expect(screen.queryByRole("button", { name: "返回主 Session" })).not.toBeInTheDocument())
     expect(screen.getByText("多智能体模式")).toBeVisible()
@@ -594,7 +596,7 @@ describe("desktop GUI journey", () => {
     expect(screen.getByRole("button", { name: "返回主 Session" })).toBeVisible()
     expect(screen.getByText(/子智能体 · Coder/)).toBeVisible()
     expect(screen.queryByLabelText("智能体")).not.toBeInTheDocument()
-    expect(screen.queryByRole("combobox", { name: "主模型" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "配置模型" })).not.toBeInTheDocument()
     expect(screen.getByText("child command")).toBeVisible()
     expect(screen.queryByText("sibling command")).not.toBeInTheDocument()
     expect(await screen.findByRole("button", { name: "发送并中断" })).toBeVisible()

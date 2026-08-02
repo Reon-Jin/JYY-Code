@@ -164,6 +164,42 @@ describe("loadModelCatalog", () => {
     expect(catalog.selectedModel).toEqual({ providerID: "openai", modelID: "gpt-5", variant: "high" })
   })
 
+  it("exposes the configured child Agent model and reasoning variant separately", async () => {
+    const openai = provider("openai", ["gpt-5", "gpt-4.1"])
+    openai.models["gpt-5"]!.variants = { low: {}, high: {} }
+    const catalog = await loadModelCatalog({
+      client: createClient({
+        agents: [
+          { ...agent("build"), model: { providerID: "openai", modelID: "gpt-5" }, variant: "high" },
+          agent("coder", "subagent"),
+        ],
+        providers: [openai],
+        configuredProviders: [openai],
+      }) as never,
+      directory,
+    })
+
+    expect(catalog.selectedModel).toEqual({ providerID: "openai", modelID: "gpt-5" })
+    expect(catalog.subAgent).toEqual({
+      agentName: "build",
+      model: { providerID: "openai", modelID: "gpt-5", variant: "high" },
+      configured: true,
+    })
+  })
+
+  it("uses the main model for the child Agent when it has no explicit model", async () => {
+    const catalog = await loadModelCatalog({
+      client: createClient({ agents: [agent("build")] }) as never,
+      directory,
+    })
+
+    expect(catalog.subAgent).toEqual({
+      agentName: "build",
+      model: { providerID: "openai", modelID: "gpt-5" },
+      configured: false,
+    })
+  })
+
   it("excludes deprecated models", async () => {
     const openai = provider("openai", ["planner", "legacy"])
     openai.models.legacy!.status = "deprecated"

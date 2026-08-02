@@ -341,6 +341,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const [busy, setBusy] = createSignal(false)
   const [selectedAgent, setSelectedAgent] = createSignal<string>()
   const [selectedModel, setSelectedModel] = createSignal<ModelSelection>()
+  const [selectedSubAgentModel, setSelectedSubAgentModel] = createSignal<ModelSelection>()
   const [inspectorPreferences, setInspectorPreferences] = createSignal<InspectorPreferences>(
     loadInspectorPreferences(data.directory()),
   )
@@ -500,6 +501,15 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }
     return selectedModel() ?? catalogQuery.data?.selectedModel
   })
+  const composerSubAgent = createMemo(() => {
+    const profile = catalogQuery.data?.subAgent
+    if (!profile) return undefined
+    return {
+      agentName: profile.agentName,
+      model: selectedSubAgentModel() ?? (!profile.configured ? (composerModel() ?? profile.model) : profile.model),
+      configured: profile.configured,
+    }
+  })
   const composerUsage = createMemo(() => {
     const session = activeSession()
     const model = composerModel()
@@ -522,6 +532,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         if (!catalog) return
         setSelectedAgent(catalog.selectedAgent)
         setSelectedModel(catalog.selectedModel)
+        setSelectedSubAgentModel(catalog.subAgent?.configured ? catalog.subAgent.model : undefined)
       },
     ),
   )
@@ -627,6 +638,30 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   function changeModel(model: ModelSelection) {
     setSelectedModel(model)
     saveComposerPreference({ agent: selectedAgent(), model })
+  }
+
+  function changeSubAgentModel(model: ModelSelection) {
+    const profile = composerSubAgent()
+    if (!profile) return
+    setSelectedSubAgentModel(model)
+    void data
+      .client()
+      .config.update(
+        {
+          directory: data.directory(),
+          config: {
+            agent: {
+              [profile.agentName]: {
+                model: `${model.providerID}/${model.modelID}`,
+                variant: model.variant ?? "",
+              },
+            },
+          },
+        },
+        { throwOnError: true },
+      )
+      .then(() => catalogQuery.refetch())
+      .catch((cause) => setOperationError(errorMessage(cause, tr("composer.unable-to-save-model-settings"))))
   }
 
   const activeRequest = createMemo(
@@ -778,6 +813,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     models={catalogQuery.data?.models ?? []}
                     selectedAgent={composerAgent()}
                     selectedModel={composerModel()!}
+                    subAgent={composerSubAgent()}
                     status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
                     requestPending={Boolean(activeRequest())}
                     childSteering={isChildSession() && childTaskRunning()}
@@ -821,6 +857,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     }
                     onAgentChange={changeAgent}
                     onModelChange={changeModel}
+                    onSubAgentModelChange={changeSubAgentModel}
                     onProviderConnected={async () => {
                       await catalogQuery.refetch()
                     }}

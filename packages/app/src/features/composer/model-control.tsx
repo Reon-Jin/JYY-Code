@@ -1,45 +1,220 @@
-import { createMemo, For } from "solid-js"
-import type { CatalogModel, ModelSelection } from "./model-catalog"
+import { tr } from "../../i18n/i18n-context"
+import { BrainCircuit, Check, SlidersHorizontal } from "lucide-solid"
+import { createMemo, createSignal, For, Show } from "solid-js"
+import { Button } from "../../components/ui/button"
+import { Dialog } from "../../components/ui/dialog"
+import type { AgentModelProfile, CatalogModel, ModelSelection } from "./model-catalog"
+
+function modelKey(model: ModelSelection) {
+  return `${model.providerID}/${model.modelID}`
+}
+
+function modelLabel(model: ModelSelection, models: readonly CatalogModel[]) {
+  const catalogModel = models.find((candidate) => modelKey(candidate) === modelKey(model))
+  if (!catalogModel) return `${model.providerID}/${model.modelID}`
+  return `${catalogModel.providerName} · ${catalogModel.modelName}`
+}
+
+function variantLabel(variant: string | undefined) {
+  if (!variant) return tr("composer.thinking-depth-default")
+  const labels: Record<string, string> = {
+    low: tr("composer.thinking-depth-low"),
+    medium: tr("composer.thinking-depth-medium"),
+    high: tr("composer.thinking-depth-high"),
+    max: tr("composer.thinking-depth-max"),
+  }
+  return labels[variant] ?? variant
+}
+
+function variantsFor(model: ModelSelection, models: readonly CatalogModel[]) {
+  const catalogModel = models.find((candidate) => modelKey(candidate) === modelKey(model))
+  const variants = catalogModel?.variants ?? []
+  if (model.variant && !variants.includes(model.variant)) return [model.variant, ...variants]
+  return variants
+}
+
+function modelOptions(value: ModelSelection, models: readonly CatalogModel[]) {
+  const options = models.map((model) => ({
+    value: modelKey(model),
+    label: `${model.providerName} · ${model.modelName}`,
+    model: { providerID: model.providerID, modelID: model.modelID } satisfies ModelSelection,
+  }))
+  if (!options.some((option) => option.value === modelKey(value))) {
+    options.unshift({ value: modelKey(value), label: modelLabel(value, models), model: value })
+  }
+  return options
+}
+
+function ModelProfile(props: {
+  role: "main" | "subagent"
+  value: ModelSelection
+  models: readonly CatalogModel[]
+  disabled?: boolean
+  onChange: (model: ModelSelection) => void
+}) {
+  const modelLabelKey = (): "composer.main-agent-model" | "composer.subagent-model" =>
+    props.role === "main" ? "composer.main-agent-model" : "composer.subagent-model"
+  const depthLabelKey = (): "composer.main-agent-thinking-depth" | "composer.subagent-thinking-depth" =>
+    props.role === "main" ? "composer.main-agent-thinking-depth" : "composer.subagent-thinking-depth"
+
+  function changeModel(value: string) {
+    const selected = props.models.find((model) => modelKey(model) === value)
+    if (!selected) return
+    props.onChange({ providerID: selected.providerID, modelID: selected.modelID })
+  }
+
+  function changeVariant(value: string) {
+    props.onChange({
+      providerID: props.value.providerID,
+      modelID: props.value.modelID,
+      ...(value ? { variant: value } : {}),
+    })
+  }
+
+  return (
+    <div class="model-control__profile" data-role={props.role}>
+      <div class="model-control__profile-heading">
+        <span class="model-control__profile-icon" aria-hidden="true">
+          <BrainCircuit />
+        </span>
+        <div>
+          <h3>{props.role === "main" ? tr("composer.main-agent") : tr("composer.subagent-agent")}</h3>
+          <p>
+            {props.role === "main" ? tr("composer.main-agent-description") : tr("composer.subagent-description")}
+          </p>
+        </div>
+      </div>
+      <div class="model-control__fields">
+        <label class="model-control__field">
+          <span>{tr(modelLabelKey())}</span>
+          <select
+            aria-label={tr(modelLabelKey())}
+            value={modelKey(props.value)}
+            disabled={props.disabled}
+            onChange={(event) => changeModel(event.currentTarget.value)}
+          >
+            <For each={modelOptions(props.value, props.models)}>
+              {(option) => <option value={option.value}>{option.label}</option>}
+            </For>
+          </select>
+        </label>
+        <label class="model-control__field">
+          <span>{tr(depthLabelKey())}</span>
+          <select
+            aria-label={tr(depthLabelKey())}
+            value={props.value.variant ?? ""}
+            disabled={props.disabled}
+            onChange={(event) => changeVariant(event.currentTarget.value)}
+          >
+            <option value="">{variantLabel(undefined)}</option>
+            <For each={variantsFor(props.value, props.models)}>
+              {(variant) => <option value={variant}>{variantLabel(variant)}</option>}
+            </For>
+          </select>
+        </label>
+      </div>
+      <p class="model-control__current">
+        <Check aria-hidden="true" />
+        <span>
+          {modelLabel(props.value, props.models)} · {variantLabel(props.value.variant)}
+        </span>
+      </p>
+    </div>
+  )
+}
 
 export function ModelControl(props: {
   models: readonly CatalogModel[]
   value: ModelSelection
+  subAgent?: AgentModelProfile
   disabled?: boolean
   onChange: (model: ModelSelection) => void
+  onSubAgentChange?: (model: ModelSelection) => void | Promise<void>
 }) {
-  const key = (model: ModelSelection) => `${model.providerID}/${model.modelID}/${model.variant ?? ""}`
-  const options = createMemo(() => {
-    const available = props.models.flatMap((model) => [
-      { value: key(model), label: `${model.providerName} · ${model.modelName}`, model },
-      ...model.variants.map((variant) => ({
-        value: key({ ...model, variant }),
-        label: `${model.providerName} · ${model.modelName} · ${variant}`,
-        model: { providerID: model.providerID, modelID: model.modelID, variant },
-      })),
-    ])
-    if (available.some((option) => option.value === key(props.value))) return available
-    return [
-      {
-        value: key(props.value),
-        label: `${props.value.providerID}/${props.value.modelID}${props.value.variant ? ` · ${props.value.variant}` : ""}`,
-        model: props.value,
-      },
-      ...available,
-    ]
-  })
+  const [opened, setOpened] = createSignal(false)
+  const [mainValue, setMainValue] = createSignal(props.value)
+  const [subAgentValue, setSubAgentValue] = createSignal(props.subAgent?.model)
+  const [failure, setFailure] = createSignal<unknown>()
+  const currentLabel = createMemo(() => `${modelLabel(props.value, props.models)} · ${variantLabel(props.value.variant)}`)
+
+  function open() {
+    setMainValue(props.value)
+    setSubAgentValue(props.subAgent?.model)
+    setFailure(undefined)
+    setOpened(true)
+  }
+
+  function close() {
+    setOpened(false)
+    setFailure(undefined)
+  }
+
+  function changeMain(model: ModelSelection) {
+    setMainValue(model)
+    props.onChange(model)
+  }
+
+  function changeSubAgent(model: ModelSelection) {
+    setSubAgentValue(model)
+    const result = props.onSubAgentChange?.(model)
+    if (result && typeof result.then === "function") void result.catch(setFailure)
+  }
 
   return (
-    <select
-      class="composer-model-control"
-      aria-label="主模型"
-      value={key(props.value)}
-      disabled={props.disabled}
-      onChange={(event) => {
-        const selected = options().find((option) => option.value === event.currentTarget.value)
-        if (selected) props.onChange(selected.model)
-      }}
-    >
-      <For each={options()}>{(option) => <option value={option.value}>{option.label}</option>}</For>
-    </select>
+    <div class="composer-model-control">
+      <Button
+        class="composer-model-trigger"
+        size="small"
+        variant="secondary"
+        disabled={props.disabled}
+        aria-label={tr("composer.configure-model")}
+        onClick={open}
+      >
+        <SlidersHorizontal aria-hidden="true" />
+        <span class="composer-model-trigger__copy">
+          <strong>{tr("composer.model")}</strong>
+          <small>{currentLabel()}</small>
+        </span>
+      </Button>
+      <Dialog
+        open={opened()}
+        class="model-control-dialog"
+        title={tr("composer.model-settings")}
+        description={tr("composer.model-settings-description")}
+        showClose
+        onClose={close}
+        footer={
+          <Button size="small" variant="secondary" onClick={close}>
+            {tr("composer.done")}
+          </Button>
+        }
+      >
+        <Show when={failure()}>
+          <p class="model-control__failure" role="alert">
+            {tr("composer.unable-to-save-model-settings")}
+          </p>
+        </Show>
+        <div class="model-control__profiles">
+          <ModelProfile
+            role="main"
+            value={mainValue()}
+            models={props.models}
+            disabled={props.disabled}
+            onChange={changeMain}
+          />
+          <Show when={subAgentValue()} keyed>
+            {(value) => (
+              <ModelProfile
+                role="subagent"
+                value={value}
+                models={props.models}
+                disabled={props.disabled}
+                onChange={changeSubAgent}
+              />
+            )}
+          </Show>
+        </div>
+      </Dialog>
+    </div>
   )
 }

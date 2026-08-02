@@ -3,10 +3,10 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/te
 import userEvent from "@testing-library/user-event"
 import { createSignal, type JSX } from "solid-js"
 import { createDesktopQueryClient } from "../../data/query-client"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { attachmentFromPath, Composer, type ComposerProps } from "./composer"
 import { createComposerQueueStore } from "./composer-queue"
-import type { CatalogModel } from "./model-catalog"
+import type { AgentModelProfile, CatalogModel, ModelSelection } from "./model-catalog"
 
 let desktopDropHandler: ((event: { payload: unknown }) => void) | undefined
 vi.mock("@tauri-apps/api/webview", () => ({
@@ -27,6 +27,14 @@ const models: CatalogModel[] = [
     providerName: "OpenAI",
     modelID: "gpt-5",
     modelName: "GPT-5",
+    contextWindow: 128_000,
+    variants: ["low", "high"],
+  },
+  {
+    providerID: "openai",
+    providerName: "OpenAI",
+    modelID: "gpt-4.1",
+    modelName: "GPT-4.1",
     contextWindow: 128_000,
     variants: [],
   },
@@ -52,9 +60,11 @@ function renderComposer(input?: {
   identityLocked?: boolean
   minimal?: boolean
   selectedAgent?: string
-  selectedModel?: { providerID: string; modelID: string }
+  selectedModel?: ModelSelection
+  subAgent?: AgentModelProfile
   agents?: Agent[]
   models?: CatalogModel[]
+  onSubAgentModelChange?: (model: ModelSelection) => void | Promise<void>
   usage?: ComposerProps["usage"]
   skills?: Array<{ name: string; description?: string; location: string; content: string }>
 }) {
@@ -85,6 +95,13 @@ function renderComposer(input?: {
       models={input?.models ?? models}
       selectedAgent={input?.selectedAgent ?? "build"}
       selectedModel={input?.selectedModel ?? { providerID: "openai", modelID: "gpt-5" }}
+      subAgent={
+        input?.subAgent ?? {
+          agentName: "build",
+          model: { providerID: "openai", modelID: "gpt-5", variant: "high" },
+          configured: true,
+        }
+      }
       status={status()}
       requestPending={input?.requestPending}
       childSteering={input?.childSteering}
@@ -98,6 +115,7 @@ function renderComposer(input?: {
       usage={input?.usage}
       onAgentChange={vi.fn()}
       onModelChange={vi.fn()}
+      onSubAgentModelChange={input?.onSubAgentModelChange}
       onProviderConnected={vi.fn()}
       queueStore={createComposerQueueStore()}
     />
@@ -110,6 +128,24 @@ afterEach(() => {
   vi.restoreAllMocks()
   desktopDropHandler = undefined
   delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+})
+
+beforeEach(() => {
+  Object.defineProperties(HTMLDialogElement.prototype, {
+    close: {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.removeAttribute("open")
+        this.dispatchEvent(new Event("close"))
+      },
+    },
+    showModal: {
+      configurable: true,
+      value(this: HTMLDialogElement) {
+        this.setAttribute("open", "")
+      },
+    },
+  })
 })
 
 describe("Composer", () => {
@@ -243,7 +279,14 @@ describe("Composer", () => {
     const user = userEvent.setup()
     const client = renderComposer()
     expect(screen.getByLabelText("智能体")).toBeVisible()
-    expect(screen.getByRole("combobox", { name: "主模型" })).toHaveValue("openai/gpt-5/")
+    await user.click(screen.getByRole("button", { name: "配置模型" }))
+    expect(screen.getByRole("dialog", { name: "模型设置" })).toBeVisible()
+    expect(screen.getByRole("combobox", { name: "主 Agent 模型" })).toHaveValue("openai/gpt-5")
+    expect(screen.getByRole("combobox", { name: "主 Agent 思考深度" })).toHaveValue("")
+    expect(screen.getByRole("combobox", { name: "子 Agent 模型" })).toHaveValue("openai/gpt-5")
+    expect(screen.getByRole("combobox", { name: "子 Agent 思考深度" })).toHaveValue("high")
+    await user.selectOptions(screen.getByRole("combobox", { name: "主 Agent 思考深度" }), "low")
+    expect(screen.getByRole("combobox", { name: "主 Agent 思考深度" })).toHaveValue("low")
     const textbox = screen.getByRole("textbox", { name: "消息" })
 
     await user.type(textbox, "line one{shift>}{enter}{/shift}line two")
@@ -264,10 +307,26 @@ describe("Composer", () => {
     expect(selectors?.children).toHaveLength(6)
     expect(selectors?.children[0]).toContainElement(screen.getByLabelText("智能体"))
     expect(selectors?.children[1]).toContainElement(screen.getByRole("button", { name: "连接" }))
-    expect(selectors?.children[2]).toContainElement(screen.getByRole("combobox", { name: "主模型" }))
+    expect(selectors?.children[2]).toContainElement(screen.getByRole("button", { name: "配置模型" }))
     expect(selectors?.children[3]).toContainElement(screen.getByRole("button", { name: "Branch" }))
     expect(selectors?.children[4]).toContainElement(screen.getByRole("button", { name: "Multi-Agent control" }))
     expect(selectors?.children[5]).toContainElement(screen.getByRole("button", { name: "MCP control" }))
+  })
+
+  it("keeps main and child model choices independent", async () => {
+    const user = userEvent.setup()
+    const onSubAgentModelChange = vi.fn()
+    renderComposer({ onSubAgentModelChange })
+
+    await user.click(screen.getByRole("button", { name: "配置模型" }))
+    await user.selectOptions(screen.getByRole("combobox", { name: "主 Agent 思考深度" }), "low")
+    await user.selectOptions(screen.getByRole("combobox", { name: "子 Agent 模型" }), "openai/gpt-4.1")
+
+    expect(screen.getByRole("combobox", { name: "主 Agent 模型" })).toHaveValue("openai/gpt-5")
+    expect(screen.getByRole("combobox", { name: "主 Agent 思考深度" })).toHaveValue("low")
+    expect(screen.getByRole("combobox", { name: "子 Agent 模型" })).toHaveValue("openai/gpt-4.1")
+    expect(screen.getByRole("combobox", { name: "子 Agent 思考深度" })).toHaveValue("")
+    expect(onSubAgentModelChange).toHaveBeenLastCalledWith({ providerID: "openai", modelID: "gpt-4.1" })
   })
 
   it("opens Skill suggestions for a slash query and selects them without submitting", async () => {
@@ -317,7 +376,7 @@ describe("Composer", () => {
 
     expect(screen.getByLabelText("智能体")).toHaveValue("coder")
     expect(screen.getByLabelText("智能体")).toBeDisabled()
-    expect(screen.getByRole("combobox", { name: "主模型" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "配置模型" })).toBeDisabled()
     const textbox = screen.getByRole("textbox", { name: "消息" })
     expect(textbox).toBeEnabled()
     await user.type(textbox, "guide child")
@@ -329,7 +388,7 @@ describe("Composer", () => {
 
     expect(screen.getByLabelText("智能体")).toBeEnabled()
     expect(screen.getByRole("button", { name: "连接" })).toBeEnabled()
-    expect(screen.getByRole("combobox", { name: "主模型" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "配置模型" })).toBeEnabled()
   })
 
   it("renders child Sessions as a message-only Composer that still sends with Enter", async () => {
