@@ -2,6 +2,7 @@ import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { Config } from "@/config/config"
 import { enabledProfiles, profileAgentName, resolveProfiles, type SubagentProfile } from "@/agent/subagent-profile"
+import { Provider } from "@/provider/provider"
 import { Bus } from "@/bus"
 import { Tool } from "@/tool/tool"
 import { EffectBridge, type Shape as EffectBridgeShape } from "@/effect/bridge"
@@ -16,6 +17,7 @@ import {
   type DispatchBrief,
   type PlanExecutionContext,
 } from "./protocol"
+import type { LaunchSnapshot } from "@/agent/subagent-profile"
 import { PlanProtocolError } from "./schema"
 import { RuntimeEvent } from "./runtime-event"
 import { Blackboard } from "./blackboard"
@@ -287,6 +289,22 @@ export function childTaskBrief(brief: DispatchBrief) {
   ].join("\n")
 }
 
+export function childModelForRole(parentModel: Session.Info["model"], role: LaunchSnapshot) {
+  const model = role.model ? Provider.parseModel(role.model) : parentModel
+  if (!model) return undefined
+  const sessionModel = "modelID" in model ? { id: model.modelID, providerID: model.providerID } : model
+  return {
+    ...sessionModel,
+    ...(role.variant ? { variant: role.variant } : {}),
+  }
+}
+
+export function childLaunchPrompt(brief: DispatchBrief, role: LaunchSnapshot) {
+  return [childTaskBrief(brief), "## Role instructions (launch only)", role.prompt.trim() || "No additional role instructions."].join(
+    "\n\n",
+  )
+}
+
 function protocolFor(
   sessions: Session.Interface,
   bus: Bus.Interface,
@@ -312,7 +330,7 @@ function protocolFor(
             parentID: parent.id,
             title: `Plan task ${input.taskId}`,
             agent: profileAgentName(input.role.id),
-            model: parent.model,
+            model: childModelForRole(parent.model, input.role),
             permission: parent.permission,
             workspaceID: parent.workspaceID,
             directory: parent.directory,
@@ -324,7 +342,7 @@ function protocolFor(
         if (!runtime.promptOps) return
         const ops = runtime.promptOps
         registerChildRun(input.childSessionId, input.brief.run_id)
-        const brief = childTaskBrief(input.brief)
+        const brief = childLaunchPrompt(input.brief, input.role)
         runtime.bridge.fork(
           ops
             .prompt({

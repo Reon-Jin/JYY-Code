@@ -1,7 +1,10 @@
 import { describe, expect, it } from "bun:test"
+import { ModelID, ProviderID } from "../../src/provider/schema"
 import { hasInFlightPlanTasks, isPlanToolVisible, requiredPlanTool, retainOnlyTool, toolNameForModel } from "../../src/session/tools"
 import {
   BLACKBOARD_INPUT_SCHEMA,
+  childLaunchPrompt,
+  childModelForRole,
   DISPATCH_INPUT_SCHEMA,
   PLAN_CREATE_INPUT_SCHEMA,
   PLAN_UPDATE_INPUT_SCHEMA,
@@ -137,5 +140,40 @@ describe("model-facing plan tool names", () => {
         "review_task",
       ])
     expect(operations.at(-1)).toMatchObject({ then: { required: ["feedback"] } })
+  })
+
+  it("builds child launches from the frozen role snapshot", () => {
+    const role = {
+      id: "reviewer",
+      name: "Reviewer",
+      description: "Checks delegated work.",
+      prompt: "Use the review checklist.",
+      avatar: "bug" as const,
+      model: "openai/gpt-5",
+      variant: "low",
+    }
+    expect(childModelForRole({ id: ModelID.make("root-model"), providerID: ProviderID.make("root-provider"), variant: "high" }, role)).toEqual({
+      id: ModelID.make("gpt-5"),
+      providerID: ProviderID.make("openai"),
+      variant: "low",
+    })
+    expect(childModelForRole({ id: ModelID.make("root-model"), providerID: ProviderID.make("root-provider"), variant: "high" }, { ...role, model: undefined })).toEqual({
+      id: ModelID.make("root-model"),
+      providerID: ProviderID.make("root-provider"),
+      variant: "low",
+    })
+    const prompt = childLaunchPrompt(
+      {
+        run_id: "run__ses_root__s1_t1",
+        goal: "write notes",
+        done_criteria: "notes.md exists",
+        output_path: "notes.md",
+        report_format: "Report(...)",
+      },
+      role,
+    )
+    expect(prompt).toContain("output_path")
+    expect(prompt).toContain("## Role instructions (launch only)")
+    expect(prompt).toContain("Use the review checklist.")
   })
 })

@@ -116,6 +116,50 @@ describe("file-backed plan protocol", () => {
     expect(read.plan.steps[0]?.tasks[0]?.dispatch?.role?.id).toBe("reviewer")
   })
 
+  it("passes an immutable launch snapshot to the child controller", async () => {
+    const root = workspace()
+    const profiles = [
+      defaultGeneralProfile,
+      {
+        id: "reviewer",
+        name: "Reviewer",
+        description: "Checks delegated work.",
+        prompt: "Use the review checklist.",
+        avatar: "bug" as const,
+        model: "openai/gpt-5",
+        variant: "low",
+        enabled: true,
+      },
+    ]
+    let started: { role: unknown } | undefined
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      profiles: async () => profiles,
+      children: {
+        async create(input) {
+          started = input
+          return input.childSessionId
+        },
+        async start(input) {
+          started = input
+        },
+        async terminate() {},
+      },
+    })
+    await protocol.create(context(root), createInput(path.join(root, "notes.md")))
+    await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "reviewer" })
+    profiles[1] = { ...profiles[1]!, name: "Edited", prompt: "Changed", model: "anthropic/claude", variant: "high" }
+    expect(started?.role).toEqual({
+      id: "reviewer",
+      name: "Reviewer",
+      description: "Checks delegated work.",
+      prompt: "Use the review checklist.",
+      avatar: "bug",
+      model: "openai/gpt-5",
+      variant: "low",
+    })
+  })
+
   it("creates, reads, and returns progress using the specified schema", async () => {
     const root = workspace()
     const protocol = new PlanProtocol({ store: new PlanStore(), events: new PlanEventHub(), inbox: new PlanInbox() })
