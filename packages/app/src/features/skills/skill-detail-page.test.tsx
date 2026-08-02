@@ -9,6 +9,7 @@ import type { ManagementContextValue } from "../management/management-context"
 import { SkillDetailPage } from "./skill-detail-page"
 
 const editable: AppSkillsResponse[number] = {
+  id: "managed:editable",
   name: "editable",
   description: "Editable Skill",
   location: "C:\\skills\\editable\\SKILL.md",

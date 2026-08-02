@@ -1,15 +1,17 @@
 import { tr } from "../../i18n/i18n-context"
-import { FileDiff, ListTodo, MessageSquare } from "lucide-solid"
+import { FileDiff, ListTodo, MessageSquare, Users } from "lucide-solid"
 import { For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { IconButton } from "../../components/ui/button"
 import { ChangesPanel } from "../changes/changes-panel"
 import { PlanPanel } from "../plan/plan-panel"
+import { SubagentProfilesPanel } from "../subagents/subagent-profiles-panel"
 import { normalizeInspectorRatios, type InspectorPane, type InspectorPreferences } from "./inspector-preferences"
 import "./workspace-inspector.css"
 
 function paneLabel(pane: InspectorPane) {
   const labels: Record<InspectorPane, string> = {
     plan: tr("workspace-inspector.plan"),
+    subagents: tr("subagents.title"),
     blackboard: tr("workspace-inspector.blackboard"),
     changes: tr("changes.workspace-changes"),
   }
@@ -31,6 +33,7 @@ export type WorkspaceInspectorViewProps = {
   plan: JSX.Element
   blackboard?: JSX.Element
   changes: JSX.Element
+  subagents?: JSX.Element
   planBadge?: JSX.Element
   blackboardBadge?: JSX.Element
   changesBadge?: JSX.Element
@@ -57,6 +60,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
   const panel = (pane: InspectorPane) => {
     if (pane === "plan") return props.plan
     if (pane === "blackboard") return props.blackboard
+    if (pane === "subagents") return props.subagents ?? <div />
     return props.changes
   }
 
@@ -209,6 +213,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
       </Show>
       <nav class="workspace-activity-rail" aria-label={tr("workspace-inspector.taskbar-page")}>
         <ActivityButton pane="plan" icon={<ListTodo aria-hidden="true" />} badge={props.planBadge} />
+        <ActivityButton pane="subagents" icon={<Users aria-hidden="true" />} />
         <ActivityButton
           pane="blackboard"
           icon={<MessageSquare aria-hidden="true" />}
@@ -229,6 +234,7 @@ export function WorkspaceInspector(props: {
   blackboard?: JSX.Element
   planBadge?: JSX.Element
   blackboardBadge?: JSX.Element
+  subagents?: JSX.Element
 }) {
   return (
     <WorkspaceInspectorView
@@ -245,6 +251,7 @@ export function WorkspaceInspector(props: {
         )
       }
       blackboard={props.blackboard ?? <div />}
+      subagents={props.subagents ?? <SubagentProfilesPanel directory={props.directory} />}
       changes={<ChangesPanel directory={props.directory} />}
       planBadge={props.planBadge}
       blackboardBadge={props.blackboardBadge}

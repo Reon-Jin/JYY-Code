@@ -74,6 +74,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   const permissions: PermissionRequest[] = []
   const skills: AppSkillsResponse = [
     {
+      id: "managed:desktop-helper",
       name: "desktop-helper",
       description: "Desktop management fixture",
       location: "C:\\Users\\test\\.jyycode\\skills\\desktop-helper\\SKILL.md",
@@ -416,6 +417,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       const name = String(value.name ?? "")
       const content = String(value.content ?? "")
       const created: AppSkillsResponse[number] = {
+        id: `managed:${name}`,
         name,
         description: typeof value.description === "string" ? value.description : undefined,
         location: `C:\\Users\\test\\.jyycode\\skills\\${name}\\SKILL.md`,

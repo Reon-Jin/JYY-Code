@@ -22,7 +22,7 @@ describe("workspace inspector preferences", () => {
     expect(defaultInspectorPreferences).toEqual({ panes: [], ratios: [], width: 420 })
   })
 
-  it.each(["plan", "blackboard", "changes"] as const)("round-trips the %s pane per normalized project", (pane) => {
+  it.each(["plan", "subagents", "blackboard", "changes"] as const)("round-trips the %s pane per normalized project", (pane) => {
     saveInspectorPreferences("C:/Work/Demo/", { panes: [pane], ratios: [1], width: 360 })
 
     expect(loadInspectorPreferences("c:\\work\\demo")).toEqual({ panes: [pane], ratios: [1], width: 360 })
@@ -84,6 +84,7 @@ function InspectorHarness(props: { initial?: InspectorPane; badge?: string; blac
       onPreferencesChange={setPreferences}
       plan={<div>plan content</div>}
       blackboard={<div>blackboard content</div>}
+      subagents={<div>subagents content</div>}
       changes={<div>changes content</div>}
       planBadge={props.badge}
       blackboardBadge={props.blackboardBadge}
@@ -130,6 +131,17 @@ describe("WorkspaceInspectorView", () => {
     await user.click(blackboard)
     expect(screen.getByRole("group", { name: "协作黑板" })).toHaveTextContent("blackboard content")
     expect(screen.getByRole("button", { name: "协作黑板" })).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("opens the subagents pane after Plan and keeps it keyboard-addressable", async () => {
+    const user = userEvent.setup()
+    render(() => <InspectorHarness />)
+
+    const subagents = screen.getByRole("button", { name: "子 Agent" })
+    expect(subagents).toBeVisible()
+    await user.click(subagents)
+    expect(subagents).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("group", { name: "子 Agent" })).toHaveTextContent("subagents content")
   })
 
   it("closes an overlay drawer with Escape at narrow width", () => {

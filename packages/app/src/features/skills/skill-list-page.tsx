@@ -11,7 +11,7 @@ import { managementSkillsQueryOptions, refreshManagementSkills } from "./skill-q
 import "./skills.css"
 
 const originLabel = () =>
-  ({ built_in: tr("skills.built-in"), managed: tr("skills.managed"), path: tr("skills.path"), url: "URL" }) as const
+  ({ built_in: tr("skills.built-in"), managed: tr("skills.managed"), path: tr("skills.path"), url: "URL", role: tr("skills.role") }) as const
 
 export function SkillListPage(props: { management?: ManagementContextValue }) {
   const management = props.management ?? useManagement()

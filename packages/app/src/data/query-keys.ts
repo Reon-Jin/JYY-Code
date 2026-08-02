@@ -38,6 +38,7 @@ export const keys = {
   blackboard: (directory: string, rootSessionID: string) =>
     [...keys.blackboardsScope(directory), rootSessionID] as const,
   skills: (directory: string, agent = "") => [...project(directory), "skills", agent] as const,
+  subagents: (directory: string) => [...project(directory), "subagents"] as const,
   mcp: (directory: string) => [...project(directory), "mcp"] as const,
   globalConfig: ["global", "config"] as const,
   globalCompaction: ["global", "compaction"] as const,

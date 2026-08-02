@@ -1,0 +1,123 @@
+.subagent-profiles-panel {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  overflow: auto;
+  padding: var(--space-4);
+  color: var(--color-text);
+}
+
+.subagent-profiles-panel__header,
+.subagent-profile-skills__header,
+.subagent-profile-editor__title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.subagent-profiles-panel__header h2,
+.subagent-profile-editor__title h3,
+.subagent-profile-skills__header h3,
+.subagent-profiles-panel__header p,
+.subagent-profile-skills__header p {
+  margin: 0;
+}
+
+.subagent-profiles-panel__header h2 { font-size: var(--text-lg); }
+.subagent-profile-editor__title h3,
+.subagent-profile-skills__header h3 { font-size: var(--text-sm); }
+.subagent-profiles-panel__header p,
+.subagent-profile-skills__header p { color: var(--color-text-muted); font-size: var(--text-xs); }
+.subagent-profiles-panel__eyebrow { color: var(--color-accent); font-size: 0.65rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
+.subagent-profiles-panel__status { margin: 0; color: var(--color-text-muted); font-size: var(--text-xs); }
+
+.subagent-profiles-panel__body {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(120px, 0.78fr) minmax(240px, 1.22fr);
+  gap: var(--space-3);
+}
+
+.subagent-profiles-panel__cards,
+.subagent-profile-editor,
+.subagent-profile-skills {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+}
+
+.subagent-profiles-panel__cards { min-width: 0; }
+.subagent-profile-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  background: var(--color-panel);
+  color: var(--color-text);
+  text-align: left;
+  transition: transform var(--motion-fast) ease, border-color var(--motion-fast) ease, background var(--motion-fast) ease;
+}
+.subagent-profile-card:hover,
+.subagent-profile-card:focus-visible,
+.subagent-profile-card--active { border-color: var(--color-accent); background: var(--color-surface); }
+.subagent-profile-card:hover { transform: translateY(-1px); }
+.subagent-profile-card__avatar { display: grid; width: 30px; height: 30px; flex: 0 0 30px; place-items: center; border-radius: 9px; background: var(--color-accent-muted); color: var(--color-accent); }
+.subagent-profile-card__copy { display: grid; min-width: 0; gap: 2px; }
+.subagent-profile-card__copy strong,
+.subagent-profile-card__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-profile-card__copy small { color: var(--color-text-muted); font-family: var(--font-code); font-size: 0.65rem; }
+.subagent-profile-card__status { width: 7px; height: 7px; flex: 0 0 7px; margin-left: auto; border-radius: 50%; background: var(--color-text-muted); }
+.subagent-profile-card__status[data-enabled="true"] { background: var(--color-success); animation: subagent-status-pulse 2.4s ease-in-out infinite; }
+
+.subagent-profile-editor,
+.subagent-profile-skills { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-3); background: var(--color-bg); }
+.subagent-profile-editor label,
+.subagent-skill-create label { display: grid; gap: var(--space-1); color: var(--color-text-muted); font-size: var(--text-xs); }
+.subagent-profile-editor input,
+.subagent-profile-editor textarea,
+.subagent-profile-editor select,
+.subagent-skill-create input,
+.subagent-skill-create textarea { width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-2); background: var(--color-panel); color: var(--color-text); font: inherit; }
+.subagent-profile-editor textarea,
+.subagent-skill-create textarea { min-height: 80px; resize: vertical; }
+.subagent-profile-editor input:focus-visible,
+.subagent-profile-editor textarea:focus-visible,
+.subagent-profile-editor select:focus-visible,
+.subagent-skill-create input:focus-visible,
+.subagent-skill-create textarea:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.subagent-profile-editor__toggle { display: flex !important; grid-template-columns: auto 1fr; align-items: center; }
+.subagent-profile-editor__toggle input { width: auto; }
+.subagent-profile-editor__fields { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.subagent-profile-editor__avatars { display: grid; gap: var(--space-1); border: 0; margin: 0; padding: 0; }
+.subagent-profile-editor__avatars legend { color: var(--color-text-muted); font-size: var(--text-xs); }
+.subagent-profile-editor__avatars > div { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.subagent-avatar-choice { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-panel); color: var(--color-text-muted); }
+.subagent-avatar-choice:hover,
+.subagent-avatar-choice:focus-visible,
+.subagent-avatar-choice[aria-pressed="true"] { border-color: var(--color-accent); background: var(--color-accent-muted); color: var(--color-accent); }
+.subagent-profile-editor__actions { display: flex; justify-content: flex-end; }
+
+.subagent-profile-skills { grid-column: 1 / -1; }
+.subagent-profile-skills__list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.subagent-profile-skills__list li { display: grid; gap: 2px; border-left: 2px solid var(--color-accent); padding: var(--space-1) var(--space-2); }
+.subagent-profile-skills__list small,
+.subagent-profile-skills__hint { overflow-wrap: anywhere; color: var(--color-text-muted); font-size: 0.68rem; }
+.subagent-profile-skills__hint { margin: 0; }
+.subagent-skill-create { display: grid; gap: var(--space-2); border-top: 1px solid var(--color-border); padding-top: var(--space-2); }
+
+@keyframes subagent-status-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success) 0%, transparent); } 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success) 18%, transparent); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .subagent-profile-card,
+  .subagent-profile-card__status { animation: none; transition: none; }
+}
+
+@media (max-width: 720px) {
+  .subagent-profiles-panel__body { grid-template-columns: 1fr; }
+  .subagent-profile-skills { grid-column: auto; }
+}

@@ -10,6 +10,7 @@ import { SkillListPage } from "./skill-list-page"
 
 const skills: AppSkillsResponse = [
   {
+    id: "url:zeta",
     name: "zeta",
     description: "Remote helper",
     location: "C:\\cache\\zeta\\SKILL.md",
@@ -21,6 +22,7 @@ const skills: AppSkillsResponse = [
     revision: "z1",
   },
   {
+    id: "managed:alpha",
     name: "Alpha",
     description: "Local helper",
     location: "C:\\skills\\Alpha\\SKILL.md",
