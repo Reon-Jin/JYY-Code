@@ -1,5 +1,5 @@
 import * as path from "path"
-import { Effect, Schema, Semaphore } from "effect"
+import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import { LSP } from "@/lsp/lsp"
 import { createTwoFilesPatch, diffLines } from "diff"
@@ -14,6 +14,7 @@ import { assertExternalDirectoryEffect } from "./external-directory"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import * as Bom from "@/util/bom"
 import { applyEditOperations, normalizeLineEndings, trimDiff } from "./edit-shared"
+import { fileWriteLock } from "@/file/write-lock"
 
 export { trimDiff } from "./edit-shared"
 
@@ -31,18 +32,6 @@ export const Parameters = Schema.Struct({
     description: "Ordered edits to apply atomically to one file",
   }),
 })
-
-const locks = new Map<string, Semaphore.Semaphore>()
-
-function lock(filePath: string) {
-  const resolvedFilePath = AppFileSystem.resolve(filePath)
-  const hit = locks.get(resolvedFilePath)
-  if (hit) return hit
-
-  const next = Semaphore.makeUnsafe(1)
-  locks.set(resolvedFilePath, next)
-  return next
-}
 
 export const EditTool = Tool.define(
   "edit",
@@ -72,9 +61,19 @@ export const EditTool = Tool.define(
           let diff = ""
           let contentOld = ""
           let contentNew = ""
+          let waitedMs = 0
 
-          yield* lock(filePath).withPermits(1)(
+          yield* Effect.scoped(
             Effect.gen(function* () {
+              const handle = yield* Effect.acquireRelease(
+                Effect.tryPromise(() =>
+                  fileWriteLock.acquire(filePath, { holder: ctx.sessionID, signal: ctx.abort }),
+                ),
+                (lock) => Effect.sync(() => lock.release()),
+              )
+              waitedMs = handle.waitedMs
+              yield* ctx.metadata({ metadata: { waitedMs } })
+
               const info = yield* afs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
               if (!info) throw new Error(`File ${filePath} not found`)
               if (info.type === "Directory") throw new Error(`Path is a directory, not a file: ${filePath}`)
@@ -99,7 +98,7 @@ export const EditTool = Tool.define(
                 permission: "edit",
                 patterns: [path.relative(instance.worktree, filePath)],
                 always: ["*"],
-                metadata: { filepath: filePath, diff },
+                metadata: { filepath: filePath, diff, waitedMs },
               })
 
               yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
@@ -132,7 +131,7 @@ export const EditTool = Tool.define(
             deletions,
           }
 
-          yield* ctx.metadata({ metadata: { diff, filediff, diagnostics: {} } })
+          yield* ctx.metadata({ metadata: { diff, filediff, diagnostics: {}, waitedMs } })
 
           let output = "Edit applied successfully."
           yield* lsp.touchFile(filePath, "document")
@@ -142,7 +141,7 @@ export const EditTool = Tool.define(
           if (block) output += `\n\nLSP errors detected in this file, please fix:\n${block}`
 
           return {
-            metadata: { diagnostics, diff, filediff },
+            metadata: { diagnostics, diff, filediff, waitedMs },
             title: `${path.relative(instance.worktree, filePath)}`,
             output,
           }

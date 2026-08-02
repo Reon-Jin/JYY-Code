@@ -1,7 +1,7 @@
 import { afterEach, describe, expect } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
-import { Cause, Effect, Exit, Layer } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import { EditTool } from "@/tool/edit"
 import { LSP } from "@/lsp/lsp"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
@@ -13,6 +13,7 @@ import { SessionID, MessageID } from "@/session/schema"
 import { Tool } from "@/tool/tool"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+import { fileWriteLock } from "@/file/write-lock"
 
 const ctx = {
   sessionID: SessionID.make("ses_test-edit"),
@@ -172,6 +173,29 @@ describe("tool.edit", () => {
         edits: [{ oldString: "old", newString: "new" }],
       })
       expect(err.message).toContain("directory")
+    }),
+  )
+
+  it.instance("waits for an external file lock before reading", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const filepath = path.join(test.directory, "locked.txt")
+      yield* put(filepath, "old\n")
+      const held = yield* Effect.promise(() => fileWriteLock.acquire(filepath, { holder: "test-holder" }))
+      let asked = false
+      const pending = yield* run(
+        { filePath: filepath, edits: [{ oldString: "old", newString: "new" }] },
+        { ...ctx, ask: () => Effect.sync(() => void (asked = true)) },
+      ).pipe(Effect.forkScoped)
+
+      yield* Effect.sleep("20 millis")
+      expect(asked).toBe(false)
+      held.release()
+
+      const result = yield* Fiber.join(pending)
+      expect(asked).toBe(true)
+      expect(result.metadata.waitedMs).toBeGreaterThanOrEqual(10)
+      expect(yield* load(filepath)).toBe("new\n")
     }),
   )
 })

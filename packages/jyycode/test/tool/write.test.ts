@@ -1,5 +1,5 @@
 import { afterEach, describe, expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Deferred, Effect, Fiber, Layer } from "effect"
 import path from "path"
 import fs from "fs/promises"
 import { WriteTool } from "../../src/tool/write"
@@ -14,6 +14,7 @@ import { SessionID, MessageID } from "../../src/session/schema"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+import { fileWriteLock } from "@/file/write-lock"
 
 const ctx = {
   sessionID: SessionID.make("ses_test-write-session"),
@@ -257,6 +258,38 @@ describe("tool.write", () => {
         yield* Effect.promise(() => fs.chmod(readonlyPath, 0o444))
         const exit = yield* run({ filePath: readonlyPath, content: "new content" }).pipe(Effect.exit)
         expect(exit._tag).toBe("Failure")
+      }),
+    )
+  })
+
+  describe("file write locking", () => {
+    it.instance("serializes concurrent creation of the same new file", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const filepath = path.join(test.directory, "concurrent.txt")
+        const firstAsked = yield* Deferred.make<void>()
+        const releaseFirst = yield* Deferred.make<void>()
+        let askCount = 0
+        const ask = () =>
+          Effect.gen(function* () {
+            askCount += 1
+            if (askCount === 1) {
+              yield* Deferred.succeed(firstAsked, void 0)
+              yield* Deferred.await(releaseFirst)
+            }
+          })
+
+        const first = yield* run({ filePath: filepath, content: "first" }, { ...ctx, ask }).pipe(Effect.forkScoped)
+        yield* Deferred.await(firstAsked)
+        const second = yield* run({ filePath: filepath, content: "second" }, { ...ctx, ask }).pipe(Effect.forkScoped)
+        yield* Effect.sleep("20 millis")
+        expect(askCount).toBe(1)
+
+        yield* Deferred.succeed(releaseFirst, void 0)
+        const results = yield* Effect.all([Fiber.join(first), Fiber.join(second)])
+        expect(results).toHaveLength(2)
+        expect(yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))).toBe("second")
+        expect(results.every((result) => typeof result.metadata.waitedMs === "number")).toBe(true)
       }),
     )
   })
