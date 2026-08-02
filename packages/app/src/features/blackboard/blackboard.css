@@ -202,6 +202,16 @@
   font-weight: 650;
 }
 
+.blackboard-message__purpose {
+  display: inline-flex;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+  border-radius: 999px;
+  padding: 2px var(--space-2);
+  color: var(--color-accent);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
 .blackboard-message__body {
   margin-top: var(--space-2);
   overflow-wrap: anywhere;

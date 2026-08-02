@@ -1,6 +1,16 @@
 import { describe, expect, it } from "bun:test"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { hasInFlightPlanTasks, isPlanToolVisible, requiredPlanTool, retainOnlyTool, toolNameForModel } from "../../src/session/tools"
+import {
+  candidateToolGateState,
+  hasInFlightPlanTasks,
+  isPlanToolVisible,
+  requiredPlanTool,
+  retainOnlyTool,
+  toolNameForModel,
+} from "../../src/session/tools"
 import {
   BLACKBOARD_INPUT_SCHEMA,
   childLaunchPrompt,
@@ -38,6 +48,86 @@ describe("model-facing plan tool names", () => {
     expect(isPlanToolVisible("Plan.read", { parentID: "ses_parent" as never, multiAgent: undefined })).toBe(false)
     expect(isPlanToolVisible("Blackboard", { parentID: undefined, multiAgent: false })).toBe(false)
     expect(isPlanToolVisible("Blackboard", { parentID: undefined, multiAgent: true })).toBe(true)
+  })
+
+  it("derives candidate child tools from the dispatched task and persisted phase", () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "jyycode-candidate-gate-"))
+    const rootSession = "candidate-gate-root"
+    const planDirectory = `${workspace}/.jyycode/plan/${rootSession}`
+    fs.mkdirSync(planDirectory, { recursive: true })
+    fs.writeFileSync(
+      `${planDirectory}/plan.json`,
+      JSON.stringify({
+        title: "Candidate gate",
+        goal: "test",
+        status: "active",
+        revision: 2,
+        current_step: "s1",
+        steps: [
+          {
+            id: "s1",
+            title: "Candidates",
+            goal: "test",
+            done_criteria: "choose",
+            status: "active",
+            candidate_discussion: { phase: "running", ready_task_ids: ["s1_t1", "s1_t2"] },
+            tasks: [
+              {
+                id: "s1_t1",
+                title: "A",
+                goal: "a",
+                done_criteria: "a",
+                output_path: ".jyycode/plan/candidate-gate-root/candidates/s1/s1_t1/proposal.md",
+                mode: "candidate",
+                status: "running",
+                dispatch: {
+                  run_id: "run__candidate-gate-root__s1_t1",
+                  child_session_id: "candidate-child",
+                  dispatched_at: new Date().toISOString(),
+                  cancelled_at: null,
+                },
+                report: null,
+              },
+              {
+                id: "s1_t2",
+                title: "B",
+                goal: "b",
+                done_criteria: "b",
+                output_path: ".jyycode/plan/candidate-gate-root/candidates/s1/s1_t2/proposal.md",
+                mode: "candidate",
+                status: "running",
+                dispatch: null,
+                report: null,
+              },
+            ],
+          },
+        ],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+    )
+    const gate = candidateToolGateState({
+      id: "candidate-child" as never,
+      parentID: rootSession as never,
+      directory: workspace,
+    })
+    expect(gate?.phase).toBe("running")
+    expect([...gate!.allowedToolIDs]).toEqual(
+      expect.arrayContaining(["read", "glob", "grep", "webfetch", "websearch", "Candidate.submit"]),
+    )
+    expect(gate!.allowedToolIDs.has("shell")).toBe(false)
+    expect(gate!.allowedToolIDs.has("Report")).toBe(false)
+    const persistedPath = `${planDirectory}/plan.json`
+    const persisted = JSON.parse(fs.readFileSync(persistedPath, "utf8")) as { steps: Array<{ candidate_discussion: { phase: string } }> }
+    persisted.steps[0]!.candidate_discussion.phase = "declaring"
+    fs.writeFileSync(persistedPath, JSON.stringify(persisted))
+    const declaringGate = candidateToolGateState({ id: "candidate-child" as never, parentID: rootSession as never, directory: workspace })
+    expect([...declaringGate!.allowedToolIDs]).toEqual(["Candidate.declare"])
+    persisted.steps[0]!.candidate_discussion.phase = "cross_review"
+    fs.writeFileSync(persistedPath, JSON.stringify(persisted))
+    const reviewGate = candidateToolGateState({ id: "candidate-child" as never, parentID: rootSession as never, directory: workspace })
+    expect([...reviewGate!.allowedToolIDs]).toEqual(["Blackboard", "Candidate.ready"])
+    fs.rmSync(workspace, { recursive: true, force: true })
   })
 
   it("forces Plan_read to be the only first-step tool", () => {
@@ -126,7 +216,7 @@ describe("model-facing plan tool names", () => {
 
     const updateOps = PLAN_UPDATE_INPUT_SCHEMA.properties?.ops as { items?: { oneOf?: unknown[] } }
     const operations = updateOps.items?.oneOf ?? []
-    expect(operations).toHaveLength(9)
+    expect(operations).toHaveLength(10)
     expect(operations.map((operation) => (operation as { properties: { op: { const: string } } }).properties.op.const))
       .toEqual([
         "edit_plan",
@@ -138,8 +228,10 @@ describe("model-facing plan tool names", () => {
         "remove_task",
         "set_task_status",
         "review_task",
+        "select_candidate",
       ])
-    expect(operations.at(-1)).toMatchObject({ then: { required: ["feedback"] } })
+    expect(operations.find((operation) => (operation as { properties?: { op?: { const?: string } } }).properties?.op?.const === "review_task"))
+      .toMatchObject({ then: { required: ["feedback"] } })
   })
 
   it("builds child launches from the frozen role snapshot", () => {

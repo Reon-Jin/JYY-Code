@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { createDesktopQueryClient } from "../../data/query-client"
-import { blackboardQueryOptions, createBlackboardApi, loadBlackboard } from "./blackboard-query"
+import { blackboardMessagePurpose, blackboardQueryOptions, createBlackboardApi, loadBlackboard } from "./blackboard-query"
 
 describe("blackboard query boundary", () => {
   it("loads a root-scoped snapshot with optional step filters", async () => {
@@ -69,5 +69,10 @@ describe("blackboard query boundary", () => {
     expect(
       blackboardQueryOptions({ client: {} as never, directory: "C:\\work", rootSessionID: "ses_root" }).queryKey,
     ).toEqual(["project", "c:\\work", "blackboards", "ses_root"])
+  })
+
+  it("falls back to general purpose for snapshots from older servers", () => {
+    expect(blackboardMessagePurpose({})).toBe("general")
+    expect(blackboardMessagePurpose({ purpose: "candidate_declaration" })).toBe("candidate_declaration")
   })
 })

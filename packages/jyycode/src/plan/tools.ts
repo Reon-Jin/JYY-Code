@@ -38,6 +38,7 @@ const taskInputSchema: JSONSchema7 = {
     goal: nonEmptyStringSchema,
     done_criteria: nonEmptyStringSchema,
     output_path: nonEmptyStringSchema,
+    mode: { enum: ["standard", "candidate"] },
   },
 }
 
@@ -167,7 +168,7 @@ const updateOps: JSONSchema7[] = [
       op: { const: "set_task_status" },
       stepId: stepIdSchema,
       taskId: taskIdSchema,
-      to: { enum: ["pending", "running", "reported", "approved", "rejected"] },
+      to: { enum: ["pending", "running", "reported", "approved", "rejected", "dismissed"] },
     },
   },
   {
@@ -183,6 +184,19 @@ const updateOps: JSONSchema7[] = [
     },
     if: { properties: { decision: { const: "reject" } } },
     then: { required: ["feedback"] },
+  },
+  {
+    type: "object",
+    additionalProperties: false,
+    required: ["op", "stepId", "selectedTaskId", "synthesisArtifact", "rationale"],
+    properties: {
+      op: { const: "select_candidate" },
+      stepId: stepIdSchema,
+      selectedTaskId: taskIdSchema,
+      contributingTaskIds: { type: "array", uniqueItems: true, items: taskIdSchema },
+      synthesisArtifact: nonEmptyStringSchema,
+      rationale: nonEmptyStringSchema,
+    },
   },
 ]
 
@@ -278,7 +292,7 @@ function promptOps(ctx: Tool.Context) {
 
 /** Keep the child task brief readable in the session timeline as well as by the model. */
 export function childTaskBrief(brief: DispatchBrief) {
-  return [
+  const standard = [
     "## 主 Agent 派发的任务简报",
     "",
     "```json",
@@ -287,6 +301,38 @@ export function childTaskBrief(brief: DispatchBrief) {
     "",
     "请严格按简报执行：先写入 `output_path`，再调用 `Report`；不要创建或输出父方案。",
   ].join("\n")
+  if (brief.mode !== "candidate") return standard
+  return [
+    standard,
+    "",
+    "## Candidate execution",
+    "This is a candidate task. Use Candidate.declare once, then read peer declarations with Blackboard and reply directly to every other candidate before Candidate.ready.",
+    "After the root calls Candidate.begin, work independently. Write only the isolated proposal described by this brief and submit it with Candidate.submit; do not call Report or use Blackboard during running.",
+  ].join("\n")
+}
+
+const candidateDeclareSchema: JSONSchema7 = {
+  type: "object",
+  additionalProperties: false,
+  required: ["approach", "assumptions", "risks", "differentiator"],
+  properties: {
+    approach: nonEmptyStringSchema,
+    assumptions: { type: "array", maxItems: 20, items: nonEmptyStringSchema },
+    risks: { type: "array", maxItems: 20, items: nonEmptyStringSchema },
+    differentiator: nonEmptyStringSchema,
+  },
+}
+
+const candidateSubmitSchema: JSONSchema7 = {
+  type: "object",
+  additionalProperties: false,
+  required: ["run_id", "status", "summary", "proposal"],
+  properties: {
+    run_id: { type: "string", pattern: "^run__[A-Za-z0-9_-]+__s[1-9]\\d*_t[1-9]\\d*$" },
+    status: { enum: ["done", "partial", "failed"] },
+    summary: nonEmptyStringSchema,
+    proposal: nonEmptyStringSchema,
+  },
 }
 
 export function childModelForRole(parentModel: Session.Info["model"], role: LaunchSnapshot) {
@@ -313,6 +359,7 @@ function protocolFor(
     promptOps?: TaskPromptOps
     beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
     profiles?: () => Promise<readonly SubagentProfile[]>
+    candidateBoard?: Blackboard.Interface
   },
 ) {
   let protocol: PlanProtocol
@@ -379,6 +426,26 @@ function protocolFor(
       },
     },
     beforeReport: runtime.beforeReport,
+    candidateBoard: runtime.candidateBoard
+      ? {
+          postCandidateDeclaration: (input) =>
+            runtime.bridge.promise(
+              runtime.candidateBoard!.postCandidateDeclaration({ ...input, sessionID: input.sessionID as SessionID }),
+            ),
+          candidateDeclarations: (input) =>
+            runtime.bridge.promise(
+              runtime.candidateBoard!.candidateDeclarations({ ...input, rootSessionID: input.rootSessionID as SessionID }),
+            ),
+          candidatePeerReplyCoverage: (input) =>
+            runtime.bridge.promise(
+              runtime.candidateBoard!.candidatePeerReplyCoverage({ ...input, rootSessionID: input.rootSessionID as SessionID }),
+            ),
+          candidateParticipants: (input) =>
+            runtime.bridge.promise(
+              runtime.candidateBoard!.candidateParticipants({ ...input, rootSessionID: input.rootSessionID as SessionID }),
+            ),
+        }
+      : undefined,
   })
   return protocol
 }
@@ -594,6 +661,92 @@ export const DispatchCancelTool = Tool.define(
   }),
 )
 
+export const CandidateDeclareTool = Tool.define(
+  "Candidate.declare",
+  Effect.gen(function* () {
+    const sessions = yield* Session.Service
+    const bus = yield* Bus.Service
+    return {
+      description: "在候选讨论的 declaring 阶段提交一次盲声明。",
+      parameters: AnyObject,
+      jsonSchema: candidateDeclareSchema,
+      catalog: { category: "communication" as const, mutability: "write" as const, risk: "low" as const, detail: "standard" as const },
+      execute: (input: unknown, ctx: Tool.Context) =>
+        Effect.gen(function* () {
+          const board = yield* Blackboard.Service
+          const bridge = yield* EffectBridge.make()
+          const session = yield* getSession(sessions, ctx.sessionID)
+          const protocol = protocolFor(sessions, bus, { bridge, candidateBoard: board })
+          return jsonResult("Candidate.declare", yield* Effect.promise(() => protocol.candidateDeclare(protocolContext(session, ctx), input)))
+        }).pipe(Effect.provide(Blackboard.defaultLayer)),
+    }
+  }),
+)
+
+export const CandidateReadyTool = Tool.define(
+  "Candidate.ready",
+  Effect.gen(function* () {
+    const sessions = yield* Session.Service
+    const bus = yield* Bus.Service
+    return {
+      description: "确认已回复每位其他候选的顶层声明。",
+      parameters: Empty,
+      jsonSchema: { type: "object", additionalProperties: false } satisfies JSONSchema7,
+      catalog: { category: "communication" as const, mutability: "write" as const, risk: "low" as const, detail: "standard" as const },
+      execute: (_input: {}, ctx: Tool.Context) =>
+        Effect.gen(function* () {
+          const board = yield* Blackboard.Service
+          const bridge = yield* EffectBridge.make()
+          const session = yield* getSession(sessions, ctx.sessionID)
+          const protocol = protocolFor(sessions, bus, { bridge, candidateBoard: board })
+          return jsonResult("Candidate.ready", yield* Effect.promise(() => protocol.candidateReady(protocolContext(session, ctx), {})))
+        }).pipe(Effect.provide(Blackboard.defaultLayer)),
+    }
+  }),
+)
+
+export const CandidateBeginTool = Tool.define(
+  "Candidate.begin",
+  Effect.gen(function* () {
+    const sessions = yield* Session.Service
+    const bus = yield* Bus.Service
+    return {
+      description: "由根会话显式开始候选的独立执行阶段。",
+      parameters: Empty,
+      jsonSchema: { type: "object", additionalProperties: false } satisfies JSONSchema7,
+      catalog: { category: "subagent" as const, mutability: "execute" as const, risk: "medium" as const, detail: "advanced" as const },
+      execute: (_input: {}, ctx: Tool.Context) =>
+        Effect.gen(function* () {
+          const bridge = yield* EffectBridge.make()
+          const session = yield* getSession(sessions, ctx.sessionID)
+          const protocol = protocolFor(sessions, bus, { bridge })
+          return jsonResult("Candidate.begin", yield* Effect.promise(() => protocol.candidateBegin(protocolContext(session, ctx), {})))
+        }),
+    }
+  }),
+)
+
+export const CandidateSubmitTool = Tool.define(
+  "Candidate.submit",
+  Effect.gen(function* () {
+    const sessions = yield* Session.Service
+    const bus = yield* Bus.Service
+    return {
+      description: "把候选方案写入服务端隔离提案并提交候选报告。",
+      parameters: AnyObject,
+      jsonSchema: candidateSubmitSchema,
+      catalog: { category: "subagent" as const, mutability: "write" as const, risk: "medium" as const, detail: "standard" as const },
+      execute: (input: unknown, ctx: Tool.Context) =>
+        Effect.gen(function* () {
+          const bridge = yield* EffectBridge.make()
+          const session = yield* getSession(sessions, ctx.sessionID)
+          const protocol = protocolFor(sessions, bus, { bridge })
+          return jsonResult("Candidate.submit", yield* Effect.promise(() => protocol.candidateSubmit(protocolContext(session, ctx), input)))
+        }),
+    }
+  }),
+)
+
 export const ReportTool = Tool.define(
   "Report",
   Effect.gen(function* () {
@@ -659,6 +812,10 @@ export const PlanProtocolTools = [
   PlanUpdateTool,
   DispatchDispatchTool,
   DispatchCancelTool,
+  CandidateDeclareTool,
+  CandidateReadyTool,
+  CandidateBeginTool,
+  CandidateSubmitTool,
   ReportTool,
 ] as const
 

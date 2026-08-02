@@ -604,6 +604,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
         ...(typeof value.reply_to === "string" ? { parentMessageID: value.reply_to } : {}),
         authorKind: "user" as const,
         kind,
+        purpose: "general" as const,
         body: message,
         mentions: [],
         attachments,

@@ -8,7 +8,7 @@ import { errorMessage } from "../projects/project-controller"
 import { attachmentFromPath } from "../composer/composer"
 import { renderMarkdown } from "../conversation/markdown"
 import { tr } from "../../i18n/i18n-context"
-import { blackboardQueryOptions, createBlackboardApi, type BlackboardSnapshot } from "./blackboard-query"
+import { blackboardMessagePurpose, blackboardQueryOptions, createBlackboardApi, type BlackboardSnapshot } from "./blackboard-query"
 import "./blackboard.css"
 
 type BlackboardKind = "info" | "risk" | "blocker" | "decision" | "help"
@@ -291,6 +291,9 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
                       <span class="blackboard-message__kind" aria-label={kindLabel(message.kind)}>
                         <span aria-hidden="true">{kindGlyph(message.kind)}</span> {kindLabel(message.kind)}
                       </span>
+                      <Show when={blackboardMessagePurpose(message) === "candidate_declaration"}>
+                        <span class="blackboard-message__purpose">{tr("blackboard.candidate-declaration")}</span>
+                      </Show>
                       <strong>{messageSender(message, taskLabels())}</strong>
                       <time dateTime={new Date(message.timeCreated).toISOString()}>
                         {new Date(message.timeCreated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}

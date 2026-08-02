@@ -20,8 +20,23 @@ export const ERROR_CODES = {
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
 export type PlanStatus = "draft" | "active" | "done"
 export type StepStatus = "pending" | "active" | "done"
-export type TaskStatus = "pending" | "dispatched" | "running" | "reported" | "approved" | "rejected"
+export type PlanTaskMode = "standard" | "candidate"
+export type TaskStatus = "pending" | "dispatched" | "running" | "reported" | "approved" | "rejected" | "dismissed"
 export type ReportStatus = "done" | "partial" | "failed"
+export type CandidateDiscussionPhase = "declaring" | "cross_review" | "awaiting_main" | "running"
+
+export type CandidateDiscussion = {
+  phase: CandidateDiscussionPhase
+  ready_task_ids: string[]
+}
+
+export type CandidateSelection = {
+  selected_task_id: string
+  contributing_task_ids: string[]
+  synthesis_artifact: string
+  rationale: string
+  selected_at: string
+}
 
 export type DispatchRecord = {
   run_id: string
@@ -47,6 +62,8 @@ export type PlanTask = {
   goal: string
   done_criteria: string
   output_path: string | null
+  /** Legacy in-memory fixtures may omit this; persisted plans are normalized to standard. */
+  mode?: PlanTaskMode
   status: TaskStatus
   dispatch: DispatchRecord | null
   report: ReportRecord | null
@@ -59,6 +76,8 @@ export type PlanStep = {
   done_criteria: string
   status: StepStatus
   tasks: PlanTask[]
+  candidate_discussion?: CandidateDiscussion
+  candidate_selection?: CandidateSelection
 }
 
 export type PlanFile = {
@@ -77,6 +96,7 @@ export type CreateTaskInput = {
   goal: string
   done_criteria: string
   output_path?: string
+  mode?: PlanTaskMode
 }
 
 export type CreateStepInput = {
@@ -112,6 +132,14 @@ export type PlanUpdateOp =
       to: Exclude<TaskStatus, "dispatched" | "running"> | "running"
     }
   | { op: "review_task"; stepId: string; taskId: string; decision: "approve" | "reject"; feedback?: string }
+  | {
+      op: "select_candidate"
+      stepId: string
+      selectedTaskId: string
+      contributingTaskIds?: string[]
+      synthesisArtifact: string
+      rationale: string
+    }
 
 export type PlanUpdateInput = { revision: number; ops: PlanUpdateOp[] }
 
@@ -215,6 +243,27 @@ function errorAt(pathname: string, message: string) {
   return `${pathname}: ${message}`
 }
 
+function validCandidateDiscussion(value: unknown): value is CandidateDiscussion {
+  if (!isRecord(value)) return false
+  return (
+    ["declaring", "cross_review", "awaiting_main", "running"].includes(String(value.phase)) &&
+    Array.isArray(value.ready_task_ids) &&
+    value.ready_task_ids.every((item) => typeof item === "string")
+  )
+}
+
+function validCandidateSelection(value: unknown): value is CandidateSelection {
+  if (!isRecord(value)) return false
+  return (
+    nonEmptyString(value.selected_task_id) &&
+    Array.isArray(value.contributing_task_ids) &&
+    value.contributing_task_ids.every((item) => typeof item === "string") &&
+    nonEmptyString(value.synthesis_artifact) &&
+    nonEmptyString(value.rationale) &&
+    validDateTime(value.selected_at)
+  )
+}
+
 export function validatePlanFile(value: unknown): string[] {
   const errors: string[] = []
   if (!isRecord(value)) return ["plan: must be an object"]
@@ -240,7 +289,16 @@ export function validatePlanFile(value: unknown): string[] {
         errors.push(errorAt(prefix, "must be an object"))
         continue
       }
-      const allowedStep = new Set(["id", "title", "goal", "done_criteria", "status", "tasks"])
+      const allowedStep = new Set([
+        "id",
+        "title",
+        "goal",
+        "done_criteria",
+        "status",
+        "tasks",
+        "candidate_discussion",
+        "candidate_selection",
+      ])
       for (const key of Object.keys(rawStep))
         if (!allowedStep.has(key)) errors.push(errorAt(`${prefix}.${key}`, "unknown property"))
       if (!/^s[1-9]\d*$/.test(String(rawStep.id))) errors.push(errorAt(`${prefix}.id`, "invalid step id"))
@@ -253,6 +311,31 @@ export function validatePlanFile(value: unknown): string[] {
       if (!Array.isArray(rawStep.tasks)) {
         errors.push(errorAt(`${prefix}.tasks`, "must be an array"))
         continue
+      }
+      const taskModes = rawStep.tasks
+        .filter(isRecord)
+        .map((task) => (task.mode === undefined ? "standard" : task.mode))
+      const hasCandidates = taskModes.includes("candidate")
+      if (hasCandidates && (taskModes.some((mode) => mode !== "candidate") || taskModes.length < 2 || taskModes.length > 3))
+        errors.push(errorAt(`${prefix}.tasks`, "candidate steps must contain 2-3 candidate tasks and no standard tasks"))
+      if (hasCandidates) {
+        const outputPaths = new Set<string>()
+        for (const [taskIndex, rawTask] of rawStep.tasks.entries()) {
+          if (!isRecord(rawTask) || rawTask.mode !== "candidate") continue
+          if (rawTask.output_path !== null && typeof rawTask.output_path === "string") {
+            if (outputPaths.has(rawTask.output_path))
+              errors.push(errorAt(`${prefix}.tasks[${taskIndex}].output_path`, "duplicate candidate output path"))
+            outputPaths.add(rawTask.output_path)
+          }
+        }
+        if (rawStep.candidate_discussion === undefined)
+          errors.push(errorAt(`${prefix}.candidate_discussion`, "candidate tasks require discussion metadata"))
+        else if (!validCandidateDiscussion(rawStep.candidate_discussion))
+          errors.push(errorAt(`${prefix}.candidate_discussion`, "invalid candidate discussion"))
+        if (rawStep.candidate_selection !== undefined && !validCandidateSelection(rawStep.candidate_selection))
+          errors.push(errorAt(`${prefix}.candidate_selection`, "invalid candidate selection"))
+      } else if (rawStep.candidate_discussion !== undefined || rawStep.candidate_selection !== undefined) {
+        errors.push(errorAt(prefix, "candidate metadata requires candidate tasks"))
       }
       const taskIds = new Set<string>()
       for (const [taskIndex, rawTask] of rawStep.tasks.entries()) {
@@ -267,6 +350,7 @@ export function validatePlanFile(value: unknown): string[] {
           "goal",
           "done_criteria",
           "output_path",
+          "mode",
           "status",
           "dispatch",
           "report",
@@ -281,7 +365,9 @@ export function validatePlanFile(value: unknown): string[] {
           if (!nonEmptyString(rawTask[field])) errors.push(errorAt(`${taskPrefix}.${field}`, "must be non-empty"))
         if (!("output_path" in rawTask) || (rawTask.output_path !== null && typeof rawTask.output_path !== "string"))
           errors.push(errorAt(`${taskPrefix}.output_path`, "must be string or null"))
-        if (!["pending", "dispatched", "running", "reported", "approved", "rejected"].includes(String(rawTask.status)))
+        if (rawTask.mode !== undefined && !["standard", "candidate"].includes(String(rawTask.mode)))
+          errors.push(errorAt(`${taskPrefix}.mode`, "invalid mode"))
+        if (!["pending", "dispatched", "running", "reported", "approved", "rejected", "dismissed"].includes(String(rawTask.status)))
           errors.push(errorAt(`${taskPrefix}.status`, "invalid status"))
         if (!("dispatch" in rawTask) || (rawTask.dispatch !== null && !isValidDispatch(rawTask.dispatch)))
           errors.push(errorAt(`${taskPrefix}.dispatch`, "invalid dispatch record"))
@@ -354,6 +440,47 @@ export function clonePlan(plan: PlanFile): PlanFile {
   return structuredClone(plan)
 }
 
+/** Normalize persisted plans at the read boundary so old standard tasks remain valid. */
+export function normalizePlanFile(value: unknown): unknown {
+  if (!isRecord(value)) return value
+  const normalized = structuredClone(value) as Record<string, unknown>
+  if (Array.isArray(normalized.steps)) {
+    normalized.steps = normalized.steps.map((step) => {
+      if (!isRecord(step) || !Array.isArray(step.tasks)) return step
+      return {
+        ...step,
+        tasks: step.tasks.map((task) =>
+          isRecord(task) && task.mode === undefined ? { ...task, mode: "standard" } : task,
+        ),
+      }
+    })
+  }
+  return normalized
+}
+
+function pathWithin(workspace: string, candidate: string) {
+  const relative = path.relative(path.resolve(workspace), path.resolve(candidate))
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+}
+
+export function isStepComplete(step: PlanStep, workspace: string): boolean {
+  const isCandidate = step.tasks.some((task) => task.mode === "candidate")
+  if (!isCandidate) return step.tasks.length > 0 && step.tasks.every((task) => task.status === "approved")
+  if (step.tasks.length < 2 || step.tasks.length > 3 || step.tasks.some((task) => task.mode !== "candidate")) return false
+  const selection = step.candidate_selection
+  if (!selection) return false
+  const synthesisPath = path.resolve(workspace, selection.synthesis_artifact)
+  if (!pathWithin(workspace, synthesisPath) || !fs.existsSync(synthesisPath)) return false
+  const selected = step.tasks.find((task) => task.id === selection.selected_task_id)
+  return (
+    !!selected &&
+    selected.status === "approved" &&
+    selected.report?.status === "done" &&
+    step.tasks.filter((task) => task.status === "approved").length === 1 &&
+    step.tasks.filter((task) => task.status === "dismissed").length === step.tasks.length - 1
+  )
+}
+
 export function readPlanFileSync(planPath: string): PlanFile | null {
   if (!fs.existsSync(planPath)) return null
   let parsed: unknown
@@ -366,8 +493,9 @@ export function readPlanFileSync(planPath: string): PlanFile | null {
       hint: "恢复或删除损坏的 plan.json 后重试",
     })
   }
-  assertPlanFile(parsed)
-  return parsed
+  const normalized = normalizePlanFile(parsed)
+  assertPlanFile(normalized)
+  return normalized
 }
 
 export * as PlanSchema from "./schema"

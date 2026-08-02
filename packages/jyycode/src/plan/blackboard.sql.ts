@@ -20,6 +20,7 @@ export const BlackboardMessageTable = sqliteTable(
     author_session_id: text(),
     author_task_id: text(),
     kind: text().$type<"info" | "risk" | "blocker" | "decision" | "help">().notNull(),
+    purpose: text().$type<"general" | "candidate_declaration">().notNull().default("general"),
     body: text().notNull(),
     mentions: text({ mode: "json" }).$type<string[]>().notNull().default([]),
     attachments: text({ mode: "json" }).$type<BlackboardAttachment[]>().notNull().default([]),

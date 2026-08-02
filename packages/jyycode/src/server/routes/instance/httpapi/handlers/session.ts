@@ -19,6 +19,7 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { PlanProtocol } from "@/plan/protocol"
 import { Blackboard } from "@/plan/blackboard"
+import { planFilePath, readPlanFileSync } from "@/plan/schema"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NamedError } from "@jyycode-ai/core/util/error"
 import { Cause, Effect, Exit, Option, Schema, Scope } from "effect"
@@ -183,6 +184,21 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           text: "黑板有新用户消息。先调用 Blackboard，处理后继续当前任务。",
         })
         .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+      const planFile = readPlanFileSync(planFilePath(root.directory, root.id))
+      const currentStep = planFile?.current_step ? planFile.steps.find((step) => step.id === planFile.current_step) : undefined
+      const phase = currentStep?.candidate_discussion?.phase
+      if (currentStep && phase && phase !== "running") {
+        const candidates = yield* blackboard.candidateParticipants({ rootSessionID: root.id, stepID: currentStep.id })
+        for (const candidate of candidates) {
+          yield* promptSvc
+            .wake({
+              sessionID: candidate.sessionID,
+              kind: "candidate_blackboard_user_message",
+              text: "用户在候选预讨论阶段更新了 Blackboard；读取相关消息并按当前阶段继续。",
+            })
+            .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+        }
+      }
       return message
     })
 

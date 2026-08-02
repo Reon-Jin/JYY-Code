@@ -42,6 +42,10 @@ function waveLabel(tone: MultiAgentTaskTone) {
   return labels[tone]
 }
 
+function candidatePhaseLabel(phase: NonNullable<MultiAgentSnapshot["steps"][number]["candidate"]>["phase"]) {
+  return tr(`multi-agent.candidate-phase-${phase}` as Parameters<typeof tr>[0])
+}
+
 function roleMeta(task: MultiAgentTaskView) {
   const status =
     task.tone === "done"
@@ -263,6 +267,13 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                             <span>{tr("multi-agent.wave", { index: String(step.index).padStart(2, "0"), status: waveLabel(step.tone) })}</span>
                             <span class="multi-agent-step__title">— {step.title}</span>
                           </h3>
+                          <Show when={wave().candidate}>
+                            {(candidate) => (
+                              <span class="multi-agent-step__candidate" data-candidate-phase={candidate().phase}>
+                                {tr("multi-agent.candidate-discussion")} · {candidatePhaseLabel(candidate().phase)} · {candidate().ready}/{candidate().total}
+                              </span>
+                            )}
+                          </Show>
                           <div class="multi-agent-step__actions">
                             <span class="multi-agent-step__ratio">
                               {wave().tasks.filter((task) => task.tone === "done").length}/{wave().tasks.length}
@@ -281,6 +292,18 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                           </div>
                         </header>
                         <Show when={!collapsed()}>
+                          <Show when={wave().candidate?.selection}>
+                            {(selection) => (
+                              <aside class="multi-agent-candidate-selection" aria-label={tr("multi-agent.candidate-selection")}>
+                                <strong>{tr("multi-agent.candidate-selected-task")}</strong>
+                                <span>{selection().selectedTaskID}</span>
+                                <strong>{tr("multi-agent.candidate-contributions")}</strong>
+                                <span>{selection().contributingTaskIDs.join(", ") || tr("multi-agent.candidate-none")}</span>
+                                <strong>{tr("multi-agent.candidate-synthesis")}</strong>
+                                <span>{selection().synthesisArtifact}</span>
+                              </aside>
+                            )}
+                          </Show>
                           <ol id={taskListID()} aria-label={tr("multi-agent.tasks-for-step", { index: wave().index })}>
                             <Index each={wave().tasks}>
                               {(task) => (

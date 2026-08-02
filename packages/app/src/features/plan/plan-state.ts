@@ -8,6 +8,23 @@ type PlanTask = PlanData["steps"][number]["tasks"][number]
 
 export type MultiAgentTaskTone = "queued" | "running" | "review" | "done" | "failed" | "interrupted"
 
+export type CandidateDiscussionPhase = "declaring" | "cross_review" | "awaiting_main" | "running"
+
+export type CandidateSelectionView = {
+  selectedTaskID: string
+  contributingTaskIDs: string[]
+  synthesisArtifact: string
+  rationale: string
+  selectedAt: string
+}
+
+export type CandidateDiscussionView = {
+  phase: CandidateDiscussionPhase
+  ready: number
+  total: number
+  selection?: CandidateSelectionView
+}
+
 export type MultiAgentTaskView = {
   key: string
   id: string
@@ -18,6 +35,7 @@ export type MultiAgentTaskView = {
   status: PlanTask["status"]
   tone: MultiAgentTaskTone
   statusLabel: string
+  mode?: "candidate"
   childSessionID?: string
   dependencies: string[]
   acceptanceCriteria: string[]
@@ -36,6 +54,7 @@ export type MultiAgentStepView = {
   tone: MultiAgentTaskTone
   collapsed: boolean
   tasks: MultiAgentTaskView[]
+  candidate?: CandidateDiscussionView
 }
 
 export type MultiAgentSnapshot = {
@@ -62,6 +81,7 @@ const statusPresentation: Record<
   reported: { tone: "review", labelKey: "multi-agent.task-status-submitted" },
   approved: { tone: "done", labelKey: "multi-agent.task-status-accepted" },
   rejected: { tone: "failed", labelKey: "multi-agent.task-status-revision-requested" },
+  dismissed: { tone: "done", labelKey: "multi-agent.task-status-dismissed" },
 }
 
 function numeric(value: number | string) {
@@ -121,6 +141,7 @@ export function projectPlanState(state: SessionPlanResponse): MultiAgentSnapshot
         status: item.status,
         tone: presentation.tone,
         statusLabel: tr(presentation.labelKey),
+        ...(item.mode === "candidate" ? { mode: "candidate" as const } : {}),
         ...(item.child ? { childSessionID: item.child.session_id } : {}),
         dependencies: [],
         acceptanceCriteria: [],
@@ -143,7 +164,25 @@ export function projectPlanState(state: SessionPlanResponse): MultiAgentSnapshot
               : step.status === "active"
                 ? "running"
                 : "queued"
-    return { id: step.id, index, title: step.title, tone, collapsed: tone === "done", tasks }
+    const candidate = step.candidate
+      ? {
+          phase: step.candidate.phase,
+          ready: numeric(step.candidate.ready),
+          total: numeric(step.candidate.total),
+          ...(step.candidate.selection
+            ? {
+                selection: {
+                  selectedTaskID: step.candidate.selection.selected_task_id,
+                  contributingTaskIDs: [...step.candidate.selection.contributing_task_ids],
+                  synthesisArtifact: step.candidate.selection.synthesis_artifact,
+                  rationale: step.candidate.selection.rationale,
+                  selectedAt: step.candidate.selection.selected_at,
+                },
+              }
+            : {}),
+        }
+      : undefined
+    return { id: step.id, index, title: step.title, tone, collapsed: tone === "done", tasks, ...(candidate ? { candidate } : {}) }
   })
   const tasks = steps.flatMap((step) => step.tasks)
   const currentStepID = state.current_step ?? ""

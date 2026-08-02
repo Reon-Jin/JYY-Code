@@ -1,0 +1,1 @@
+ALTER TABLE `blackboard_message` ADD `purpose` text DEFAULT 'general' NOT NULL;

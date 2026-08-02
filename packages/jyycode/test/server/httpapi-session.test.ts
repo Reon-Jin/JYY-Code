@@ -383,6 +383,36 @@ describe("session HttpApi", () => {
         )
         expect(plan.steps[0]?.tasks[0]?.status).toBe("pending")
 
+        const candidateSession = yield* createSession({ title: "candidate plan", multiAgent: true })
+        expect(
+          yield* Effect.promise(() =>
+            new PlanProtocol().create(
+              { workspaceRoot: candidateSession.directory, sessionId: candidateSession.id, mode: "multi" },
+              {
+                title: "Candidate API",
+                goal: "compare options",
+                steps: [
+                  {
+                    title: "Compare",
+                    goal: "compare",
+                    done_criteria: "select",
+                    tasks: [
+                      { title: "design-1", goal: "design", done_criteria: "proposal", mode: "candidate" },
+                      { title: "design-2", goal: "design", done_criteria: "proposal", mode: "candidate" },
+                    ],
+                  },
+                  { title: "Next", goal: "continue", done_criteria: "done" },
+                ],
+              },
+            ),
+          ),
+        ).toMatchObject({ ok: true })
+        const candidateSnapshot = yield* requestJson<{
+          steps: Array<{ tasks: Array<{ mode?: string; status: string }>; candidate?: { phase: string; ready: number; total: number } }>
+        }>(pathFor(SessionPaths.plan, { sessionID: candidateSession.id }), { headers })
+        expect(candidateSnapshot.steps[0]).toMatchObject({ candidate: { phase: "declaring", ready: 0, total: 2 } })
+        expect(candidateSnapshot.steps[0]?.tasks.every((task) => task.mode === "candidate")).toBe(true)
+
         expect(
           yield* requestJson<unknown[]>(pathFor(SessionPaths.diff, { sessionID: parent.id }), { headers }),
         ).toEqual([])

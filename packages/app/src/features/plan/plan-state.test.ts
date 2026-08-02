@@ -70,4 +70,42 @@ describe("projectPlanState", () => {
     expect(result.currentStepID).toBe("")
     expect(result.currentStep).toBe(0)
   })
+
+  it("projects candidate discussion phases and treats dismissed candidates as settled", () => {
+    const planSnapshot = snapshot as Extract<SessionPlanResponse, { steps: unknown[] }>
+    const candidate = {
+      ...snapshot,
+      steps: [
+        {
+          ...planSnapshot.steps[0],
+          candidate: {
+            phase: "awaiting_main",
+            ready: 2,
+            total: 2,
+            selection: {
+              selected_task_id: "s1_t1",
+              contributing_task_ids: ["s1_t2"],
+              synthesis_artifact: "docs/synthesis.md",
+              rationale: "best fit",
+              selected_at: "2026-08-02T00:00:00.000Z",
+            },
+          },
+          tasks: [
+            { ...planSnapshot.steps[0]!.tasks[0], mode: "candidate", status: "approved" },
+            { ...planSnapshot.steps[0]!.tasks[1], mode: "candidate", status: "dismissed" },
+          ],
+        },
+      ],
+    } as unknown as SessionPlanResponse
+    const result = projectPlanState(candidate)
+    expect(result.steps[0]?.candidate).toMatchObject({ phase: "awaiting_main", ready: 2, total: 2 })
+    expect(result.steps[0]?.candidate?.selection).toMatchObject({
+      selectedTaskID: "s1_t1",
+      contributingTaskIDs: ["s1_t2"],
+      synthesisArtifact: "docs/synthesis.md",
+    })
+    expect(result.tasks[1]?.status).toBe("dismissed")
+    expect(result.tasks[1]?.tone).toBe("done")
+    expect(result.tasks[1]?.statusLabel).toBeTruthy()
+  })
 })

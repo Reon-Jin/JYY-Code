@@ -21,6 +21,7 @@ import { Bus } from "@/bus"
 import { ToolTelemetry } from "@/tool/telemetry"
 import { PLAN_TOOL_IDS } from "@/plan/tools"
 import { Skill } from "@/skill"
+import { planFilePath, readPlanFileSync, type CandidateDiscussionPhase } from "@/plan/schema"
 
 const log = Log.create({ service: "session.tools" })
 
@@ -65,6 +66,45 @@ export function isPlanToolVisible(itemID: string, session: Pick<Session.Info, "p
   if (session.parentID !== undefined) return itemID === "Report" || itemID === "Blackboard"
   if (session.multiAgent === true) return true
   return !itemID.startsWith("Dispatch.") && itemID !== "Report" && itemID !== "Blackboard"
+}
+
+const CANDIDATE_RUNNING_TOOL_IDS = new Set(["read", "glob", "grep", "webfetch", "websearch", "Candidate.submit"])
+
+export type CandidateToolGateState = {
+  stepID: string
+  taskID: string
+  phase: CandidateDiscussionPhase
+  allowedToolIDs: ReadonlySet<string>
+}
+
+/**
+ * Candidate permissions are derived from the persisted dispatch record and the
+ * current plan phase. Prompt wording is intentionally not part of this gate.
+ */
+export function candidateToolGateState(
+  session: Pick<Session.Info, "id" | "parentID" | "directory">,
+): CandidateToolGateState | undefined {
+  if (session.parentID === undefined) return undefined
+  const plan = readPlanFileSync(planFilePath(session.directory, session.parentID))
+  if (!plan) return undefined
+  for (const step of plan.steps) {
+    const discussion = step.candidate_discussion
+    if (!discussion) continue
+    const task = step.tasks.find(
+      (item) => item.mode === "candidate" && item.dispatch?.child_session_id === session.id,
+    )
+    if (!task) continue
+    const allowedToolIDs =
+      discussion.phase === "declaring"
+        ? new Set(["Candidate.declare"])
+        : discussion.phase === "cross_review"
+          ? new Set(["Blackboard", "Candidate.ready"])
+          : discussion.phase === "running"
+            ? new Set(CANDIDATE_RUNNING_TOOL_IDS)
+            : new Set<string>()
+    return { stepID: step.id, taskID: task.id, phase: discussion.phase, allowedToolIDs }
+  }
+  return undefined
 }
 
 /** Select protocol gates that models are not allowed to bypass with plain text. */
@@ -230,15 +270,18 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     })
   }
 
+  const candidateGate = candidateToolGateState(input.session)
   const registryDefs = yield* registry.tools({
     modelID: ModelID.make(input.model.api.id),
     providerID: input.model.providerID,
     agent: input.agent,
     skillScope: Skill.scopeForSession(input.session, input.agent),
     includeMemory: input.session.parentID === undefined,
+    ...(candidateGate ? { toolIDs: candidateGate.allowedToolIDs } : {}),
   })
-  const mcpDefs = yield* mcp.toolDefs()
+  const mcpDefs = candidateGate ? [] : yield* mcp.toolDefs()
   const visibleRegistryDefs = registryDefs.filter((item) => {
+    if (candidateGate) return item.id !== "tool_search" || candidateGate.phase === "running"
     if (!PLAN_TOOL_IDS.has(item.id)) return true
     return isPlanToolVisible(item.id, input.session)
   })

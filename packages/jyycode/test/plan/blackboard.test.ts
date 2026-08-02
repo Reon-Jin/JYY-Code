@@ -17,6 +17,9 @@ const childSessionID = SessionID.make("ses_blackboard_child")
 const domainRootSessionID = SessionID.make("ses_blackboard_domain_root")
 const domainChildASessionID = SessionID.make("ses_blackboard_domain_child_a")
 const domainChildBSessionID = SessionID.make("ses_blackboard_domain_child_b")
+const candidateRootSessionID = SessionID.make("ses_blackboard_candidate_root")
+const candidateChildASessionID = SessionID.make("ses_blackboard_candidate_child_a")
+const candidateChildBSessionID = SessionID.make("ses_blackboard_candidate_child_b")
 
 const plan = {
   title: "blackboard",
@@ -120,6 +123,42 @@ const domainPlan = {
   ],
 }
 
+const candidatePlan = {
+  ...plan,
+  steps: [
+    {
+      ...plan.steps[0]!,
+      tasks: [
+        {
+          ...plan.steps[0]!.tasks[0]!,
+          mode: "candidate" as const,
+          output_path: ".jyycode/plan/candidates/a/proposal.md",
+          status: "running" as const,
+          dispatch: {
+            run_id: "run__blackboard_candidate_root__s1_t1",
+            child_session_id: candidateChildASessionID,
+            dispatched_at: new Date().toISOString(),
+            cancelled_at: null,
+          },
+        },
+        {
+          ...plan.steps[0]!.tasks[1]!,
+          mode: "candidate" as const,
+          output_path: ".jyycode/plan/candidates/b/proposal.md",
+          status: "running" as const,
+          dispatch: {
+            run_id: "run__blackboard_candidate_root__s1_t2",
+            child_session_id: candidateChildBSessionID,
+            dispatched_at: new Date().toISOString(),
+            cancelled_at: null,
+          },
+        },
+      ],
+      candidate_discussion: { phase: "declaring" as const, ready_task_ids: [] },
+    },
+  ],
+}
+
 function insertSession(input: {
   id: SessionID
   projectID: string
@@ -218,6 +257,7 @@ it.instance("resolves participants, associations, replies, cursors, mentions, an
       attachments: [workspaceFile, workspaceDirectory, "https://example.com/reference"],
     })
     expect(blocker.authorKind).toBe("sub_agent")
+    expect(blocker.purpose).toBe("general")
     expect(blocker.authorTaskID).toBe("s1_t2")
     expect(blocker.mentions).toEqual(["s1_t1", "main"])
     expect(blocker.taskIDs).toEqual(expect.arrayContaining(["s1_t1", "s1_t2"]))
@@ -296,5 +336,68 @@ it.instance("resolves participants, associations, replies, cursors, mentions, an
       board.postAgent({ sessionID: domainChildASessionID, message: "old step" }),
     )
     expect(Exit.isFailure(oldStepAgent)).toBe(true)
+  }),
+)
+
+it.instance("stores candidate declarations as top-level messages and validates peer coverage", () =>
+  Effect.gen(function* () {
+    const ctx = yield* InstanceState.context
+    yield* setupSessions({
+      directory: ctx.directory,
+      projectID: ctx.project.id,
+      rootSessionID: candidateRootSessionID,
+      childSessionIDs: [candidateChildASessionID, candidateChildBSessionID],
+      plan: candidatePlan,
+    })
+    const board = yield* Blackboard.Service
+    const declarationA = yield* board.postCandidateDeclaration({
+      sessionID: candidateChildASessionID,
+      approach: "A",
+      assumptions: ["a"],
+      risks: ["risk-a"],
+      differentiator: "fast",
+    })
+    const declarationB = yield* board.postCandidateDeclaration({
+      sessionID: candidateChildBSessionID,
+      approach: "B",
+      assumptions: ["b"],
+      risks: ["risk-b"],
+      differentiator: "safe",
+    })
+    expect(declarationA.parentMessageID).toBeUndefined()
+    expect(declarationA.purpose).toBe("candidate_declaration")
+    expect((yield* board.candidateDeclarations({ rootSessionID: candidateRootSessionID, stepID: "s1" })).map((item) => item.authorTaskID)).toEqual([
+      "s1_t1",
+      "s1_t2",
+    ])
+    expect(Exit.isFailure(yield* Effect.exit(board.readAgent(candidateChildBSessionID)))).toBe(true)
+    const crossReviewPlan = structuredClone(candidatePlan) as any
+    crossReviewPlan.steps[0]!.candidate_discussion.phase = "cross_review"
+    const candidatePlanPath = path.join(ctx.directory, ".jyycode", "plan", candidateRootSessionID, "plan.json")
+    yield* Effect.promise(() => fs.writeFile(candidatePlanPath, JSON.stringify(crossReviewPlan)))
+    const userMessage = yield* board.postUser({ rootSessionID: candidateRootSessionID, message: "Please compare the risks" })
+    expect(userMessage.purpose).toBe("general")
+    expect((yield* board.readAgent(candidateChildASessionID)).messages.map((item) => item.id)).toContain(userMessage.id)
+
+    const beforeReply = yield* board.candidatePeerReplyCoverage({
+      rootSessionID: candidateRootSessionID,
+      stepID: "s1",
+      taskID: "s1_t1",
+    })
+    expect(beforeReply).toMatchObject({ missingTaskIDs: ["s1_t2"], complete: false })
+    yield* board.postAgent({ sessionID: candidateChildASessionID, message: "review B", replyTo: declarationB.id })
+    const afterReply = yield* board.candidatePeerReplyCoverage({
+      rootSessionID: candidateRootSessionID,
+      stepID: "s1",
+      taskID: "s1_t1",
+    })
+    expect(afterReply).toMatchObject({ repliedTaskIDs: ["s1_t2"], missingTaskIDs: [], complete: true })
+
+    const runningPlan = structuredClone(candidatePlan) as any
+    runningPlan.steps[0]!.candidate_discussion.phase = "running"
+    const runningPlanPath = path.join(ctx.directory, ".jyycode", "plan", candidateRootSessionID, "plan.json")
+    yield* Effect.promise(() => fs.writeFile(runningPlanPath, JSON.stringify(runningPlan)))
+    expect(Exit.isFailure(yield* Effect.exit(board.postAgent({ sessionID: candidateChildASessionID, message: "second round" })))).toBe(true)
+    expect(Exit.isFailure(yield* Effect.exit(board.readAgent(candidateChildASessionID)))).toBe(true)
   }),
 )

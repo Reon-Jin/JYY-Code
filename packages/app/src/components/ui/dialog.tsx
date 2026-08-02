@@ -27,18 +27,26 @@ export function Dialog(props: DialogProps) {
     if (!dialog) return
     if (props.open && !dialog.open) {
       restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
-      dialog.showModal()
+      if (typeof dialog.showModal === "function") dialog.showModal()
+      else dialog.setAttribute("open", "")
       queueMicrotask(() => dialog?.querySelector<HTMLElement>("[autofocus], button, input, select, textarea")?.focus())
       return
     }
     if (!props.open && dialog.open) {
-      dialog.close()
+      if (typeof dialog.close === "function") dialog.close()
+      else {
+        dialog.removeAttribute("open")
+        returnFocus()
+      }
       returnFocus()
     }
   })
 
   onCleanup(() => {
-    if (dialog?.open) dialog.close()
+    if (dialog?.open) {
+      if (typeof dialog.close === "function") dialog.close()
+      else dialog.removeAttribute("open")
+    }
     returnFocus()
   })
 

@@ -8296,7 +8296,8 @@ export type SessionPlanResponses = {
           tasks: Array<{
             id: string
             title: string
-            status: "pending" | "dispatched" | "running" | "reported" | "approved" | "rejected"
+            status: "pending" | "dispatched" | "running" | "reported" | "approved" | "rejected" | "dismissed"
+            mode?: "candidate"
             role?: {
               id: string
               name: string
@@ -8310,6 +8311,18 @@ export type SessionPlanResponses = {
               last_activity_at?: string
             }
           }>
+          candidate?: {
+            phase: "declaring" | "cross_review" | "awaiting_main" | "running"
+            ready: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+            total: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+            selection?: {
+              selected_task_id: string
+              contributing_task_ids: Array<string>
+              synthesis_artifact: string
+              rationale: string
+              selected_at: string
+            }
+          }
         }>
         pending_review: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
         inbox_pending: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
@@ -8359,7 +8372,7 @@ export type SessionBlackboardResponses = {
     tasks: Array<{
       id: string
       title: string
-      status: "pending" | "dispatched" | "running" | "reported" | "approved" | "rejected"
+      status: "pending" | "dispatched" | "running" | "reported" | "approved" | "rejected" | "dismissed"
       hasAgent: boolean
       isSelf: boolean
     }>
@@ -8372,6 +8385,7 @@ export type SessionBlackboardResponses = {
       authorSessionID?: string
       authorTaskID?: string
       kind: "info" | "risk" | "blocker" | "decision" | "help"
+      purpose?: "general" | "candidate_declaration"
       body: string
       mentions: Array<string>
       attachments: Array<{
@@ -8433,6 +8447,7 @@ export type SessionBlackboardPostResponses = {
     authorSessionID?: string
     authorTaskID?: string
     kind: "info" | "risk" | "blocker" | "decision" | "help"
+    purpose?: "general" | "candidate_declaration"
     body: string
     mentions: Array<string>
     attachments: Array<{

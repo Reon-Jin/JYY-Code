@@ -33,6 +33,12 @@ export const PLAN_CHILD_PROMPT = `# 子 Agent 执行协议
 - 你不能创建或修改父方案，也不能输出 JSON 方案替代 Report。
 - 子 Agent：发现影响协作的风险、阻塞、决策或求助时立即用 Blackboard 发布，不发普通进度；Report 前无参调用 Blackboard 并处理新消息。`
 
+export const PLAN_CANDIDATE_PROMPT = `## Candidate task protocol
+- A candidate Step contains 2-3 independent candidate Tasks and must be dispatched as one complete group.
+- During declaring, each candidate uses Candidate.declare exactly once. During cross_review, use Blackboard to read peer declarations, reply directly to every other candidate, then call Candidate.ready.
+- The root session starts the running phase with Candidate.begin. In running, candidates work independently and submit only through Candidate.submit; do not use Report, Blackboard, shell, edit, write, process, MCP, or plugin tools.
+- The root session must choose exactly one approved candidate, may record contributing candidates, and must provide a real synthesis artifact before the Step can complete.`
+
 function dispatchRosterPrompt(profiles: readonly SubagentProfile[] | undefined) {
   const visible = enabledProfiles(profiles?.length ? profiles : [defaultGeneralProfile])
   const roster = visible.length > 0 ? visible : [defaultGeneralProfile]
@@ -52,6 +58,7 @@ export function planSystemPrompt(input: {
   return [
     PLAN_BASE_PROMPT,
     input.multiAgent ? PLAN_MULTI_PROMPT : PLAN_SINGLE_PROMPT,
+    input.multiAgent ? PLAN_CANDIDATE_PROMPT : undefined,
     input.multiAgent ? dispatchRosterPrompt(input.profiles) : undefined,
   ]
     .filter((part): part is string => Boolean(part))

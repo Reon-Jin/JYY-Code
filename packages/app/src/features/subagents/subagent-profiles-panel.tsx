@@ -1,10 +1,13 @@
 import type { SubagentProfile, SubagentProfileView } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
-import { Button } from "../../components/ui/button"
+import { Pencil, Plus } from "lucide-solid"
+import { createMemo, createSignal, For, Show } from "solid-js"
+import { Button, IconButton } from "../../components/ui/button"
+import { Dialog } from "../../components/ui/dialog"
 import { InlineError } from "../../components/ui/inline-error"
 import { useData } from "../../data/context"
 import { tr } from "../../i18n/i18n-context"
+import type { CatalogModel } from "../composer/model-catalog"
 import {
   SUBAGENT_AVATAR_IDS,
   SubagentAvatar,
@@ -45,42 +48,70 @@ function errorText(value: unknown) {
   return value instanceof Error && value.message ? value.message : tr("subagents.save-failed")
 }
 
+function modelKey(model: Pick<CatalogModel, "providerID" | "modelID">) {
+  return `${model.providerID}/${model.modelID}`
+}
+
+function modelOptions(value: string | undefined, models: readonly CatalogModel[]) {
+  const options = models.map((model) => ({
+    value: modelKey(model),
+    label: `${model.providerName} · ${model.modelName}`,
+  }))
+  if (value && !options.some((option) => option.value === value)) {
+    options.unshift({ value, label: `${value} · ${tr("subagents.model-unavailable")}` })
+  }
+  return options
+}
+
 export type SubagentProfilesPanelViewProps = {
   profiles: readonly SubagentProfileView[]
+  models?: readonly CatalogModel[]
   loading?: boolean
   error?: string
   onSave: (profiles: readonly SubagentProfile[]) => Promise<void>
   onCreateSkill: (roleID: string, input: { name: string; content: string }) => Promise<void>
-  onRefresh: () => void
+  onRefresh: () => void | Promise<void>
 }
 
 export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps) {
-  const [selectedID, setSelectedID] = createSignal<string>()
-  const [draft, setDraft] = createSignal<SubagentProfile>({ ...defaultDraft })
+  const [editingID, setEditingID] = createSignal<string>()
   const [creating, setCreating] = createSignal(false)
-  const [skillCreating, setSkillCreating] = createSignal(false)
+  const [draft, setDraft] = createSignal<SubagentProfile>({ ...defaultDraft })
   const [saving, setSaving] = createSignal(false)
-  const [skillBusy, setSkillBusy] = createSignal(false)
+  const [switchBusy, setSwitchBusy] = createSignal<string>()
+  const [switchOverrides, setSwitchOverrides] = createSignal<Record<string, boolean>>({})
   const [error, setError] = createSignal<string>()
+  const [skillCreating, setSkillCreating] = createSignal(false)
+  const [skillBusy, setSkillBusy] = createSignal(false)
   const [skillError, setSkillError] = createSignal<string>()
   const [skillName, setSkillName] = createSignal("")
   const [skillContent, setSkillContent] = createSignal("")
 
-  createEffect(() => {
-    if (selectedID() || creating() || props.profiles.length === 0) return
-    const first = props.profiles[0]
-    if (first) {
-      setSelectedID(first.id)
-      setDraft(draftFromProfile(first))
-    }
-  })
-
-  const selectedProfile = createMemo(() => props.profiles.find((profile) => profile.id === selectedID()))
+  const editingProfile = createMemo(() => props.profiles.find((profile) => profile.id === editingID()))
+  const dialogOpen = () => creating() || Boolean(editingID())
+  const enabledFor = (profile: SubagentProfileView) => switchOverrides()[profile.id] ?? profile.enabled
+  const enabledCount = () => props.profiles.filter((profile) => enabledFor(profile)).length
+  const availableModels = () => modelOptions(draft().model, props.models ?? [])
   const updateDraft = (patch: Partial<SubagentProfile>) => setDraft((current) => ({ ...current, ...patch }))
 
-  function selectProfile(profile: SubagentProfileView) {
+  function resetEditor() {
     setCreating(false)
-    setSelectedID(profile.id)
+    setEditingID(undefined)
+    setSkillCreating(false)
+    setSkillError(undefined)
+    setSkillName("")
+    setSkillContent("")
+  }
+
+  function closeEditor() {
+    if (saving() || skillBusy()) return
+    resetEditor()
+    setError(undefined)
+  }
+
+  function editProfile(profile: SubagentProfileView) {
+    setCreating(false)
+    setEditingID(profile.id)
     setDraft(draftFromProfile(profile))
     setError(undefined)
     setSkillError(undefined)
@@ -89,11 +120,30 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
 
   function startNew() {
     setCreating(true)
-    setSelectedID(undefined)
+    setEditingID(undefined)
     setDraft({ ...defaultDraft })
     setError(undefined)
     setSkillError(undefined)
     setSkillCreating(false)
+  }
+
+  async function toggleProfile(profile: SubagentProfileView) {
+    if (switchBusy()) return
+    const enabled = !enabledFor(profile)
+    const next = props.profiles.map((candidate) => {
+      const value = draftFromProfile(candidate)
+      return candidate.id === profile.id ? { ...value, enabled } : value
+    })
+    setSwitchBusy(profile.id)
+    setError(undefined)
+    try {
+      await props.onSave(next)
+      setSwitchOverrides((current) => ({ ...current, [profile.id]: enabled }))
+    } catch (cause) {
+      setError(errorText(cause))
+    } finally {
+      setSwitchBusy(undefined)
+    }
   }
 
   async function save(event: SubmitEvent) {
@@ -104,20 +154,24 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
       setError(tr("subagents.required-fields"))
       return
     }
-    if (value.id !== "general" && props.profiles.some((profile) => profile.id === value.id && profile.id !== selectedID())) {
+    if (props.profiles.some((profile) => profile.id === value.id && profile.id !== editingID())) {
       setError(tr("subagents.duplicate-id"))
       return
     }
     const next = creating()
       ? [...props.profiles.map(draftFromProfile), value]
-      : props.profiles.map((profile) => (profile.id === selectedID() ? value : draftFromProfile(profile)))
+      : props.profiles.map((profile) => (profile.id === editingID() ? value : draftFromProfile(profile)))
     setSaving(true)
     setError(undefined)
     try {
       await props.onSave(next)
-      setCreating(false)
-      setSkillCreating(false)
-      setSelectedID(value.id)
+      setSwitchOverrides((current) => {
+        const nextOverrides = { ...current }
+        delete nextOverrides[value.id]
+        return nextOverrides
+      })
+      resetEditor()
+      setError(undefined)
     } catch (cause) {
       setError(errorText(cause))
     } finally {
@@ -125,9 +179,8 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
     }
   }
 
-  async function createSkill(event: SubmitEvent) {
-    event.preventDefault()
-    const roleID = selectedID()
+  async function createSkill() {
+    const roleID = editingID()
     const name = skillName().trim()
     if (!roleID || !name) {
       setSkillError(tr("subagents.required-skill-name"))
@@ -140,7 +193,7 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
       setSkillName("")
       setSkillContent("")
       setSkillCreating(false)
-      await Promise.resolve(props.onRefresh())
+      await props.onRefresh()
     } catch (cause) {
       setSkillError(errorText(cause))
     } finally {
@@ -154,9 +207,10 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
         <div>
           <p class="subagent-profiles-panel__eyebrow">{tr("subagents.eyebrow")}</p>
           <h2>{tr("subagents.title")}</h2>
-          <p>{tr("subagents.enabled-count", { count: props.profiles.filter((profile) => profile.enabled).length, total: props.profiles.length })}</p>
+          <p>{tr("subagents.enabled-count", { count: enabledCount(), total: props.profiles.length })}</p>
         </div>
         <Button size="small" onClick={startNew}>
+          <Plus aria-hidden="true" />
           {tr("subagents.new")}
         </Button>
       </header>
@@ -164,163 +218,212 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
       <Show when={props.loading}>
         <p class="subagent-profiles-panel__status">{tr("subagents.loading")}</p>
       </Show>
-      <Show when={props.error || error()}>{(message) => <InlineError message={message()} />}</Show>
+      <Show when={props.error}>{(message) => <InlineError message={message()} />}</Show>
+      <Show when={!dialogOpen() && error()}>{(message) => <InlineError message={message()} />}</Show>
 
-      <div class="subagent-profiles-panel__body">
-        <div class="subagent-profiles-panel__cards" role="list" aria-label={tr("subagents.profiles")}>
+      <div class="subagent-profiles-panel__list" role="list" aria-label={tr("subagents.profiles")}>
+        <Show when={props.profiles.length > 0} fallback={<p class="subagent-profiles-panel__status">{tr("subagents.empty")}</p>}>
           <For each={props.profiles}>
             {(profile) => (
-              <button
-                type="button"
-                class="subagent-profile-card"
-                classList={{ "subagent-profile-card--active": selectedID() === profile.id }}
-                aria-pressed={selectedID() === profile.id}
-                onClick={() => selectProfile(profile)}
-              >
-                <span class="subagent-profile-card__avatar">
+              <article class="subagent-profile-row" role="listitem" data-enabled={enabledFor(profile) ? "true" : "false"}>
+                <span class="subagent-profile-row__avatar">
                   <SubagentAvatar id={profile.avatar as SubagentAvatarID} />
                 </span>
-                <span class="subagent-profile-card__copy">
+                <span class="subagent-profile-row__copy">
                   <strong>{profile.name}</strong>
                   <small>{profile.id}</small>
+                  <span>{profile.description}</span>
                 </span>
-                <span class="subagent-profile-card__status" data-enabled={profile.enabled ? "true" : "false"} />
-              </button>
+                <span class="subagent-profile-row__actions">
+                  <button
+                    type="button"
+                    class="subagent-profile-row__switch"
+                    role="switch"
+                    aria-label={`${tr("subagents.enabled")} ${profile.name}`}
+                    aria-checked={enabledFor(profile)}
+                    data-active={enabledFor(profile) ? "true" : "false"}
+                    disabled={Boolean(switchBusy())}
+                    onClick={() => void toggleProfile(profile)}
+                  >
+                    <span aria-hidden="true" />
+                  </button>
+                  <IconButton
+                    class="subagent-profile-row__edit"
+                    label={`${tr("subagents.edit")} ${profile.name}`}
+                    variant="ghost"
+                    onClick={() => editProfile(profile)}
+                  >
+                    <Pencil aria-hidden="true" />
+                  </IconButton>
+                </span>
+              </article>
             )}
           </For>
-        </div>
-
-        <Show when={creating() || selectedID()}>
-          <form class="subagent-profile-editor" aria-label={tr("subagents.editor")} onSubmit={save}>
-            <div class="subagent-profile-editor__title">
-              <div>
-                <p class="subagent-profiles-panel__eyebrow">{creating() ? tr("subagents.new") : tr("subagents.edit")}</p>
-                <h3>{draft().name || tr("subagents.untitled")}</h3>
-              </div>
-              <label class="subagent-profile-editor__toggle">
-                <input
-                  type="checkbox"
-                  aria-label={tr("subagents.enabled")}
-                  checked={draft().enabled}
-                  onChange={(event) => updateDraft({ enabled: event.currentTarget.checked })}
-                />
-                {tr("subagents.enabled")}
-              </label>
-            </div>
-            <label>
-              {tr("subagents.id")}
-              <input
-                aria-label={tr("subagents.id")}
-                value={draft().id}
-                disabled={!creating()}
-                onInput={(event) => updateDraft({ id: event.currentTarget.value })}
-              />
-            </label>
-            <label>
-              {tr("subagents.name")}
-              <input aria-label={tr("subagents.name")} value={draft().name} onInput={(event) => updateDraft({ name: event.currentTarget.value })} />
-            </label>
-            <label>
-              {tr("subagents.description")}
-              <input aria-label={tr("subagents.description")} value={draft().description} onInput={(event) => updateDraft({ description: event.currentTarget.value })} />
-            </label>
-            <label>
-              {tr("subagents.launch-prompt")}
-              <textarea aria-label={tr("subagents.launch-prompt")} rows={4} value={draft().prompt} onInput={(event) => updateDraft({ prompt: event.currentTarget.value })} />
-            </label>
-            <div class="subagent-profile-editor__fields">
-              <label>
-                {tr("subagents.model")}
-                <input aria-label={tr("subagents.model")} value={draft().model ?? ""} placeholder="provider/model" onInput={(event) => updateDraft({ model: event.currentTarget.value || undefined })} />
-              </label>
-              <label>
-                {tr("subagents.thinking-depth")}
-                <select aria-label={tr("subagents.thinking-depth")} value={draft().variant ?? "default"} onChange={(event) => updateDraft({ variant: event.currentTarget.value === "default" ? undefined : event.currentTarget.value })}>
-                  <option value="default">{tr("composer.thinking-depth-default")}</option>
-                  <option value="low">{tr("composer.thinking-depth-low")}</option>
-                  <option value="medium">{tr("composer.thinking-depth-medium")}</option>
-                  <option value="high">{tr("composer.thinking-depth-high")}</option>
-                  <option value="max">{tr("composer.thinking-depth-max")}</option>
-                </select>
-              </label>
-            </div>
-            <fieldset class="subagent-profile-editor__avatars">
-              <legend>{tr("subagents.avatar")}</legend>
-              <div>
-                <For each={SUBAGENT_AVATAR_IDS}>
-                  {(id) => (
-                    <button
-                      type="button"
-                      class="subagent-avatar-choice"
-                      aria-label={`${tr("subagents.choose-avatar")} ${id}`}
-                      aria-pressed={draft().avatar === id}
-                      title={subagentAvatarLabel(id)}
-                      onClick={() => updateDraft({ avatar: id })}
-                    >
-                      <SubagentAvatar id={id} />
-                    </button>
-                  )}
-                </For>
-              </div>
-            </fieldset>
-            <div class="subagent-profile-editor__actions">
-              <Button type="submit" loading={saving()} loadingLabel={tr("subagents.saving")}>
-                {tr("subagents.save")}
-              </Button>
-            </div>
-          </form>
         </Show>
       </div>
 
-      <Show when={selectedProfile()}>
-        {(profile) => (
-          <section class="subagent-profile-skills" aria-label={tr("subagents.skills")}>
-            <div class="subagent-profile-skills__header">
-              <div>
-                <h3>{tr("subagents.skills")}</h3>
-                <p>{tr("subagents.skill-directory", { role: profile().id })}</p>
-              </div>
-              <Button size="small" variant="secondary" onClick={() => setSkillCreating(true)}>
-                {tr("subagents.new-skill")}
-              </Button>
+      <Dialog
+        open={dialogOpen()}
+        title={creating() ? tr("subagents.new") : tr("subagents.edit")}
+        showClose
+        onClose={closeEditor}
+        class="subagent-profile-dialog"
+      >
+        <form class="subagent-profile-editor" aria-label={tr("subagents.editor")} onSubmit={save}>
+          <div class="subagent-profile-editor__title">
+            <div>
+              <p class="subagent-profiles-panel__eyebrow">{creating() ? tr("subagents.new") : tr("subagents.edit")}</p>
+              <h3>{draft().name || tr("subagents.untitled")}</h3>
             </div>
-            <Show when={profile().skills.length > 0} fallback={<p class="subagent-profiles-panel__status">{tr("subagents.no-skills")}</p>}>
-              <ul class="subagent-profile-skills__list">
-                <For each={profile().skills}>
-                  {(skill) => (
-                    <li>
-                      <strong>{skill.name}</strong>
-                      <small>{skill.location}</small>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
-            <p class="subagent-profile-skills__hint">{tr("subagents.refresh-hint")}</p>
-            <Show when={skillError()}>{(message) => <InlineError message={message()} />}</Show>
-            <Show when={selectedID() && skillCreating()}>
-              <form class="subagent-skill-create" onSubmit={createSkill}>
-                <label>
-                  {tr("subagents.skill-name")}
-                  <input aria-label={tr("subagents.skill-name")} value={skillName()} onInput={(event) => setSkillName(event.currentTarget.value)} />
-                </label>
-                <label>
-                  {tr("subagents.skill-content")}
-                  <textarea aria-label="SKILL.md" rows={6} value={skillContent()} onInput={(event) => setSkillContent(event.currentTarget.value)} />
-                </label>
-                <Button type="submit" loading={skillBusy()} loadingLabel={tr("subagents.creating-skill")}>
-                  {tr("subagents.create-skill")}
-                </Button>
-              </form>
-            </Show>
-          </section>
-        )}
-      </Show>
+            <label class="subagent-profile-editor__toggle">
+              <input
+                type="checkbox"
+                aria-label={tr("subagents.enabled")}
+                checked={draft().enabled}
+                onChange={(event) => updateDraft({ enabled: event.currentTarget.checked })}
+              />
+              {tr("subagents.enabled")}
+            </label>
+          </div>
+          <Show when={error()}>{(message) => <InlineError message={message()} />}</Show>
+          <label>
+            <span>{tr("subagents.id")}</span>
+            <small class="subagent-profile-editor__field-hint">{tr("subagents.id-hint")}</small>
+            <input
+              aria-label={tr("subagents.id")}
+              value={draft().id}
+              disabled={!creating()}
+              onInput={(event) => updateDraft({ id: event.currentTarget.value })}
+            />
+          </label>
+          <label>
+            <span>{tr("subagents.name")}</span>
+            <small class="subagent-profile-editor__field-hint">{tr("subagents.name-hint")}</small>
+            <input
+              aria-label={tr("subagents.name")}
+              value={draft().name}
+              onInput={(event) => updateDraft({ name: event.currentTarget.value })}
+            />
+          </label>
+          <label>
+            {tr("subagents.description")}
+            <input
+              aria-label={tr("subagents.description")}
+              value={draft().description}
+              onInput={(event) => updateDraft({ description: event.currentTarget.value })}
+            />
+          </label>
+          <label>
+            {tr("subagents.launch-prompt")}
+            <textarea
+              aria-label={tr("subagents.launch-prompt")}
+              rows={4}
+              value={draft().prompt}
+              onInput={(event) => updateDraft({ prompt: event.currentTarget.value })}
+            />
+          </label>
+          <div class="subagent-profile-editor__fields">
+            <label>
+              {tr("subagents.model")}
+              <select
+                aria-label={tr("subagents.model")}
+                value={draft().model ?? ""}
+                onChange={(event) => updateDraft({ model: event.currentTarget.value || undefined })}
+              >
+                <option value="">{tr("subagents.model-default")}</option>
+                <For each={availableModels()}>{(option) => <option value={option.value}>{option.label}</option>}</For>
+              </select>
+            </label>
+            <label>
+              {tr("subagents.thinking-depth")}
+              <select
+                aria-label={tr("subagents.thinking-depth")}
+                value={draft().variant ?? "default"}
+                onChange={(event) => updateDraft({ variant: event.currentTarget.value === "default" ? undefined : event.currentTarget.value })}
+              >
+                <option value="default">{tr("composer.thinking-depth-default")}</option>
+                <option value="low">{tr("composer.thinking-depth-low")}</option>
+                <option value="medium">{tr("composer.thinking-depth-medium")}</option>
+                <option value="high">{tr("composer.thinking-depth-high")}</option>
+                <option value="max">{tr("composer.thinking-depth-max")}</option>
+              </select>
+            </label>
+          </div>
+          <fieldset class="subagent-profile-editor__avatars">
+            <legend>{tr("subagents.avatar")}</legend>
+            <div>
+              <For each={SUBAGENT_AVATAR_IDS}>
+                {(id) => (
+                  <button
+                    type="button"
+                    class="subagent-avatar-choice"
+                    aria-label={`${tr("subagents.choose-avatar")} ${id}`}
+                    aria-pressed={draft().avatar === id}
+                    title={subagentAvatarLabel(id)}
+                    onClick={() => updateDraft({ avatar: id })}
+                  >
+                    <SubagentAvatar id={id} />
+                  </button>
+                )}
+              </For>
+            </div>
+          </fieldset>
+          <Show when={editingProfile()}>
+            {(profile) => (
+              <section class="subagent-profile-skills" aria-label={tr("subagents.skills")}>
+                <div class="subagent-profile-skills__header">
+                  <div>
+                    <h3>{tr("subagents.skills")}</h3>
+                    <p>{tr("subagents.skill-directory", { role: profile().id })}</p>
+                  </div>
+                  <Button size="small" variant="secondary" onClick={() => setSkillCreating(true)}>
+                    {tr("subagents.new-skill")}
+                  </Button>
+                </div>
+                <Show when={profile().skills.length > 0} fallback={<p class="subagent-profiles-panel__status">{tr("subagents.no-skills")}</p>}>
+                  <ul class="subagent-profile-skills__list">
+                    <For each={profile().skills}>
+                      {(skill) => (
+                        <li>
+                          <strong>{skill.name}</strong>
+                          <small>{skill.location}</small>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </Show>
+                <p class="subagent-profile-skills__hint">{tr("subagents.refresh-hint")}</p>
+                <Show when={skillError()}>{(message) => <InlineError message={message()} />}</Show>
+                <Show when={skillCreating()}>
+                  <div class="subagent-skill-create">
+                    <label>
+                      {tr("subagents.skill-name")}
+                      <input aria-label={tr("subagents.skill-name")} value={skillName()} onInput={(event) => setSkillName(event.currentTarget.value)} />
+                    </label>
+                    <label>
+                      {tr("subagents.skill-content")}
+                      <textarea aria-label="SKILL.md" rows={6} value={skillContent()} onInput={(event) => setSkillContent(event.currentTarget.value)} />
+                    </label>
+                    <Button type="button" loading={skillBusy()} loadingLabel={tr("subagents.creating-skill")} onClick={() => void createSkill()}>
+                      {tr("subagents.create-skill")}
+                    </Button>
+                  </div>
+                </Show>
+              </section>
+            )}
+          </Show>
+          <div class="subagent-profile-editor__actions">
+            <Button type="submit" loading={saving()} loadingLabel={tr("subagents.saving")}>
+              {tr("subagents.save")}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
     </section>
   )
 }
 
-export function SubagentProfilesPanel(props: { directory: string; onSaved?: () => void | Promise<void> }) {
+export function SubagentProfilesPanel(props: { directory: string; models?: readonly CatalogModel[]; onSaved?: () => void | Promise<void> }) {
   const data = useData()
   const query = createQuery(
     () => ({
@@ -346,6 +449,7 @@ export function SubagentProfilesPanel(props: { directory: string; onSaved?: () =
   return (
     <SubagentProfilesPanelView
       profiles={query.data ?? []}
+      models={props.models}
       loading={query.isPending}
       error={query.error ? errorText(query.error) : undefined}
       onSave={save}

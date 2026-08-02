@@ -104,6 +104,8 @@ export interface Interface {
     skillScope?: Skill.SkillAccessScope
     /** Persistent memory is only available to root sessions. */
     includeMemory?: boolean
+    /** Optional allowlist used by protocol phases with a deliberately narrow tool surface. */
+    toolIDs?: ReadonlySet<string>
   }) => Effect.Effect<Tool.Def[]>
 }
 
@@ -336,7 +338,7 @@ export const layer: Layer.Layer<
       const available = [
         ...s.builtin.filter((tool) => input.includeMemory !== false || tool.id !== MemoryTool.id),
         ...s.custom,
-      ]
+      ].filter((tool) => !input.toolIDs || input.toolIDs.has(tool.id))
       const resolved = yield* Effect.forEach(
         available,
         Effect.fnUntraced(function* (tool: Tool.Def) {

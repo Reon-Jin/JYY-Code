@@ -93,7 +93,8 @@ export const PermissionResponsePayload = Schema.Struct({
 const PlanSnapshotTask = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
-  status: Schema.Literals(["pending", "dispatched", "running", "reported", "approved", "rejected"]),
+  status: Schema.Literals(["pending", "dispatched", "running", "reported", "approved", "rejected", "dismissed"]),
+  mode: Schema.optional(Schema.Literal("candidate")),
   role: Schema.optional(
     Schema.Struct({
       id: Schema.String,
@@ -125,6 +126,22 @@ export const PlanSnapshotPayload = Schema.Union([
         title: Schema.String,
         status: Schema.Literals(["pending", "active", "done"]),
         tasks: Schema.Array(PlanSnapshotTask),
+        candidate: Schema.optional(
+          Schema.Struct({
+            phase: Schema.Literals(["declaring", "cross_review", "awaiting_main", "running"]),
+            ready: Schema.Number,
+            total: Schema.Number,
+            selection: Schema.optional(
+              Schema.Struct({
+                selected_task_id: Schema.String,
+                contributing_task_ids: Schema.Array(Schema.String),
+                synthesis_artifact: Schema.String,
+                rationale: Schema.String,
+                selected_at: Schema.String,
+              }),
+            ),
+          }),
+        ),
       }),
     ),
     pending_review: Schema.Number,
@@ -157,6 +174,7 @@ const BlackboardMessagePayload = Schema.Struct({
   authorSessionID: Schema.optional(SessionID),
   authorTaskID: Schema.optional(Schema.String),
   kind: BlackboardKind,
+  purpose: Schema.optional(Schema.Literals(["general", "candidate_declaration"])),
   body: Schema.String,
   mentions: Schema.Array(Schema.String),
   attachments: Schema.Array(BlackboardAttachment),
@@ -167,7 +185,7 @@ const BlackboardMessagePayload = Schema.Struct({
 const BlackboardTask = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
-  status: Schema.Literals(["pending", "dispatched", "running", "reported", "approved", "rejected"]),
+  status: Schema.Literals(["pending", "dispatched", "running", "reported", "approved", "rejected", "dismissed"]),
   hasAgent: Schema.Boolean,
   isSelf: Schema.Boolean,
 })

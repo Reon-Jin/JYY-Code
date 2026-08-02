@@ -1,5 +1,5 @@
 import type { ProfileSnapshot } from "@/agent/subagent-profile"
-import type { PlanFile, PlanTask } from "./schema"
+import type { CandidateSelection, PlanFile, PlanTask } from "./schema"
 
 export type ActivityState = {
   activity: string
@@ -11,6 +11,7 @@ export type PlanSnapshotTask = {
   id: string
   title: string
   status: PlanTask["status"]
+  mode?: "candidate"
   role?: ProfileSnapshot
   child?: {
     session_id: string
@@ -31,6 +32,12 @@ export type PlanSnapshot = {
     title: string
     status: PlanFile["steps"][number]["status"]
     tasks: PlanSnapshotTask[]
+    candidate?: {
+      phase: NonNullable<PlanFile["steps"][number]["candidate_discussion"]>["phase"]
+      ready: number
+      total: number
+      selection?: CandidateSelection
+    }
   }>
   pending_review: number
   inbox_pending: number
@@ -91,13 +98,19 @@ export function projectPlanSnapshot(
       tasks: step.tasks.map((task) => {
         const activity = activities.get(task.id)
         if (!task.dispatch) {
-          return { id: task.id, title: task.title, status: task.status }
+          return {
+            id: task.id,
+            title: task.title,
+            status: task.status,
+            ...(task.mode === "candidate" ? { mode: "candidate" as const } : {}),
+          }
         }
         const elapsedStart = Date.parse(activity?.started_at ?? task.dispatch.dispatched_at)
         return {
           id: task.id,
           title: task.title,
           status: task.status,
+          ...(task.mode === "candidate" ? { mode: "candidate" as const } : {}),
           ...(task.dispatch.role ? { role: task.dispatch.role } : {}),
           child: {
             session_id: task.dispatch.child_session_id,
@@ -106,6 +119,16 @@ export function projectPlanSnapshot(
           },
         }
       }),
+      ...(step.tasks.some((task) => task.mode === "candidate") && step.candidate_discussion
+        ? {
+            candidate: {
+              phase: step.candidate_discussion.phase,
+              ready: step.candidate_discussion.ready_task_ids.length,
+              total: step.tasks.length,
+              ...(step.candidate_selection ? { selection: step.candidate_selection } : {}),
+            },
+          }
+        : {}),
     })),
     pending_review: pendingReview,
     inbox_pending: options.inboxPending ?? 0,

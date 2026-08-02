@@ -869,7 +869,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
             />
           }
           subagents={
-            <SubagentProfilesPanel directory={data.directory()} onSaved={refreshAfterSubagentsChange} />
+            <SubagentProfilesPanel
+              directory={data.directory()}
+              models={catalogQuery.data?.models ?? []}
+              onSaved={refreshAfterSubagentsChange}
+            />
           }
         />
       }

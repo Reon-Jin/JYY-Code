@@ -21,6 +21,12 @@ export type BlackboardQueryInput = {
 export type BlackboardSnapshot = SessionBlackboardResponse
 export type BlackboardPost = SessionBlackboardPostResponse
 export type BlackboardRead = SessionBlackboardReadResponse
+export type BlackboardMessagePurpose = "general" | "candidate_declaration"
+
+/** Older servers omit purpose; keep those messages on the ordinary rendering path. */
+export function blackboardMessagePurpose(message: { purpose?: BlackboardMessagePurpose }): BlackboardMessagePurpose {
+  return message.purpose ?? "general"
+}
 
 const requestOptions = (signal?: AbortSignal) =>
   signal ? ({ throwOnError: true, signal } as const) : ({ throwOnError: true } as const)

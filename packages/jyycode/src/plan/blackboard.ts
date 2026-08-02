@@ -18,6 +18,7 @@ import {
 
 export type BlackboardKind = "info" | "risk" | "blocker" | "decision" | "help"
 export type BlackboardAuthorKind = "user" | "main_agent" | "sub_agent"
+export type BlackboardPurpose = "general" | "candidate_declaration"
 
 export const Event = {
   Updated: BusEvent.define(
@@ -39,6 +40,7 @@ export type Message = {
   authorSessionID?: SessionID
   authorTaskID?: string
   kind: BlackboardKind
+  purpose: BlackboardPurpose
   body: string
   mentions: string[]
   attachments: BlackboardAttachment[]
@@ -87,6 +89,26 @@ export type PostAgentInput = Omit<PostUserInput, "rootSessionID"> & {
   sessionID: SessionID
 }
 
+export type CandidateDeclarationInput = {
+  sessionID: SessionID
+  approach: string
+  assumptions: string[]
+  risks: string[]
+  differentiator: string
+}
+
+export type CandidateParticipant = {
+  taskID: string
+  sessionID: SessionID
+}
+
+export type CandidatePeerReplyCoverage = {
+  taskID: string
+  repliedTaskIDs: string[]
+  missingTaskIDs: string[]
+  complete: boolean
+}
+
 export type ListUserInput = {
   rootSessionID: SessionID
   stepID?: string
@@ -123,6 +145,14 @@ export class BlackboardError extends Error {
 export interface Interface {
   readonly postUser: (input: PostUserInput) => Effect.Effect<Message>
   readonly postAgent: (input: PostAgentInput) => Effect.Effect<Message>
+  readonly postCandidateDeclaration: (input: CandidateDeclarationInput) => Effect.Effect<Message>
+  readonly candidateDeclarations: (input: { rootSessionID: SessionID; stepID: string }) => Effect.Effect<Message[]>
+  readonly candidatePeerReplyCoverage: (input: {
+    rootSessionID: SessionID
+    stepID: string
+    taskID: string
+  }) => Effect.Effect<CandidatePeerReplyCoverage>
+  readonly candidateParticipants: (input: { rootSessionID: SessionID; stepID: string }) => Effect.Effect<CandidateParticipant[]>
   readonly listUser: (input: ListUserInput) => Effect.Effect<Snapshot>
   readonly readAgent: (sessionID: SessionID) => Effect.Effect<AgentReadResult>
   readonly markUserRead: (input: MarkReadInput) => Effect.Effect<void>
@@ -170,6 +200,7 @@ function normalizeMessage(row: typeof BlackboardMessageTable.$inferSelect, taskI
     ...(row.author_session_id ? { authorSessionID: row.author_session_id as SessionID } : {}),
     ...(row.author_task_id ? { authorTaskID: row.author_task_id } : {}),
     kind: row.kind,
+    purpose: row.purpose ?? "general",
     body: row.body,
     mentions: row.mentions ?? [],
     attachments: row.attachments ?? [],
@@ -359,6 +390,7 @@ function makeService(bus: Bus.Interface): Interface {
     authorTaskID?: string
     message: string
     kind?: BlackboardKind
+    purpose?: BlackboardPurpose
     taskIDs?: string[]
     replyTo?: string
     attachments?: string[]
@@ -398,6 +430,7 @@ function makeService(bus: Bus.Interface): Interface {
       author_session_id: input.authorSessionID ?? null,
       author_task_id: input.authorTaskID ?? null,
       kind: input.kind ?? "info",
+      purpose: input.purpose ?? "general",
       body: input.message,
       mentions: unique(input.mentions ?? []),
       attachments: normalizedAttachments,
@@ -451,6 +484,19 @@ function makeService(bus: Bus.Interface): Interface {
         : step.tasks.find((task) => task.dispatch?.child_session_id === input.sessionID)
     if (input.sessionID !== rootSession.id && !selfTask)
       throw new BlackboardError("CHILD_NOT_IN_STEP", `子 session ${input.sessionID} 不属于当前 Step`)
+    if (selfTask?.mode === "candidate") {
+      const phase = step.candidate_discussion?.phase
+      if (phase === "declaring" || phase === "running")
+        throw new BlackboardError("INVALID_STEP", "candidate children cannot use Blackboard in this phase")
+      if (phase === "cross_review") {
+        if (!input.replyTo) throw new BlackboardError("INVALID_REPLY", "candidate cross-review messages must reply to a declaration")
+        const parent = yield* db((database) =>
+          database.select().from(BlackboardMessageTable).where(eq(BlackboardMessageTable.id, input.replyTo!)).get(),
+        )
+        if (!parent || parent.parent_message_id || parent.purpose !== "candidate_declaration" || parent.author_task_id === selfTask.id)
+          throw new BlackboardError("INVALID_REPLY", "candidate replies must target another candidate's top-level declaration")
+      }
+    }
     const { mentions, mentionedTaskIDs } = parseMentions(input.message, step)
     const taskIDs = unique([...(input.taskIDs ?? []), ...mentionedTaskIDs])
     for (const taskID of taskIDs)
@@ -466,6 +512,124 @@ function makeService(bus: Bus.Interface): Interface {
       authorTaskID: selfTask?.id,
       authorKind: input.sessionID === rootSession.id ? "main_agent" : "sub_agent",
       authorSessionID: input.sessionID,
+    })
+  })
+
+  const candidateParticipants = Effect.fn("Blackboard.candidateParticipants")(function* (input: {
+    rootSessionID: SessionID
+    stepID: string
+  }) {
+    const rootSession = yield* root(input.rootSessionID)
+    if (rootSession.id !== input.rootSessionID) throw new BlackboardError("SESSION_NOT_FOUND", "candidate root session mismatch")
+    const plan = readPlan(rootSession.directory, rootSession.id as SessionID)
+    const step = selectedStep(plan, input.stepID)
+    if (!step.tasks.some((task) => task.mode === "candidate")) return []
+    return step.tasks.flatMap((task) =>
+      task.mode === "candidate" && task.dispatch?.child_session_id
+        ? [{ taskID: task.id, sessionID: task.dispatch.child_session_id as SessionID }]
+        : [],
+    )
+  })
+
+  const candidateDeclarations = Effect.fn("Blackboard.candidateDeclarations")(function* (input: {
+    rootSessionID: SessionID
+    stepID: string
+  }) {
+    const participants = yield* candidateParticipants(input)
+    const taskIDs = participants.map((item) => item.taskID)
+    if (!taskIDs.length) return []
+    const rows = yield* db((database) =>
+      database
+        .select()
+        .from(BlackboardMessageTable)
+        .where(
+          and(
+            eq(BlackboardMessageTable.root_session_id, input.rootSessionID),
+            eq(BlackboardMessageTable.step_id, input.stepID),
+            eq(BlackboardMessageTable.purpose, "candidate_declaration"),
+            isNull(BlackboardMessageTable.parent_message_id),
+            eq(BlackboardMessageTable.author_kind, "sub_agent"),
+            inArray(BlackboardMessageTable.author_task_id, taskIDs),
+          ),
+        )
+        .orderBy(asc(BlackboardMessageTable.id))
+        .all(),
+    )
+    const participantByTask = new Map(participants.map((item) => [item.taskID, item.sessionID]))
+    return rows
+      .filter((row) => row.author_task_id && participantByTask.get(row.author_task_id) === row.author_session_id)
+      .map((row) => normalizeMessage(row, row.author_task_id ? [row.author_task_id] : []))
+  })
+
+  const candidatePeerReplyCoverage = Effect.fn("Blackboard.candidatePeerReplyCoverage")(function* (input: {
+    rootSessionID: SessionID
+    stepID: string
+    taskID: string
+  }) {
+    const participants = yield* candidateParticipants({ rootSessionID: input.rootSessionID, stepID: input.stepID })
+    const self = participants.find((item) => item.taskID === input.taskID)
+    if (!self) throw new BlackboardError("INVALID_TASK", `candidate task ${input.taskID} is not in this step`)
+    const declarations = yield* candidateDeclarations({ rootSessionID: input.rootSessionID, stepID: input.stepID })
+    const peerDeclarations = declarations.filter((message) => message.authorTaskID && message.authorTaskID !== input.taskID)
+    const declarationIDs = peerDeclarations.map((message) => message.id)
+    if (!declarationIDs.length)
+      return { taskID: input.taskID, repliedTaskIDs: [], missingTaskIDs: [], complete: true }
+    const replies = yield* db((database) =>
+      database
+        .select()
+        .from(BlackboardMessageTable)
+        .where(
+          and(
+            eq(BlackboardMessageTable.root_session_id, input.rootSessionID),
+            eq(BlackboardMessageTable.step_id, input.stepID),
+            inArray(BlackboardMessageTable.parent_message_id, declarationIDs),
+            eq(BlackboardMessageTable.author_kind, "sub_agent"),
+            eq(BlackboardMessageTable.author_session_id, self.sessionID),
+            eq(BlackboardMessageTable.author_task_id, input.taskID),
+          ),
+        )
+        .all(),
+    )
+    const declarationTaskByID = new Map(peerDeclarations.map((message) => [message.id, message.authorTaskID!]))
+    const repliedTaskIDs = unique(
+      replies.flatMap((reply) => {
+        const peerTaskID = reply.parent_message_id ? declarationTaskByID.get(reply.parent_message_id) : undefined
+        return peerTaskID ? [peerTaskID] : []
+      }),
+    )
+    const missingTaskIDs = peerDeclarations
+      .map((message) => message.authorTaskID!)
+      .filter((peerTaskID) => !repliedTaskIDs.includes(peerTaskID))
+    return { taskID: input.taskID, repliedTaskIDs, missingTaskIDs, complete: missingTaskIDs.length === 0 }
+  })
+
+  const postCandidateDeclaration = Effect.fn("Blackboard.postCandidateDeclaration")(function* (input: CandidateDeclarationInput) {
+    const rootSession = yield* root(input.sessionID)
+    const plan = readPlan(rootSession.directory, rootSession.id as SessionID)
+    const step = currentStep(plan)
+    const selfTask = step.tasks.find((task) => task.mode === "candidate" && task.dispatch?.child_session_id === input.sessionID)
+    if (!selfTask) throw new BlackboardError("CHILD_NOT_IN_STEP", "only a dispatched candidate child may declare")
+    if (step.candidate_discussion && step.candidate_discussion.phase !== "declaring")
+      throw new BlackboardError("INVALID_STEP", "candidate declarations are closed")
+    const values = [input.approach, input.differentiator, ...input.assumptions, ...input.risks]
+    if (values.some((value) => typeof value !== "string" || !value.trim()))
+      throw new BlackboardError("INVALID_STEP", "candidate declaration fields must be non-empty")
+    return yield* post({
+      rootSessionID: rootSession.id as SessionID,
+      stepID: step.id,
+      workspaceRoot: rootSession.directory,
+      allowUserLocalFile: false,
+      authorKind: "sub_agent",
+      authorSessionID: input.sessionID,
+      authorTaskID: selfTask.id,
+      message: JSON.stringify({
+        approach: input.approach,
+        assumptions: input.assumptions,
+        risks: input.risks,
+        differentiator: input.differentiator,
+      }),
+      purpose: "candidate_declaration",
+      taskIDs: [selfTask.id],
     })
   })
 
@@ -528,6 +692,9 @@ function makeService(bus: Bus.Interface): Interface {
     const rootSession = yield* root(sessionID)
     const plan = readPlan(rootSession.directory, rootSession.id as SessionID)
     const step = currentStep(plan)
+    const selfTask = step.tasks.find((task) => task.mode === "candidate" && task.dispatch?.child_session_id === sessionID)
+    if (selfTask && (step.candidate_discussion?.phase === "declaring" || step.candidate_discussion?.phase === "running"))
+      throw new BlackboardError("INVALID_STEP", "candidate children cannot use Blackboard in this phase")
     const participantKey = sessionID === rootSession.id ? `main:${rootSession.id}` : `agent:${sessionID}`
     const cursor = yield* db((database) =>
       database
@@ -693,7 +860,20 @@ function makeService(bus: Bus.Interface): Interface {
       throw new BlackboardError("UNREAD_MESSAGES", "提交 Report 前必须先无参读取 Blackboard 并处理全部新消息")
   })
 
-  return { postUser, postAgent, listUser, readAgent, markUserRead, unreadForAgent, unreadForMain, assertReportReady }
+  return {
+    postUser,
+    postAgent,
+    postCandidateDeclaration,
+    candidateDeclarations,
+    candidatePeerReplyCoverage,
+    candidateParticipants,
+    listUser,
+    readAgent,
+    markUserRead,
+    unreadForAgent,
+    unreadForMain,
+    assertReportReady,
+  }
 }
 
 export const layer = Layer.effect(

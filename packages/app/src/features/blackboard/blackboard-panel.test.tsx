@@ -40,6 +40,7 @@ function board(rootSessionID: string): SessionBlackboardResponse {
         authorKind: "sub_agent",
         authorTaskID: "task_a",
         kind: "blocker",
+        purpose: "candidate_declaration",
         body: "**Blocked** until the fixture is ready.",
         mentions: [],
         attachments: [{ type: "path", value: "src/app.ts" }],
@@ -87,6 +88,7 @@ describe("BlackboardPanel", () => {
     expect(screen.queryByText(root.id)).not.toBeInTheDocument()
     expect(screen.getByText("子 Agent · Investigate")).toBeVisible()
     expect(screen.getByText("src/app.ts")).toBeVisible()
+    expect(screen.getByText("候选声明")).toBeVisible()
     expect(screen.getByText(/展开回复/)).toBeVisible()
 
     const repliesButton = screen.getByText(/展开回复/)

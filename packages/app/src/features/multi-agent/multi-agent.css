@@ -174,6 +174,17 @@
   white-space: nowrap;
 }
 
+.multi-agent-step__candidate {
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: var(--color-accent);
+  font-family: var(--font-code);
+  font-size: 0.62rem;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
 .multi-agent-step__marker {
   display: block;
   width: 13px;
@@ -414,6 +425,20 @@
   color: var(--color-text-muted);
   font-size: 0.65rem;
 }
+
+.multi-agent-candidate-selection {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 10px;
+  margin-left: 22px;
+  border-left: 2px solid var(--color-accent);
+  padding: 8px 10px;
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.multi-agent-candidate-selection strong { color: var(--color-text); }
 .multi-agent-task__field { display: grid; gap: var(--space-1); }
 .multi-agent-task__field strong { color: var(--color-text-muted); font-size: 0.65rem; }
 .multi-agent-task__field ul { display: grid; gap: 3px; margin: 0; padding-left: var(--space-4); }
