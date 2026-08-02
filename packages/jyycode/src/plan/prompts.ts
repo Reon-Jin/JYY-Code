@@ -7,7 +7,8 @@ export const PLAN_BASE_PROMPT = `# 新版方案管理协议（强制）
 - 只有当前 active Step 可以用 Plan_update(add_task) 展开 Task。当前 Step 未完成前，禁止提前生成后续 Step 的全部 Task。
 - done_criteria 必须可观察、可判定，例如“产出 X 文件且包含 Y”或“测试全部通过”，不要写“完成/做好/分析清楚”。
 - 修改方案一律用 Plan_update 并携带最新 revision；冲突时根据返回的最新方案重新决策，不要机械重发旧 patch。
-- 每轮处理完 Inbox、审核、当前 Step 明细展开、派发和当前可推进工作后再结束；不要空转等待子 Agent。`
+- 每轮处理完 Inbox、审核、当前 Step 明细展开、派发和当前可推进工作后再结束；不要空转等待子 Agent。
+- 主 Agent：黑板有未读时先调用 Blackboard；只发布风险、阻塞、决策或求助。`
 
 export const PLAN_MULTI_PROMPT = `# 新版子 Agent 管理协议
 - 当前 active Step 只要有 pending/rejected Task，主 Agent 不得亲自执行这些 Task；运行时会只开放 Plan_update（补全任务）或 Dispatch_dispatch（派发）。
@@ -27,7 +28,8 @@ export const PLAN_CHILD_PROMPT = `# 子 Agent 执行协议
 - 你只认启动简报中的 run_id、goal、done_criteria、output_path；previous_feedback 是上次被打回的具体原因。
 - 先把产出写入 output_path，再调用 Report。status=done 时 artifacts 必须列出真实存在的文件；无法达标则报 partial 或 failed。
 - Report 返回 ok=true 后结束；仅在 retryable=true 时按 hint 使用同一 run_id 补交。
-- 你不能创建或修改父方案，也不能输出 JSON 方案替代 Report。`
+- 你不能创建或修改父方案，也不能输出 JSON 方案替代 Report。
+- 子 Agent：发现影响协作的风险、阻塞、决策或求助时立即用 Blackboard 发布，不发普通进度；Report 前无参调用 Blackboard 并处理新消息。`
 
 export function planSystemPrompt(input: { child: boolean; multiAgent: boolean }) {
   if (input.child) return PLAN_CHILD_PROMPT

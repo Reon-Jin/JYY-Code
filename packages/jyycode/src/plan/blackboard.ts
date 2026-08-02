@@ -111,6 +111,7 @@ export class BlackboardError extends Error {
     | "INVALID_REPLY"
     | "INVALID_ATTACHMENT"
     | "CHILD_NOT_IN_STEP"
+    | "UNREAD_MESSAGES"
 
   constructor(code: BlackboardError["code"], message: string) {
     super(message)
@@ -127,6 +128,7 @@ export interface Interface {
   readonly markUserRead: (input: MarkReadInput) => Effect.Effect<void>
   readonly unreadForAgent: (sessionID: SessionID) => Effect.Effect<{ checked: boolean; count: number }>
   readonly unreadForMain: (rootSessionID: SessionID) => Effect.Effect<number>
+  readonly assertReportReady: (sessionID: SessionID) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/Blackboard") {}
@@ -683,7 +685,15 @@ function makeService(bus: Bus.Interface): Interface {
     return (yield* unreadForAgent(rootSessionID)).count
   })
 
-  return { postUser, postAgent, listUser, readAgent, markUserRead, unreadForAgent, unreadForMain }
+  const assertReportReady = Effect.fn("Blackboard.assertReportReady")(function* (sessionID: SessionID) {
+    const rootSession = yield* root(sessionID)
+    if (sessionID === rootSession.id) return
+    const unread = yield* unreadForAgent(sessionID)
+    if (!unread.checked || unread.count > 0)
+      throw new BlackboardError("UNREAD_MESSAGES", "提交 Report 前必须先无参读取 Blackboard 并处理全部新消息")
+  })
+
+  return { postUser, postAgent, listUser, readAgent, markUserRead, unreadForAgent, unreadForMain, assertReportReady }
 }
 
 export const layer = Layer.effect(

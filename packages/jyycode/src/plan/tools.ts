@@ -14,6 +14,7 @@ import {
   type DispatchBrief,
   type PlanExecutionContext,
 } from "./protocol"
+import { PlanProtocolError } from "./schema"
 import { RuntimeEvent } from "./runtime-event"
 import { Blackboard } from "./blackboard"
 
@@ -277,7 +278,11 @@ export function childTaskBrief(brief: DispatchBrief) {
 function protocolFor(
   sessions: Session.Interface,
   bus: Bus.Interface,
-  runtime: { bridge: EffectBridgeShape; promptOps?: TaskPromptOps },
+  runtime: {
+    bridge: EffectBridgeShape
+    promptOps?: TaskPromptOps
+    beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
+  },
 ) {
   let protocol: PlanProtocol
   protocol = new PlanProtocol({
@@ -341,6 +346,7 @@ function protocolFor(
         await run(sessions.setArchived({ sessionID: sessionId as SessionID }))
       },
     },
+    beforeReport: runtime.beforeReport,
   })
   return protocol
 }
@@ -571,7 +577,23 @@ export const ReportTool = Tool.define(
           const bridge = yield* EffectBridge.make()
           const session = yield* getSession(sessions, ctx.sessionID)
           const ops = promptOps(ctx)
-          const protocol = protocolFor(sessions, bus, { bridge, promptOps: ops })
+          const board = yield* Blackboard.Service
+          const protocol = protocolFor(sessions, bus, {
+            bridge,
+            promptOps: ops,
+            beforeReport: async (child) => {
+              try {
+                await bridge.promise(board.assertReportReady(child.sessionId as SessionID))
+              } catch {
+                throw new PlanProtocolError({
+                  code: "BLACKBOARD_UNREAD",
+                  message: "Report 前必须读取 Blackboard",
+                  hint: "先无参调用 Blackboard，处理新消息后用同一 run_id 重试 Report",
+                  retryable: true,
+                })
+              }
+            },
+          })
           const result = yield* Effect.promise(() => protocol.report(protocolContext(session, ctx), input))
           const effectiveRunId = runId(ctx)
           const parentSessionId = effectiveRunId ? parentSessionIdForRunId(effectiveRunId) : undefined
@@ -587,7 +609,7 @@ export const ReportTool = Tool.define(
             )
           }
           return jsonResult("Report", result)
-        }),
+        }).pipe(Effect.provide(Blackboard.defaultLayer)),
     }
   }),
 )

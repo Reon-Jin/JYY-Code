@@ -93,6 +93,7 @@ type ProtocolOptions = {
   children?: ChildController
   now?: () => number
   eventSink?: (event: import("./events").PlanEvent) => void
+  beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
 }
 
 type WriteResult<T extends object> = { result: T; plan: PlanFile }
@@ -491,6 +492,7 @@ export class PlanProtocol {
   private readonly children?: ChildController
   private readonly now: () => number
   private readonly eventSink?: (event: import("./events").PlanEvent) => void
+  private readonly beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
   private readonly reportAttempts = sharedReportAttempts
   private readonly activities = sharedActivities
   private readonly activityEvents = sharedActivityEvents
@@ -503,6 +505,7 @@ export class PlanProtocol {
     this.children = options.children
     this.now = options.now ?? Date.now
     this.eventSink = options.eventSink
+    this.beforeReport = options.beforeReport
   }
 
   private publish(event: Parameters<PlanEventHub["publish"]>[0]) {
@@ -1011,6 +1014,7 @@ export class PlanProtocol {
           message: "run_id 无法解析",
           hint: "请从启动简报原样复制 run_id",
         })
+      if (this.beforeReport) await this.beforeReport({ ...ctx, runId })
       const status = value.status
       if (!(status === "done" || status === "partial" || status === "failed"))
         inputError("status 必须是 done、partial 或 failed")
@@ -1138,7 +1142,7 @@ export class PlanProtocol {
       }
       return { ok: true, ...result }
     } catch (error) {
-      if (error instanceof PlanProtocolError && error.retryable) {
+      if (error instanceof PlanProtocolError && error.retryable && error.code !== ERROR_CODES.BLACKBOARD_UNREAD) {
         const runId =
           input && typeof input === "object" && typeof (input as Record<string, unknown>).run_id === "string"
             ? String((input as Record<string, unknown>).run_id)

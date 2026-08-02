@@ -5,7 +5,7 @@ import { describe, expect, it } from "bun:test"
 import { PlanProtocol } from "../../src/plan/protocol"
 import { PlanEventHub, PlanInbox, WakeupQueue, validatePlanEvent } from "../../src/plan/events"
 import { AGING_MS, PlanStore, STALE_LOCK_MS } from "../../src/plan/store"
-import { planFilePath, validatePlanFile } from "../../src/plan/schema"
+import { planFilePath, PlanProtocolError, validatePlanFile } from "../../src/plan/schema"
 import { projectPlanSnapshot, validatePlanSnapshot } from "../../src/plan/snapshot"
 import { planSystemPrompt } from "../../src/plan/prompts"
 
@@ -264,6 +264,55 @@ describe("file-backed plan protocol", () => {
     expect(handled).toEqual({ ok: true, items: [] })
   })
 
+  it("requires a fresh Blackboard read before Report without changing report retry state", async () => {
+    const root = workspace()
+    const artifact = path.join(root, "report.md")
+    fs.writeFileSync(artifact, "ready")
+    let blackboardReady = false
+    let gateCalls = 0
+    const protocol = new PlanProtocol({
+      beforeReport: async () => {
+        gateCalls++
+        if (!blackboardReady)
+          throw new PlanProtocolError({
+            code: "BLACKBOARD_UNREAD",
+            message: "Report 前必须读取 Blackboard",
+            hint: "先无参调用 Blackboard 后重试",
+            retryable: true,
+          })
+      },
+    })
+    await protocol.create(context(root), createInput(artifact))
+    const dispatched = await protocol.dispatch(context(root), ["s1_t1"])
+    expect(dispatched.ok).toBe(true)
+    if (!dispatched.ok) return
+    const runId = dispatched.dispatched[0]!.run_id
+    const childContext = { ...context(root, "single", "child_blackboard"), runId }
+    const rejected = await protocol.report(childContext, {
+      run_id: runId,
+      status: "done",
+      summary: "ready",
+      artifacts: [artifact],
+      issues: [],
+    })
+    expect(rejected).toMatchObject({ ok: false, error: { code: "BLACKBOARD_UNREAD", retryable: true } })
+    const unchanged = await protocol.read(context(root))
+    if (!unchanged.ok || !unchanged.plan) return
+    expect(unchanged.plan.revision).toBe(2)
+    expect(unchanged.plan.steps[0]?.tasks[0]?.status).toBe("dispatched")
+
+    blackboardReady = true
+    const accepted = await protocol.report(childContext, {
+      run_id: runId,
+      status: "done",
+      summary: "ready",
+      artifacts: [artifact],
+      issues: [],
+    })
+    expect(accepted).toMatchObject({ ok: true, review: "pending_review" })
+    expect(gateCalls).toBe(2)
+  })
+
   it("covers the nine-op protection matrix and rejects malformed stored plans", async () => {
     const doneRoot = workspace()
     const doneProtocol = new PlanProtocol()
@@ -401,6 +450,7 @@ describe("file-backed plan protocol", () => {
 
   it("derives system prompts by session mode", () => {
     expect(planSystemPrompt({ child: true, multiAgent: true })).toContain("Report")
+    expect(planSystemPrompt({ child: true, multiAgent: true })).toContain("Blackboard")
     const multiAgentPrompt = planSystemPrompt({ child: false, multiAgent: true })
     expect(multiAgentPrompt).toContain("Dispatch_dispatch")
     expect(multiAgentPrompt).toContain("output_path")
