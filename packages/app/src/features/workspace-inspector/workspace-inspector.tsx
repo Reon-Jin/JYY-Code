@@ -1,5 +1,5 @@
 import { tr } from "../../i18n/i18n-context"
-import { FileDiff, ListTodo } from "lucide-solid"
+import { FileDiff, ListTodo, MessageSquare } from "lucide-solid"
 import { For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { IconButton } from "../../components/ui/button"
 import { ChangesPanel } from "../changes/changes-panel"
@@ -10,6 +10,7 @@ import "./workspace-inspector.css"
 function paneLabel(pane: InspectorPane) {
   const labels: Record<InspectorPane, string> = {
     plan: tr("workspace-inspector.plan"),
+    blackboard: tr("workspace-inspector.blackboard"),
     changes: tr("changes.workspace-changes"),
   }
   return labels[pane]
@@ -28,8 +29,10 @@ export type WorkspaceInspectorViewProps = {
   preferences: InspectorPreferences
   onPreferencesChange: (preferences: InspectorPreferences) => void
   plan: JSX.Element
+  blackboard?: JSX.Element
   changes: JSX.Element
   planBadge?: JSX.Element
+  blackboardBadge?: JSX.Element
   changesBadge?: JSX.Element
 }
 
@@ -53,6 +56,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
 
   const panel = (pane: InspectorPane) => {
     if (pane === "plan") return props.plan
+    if (pane === "blackboard") return props.blackboard
     return props.changes
   }
 
@@ -205,6 +209,11 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
       </Show>
       <nav class="workspace-activity-rail" aria-label={tr("workspace-inspector.taskbar-page")}>
         <ActivityButton pane="plan" icon={<ListTodo aria-hidden="true" />} badge={props.planBadge} />
+        <ActivityButton
+          pane="blackboard"
+          icon={<MessageSquare aria-hidden="true" />}
+          badge={props.blackboardBadge}
+        />
         <ActivityButton pane="changes" icon={<FileDiff aria-hidden="true" />} badge={props.changesBadge} />
       </nav>
     </>
@@ -217,7 +226,9 @@ export function WorkspaceInspector(props: {
   preferences: InspectorPreferences
   onPreferencesChange: (preferences: InspectorPreferences) => void
   plan?: JSX.Element
+  blackboard?: JSX.Element
   planBadge?: JSX.Element
+  blackboardBadge?: JSX.Element
 }) {
   return (
     <WorkspaceInspectorView
@@ -233,8 +244,10 @@ export function WorkspaceInspector(props: {
           />
         )
       }
+      blackboard={props.blackboard ?? <div />}
       changes={<ChangesPanel directory={props.directory} />}
       planBadge={props.planBadge}
+      blackboardBadge={props.blackboardBadge}
     />
   )
 }

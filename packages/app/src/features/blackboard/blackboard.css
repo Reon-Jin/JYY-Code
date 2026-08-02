@@ -1,0 +1,312 @@
+.blackboard-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  gap: 10px;
+  padding: 14px;
+  color: var(--text-primary);
+}
+
+.blackboard-panel__header,
+.blackboard-panel__filters,
+.blackboard-message__header,
+.blackboard-message__footer,
+.blackboard-composer__footer,
+.blackboard-composer__controls,
+.blackboard-composer__reply {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.blackboard-panel__header {
+  justify-content: space-between;
+}
+
+.blackboard-panel__header h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.blackboard-panel__root {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.blackboard-panel__unread,
+.blackboard-chip {
+  border-radius: 999px;
+  background: var(--surface-strong, var(--surface-raised));
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+.blackboard-panel__unread {
+  color: var(--accent, #4f8cff);
+}
+
+.blackboard-panel__filters {
+  flex-wrap: wrap;
+}
+
+.blackboard-panel__filters label,
+.blackboard-composer__controls label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.blackboard-panel__filters select,
+.blackboard-composer select,
+.blackboard-composer input,
+.blackboard-composer textarea {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: inherit;
+  padding: 6px 8px;
+}
+
+.blackboard-panel__filters select {
+  max-width: 170px;
+}
+
+.blackboard-panel__timeline {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+.blackboard-panel__empty,
+.blackboard-panel__readonly {
+  margin: auto;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.blackboard-panel__readonly {
+  margin: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.blackboard-message {
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent, #4f8cff);
+  border-radius: 8px;
+  padding: 9px;
+  background: var(--surface-raised);
+}
+
+.blackboard-message[data-kind="risk"],
+.blackboard-message[data-kind="blocker"] {
+  border-left-color: var(--danger, #d75a5a);
+}
+
+.blackboard-message[data-kind="decision"] {
+  border-left-color: var(--success, #4caa72);
+}
+
+.blackboard-message__header {
+  flex-wrap: wrap;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.blackboard-message__header strong {
+  color: var(--text-primary);
+}
+
+.blackboard-message__header time {
+  margin-left: auto;
+}
+
+.blackboard-message__kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 600;
+}
+
+.blackboard-message__body {
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.blackboard-message__body > :first-child {
+  margin-top: 0;
+}
+
+.blackboard-message__body > :last-child {
+  margin-bottom: 0;
+}
+
+.blackboard-message__chips,
+.blackboard-composer__tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.blackboard-message__attachments,
+.blackboard-composer__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  list-style: none;
+  padding: 0;
+  margin: 7px 0 0;
+}
+
+.blackboard-message__attachments li,
+.blackboard-composer__attachments li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+.blackboard-message__attachments button {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  color: var(--accent, #4f8cff);
+  cursor: pointer;
+  max-width: 180px;
+}
+
+.blackboard-message__footer {
+  margin-top: 6px;
+}
+
+.blackboard-message__footer button,
+.blackboard-message__footer summary {
+  gap: 4px;
+}
+
+.blackboard-message__reply-details summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.blackboard-message__reply-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.blackboard-message__reply-details[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.blackboard-message__replies {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-subtle);
+}
+
+.blackboard-reply {
+  font-size: 12px;
+}
+
+.blackboard-composer {
+  position: relative;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 9px;
+}
+
+.blackboard-composer[data-dragging="true"] {
+  outline: 2px dashed var(--accent, #4f8cff);
+  outline-offset: 3px;
+}
+
+.blackboard-composer__reply {
+  justify-content: space-between;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.blackboard-composer__controls {
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.blackboard-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 56px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.blackboard-composer__footer {
+  margin-top: 6px;
+}
+
+.blackboard-composer__footer > input:not([type="file"]) {
+  min-width: 0;
+  flex: 1;
+}
+
+.blackboard-composer__file-input {
+  display: none;
+}
+
+.blackboard-composer__error {
+  margin: 5px 0 0;
+  color: var(--danger, #d75a5a);
+  font-size: 12px;
+}
+
+.blackboard-mentions {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% - 6px);
+  display: grid;
+  gap: 2px;
+  z-index: 2;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  padding: 4px;
+  box-shadow: var(--shadow-md, 0 8px 20px rgb(0 0 0 / 15%));
+}
+
+.blackboard-mentions button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 5px 7px;
+  cursor: pointer;
+}
+
+.blackboard-mentions button:hover,
+.blackboard-mentions button:focus-visible {
+  background: var(--surface-hover);
+}

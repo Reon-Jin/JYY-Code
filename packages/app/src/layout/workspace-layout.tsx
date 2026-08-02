@@ -33,6 +33,8 @@ import { McpControl } from "../features/mcp/mcp-control"
 import { PlanPanel } from "../features/plan/plan-panel"
 import { planQueryOptions } from "../features/plan/plan-query"
 import { findTaskByChildSessionID, projectPlanState } from "../features/plan/plan-state"
+import { blackboardQueryOptions } from "../features/blackboard/blackboard-query"
+import { BlackboardPanel } from "../features/blackboard/blackboard-panel"
 import { PermissionBar } from "../features/requests/permission-bar"
 import { QuestionPanel } from "../features/requests/question-panel"
 import {
@@ -437,6 +439,17 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     data.queryClient,
   )
   const planSnapshot = createMemo(() => projectPlanState(planQuery.data ?? { plan: null }))
+  const blackboardQuery = createQuery(
+    () => ({
+      ...blackboardQueryOptions({
+        client: data.client(),
+        directory: data.directory(),
+        rootSessionID: rootSessionID() ?? "",
+      }),
+      enabled: Boolean(rootSessionID()),
+    }),
+    data.queryClient,
+  )
   const activeChildTask = createMemo(() => findTaskByChildSessionID(planSnapshot(), activeSession()?.id))
   const childTaskRunning = createMemo(() => {
     const task = activeChildTask()
@@ -450,6 +463,10 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     if (snapshot.failedAgents > 0) return `${snapshot.runningAgents}/${snapshot.failedAgents}`
     if (snapshot.runningAgents > 0) return String(snapshot.runningAgents)
     return undefined
+  })
+  const blackboardBadge = createMemo(() => {
+    const unreadCount = Number(blackboardQuery.data?.unreadCount ?? 0)
+    return unreadCount > 0 ? String(unreadCount) : undefined
   })
   const requestScope = createMemo(() => {
     const session = activeSession()
@@ -827,6 +844,15 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
             />
           }
           planBadge={planBadge()}
+          blackboardBadge={blackboardBadge()}
+          blackboard={
+            <BlackboardPanel
+              directory={data.directory()}
+              rootSessionID={rootSessionID()}
+              steps={planSnapshot().steps.map((step) => ({ id: `s${step.index}`, title: step.title }))}
+              taskLabels={Object.fromEntries(planSnapshot().tasks.map((task) => [task.id, task.title]))}
+            />
+          }
         />
       }
       busy={busy()}

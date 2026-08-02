@@ -22,7 +22,7 @@ describe("workspace inspector preferences", () => {
     expect(defaultInspectorPreferences).toEqual({ panes: [], ratios: [], width: 420 })
   })
 
-  it.each(["plan", "changes"] as const)("round-trips the %s pane per normalized project", (pane) => {
+  it.each(["plan", "blackboard", "changes"] as const)("round-trips the %s pane per normalized project", (pane) => {
     saveInspectorPreferences("C:/Work/Demo/", { panes: [pane], ratios: [1], width: 360 })
 
     expect(loadInspectorPreferences("c:\\work\\demo")).toEqual({ panes: [pane], ratios: [1], width: 360 })
@@ -72,7 +72,7 @@ describe("workspace inspector preferences", () => {
   })
 })
 
-function InspectorHarness(props: { initial?: InspectorPane; badge?: string }) {
+function InspectorHarness(props: { initial?: InspectorPane; badge?: string; blackboardBadge?: string }) {
   const [preferences, setPreferences] = createSignal({
     panes: props.initial ? [props.initial] : [],
     ratios: props.initial ? [1] : [],
@@ -83,8 +83,10 @@ function InspectorHarness(props: { initial?: InspectorPane; badge?: string }) {
       preferences={preferences()}
       onPreferencesChange={setPreferences}
       plan={<div>plan content</div>}
+      blackboard={<div>blackboard content</div>}
       changes={<div>changes content</div>}
       planBadge={props.badge}
+      blackboardBadge={props.blackboardBadge}
     />
   )
 }
@@ -116,6 +118,18 @@ describe("WorkspaceInspectorView", () => {
     await user.click(changes)
     expect(changes).toHaveAttribute("aria-pressed", "false")
     expect(screen.getByRole("group", { name: "方案" })).toBeVisible()
+  })
+
+  it("opens the blackboard pane and keeps its unread badge out of the accessible name", async () => {
+    const user = userEvent.setup()
+    render(() => <InspectorHarness blackboardBadge="4" />)
+
+    const blackboard = screen.getByRole("button", { name: "协作黑板" })
+    expect(blackboard).toBeVisible()
+    expect(screen.getByText("4")).toHaveAttribute("aria-hidden", "true")
+    await user.click(blackboard)
+    expect(screen.getByRole("group", { name: "协作黑板" })).toHaveTextContent("blackboard content")
+    expect(screen.getByRole("button", { name: "协作黑板" })).toHaveAttribute("aria-pressed", "true")
   })
 
   it("closes an overlay drawer with Escape at narrow width", () => {
