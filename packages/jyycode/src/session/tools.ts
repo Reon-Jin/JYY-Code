@@ -45,9 +45,11 @@ export function retainOnlyTool(tools: Record<string, AITool>, requiredTool: stri
 
 /**
  * Keep a mandatory plan action while allowing the main agent to refresh its
- * state after a rejected update or dispatch. The protocol prompt explicitly
- * directs the agent to read the latest revision before it rewrites a patch;
- * hiding that read tool caused a repeated unknown-tool loop.
+ * state after a rejected update or dispatch. Blackboard controls are kept in
+ * the same tool snapshot: an Agent can post while an update is executing, and
+ * models commonly read/reply before ending that response. Hiding the controls
+ * until the next model turn turned those valid follow-up calls into unknown
+ * tool failures.
  */
 export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredTool: string) {
   if (requiredTool === "Plan_update" || requiredTool === "Dispatch_dispatch") {
@@ -55,9 +57,20 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
     const required = tools[requiredTool]
     if (!required) throw new Error(`Required tool is unavailable: ${requiredTool}`)
     if (!read) throw new Error("Plan_read is unavailable for plan recovery")
+    const allowed = new Set([requiredTool, "Plan_read", "Blackboard", "Blackboard_Reply"])
     for (const name of Object.keys(tools)) {
-      if (name !== requiredTool && name !== "Plan_read") delete tools[name]
+      if (!allowed.has(name)) delete tools[name]
     }
+    return
+  }
+  if (requiredTool === "Blackboard") {
+    const read = tools.Blackboard
+    const reply = tools.Blackboard_Reply
+    const planRead = tools.Plan_read
+    if (!read || !reply || !planRead) throw new Error("Blackboard recovery tools are unavailable")
+    // Blackboard reads update persistent cursors during this response. Keep
+    // the complete snapshot so a model can read a message, inspect an
+    // artifact, and review it without its follow-up tool becoming unknown.
     return
   }
   retainOnlyTool(tools, requiredTool)
@@ -82,10 +95,26 @@ export function hasInFlightPlanTasks(plan: PlanToolGateState | undefined) {
   return plan?.steps.some((step) => step.tasks.some((task) => task.status === "dispatched" || task.status === "running")) ?? false
 }
 
+/**
+ * A root only needs another model turn while children are running when a
+ * Report, Inbox item, or Blackboard event made new work actionable. Keeping
+ * this pure lets SessionPrompt use the same condition before and after a turn.
+ */
+export function shouldWaitForPlanReport(input: {
+  plan: PlanToolGateState | undefined
+  blackboardUnread?: number
+  inboxPending?: number
+}) {
+  if ((input.blackboardUnread ?? 0) > 0 || (input.inboxPending ?? 0) > 0) return false
+  if (pendingDispatchTasks(input.plan).length > 0) return false
+  const hasReported = input.plan?.steps.some((step) => step.tasks.some((task) => task.status === "reported")) ?? false
+  return hasInFlightPlanTasks(input.plan) && !hasReported
+}
+
 export function isPlanToolVisible(itemID: string, session: Pick<Session.Info, "parentID" | "multiAgent">) {
-  if (session.parentID !== undefined) return itemID === "Report" || itemID === "Blackboard"
+  if (session.parentID !== undefined) return itemID === "Report" || itemID === "Blackboard" || itemID === "Blackboard.reply"
   if (session.multiAgent === true) return true
-  return !itemID.startsWith("Dispatch.") && itemID !== "Report" && itemID !== "Blackboard"
+  return !itemID.startsWith("Dispatch.") && itemID !== "Report" && itemID !== "Blackboard" && itemID !== "Blackboard.reply"
 }
 
 const CANDIDATE_RUNNING_TOOL_IDS = new Set(["read", "glob", "grep", "webfetch", "websearch", "Candidate.submit"])
@@ -118,7 +147,7 @@ export function candidateToolGateState(
       discussion.phase === "declaring"
         ? new Set(["Candidate.declare"])
         : discussion.phase === "cross_review"
-          ? new Set(["Blackboard", "Candidate.ready"])
+          ? new Set(["Blackboard", "Blackboard.reply", "Candidate.ready"])
           : discussion.phase === "running"
             ? new Set(CANDIDATE_RUNNING_TOOL_IDS)
             : new Set<string>()
@@ -137,8 +166,8 @@ export function requiredPlanTool(input: {
   plan?: PlanToolGateState
 }) {
   if (!input.root) return undefined
-  if (input.step === 1) return "Plan_read"
   if ((input.blackboardUnread ?? 0) > 0) return "Blackboard"
+  if (input.step === 1) return "Plan_read"
   if (input.multiAgent && input.planExists === false) return "Plan_create"
   if (input.multiAgent) {
     const pending = pendingDispatchTasks(input.plan)

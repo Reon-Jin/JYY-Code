@@ -293,6 +293,25 @@ it.instance("resolves participants, associations, replies, cursors, mentions, an
     })
     expect(reply.parentMessageID).toBe(blocker.id)
     expect(reply.taskIDs).toEqual(expect.arrayContaining(["s1_t1", "s1_t2"]))
+    const blockerRecipients = yield* board.recipientsForMessage(blocker)
+    expect(blockerRecipients).toEqual(
+      expect.arrayContaining([
+        { sessionID: domainRootSessionID, role: "main" },
+        { sessionID: domainChildASessionID, role: "sub_agent" },
+      ]),
+    )
+    expect(blockerRecipients).not.toEqual(expect.arrayContaining([{ sessionID: domainChildBSessionID, role: "sub_agent" }]))
+    const rootRead = yield* board.readAgent(domainRootSessionID)
+    expect(rootRead.messages.map((item) => item.id)).toEqual(expect.arrayContaining([blocker.id, childA.id, reply.id]))
+    const mainReply = yield* board.postAgent({
+      sessionID: domainRootSessionID,
+      message: "Main Agent reply is visible to all task participants",
+      replyTo: blocker.id,
+    })
+    expect(mainReply.parentMessageID).toBe(blocker.id)
+    expect((yield* board.recipientsForMessage(mainReply)).map((item) => item.sessionID)).toEqual(
+      expect.arrayContaining([domainChildASessionID, domainChildBSessionID]),
+    )
     const nested = yield* Effect.exit(
       board.postUser({ rootSessionID: domainRootSessionID, message: "nested", replyTo: reply.id }),
     )

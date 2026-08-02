@@ -1570,7 +1570,7 @@ export const layer = Layer.effect(
 
             const rootSession = session.parentID === undefined
             const planState =
-              rootSession && session.multiAgent === true && step > 1
+              rootSession && session.multiAgent === true
                 ? yield* Effect.promise(() =>
                     defaultPlanProtocol.read({
                       workspaceRoot: session.directory,
@@ -1582,13 +1582,28 @@ export const layer = Layer.effect(
             const blackboardUnread =
               rootSession &&
               session.multiAgent === true &&
-              step > 1 &&
               planState?.ok === true &&
               planState.plan !== null &&
               planState.plan.current_step &&
               blackboard
                 ? yield* blackboard.unreadForMain(session.id)
                 : 0
+            const inboxPending = planState?.ok ? planState.progress?.inbox_pending ?? 0 : 0
+            const lastUserParts = msgs.find((message) => message.info.id === lastUser.id)?.parts ?? []
+            const internalWakeOnly =
+              lastUserParts.length > 0 && lastUserParts.every((part) => part.type === "text" && part.synthetic)
+            if (
+              rootSession &&
+              session.multiAgent === true &&
+              internalWakeOnly &&
+              SessionTools.shouldWaitForPlanReport({
+                plan: planState?.ok ? planState.plan ?? undefined : undefined,
+                blackboardUnread,
+                inboxPending,
+              })
+            ) {
+              return "break" as const
+            }
             const requiredPlanTool = SessionTools.requiredPlanTool({
               root: rootSession,
               multiAgent: session.multiAgent === true,
@@ -1690,17 +1705,29 @@ export const layer = Layer.effect(
               toolChoice: requiredPlanTool || format.type === "json_schema" ? "required" : undefined,
             })
 
-            // Dispatch starts child sessions asynchronously. Do not give the root model another
-            // turn while it has nothing actionable: child Report calls wake this session again.
-            if (requiredPlanTool === "Dispatch_dispatch") {
-              const afterDispatch = yield* Effect.promise(() =>
+            // Root sessions are event-driven after dispatch. A child Report, Inbox entry, or
+            // Blackboard post wakes this session again; a plan read cannot make a running task
+            // actionable and must not become a polling loop.
+            if (rootSession && session.multiAgent === true) {
+              const afterTurn = yield* Effect.promise(() =>
                 defaultPlanProtocol.read({
                   workspaceRoot: session.directory,
                   sessionId: session.id,
                   mode: "multi",
                 }),
               )
-              if (afterDispatch.ok && SessionTools.hasInFlightPlanTasks(afterDispatch.plan ?? undefined)) {
+              const unreadAfterTurn =
+                afterTurn.ok && afterTurn.plan?.current_step && blackboard
+                  ? yield* blackboard.unreadForMain(session.id)
+                  : 0
+              if (
+                afterTurn.ok &&
+                SessionTools.shouldWaitForPlanReport({
+                  plan: afterTurn.plan ?? undefined,
+                  blackboardUnread: unreadAfterTurn,
+                  inboxPending: afterTurn.progress?.inbox_pending ?? 0,
+                })
+              ) {
                 return "break" as const
               }
             }

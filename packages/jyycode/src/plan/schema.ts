@@ -61,6 +61,8 @@ export type PlanTask = {
   title: string
   goal: string
   done_criteria: string
+  /** Detailed execution context carried into the dispatched child brief. */
+  instructions?: string
   output_path: string | null
   /** Legacy in-memory fixtures may omit this; persisted plans are normalized to standard. */
   mode?: PlanTaskMode
@@ -95,6 +97,7 @@ export type CreateTaskInput = {
   title: string
   goal: string
   done_criteria: string
+  instructions?: string
   output_path?: string
   mode?: PlanTaskMode
 }
@@ -122,7 +125,7 @@ export type PlanUpdateOp =
       op: "edit_task"
       stepId: string
       taskId: string
-      fields: Partial<Pick<PlanTask, "title" | "goal" | "done_criteria" | "output_path">>
+      fields: Partial<Pick<PlanTask, "title" | "goal" | "done_criteria" | "instructions" | "output_path">>
     }
   | { op: "remove_task"; stepId: string; taskId: string }
   | {
@@ -349,6 +352,7 @@ export function validatePlanFile(value: unknown): string[] {
           "title",
           "goal",
           "done_criteria",
+          "instructions",
           "output_path",
           "mode",
           "status",
@@ -363,6 +367,8 @@ export function validatePlanFile(value: unknown): string[] {
         taskIds.add(String(rawTask.id))
         for (const field of ["title", "goal", "done_criteria"])
           if (!nonEmptyString(rawTask[field])) errors.push(errorAt(`${taskPrefix}.${field}`, "must be non-empty"))
+        if (rawTask.instructions !== undefined && !nonEmptyString(rawTask.instructions))
+          errors.push(errorAt(`${taskPrefix}.instructions`, "must be a non-empty string when provided"))
         if (!("output_path" in rawTask) || (rawTask.output_path !== null && typeof rawTask.output_path !== "string"))
           errors.push(errorAt(`${taskPrefix}.output_path`, "must be string or null"))
         if (rawTask.mode !== undefined && !["standard", "candidate"].includes(String(rawTask.mode)))

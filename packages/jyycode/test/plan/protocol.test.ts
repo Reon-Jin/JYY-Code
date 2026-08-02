@@ -131,7 +131,16 @@ describe("file-backed plan protocol", () => {
         enabled: true,
       },
     ]
-    let started: { role: unknown } | undefined
+    let started:
+      | {
+          role: unknown
+          brief: {
+            task_title: string
+            task_instructions?: string
+            step_context: { plan_goal: string; step_id: string; step_title: string }
+          }
+        }
+      | undefined
     const protocol = new PlanProtocol({
       store: new PlanStore(),
       profiles: async () => profiles,
@@ -146,7 +155,22 @@ describe("file-backed plan protocol", () => {
         async terminate() {},
       },
     })
-    await protocol.create(context(root), createInput(path.join(root, "notes.md")))
+    const input = createInput(path.join(root, "notes.md"))
+    await protocol.create(context(root), {
+      ...input,
+      steps: [
+        {
+          ...input.steps[0]!,
+          tasks: [
+            {
+              ...input.steps[0]!.tasks![0]!,
+              instructions: "Read the existing API and preserve the public contract.",
+            },
+          ],
+        },
+        input.steps[1]!,
+      ],
+    })
     await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "reviewer" })
     profiles[1] = { ...profiles[1]!, name: "Edited", prompt: "Changed", model: "anthropic/claude", variant: "high" }
     expect(started?.role).toEqual({
@@ -157,6 +181,11 @@ describe("file-backed plan protocol", () => {
       avatar: "bug",
       model: "openai/gpt-5",
       variant: "low",
+    })
+    expect(started?.brief).toMatchObject({
+      task_title: "梳理依赖",
+      task_instructions: "Read the existing API and preserve the public contract.",
+      step_context: { plan_goal: "按阶段完成模块重构并通过验收", step_id: "s1", step_title: "现状分析" },
     })
   })
 
@@ -432,6 +461,55 @@ describe("file-backed plan protocol", () => {
     expect(gateCalls).toBe(2)
   })
 
+  it("does not advance a Step until the root has handled current Blackboard work", async () => {
+    const root = workspace()
+    const artifact = path.join(root, "blackboard-gated.md")
+    fs.writeFileSync(artifact, "ready")
+    let blackboardClear = false
+    let gateCalls = 0
+    const protocol = new PlanProtocol({
+      beforeStepAdvance: async () => {
+        gateCalls++
+        if (!blackboardClear)
+          throw new PlanProtocolError({
+            code: "BLACKBOARD_UNREAD",
+            message: "Read Blackboard before advancing the Step",
+            hint: "Call Blackboard and retry the same revision",
+            retryable: true,
+          })
+      },
+    })
+    await protocol.create(context(root), createInput(artifact))
+    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+    expect(dispatched.ok).toBe(true)
+    if (!dispatched.ok) return
+    const reported = await protocol.report({ ...context(root, "single", "child_blackboard_gate"), runId: dispatched.dispatched[0]!.run_id }, {
+      run_id: dispatched.dispatched[0]!.run_id,
+      status: "done",
+      summary: "ready",
+      artifacts: [artifact],
+      issues: [],
+    })
+    expect(reported.ok).toBe(true)
+    const blocked = await protocol.update(context(root), {
+      revision: 3,
+      ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
+    })
+    expect(blocked).toMatchObject({ ok: false, error: { code: "BLACKBOARD_UNREAD", retryable: true } })
+    const unchanged = await protocol.read(context(root))
+    expect(unchanged).toMatchObject({ ok: true, plan: { revision: 3, current_step: "s1" } })
+
+    blackboardClear = true
+    const advanced = await protocol.update(context(root), {
+      revision: 3,
+      ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
+    })
+    expect(advanced.ok).toBe(true)
+    const after = await protocol.read(context(root))
+    expect(after).toMatchObject({ ok: true, plan: { revision: 4, current_step: "s2" } })
+    expect(gateCalls).toBe(2)
+  })
+
   it("covers the nine-op protection matrix and rejects malformed stored plans", async () => {
     const doneRoot = workspace()
     const doneProtocol = new PlanProtocol()
@@ -587,6 +665,10 @@ describe("file-backed plan protocol", () => {
     })
     expect(multiAgentPrompt).toContain("Dispatch_dispatch")
     expect(multiAgentPrompt).toContain("Candidate_declare")
+    expect(multiAgentPrompt).toContain('mode: "candidate"')
+    expect(multiAgentPrompt).toContain("candidate_discussion")
+    expect(multiAgentPrompt).toContain("Dispatch_dispatch exactly once")
+    expect(multiAgentPrompt).toContain("Plan_update(add_task) cannot create")
     expect(multiAgentPrompt).not.toMatch(/\b(?:Plan|Dispatch|Candidate)\./)
     expect(multiAgentPrompt).toContain("output_path")
     expect(multiAgentPrompt).toContain("reviewer")

@@ -10,10 +10,12 @@ import {
   requiredPlanTool,
   retainRequiredPlanTools,
   retainOnlyTool,
+  shouldWaitForPlanReport,
   toolNameForModel,
 } from "../../src/session/tools"
 import {
   BLACKBOARD_INPUT_SCHEMA,
+  BLACKBOARD_REPLY_INPUT_SCHEMA,
   childLaunchPrompt,
   childModelForRole,
   DISPATCH_INPUT_SCHEMA,
@@ -27,15 +29,18 @@ describe("model-facing plan tool names", () => {
   it("uses one underscore-separated name on the model wire", () => {
     expect(modelFacingPlanToolName("Plan.read")).toBe("Plan_read")
     expect(modelFacingPlanToolName("Candidate.submit")).toBe("Candidate_submit")
+    expect(modelFacingPlanToolName("Blackboard.reply")).toBe("Blackboard_Reply")
     expect(toolNameForModel("Plan.read")).toBe("Plan_read")
     expect(toolNameForModel("Dispatch.dispatch")).toBe("Dispatch_dispatch")
     expect(toolNameForModel("Report")).toBe("Report")
     expect(toolNameForModel("read")).toBe("read")
     expect(toolNameForModel("Blackboard")).toBe("Blackboard")
+    expect(toolNameForModel("Blackboard.reply")).toBe("Blackboard_Reply")
   })
 
   it("exposes one context-free Blackboard tool with only optional write fields", () => {
     expect(PLAN_TOOL_IDS.has("Blackboard")).toBe(true)
+    expect(PLAN_TOOL_IDS.has("Blackboard.reply")).toBe(true)
     expect(BLACKBOARD_INPUT_SCHEMA.required).toBeUndefined()
     expect(Object.keys(BLACKBOARD_INPUT_SCHEMA.properties!)).toEqual([
       "message",
@@ -45,10 +50,12 @@ describe("model-facing plan tool names", () => {
       "attachments",
     ])
     expect(Object.keys(BLACKBOARD_INPUT_SCHEMA.properties!).some((key) => /step|sender|session|author|mention/i.test(key))).toBe(false)
+    expect(BLACKBOARD_REPLY_INPUT_SCHEMA.required).toEqual(["message", "reply_to"])
   })
 
   it("limits plan protocol tools by session role", () => {
     expect(isPlanToolVisible("Blackboard", { parentID: "ses_parent" as never, multiAgent: undefined })).toBe(true)
+    expect(isPlanToolVisible("Blackboard.reply", { parentID: "ses_parent" as never, multiAgent: undefined })).toBe(true)
     expect(isPlanToolVisible("Plan.read", { parentID: "ses_parent" as never, multiAgent: undefined })).toBe(false)
     expect(isPlanToolVisible("Blackboard", { parentID: undefined, multiAgent: false })).toBe(false)
     expect(isPlanToolVisible("Blackboard", { parentID: undefined, multiAgent: true })).toBe(true)
@@ -130,7 +137,7 @@ describe("model-facing plan tool names", () => {
     persisted.steps[0]!.candidate_discussion.phase = "cross_review"
     fs.writeFileSync(persistedPath, JSON.stringify(persisted))
     const reviewGate = candidateToolGateState({ id: "candidate-child" as never, parentID: rootSession as never, directory: workspace })
-    expect([...reviewGate!.allowedToolIDs]).toEqual(["Blackboard", "Candidate.ready"])
+    expect([...reviewGate!.allowedToolIDs]).toEqual(["Blackboard", "Blackboard.reply", "Candidate.ready"])
     fs.rmSync(workspace, { recursive: true, force: true })
   })
 
@@ -151,24 +158,38 @@ describe("model-facing plan tool names", () => {
       Plan_read: {} as never,
       Plan_update: {} as never,
       Dispatch_dispatch: {} as never,
+      Blackboard: {} as never,
+      Blackboard_Reply: {} as never,
       bash: {} as never,
     }
     retainRequiredPlanTools(updateTools, "Plan_update")
-    expect(Object.keys(updateTools)).toEqual(["Plan_read", "Plan_update"])
+    expect(Object.keys(updateTools)).toEqual(["Plan_read", "Plan_update", "Blackboard", "Blackboard_Reply"])
 
     const dispatchTools = {
       Plan_read: {} as never,
       Plan_update: {} as never,
       Dispatch_dispatch: {} as never,
+      Blackboard: {} as never,
+      Blackboard_Reply: {} as never,
       bash: {} as never,
     }
     retainRequiredPlanTools(dispatchTools, "Dispatch_dispatch")
-    expect(Object.keys(dispatchTools)).toEqual(["Plan_read", "Dispatch_dispatch"])
+    expect(Object.keys(dispatchTools)).toEqual(["Plan_read", "Dispatch_dispatch", "Blackboard", "Blackboard_Reply"])
+
+    const blackboardTools = {
+      Plan_read: {} as never,
+      Blackboard: {} as never,
+      Blackboard_Reply: {} as never,
+      Plan_update: {} as never,
+      bash: {} as never,
+    }
+    retainRequiredPlanTools(blackboardTools, "Blackboard")
+    expect(Object.keys(blackboardTools)).toEqual(["Plan_read", "Blackboard", "Blackboard_Reply", "Plan_update", "bash"])
   })
 
   it("forces multi-agent roots to create, prepare, and dispatch active work instead of doing it themselves", () => {
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 1 })).toBe("Plan_read")
-    expect(requiredPlanTool({ root: true, multiAgent: true, step: 2, blackboardUnread: 2, planExists: false })).toBe(
+    expect(requiredPlanTool({ root: true, multiAgent: true, step: 1, blackboardUnread: 2, planExists: false })).toBe(
       "Blackboard",
     )
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 2, planExists: false })).toBe("Plan_create")
@@ -229,14 +250,35 @@ describe("model-facing plan tool names", () => {
     ).toBe(false)
   })
 
+  it("waits for a Report instead of polling while no root work is actionable", () => {
+    const running = {
+      current_step: "s1",
+      steps: [{ id: "s1", tasks: [{ id: "s1_t1", status: "running", done_criteria: "x", output_path: "x.md" }] }],
+    }
+    expect(shouldWaitForPlanReport({ plan: running })).toBe(true)
+    expect(shouldWaitForPlanReport({ plan: running, blackboardUnread: 1 })).toBe(false)
+    expect(shouldWaitForPlanReport({ plan: running, inboxPending: 1 })).toBe(false)
+    expect(
+      shouldWaitForPlanReport({
+        plan: { ...running, steps: [{ id: "s1", tasks: [{ ...running.steps[0]!.tasks[0]!, status: "reported" }] }] },
+      }),
+    ).toBe(false)
+  })
+
   it("publishes complete nested schemas for progressive plans and all update operations", () => {
     expect(DISPATCH_INPUT_SCHEMA.required).toEqual(["taskIds", "role"])
     expect(DISPATCH_INPUT_SCHEMA.properties?.role).toMatchObject({ type: "string", minLength: 1 })
+    expect(DISPATCH_INPUT_SCHEMA.properties?.taskIds).toMatchObject({ description: expect.stringContaining("every candidate Task ID") })
     const createSteps = PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { items?: unknown }
+    expect((PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { description?: string }).description).toContain("one complete 2-3 Task")
     expect(createSteps.items).toMatchObject({
       required: ["title", "goal", "done_criteria"],
       properties: { tasks: { items: { required: ["title", "goal", "done_criteria"] } } },
     })
+    const taskProperties = (createSteps.items as { properties: { tasks: { description?: string; items: { properties: object } } } }).properties.tasks
+    expect(taskProperties.description).toContain("2-3 candidate Tasks")
+    expect(taskProperties.items.properties).toHaveProperty("instructions")
+    expect((taskProperties.items.properties as { mode?: { description?: string } }).mode?.description).toContain("exactly 2-3")
 
     const updateOps = PLAN_UPDATE_INPUT_SCHEMA.properties?.ops as { items?: { oneOf?: unknown[] } }
     const operations = updateOps.items?.oneOf ?? []
@@ -281,10 +323,18 @@ describe("model-facing plan tool names", () => {
     const prompt = childLaunchPrompt(
       {
         run_id: "run__ses_root__s1_t1",
+        task_title: "Write notes",
         goal: "write notes",
         done_criteria: "notes.md exists",
         output_path: "notes.md",
         report_format: "Report(...)",
+        step_context: {
+          plan_goal: "Document the project",
+          step_id: "s1",
+          step_title: "Notes",
+          step_goal: "Document the project notes",
+          step_done_criteria: "Notes are published",
+        },
       },
       role,
     )

@@ -177,6 +177,16 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           attachments: ctx.payload.attachments ? [...ctx.payload.attachments] : undefined,
         })
         .pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+      for (const recipient of yield* blackboard.recipientsForMessage(message)) {
+        if (recipient.role !== "sub_agent") continue
+        yield* promptSvc
+          .wake({
+            sessionID: recipient.sessionID,
+            kind: "blackboard_direct_message",
+            text: "Blackboard 收到与你的 Task 有关的用户消息。请调用 Blackboard 阅读并处理，然后继续当前任务。",
+          })
+          .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+      }
       yield* promptSvc
         .wake({
           sessionID: root.id,

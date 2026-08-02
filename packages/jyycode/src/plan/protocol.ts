@@ -87,11 +87,20 @@ export type CandidateBoardController = {
 
 export type DispatchBrief = {
   run_id: string
+  task_title: string
   goal: string
   done_criteria: string
+  task_instructions?: string
   output_path: string
   report_format: string
   mode?: PlanTaskMode
+  step_context: {
+    plan_goal: string
+    step_id: string
+    step_title: string
+    step_goal: string
+    step_done_criteria: string
+  }
   step_directory?: Array<{
     task_id: string
     title: string
@@ -125,6 +134,7 @@ type ProtocolOptions = {
   now?: () => number
   eventSink?: (event: import("./events").PlanEvent) => void
   beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
+  beforeStepAdvance?: (ctx: PlanExecutionContext) => Promise<void>
   profiles?: () => Promise<readonly SubagentProfile[]>
   candidateBoard?: CandidateBoardController
 }
@@ -220,10 +230,12 @@ function validateCreateInput(input: unknown): asserts input is CreatePlanInput {
       if (!rawTask || typeof rawTask !== "object" || Array.isArray(rawTask))
         inputError(`steps[${index}].tasks[${taskIndex}] 必须是对象`)
       const task = rawTask as Record<string, unknown>
-      assertOnly(task, ["title", "goal", "done_criteria", "output_path", "mode"], `steps[${index}].tasks[${taskIndex}]`)
+      assertOnly(task, ["title", "goal", "done_criteria", "instructions", "output_path", "mode"], `steps[${index}].tasks[${taskIndex}]`)
       requiredText(task.title, `steps[${index}].tasks[${taskIndex}].title`)
       requiredText(task.goal, `steps[${index}].tasks[${taskIndex}].goal`)
       requiredText(task.done_criteria, `steps[${index}].tasks[${taskIndex}].done_criteria`)
+      if (task.instructions !== undefined && !asString(task.instructions))
+        inputError(`steps[${index}].tasks[${taskIndex}].instructions must be non-empty`)
       if (task.output_path !== undefined && !asString(task.output_path))
         inputError(`steps[${index}].tasks[${taskIndex}].output_path must be non-empty`)
       if (task.mode !== undefined && task.mode !== "standard" && task.mode !== "candidate")
@@ -272,11 +284,28 @@ function taskCounts(plan: PlanFile) {
 
 function nextActionHint(plan: PlanFile, inboxPending: number) {
   if (inboxPending > 0) return `有 ${inboxPending} 个异常待处理：先处理 Inbox`
-  const reported = plan.steps.flatMap((step) => step.tasks).filter((task) => task.status === "reported")
-  if (reported.length) return `有 ${reported.length} 个任务待审核：${reported.map((task) => task.id).join("、")}`
   const current = plan.current_step ? plan.steps.find((step) => step.id === plan.current_step) : undefined
   if (!current) return "方案已完成，可向用户交付总结"
   if (current.tasks.length === 0) return `${current.id} 当前没有任务，请用 Plan_update(add_task) 展开明细`
+  const candidates = current.tasks.filter((task) => task.mode === "candidate")
+  if (candidates.length > 0) {
+    const candidateIDs = candidates.map((task) => task.id).join("、")
+    const pendingCandidates = candidates.filter((task) => task.status === "pending" || task.status === "rejected")
+    if (pendingCandidates.length > 0)
+      return `${current.id} 是 candidate Step；请一次调用 Dispatch_dispatch，taskIds 必须包含全部候选：${candidateIDs}`
+    const phase = current.candidate_discussion?.phase
+    if (phase === "declaring") return `${current.id} 候选正在盲声明，等待所有 Candidate_declare 完成后继续`
+    if (phase === "cross_review") return `${current.id} 候选正在交叉评审，等待所有 Candidate_ready 后调用 Candidate_begin`
+    if (phase === "awaiting_main") return `${current.id} 所有候选已 ready，请调用 Candidate_begin 开始独立执行`
+    if (phase === "running") {
+      const reportedCandidates = candidates.filter((task) => task.status === "reported")
+      if (reportedCandidates.length > 0)
+        return `${current.id} 已收到候选汇报：${reportedCandidates.map((task) => task.id).join("、")}；读取提案并生成综合产物后用 Plan_update(select_candidate)`
+      return `${current.id} 候选正在独立执行，等待 Candidate_submit 汇报`
+    }
+  }
+  const reported = plan.steps.flatMap((step) => step.tasks).filter((task) => task.status === "reported")
+  if (reported.length) return `有 ${reported.length} 个任务待审核：${reported.map((task) => task.id).join("、")}`
   const pending = current.tasks.filter((task) => task.status === "pending" || task.status === "rejected")
   if (pending.length) return `${current.id} 有 ${pending.length} 个 pending/rejected 任务，可开始派发或执行`
   if (plan.status === "done") return "方案已完成，可向用户交付总结"
@@ -347,6 +376,7 @@ function createTask(input: CreateTaskInput, id: string, workspaceRoot?: string, 
     title: requiredText(input.title, "task.title"),
     goal: requiredText(input.goal, "task.goal"),
     done_criteria: requiredText(input.done_criteria, "task.done_criteria"),
+    ...(input.instructions ? { instructions: requiredText(input.instructions, "task.instructions") } : {}),
     output_path:
       taskMode === "candidate" && workspaceRoot && rootSessionID
         ? path.join(planDirectory(workspaceRoot, rootSessionID), "candidates", id.split("_t")[0]!, id, "proposal.md")
@@ -456,6 +486,11 @@ function applyOp(
           hint: `请只对 current_step=${plan.current_step ?? "null"} 使用 add_task；后续阶段保持 Task 骨架为空`,
         })
       }
+      if (step.tasks.some((task) => task.mode === "candidate") || op.task.mode === "candidate")
+        inputError(
+          "不能用 Plan_update(add_task) 创建或扩展 candidate Step",
+          "在 Plan_create.steps[0].tasks 中一次性声明 2-3 个 mode=candidate Task；运行时会自动初始化候选讨论元数据",
+        )
       const id = nextTaskId(step)
       step.tasks.push(createTask(op.task, id, workspaceRoot, rootSessionID))
       assigned.tasks.push(id)
@@ -474,6 +509,7 @@ function applyOp(
       if (op.fields.goal !== undefined) task.goal = requiredText(op.fields.goal, "goal")
       if (op.fields.done_criteria !== undefined)
         task.done_criteria = requiredText(op.fields.done_criteria, "done_criteria")
+      if (op.fields.instructions !== undefined) task.instructions = requiredText(op.fields.instructions, "instructions")
       if (op.fields.output_path !== undefined) task.output_path = requiredText(op.fields.output_path, "output_path")
       return
     }
@@ -634,6 +670,7 @@ export class PlanProtocol {
   private readonly now: () => number
   private readonly eventSink?: (event: import("./events").PlanEvent) => void
   private readonly beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
+  private readonly beforeStepAdvance?: (ctx: PlanExecutionContext) => Promise<void>
   private readonly profiles: () => Promise<readonly SubagentProfile[]>
   private readonly reportAttempts = sharedReportAttempts
   private readonly activities = sharedActivities
@@ -649,6 +686,7 @@ export class PlanProtocol {
     this.now = options.now ?? Date.now
     this.eventSink = options.eventSink
     this.beforeReport = options.beforeReport
+    this.beforeStepAdvance = options.beforeStepAdvance
     this.profiles = options.profiles ?? (() => Promise.resolve([defaultGeneralProfile]))
   }
 
@@ -880,6 +918,16 @@ export class PlanProtocol {
       assertMain(ctx)
       validateUpdateInput(input)
       const value = input as PlanUpdateInput
+      const latestForGate = this.store.read(this.path(ctx))
+      if (this.beforeStepAdvance && latestForGate && latestForGate.revision === value.revision) {
+        const projected = clonePlan(latestForGate)
+        const projectedAssigned = { steps: [] as string[], tasks: [] as string[] }
+        const projectedReviewed: Array<{ taskId: string; result: "approved" | "rejected" }> = []
+        for (const op of value.ops)
+          applyOp(projected, op, ctx.mode, projectedAssigned, projectedReviewed, ctx.workspaceRoot, ctx.sessionId)
+        recomputeProgress(projected, ctx.workspaceRoot)
+        if (projected.current_step !== latestForGate.current_step) await this.beforeStepAdvance(ctx)
+      }
       const assigned = { steps: [] as string[], tasks: [] as string[] }
       const reviewed: Array<{ taskId: string; result: "approved" | "rejected" }> = []
       const result = await this.write(ctx, (latest) => {
@@ -994,7 +1042,7 @@ export class PlanProtocol {
       const prepared = new Map<string, { dispatch: DispatchRecord; brief: DispatchBrief; role: LaunchSnapshot }>()
       const needsRole = targets.some(({ task }) => task.status !== "dispatched" && task.status !== "running")
       const role = needsRole ? await this.resolveProfile(input.role) : undefined
-      for (const { task } of targets) {
+      for (const { step, task } of targets) {
         if (task.status === "dispatched" || task.status === "running") {
           if (!task.dispatch)
             throw new PlanProtocolError({
@@ -1022,10 +1070,19 @@ export class PlanProtocol {
         const childSessionId = `child_${ctx.sessionId}_${task.id}`
         const brief: DispatchBrief = {
           run_id: runId,
+          task_title: task.title,
           goal: task.goal,
           done_criteria: task.done_criteria,
+          ...(task.instructions ? { task_instructions: task.instructions } : {}),
           output_path: task.output_path!,
           mode: task.mode ?? "standard",
+          step_context: {
+            plan_goal: plan.goal,
+            step_id: step.id,
+            step_title: step.title,
+            step_goal: step.goal,
+            step_done_criteria: step.done_criteria,
+          },
           report_format:
             "调用 Report({run_id,status,summary,artifacts?,issues?})；status=done 时 artifacts 必须列出真实存在的产出文件。",
           step_directory: (plan.steps.find((step) => step.id === plan.current_step)?.tasks ?? []).map((item) => ({

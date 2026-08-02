@@ -81,11 +81,17 @@ describe("candidate plan model", () => {
         { title: "next", goal: "continue", done_criteria: "done" },
       ],
     })
-    expect(created).toMatchObject({ ok: true })
+    expect(created).toMatchObject({ ok: true, next_action_hint: expect.stringContaining("一次调用 Dispatch_dispatch") })
     let read = await protocol.read(context())
     if (!read.ok || !read.plan) throw new Error("candidate plan was not created")
     expect(read.plan.steps[0]?.tasks.map((item) => item.mode)).toEqual(["candidate", "candidate", "candidate"])
     expect(read.plan.steps[0]?.tasks[0]?.output_path).toContain("candidates\\s1\\s1_t1\\proposal.md")
+    expect(
+      await protocol.update(context(), {
+        revision: read.plan.revision,
+        ops: [{ op: "add_task", stepId: "s1", task: { title: "late", goal: "late", done_criteria: "late", mode: "candidate" } }],
+      }),
+    ).toMatchObject({ ok: false, error: { hint: expect.stringContaining("Plan_create") } })
     expect(await protocol.dispatch(context(), { taskIds: ["s1_t1", "s1_t2"], role: "general" })).toMatchObject({ ok: false })
     expect(await protocol.dispatch(context(), { taskIds: taskIDs, role: "general" })).toMatchObject({ ok: true })
 

@@ -27,6 +27,7 @@ const AnyObject = Schema.declare<unknown>((_u): _u is unknown => true)
 
 /** The one public name used in model requests, prompts, results, and errors. */
 export function modelFacingPlanToolName(id: string) {
+  if (id === "Blackboard.reply") return "Blackboard_Reply"
   return id.replaceAll(".", "_")
 }
 
@@ -42,8 +43,13 @@ const taskInputSchema: JSONSchema7 = {
     title: nonEmptyStringSchema,
     goal: nonEmptyStringSchema,
     done_criteria: nonEmptyStringSchema,
+    instructions: nonEmptyStringSchema,
     output_path: nonEmptyStringSchema,
-    mode: { enum: ["standard", "candidate"] },
+    mode: {
+      enum: ["standard", "candidate"],
+      description:
+        "Use candidate only when this Task is one of exactly 2-3 alternatives declared together in Plan_create.steps[0].tasks; candidate output_path is assigned by the runtime.",
+    },
   },
 }
 
@@ -55,7 +61,12 @@ const stepInputSchema: JSONSchema7 = {
     title: nonEmptyStringSchema,
     goal: nonEmptyStringSchema,
     done_criteria: nonEmptyStringSchema,
-    tasks: { type: "array", items: taskInputSchema },
+    tasks: {
+      type: "array",
+      items: taskInputSchema,
+      description:
+        "For a candidate Step, include exactly 2-3 candidate Tasks here in the initial Plan_create call; Plan_update(add_task) cannot initialize candidate metadata.",
+    },
   },
 }
 
@@ -66,7 +77,13 @@ export const PLAN_CREATE_INPUT_SCHEMA: JSONSchema7 = {
   properties: {
     title: { type: "string", minLength: 1, maxLength: 60 },
     goal: nonEmptyStringSchema,
-    steps: { type: "array", minItems: 2, items: stepInputSchema },
+    steps: {
+      type: "array",
+      minItems: 2,
+      items: stepInputSchema,
+      description:
+        "Only steps[0] may contain Task details. Candidate Tasks must be declared as one complete 2-3 Task group in steps[0].tasks.",
+    },
   },
 }
 
@@ -154,6 +171,7 @@ const updateOps: JSONSchema7[] = [
           title: nonEmptyStringSchema,
           goal: nonEmptyStringSchema,
           done_criteria: nonEmptyStringSchema,
+          instructions: nonEmptyStringSchema,
           output_path: nonEmptyStringSchema,
         },
       },
@@ -211,7 +229,14 @@ export const PLAN_UPDATE_INPUT_SCHEMA: JSONSchema7 = {
   required: ["revision", "ops"],
   properties: {
     revision: { type: "integer", minimum: 1 },
-    ops: { type: "array", minItems: 1, maxItems: 50, items: { oneOf: updateOps } },
+    ops: {
+      type: "array",
+      minItems: 1,
+      maxItems: 50,
+      items: { oneOf: updateOps },
+      description:
+        "add_task is for standard Tasks only; candidate groups must be created together by Plan_create and dispatched together by Dispatch_dispatch.",
+    },
   },
 }
 
@@ -220,8 +245,15 @@ export const DISPATCH_INPUT_SCHEMA: JSONSchema7 = {
   additionalProperties: false,
   required: ["taskIds", "role"],
   properties: {
-    taskIds: { type: "array", minItems: 1, maxItems: 20, items: taskIdSchema },
-    role: { type: "string", minLength: 1 },
+    taskIds: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: taskIdSchema,
+      description:
+        "For a candidate Step, pass every candidate Task ID from the same Step in this one call; never dispatch candidates individually.",
+    },
+    role: { type: "string", minLength: 1, description: "Use an enabled role such as general." },
   },
 }
 
@@ -295,8 +327,46 @@ function promptOps(ctx: Tool.Context) {
   return value as TaskPromptOps
 }
 
-/** Keep the child task brief readable in the session timeline as well as by the model. */
+function wakeBlackboardRecipients(
+  ctx: Tool.Context,
+  board: Blackboard.Interface,
+  message: Blackboard.Message,
+  bridge: EffectBridgeShape,
+) {
+  const ops = ctx.extra?.promptOps as TaskPromptOps | undefined
+  if (!ops) return Effect.void
+  return Effect.gen(function* () {
+    const recipients = yield* board.recipientsForMessage(message)
+    bridge.fork(
+      Effect.forEach(recipients, (recipient) =>
+        ops
+          .wake({
+            sessionID: recipient.sessionID,
+            kind: recipient.role === "main" ? "blackboard_agent_message" : "blackboard_direct_message",
+            text:
+              recipient.role === "main"
+                ? "Blackboard 有新的子 Agent 消息。请调用 Blackboard 阅读全部当前 Step 消息；必要时可使用 Blackboard_Reply 回复。"
+                : "Blackboard 收到与你的 Task 有关的新消息。请调用 Blackboard 阅读并处理；完成后继续当前任务。",
+          })
+          .pipe(Effect.ignore),
+      ).pipe(Effect.asVoid),
+    )
+  })
+}
+
+/** The only user-visible content in a child session's initial message. */
 export function childTaskBrief(brief: DispatchBrief) {
+  return [
+    "## Instructions",
+    brief.task_instructions?.trim() || "No additional instructions.",
+    "",
+    "## Current Task Goal",
+    brief.goal.trim(),
+  ].join("\n")
+}
+
+/** Full dispatch metadata is delivered in a synthetic message part. */
+function childInternalTaskBrief(brief: DispatchBrief) {
   const standard = [
     "## 主 Agent 派发的任务简报",
     "",
@@ -314,6 +384,18 @@ export function childTaskBrief(brief: DispatchBrief) {
     "This is a candidate task. Use Candidate_declare once, then read peer declarations with Blackboard and reply directly to every other candidate before Candidate_ready.",
     "After the root calls Candidate_begin, work independently. Write only the isolated proposal described by this brief and submit it with Candidate_submit; do not call Report or use Blackboard during running.",
   ].join("\n")
+}
+
+export const BLACKBOARD_REPLY_INPUT_SCHEMA: JSONSchema7 = {
+  type: "object",
+  additionalProperties: false,
+  required: ["message", "reply_to"],
+  properties: {
+    message: nonEmptyStringSchema,
+    reply_to: nonEmptyStringSchema,
+    kind: { enum: ["info", "risk", "blocker", "decision", "help"] },
+    attachments: { type: "array", items: nonEmptyStringSchema },
+  },
 }
 
 const candidateDeclareSchema: JSONSchema7 = {
@@ -351,7 +433,7 @@ export function childModelForRole(parentModel: Session.Info["model"], role: Laun
 }
 
 export function childLaunchPrompt(brief: DispatchBrief, role: LaunchSnapshot) {
-  return [childTaskBrief(brief), "## Role instructions (launch only)", role.prompt.trim() || "No additional role instructions."].join(
+  return [childInternalTaskBrief(brief), "## Role instructions (launch only)", role.prompt.trim() || "No additional role instructions."].join(
     "\n\n",
   )
 }
@@ -363,6 +445,7 @@ function protocolFor(
     bridge: EffectBridgeShape
     promptOps?: TaskPromptOps
     beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
+    beforeStepAdvance?: (ctx: PlanExecutionContext) => Promise<void>
     profiles?: () => Promise<readonly SubagentProfile[]>
     candidateBoard?: Blackboard.Interface
   },
@@ -394,13 +477,17 @@ function protocolFor(
         if (!runtime.promptOps) return
         const ops = runtime.promptOps
         registerChildRun(input.childSessionId, input.brief.run_id)
-        const brief = childLaunchPrompt(input.brief, input.role)
+        const visibleBrief = childTaskBrief(input.brief)
+        const internalContext = childLaunchPrompt(input.brief, input.role)
         runtime.bridge.fork(
           ops
             .prompt({
               sessionID: input.childSessionId as SessionID,
               agent: profileAgentName(input.role.id),
-              parts: [{ type: "text", text: brief }],
+              parts: [
+                { type: "text", text: visibleBrief },
+                { type: "text", text: internalContext, synthetic: true, metadata: { kind: "plan_dispatch_context" } },
+              ],
             })
             .pipe(
               Effect.catchCause((cause) =>
@@ -431,6 +518,7 @@ function protocolFor(
       },
     },
     beforeReport: runtime.beforeReport,
+    beforeStepAdvance: runtime.beforeStepAdvance,
     candidateBoard: runtime.candidateBoard
       ? {
           postCandidateDeclaration: (input) =>
@@ -525,6 +613,7 @@ export const BlackboardTool = Tool.define(
       execute: (input: unknown, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const board = yield* Blackboard.Service
+          const bridge = yield* EffectBridge.make()
           const value = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
           if (typeof value.message === "string") {
             const message = yield* board.postAgent({
@@ -537,9 +626,50 @@ export const BlackboardTool = Tool.define(
                 ? value.attachments.filter((item): item is string => typeof item === "string")
                 : undefined,
             })
+            yield* wakeBlackboardRecipients(ctx, board, message, bridge)
             return jsonResult("Blackboard", message)
           }
           return jsonResult("Blackboard", yield* board.readAgent(ctx.sessionID))
+        }).pipe(Effect.provide(Blackboard.defaultLayer)),
+    }
+  }),
+)
+
+export const BlackboardReplyTool = Tool.define(
+  "Blackboard.reply",
+  Effect.gen(function* () {
+    return {
+      description: "回复 Blackboard 的一条顶层消息。必须提供 reply_to 和 message；读取消息请使用 Blackboard。",
+      parameters: AnyObject,
+      jsonSchema: BLACKBOARD_REPLY_INPUT_SCHEMA,
+      catalog: {
+        category: "communication" as const,
+        mutability: "write" as const,
+        risk: "low" as const,
+        detail: "standard" as const,
+      },
+      execute: (input: unknown, ctx: Tool.Context) =>
+        Effect.gen(function* () {
+          const board = yield* Blackboard.Service
+          const bridge = yield* EffectBridge.make()
+          const value = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
+          if (typeof value.message !== "string" || typeof value.reply_to !== "string")
+            throw new PlanProtocolError({
+              code: "SCHEMA_VALIDATION",
+              message: "Blackboard_Reply requires message and reply_to",
+              hint: "提供要回复的顶层消息 ID 与回复正文",
+            })
+          const message = yield* board.postAgent({
+            sessionID: ctx.sessionID,
+            message: value.message,
+            replyTo: value.reply_to,
+            kind: typeof value.kind === "string" ? (value.kind as Blackboard.BlackboardKind) : undefined,
+            attachments: Array.isArray(value.attachments)
+              ? value.attachments.filter((item): item is string => typeof item === "string")
+              : undefined,
+          })
+          yield* wakeBlackboardRecipients(ctx, board, message, bridge)
+          return jsonResult("Blackboard.reply", message)
         }).pipe(Effect.provide(Blackboard.defaultLayer)),
     }
   }),
@@ -551,7 +681,8 @@ export const PlanCreateTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description: "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan_update 展开。",
+      description:
+        "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan_update 展开。需要候选比较时，必须在本次 Plan_create 的 steps[0].tasks 中一次性放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
       parameters: AnyObject,
       jsonSchema: PLAN_CREATE_INPUT_SCHEMA,
       catalog: {
@@ -580,7 +711,8 @@ export const PlanUpdateTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description: "以 revision 乐观锁原子修改方案、展开任务、推进单智能体状态或审核子 Agent 汇报。",
+      description:
+        "以 revision 乐观锁原子修改方案、展开标准任务、推进单智能体状态或审核子 Agent 汇报。Plan_update(add_task) 不能创建 candidate Step；候选组必须通过 Plan_create 一次性初始化。",
       parameters: AnyObject,
       jsonSchema: PLAN_UPDATE_INPUT_SCHEMA,
       catalog: {
@@ -592,13 +724,26 @@ export const PlanUpdateTool = Tool.define(
       execute: (input: unknown, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const bridge = yield* EffectBridge.make()
-          const protocol = protocolFor(sessions, bus, { bridge })
+          const board = yield* Blackboard.Service
+          const protocol = protocolFor(sessions, bus, {
+            bridge,
+            beforeStepAdvance: async (main) => {
+              const unread = await bridge.promise(board.unreadForMain(main.sessionId as SessionID))
+              if (unread > 0)
+                throw new PlanProtocolError({
+                  code: "BLACKBOARD_UNREAD",
+                  message: `进入下一 Step 前必须处理当前 Step 的 ${unread} 条 Blackboard 消息`,
+                  hint: "先无参调用 Blackboard，阅读并处理全部当前 Step 消息后，用同一 revision 重试 Plan_update",
+                  retryable: true,
+                })
+            },
+          })
           const session = yield* getSession(sessions, ctx.sessionID)
           return jsonResult(
             "Plan.update",
             yield* Effect.promise(() => protocol.update(protocolContext(session, ctx), input)),
           )
-        }),
+        }).pipe(Effect.provide(Blackboard.defaultLayer)),
     }
   }),
 )
@@ -610,7 +755,8 @@ export const DispatchDispatchTool = Tool.define(
     const bus = yield* Bus.Service
     const config = yield* Config.Service
     return {
-      description: "在多智能体模式把 pending/rejected 任务派给指定角色。必须选择一个当前启用的 role。",
+      description:
+        "在多智能体模式把 pending/rejected 任务派给指定角色。必须选择一个当前启用的 role；如果 taskIds 中包含 candidate Task，必须在一次调用中包含该 Step 的全部 2-3 个候选 ID。",
       parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String), role: Schema.String }),
       jsonSchema: DISPATCH_INPUT_SCHEMA,
       catalog: {
@@ -813,6 +959,7 @@ export const PlanProtocolTools = [
   PlanReadTool,
   InboxTool,
   BlackboardTool,
+  BlackboardReplyTool,
   PlanCreateTool,
   PlanUpdateTool,
   DispatchDispatchTool,

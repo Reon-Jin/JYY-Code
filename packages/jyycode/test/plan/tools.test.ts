@@ -15,13 +15,22 @@ afterEach(async () => {
 })
 
 describe("plan runtime event bridge", () => {
-  it.effect("formats child task briefs as visible Markdown instead of hidden HTML", () =>
+  it.effect("shows only Instructions and the current Task goal in the child launch message", () =>
     Effect.sync(() => {
       const brief = childTaskBrief({
         run_id: "run__ses_root__s1_t1",
+        task_title: "Write the notes",
         goal: "write the notes",
         done_criteria: "notes.md exists",
         output_path: "notes.md",
+        task_instructions: "Read src/api.ts and document every public endpoint.",
+        step_context: {
+          plan_goal: "Document the API",
+          step_id: "s1",
+          step_title: "API analysis",
+          step_goal: "Create reliable API documentation",
+          step_done_criteria: "Docs cover every endpoint",
+        },
         report_format: "Report(...)",
         step_directory: [
           { task_id: "s1_t1", title: "Data model", status: "running", has_agent: true, is_self: true },
@@ -29,12 +38,14 @@ describe("plan runtime event bridge", () => {
         ],
       })
 
-      expect(brief).toContain("## 主 Agent 派发的任务简报")
-      expect(brief).toContain('\"output_path\": \"notes.md\"')
-      expect(brief).toContain("```json")
-      expect(brief).not.toContain("<plan-task-brief>")
-      expect(brief).toContain('"task_id": "s1_t2"')
-      expect(brief).not.toContain("child_session_id")
+      expect(brief).toContain("## Instructions")
+      expect(brief).toContain("Read src/api.ts and document every public endpoint.")
+      expect(brief).toContain("## Current Task Goal")
+      expect(brief).toContain("write the notes")
+      expect(brief).not.toContain("task_instructions")
+      expect(brief).not.toContain("output_path")
+      expect(brief).not.toContain("step_context")
+      expect(brief).not.toContain("step_directory")
     })
   )
 

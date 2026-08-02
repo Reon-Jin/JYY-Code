@@ -109,6 +109,12 @@ export type CandidatePeerReplyCoverage = {
   complete: boolean
 }
 
+/** A session that should be prompted after a persisted blackboard post. */
+export type MessageRecipient = {
+  sessionID: SessionID
+  role: "main" | "sub_agent"
+}
+
 export type ListUserInput = {
   rootSessionID: SessionID
   stepID?: string
@@ -153,6 +159,7 @@ export interface Interface {
     taskID: string
   }) => Effect.Effect<CandidatePeerReplyCoverage>
   readonly candidateParticipants: (input: { rootSessionID: SessionID; stepID: string }) => Effect.Effect<CandidateParticipant[]>
+  readonly recipientsForMessage: (message: Message) => Effect.Effect<MessageRecipient[]>
   readonly listUser: (input: ListUserInput) => Effect.Effect<Snapshot>
   readonly readAgent: (sessionID: SessionID) => Effect.Effect<AgentReadResult>
   readonly markUserRead: (input: MarkReadInput) => Effect.Effect<void>
@@ -531,6 +538,36 @@ function makeService(bus: Bus.Interface): Interface {
     )
   })
 
+  /**
+   * A post always wakes the root (unless it is the root's own post), while a
+   * child is woken only when it is explicitly addressed through task_ids,
+   * @task mention, or a reply's inherited task context. This keeps incidental
+   * peer chatter from restarting unrelated idle child sessions.
+   */
+  const recipientsForMessage = Effect.fn("Blackboard.recipientsForMessage")(function* (message: Message) {
+    const rootSession = yield* root(message.rootSessionID)
+    if (rootSession.id !== message.rootSessionID)
+      throw new BlackboardError("SESSION_NOT_FOUND", "blackboard root session mismatch")
+    const plan = readPlan(rootSession.directory, rootSession.id as SessionID)
+    const step = selectedStep(plan, message.stepID)
+    const recipients = new Map<SessionID, MessageRecipient>()
+    const add = (sessionID: SessionID, role: MessageRecipient["role"]) => {
+      if (message.authorSessionID === sessionID) return
+      recipients.set(sessionID, { sessionID, role })
+    }
+
+    add(rootSession.id as SessionID, "main")
+    const targets = new Set(message.taskIDs)
+    for (const task of step.tasks) {
+      const sessionID = task.dispatch?.child_session_id as SessionID | undefined
+      if (!sessionID || !targets.has(task.id)) continue
+      // Candidate children are only permitted to read/reply during cross review.
+      if (task.mode === "candidate" && step.candidate_discussion?.phase !== "cross_review") continue
+      add(sessionID, "sub_agent")
+    }
+    return [...recipients.values()]
+  })
+
   const candidateDeclarations = Effect.fn("Blackboard.candidateDeclarations")(function* (input: {
     rootSessionID: SessionID
     stepID: string
@@ -867,6 +904,7 @@ function makeService(bus: Bus.Interface): Interface {
     candidateDeclarations,
     candidatePeerReplyCoverage,
     candidateParticipants,
+    recipientsForMessage,
     listUser,
     readAgent,
     markUserRead,
