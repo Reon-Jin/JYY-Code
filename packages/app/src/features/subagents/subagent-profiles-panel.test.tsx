@@ -64,13 +64,14 @@ describe("SubagentProfilesPanelView", () => {
     const user = userEvent.setup()
     const onSave = vi.fn().mockResolvedValue(undefined)
     const onCreateSkill = vi.fn().mockResolvedValue(undefined)
+    const onRefresh = vi.fn().mockResolvedValue(undefined)
     render(() => (
       <SubagentProfilesPanelView
         profiles={[profile, disabledProfile]}
         models={models}
         onSave={onSave}
         onCreateSkill={onCreateSkill}
-        onRefresh={vi.fn()}
+        onRefresh={onRefresh}
       />
     ))
 
@@ -88,6 +89,10 @@ describe("SubagentProfilesPanelView", () => {
 
     await user.click(screen.getByRole("button", { name: "编辑角色 General" }))
     const editDialog = screen.getByRole("dialog")
+    const refreshButton = editDialog.querySelector<HTMLButtonElement>(".subagent-profile-skills__refresh")
+    expect(refreshButton).not.toBeNull()
+    await user.click(refreshButton!)
+    expect(onRefresh).toHaveBeenCalledTimes(1)
     expect(within(editDialog).getByDisplayValue("general")).toBeVisible()
     expect(within(editDialog).getByText("manual")).toBeVisible()
     expect(within(editDialog).getByText("用于内部派发的唯一标识，创建后不可修改。")).toBeVisible()

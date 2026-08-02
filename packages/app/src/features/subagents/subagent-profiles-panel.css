@@ -338,6 +338,23 @@
   font-size: var(--text-sm);
 }
 
+.subagent-profile-skills__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.subagent-profile-skills__refresh.ui-button {
+  width: 30px;
+  min-height: 30px;
+}
+
+.subagent-profile-skills__refresh.ui-button svg {
+  width: 15px;
+  height: 15px;
+}
+
 .subagent-profile-skills__list {
   display: grid;
   gap: var(--space-1);

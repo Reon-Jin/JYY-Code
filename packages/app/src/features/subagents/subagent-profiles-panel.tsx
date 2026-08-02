@@ -1,6 +1,6 @@
 import type { SubagentProfile, SubagentProfileView } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
-import { Pencil, Plus } from "lucide-solid"
+import { Pencil, Plus, RefreshCw } from "lucide-solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { Button, IconButton } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
@@ -83,6 +83,7 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
   const [error, setError] = createSignal<string>()
   const [skillCreating, setSkillCreating] = createSignal(false)
   const [skillBusy, setSkillBusy] = createSignal(false)
+  const [skillRefreshing, setSkillRefreshing] = createSignal(false)
   const [skillError, setSkillError] = createSignal<string>()
   const [skillName, setSkillName] = createSignal("")
   const [skillContent, setSkillContent] = createSignal("")
@@ -198,6 +199,19 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
       setSkillError(errorText(cause))
     } finally {
       setSkillBusy(false)
+    }
+  }
+
+  async function refreshSkills() {
+    if (skillRefreshing()) return
+    setSkillRefreshing(true)
+    setSkillError(undefined)
+    try {
+      await props.onRefresh()
+    } catch (cause) {
+      setSkillError(errorText(cause))
+    } finally {
+      setSkillRefreshing(false)
     }
   }
 
@@ -376,9 +390,20 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
                     <h3>{tr("subagents.skills")}</h3>
                     <p>{tr("subagents.skill-directory", { role: profile().id })}</p>
                   </div>
-                  <Button size="small" variant="secondary" onClick={() => setSkillCreating(true)}>
-                    {tr("subagents.new-skill")}
-                  </Button>
+                  <div class="subagent-profile-skills__actions">
+                    <IconButton
+                      class="subagent-profile-skills__refresh"
+                      label={tr("subagents.refresh")}
+                      variant="ghost"
+                      disabled={skillRefreshing()}
+                      onClick={() => void refreshSkills()}
+                    >
+                      <RefreshCw aria-hidden="true" />
+                    </IconButton>
+                    <Button size="small" variant="secondary" onClick={() => setSkillCreating(true)}>
+                      {tr("subagents.new-skill")}
+                    </Button>
+                  </div>
                 </div>
                 <Show when={profile().skills.length > 0} fallback={<p class="subagent-profiles-panel__status">{tr("subagents.no-skills")}</p>}>
                   <ul class="subagent-profile-skills__list">
@@ -454,7 +479,7 @@ export function SubagentProfilesPanel(props: { directory: string; models?: reado
       error={query.error ? errorText(query.error) : undefined}
       onSave={save}
       onCreateSkill={createSkill}
-      onRefresh={() => void query.refetch()}
+      onRefresh={() => query.refetch().then(() => undefined)}
     />
   )
 }
