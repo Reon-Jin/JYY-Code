@@ -8,6 +8,7 @@ import { AGING_MS, PlanStore, STALE_LOCK_MS } from "../../src/plan/store"
 import { planFilePath, PlanProtocolError, validatePlanFile } from "../../src/plan/schema"
 import { projectPlanSnapshot, validatePlanSnapshot } from "../../src/plan/snapshot"
 import { planSystemPrompt } from "../../src/plan/prompts"
+import { defaultGeneralProfile } from "../../src/agent/subagent-profile"
 
 function workspace() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "jyycode-plan-"))
@@ -41,6 +42,80 @@ function createInput(outputPath?: string) {
 }
 
 describe("file-backed plan protocol", () => {
+  it("requires an enabled named role and persists its dispatch snapshot", async () => {
+    const root = workspace()
+    const profiles = [
+      defaultGeneralProfile,
+      {
+        id: "reviewer",
+        name: "Reviewer",
+        description: "Checks delegated work.",
+        prompt: "Review the output carefully.",
+        avatar: "bug" as const,
+        enabled: true,
+      },
+      {
+        id: "disabled",
+        name: "Disabled",
+        description: "Unavailable role.",
+        prompt: "",
+        avatar: "bot" as const,
+        enabled: false,
+      },
+    ]
+    const protocol = new PlanProtocol({ store: new PlanStore(), profiles: async () => profiles })
+    await protocol.create(context(root), createInput(path.join(root, "notes.md")))
+
+    const missing = await protocol.dispatch(context(root), { taskIds: ["s1_t1"] })
+    expect(missing).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
+    const unknown = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "missing" })
+    expect(unknown).toMatchObject({ ok: false, error: { code: "DISPATCH_UNAVAILABLE" } })
+    const disabled = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "disabled" })
+    expect(disabled).toMatchObject({ ok: false, error: { code: "DISPATCH_UNAVAILABLE" } })
+
+    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "reviewer" })
+    expect(dispatched).toMatchObject({ ok: true, dispatched: [{ idempotent: false }] })
+    const read = await protocol.read(context(root))
+    if (!read.ok || !read.plan) return
+    expect(read.plan.steps[0]?.tasks[0]?.dispatch?.role).toEqual({
+      id: "reviewer",
+      name: "Reviewer",
+      description: "Checks delegated work.",
+      avatar: "bug",
+    })
+    const snapshot = projectPlanSnapshot(read.plan)
+    if ("plan" in snapshot) return
+    expect(snapshot.steps[0]?.tasks[0]?.role).toEqual({
+      id: "reviewer",
+      name: "Reviewer",
+      description: "Checks delegated work.",
+      avatar: "bug",
+    })
+  })
+
+  it("resolves a fresh role when a cancelled task is retried", async () => {
+    const root = workspace()
+    const profiles = [defaultGeneralProfile]
+    const protocol = new PlanProtocol({ store: new PlanStore(), profiles: async () => profiles })
+    await protocol.create(context(root), createInput(path.join(root, "notes.md")))
+    await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+    expect((await protocol.cancel(context(root), ["s1_t1"])).ok).toBe(true)
+
+    profiles.push({
+      id: "reviewer",
+      name: "Reviewer",
+      description: "Checks delegated work.",
+      prompt: "",
+      avatar: "bug",
+      enabled: true,
+    })
+    const retried = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "reviewer" })
+    expect(retried).toMatchObject({ ok: true, dispatched: [{ idempotent: false }] })
+    const read = await protocol.read(context(root))
+    if (!read.ok || !read.plan) return
+    expect(read.plan.steps[0]?.tasks[0]?.dispatch?.role?.id).toBe("reviewer")
+  })
+
   it("creates, reads, and returns progress using the specified schema", async () => {
     const root = workspace()
     const protocol = new PlanProtocol({ store: new PlanStore(), events: new PlanEventHub(), inbox: new PlanInbox() })
@@ -188,7 +263,7 @@ describe("file-backed plan protocol", () => {
       },
     })
     await protocol.create(context(root), createInput(artifact))
-    const dispatched = await protocol.dispatch(context(root), ["s1_t1"])
+    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
     expect(dispatched.ok).toBe(true)
     if (!dispatched.ok) return
     expect(dispatched.dispatched[0]?.idempotent).toBe(false)
@@ -213,7 +288,7 @@ describe("file-backed plan protocol", () => {
     expect(review.ok).toBe(true)
     const afterReview = await protocol.read(context(root))
     if (!afterReview.ok || !afterReview.plan) return
-    const rejected = await protocol.dispatch(context(root), ["s1_t1"])
+    const rejected = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
     expect(rejected.ok).toBe(true)
     expect((brief as { previous_feedback?: { review_feedback: string } }).previous_feedback?.review_feedback).toContain(
       "tests/",
@@ -226,7 +301,7 @@ describe("file-backed plan protocol", () => {
     const rootContext = context(root)
     const creator = new PlanProtocol()
     await creator.create(rootContext, createInput(missingArtifact))
-    const dispatched = await creator.dispatch(rootContext, ["s1_t1"])
+    const dispatched = await creator.dispatch(rootContext, { taskIds: ["s1_t1"], role: "general" })
     expect(dispatched.ok).toBe(true)
     if (!dispatched.ok) return
     const runId = dispatched.dispatched[0]!.run_id
@@ -283,7 +358,7 @@ describe("file-backed plan protocol", () => {
       },
     })
     await protocol.create(context(root), createInput(artifact))
-    const dispatched = await protocol.dispatch(context(root), ["s1_t1"])
+    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
     expect(dispatched.ok).toBe(true)
     if (!dispatched.ok) return
     const runId = dispatched.dispatched[0]!.run_id
@@ -451,9 +526,25 @@ describe("file-backed plan protocol", () => {
   it("derives system prompts by session mode", () => {
     expect(planSystemPrompt({ child: true, multiAgent: true })).toContain("Report")
     expect(planSystemPrompt({ child: true, multiAgent: true })).toContain("Blackboard")
-    const multiAgentPrompt = planSystemPrompt({ child: false, multiAgent: true })
+    const multiAgentPrompt = planSystemPrompt({
+      child: false,
+      multiAgent: true,
+      profiles: [
+        defaultGeneralProfile,
+        {
+          id: "reviewer",
+          name: "Reviewer",
+          description: "Checks delegated work.",
+          prompt: "",
+          avatar: "bug",
+          enabled: true,
+        },
+      ],
+    })
     expect(multiAgentPrompt).toContain("Dispatch_dispatch")
     expect(multiAgentPrompt).toContain("output_path")
+    expect(multiAgentPrompt).toContain("reviewer")
+    expect(planSystemPrompt({ child: false, multiAgent: true, profiles: [] })).toContain("general")
     expect(multiAgentPrompt).not.toContain("互不冲突")
     expect(planSystemPrompt({ child: false, multiAgent: false })).toContain("pending→running")
   })

@@ -1,6 +1,15 @@
 import fs from "node:fs"
 import path from "node:path"
 import {
+  defaultGeneralProfile,
+  enabledProfiles,
+  launchSnapshot,
+  profileByID,
+  profileSnapshot,
+  type LaunchSnapshot,
+  type SubagentProfile,
+} from "@/agent/subagent-profile"
+import {
   ERROR_CODES,
   PlanProtocolError,
   clonePlan,
@@ -47,6 +56,7 @@ export type ChildStartInput = {
   taskId: string
   childSessionId: string
   brief: DispatchBrief
+  role: LaunchSnapshot
 }
 
 export type ChildController = {
@@ -94,6 +104,7 @@ type ProtocolOptions = {
   now?: () => number
   eventSink?: (event: import("./events").PlanEvent) => void
   beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
+  profiles?: () => Promise<readonly SubagentProfile[]>
 }
 
 type WriteResult<T extends object> = { result: T; plan: PlanFile }
@@ -136,6 +147,24 @@ function requiredText(value: unknown, field: string) {
   const text = asString(value)
   if (!text) inputError(`${field} 必须是非空字符串`)
   return text
+}
+
+export type DispatchInput = { taskIds: string[]; role: string }
+
+function validateDispatchInput(input: unknown): asserts input is DispatchInput {
+  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Dispatch.dispatch input must be an object")
+  const value = input as Record<string, unknown>
+  assertOnly(value, ["taskIds", "role"], "dispatch")
+  if (
+    !Array.isArray(value.taskIds) ||
+    value.taskIds.length < 1 ||
+    value.taskIds.length > 20 ||
+    !value.taskIds.every((id) => typeof id === "string" && /^s[1-9]\d*_t[1-9]\d*$/.test(id))
+  )
+    inputError("taskIds 必须是 1-20 个合法 taskId")
+  if (new Set(value.taskIds as string[]).size !== (value.taskIds as string[]).length)
+    inputError("taskIds 不允许重复")
+  requiredText(value.role, "role")
 }
 
 function assertOnly(value: Record<string, unknown>, allowed: readonly string[], prefix: string) {
@@ -493,6 +522,7 @@ export class PlanProtocol {
   private readonly now: () => number
   private readonly eventSink?: (event: import("./events").PlanEvent) => void
   private readonly beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
+  private readonly profiles: () => Promise<readonly SubagentProfile[]>
   private readonly reportAttempts = sharedReportAttempts
   private readonly activities = sharedActivities
   private readonly activityEvents = sharedActivityEvents
@@ -506,6 +536,7 @@ export class PlanProtocol {
     this.now = options.now ?? Date.now
     this.eventSink = options.eventSink
     this.beforeReport = options.beforeReport
+    this.profiles = options.profiles ?? (() => Promise.resolve([defaultGeneralProfile]))
   }
 
   private publish(event: Parameters<PlanEventHub["publish"]>[0]) {
@@ -516,6 +547,17 @@ export class PlanProtocol {
 
   private path(ctx: PlanExecutionContext, sessionId = ctx.sessionId) {
     return planFilePath(ctx.workspaceRoot, sessionId)
+  }
+
+  private async resolveProfile(id: string) {
+    const profile = profileByID(enabledProfiles(await this.profiles()), id)
+    if (!profile)
+      throw new PlanProtocolError({
+        code: ERROR_CODES.DISPATCH_UNAVAILABLE,
+        message: `subagent role unavailable: ${id}`,
+        hint: "Choose an enabled role from the current dispatch roster.",
+      })
+    return profile
   }
 
   private async write<T extends object>(
@@ -749,7 +791,7 @@ export class PlanProtocol {
 
   async dispatch(
     ctx: PlanExecutionContext,
-    taskIds: unknown,
+    input: unknown,
   ): Promise<
     ProtocolResponse<{
       dispatched: Array<{ taskId: string; run_id: string; child_session_id: string; idempotent: boolean }>
@@ -759,14 +801,8 @@ export class PlanProtocol {
     try {
       assertMain(ctx)
       assertMode(ctx, "multi", "Dispatch.dispatch")
-      if (
-        !Array.isArray(taskIds) ||
-        taskIds.length < 1 ||
-        taskIds.length > 20 ||
-        !taskIds.every((id) => typeof id === "string" && /^s[1-9]\d*_t[1-9]\d*$/.test(id))
-      )
-        inputError("taskIds 必须是 1-20 个合法 taskId")
-      if (new Set(taskIds as string[]).size !== (taskIds as string[]).length) inputError("taskIds 不允许重复")
+      validateDispatchInput(input)
+      const taskIds = input.taskIds
       const plan = this.store.read(this.path(ctx))
       if (!plan)
         throw new PlanProtocolError({
@@ -791,7 +827,9 @@ export class PlanProtocol {
         return { step, task }
       })
       const dispatched: Array<{ taskId: string; run_id: string; child_session_id: string; idempotent: boolean }> = []
-      const prepared = new Map<string, { dispatch: DispatchRecord; brief: DispatchBrief }>()
+      const prepared = new Map<string, { dispatch: DispatchRecord; brief: DispatchBrief; role: LaunchSnapshot }>()
+      const needsRole = targets.some(({ task }) => task.status !== "dispatched" && task.status !== "running")
+      const role = needsRole ? await this.resolveProfile(input.role) : undefined
       for (const { task } of targets) {
         if (task.status === "dispatched" || task.status === "running") {
           if (!task.dispatch)
@@ -815,6 +853,7 @@ export class PlanProtocol {
             `任务 ${task.id} 缺少 output_path 或 done_criteria`,
             "派发型任务必须提供 output_path 与 done_criteria",
           )
+        if (!role) throw new Error("Dispatch.dispatch role resolution failed")
         const runId = `run__${ctx.sessionId}__${task.id}`
         const childSessionId = `child_${ctx.sessionId}_${task.id}`
         const brief: DispatchBrief = {
@@ -835,7 +874,8 @@ export class PlanProtocol {
             ? { previous_feedback: { review_feedback: task.report.review_feedback, issues: task.report.issues } }
             : {}),
         }
-        const childInput = { parentSessionId: ctx.sessionId, taskId: task.id, childSessionId, brief }
+        const launch = launchSnapshot(role)
+        const childInput = { parentSessionId: ctx.sessionId, taskId: task.id, childSessionId, brief, role: launch }
         const actualChild = this.children ? await this.children.create(childInput) : childSessionId
         registerChildRun(actualChild, runId)
         prepared.set(task.id, {
@@ -844,8 +884,11 @@ export class PlanProtocol {
             child_session_id: actualChild,
             dispatched_at: nowIso(this.now),
             cancelled_at: null,
+            role: profileSnapshot(role),
+            launch,
           },
           brief,
+          role: launch,
         })
       }
       if (prepared.size) {
@@ -884,6 +927,7 @@ export class PlanProtocol {
               taskId,
               childSessionId: item.dispatch.child_session_id,
               brief: item.brief,
+              role: item.role,
             })
           }
         }
@@ -1209,7 +1253,7 @@ export const Inbox = {
 }
 
 export const Dispatch = {
-  dispatch: (ctx: PlanExecutionContext, taskIds: unknown) => defaultPlanProtocol.dispatch(ctx, taskIds),
+  dispatch: (ctx: PlanExecutionContext, input: unknown) => defaultPlanProtocol.dispatch(ctx, input),
   cancel: (ctx: PlanExecutionContext, taskIds: unknown) => defaultPlanProtocol.cancel(ctx, taskIds),
 }
 

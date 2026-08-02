@@ -64,6 +64,7 @@ import { SessionTools } from "./tools"
 import { LLMEvent } from "@jyycode-ai/llm"
 import { planSystemPrompt } from "@/plan/prompts"
 import { defaultPlanProtocol } from "@/plan/protocol"
+import { enabledProfiles, resolveProfiles } from "@/agent/subagent-profile"
 import { Memory } from "@/memory/memory"
 import { Blackboard } from "@/plan/blackboard"
 
@@ -1666,10 +1667,12 @@ export const layer = Layer.effect(
               ...env,
               ...instructions,
             ]
+            const promptProfiles = enabledProfiles(resolveProfiles((yield* config.get()).subagents?.profiles))
             system.push(
               planSystemPrompt({
                 child: session.parentID !== undefined,
                 multiAgent: session.multiAgent === true,
+                profiles: promptProfiles,
               }),
             )
             const format = lastUser.format ?? { type: "text" as const }

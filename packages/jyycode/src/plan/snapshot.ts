@@ -1,3 +1,4 @@
+import type { ProfileSnapshot } from "@/agent/subagent-profile"
 import type { PlanFile, PlanTask } from "./schema"
 
 export type ActivityState = {
@@ -10,6 +11,7 @@ export type PlanSnapshotTask = {
   id: string
   title: string
   status: PlanTask["status"]
+  role?: ProfileSnapshot
   child?: {
     session_id: string
     elapsed_sec: number
@@ -96,6 +98,7 @@ export function projectPlanSnapshot(
           id: task.id,
           title: task.title,
           status: task.status,
+          ...(task.dispatch.role ? { role: task.dispatch.role } : {}),
           child: {
             session_id: task.dispatch.child_session_id,
             elapsed_sec: Number.isFinite(elapsedStart) ? Math.max(0, Math.floor((now - elapsedStart) / 1000)) : 0,

@@ -1,5 +1,7 @@
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
+import { Config } from "@/config/config"
+import { enabledProfiles, profileAgentName, resolveProfiles, type SubagentProfile } from "@/agent/subagent-profile"
 import { Bus } from "@/bus"
 import { Tool } from "@/tool/tool"
 import { EffectBridge, type Shape as EffectBridgeShape } from "@/effect/bridge"
@@ -192,7 +194,17 @@ export const PLAN_UPDATE_INPUT_SCHEMA: JSONSchema7 = {
   },
 }
 
-const dispatchSchema: JSONSchema7 = {
+export const DISPATCH_INPUT_SCHEMA: JSONSchema7 = {
+  type: "object",
+  additionalProperties: false,
+  required: ["taskIds", "role"],
+  properties: {
+    taskIds: { type: "array", minItems: 1, maxItems: 20, items: taskIdSchema },
+    role: { type: "string", minLength: 1 },
+  },
+}
+
+const cancelSchema: JSONSchema7 = {
   type: "object",
   additionalProperties: false,
   required: ["taskIds"],
@@ -282,6 +294,7 @@ function protocolFor(
     bridge: EffectBridgeShape
     promptOps?: TaskPromptOps
     beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
+    profiles?: () => Promise<readonly SubagentProfile[]>
   },
 ) {
   let protocol: PlanProtocol
@@ -289,6 +302,7 @@ function protocolFor(
     eventSink: (event) => {
       runtime.bridge.fork(bus.publish(RuntimeEvent, event).pipe(Effect.ignore))
     },
+    profiles: runtime.profiles,
     children: {
       async create(input) {
         const run = runtime.bridge.promise
@@ -297,7 +311,7 @@ function protocolFor(
           sessions.create({
             parentID: parent.id,
             title: `Plan task ${input.taskId}`,
-            agent: "build",
+            agent: profileAgentName(input.role.id),
             model: parent.model,
             permission: parent.permission,
             workspaceID: parent.workspaceID,
@@ -315,7 +329,7 @@ function protocolFor(
           ops
             .prompt({
               sessionID: input.childSessionId as SessionID,
-              agent: "build",
+              agent: profileAgentName(input.role.id),
               parts: [{ type: "text", text: brief }],
             })
             .pipe(
@@ -504,24 +518,34 @@ export const DispatchDispatchTool = Tool.define(
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
+    const config = yield* Config.Service
+    const profiles = enabledProfiles(resolveProfiles((yield* config.get()).subagents?.profiles))
     return {
-      description: "在多智能体模式把 pending/rejected 任务派给子 session。",
-      parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String) }),
-      jsonSchema: dispatchSchema,
+      description: [
+        "在多智能体模式把 pending/rejected 任务派给指定角色。必须选择一个当前启用的 role。",
+        "可用角色:",
+        ...profiles.map((profile) => `- ${profile.id}: ${profile.name} — ${profile.description}`),
+      ].join("\n"),
+      parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String), role: Schema.String }),
+      jsonSchema: DISPATCH_INPUT_SCHEMA,
       catalog: {
         category: "subagent" as const,
         mutability: "execute" as const,
         risk: "high" as const,
         detail: "advanced" as const,
       },
-      execute: (input: { taskIds: string[] }, ctx: Tool.Context) =>
+      execute: (input: { taskIds: string[]; role: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const bridge = yield* EffectBridge.make()
           const session = yield* getSession(sessions, ctx.sessionID)
-          const protocol = protocolFor(sessions, bus, { bridge, promptOps: promptOps(ctx) })
+          const protocol = protocolFor(sessions, bus, {
+            bridge,
+            promptOps: promptOps(ctx),
+            profiles: async () => enabledProfiles(resolveProfiles((await bridge.promise(config.get())).subagents?.profiles)),
+          })
           return jsonResult(
             "Dispatch.dispatch",
-            yield* Effect.promise(() => protocol.dispatch(protocolContext(session, ctx), input.taskIds)),
+            yield* Effect.promise(() => protocol.dispatch(protocolContext(session, ctx), input)),
           )
         }),
     }
@@ -536,7 +560,7 @@ export const DispatchCancelTool = Tool.define(
     return {
       description: "取消多智能体任务并终止其子 session。",
       parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String) }),
-      jsonSchema: dispatchSchema,
+      jsonSchema: cancelSchema,
       catalog: {
         category: "subagent" as const,
         mutability: "execute" as const,

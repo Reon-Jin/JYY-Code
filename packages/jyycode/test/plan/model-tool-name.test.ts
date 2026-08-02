@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test"
 import { hasInFlightPlanTasks, isPlanToolVisible, requiredPlanTool, retainOnlyTool, toolNameForModel } from "../../src/session/tools"
-import { BLACKBOARD_INPUT_SCHEMA, PLAN_CREATE_INPUT_SCHEMA, PLAN_UPDATE_INPUT_SCHEMA, PLAN_TOOL_IDS } from "../../src/plan/tools"
+import {
+  BLACKBOARD_INPUT_SCHEMA,
+  DISPATCH_INPUT_SCHEMA,
+  PLAN_CREATE_INPUT_SCHEMA,
+  PLAN_UPDATE_INPUT_SCHEMA,
+  PLAN_TOOL_IDS,
+} from "../../src/plan/tools"
 
 describe("model-facing plan tool names", () => {
   it("uses provider-safe names without changing ordinary tools", () => {
@@ -107,6 +113,8 @@ describe("model-facing plan tool names", () => {
   })
 
   it("publishes complete nested schemas for progressive plans and all update operations", () => {
+    expect(DISPATCH_INPUT_SCHEMA.required).toEqual(["taskIds", "role"])
+    expect(DISPATCH_INPUT_SCHEMA.properties?.role).toMatchObject({ type: "string", minLength: 1 })
     const createSteps = PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { items?: unknown }
     expect(createSteps.items).toMatchObject({
       required: ["title", "goal", "done_criteria"],

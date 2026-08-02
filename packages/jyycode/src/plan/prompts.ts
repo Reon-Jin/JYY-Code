@@ -1,3 +1,5 @@
+import { defaultGeneralProfile, enabledProfiles, type SubagentProfile } from "@/agent/subagent-profile"
+
 export const PLAN_BASE_PROMPT = `# 新版方案管理协议（强制）
 - 每个用户回合的第一个动作必须调用 Plan_read；运行时也会只开放该工具，不能跳过。
 - 方案状态只能通过 Plan_create 和 Plan_update 写入 .jyycode/plan/<session>/plan.json。
@@ -31,9 +33,29 @@ export const PLAN_CHILD_PROMPT = `# 子 Agent 执行协议
 - 你不能创建或修改父方案，也不能输出 JSON 方案替代 Report。
 - 子 Agent：发现影响协作的风险、阻塞、决策或求助时立即用 Blackboard 发布，不发普通进度；Report 前无参调用 Blackboard 并处理新消息。`
 
-export function planSystemPrompt(input: { child: boolean; multiAgent: boolean }) {
+function dispatchRosterPrompt(profiles: readonly SubagentProfile[] | undefined) {
+  const visible = enabledProfiles(profiles?.length ? profiles : [defaultGeneralProfile])
+  const roster = visible.length > 0 ? visible : [defaultGeneralProfile]
+  return [
+    "## 可派发角色",
+    ...roster.map((profile) => `- ${profile.id}: ${profile.name} — ${profile.description}`),
+    "无专长匹配时选择 `general`。",
+  ].join("\n")
+}
+
+export function planSystemPrompt(input: {
+  child: boolean
+  multiAgent: boolean
+  profiles?: readonly SubagentProfile[]
+}) {
   if (input.child) return PLAN_CHILD_PROMPT
-  return [PLAN_BASE_PROMPT, input.multiAgent ? PLAN_MULTI_PROMPT : PLAN_SINGLE_PROMPT].join("\n\n")
+  return [
+    PLAN_BASE_PROMPT,
+    input.multiAgent ? PLAN_MULTI_PROMPT : PLAN_SINGLE_PROMPT,
+    input.multiAgent ? dispatchRosterPrompt(input.profiles) : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n")
 }
 
 export * as PlanPrompts from "./prompts"

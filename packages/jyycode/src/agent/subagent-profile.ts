@@ -29,6 +29,9 @@ export const Profile = Schema.Struct({
 }).annotate({ identifier: "SubagentProfile" })
 export type SubagentProfile = Schema.Schema.Type<typeof Profile>
 
+export type ProfileSnapshot = Pick<SubagentProfile, "id" | "name" | "description" | "avatar">
+export type LaunchSnapshot = ProfileSnapshot & Pick<SubagentProfile, "prompt" | "model" | "variant">
+
 export const defaultGeneralProfile: SubagentProfile = {
   id: "general",
   name: "General",
@@ -113,6 +116,24 @@ export function enabledProfiles(profiles: readonly SubagentProfile[]) {
 
 export function profileByID(profiles: readonly SubagentProfile[], id: string) {
   return profiles.find((profile) => profile.id === id)
+}
+
+export function profileSnapshot(profile: SubagentProfile): ProfileSnapshot {
+  return {
+    id: profile.id,
+    name: profile.name,
+    description: profile.description,
+    avatar: profile.avatar,
+  }
+}
+
+export function launchSnapshot(profile: SubagentProfile): LaunchSnapshot {
+  return {
+    ...profileSnapshot(profile),
+    prompt: profile.prompt,
+    ...(profile.model ? { model: profile.model } : {}),
+    ...(profile.variant ? { variant: profile.variant } : {}),
+  }
 }
 
 /** Stable internal Agent name; the profile id remains the dispatch-facing key. */

@@ -94,6 +94,14 @@ const PlanSnapshotTask = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   status: Schema.Literals(["pending", "dispatched", "running", "reported", "approved", "rejected"]),
+  role: Schema.optional(
+    Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      description: Schema.String,
+      avatar: Schema.String,
+    }),
+  ),
   child: Schema.optional(
     Schema.Struct({
       session_id: Schema.String,

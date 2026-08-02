@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+import type { LaunchSnapshot, ProfileSnapshot } from "@/agent/subagent-profile"
 
 export const ERROR_CODES = {
   SCHEMA_VALIDATION: "SCHEMA_VALIDATION",
@@ -27,6 +28,8 @@ export type DispatchRecord = {
   child_session_id: string
   dispatched_at: string
   cancelled_at: string | null
+  role?: ProfileSnapshot
+  launch?: LaunchSnapshot
 }
 
 export type ReportRecord = {
@@ -294,11 +297,31 @@ export function validatePlanFile(value: unknown): string[] {
 
 function isValidDispatch(value: unknown): value is DispatchRecord {
   if (!isRecord(value)) return false
+  const role = value.role
+  const validRole =
+    role === undefined ||
+    (isRecord(role) &&
+      nonEmptyString(role.id) &&
+      nonEmptyString(role.name) &&
+      nonEmptyString(role.description) &&
+      ["bot", "search", "code", "bug", "chart", "file", "image", "folder", "pen", "sparkles"].includes(
+        String(role.avatar),
+      ))
+  const launch = value.launch
+  const validLaunch =
+    launch === undefined ||
+    (validRole &&
+      isRecord(launch) &&
+      typeof launch.prompt === "string" &&
+      (!("model" in launch) || typeof launch.model === "string") &&
+      (!("variant" in launch) || typeof launch.variant === "string"))
   return (
     /^run__[A-Za-z0-9_-]+__s[1-9]\d*_t[1-9]\d*$/.test(String(value.run_id)) &&
     nonEmptyString(value.child_session_id) &&
     validDateTime(value.dispatched_at) &&
-    (value.cancelled_at === null || validDateTime(value.cancelled_at))
+    (value.cancelled_at === null || validDateTime(value.cancelled_at)) &&
+    validRole &&
+    validLaunch
   )
 }
 
