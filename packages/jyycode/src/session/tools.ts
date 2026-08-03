@@ -80,6 +80,7 @@ type PlanToolGateState = {
   current_step: string | null
   steps: Array<{
     id: string
+    candidate_discussion?: { phase?: string }
     tasks: Array<{ id: string; status: string; done_criteria: string; output_path: string | null }>
   }>
 }
@@ -107,6 +108,8 @@ export function shouldWaitForPlanReport(input: {
 }) {
   if ((input.blackboardUnread ?? 0) > 0 || (input.inboxPending ?? 0) > 0) return false
   if (pendingDispatchTasks(input.plan).length > 0) return false
+  const currentStep = input.plan?.current_step ? input.plan.steps.find((step) => step.id === input.plan?.current_step) : undefined
+  if (currentStep?.candidate_discussion?.phase === "awaiting_main") return false
   const hasReported = input.plan?.steps.some((step) => step.tasks.some((task) => task.status === "reported")) ?? false
   return hasInFlightPlanTasks(input.plan) && !hasReported
 }

@@ -46,7 +46,10 @@ function board(rootSessionID: string): SessionBlackboardResponse {
         attachments: [{ type: "path", value: "src/app.ts" }],
         taskIDs: ["task_a"],
         timeCreated: 2,
-        replies: [{ body: "I am checking it now." }],
+        replies: [
+          { id: "bb_reply_1", body: "I am checking it now.", timeCreated: 3 },
+          { id: "bb_reply_2", body: "Second reply is also visible.", timeCreated: 4 },
+        ],
       },
     ],
     unreadCount: 1,
@@ -94,6 +97,11 @@ describe("BlackboardPanel", () => {
     const repliesButton = screen.getByText(/展开回复/)
     await user.click(repliesButton)
     expect(screen.getByText("I am checking it now.")).toBeInTheDocument()
+    expect(screen.getByText("Second reply is also visible.")).toBeInTheDocument()
+    await waitFor(() => {
+      const read = [...backend.requests].reverse().find((request) => request.path === `/session/${root.id}/blackboard/read`)
+      expect(read?.body.throughMessageID).toBe("bb_reply_2")
+    })
     await user.click(screen.getByRole("button", { name: /回复$/ }))
     expect(screen.getByText(/回复 子 Agent/)).toBeVisible()
 

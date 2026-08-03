@@ -18,7 +18,7 @@ import {
   type PlanExecutionContext,
 } from "./protocol"
 import type { LaunchSnapshot } from "@/agent/subagent-profile"
-import { PlanProtocolError } from "./schema"
+import { PlanProtocolError, planFilePath, readPlanFileSync } from "./schema"
 import { RuntimeEvent } from "./runtime-event"
 import { Blackboard } from "./blackboard"
 
@@ -299,8 +299,22 @@ export const BLACKBOARD_INPUT_SCHEMA: JSONSchema7 = {
   },
 }
 
-function runId(ctx: Tool.Context) {
-  const candidates = [ctx.extra?.run_id, ctx.extra?.runID, ctx.extra?.agentRunID, runIdForChildSession(ctx.sessionID)]
+function persistedRunId(session: Session.Info) {
+  const rootID = session.parentID ?? session.id
+  const plan = readPlanFileSync(planFilePath(session.directory, rootID))
+  return plan?.steps
+    .flatMap((step) => step.tasks)
+    .find((task) => task.dispatch?.child_session_id === session.id)?.dispatch?.run_id
+}
+
+function runId(ctx: Tool.Context, session?: Session.Info) {
+  const candidates = [
+    ctx.extra?.run_id,
+    ctx.extra?.runID,
+    ctx.extra?.agentRunID,
+    runIdForChildSession(ctx.sessionID),
+    session ? persistedRunId(session) : undefined,
+  ]
   return candidates.find((value): value is string => typeof value === "string" && value.length > 0)
 }
 
@@ -309,7 +323,7 @@ function protocolContext(session: Session.Info, ctx: Tool.Context): PlanExecutio
     workspaceRoot: session.directory,
     sessionId: session.id,
     mode: session.multiAgent === true ? "multi" : "single",
-    runId: runId(ctx),
+    runId: runId(ctx, session),
   }
 }
 
@@ -352,6 +366,44 @@ function wakeBlackboardRecipients(
       ).pipe(Effect.asVoid),
     )
   })
+}
+
+function drainProtocolWakeups(
+  protocol: PlanProtocol,
+  ops: TaskPromptOps,
+  bridge: EffectBridgeShape,
+  sessionIDs: readonly string[],
+  currentSessionID?: string,
+) {
+  const events = sessionIDs
+    .filter((sessionID) => sessionID !== currentSessionID)
+    .flatMap((sessionID) => protocol.drainWakeups(sessionID))
+  bridge.fork(Effect.forEach(
+    events,
+    (event) =>
+      ops
+        .wake({
+          sessionID: event.session_id as SessionID,
+          kind: `plan_${event.type}`,
+          text:
+            event.type === "check_point"
+              ? "候选流程已进入下一阶段。请先读取当前阶段要求，再继续候选任务。"
+              : "候选流程有新的可处理事件。请先读取当前方案状态，再继续候选任务。",
+        })
+        .pipe(Effect.ignore),
+  ).pipe(Effect.asVoid))
+  return Effect.void
+}
+
+function candidateChildSessionIDs(session: Session.Info) {
+  const rootID = session.parentID ?? session.id
+  const plan = readPlanFileSync(planFilePath(session.directory, rootID))
+  return (
+    plan?.steps
+      .flatMap((step) => step.tasks)
+      .filter((task) => task.mode === "candidate")
+      .flatMap((task) => (task.dispatch?.child_session_id ? [task.dispatch.child_session_id] : [])) ?? []
+  )
 }
 
 /** The only user-visible content in a child session's initial message. */
@@ -438,6 +490,13 @@ export function childLaunchPrompt(brief: DispatchBrief, role: LaunchSnapshot) {
   )
 }
 
+export function childLaunchParts(brief: DispatchBrief, role: LaunchSnapshot) {
+  return [
+    { type: "text" as const, text: childTaskBrief(brief) },
+    { type: "text" as const, text: childLaunchPrompt(brief, role), synthetic: true, metadata: { kind: "plan_dispatch_context" } },
+  ]
+}
+
 function protocolFor(
   sessions: Session.Interface,
   bus: Bus.Interface,
@@ -477,18 +536,19 @@ function protocolFor(
         if (!runtime.promptOps) return
         const ops = runtime.promptOps
         registerChildRun(input.childSessionId, input.brief.run_id)
-        const visibleBrief = childTaskBrief(input.brief)
-        const internalContext = childLaunchPrompt(input.brief, input.role)
         runtime.bridge.fork(
-          ops
-            .prompt({
+          Effect.gen(function* () {
+            // Persist the visible user prompt before starting the model loop. A
+            // single fire-and-forget prompt could let the child run race its
+            // first message, leaving some child sessions with no initial task.
+            yield* ops.prompt({
               sessionID: input.childSessionId as SessionID,
               agent: profileAgentName(input.role.id),
-              parts: [
-                { type: "text", text: visibleBrief },
-                { type: "text", text: internalContext, synthetic: true, metadata: { kind: "plan_dispatch_context" } },
-              ],
+              noReply: true,
+              parts: childLaunchParts(input.brief, input.role),
             })
+            yield* ops.loop({ sessionID: input.childSessionId as SessionID })
+          })
             .pipe(
               Effect.catchCause((cause) =>
                 Effect.gen(function* () {
@@ -826,9 +886,12 @@ export const CandidateDeclareTool = Tool.define(
         Effect.gen(function* () {
           const board = yield* Blackboard.Service
           const bridge = yield* EffectBridge.make()
+          const ops = promptOps(ctx)
           const session = yield* getSession(sessions, ctx.sessionID)
           const protocol = protocolFor(sessions, bus, { bridge, candidateBoard: board })
-          return jsonResult("Candidate.declare", yield* Effect.promise(() => protocol.candidateDeclare(protocolContext(session, ctx), input)))
+          const result = yield* Effect.promise(() => protocol.candidateDeclare(protocolContext(session, ctx), input))
+          yield* drainProtocolWakeups(protocol, ops, bridge, candidateChildSessionIDs(session), session.id)
+          return jsonResult("Candidate.declare", result)
         }).pipe(Effect.provide(Blackboard.defaultLayer)),
     }
   }),
@@ -848,9 +911,12 @@ export const CandidateReadyTool = Tool.define(
         Effect.gen(function* () {
           const board = yield* Blackboard.Service
           const bridge = yield* EffectBridge.make()
+          const ops = promptOps(ctx)
           const session = yield* getSession(sessions, ctx.sessionID)
           const protocol = protocolFor(sessions, bus, { bridge, candidateBoard: board })
-          return jsonResult("Candidate.ready", yield* Effect.promise(() => protocol.candidateReady(protocolContext(session, ctx), {})))
+          const result = yield* Effect.promise(() => protocol.candidateReady(protocolContext(session, ctx), {}))
+          yield* drainProtocolWakeups(protocol, ops, bridge, session.parentID ? [session.parentID] : [])
+          return jsonResult("Candidate.ready", result)
         }).pipe(Effect.provide(Blackboard.defaultLayer)),
     }
   }),
@@ -869,9 +935,12 @@ export const CandidateBeginTool = Tool.define(
       execute: (_input: {}, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const bridge = yield* EffectBridge.make()
+          const ops = promptOps(ctx)
           const session = yield* getSession(sessions, ctx.sessionID)
           const protocol = protocolFor(sessions, bus, { bridge })
-          return jsonResult("Candidate.begin", yield* Effect.promise(() => protocol.candidateBegin(protocolContext(session, ctx), {})))
+          const result = yield* Effect.promise(() => protocol.candidateBegin(protocolContext(session, ctx), {}))
+          yield* drainProtocolWakeups(protocol, ops, bridge, candidateChildSessionIDs(session))
+          return jsonResult("Candidate.begin", result)
         }),
     }
   }),
@@ -890,9 +959,12 @@ export const CandidateSubmitTool = Tool.define(
       execute: (input: unknown, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const bridge = yield* EffectBridge.make()
+          const ops = promptOps(ctx)
           const session = yield* getSession(sessions, ctx.sessionID)
           const protocol = protocolFor(sessions, bus, { bridge })
-          return jsonResult("Candidate.submit", yield* Effect.promise(() => protocol.candidateSubmit(protocolContext(session, ctx), input)))
+          const result = yield* Effect.promise(() => protocol.candidateSubmit(protocolContext(session, ctx), input))
+          yield* drainProtocolWakeups(protocol, ops, bridge, session.parentID ? [session.parentID] : [])
+          return jsonResult("Candidate.submit", result)
         }),
     }
   }),

@@ -312,6 +312,19 @@ it.instance("resolves participants, associations, replies, cursors, mentions, an
     expect((yield* board.recipientsForMessage(mainReply)).map((item) => item.sessionID)).toEqual(
       expect.arrayContaining([domainChildASessionID, domainChildBSessionID]),
     )
+    expect((yield* board.listUser({ rootSessionID: domainRootSessionID, stepID: "s1" })).unreadCount).toBeGreaterThan(0)
+    yield* board.markUserRead({
+      rootSessionID: domainRootSessionID,
+      stepID: "s1",
+      throughMessageID: blocker.id,
+    })
+    expect((yield* board.listUser({ rootSessionID: domainRootSessionID, stepID: "s1" })).unreadCount).toBeGreaterThan(0)
+    yield* board.markUserRead({
+      rootSessionID: domainRootSessionID,
+      stepID: "s1",
+      throughMessageID: mainReply.id,
+    })
+    expect((yield* board.listUser({ rootSessionID: domainRootSessionID, stepID: "s1" })).unreadCount).toBe(0)
     const nested = yield* Effect.exit(
       board.postUser({ rootSessionID: domainRootSessionID, message: "nested", replyTo: reply.id }),
     )

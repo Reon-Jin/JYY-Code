@@ -54,7 +54,10 @@ function blackboardSnapshot(rootSessionID: string): SessionBlackboardResponse {
         attachments: [],
         taskIDs: ["s1_t1"],
         timeCreated: 2,
-        replies: [],
+        replies: [
+          { id: "bb_child_reply_1", body: "First follow-up", timeCreated: 3 },
+          { id: "bb_child_reply_2", body: "Latest follow-up", timeCreated: 4 },
+        ],
       },
     ],
     unreadCount: 2,
@@ -691,6 +694,11 @@ describe("desktop GUI journey", () => {
     const panel = await screen.findByRole("group", { name: "协作黑板" })
     expect(panel).toHaveTextContent("Child found a blocker")
     expect(panel).toHaveTextContent("Implement feature")
+    await waitFor(() => expect(blackboardButton.querySelector(".workspace-activity-button__badge")).not.toBeInTheDocument())
+    expect(
+      [...backend.requests].reverse().find((request) => request.path === "/session/ses_root/blackboard/read")?.body
+        .throughMessageID,
+    ).toBe("bb_child_reply_2")
     const rootBlackboardGets = () =>
       backend.requests.filter((request) => request.method === "GET" && request.path === "/session/ses_root/blackboard")
     expect(rootBlackboardGets().length).toBeGreaterThan(0)

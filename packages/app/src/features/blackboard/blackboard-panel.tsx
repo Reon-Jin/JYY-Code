@@ -32,6 +32,58 @@ function replyBody(reply: unknown) {
   return undefined
 }
 
+function replyChildren(reply: unknown): readonly unknown[] {
+  if (typeof reply === "object" && reply !== null && "replies" in reply && Array.isArray(reply.replies)) {
+    return reply.replies
+  }
+  return []
+}
+
+function replyBodies(replies: readonly unknown[]): string[] {
+  return replies.flatMap((reply) => {
+    const body = replyBody(reply)
+    return [...(body ? [body] : []), ...replyBodies(replyChildren(reply))]
+  })
+}
+
+type BlackboardMessageCursor = {
+  id: string
+  timeCreated: number
+  replies: readonly unknown[]
+}
+
+function messageCursor(value: unknown): BlackboardMessageCursor | undefined {
+  if (typeof value !== "object" || value === null || !("id" in value) || typeof value.id !== "string") return undefined
+  const timeCreated = "timeCreated" in value && typeof value.timeCreated === "number" ? value.timeCreated : Number.NEGATIVE_INFINITY
+  const replies = "replies" in value && Array.isArray(value.replies) ? value.replies : []
+  return { id: value.id, timeCreated, replies }
+}
+
+function latestMessageCursor(message: BlackboardMessage) {
+  let latest: Pick<BlackboardMessageCursor, "id" | "timeCreated"> = {
+    id: message.id,
+    timeCreated: message.timeCreated,
+  }
+
+  const visit = (replies: readonly unknown[]) => {
+    for (const reply of replies) {
+      const cursor = messageCursor(reply)
+      if (!cursor) continue
+      if (cursor.timeCreated >= latest.timeCreated) latest = { id: cursor.id, timeCreated: cursor.timeCreated }
+      visit(cursor.replies)
+    }
+  }
+  visit(message.replies)
+  return latest
+}
+
+function latestVisibleMessageID(messages: readonly BlackboardMessage[]) {
+  return messages.reduce<Pick<BlackboardMessageCursor, "id" | "timeCreated"> | undefined>((latest, message) => {
+    const cursor = latestMessageCursor(message)
+    return !latest || cursor.timeCreated >= latest.timeCreated ? cursor : latest
+  }, undefined)?.id
+}
+
 function messageSender(message: BlackboardMessage, taskLabels: Record<string, string>) {
   if (message.authorKind === "user") return tr("blackboard.user")
   if (message.authorKind === "main_agent") return tr("blackboard.main-agent")
@@ -73,7 +125,7 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
   const [attachmentPath, setAttachmentPath] = createSignal("")
   const [sending, setSending] = createSignal(false)
   const [submitError, setSubmitError] = createSignal<string>()
-  const markedSteps = new Set<string>()
+  const markedThrough = new Map<string, string>()
   const [draggingFiles, setDraggingFiles] = createSignal(false)
   let fileInput!: HTMLInputElement
   let inputRegion!: HTMLDivElement
@@ -136,11 +188,16 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
   )
 
   createEffect(() => {
-    const last = visibleMessages().at(-1)
+    const messages = visibleMessages()
     const stepID = activeStep()
-    if (!last || !stepID || markedSteps.has(stepID) || !props.rootSessionID) return
-    markedSteps.add(stepID)
-    void api().markRead({ stepID: last.stepID, throughMessageID: last.id })
+    const throughMessageID = latestVisibleMessageID(messages)
+    if (!throughMessageID || !stepID || !props.rootSessionID || markedThrough.get(stepID) === throughMessageID) return
+    markedThrough.set(stepID, throughMessageID)
+    void api()
+      .markRead({ stepID, throughMessageID })
+      .catch(() => {
+        if (markedThrough.get(stepID) === throughMessageID) markedThrough.delete(stepID)
+      })
   })
 
   onMount(() => {
@@ -284,7 +341,7 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
           <Show when={visibleMessages().length > 0} fallback={<p class="blackboard-panel__empty">{tr("blackboard.no-messages")}</p>}>
             <For each={visibleMessages()}>
               {(message) => {
-                const replies = () => message.replies.flatMap((reply) => (replyBody(reply) ? [replyBody(reply)!] : []))
+                const replies = () => replyBodies(message.replies)
                 return (
                   <article class="blackboard-message" data-kind={message.kind} data-message-id={message.id}>
                     <header class="blackboard-message__header">
@@ -417,19 +474,25 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
               </div>
             </Show>
           </div>
-          <textarea
-            aria-label={tr("blackboard.message-placeholder")}
-            placeholder={tr("blackboard.message-placeholder")}
-            rows={2}
-            value={draft()}
-            onInput={(event) => setDraft(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                event.preventDefault()
-                void submit()
-              }
-            }}
-          />
+          <div class="blackboard-composer__message-row">
+            <textarea
+              aria-label={tr("blackboard.message-placeholder")}
+              placeholder={tr("blackboard.message-placeholder")}
+              rows={1}
+              value={draft()}
+              onInput={(event) => setDraft(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                  event.preventDefault()
+                  void submit()
+                }
+              }}
+            />
+            <Button size="small" variant="primary" disabled={sending() || !draft().trim()} loading={sending()} loadingLabel={tr("blackboard.sending")} onClick={() => void submit()}>
+              <Send aria-hidden="true" />
+              {tr("blackboard.send")}
+            </Button>
+          </div>
           <Show when={attachments().length > 0}>
             <ul class="blackboard-composer__attachments" aria-label={tr("blackboard.add-attachment")}>
               <For each={attachments()}>
@@ -478,10 +541,6 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
             />
             <Button size="small" variant="ghost" onClick={() => addAttachment(attachmentPath())}>
               {tr("blackboard.add-path")}
-            </Button>
-            <Button size="small" variant="primary" disabled={sending() || !draft().trim()} loading={sending()} loadingLabel={tr("blackboard.sending")} onClick={() => void submit()}>
-              <Send aria-hidden="true" />
-              {tr("blackboard.send")}
             </Button>
           </div>
           <Show when={submitError()}>

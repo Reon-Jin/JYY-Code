@@ -151,7 +151,6 @@
 
 .blackboard-message {
   border: 1px solid var(--color-border);
-  border-left: 3px solid var(--color-accent);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   padding: var(--space-3);
@@ -161,15 +160,6 @@
     border-color var(--motion-fast) ease,
     box-shadow var(--motion-fast) ease,
     transform var(--motion-fast) ease;
-}
-
-.blackboard-message[data-kind="risk"],
-.blackboard-message[data-kind="blocker"] {
-  border-left-color: var(--color-border-strong);
-}
-
-.blackboard-message[data-kind="decision"] {
-  border-left-width: 4px;
 }
 
 .blackboard-message:hover {
@@ -350,12 +340,22 @@
   color: var(--color-text);
 }
 
-.blackboard-composer textarea {
-  display: block;
+.blackboard-composer__message-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.blackboard-composer__message-row textarea {
   box-sizing: border-box;
-  width: 100%;
-  min-height: 56px;
+  min-width: 0;
+  min-height: 36px;
+  flex: 1;
   resize: vertical;
+}
+
+.blackboard-composer__message-row > button {
+  flex: 0 0 auto;
 }
 
 .blackboard-composer__footer {
