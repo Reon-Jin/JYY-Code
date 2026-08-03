@@ -165,6 +165,7 @@ function insertSession(input: {
   directory: string
   parentID?: SessionID
   title: string
+  multiAgent?: boolean
 }) {
   const now = Date.now()
   Database.legacyQuery((db) =>
@@ -178,6 +179,7 @@ function insertSession(input: {
         directory: input.directory,
         title: input.title,
         version: InstallationVersion,
+        multi_agent_enabled: input.multiAgent,
         cost: 0,
         tokens_input: 0,
         tokens_output: 0,
@@ -197,8 +199,15 @@ function setupSessions(input: {
   rootSessionID: SessionID
   childSessionIDs: SessionID[]
   plan: object
+  multiAgent?: boolean
 }) {
-  insertSession({ id: input.rootSessionID, projectID: input.projectID, directory: input.directory, title: "Root" })
+  insertSession({
+    id: input.rootSessionID,
+    projectID: input.projectID,
+    directory: input.directory,
+    title: "Root",
+    multiAgent: input.multiAgent ?? true,
+  })
   for (const [index, childSessionID] of input.childSessionIDs.entries())
     insertSession({
       id: childSessionID,
@@ -431,5 +440,66 @@ it.instance("stores candidate declarations as top-level messages and validates p
     yield* Effect.promise(() => fs.writeFile(runningPlanPath, JSON.stringify(runningPlan)))
     expect(Exit.isFailure(yield* Effect.exit(board.postAgent({ sessionID: candidateChildASessionID, message: "second round" })))).toBe(true)
     expect(Exit.isFailure(yield* Effect.exit(board.readAgent(candidateChildASessionID)))).toBe(true)
+  }),
+)
+
+it.instance("keeps blackboard history readable after the plan completes", () =>
+  Effect.gen(function* () {
+    const ctx = yield* InstanceState.context
+    const doneRootSessionID = SessionID.make("ses_blackboard_done_root")
+    yield* setupSessions({
+      directory: ctx.directory,
+      projectID: ctx.project.id,
+      rootSessionID: doneRootSessionID,
+      childSessionIDs: [],
+      plan,
+    })
+    const board = yield* Blackboard.Service
+    const posted = yield* board.postUser({ rootSessionID: doneRootSessionID, message: "完成前的协作记录" })
+
+    // Completing the plan clears current_step.
+    const completedPlan = structuredClone(plan) as any
+    completedPlan.status = "done"
+    completedPlan.current_step = null
+    completedPlan.steps[0]!.status = "done"
+    const completedPlanPath = path.join(ctx.directory, ".jyycode", "plan", doneRootSessionID, "plan.json")
+    yield* Effect.promise(() => fs.writeFile(completedPlanPath, JSON.stringify(completedPlan)))
+
+    const snapshot = yield* board.listUser({ rootSessionID: doneRootSessionID })
+    expect(snapshot.currentStepID).toBe("")
+    expect(snapshot.selectedStepID).toBe("s1")
+    expect(snapshot.readonly).toBe(true)
+    expect(snapshot.messages.map((item) => item.id)).toContain(posted.id)
+
+    const explicit = yield* board.listUser({ rootSessionID: doneRootSessionID, stepID: "s1" })
+    expect(explicit.selectedStepID).toBe("s1")
+    expect(explicit.messages.map((item) => item.id)).toContain(posted.id)
+
+    // Posting is still rejected once no current step exists.
+    expect(Exit.isFailure(yield* Effect.exit(board.postUser({ rootSessionID: doneRootSessionID, message: "late" })))).toBe(true)
+  }),
+)
+
+it.instance("keeps the blackboard readable but rejects user posts in single-agent mode", () =>
+  Effect.gen(function* () {
+    const ctx = yield* InstanceState.context
+    const singleRootSessionID = SessionID.make("ses_blackboard_single_root")
+    yield* setupSessions({
+      directory: ctx.directory,
+      projectID: ctx.project.id,
+      rootSessionID: singleRootSessionID,
+      childSessionIDs: [],
+      plan,
+      multiAgent: false,
+    })
+    const board = yield* Blackboard.Service
+
+    const exit = yield* Effect.exit(board.postUser({ rootSessionID: singleRootSessionID, message: "single agent note" }))
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) expect(String(exit.cause)).toContain("单智能体模式下黑板只读")
+
+    // History stays readable in single-agent mode.
+    const snapshot = yield* board.listUser({ rootSessionID: singleRootSessionID })
+    expect(snapshot.selectedStepID).toBe("s1")
   }),
 )

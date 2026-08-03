@@ -166,7 +166,7 @@ describe("model-facing plan tool names", () => {
     expect(subagentToolIDs({ mode: "primary", options: {} } as never)).toBeUndefined()
     expect(subagentToolIDs({ mode: "subagent", options: {} } as never)).toBeUndefined()
     const roleToolIDs = subagentRoleToolIDs(role, { parentID: "parent" as never }, { allowedToolIDs: new Set(["read", "Candidate.submit"]) })
-    expect(roleToolIDs).toEqual(new Set(["read", "plugin_custom", "skill", "Report", "Blackboard", "Blackboard.reply", "Candidate.submit"])
+    expect(roleToolIDs).toEqual(new Set(["read", "bash", "plugin_custom", "skill", "Report", "Blackboard", "Blackboard.reply", "Candidate.submit"])
     )
     expect(intersectToolIDs(roleToolIDs, new Set(["read", "Candidate.submit"]))).toEqual(new Set(["read", "Candidate.submit"]))
     // Omitted settings are represented by an undefined gate so the runtime
@@ -432,7 +432,8 @@ describe("model-facing plan tool names", () => {
         task_title: "Write notes",
         goal: "write notes",
         done_criteria: "notes.md exists",
-        output_path: "notes.md",
+        workspace_root: "/workspace",
+        output_path: "/workspace/notes.md",
         report_format: "Report(...)",
         step_context: {
           plan_goal: "Document the project",

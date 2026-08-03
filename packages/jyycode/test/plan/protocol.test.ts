@@ -253,6 +253,49 @@ describe("file-backed plan protocol", () => {
     })
   })
 
+  it("anchors a relative dispatched output_path at the workspace root", async () => {
+    const root = workspace()
+    let captured: { brief: { workspace_root: string; output_path: string } } | undefined
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      profiles: async () => [defaultGeneralProfile],
+      children: {
+        async create(input) {
+          captured = input
+          return input.childSessionId
+        },
+        async start() {},
+        async terminate() {},
+      },
+    })
+    await protocol.create(context(root), createInput(path.join("notes", "notes.md")))
+    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+    expect(dispatched.ok).toBe(true)
+    expect(captured?.brief.workspace_root).toBe(path.resolve(root))
+    expect(captured?.brief.output_path).toBe(path.resolve(root, "notes", "notes.md"))
+  })
+
+  it("rejects a dispatched output_path escaping the workspace", async () => {
+    const root = workspace()
+    let created = false
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      profiles: async () => [defaultGeneralProfile],
+      children: {
+        async create(input) {
+          created = true
+          return input.childSessionId
+        },
+        async start() {},
+        async terminate() {},
+      },
+    })
+    await protocol.create(context(root), createInput(path.join("..", "escape.md")))
+    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+    expect(dispatched).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
+    expect(created).toBe(false)
+  })
+
   it("creates, reads, and returns progress using the specified schema", async () => {
     const root = workspace()
     const protocol = new PlanProtocol({ store: new PlanStore(), events: new PlanEventHub(), inbox: new PlanInbox() })

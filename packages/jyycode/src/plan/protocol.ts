@@ -91,6 +91,9 @@ export type DispatchBrief = {
   goal: string
   done_criteria: string
   task_instructions?: string
+  /** Absolute working directory shared with the parent agent; every relative path in the brief resolves against it. */
+  workspace_root: string
+  /** Absolute path resolved against workspace_root at dispatch time. */
   output_path: string
   report_format: string
   mode?: PlanTaskMode
@@ -179,6 +182,21 @@ function requiredText(value: unknown, field: string) {
   const text = asString(value)
   if (!text) inputError(`${field} 必须是非空字符串`)
   return text
+}
+
+/**
+ * Resolve a user-supplied path against the workspace root and require the
+ * result to stay inside the workspace. Relative paths never fall back to
+ * process.cwd(): the workspace root is the only anchor, so a dispatched
+ * child agent and its parent always resolve the same absolute location.
+ */
+function resolveWorkspacePath(workspaceRoot: string, value: string, field: string) {
+  const root = path.resolve(workspaceRoot)
+  const absolute = path.isAbsolute(value) ? path.resolve(value) : path.resolve(root, value)
+  const relative = path.relative(root, absolute)
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    inputError(`${field} 必须位于工作区内`, "使用工作区相对路径或工作区内的绝对路径")
+  return absolute
 }
 
 export type DispatchInput = { taskIds: string[]; role: string }
@@ -638,11 +656,14 @@ function applyOp(
           hint: "只能选择已成功提交方案的候选",
         })
       const synthesis = requiredText(op.synthesisArtifact, "synthesisArtifact")
-      const absoluteSynthesis = path.resolve(workspaceRoot ?? process.cwd(), synthesis)
-      const workspacePath = path.resolve(workspaceRoot ?? process.cwd())
-      const relative = path.relative(workspacePath, absoluteSynthesis)
-      if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) || !fs.existsSync(absoluteSynthesis))
-        inputError("synthesisArtifact 必须是 workspace 内已存在的文件")
+      if (!workspaceRoot)
+        throw new PlanProtocolError({
+          code: ERROR_CODES.INVALID_STATE,
+          message: "select_candidate 缺少 workspaceRoot，无法定位综合产物",
+          hint: "通过带 workspaceRoot 的执行上下文重试",
+        })
+      const absoluteSynthesis = resolveWorkspacePath(workspaceRoot, synthesis, "synthesisArtifact")
+      if (!fs.existsSync(absoluteSynthesis)) inputError("synthesisArtifact 必须是 workspace 内已存在的文件")
       selected.status = "approved"
       for (const task of candidates) if (task.id !== selected.id) task.status = "dismissed"
       step.candidate_selection = {
@@ -1098,6 +1119,10 @@ export class PlanProtocol {
             "派发型任务必须提供 output_path 与 done_criteria",
           )
         if (!role) throw new Error("Dispatch_dispatch role resolution failed")
+        // Anchor every dispatched path at the workspace root: the child session
+        // shares the parent's working directory, so the brief carries only
+        // absolute paths and relative paths can never drift to process.cwd().
+        const outputPath = resolveWorkspacePath(ctx.workspaceRoot, task.output_path!, `任务 ${task.id} 的 output_path`)
         const runId = `run__${ctx.sessionId}__${task.id}`
         const childSessionId = `child_${ctx.sessionId}_${task.id}`
         const brief: DispatchBrief = {
@@ -1106,7 +1131,8 @@ export class PlanProtocol {
           goal: task.goal,
           done_criteria: task.done_criteria,
           ...(task.instructions ? { task_instructions: task.instructions } : {}),
-          output_path: task.output_path!,
+          workspace_root: path.resolve(ctx.workspaceRoot),
+          output_path: outputPath,
           mode: task.mode ?? "standard",
           step_context: {
             plan_goal: plan.goal,

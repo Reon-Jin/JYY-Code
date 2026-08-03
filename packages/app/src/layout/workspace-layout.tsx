@@ -441,10 +441,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     data.queryClient,
   )
   const planSnapshot = createMemo(() => projectPlanState(planQuery.data ?? { plan: null }))
-  const planReady = createMemo(() => {
-    const snapshot = planSnapshot()
-    return snapshot.totalSteps > 0 && Boolean(snapshot.currentStepID)
-  })
+  // A completed plan clears currentStepID, but its blackboard history stays readable.
+  const planExists = createMemo(() => planSnapshot().totalSteps > 0)
   const rootMultiAgentEnabled = createMemo(() =>
     rootSession() ? effectiveMultiAgent(rootSession()!) : false,
   )
@@ -455,7 +453,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         directory: data.directory(),
         rootSessionID: rootSessionID() ?? "",
       }),
-      enabled: Boolean(rootSessionID()) && rootMultiAgentEnabled() && planReady(),
+      enabled: Boolean(rootSessionID()) && planExists(),
     }),
     data.queryClient,
   )
@@ -471,7 +469,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return undefined
   })
   const blackboardBadge = createMemo(() => {
-    if (!rootMultiAgentEnabled() || !planReady()) return undefined
+    // The board stays readable in single-agent mode, so unread still matters.
+    if (!planExists()) return undefined
     const unreadCount = Number(blackboardQuery.data?.unreadCount ?? 0)
     return unreadCount > 0 ? String(unreadCount) : undefined
   })
@@ -860,9 +859,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           blackboard={
             <BlackboardPanel
               directory={data.directory()}
-              enabled={rootMultiAgentEnabled() && planReady()}
+              enabled={planExists()}
+              postingEnabled={rootMultiAgentEnabled()}
               waitingForPlan={rootMultiAgentEnabled() && planSnapshot().totalSteps === 0}
-              planCompleted={rootMultiAgentEnabled() && planSnapshot().totalSteps > 0 && !planSnapshot().currentStepID}
               rootSessionID={rootSessionID()}
               steps={planSnapshot().steps.map((step) => ({ id: step.id, title: step.title }))}
               taskLabels={Object.fromEntries(planSnapshot().tasks.map((task) => [task.id, task.title]))}

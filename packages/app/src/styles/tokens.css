@@ -39,11 +39,11 @@
 
   color-scheme: light;
 
-  /* Surfaces — warm paper scale */
-  --surface-solid: #f5f4f0;
-  --surface-raised-solid: #fdfcf9;
-  --surface-control-solid: #edebe4;
-  --surface-border-solid: #e3e0d7;
+  /* Surfaces — warm paper scale, softened to reduce glare */
+  --surface-solid: #efede7;
+  --surface-raised-solid: #f7f5ef;
+  --surface-control-solid: #e7e4da;
+  --surface-border-solid: #dbd8ca;
   --surface: var(--surface-solid);
   --surface-raised: var(--surface-raised-solid);
   --surface-control: var(--surface-control-solid);
@@ -53,8 +53,8 @@
   --color-background: var(--surface);
   --color-panel: var(--surface-raised);
   --color-surface: var(--surface-control);
-  --color-surface-hover: #e6e3da;
-  --color-header-surface: rgb(253 252 249 / 86%);
+  --color-surface-hover: #e0ddcf;
+  --color-header-surface: rgb(247 245 239 / 86%);
 
   /* Accent — single low-saturation slate blue */
   --color-accent: #475a74;
@@ -66,10 +66,10 @@
 
   /* Ink */
   --color-text: #212428;
-  --color-text-muted: #6e7176;
+  --color-text-muted: #686a6f;
 
   /* Code / formula surfaces */
-  --color-code-bg: #efede6;
+  --color-code-bg: #e9e6da;
   --color-code-text: #2b2e33;
 
   /* Hairlines */

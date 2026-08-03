@@ -111,6 +111,10 @@ describe("desktop GUI journey", () => {
     await user.click(screen.getByRole("button", { name: "方案" }))
     await user.click(screen.getByRole("button", { name: "子 Agent" }))
     expect(await screen.findByRole("heading", { name: "子 Agent" })).toBeVisible()
+    await user.click(await screen.findByRole("button", { name: "新建子 Agent" }))
+    await user.type(screen.getByRole("textbox", { name: "角色 ID" }), "reviewer")
+    await user.type(screen.getByRole("textbox", { name: "角色名称" }), "Reviewer")
+    await user.type(screen.getByRole("textbox", { name: "角色描述" }), "Reviews changes")
     await waitFor(() => expect(screen.getByRole("button", { name: "保存角色" })).toBeEnabled())
 
     const before = {
@@ -371,7 +375,7 @@ describe("desktop GUI journey", () => {
     expect(backend.requests.some((request) => request.path === "/session/ses_multi/blackboard")).toBe(false)
   }, 15_000)
 
-  it("does not query the blackboard after a multi-agent plan is complete", async () => {
+  it("keeps the blackboard readable after a multi-agent plan is complete", async () => {
     const user = userEvent.setup()
     const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_done" } })
     const backend = createFakeJyycode(desktop.directory)
@@ -387,6 +391,12 @@ describe("desktop GUI journey", () => {
         tasks: step.tasks.map((task) => ({ ...task, status: "approved" })),
       })),
     })
+    backend.setBlackboard("ses_done", {
+      ...blackboardSnapshot("ses_done"),
+      currentStepID: "",
+      readonly: true,
+      unreadCount: 0,
+    })
     vi.stubGlobal("fetch", backend.fetch)
 
     render(() => <App bridge={desktop.bridge} />)
@@ -395,9 +405,37 @@ describe("desktop GUI journey", () => {
     await user.click(await screen.findByRole("button", { name: "协作黑板" }))
 
     const panel = await screen.findByRole("group", { name: "协作黑板" })
-    expect(panel).toHaveTextContent("方案已完成，当前没有可用的 Step")
+    await waitFor(() => expect(panel).toHaveTextContent("Child found a blocker"))
+    expect(panel).toHaveTextContent("历史 Step 只读")
     expect(panel).not.toHaveTextContent("Unexpected server error")
-    expect(backend.requests.some((request) => request.path === "/session/ses_done/blackboard")).toBe(false)
+    expect(backend.requests.some((request) => request.path === "/session/ses_done/blackboard")).toBe(true)
+  }, 15_000)
+
+  it("keeps blackboard content visible but read-only after switching to single-agent mode", async () => {
+    const user = userEvent.setup()
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_toggle" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.addSession({ id: "ses_toggle", slug: "toggle", title: "Toggle Session", multiAgent: true })
+    backend.setPlan("ses_toggle", planSnapshot())
+    backend.setBlackboard("ses_toggle", blackboardSnapshot("ses_toggle"))
+    vi.stubGlobal("fetch", backend.fetch)
+
+    render(() => <App bridge={desktop.bridge} />)
+
+    expect(await screen.findByRole("heading", { name: "Toggle Session" }, { timeout: 5_000 })).toBeVisible()
+    await user.click(await screen.findByRole("button", { name: "协作黑板" }))
+    await waitFor(() => expect(screen.getByRole("group", { name: "协作黑板" })).toHaveTextContent("Child found a blocker"))
+    expect(screen.getByRole("textbox", { name: "发送黑板消息…" })).toBeVisible()
+
+    const mode = screen.getByRole("switch", { name: "多智能体" })
+    await user.click(mode)
+    await waitFor(() => expect(mode).toHaveAttribute("aria-checked", "false"))
+
+    const panel = screen.getByRole("group", { name: "协作黑板" })
+    expect(panel).toHaveTextContent("Child found a blocker")
+    expect(panel).toHaveTextContent("单智能体模式下黑板只读")
+    expect(panel).not.toHaveTextContent("多智能体 Session 才支持协作黑板")
+    expect(screen.queryByRole("textbox", { name: "发送黑板消息…" })).not.toBeInTheDocument()
   }, 15_000)
 
   it("keeps the workspace mounted while creating and opening a new Session", async () => {
@@ -495,7 +533,7 @@ describe("desktop GUI journey", () => {
     expect(screen.getByRole("textbox", { name: "消息" })).toHaveValue("保留根草稿")
 
     await user.click(screen.getByRole("button", { name: "配置模型" }))
-    await user.selectOptions(screen.getByRole("combobox", { name: "主 Agent 模型" }), "test/test-simple")
+    await user.selectOptions(screen.getByRole("combobox", { name: "模型" }), "test/test-simple")
     await user.click(screen.getByRole("button", { name: "完成" }))
 
     await user.click(screen.getByRole("switch", { name: "多智能体" }))

@@ -97,7 +97,7 @@ describe("SubagentProfilesPanelView", () => {
     expect(onRefresh).toHaveBeenCalledTimes(1)
     expect(within(editDialog).getByRole("checkbox", { name: "read" })).toBeChecked()
     expect(within(editDialog).getByRole("checkbox", { name: "mcp_docs" })).not.toBeChecked()
-    expect(within(editDialog).queryByRole("checkbox", { name: "bash" })).not.toBeInTheDocument()
+    expect(within(editDialog).getByRole("checkbox", { name: "bash" })).not.toBeChecked()
     expect(within(editDialog).getByDisplayValue("general")).toBeVisible()
     expect(within(editDialog).getByText("manual")).toBeVisible()
     expect(within(editDialog).getByText("用于内部派发的唯一标识，创建后不可修改。")).toBeVisible()
@@ -141,7 +141,7 @@ describe("SubagentProfilesPanelView", () => {
         avatar: "code",
         model: "openai/gpt-5",
         variant: "low",
-        tools: ["mcp_docs", "read"],
+        tools: ["bash", "mcp_docs", "read"],
         enabled: false,
       }),
     ])

@@ -22,7 +22,8 @@ export const PLAN_MULTI_PROMPT = `# 新版子 Agent 管理协议
 - 批量派发：同一 wave 的所有 ready Task 尽量放入一次 Dispatch_dispatch；candidate group 必须一次包含全部 2-3 个候选。Dispatch_dispatch 返回后立即结束当前 turn，等待 Report/Inbox/Blackboard 事件。
 - 当前 active Step 只要有 pending/rejected Task，主 Agent 不得亲自执行这些 Task；运行时会只开放 Plan_update（补全任务）或 Dispatch_dispatch（派发）。若该调用被拒绝，可使用 Plan_read 获取最新状态后修正一次调用。
 - 当前 active Step 没有 Task 时，先用 Plan_update 一次性展开当前 wave；优先添加多个可独立派发的 standard Task，或在存在真实路线不确定性时添加完整的 2-3 个 candidate Task。
-- 每个可派发 Task 必须有明确的 output_path；若运行时只开放 Plan_update，先用 edit_task 补齐 output_path，下一步立即 Dispatch_dispatch。
+- 每个可派发 Task 必须有明确的 output_path；若运行时只开放 Plan_update，先用 edit_task 补齐 output_path，下一步立即 Dispatch_dispatch。output_path 可写工作区相对路径或工作区内绝对路径，派发时运行时会统一解析为工作区内绝对路径再交给子 Agent；越出工作区的路径会被拒绝。
+- 给 Task 写 instructions 时可以直接使用工作区相对路径：子 Agent 与主 Agent 共享同一个工作目录，相对路径的解析结果一致。
 - 独立、耗时且产出明确的当前 Step 任务，用 Dispatch_dispatch 派给子 Agent；需要连续上下文的判断由主 Agent 自己执行。
 - Dispatch_dispatch 只能接收方案中当前 active Step 的 pending/rejected taskId，禁止自行构造任务或一次派发未来阶段。
 - Plan_read 显示 pending_review > 0 时，用 Plan_update(review_task) 逐项对照 done_criteria，并抽查 artifacts 后裁决。
@@ -37,6 +38,7 @@ export const PLAN_SINGLE_PROMPT = `# 单智能体执行协议
 export const PLAN_CHILD_PROMPT = `# 子 Agent 执行协议
 - 启动简报中的 task_title、goal、done_criteria、task_instructions（如有）和 step_context 都是当前任务的完整上下文；previous_feedback 是上次被打回的具体原因。task_instructions 与 done_criteria 冲突时，以 done_criteria 为准，并在 Blackboard 说明风险。
 - Standard child：read Blackboard at the start，先了解当前 Step 的其他 Task、依赖和已有发现；被唤醒处理协作消息时也必须先读 Blackboard。完成工作或发现可复用事实、依赖、交接、风险、阻塞、决策或求助时，publish a concise finding or handoff 到 Blackboard，关联 task_ids；不要发布心跳或重复的普通进度。
+- 你的工作目录与主 Agent 相同：启动简报中的 workspace_root 是其绝对路径，output_path 已是基于它解析好的绝对路径；instructions 中出现的相对路径一律相对于 workspace_root 解析。不要在工作目录之外读写文件。
 - 先把产出写入 output_path，再调用 Report。status=done 时 artifacts 必须列出真实存在的文件；无法达标则报 partial 或 failed。
 - Report 前再次无参读取 Blackboard，处理所有新消息；如果本 Task 的结果、依赖或交接对其他 Agent 有帮助，先发布一条简洁摘要再 Report。候选 Task 按 Candidate task protocol 的阶段限制执行，不在 running 阶段使用 Blackboard。
 - Report 返回 ok=true 后结束；仅在 retryable=true 时按 hint 使用同一 run_id 补交。

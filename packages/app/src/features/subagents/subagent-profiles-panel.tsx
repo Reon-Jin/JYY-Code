@@ -23,13 +23,10 @@ import {
 } from "./subagent-profiles-query"
 import "./subagent-profiles-panel.css"
 
-const SUBAGENT_SELECTABLE_TOOL_IDS = ["read", "edit", "write", "glob", "grep", "websearch", "webfetch"]
+const SUBAGENT_SELECTABLE_TOOL_IDS = ["read", "edit", "write", "glob", "grep", "websearch", "webfetch", "bash", "process"]
 const SUBAGENT_FORBIDDEN_TOOL_IDS = new Set([
   "tool_search",
   "invalid",
-  "bash",
-  "shell",
-  "process",
   "question",
   "memory",
   "Inbox",

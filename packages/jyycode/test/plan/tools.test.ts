@@ -22,7 +22,8 @@ describe("plan runtime event bridge", () => {
         task_title: "Write the notes",
         goal: "write the notes",
         done_criteria: "notes.md exists",
-        output_path: "notes.md",
+        workspace_root: "/workspace",
+        output_path: "/workspace/notes.md",
         task_instructions: "Read src/api.ts and document every public endpoint.",
         step_context: {
           plan_goal: "Document the API",
@@ -42,6 +43,8 @@ describe("plan runtime event bridge", () => {
       expect(brief).toContain("Read src/api.ts and document every public endpoint.")
       expect(brief).toContain("## Current Task Goal")
       expect(brief).toContain("write the notes")
+      expect(brief).toContain("## Working Directory")
+      expect(brief).toContain("/workspace")
       expect(brief).not.toContain("task_instructions")
       expect(brief).not.toContain("output_path")
       expect(brief).not.toContain("step_context")
@@ -57,7 +60,8 @@ describe("plan runtime event bridge", () => {
           task_title: "Write the notes",
           goal: "write the notes",
           done_criteria: "notes.md exists",
-          output_path: "notes.md",
+          workspace_root: "/workspace",
+          output_path: "/workspace/notes.md",
           task_instructions: "Read src/api.ts.",
           step_context: {
             plan_goal: "Document the API",

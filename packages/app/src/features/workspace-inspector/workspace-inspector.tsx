@@ -24,7 +24,7 @@ function isNarrow() {
 
 function clampWidth(width: number) {
   const viewport = typeof window === "undefined" ? 1_260 : window.innerWidth
-  return Math.min(Math.max(280, width), Math.max(280, viewport / 3))
+  return Math.min(Math.max(280, width), Math.max(280, viewport / 2))
 }
 
 export type WorkspaceInspectorViewProps = {
@@ -173,7 +173,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
             aria-label={tr("workspace-inspector.adjust-taskbar-width")}
             aria-orientation="vertical"
             aria-valuemin="280"
-            aria-valuemax={Math.round(Math.max(280, window.innerWidth / 3))}
+            aria-valuemax={Math.round(Math.max(280, window.innerWidth / 2))}
             aria-valuenow={Math.round(clampWidth(props.preferences.width))}
             tabIndex={0}
             onPointerDown={startWidthResize}

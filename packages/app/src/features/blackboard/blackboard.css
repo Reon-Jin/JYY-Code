@@ -90,14 +90,11 @@
  * ------------------------------------------------------------------------ */
 
 .blackboard-board {
-  display: flex;
+  position: relative;
+  display: block;
   min-height: 0;
-  align-content: flex-start;
-  align-items: flex-start;
-  gap: var(--space-6) var(--space-5);
   overflow-y: auto;
-  padding: var(--space-8) var(--space-6) var(--space-12);
-  flex-wrap: wrap;
+  padding: 0;
   background:
     radial-gradient(circle, rgb(255 255 255 / 5%) 1px, transparent 1.4px),
     linear-gradient(160deg, #33373d, #292c31 55%, #24272b);
@@ -109,18 +106,23 @@
 
 .blackboard-board .blackboard-panel__empty {
   width: 100%;
+  padding-top: var(--space-8);
   color: rgb(240 238 232 / 62%);
 }
 
 /* ---------------------------------------------------------------------------
- * A pinned note — paper, thumbtack, deterministic tilt
+ * A pinned note — paper, thumbtack, deterministic tilt. Notes are absolutely
+ * positioned so the user can drag them anywhere and overlap them freely.
  * ------------------------------------------------------------------------ */
 
 .blackboard-note {
-  position: relative;
+  position: absolute;
   display: grid;
-  width: 248px;
+  width: 175px;
   max-width: 100%;
+  max-height: 210px;
+  overflow-y: auto;
+  cursor: pointer;
   gap: var(--space-2);
   border: 1px solid #d8d2c2;
   border-radius: 2px;
@@ -191,14 +193,33 @@
   flex-wrap: wrap;
   border-bottom: 1px dashed #cfc9b8;
   padding-bottom: var(--space-1);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.blackboard-note[data-dragging] {
+  transition: none;
+  cursor: grabbing;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 55%) inset,
+    4px 14px 34px rgb(0 0 0 / 50%);
+  transform: translate(0, -2px) rotate(0deg);
+}
+
+.blackboard-note[data-dragging] .blackboard-note__header {
+  cursor: grabbing;
 }
 
 .blackboard-note__header strong {
+  display: -webkit-box;
   overflow: hidden;
   font-size: var(--text-xs);
   font-weight: 650;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .blackboard-note__header time {
@@ -244,10 +265,14 @@
 }
 
 .blackboard-note__body {
+  display: -webkit-box;
   min-width: 0;
+  overflow: hidden;
   overflow-wrap: anywhere;
   font-size: var(--text-xs);
   line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
 
 .blackboard-note__body > :first-child {
@@ -336,35 +361,10 @@
   text-underline-offset: 2px;
 }
 
-.blackboard-note__reply-details summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  border: 0;
-  padding: 0;
-  background: transparent;
+.blackboard-note__reply-count {
   color: #6d6a60;
-  cursor: pointer;
   font-family: var(--font-code);
   font-size: 0.62rem;
-  list-style: none;
-}
-
-.blackboard-note__reply-details summary::-webkit-details-marker {
-  display: none;
-}
-
-.blackboard-note__reply-details summary:hover {
-  color: #2a2c30;
-}
-
-.blackboard-note__reply-details summary svg {
-  width: 11px;
-  transition: transform var(--motion-fast) var(--ease-out);
-}
-
-.blackboard-note__reply-details[open] summary svg {
-  transform: rotate(180deg);
 }
 
 .blackboard-note__replies {
@@ -487,13 +487,9 @@
 }
 
 @media (max-width: 640px) {
-  .blackboard-board {
-    gap: var(--space-4);
-    padding: var(--space-4) var(--space-3) var(--space-8);
-  }
-
   .blackboard-note {
-    width: 100%;
+    width: calc(100% - 24px);
+    max-width: calc(100% - 24px);
   }
 
   .blackboard-composer {
@@ -503,4 +499,90 @@
   .blackboard-composer__kind {
     grid-column: 1 / -1;
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Expanded note — click a pinned slip to read it up close, over a dimmed board
+ * ------------------------------------------------------------------------ */
+
+.blackboard-note-overlay {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  padding: var(--space-6);
+  background: rgb(18 20 23 / 55%);
+  animation: blackboard-overlay-in var(--motion-normal) var(--ease-out) both;
+  inset: 0;
+  place-items: center;
+}
+
+@keyframes blackboard-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.blackboard-note.blackboard-note--expanded {
+  position: relative;
+  top: auto;
+  left: auto;
+  width: min(560px, 100%);
+  max-height: min(85vh, 720px);
+  cursor: default;
+  transform: none;
+  animation: blackboard-note-zoom var(--motion-slow) var(--ease-out) both;
+}
+
+.blackboard-note--expanded .blackboard-note__header {
+  cursor: default;
+}
+
+.blackboard-note.blackboard-note--expanded:hover {
+  transform: none;
+}
+
+.blackboard-note--expanded .blackboard-note__body {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+@keyframes blackboard-note-zoom {
+  from {
+    opacity: 0;
+    transform: scale(0.86) rotate(var(--note-tilt, 0deg));
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+.blackboard-note__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: transparent;
+  color: #6d6a60;
+  cursor: pointer;
+  place-items: center;
+}
+
+.blackboard-note__close:hover {
+  background: rgb(0 0 0 / 8%);
+  color: #2a2c30;
+}
+
+.blackboard-note__close svg {
+  width: 14px;
+  height: 14px;
 }

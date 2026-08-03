@@ -419,6 +419,10 @@ export function childTaskBrief(brief: DispatchBrief, role?: Pick<LaunchSnapshot,
     "",
     "## Current Task Goal",
     brief.goal.trim(),
+    "",
+    "## Working Directory",
+    brief.workspace_root,
+    "你的工作目录与主 Agent 一致。所有相对路径都相对于此目录解析；不要在此目录之外读写文件。",
   ]
   const rolePrompt = role?.prompt.trim()
   if (rolePrompt) parts.push("", "## Role Instructions", rolePrompt)
@@ -435,6 +439,7 @@ function childInternalTaskBrief(brief: DispatchBrief) {
     "```",
     "",
     "请严格按简报执行：先写入 `output_path`，再调用 `Report`；不要创建或输出父方案。",
+    "`workspace_root` 是你的工作目录（与主 Agent 一致）；`output_path` 已是基于它解析好的绝对路径。简报或指令中出现的其他相对路径一律相对于 `workspace_root` 解析，禁止在工作目录之外读写文件。",
   ].join("\n")
   if (brief.mode !== "candidate") return standard
   return [

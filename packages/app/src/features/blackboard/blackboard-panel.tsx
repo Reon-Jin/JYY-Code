@@ -1,7 +1,7 @@
 import type { SessionBlackboardResponse } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
-import { ChevronDown, File, Send } from "lucide-solid"
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
+import { File, Send, X } from "lucide-solid"
+import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, Show } from "solid-js"
 import { Button, IconButton } from "../../components/ui/button"
 import { useData } from "../../data/context"
 import { errorMessage } from "../projects/project-controller"
@@ -114,11 +114,56 @@ function noteGeometry(id: string) {
   return { "--note-tilt": `${tilt.toFixed(1)}deg`, "--note-lift": `${lift}px`, "--note-drift": `${drift}px` }
 }
 
+/*
+ * Free-form note layout: notes live at absolute positions the user can drag
+ * around and overlap. Dragged positions persist to localStorage per board so
+ * the arrangement survives reloads; notes never placed keep a deterministic
+ * grid slot with a small hash jitter.
+ */
+type NotePosition = { x: number; y: number; z: number }
+type BoardLayout = { zTop: number; notes: Record<string, NotePosition> }
+
+const NOTE_SLOT_WIDTH = 200
+const NOTE_SLOT_HEIGHT = 240
+const NOTE_PAD_X = 28
+const NOTE_PAD_Y = 44
+
+function layoutStorageKey(directory: string, rootSessionID?: string) {
+  return `jyycode.blackboard.layout:${directory}:${rootSessionID ?? ""}`
+}
+
+function loadLayout(key: string): BoardLayout {
+  try {
+    const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(key)
+    if (!raw) return { zTop: 1, notes: {} }
+    const parsed = JSON.parse(raw) as BoardLayout
+    if (typeof parsed?.zTop !== "number" || typeof parsed?.notes !== "object" || parsed.notes === null) throw new Error("invalid")
+    return { zTop: parsed.zTop, notes: parsed.notes }
+  } catch {
+    return { zTop: 1, notes: {} }
+  }
+}
+
+function defaultNotePosition(id: string, index: number): NotePosition {
+  let hash = 0
+  for (let cursor = 0; cursor < id.length; cursor += 1) hash = (hash * 31 + id.charCodeAt(cursor)) >>> 0
+  const columns = 3
+  return {
+    x: NOTE_PAD_X + (index % columns) * NOTE_SLOT_WIDTH + (hash % 13) - 6,
+    y: NOTE_PAD_Y + Math.floor(index / columns) * NOTE_SLOT_HEIGHT + (Math.floor(hash / 13) % 11) - 5,
+    z: 1,
+  }
+}
+
 export type BlackboardPanelProps = {
   directory: string
   enabled?: boolean
+  /**
+   * Single-agent Sessions keep the board readable but read-only: neither the
+   * user nor agents may publish new messages until multi-agent is re-enabled.
+   */
+  postingEnabled?: boolean
   waitingForPlan?: boolean
-  planCompleted?: boolean
   rootSessionID?: string
   steps?: readonly { id: string; title: string }[]
   taskLabels?: Record<string, string>
@@ -127,13 +172,79 @@ export type BlackboardPanelProps = {
 export function BlackboardPanel(props: BlackboardPanelProps) {
   const data = useData()
   const enabled = () => props.enabled !== false
+  const posting = () => props.postingEnabled !== false
   const [selectedStep, setSelectedStep] = createSignal<string>()
   const [selectedTask, setSelectedTask] = createSignal<string>("all")
   const [draft, setDraft] = createSignal("")
   const [kind, setKind] = createSignal<BlackboardKind>("info")
   const [sending, setSending] = createSignal(false)
   const [submitError, setSubmitError] = createSignal<string>()
+  const [expandedID, setExpandedID] = createSignal<string>()
+  const [layout, setLayout] = createSignal<BoardLayout>(loadLayout(layoutStorageKey(props.directory, props.rootSessionID)))
+  const [draggingID, setDraggingID] = createSignal<string>()
+  let suppressClick = false
   const markedThrough = new Map<string, string>()
+
+  createEffect(
+    on(
+      () => [props.directory, props.rootSessionID] as const,
+      () => setLayout(loadLayout(layoutStorageKey(props.directory, props.rootSessionID))),
+    ),
+  )
+
+  function notePosition(id: string, index: number): NotePosition {
+    return layout().notes[id] ?? defaultNotePosition(id, index)
+  }
+
+  function persistLayout() {
+    try {
+      localStorage.setItem(layoutStorageKey(props.directory, props.rootSessionID), JSON.stringify(layout()))
+    } catch {
+      // Storage may be unavailable; dragging still works for the session.
+    }
+  }
+
+  function startDrag(event: PointerEvent, id: string, index: number) {
+    if (event.button !== 0) return
+    event.preventDefault()
+    // A fresh press starts a new gesture; clear any stale click suppression.
+    suppressClick = false
+    const start = notePosition(id, index)
+    const origin = { x: event.clientX, y: event.clientY }
+    let latest = start
+    let moved = false
+    // Dragging a note lifts it above every overlapping note.
+    setLayout((current) => {
+      const zTop = current.zTop + 1
+      latest = { ...start, z: zTop }
+      return { zTop, notes: { ...current.notes, [id]: latest } }
+    })
+    setDraggingID(id)
+    const move = (next: PointerEvent) => {
+      const dx = next.clientX - origin.x
+      const dy = next.clientY - origin.y
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return
+      moved = true
+      latest = { ...latest, x: Math.max(0, start.x + dx), y: Math.max(0, start.y + dy) }
+      setLayout((current) => ({ ...current, notes: { ...current.notes, [id]: latest } }))
+    }
+    const up = () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+      window.removeEventListener("pointercancel", up)
+      setDraggingID(undefined)
+      if (!moved) return
+      // A real drag must not fall through to the note's click-to-expand.
+      suppressClick = true
+      setTimeout(() => {
+        suppressClick = false
+      }, 0)
+      persistLayout()
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
+    window.addEventListener("pointercancel", up)
+  }
 
   const query = createQuery(
     () => ({
@@ -167,13 +278,17 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
       .filter((message) => task === "all" || message.taskIDs.includes(task))
       .sort((left, right) => left.timeCreated - right.timeCreated)
   })
+  const expandedMessage = createMemo(() => visibleMessages().find((message) => message.id === expandedID()))
+  const boardHeight = createMemo(() =>
+    visibleMessages().reduce((height, message, index) => Math.max(height, notePosition(message.id, index).y + 250), 260),
+  )
   const readonly = createMemo(
     () =>
       Boolean(snapshot()?.readonly) ||
       (Boolean(snapshot()?.currentStepID) && Boolean(activeStep()) && snapshot()?.currentStepID !== activeStep()),
   )
   const canCompose = createMemo(
-    () => enabled() && Boolean(props.rootSessionID) && Boolean(snapshot()?.currentStepID) && !readonly() && !query.error,
+    () => posting() && enabled() && Boolean(props.rootSessionID) && Boolean(snapshot()?.currentStepID) && !readonly() && !query.error,
   )
 
   createEffect(() => {
@@ -203,6 +318,22 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
         if (markedThrough.get(stepID) === throughMessageID) markedThrough.delete(stepID)
       })
   })
+
+  createEffect(() => {
+    if (!expandedID()) return
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExpandedID(undefined)
+    }
+    document.addEventListener("keydown", close)
+    onCleanup(() => document.removeEventListener("keydown", close))
+  })
+
+  function openNote(id: string) {
+    if (suppressClick) return
+    const selection = typeof window === "undefined" ? null : window.getSelection()
+    if (selection && !selection.isCollapsed) return
+    setExpandedID(id)
+  }
 
   function selectStep(stepID: string) {
     setSelectedStep(stepID)
@@ -254,13 +385,7 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
 
       <Show when={!enabled()}>
         <p class="blackboard-panel__empty">
-          {tr(
-            props.planCompleted
-              ? "blackboard.plan-complete"
-              : props.waitingForPlan
-                ? "blackboard.waiting-for-plan"
-                : "blackboard.multi-agent-only",
-          )}
+          {tr(props.waitingForPlan ? "blackboard.waiting-for-plan" : "blackboard.multi-agent-only")}
         </p>
       </Show>
       <Show when={enabled() && !props.rootSessionID}>
@@ -278,74 +403,134 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
         </div>
       </Show>
       <Show when={enabled() && props.rootSessionID && !query.isPending && !query.error}>
-        <div class="blackboard-board" aria-live="polite">
+        <div class="blackboard-board" aria-live="polite" style={{ "min-height": `${boardHeight()}px` }}>
           <Show when={visibleMessages().length > 0} fallback={<p class="blackboard-panel__empty">{tr("blackboard.no-messages")}</p>}>
-            <For each={visibleMessages()}>
-              {(message) => {
-                const replies = () => replyBodies(message.replies)
+            <Index each={visibleMessages()}>
+              {(message, index) => {
+                const replies = () => replyBodies(message().replies)
+                const position = () => notePosition(message().id, index)
                 return (
                   <article
                     class="blackboard-note"
-                    data-kind={message.kind}
-                    data-author={message.authorKind}
-                    data-message-id={message.id}
-                    style={noteGeometry(message.id)}
+                    data-kind={message().kind}
+                    data-author={message().authorKind}
+                    data-message-id={message().id}
+                    data-dragging={draggingID() === message().id || undefined}
+                    style={{
+                      left: `${position().x}px`,
+                      top: `${position().y}px`,
+                      "z-index": String(position().z),
+                      ...noteGeometry(message().id),
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${tr("blackboard.open-note")}: ${messageSender(message(), taskLabels())}`}
+                    onClick={() => openNote(message().id)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return
+                      event.preventDefault()
+                      openNote(message().id)
+                    }}
                   >
                     <span class="blackboard-note__pin" aria-hidden="true" />
-                    <header class="blackboard-note__header">
-                      <span class="blackboard-note__kind" aria-label={kindLabel(message.kind)}>
-                        <span aria-hidden="true">{kindGlyph(message.kind)}</span> {kindLabel(message.kind)}
+                    <header class="blackboard-note__header" onPointerDown={(event) => startDrag(event, message().id, index)}>
+                      <span class="blackboard-note__kind" aria-label={kindLabel(message().kind)}>
+                        <span aria-hidden="true">{kindGlyph(message().kind)}</span> {kindLabel(message().kind)}
                       </span>
-                      <Show when={blackboardMessagePurpose(message) === "candidate_declaration"}>
+                      <Show when={blackboardMessagePurpose(message()) === "candidate_declaration"}>
                         <span class="blackboard-note__purpose">{tr("blackboard.candidate-declaration")}</span>
                       </Show>
-                      <strong>{messageSender(message, taskLabels())}</strong>
-                      <time dateTime={new Date(message.timeCreated).toISOString()}>
-                        {new Date(message.timeCreated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      <strong>{messageSender(message(), taskLabels())}</strong>
+                      <time dateTime={new Date(message().timeCreated).toISOString()}>
+                        {new Date(message().timeCreated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </time>
                     </header>
-                    <div class="blackboard-note__body" innerHTML={renderMarkdown(message.body)} />
-                    <Show when={message.taskIDs.length > 0}>
-                      <div class="blackboard-note__chips" aria-label={tr("blackboard.task-filter")}>
-                        <For each={message.taskIDs}>
-                          {(taskID) => <span class="blackboard-note__chip">{taskLabels()[taskID] ?? taskID}</span>}
-                        </For>
-                      </div>
-                    </Show>
-                    <Show when={message.attachments.length > 0}>
-                      <ul class="blackboard-note__attachments" aria-label={tr("blackboard.attachments")}>
-                        <For each={message.attachments}>
-                          {(attachment) => (
-                            <li>
-                              <File aria-hidden="true" />
-                              <button type="button" onClick={() => void navigator.clipboard?.writeText(attachment.value)}>
-                                {attachment.value}
-                              </button>
-                            </li>
-                          )}
-                        </For>
-                      </ul>
-                    </Show>
+                    <div class="blackboard-note__body" innerHTML={renderMarkdown(message().body)} />
                     <Show when={replies().length > 0}>
-                      <details class="blackboard-note__reply-details">
-                        <summary aria-label={`${tr("blackboard.show-replies")} (${replies().length})`}>
-                          <ChevronDown aria-hidden="true" />
-                          {tr("blackboard.show-replies")} ({replies().length})
-                        </summary>
-                        <div class="blackboard-note__replies">
-                          <For each={replies()}>{(reply) => <div class="blackboard-note__reply">{reply}</div>}</For>
-                        </div>
-                      </details>
+                      <span class="blackboard-note__reply-count">{tr("blackboard.replies", { count: replies().length })}</span>
                     </Show>
                   </article>
                 )
               }}
-            </For>
+            </Index>
           </Show>
         </div>
       </Show>
 
-      <Show when={readonly() && props.rootSessionID}>
+      <Show when={expandedMessage()}>
+        {(message) => {
+          const replies = () => replyBodies(message().replies)
+          return (
+            <div class="blackboard-note-overlay" role="presentation" onClick={() => setExpandedID(undefined)}>
+              <article
+                class="blackboard-note blackboard-note--expanded"
+                data-kind={message().kind}
+                data-author={message().authorKind}
+                data-message-id={message().id}
+                style={noteGeometry(message().id)}
+                role="dialog"
+                aria-modal="true"
+                aria-label={messageSender(message(), taskLabels())}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <span class="blackboard-note__pin" aria-hidden="true" />
+                <button
+                  type="button"
+                  class="blackboard-note__close"
+                  aria-label={tr("blackboard.close-note")}
+                  onClick={() => setExpandedID(undefined)}
+                >
+                  <X aria-hidden="true" />
+                </button>
+                <header class="blackboard-note__header">
+                  <span class="blackboard-note__kind" aria-label={kindLabel(message().kind)}>
+                    <span aria-hidden="true">{kindGlyph(message().kind)}</span> {kindLabel(message().kind)}
+                  </span>
+                  <Show when={blackboardMessagePurpose(message()) === "candidate_declaration"}>
+                    <span class="blackboard-note__purpose">{tr("blackboard.candidate-declaration")}</span>
+                  </Show>
+                  <strong>{messageSender(message(), taskLabels())}</strong>
+                  <time dateTime={new Date(message().timeCreated).toISOString()}>
+                    {new Date(message().timeCreated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </time>
+                </header>
+                <div class="blackboard-note__body" innerHTML={renderMarkdown(message().body)} />
+                <Show when={message().taskIDs.length > 0}>
+                  <div class="blackboard-note__chips" aria-label={tr("blackboard.task-filter")}>
+                    <For each={message().taskIDs}>
+                      {(taskID) => <span class="blackboard-note__chip">{taskLabels()[taskID] ?? taskID}</span>}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={message().attachments.length > 0}>
+                  <ul class="blackboard-note__attachments" aria-label={tr("blackboard.attachments")}>
+                    <For each={message().attachments}>
+                      {(attachment) => (
+                        <li>
+                          <File aria-hidden="true" />
+                          <button type="button" onClick={() => void navigator.clipboard?.writeText(attachment.value)}>
+                            {attachment.value}
+                          </button>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </Show>
+                <Show when={replies().length > 0}>
+                  <div class="blackboard-note__replies" aria-label={tr("blackboard.replies", { count: replies().length })}>
+                    <For each={replies()}>{(reply) => <div class="blackboard-note__reply">{reply}</div>}</For>
+                  </div>
+                </Show>
+              </article>
+            </div>
+          )
+        }}
+      </Show>
+
+      <Show when={enabled() && props.rootSessionID && !posting()}>
+        <p class="blackboard-panel__readonly" role="note">{tr("blackboard.single-agent-readonly")}</p>
+      </Show>
+      <Show when={posting() && readonly() && props.rootSessionID}>
         <p class="blackboard-panel__readonly" role="note">{tr("blackboard.readonly")}</p>
       </Show>
       <Show when={canCompose()}>

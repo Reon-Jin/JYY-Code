@@ -36,10 +36,15 @@ it("rejects duplicate ids, duplicate display names, invalid avatars, forbidden t
   expect(() => resolveProfiles([defaultGeneralProfile, { ...customProfile, id: "general" }])).toThrow()
   expect(() => resolveProfiles([defaultGeneralProfile, { ...customProfile, name: "general" }])).toThrow()
   expect(() => resolveProfiles([defaultGeneralProfile, { ...customProfile, avatar: "rocket" as never }])).toThrow()
-  expect(() => resolveProfiles([defaultGeneralProfile, { ...customProfile, tools: ["bash"] as never }])).toThrow()
+  expect(() => resolveProfiles([defaultGeneralProfile, { ...customProfile, tools: ["memory"] as never }])).toThrow()
   expect(() => resolveProfiles([defaultGeneralProfile, { ...customProfile, tools: ["read", "read"] }])).toThrow()
   expect(() => resolveProfiles([defaultGeneralProfile, { ...customProfile, tools: [" read"] }])).toThrow()
   expect(() => resolveProfiles([customProfile])).toThrow()
+})
+
+it("accepts terminal tools without extra configuration", () => {
+  const profiles = resolveProfiles([defaultGeneralProfile, { ...customProfile, tools: ["bash", "process"] }])
+  expect(profiles[1]?.tools).toEqual(["bash", "process"])
 })
 
 it("preserves omitted and explicitly empty tool allowlists", () => {

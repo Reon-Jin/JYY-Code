@@ -925,7 +925,7 @@ const scenarios: Scenario[] = [
     .mutating()
     .seeded((ctx) =>
       Effect.gen(function* () {
-        const session = yield* ctx.session({ title: "Blackboard post session" })
+        const session = yield* ctx.session({ title: "Blackboard post session", multiAgent: true })
         const directory = ctx.directory!
         yield* Effect.promise(() => mkdir(path.join(directory, ".jyycode", "plan", session.id), { recursive: true }))
         const now = new Date().toISOString()

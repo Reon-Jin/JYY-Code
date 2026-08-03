@@ -110,8 +110,13 @@ describe("Plan role presentation", () => {
     await user.click(toggle!)
     expect(toggle).toHaveAttribute("aria-expanded", "false")
 
+    // Collapsed steps hide their task rows, so expand again to reach the review button.
+    await user.click(toggle!)
+    expect(toggle).toHaveAttribute("aria-expanded", "true")
     await user.click(screen.getByRole("button", { name: /审阅|review/i }))
     expect(opened).toBe("child_review")
+    await user.click(toggle!)
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
 
     cleanup()
     render(() => (

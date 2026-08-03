@@ -1,10 +1,11 @@
 /**
  * Tool IDs that a role author may select for a profile-backed subagent.
  *
- * Keep this list deliberately small. Protocol, orchestration, memory, and
- * execution tools are controlled by the runtime instead of being
- * user-configurable role permissions. Plugin and MCP IDs are accepted as
- * dynamic user-configurable tools after this built-in set.
+ * Terminal tools (bash, process) are always part of this set so every
+ * subagent can run shell commands without any user configuration. Protocol,
+ * orchestration, and memory tools are controlled by the runtime instead of
+ * being user-configurable role permissions. Plugin and MCP IDs are accepted
+ * as dynamic user-configurable tools after this built-in set.
  */
 export const SUBAGENT_SELECTABLE_TOOL_IDS = [
   "read",
@@ -14,6 +15,8 @@ export const SUBAGENT_SELECTABLE_TOOL_IDS = [
   "grep",
   "websearch",
   "webfetch",
+  "bash",
+  "process",
 ] as const
 
 export const SUBAGENT_SELECTABLE_TOOL_ID_SET = new Set<string>(SUBAGENT_SELECTABLE_TOOL_IDS)
@@ -33,9 +36,6 @@ export const SUBAGENT_CANDIDATE_TOOL_IDS = [
 export const SUBAGENT_FORBIDDEN_TOOL_IDS = [
   "tool_search",
   "invalid",
-  "bash",
-  "shell",
-  "process",
   "question",
   "memory",
   "Inbox",

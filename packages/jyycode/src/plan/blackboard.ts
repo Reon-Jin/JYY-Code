@@ -139,6 +139,7 @@ export class BlackboardError extends Error {
     | "INVALID_REPLY"
     | "INVALID_ATTACHMENT"
     | "CHILD_NOT_IN_STEP"
+    | "MULTI_AGENT_DISABLED"
     | "UNREAD_MESSAGES"
 
   constructor(code: BlackboardError["code"], message: string) {
@@ -463,6 +464,10 @@ function makeService(bus: Bus.Interface): Interface {
   const postUser = Effect.fn("Blackboard.postUser")(function* (input: PostUserInput) {
     const rootSession = yield* session(input.rootSessionID)
     if (rootSession.parent_id) throw new BlackboardError("SESSION_NOT_FOUND", "必须使用根 session 访问黑板")
+    // Single-agent Sessions keep the board readable; publishing resumes only
+    // after multi-agent mode is re-enabled.
+    if (rootSession.multi_agent_enabled !== true)
+      throw new BlackboardError("MULTI_AGENT_DISABLED", "单智能体模式下黑板只读，无法发布新消息")
     const plan = readPlan(rootSession.directory, input.rootSessionID)
     const step = currentStep(plan)
     const { mentions, mentionedTaskIDs } = parseMentions(input.message, step)
@@ -701,11 +706,34 @@ function makeService(bus: Bus.Interface): Interface {
     return rows.length
   })
 
+  const viewStep = Effect.fn("Blackboard.viewStep")(function* (input: {
+    plan: PlanFile
+    rootSessionID: SessionID
+    stepID?: string
+  }) {
+    if (input.stepID) return selectedStep(input.plan, input.stepID)
+    if (input.plan.current_step) return currentStep(input.plan)
+    // A finished plan clears current_step; keep the board readable by falling
+    // back to the step holding the most recent message, then the last step.
+    const latest = yield* db((database) =>
+      database
+        .select({ stepID: BlackboardMessageTable.step_id })
+        .from(BlackboardMessageTable)
+        .where(eq(BlackboardMessageTable.root_session_id, input.rootSessionID))
+        .orderBy(desc(BlackboardMessageTable.id))
+        .limit(1)
+        .get(),
+    )
+    const withMessages = latest ? input.plan.steps.find((item) => item.id === latest.stepID) : undefined
+    return withMessages ?? input.plan.steps[input.plan.steps.length - 1]!
+  })
+
   const listUser = Effect.fn("Blackboard.listUser")(function* (input: ListUserInput) {
     const rootSession = yield* session(input.rootSessionID)
     const plan = readPlan(rootSession.directory, input.rootSessionID)
-    const step = selectedStep(plan, input.stepID)
-    const current = currentStep(plan)
+    if (!plan.steps.length) throw new BlackboardError("NO_CURRENT_STEP", "当前没有可用的 Step")
+    const current = plan.current_step ? currentStep(plan) : undefined
+    const step = yield* viewStep({ plan, rootSessionID: input.rootSessionID, stepID: input.stepID })
     const page = yield* listMessages({
       rootSessionID: input.rootSessionID,
       stepID: step.id,
@@ -715,13 +743,13 @@ function makeService(bus: Bus.Interface): Interface {
     })
     return {
       rootSessionID: input.rootSessionID,
-      currentStepID: current.id,
+      currentStepID: current?.id ?? "",
       selectedStepID: step.id,
-      readonly: step.id !== current.id,
+      readonly: !current || step.id !== current.id,
       tasks: yield* tasksFor(input.rootSessionID, step),
       messages: page.messages,
       ...(page.hasMore && page.messages.length ? { nextBefore: page.messages[0]!.id } : {}),
-      unreadCount: yield* unreadForUser(input.rootSessionID, current.id),
+      unreadCount: yield* unreadForUser(input.rootSessionID, step.id),
     }
   })
 
