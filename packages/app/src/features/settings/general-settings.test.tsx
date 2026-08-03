@@ -21,34 +21,27 @@ function renderGeneral() {
 describe("GeneralSettings", () => {
   afterEach(() => {
     cleanup()
-    document.documentElement.dataset.theme = "dark"
   })
 
-  it("persists startup and appearance preferences", async () => {
+  it("persists startup preferences", async () => {
     const desktop = renderGeneral()
     const user = userEvent.setup()
 
     await user.click(await screen.findByRole("radio", { name: "启动时显示 Home" }))
     await waitFor(() =>
-      expect(desktop.bridge.saveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ startup: "home", theme: "dark" }),
-      ),
+      expect(desktop.bridge.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ startup: "home" })),
     )
-
-    await user.click(screen.getByRole("radio", { name: "浅色" }))
-    expect(document.documentElement.dataset.theme).toBe("light")
-    await waitFor(() => expect(desktop.settings().theme).toBe("light"))
+    await waitFor(() => expect(desktop.settings().startup).toBe("home"))
   })
 
-  it("rolls back the theme when persistence fails", async () => {
+  it("rolls back the startup preference when persistence fails", async () => {
     const desktop = renderGeneral()
     vi.mocked(desktop.bridge.saveSettings).mockRejectedValueOnce(new Error("store unavailable"))
 
-    await userEvent.setup().click(await screen.findByRole("radio", { name: "浅色" }))
+    await userEvent.setup().click(await screen.findByRole("radio", { name: "启动时显示 Home" }))
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("store unavailable"))
-    expect(document.documentElement.dataset.theme).toBe("dark")
-    expect(screen.getByRole("radio", { name: "深色" })).toBeChecked()
+    expect(screen.getByRole("radio", { name: "恢复上次项目" })).toBeChecked()
   })
 
   it("persists language changes and updates the interface immediately", async () => {
@@ -59,7 +52,7 @@ describe("GeneralSettings", () => {
 
     await waitFor(() => expect(desktop.settings().locale).toBe("en-US"))
     expect(screen.getByRole("combobox", { name: "Language" })).toHaveValue("en-US")
-    expect(screen.getByRole("heading", { name: "Appearance" })).toBeVisible()
+    expect(screen.getByRole("heading", { name: "System notifications" })).toBeVisible()
   })
 
   it("rolls language back when persistence fails", async () => {
@@ -73,16 +66,10 @@ describe("GeneralSettings", () => {
     expect(screen.getByRole("combobox", { name: "语言" })).toHaveValue("zh-CN")
   })
 
-  it("persists supported glass and exposes notification controls", async () => {
-    const desktop = renderGeneral()
-    const user = userEvent.setup()
+  it("exposes notification controls", async () => {
+    renderGeneral()
 
     expect(await screen.findByRole("combobox", { name: "语言" })).toBeEnabled()
-    const glass = screen.getByRole("checkbox", { name: "Apple 风格液态玻璃" })
-    expect(glass).toBeEnabled()
-    await user.click(glass)
-    await waitFor(() => expect(desktop.settings().glass).toBe("on"))
-    expect(document.documentElement.dataset.glass).toBe("on")
     for (const label of ["回复完成", "等待权限", "Agent 提问"]) {
       expect(screen.getByLabelText(label)).toBeEnabled()
     }

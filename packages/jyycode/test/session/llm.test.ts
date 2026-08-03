@@ -818,11 +818,11 @@ describe("session.llm.stream", () => {
             execute: async () => ({ output: "{}", title: "Plan", metadata: {} }),
           }),
         },
-        toolChoice: "required",
+        toolChoice: { type: "tool", toolName: "Plan_read" },
       })
 
       const body = (yield* Effect.promise(() => request)).body
-      expect(body.tool_choice).toBe("required")
+      expect(body.tool_choice).toMatchObject({ type: "function", function: { name: "Plan_read" } })
       expect(body.thinking).toEqual({ type: "disabled" })
       expect(body.reasoning_effort).toBeUndefined()
     }),

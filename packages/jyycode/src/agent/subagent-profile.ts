@@ -1,6 +1,8 @@
 import { Schema } from "effect"
+import { isSubagentForbiddenToolID, isSubagentFixedToolID } from "./subagent-tool-policy"
 
 const NON_EMPTY_TEXT = Schema.String.check(Schema.isPattern(/\S/))
+const TOOL_ID = Schema.String.check(Schema.isPattern(/\S/))
 const PROFILE_ID = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9_-]*$/))
 
 export const Avatar = Schema.Literals([
@@ -25,12 +27,14 @@ export const Profile = Schema.Struct({
   avatar: Avatar,
   model: Schema.optional(NON_EMPTY_TEXT),
   variant: Schema.optional(NON_EMPTY_TEXT),
+  /** Omitted means all currently available non-system tools; [] means no user-selectable tools. */
+  tools: Schema.optional(Schema.mutable(Schema.Array(TOOL_ID))),
   enabled: Schema.Boolean,
 }).annotate({ identifier: "SubagentProfile" })
 export type SubagentProfile = Schema.Schema.Type<typeof Profile>
 
 export type ProfileSnapshot = Pick<SubagentProfile, "id" | "name" | "description" | "avatar">
-export type LaunchSnapshot = ProfileSnapshot & Pick<SubagentProfile, "prompt" | "model" | "variant">
+export type LaunchSnapshot = ProfileSnapshot & Pick<SubagentProfile, "prompt" | "model" | "variant" | "tools">
 
 export const defaultGeneralProfile: SubagentProfile = {
   id: "general",
@@ -53,6 +57,19 @@ function validateProfile(profile: SubagentProfile, index: number) {
   }
   if (profile.description !== profile.description.trim()) {
     throw new Error(`subagents.profiles[${index}].description must not have surrounding whitespace`)
+  }
+  if (profile.tools !== undefined) {
+    const ids = new Set<string>()
+    for (const toolID of profile.tools) {
+      if (toolID !== toolID.trim()) {
+        throw new Error(`subagents.profiles[${index}].tools must not contain surrounding whitespace`)
+      }
+      if (isSubagentForbiddenToolID(toolID) || isSubagentFixedToolID(toolID)) {
+        throw new Error(`subagents.profiles[${index}].tools cannot configure system tool: ${toolID}`)
+      }
+      if (ids.has(toolID)) throw new Error(`duplicate subagent tool ID: ${toolID}`)
+      ids.add(toolID)
+    }
   }
 }
 
@@ -108,6 +125,7 @@ export function launchSnapshot(profile: SubagentProfile): LaunchSnapshot {
     prompt: profile.prompt,
     ...(profile.model ? { model: profile.model } : {}),
     ...(profile.variant ? { variant: profile.variant } : {}),
+    ...(profile.tools !== undefined ? { tools: [...profile.tools] } : {}),
   }
 }
 

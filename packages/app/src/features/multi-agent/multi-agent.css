@@ -176,7 +176,7 @@
 
 .multi-agent-step__candidate {
   border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   padding: 3px 7px;
   color: var(--color-accent);
   font-family: var(--font-code);
@@ -259,6 +259,7 @@
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: var(--color-surface);
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
 }
 
 .multi-agent-task::before {
@@ -286,8 +287,8 @@
   width: 20px;
   height: 6px;
   clip-path: polygon(0 50%, 18% 22%, 50% 0, 82% 22%, 100% 50%, 82% 78%, 50% 100%, 18% 78%);
-  background: var(--color-text);
-  box-shadow: 0 0 7px rgb(255 255 255 / 0.64);
+  background: var(--color-accent);
+  box-shadow: 0 0 6px rgb(71 90 116 / 40%);
   content: "";
   pointer-events: none;
   transform: translate(-50%, -50%);
@@ -382,7 +383,7 @@
   flex: 1 1 auto;
   overflow: hidden;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   appearance: none;
   background: var(--color-border-strong);
   accent-color: var(--color-text);
@@ -481,8 +482,8 @@
 
 @keyframes multi-agent-wave-pulse {
   0%,
-  100% { opacity: 1; box-shadow: 0 0 0 0 rgb(255 255 255 / 0); }
-  50% { opacity: 0.35; box-shadow: 0 0 0 4px rgb(255 255 255 / 0.12); }
+  100% { opacity: 1; box-shadow: 0 0 0 0 rgb(71 90 116 / 0); }
+  50% { opacity: 0.4; box-shadow: 0 0 0 4px rgb(71 90 116 / 14%); }
 }
 
 @media (prefers-reduced-motion: reduce) {

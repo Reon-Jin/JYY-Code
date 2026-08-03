@@ -20,7 +20,17 @@
   border-radius: var(--radius-lg);
   padding: var(--space-3);
   background: var(--color-panel);
-  box-shadow: 0 -12px 44px rgb(0 0 0 / 32%);
+  box-shadow: var(--shadow-md);
+  transition:
+    border-color var(--motion-normal) var(--ease-out),
+    box-shadow var(--motion-normal) var(--ease-out);
+}
+
+.composer:focus-within {
+  border-color: var(--color-accent-border);
+  box-shadow:
+    var(--shadow-md),
+    0 0 0 3px rgb(71 90 116 / 10%);
 }
 
 .composer[data-minimal="true"] {
@@ -138,60 +148,6 @@
   width: min(720px, calc(100vw - 32px));
 }
 
-.model-control__profiles {
-  display: grid;
-  gap: var(--space-3);
-}
-
-.model-control__profile {
-  display: grid;
-  gap: var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  background: color-mix(in srgb, var(--color-surface) 86%, transparent);
-}
-
-.model-control__profile {
-  border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
-  background: color-mix(in srgb, var(--color-accent) 6%, var(--color-surface));
-}
-
-.model-control__profile-heading {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-}
-
-.model-control__profile-icon {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-accent);
-}
-
-.model-control__profile-icon svg {
-  width: 16px;
-}
-
-.model-control__profile-heading h3 {
-  margin: 0;
-  color: var(--color-text);
-  font-size: var(--text-sm);
-}
-
-.model-control__profile-heading p {
-  margin: 2px 0 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  line-height: 1.35;
-}
-
 .model-control__fields {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(150px, 0.75fr);
@@ -231,27 +187,6 @@
   box-shadow: var(--focus-ring);
 }
 
-.model-control__current {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: 0.68rem;
-}
-
-.model-control__current svg {
-  width: 14px;
-  color: var(--color-success);
-}
-
-.model-control__current span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .composer__input {
   position: relative;
   border-radius: var(--radius-md);
@@ -273,11 +208,12 @@
   max-height: min(320px, 42vh);
   gap: 2px;
   overflow-y: auto;
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 4px;
   background: var(--color-panel);
-  box-shadow: 0 18px 52px rgb(0 0 0 / 46%);
+  box-shadow: var(--shadow-md);
+  animation: ui-rise-in var(--motion-fast) var(--ease-out) both;
 }
 
 .composer-skill-menu button {
@@ -296,7 +232,7 @@
 .composer-skill-menu button:focus-visible,
 .composer-skill-menu button[data-selected="true"] {
   outline: none;
-  background: color-mix(in srgb, var(--color-text) 9%, transparent);
+  background: var(--color-accent-muted);
 }
 
 .composer-skill-menu strong {
@@ -377,7 +313,7 @@
   height: 32px;
   place-items: center;
   border: 1px solid var(--color-border);
-  border-radius: 50%;
+  border-radius: var(--radius-md);
   padding: 0;
   background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
   color: var(--color-text);
@@ -451,7 +387,7 @@
   flex: 0 0 auto;
   place-items: center;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
   padding: 0;
   background: transparent;
   color: var(--color-text-muted);
@@ -602,7 +538,7 @@
 }
 
 .agent-permission-control[data-mode="full"] .agent-permission-control__trigger {
-  color: #ff9b4a;
+  color: var(--color-warning);
 }
 
 .agent-permission-control__chevron {
@@ -634,11 +570,12 @@
   display: grid;
   width: min(330px, calc(100vw - 40px));
   gap: 2px;
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 4px;
   background: var(--color-panel);
-  box-shadow: 0 18px 52px rgb(0 0 0 / 46%);
+  box-shadow: var(--shadow-md);
+  animation: ui-rise-in var(--motion-fast) var(--ease-out) both;
 }
 
 .agent-permission-menu button {
@@ -658,7 +595,7 @@
 .agent-permission-menu button:hover,
 .agent-permission-menu button:focus-visible {
   outline: none;
-  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  background: var(--color-accent-muted);
 }
 
 .agent-permission-menu button > svg {
@@ -669,7 +606,7 @@
 
 .agent-permission-menu button[data-mode="full"] > svg,
 .agent-permission-menu button[data-mode="full"] strong {
-  color: #ff9b4a;
+  color: var(--color-warning);
 }
 
 .agent-permission-menu button > span {
@@ -724,8 +661,8 @@
 .composer-usage__track > span {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #72e7ff, #a98cff, #ff83c8);
-  transition: width var(--motion-normal) ease-out;
+  background: var(--color-accent);
+  transition: width var(--motion-normal) var(--ease-out);
 }
 
 .composer-usage__popover {
@@ -737,17 +674,17 @@
   visibility: hidden;
   width: min(310px, calc(100vw - 32px));
   gap: var(--space-2);
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: var(--space-3);
   background: var(--color-panel);
-  box-shadow: 0 16px 48px rgb(0 0 0 / 42%);
+  box-shadow: var(--shadow-md);
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, 4px);
   transition:
-    opacity var(--motion-fast),
-    transform var(--motion-fast),
+    opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out),
     visibility var(--motion-fast);
 }
 
@@ -802,11 +739,12 @@
 .composer-queue {
   display: grid;
   gap: var(--space-2);
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--space-3);
-  background: color-mix(in srgb, var(--color-panel) 94%, var(--color-primary));
-  box-shadow: 0 -8px 28px rgb(0 0 0 / 18%);
+  background: color-mix(in srgb, var(--color-panel) 94%, var(--color-accent));
+  box-shadow: var(--shadow-sm);
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
 }
 
 .composer-queue__header {

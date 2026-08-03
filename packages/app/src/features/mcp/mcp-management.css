@@ -83,7 +83,7 @@
   height: 20px;
   padding: 2px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--color-border-strong);
 }
 

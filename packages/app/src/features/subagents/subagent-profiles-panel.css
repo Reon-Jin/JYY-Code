@@ -78,6 +78,7 @@
     border-color var(--motion-fast) ease,
     background-color var(--motion-fast) ease,
     transform var(--motion-fast) ease;
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
 }
 
 .subagent-profile-row:hover {
@@ -292,6 +293,75 @@
   padding: 0;
 }
 
+.subagent-profile-editor__tools {
+  display: grid;
+  gap: var(--space-1);
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.subagent-profile-editor__tools legend {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.subagent-profile-editor__tools p,
+.subagent-profile-editor__tools-count {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.subagent-profile-editor__tools-section-title {
+  margin-top: var(--space-2) !important;
+  color: var(--color-text) !important;
+  font-size: var(--text-xs) !important;
+  font-weight: 700;
+}
+
+.subagent-profile-editor__tool-list {
+  display: grid;
+  max-height: 220px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  background: var(--color-surface);
+}
+
+.subagent-tool-choice {
+  display: flex !important;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2) !important;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  color: var(--color-text) !important;
+  font-family: var(--font-code);
+  font-size: 0.7rem !important;
+}
+
+.subagent-tool-choice:hover {
+  background: var(--color-bg);
+}
+
+.subagent-tool-choice input {
+  width: auto;
+  flex: 0 0 auto;
+  accent-color: var(--color-accent);
+}
+
+.subagent-tool-choice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .subagent-profile-editor__avatars legend {
   color: var(--color-text-muted);
   font-size: var(--text-xs);
@@ -395,7 +465,8 @@
 }
 
 @media (max-width: 520px) {
-  .subagent-profile-editor__fields {
+  .subagent-profile-editor__fields,
+  .subagent-profile-editor__tool-list {
     grid-template-columns: 1fr;
   }
 

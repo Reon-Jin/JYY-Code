@@ -57,9 +57,6 @@ export function createBrowserBridge(storage: Storage = window.localStorage): Des
     async saveSettings(value: DesktopSettings) {
       storage.setItem(SETTINGS_KEY, JSON.stringify(parseDesktopSettings(value)))
     },
-    async setWindowGlass() {
-      return unsupportedResult("Window glass")
-    },
     async getNotificationPermission() {
       return "unsupported"
     },

@@ -106,10 +106,10 @@
   text-align: left;
 }
 .pull-list li > button:hover {
-  background: var(--color-surface-hover);
+  background: var(--color-accent-muted);
 }
 .pull-list li > button[data-selected="true"] {
-  border-color: var(--color-border-strong);
+  border-color: var(--color-accent-border);
   background: var(--color-surface);
 }
 .pull-list li > button > svg {

@@ -253,6 +253,97 @@ describe("candidate plan model", () => {
     expect(afterFailedSelection.plan.revision).toBe(beforeFailedSelection.plan.revision)
   })
 
+  it("initializes a candidate group on a later active Step in one update", async () => {
+    const root = workspace()
+    const protocol = new PlanProtocol({ store: new PlanStore() })
+    const context = { workspaceRoot: root, sessionId: "ses_later_candidate", mode: "multi" as const }
+    const singleContext = { ...context, mode: "single" as const }
+    const created = await protocol.create(singleContext, {
+      title: "later candidate",
+      goal: "compare a later decision",
+      steps: [
+        { title: "prepare", goal: "prepare", done_criteria: "prepare task approved", tasks: [{ title: "prepare", goal: "prepare", done_criteria: "prepare", output_path: "prepare.md" }] },
+        { title: "choose", goal: "compare", done_criteria: "select one" },
+      ],
+    })
+    expect(created).toMatchObject({ ok: true })
+
+    let read = await protocol.read(singleContext)
+    if (!read.ok || !read.plan) throw new Error("later candidate plan was not created")
+    const started = await protocol.update(singleContext, {
+      revision: read.plan.revision,
+      ops: [
+        { op: "set_task_status", stepId: "s1", taskId: "s1_t1", to: "running" },
+        { op: "set_task_status", stepId: "s1", taskId: "s1_t1", to: "reported" },
+        { op: "set_task_status", stepId: "s1", taskId: "s1_t1", to: "approved" },
+      ],
+    })
+    expect(started).toMatchObject({ ok: true })
+
+    read = await protocol.read(singleContext)
+    if (!read.ok || !read.plan) throw new Error("later candidate plan disappeared")
+    expect(read.plan.current_step).toBe("s2")
+    const expanded = await protocol.update(context, {
+      revision: read.plan.revision,
+      ops: [
+        { op: "add_task", stepId: "s2", task: { title: "approach A", goal: "compare A", done_criteria: "proposal A", mode: "candidate" } },
+        { op: "add_task", stepId: "s2", task: { title: "approach B", goal: "compare B", done_criteria: "proposal B", mode: "candidate" } },
+      ],
+    })
+    expect(expanded).toMatchObject({ ok: true })
+    read = await protocol.read(context)
+    if (!read.ok || !read.plan) throw new Error("later candidate plan disappeared")
+    expect(read.plan.steps[1]?.tasks.map((task) => task.mode)).toEqual(["candidate", "candidate"])
+    expect(read.plan.steps[1]?.candidate_discussion).toEqual({ phase: "declaring", ready_task_ids: [] })
+    expect(read.plan.steps[1]?.tasks[0]?.output_path).toMatch(/[\\/]candidates[\\/]s2[\\/]s2_t1[\\/]proposal\.md$/)
+  })
+
+  it("rejects incomplete or mixed candidate groups on later Steps", async () => {
+    const root = workspace()
+    const protocol = new PlanProtocol({ store: new PlanStore() })
+    const context = { workspaceRoot: root, sessionId: "ses_invalid_later_candidate", mode: "multi" as const }
+    await protocol.create({ ...context, mode: "single" as const }, {
+      title: "later candidate validation",
+      goal: "validate candidate creation",
+      steps: [
+        { title: "prepare", goal: "prepare", done_criteria: "prepare task approved", tasks: [{ title: "prepare", goal: "prepare", done_criteria: "prepare", output_path: "prepare.md" }] },
+        { title: "choose", goal: "compare", done_criteria: "select one" },
+      ],
+    })
+    let read = await protocol.read({ ...context, mode: "single" as const })
+    if (!read.ok || !read.plan) throw new Error("validation plan was not created")
+    await protocol.update({ ...context, mode: "single" as const }, {
+      revision: read.plan.revision,
+      ops: [
+        { op: "set_task_status", stepId: "s1", taskId: "s1_t1", to: "running" },
+        { op: "set_task_status", stepId: "s1", taskId: "s1_t1", to: "reported" },
+        { op: "set_task_status", stepId: "s1", taskId: "s1_t1", to: "approved" },
+      ],
+    })
+    read = await protocol.read({ ...context, mode: "single" as const })
+    if (!read.ok || !read.plan) throw new Error("validation plan disappeared")
+
+    const baseRevision = read.plan.revision
+    expect(
+      await protocol.update(context, {
+        revision: baseRevision,
+        ops: [{ op: "add_task", stepId: "s2", task: { title: "only", goal: "only", done_criteria: "only", mode: "candidate" } }],
+      }),
+    ).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
+    expect((await protocol.read(context)).ok && ((await protocol.read(context) as any).plan.revision)).toBe(baseRevision)
+
+    expect(
+      await protocol.update(context, {
+        revision: baseRevision,
+        ops: [
+          { op: "add_task", stepId: "s2", task: { title: "A", goal: "A", done_criteria: "A", mode: "candidate" } },
+          { op: "add_task", stepId: "s2", task: { title: "B", goal: "B", done_criteria: "B" } },
+        ],
+      }),
+    ).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
+    expect((await protocol.read(context)).ok && ((await protocol.read(context) as any).plan.revision)).toBe(baseRevision)
+  })
+
   it("normalizes legacy tasks without mode to standard when reading", () => {
     const root = workspace()
     const file = path.join(root, "plan.json")

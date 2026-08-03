@@ -140,6 +140,7 @@ const scenarios: Scenario[] = [
             description: "General-purpose agent for delegated execution.",
             prompt: "",
             avatar: "bot",
+            tools: ["read"],
             enabled: true,
           },
         ],

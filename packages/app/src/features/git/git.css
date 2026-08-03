@@ -100,7 +100,7 @@
   text-align: left;
 }
 .branch-groups li > button:hover:not(:disabled) {
-  background: var(--color-surface-hover);
+  background: var(--color-accent-muted);
 }
 .branch-groups li > button[aria-current="true"] {
   background: var(--color-surface);

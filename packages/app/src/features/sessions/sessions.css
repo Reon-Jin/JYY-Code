@@ -11,7 +11,7 @@
   grid-template-rows: var(--project-tabs-height) minmax(0, 1fr);
   overflow: hidden;
   background: var(--color-bg);
-  transition: grid-template-columns var(--motion-normal) ease-out;
+  transition: grid-template-columns var(--motion-normal) var(--ease-in-out);
 }
 
 .workspace-shell[data-inspector-resizing="true"] {
@@ -42,8 +42,8 @@
   border-right: 1px solid var(--color-border);
   overflow: hidden;
   background: var(--color-panel);
-  box-shadow: 12px 0 32px rgb(0 0 0 / 16%);
-  transition: transform var(--motion-normal) ease-out;
+  box-shadow: 8px 0 24px -12px rgb(31 34 40 / 12%);
+  transition: transform var(--motion-normal) var(--ease-in-out);
 }
 
 .workspace-shell[data-rail-open="false"] .workspace-rail {
@@ -255,9 +255,9 @@
   opacity: 0.6;
 }
 .project-tab[data-state="running"] .project-tab__dot {
-  background: #60a5fa;
+  background: var(--color-accent);
   opacity: 1;
-  box-shadow: 0 0 7px rgb(96 165 250 / 55%);
+  animation: ui-pulse-soft 1.6s var(--ease-in-out) infinite;
 }
 .project-tab[data-state="complete"] .project-tab__dot {
   background: var(--color-success);
@@ -268,7 +268,7 @@
   min-width: 16px;
   height: 16px;
   place-items: center;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   padding-inline: 4px;
   background: var(--color-success);
   color: var(--color-bg);
@@ -328,21 +328,30 @@
   background: transparent;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
 }
 
 .session-filter button[aria-pressed="true"] {
-  background: var(--color-surface);
-  box-shadow: 0 1px 4px rgb(0 0 0 / 20%);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-xs);
   color: var(--color-text);
 }
 
 .session-filter button span {
   min-width: 19px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   padding-inline: 5px;
-  background: rgb(255 255 255 / 8%);
+  background: rgb(31 34 40 / 6%);
   font-family: var(--font-code);
   font-size: 0.64rem;
+}
+
+.session-filter button[aria-pressed="true"] span {
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
 }
 
 .session-list {
@@ -366,14 +375,40 @@
   align-items: center;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.session-list-item::before {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  width: 3px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--color-accent);
+  content: "";
+  opacity: 0;
+  transform: translateY(-50%) scaleY(0.4);
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
 }
 
 .session-list-item:hover {
-  background: rgb(255 255 255 / 5%);
+  background: var(--color-accent-muted);
 }
 .session-list-item[data-active="true"] {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface);
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-muted);
+  box-shadow: var(--shadow-xs);
+}
+.session-list-item[data-active="true"]::before {
+  opacity: 1;
+  transform: translateY(-50%) scaleY(1);
 }
 
 .session-list-item__link {
@@ -429,6 +464,10 @@
 }
 .session-actions > .ui-button {
   opacity: 0;
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
 }
 .session-actions > .ui-button[data-size="icon"] {
   width: 28px;
@@ -452,11 +491,13 @@
   display: grid;
   width: 164px;
   gap: 2px;
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: var(--space-1);
   background: var(--color-panel);
-  box-shadow: var(--shadow-panel);
+  box-shadow: var(--shadow-md);
+  animation: ui-scale-in var(--motion-fast) var(--ease-out) both;
+  transform-origin: top right;
 }
 
 .session-actions__menu .ui-button {
@@ -612,7 +653,20 @@
   z-index: 5;
   top: calc(var(--project-tabs-height) + var(--space-4));
   left: 296px;
-  transition: left var(--motion-normal) ease-out;
+  border-color: var(--color-border);
+  border-radius: 999px;
+  background: var(--color-panel);
+  box-shadow: var(--shadow-sm);
+  transition:
+    left var(--motion-normal) var(--ease-in-out),
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+.workspace-rail-toggle:hover:not(:disabled) {
+  border-color: var(--color-accent-border);
+  box-shadow: var(--shadow-md);
 }
 .workspace-shell[data-rail-open="false"] .workspace-rail-toggle {
   left: var(--space-4);
@@ -660,6 +714,7 @@
   padding: var(--space-3) var(--space-6) var(--space-3) 64px;
   background: var(--color-header-surface);
   backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 .workspace-conversation__header span {
   color: var(--color-text-muted);

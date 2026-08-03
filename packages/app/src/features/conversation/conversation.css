@@ -48,13 +48,15 @@
   bottom: var(--space-4);
   z-index: 2;
   transform: translateX(50%);
-  box-shadow: var(--shadow-panel);
+  box-shadow: var(--shadow-md);
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
 }
 
 .conversation-message {
   display: grid;
   min-width: 0;
   gap: var(--space-2);
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
 }
 
 .conversation-message > header {
@@ -67,10 +69,11 @@
   width: fit-content;
   max-width: 50%;
   justify-self: end;
-  border: 0;
-  border-radius: 18px;
+  border: 1px solid var(--color-accent-border);
+  border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
-  background: var(--color-surface);
+  background: var(--color-accent-muted);
+  box-shadow: var(--shadow-xs);
   text-align: left;
 }
 
@@ -189,8 +192,9 @@
   color: var(--color-text-muted);
   font-size: var(--text-xs);
 }
-html[data-glass="on"] .reasoning-part__toggle {
-  border-color: var(--glass-border);
+.reasoning-part__toggle:hover {
+  background: var(--color-accent-muted);
+  color: var(--color-text);
 }
 
 .reasoning-part__toggle svg {
@@ -232,9 +236,11 @@ html[data-glass="on"] .reasoning-part__toggle {
   color: var(--color-text-muted);
   font-size: var(--text-xs);
 }
-html[data-glass="on"] .activity-group__toggle {
-  border-color: var(--glass-border);
+.activity-group__toggle:hover {
+  background: var(--color-accent-muted);
+  color: var(--color-text);
 }
+
 .activity-group__toggle small {
   color: var(--color-text-muted);
   font-size: inherit;

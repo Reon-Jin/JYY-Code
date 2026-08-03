@@ -947,6 +947,7 @@ export type SubagentProfile = {
   avatar: "bot" | "search" | "code" | "bug" | "chart" | "file" | "image" | "folder" | "pen" | "sparkles"
   model?: string
   variant?: string
+  tools?: Array<string>
   enabled: boolean
 }
 
@@ -1935,6 +1936,7 @@ export type SubagentProfileView = {
   avatar: "bot" | "search" | "code" | "bug" | "chart" | "file" | "image" | "folder" | "pen" | "sparkles"
   model?: string
   variant?: string
+  tools?: Array<string>
   enabled: boolean
   skills: Array<{
     id: string

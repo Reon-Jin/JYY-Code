@@ -32,7 +32,7 @@
   display: inline-grid;
   place-items: center;
   border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
@@ -58,6 +58,7 @@
   border-top: 1px solid var(--color-border);
   color: var(--color-text);
   font-size: var(--text-sm);
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
 }
 
 .todo-panel__item:first-child {
@@ -82,7 +83,7 @@
 }
 
 .todo-panel__state-icon[data-state="completed"] {
-  color: #4ade80;
+  color: var(--color-success);
 }
 
 .todo-panel__state-icon[data-state="cancelled"] {

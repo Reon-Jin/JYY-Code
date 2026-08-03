@@ -230,7 +230,10 @@ export const layer = Layer.effect(
           agents[name] = {
             name,
             description: profile.description,
-            options: { subagentProfileID: profile.id },
+            options: {
+              subagentProfileID: profile.id,
+              ...(profile.tools !== undefined ? { subagentToolIDs: [...profile.tools] } : {}),
+            },
             permission: subagentPermission,
             mode: "subagent",
             native: profile.id === "general",

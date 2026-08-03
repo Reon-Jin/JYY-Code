@@ -2904,7 +2904,7 @@ export class Subagents extends HeyApiClient {
   /**
    * List subagent profiles
    *
-   * List normalized project subagent profiles and the private skills discovered for each role.
+   * List global subagent profiles and the private skills discovered for each role.
    */
   public list<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -2934,7 +2934,7 @@ export class Subagents extends HeyApiClient {
   /**
    * Replace subagent profiles
    *
-   * Atomically replace the project-level subagent profile configuration.
+   * Atomically replace the global subagent profile configuration.
    */
   public update<ThrowOnError extends boolean = false>(
     parameters?: {

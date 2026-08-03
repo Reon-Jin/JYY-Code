@@ -169,7 +169,9 @@ describe("experimental HttpApi", () => {
         )
 
         expect(toolIDs.status).toBe(200)
-        expect(yield* json(toolIDs)).toContain("bash")
+        const toolIDList = yield* json<string[]>(toolIDs)
+        expect(toolIDList).toContain("tool_search")
+        expect(toolIDList).toContain("bash")
 
         expect(worktrees.status).toBe(200)
         expect(yield* json(worktrees)).toEqual([])

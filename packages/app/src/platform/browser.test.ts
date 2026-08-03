@@ -7,9 +7,9 @@ describe("browser desktop settings persistence", () => {
 
   it("round-trips validated settings", async () => {
     const bridge = createBrowserBridge(localStorage)
-    await bridge.saveSettings({ ...defaultDesktopSettings, startup: "home", theme: "light" })
+    await bridge.saveSettings({ ...defaultDesktopSettings, startup: "home" })
 
-    expect(await bridge.loadSettings()).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
+    expect(await bridge.loadSettings()).toEqual({ ...defaultDesktopSettings, startup: "home" })
   })
 
   it("round-trips the ordered open-project workspace", async () => {
@@ -39,7 +39,6 @@ describe("browser desktop settings persistence", () => {
   it("reports native capabilities as unsupported", async () => {
     const bridge = createBrowserBridge(localStorage)
 
-    await expect(bridge.setWindowGlass(true, "dark")).resolves.toMatchObject({ supported: false })
     await expect(bridge.requestNotificationPermission()).resolves.toBe("unsupported")
     await expect(bridge.sendNotification({ title: "JYYCode", body: "Ready" })).resolves.toMatchObject({
       supported: false,

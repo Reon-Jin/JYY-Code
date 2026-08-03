@@ -12,6 +12,7 @@ import {
 import type { ModelMessage } from "ai"
 import type { Provider } from "@/provider/provider"
 import { isRecord } from "@/util/record"
+import type { ToolChoice } from "./tool-choice"
 
 type ToolInput = {
   readonly description?: string
@@ -25,7 +26,7 @@ export type RequestInput = {
   readonly system?: readonly string[]
   readonly messages: readonly ModelMessage[]
   readonly tools?: Record<string, ToolInput>
-  readonly toolChoice?: "auto" | "required" | "none"
+  readonly toolChoice?: ToolChoice
   readonly temperature?: number
   readonly topP?: number
   readonly topK?: number
@@ -40,6 +41,11 @@ const providerMetadata = (value: unknown): ProviderMetadata | undefined => {
     Object.entries(value).filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1])),
   )
   return Object.keys(result).length === 0 ? undefined : result
+}
+
+function nativeToolChoice(value: ToolChoice | undefined): LLM.RequestInput["toolChoice"] | undefined {
+  if (!value || typeof value === "string") return value
+  return { type: "tool", name: value.toolName }
 }
 
 // Stored AI SDK parts historically kept provider-owned continuation metadata in
@@ -187,7 +193,7 @@ export const request = (input: RequestInput) => {
     system: [...(input.system ?? []).map(SystemPart.make), ...converted.system],
     messages: converted.messages,
     tools: tools(input.tools),
-    toolChoice: input.toolChoice,
+    toolChoice: nativeToolChoice(input.toolChoice),
     generation: generation(input),
     providerOptions: input.providerOptions,
   })

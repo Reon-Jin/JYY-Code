@@ -80,6 +80,8 @@ describe("plan runtime event bridge", () => {
 
       expect(parts[0]?.text).toContain("Read src/api.ts.")
       expect(parts[0]?.text).toContain("write the notes")
+      expect(parts[0]?.text).toContain("## Role Instructions")
+      expect(parts[0]?.text).toContain("Use a careful implementation.")
       expect(parts[0]?.synthetic).toBeUndefined()
       expect(parts[1]?.synthetic).toBe(true)
     }),

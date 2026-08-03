@@ -1,11 +1,10 @@
 import type { SessionBlackboardResponse } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
-import { AtSign, ChevronDown, File, MessageSquareReply, Paperclip, Send, X } from "lucide-solid"
-import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js"
+import { ChevronDown, File, Send } from "lucide-solid"
+import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 import { Button, IconButton } from "../../components/ui/button"
 import { useData } from "../../data/context"
 import { errorMessage } from "../projects/project-controller"
-import { attachmentFromPath } from "../composer/composer"
 import { renderMarkdown } from "../conversation/markdown"
 import { tr } from "../../i18n/i18n-context"
 import { blackboardMessagePurpose, blackboardQueryOptions, createBlackboardApi, type BlackboardSnapshot } from "./blackboard-query"
@@ -102,6 +101,19 @@ function uniqueSteps(
   return result
 }
 
+/*
+ * Deterministic pin placement: each note keeps a stable tilt and lift derived
+ * from its message id, so the board never reshuffles between renders.
+ */
+function noteGeometry(id: string) {
+  let hash = 0
+  for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) >>> 0
+  const tilt = ((hash % 65) - 32) / 10 // -3.2deg … +3.2deg
+  const lift = (Math.floor(hash / 65) % 12) - 6 // -6px … +5px
+  const drift = (Math.floor(hash / 780) % 9) - 4 // -4px … +4px
+  return { "--note-tilt": `${tilt.toFixed(1)}deg`, "--note-lift": `${lift}px`, "--note-drift": `${drift}px` }
+}
+
 export type BlackboardPanelProps = {
   directory: string
   enabled?: boolean
@@ -119,16 +131,9 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
   const [selectedTask, setSelectedTask] = createSignal<string>("all")
   const [draft, setDraft] = createSignal("")
   const [kind, setKind] = createSignal<BlackboardKind>("info")
-  const [taskIDs, setTaskIDs] = createSignal<string[]>([])
-  const [replyTo, setReplyTo] = createSignal<BlackboardMessage>()
-  const [attachments, setAttachments] = createSignal<Array<{ name: string; value: string }>>([])
-  const [attachmentPath, setAttachmentPath] = createSignal("")
   const [sending, setSending] = createSignal(false)
   const [submitError, setSubmitError] = createSignal<string>()
   const markedThrough = new Map<string, string>()
-  const [draggingFiles, setDraggingFiles] = createSignal(false)
-  let fileInput!: HTMLInputElement
-  let inputRegion!: HTMLDivElement
 
   const query = createQuery(
     () => ({
@@ -170,7 +175,6 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
   const canCompose = createMemo(
     () => enabled() && Boolean(props.rootSessionID) && Boolean(snapshot()?.currentStepID) && !readonly() && !query.error,
   )
-  const mentionOpen = createMemo(() => /(^|\s)@[\w-]*$/u.test(draft()))
 
   createEffect(() => {
     const current = snapshot()?.currentStepID
@@ -200,66 +204,9 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
       })
   })
 
-  onMount(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return
-    let unlisten: (() => void) | undefined
-    let disposed = false
-    void import("@tauri-apps/api/webview").then(async ({ getCurrentWebview }) => {
-      if (disposed) return
-      unlisten = await getCurrentWebview().onDragDropEvent((event) => {
-        const payload = event.payload
-        if (payload.type === "leave") {
-          setDraggingFiles(false)
-          return
-        }
-        const scale = window.devicePixelRatio || 1
-        const x = payload.position.x / scale
-        const y = payload.position.y / scale
-        const bounds = inputRegion?.getBoundingClientRect()
-        const inside = Boolean(bounds && x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom)
-        if (payload.type !== "drop") {
-          setDraggingFiles(inside)
-          return
-        }
-        setDraggingFiles(false)
-        if (inside) for (const path of payload.paths) addAttachment(path)
-      })
-      if (disposed) unlisten?.()
-    })
-    onCleanup(() => {
-      disposed = true
-      unlisten?.()
-    })
-  })
-
   function selectStep(stepID: string) {
     setSelectedStep(stepID)
     setSelectedTask("all")
-    setReplyTo(undefined)
-  }
-
-  function toggleTask(taskID: string) {
-    setTaskIDs((current) =>
-      current.includes(taskID) ? current.filter((id) => id !== taskID) : [...current, taskID],
-    )
-  }
-
-  function addAttachment(value: string) {
-    const trimmed = value.trim()
-    if (!trimmed) return
-    const attachment = /^https?:\/\//u.test(trimmed)
-      ? { filename: trimmed, url: trimmed }
-      : attachmentFromPath(trimmed)
-    setAttachments((current) =>
-      current.some((item) => item.value === attachment.url)
-        ? current
-        : [...current, { name: attachment.filename, value: attachment.url }],
-    )
-    setAttachmentPath("")
-  }
-
-  function mention(value: string) {
-    setDraft((current) => current.replace(/(^|\s)@[\w-]*$/u, `$1${value} `))
   }
 
   async function submit() {
@@ -270,13 +217,8 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
       await api().post({
         message: draft().trim(),
         kind: kind(),
-        taskIDs: taskIDs(),
-        ...(replyTo()?.id ? { replyTo: replyTo()!.id } : {}),
-        attachments: attachments().map((attachment) => attachment.value),
       })
       setDraft("")
-      setAttachments([])
-      setReplyTo(undefined)
     } catch (cause) {
       setSubmitError(errorMessage(cause, tr("blackboard.unable-to-load")))
     } finally {
@@ -290,26 +232,25 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
         <div>
           <h2>{tr("blackboard.title")}</h2>
         </div>
-        <Show when={Number(snapshot()?.unreadCount ?? 0) > 0}>
-          <span class="blackboard-panel__unread">{Number(snapshot()?.unreadCount ?? 0)}</span>
-        </Show>
+        <div class="blackboard-panel__filters">
+          <label>
+            <span>{tr("blackboard.current-step")}</span>
+            <select aria-label={tr("blackboard.current-step")} value={activeStep()} onChange={(event) => selectStep(event.currentTarget.value)}>
+              <For each={stepOptions()}>{(step) => <option value={step.id}>{step.title}</option>}</For>
+            </select>
+          </label>
+          <label>
+            <span>{tr("blackboard.task-filter")}</span>
+            <select aria-label={tr("blackboard.task-filter")} value={selectedTask()} onChange={(event) => setSelectedTask(event.currentTarget.value)}>
+              <option value="all">{tr("blackboard.all-tasks")}</option>
+              <For each={tasks()}>{(task) => <option value={task.id}>{taskLabels()[task.id] ?? task.title}</option>}</For>
+            </select>
+          </label>
+          <Show when={Number(snapshot()?.unreadCount ?? 0) > 0}>
+            <span class="blackboard-panel__unread">{Number(snapshot()?.unreadCount ?? 0)}</span>
+          </Show>
+        </div>
       </header>
-
-      <div class="blackboard-panel__filters">
-        <label>
-          <span>{tr("blackboard.current-step")}</span>
-          <select aria-label={tr("blackboard.current-step")} value={activeStep()} onChange={(event) => selectStep(event.currentTarget.value)}>
-            <For each={stepOptions()}>{(step) => <option value={step.id}>{step.title}</option>}</For>
-          </select>
-        </label>
-        <label>
-          <span>{tr("blackboard.task-filter")}</span>
-          <select aria-label={tr("blackboard.task-filter")} value={selectedTask()} onChange={(event) => setSelectedTask(event.currentTarget.value)}>
-            <option value="all">{tr("blackboard.all-tasks")}</option>
-            <For each={tasks()}>{(task) => <option value={task.id}>{taskLabels()[task.id] ?? task.title}</option>}</For>
-          </select>
-        </label>
-      </div>
 
       <Show when={!enabled()}>
         <p class="blackboard-panel__empty">
@@ -337,35 +278,42 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
         </div>
       </Show>
       <Show when={enabled() && props.rootSessionID && !query.isPending && !query.error}>
-        <div class="blackboard-panel__timeline" aria-live="polite">
+        <div class="blackboard-board" aria-live="polite">
           <Show when={visibleMessages().length > 0} fallback={<p class="blackboard-panel__empty">{tr("blackboard.no-messages")}</p>}>
             <For each={visibleMessages()}>
               {(message) => {
                 const replies = () => replyBodies(message.replies)
                 return (
-                  <article class="blackboard-message" data-kind={message.kind} data-message-id={message.id}>
-                    <header class="blackboard-message__header">
-                      <span class="blackboard-message__kind" aria-label={kindLabel(message.kind)}>
+                  <article
+                    class="blackboard-note"
+                    data-kind={message.kind}
+                    data-author={message.authorKind}
+                    data-message-id={message.id}
+                    style={noteGeometry(message.id)}
+                  >
+                    <span class="blackboard-note__pin" aria-hidden="true" />
+                    <header class="blackboard-note__header">
+                      <span class="blackboard-note__kind" aria-label={kindLabel(message.kind)}>
                         <span aria-hidden="true">{kindGlyph(message.kind)}</span> {kindLabel(message.kind)}
                       </span>
                       <Show when={blackboardMessagePurpose(message) === "candidate_declaration"}>
-                        <span class="blackboard-message__purpose">{tr("blackboard.candidate-declaration")}</span>
+                        <span class="blackboard-note__purpose">{tr("blackboard.candidate-declaration")}</span>
                       </Show>
                       <strong>{messageSender(message, taskLabels())}</strong>
                       <time dateTime={new Date(message.timeCreated).toISOString()}>
                         {new Date(message.timeCreated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </time>
                     </header>
-                    <div class="blackboard-message__body" innerHTML={renderMarkdown(message.body)} />
+                    <div class="blackboard-note__body" innerHTML={renderMarkdown(message.body)} />
                     <Show when={message.taskIDs.length > 0}>
-                      <div class="blackboard-message__chips" aria-label={tr("blackboard.task-filter")}>
+                      <div class="blackboard-note__chips" aria-label={tr("blackboard.task-filter")}>
                         <For each={message.taskIDs}>
-                          {(taskID) => <span class="blackboard-chip">{taskLabels()[taskID] ?? taskID}</span>}
+                          {(taskID) => <span class="blackboard-note__chip">{taskLabels()[taskID] ?? taskID}</span>}
                         </For>
                       </div>
                     </Show>
                     <Show when={message.attachments.length > 0}>
-                      <ul class="blackboard-message__attachments" aria-label={tr("blackboard.add-attachment")}>
+                      <ul class="blackboard-note__attachments" aria-label={tr("blackboard.attachments")}>
                         <For each={message.attachments}>
                           {(attachment) => (
                             <li>
@@ -378,23 +326,17 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
                         </For>
                       </ul>
                     </Show>
-                    <footer class="blackboard-message__footer">
-                      <Button size="small" variant="ghost" onClick={() => setReplyTo(message)}>
-                        <MessageSquareReply aria-hidden="true" />
-                        {tr("blackboard.reply")}
-                      </Button>
-                      <Show when={replies().length > 0}>
-                        <details class="blackboard-message__reply-details">
-                          <summary class="ui-button" aria-label={`${tr("blackboard.show-replies")} (${replies().length})`}>
-                            <ChevronDown aria-hidden="true" />
-                            {tr("blackboard.show-replies")} ({replies().length})
-                          </summary>
-                          <div class="blackboard-message__replies">
-                            <For each={replies()}>{(reply) => <div class="blackboard-reply">{reply}</div>}</For>
-                          </div>
-                        </details>
-                      </Show>
-                    </footer>
+                    <Show when={replies().length > 0}>
+                      <details class="blackboard-note__reply-details">
+                        <summary aria-label={`${tr("blackboard.show-replies")} (${replies().length})`}>
+                          <ChevronDown aria-hidden="true" />
+                          {tr("blackboard.show-replies")} ({replies().length})
+                        </summary>
+                        <div class="blackboard-note__replies">
+                          <For each={replies()}>{(reply) => <div class="blackboard-note__reply">{reply}</div>}</For>
+                        </div>
+                      </details>
+                    </Show>
                   </article>
                 )
               }}
@@ -407,142 +349,37 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
         <p class="blackboard-panel__readonly" role="note">{tr("blackboard.readonly")}</p>
       </Show>
       <Show when={canCompose()}>
-        <div
-          ref={inputRegion}
-          class="blackboard-composer"
-          aria-label={tr("blackboard.send")}
-          data-dragging={draggingFiles()}
-          onDragOver={(event) => {
-            if (!event.dataTransfer?.types.includes("Files")) return
-            event.preventDefault()
-            setDraggingFiles(true)
-          }}
-          onDragLeave={() => setDraggingFiles(false)}
-          onDrop={(event) => {
-            event.preventDefault()
-            setDraggingFiles(false)
-            if (event.dataTransfer?.files.length) {
-              for (const file of Array.from(event.dataTransfer.files)) addAttachment(file.name)
-            }
-          }}
-        >
-          <Show when={replyTo()}>
-            {(message) => (
-              <div class="blackboard-composer__reply">
-                <span>{tr("blackboard.replying-to", { sender: messageSender(message(), taskLabels()) })}</span>
-                <IconButton label={tr("blackboard.clear-reply")} variant="ghost" onClick={() => setReplyTo(undefined)}>
-                  <X aria-hidden="true" />
-                </IconButton>
-              </div>
-            )}
-          </Show>
-          <Show when={tasks().length > 0}>
-            <div class="blackboard-composer__tasks" aria-label={tr("blackboard.all-tasks")}>
-              <For each={tasks()}>
-                {(task) => (
-                  <button
-                    type="button"
-                    class="blackboard-chip"
-                    aria-pressed={taskIDs().includes(task.id)}
-                    onClick={() => toggleTask(task.id)}
-                  >
-                    {taskLabels()[task.id] ?? task.title}
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-          <div class="blackboard-composer__controls">
-            <label>
-              <span>{tr("blackboard.message-kind")}</span>
-              <select aria-label={tr("blackboard.message-kind")} value={kind()} onChange={(event) => setKind(event.currentTarget.value as BlackboardKind)}>
-                <For each={kinds}>{(value) => <option value={value}>{kindLabel(value)}</option>}</For>
-              </select>
-            </label>
-            <Show when={mentionOpen()}>
-              <div class="blackboard-mentions" role="listbox" aria-label={tr("blackboard.mention-suggestion")}>
-                <button type="button" role="option" onClick={() => mention("@main")}>
-                  <AtSign aria-hidden="true" /> {tr("blackboard.mention-suggestion", { name: tr("blackboard.main-agent") })}
-                </button>
-                <For each={tasks()}>
-                  {(task) => (
-                    <button type="button" role="option" onClick={() => mention(`@${task.id}`)}>
-                      <AtSign aria-hidden="true" /> {tr("blackboard.mention-suggestion", { name: taskLabels()[task.id] ?? task.title })}
-                    </button>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
-          <div class="blackboard-composer__message-row">
-            <textarea
-              aria-label={tr("blackboard.message-placeholder")}
-              placeholder={tr("blackboard.message-placeholder")}
-              rows={1}
-              value={draft()}
-              onInput={(event) => setDraft(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                  event.preventDefault()
-                  void submit()
-                }
-              }}
-            />
-            <Button size="small" variant="primary" disabled={sending() || !draft().trim()} loading={sending()} loadingLabel={tr("blackboard.sending")} onClick={() => void submit()}>
-              <Send aria-hidden="true" />
-              {tr("blackboard.send")}
-            </Button>
-          </div>
-          <Show when={attachments().length > 0}>
-            <ul class="blackboard-composer__attachments" aria-label={tr("blackboard.add-attachment")}>
-              <For each={attachments()}>
-                {(attachment, index) => (
-                  <li>
-                    <Paperclip aria-hidden="true" />
-                    <span>{attachment.name}</span>
-                    <IconButton
-                      label={tr("blackboard.remove-attachment", { name: attachment.name })}
-                      variant="ghost"
-                      onClick={() => setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index()))}
-                    >
-                      <X aria-hidden="true" />
-                    </IconButton>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
-          <div class="blackboard-composer__footer">
-            <input
-              ref={fileInput}
-              class="blackboard-composer__file-input"
-              type="file"
-              multiple
-              aria-label={tr("blackboard.choose-files")}
-              onChange={(event) => {
-                for (const file of Array.from(event.currentTarget.files ?? [])) addAttachment(file.name)
-                event.currentTarget.value = ""
-              }}
-            />
-            <IconButton label={tr("blackboard.add-attachment")} variant="ghost" onClick={() => fileInput.click()}>
-              <Paperclip aria-hidden="true" />
-            </IconButton>
-            <input
-              aria-label={tr("blackboard.attachment-path")}
-              placeholder={tr("blackboard.attachment-path")}
-              value={attachmentPath()}
-              onInput={(event) => setAttachmentPath(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault()
-                  addAttachment(attachmentPath())
-                }
-              }}
-            />
-            <Button size="small" variant="ghost" onClick={() => addAttachment(attachmentPath())}>
-              {tr("blackboard.add-path")}
-            </Button>
-          </div>
+        <div class="blackboard-composer" aria-label={tr("blackboard.send")}>
+          <label class="blackboard-composer__kind">
+            <span>{tr("blackboard.message-kind")}</span>
+            <select aria-label={tr("blackboard.message-kind")} value={kind()} onChange={(event) => setKind(event.currentTarget.value as BlackboardKind)}>
+              <For each={kinds}>{(value) => <option value={value}>{kindLabel(value)}</option>}</For>
+            </select>
+          </label>
+          <textarea
+            aria-label={tr("blackboard.message-placeholder")}
+            placeholder={tr("blackboard.message-placeholder")}
+            rows={1}
+            value={draft()}
+            onInput={(event) => setDraft(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault()
+                void submit()
+              }
+            }}
+          />
+          <IconButton
+            class="blackboard-composer__send"
+            label={tr("blackboard.send")}
+            variant="primary"
+            disabled={sending() || !draft().trim()}
+            loading={sending()}
+            loadingLabel={tr("blackboard.sending")}
+            onClick={() => void submit()}
+          >
+            <Send aria-hidden="true" />
+          </IconButton>
           <Show when={submitError()}>
             <p class="blackboard-composer__error" role="alert">{submitError()}</p>
           </Show>

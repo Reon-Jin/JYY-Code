@@ -49,17 +49,47 @@
 }
 
 .settings-navigation a {
+  position: relative;
   border-radius: var(--radius-sm);
   padding: 10px var(--space-3);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   text-decoration: none;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
 }
 
-.settings-navigation a:hover,
-.settings-navigation a[aria-current="page"] {
-  background: var(--color-surface);
+.settings-navigation a::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 3px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  content: "";
+  opacity: 0;
+  transform: translateY(-50%) scaleY(0.4);
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+
+.settings-navigation a:hover {
+  background: var(--color-accent-muted);
   color: var(--color-text);
+}
+
+.settings-navigation a[aria-current="page"] {
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+  font-weight: 620;
+}
+
+.settings-navigation a[aria-current="page"]::before {
+  opacity: 1;
+  transform: translateY(-50%) scaleY(1);
 }
 .settings-navigation a:focus-visible {
   outline: none;
@@ -90,6 +120,15 @@
   border-radius: var(--radius-md);
   padding: var(--space-4);
   background: var(--color-panel);
+  box-shadow: var(--shadow-xs);
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+.settings-card:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-sm);
 }
 .settings-card > h3 {
   margin: 0;
@@ -119,10 +158,19 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   padding: var(--space-3);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+.settings-options label:hover {
+  border-color: var(--color-accent-border);
 }
 .settings-options label:has(input:checked) {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface);
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-muted);
+  box-shadow: var(--shadow-xs);
 }
 .settings-options label > span {
   display: grid;
@@ -163,7 +211,7 @@
 }
 .settings-badge {
   border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   padding: 3px 8px;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
@@ -378,8 +426,10 @@
   text-decoration: none;
 }
 .memory-settings-launcher__links a:hover {
-  border-color: var(--color-border-strong);
+  border-color: var(--color-accent-border);
   background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
 }
 .memory-settings-launcher__links a:focus-visible {
   outline: none;

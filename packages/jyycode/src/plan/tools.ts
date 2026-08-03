@@ -48,7 +48,7 @@ const taskInputSchema: JSONSchema7 = {
     mode: {
       enum: ["standard", "candidate"],
       description:
-        "Use candidate only when this Task is one of exactly 2-3 alternatives declared together in Plan_create.steps[0].tasks; candidate output_path is assigned by the runtime.",
+        "Use candidate only when this Task is one of exactly 2-3 alternatives declared together in Plan_create or one Plan_update for a clean active Step; candidate output_path is assigned by the runtime.",
     },
   },
 }
@@ -65,7 +65,7 @@ const stepInputSchema: JSONSchema7 = {
       type: "array",
       items: taskInputSchema,
       description:
-        "For a candidate Step, include exactly 2-3 candidate Tasks here in the initial Plan_create call; Plan_update(add_task) cannot initialize candidate metadata.",
+        "For a candidate Step, include exactly 2-3 candidate Tasks together. The initial Step may declare them in Plan_create; a later clean active Step may initialize them with one Plan_update containing 2-3 candidate add_task operations.",
     },
   },
 }
@@ -82,7 +82,7 @@ export const PLAN_CREATE_INPUT_SCHEMA: JSONSchema7 = {
       minItems: 2,
       items: stepInputSchema,
       description:
-        "Only steps[0] may contain Task details. Candidate Tasks must be declared as one complete 2-3 Task group in steps[0].tasks.",
+        "Only steps[0] may contain Task details at creation. Later active Steps are expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group.",
     },
   },
 }
@@ -235,7 +235,7 @@ export const PLAN_UPDATE_INPUT_SCHEMA: JSONSchema7 = {
       maxItems: 50,
       items: { oneOf: updateOps },
       description:
-        "add_task is for standard Tasks only; candidate groups must be created together by Plan_create and dispatched together by Dispatch_dispatch.",
+        "add_task normally creates standard Tasks. A later clean active Step may initialize a candidate group only when this one call contains all 2-3 candidate add_task operations; dispatch the resulting group together.",
     },
   },
 }
@@ -251,7 +251,7 @@ export const DISPATCH_INPUT_SCHEMA: JSONSchema7 = {
       maxItems: 20,
       items: taskIdSchema,
       description:
-        "For a candidate Step, pass every candidate Task ID from the same Step in this one call; never dispatch candidates individually.",
+        "Batch all ready standard Task IDs from the current wave in one call. For a candidate Step, pass every candidate Task ID from the same Step in this one call; never dispatch candidates individually.",
     },
     role: { type: "string", minLength: 1, description: "Use an enabled role such as general." },
   },
@@ -341,6 +341,11 @@ function promptOps(ctx: Tool.Context) {
   return value as TaskPromptOps
 }
 
+function requestToolCatalogRefresh(ctx: Tool.Context) {
+  const request = ctx.extra?.requestToolCatalogRefresh
+  if (typeof request === "function") request()
+}
+
 function wakeBlackboardRecipients(
   ctx: Tool.Context,
   board: Blackboard.Interface,
@@ -407,14 +412,17 @@ function candidateChildSessionIDs(session: Session.Info) {
 }
 
 /** The only user-visible content in a child session's initial message. */
-export function childTaskBrief(brief: DispatchBrief) {
-  return [
+export function childTaskBrief(brief: DispatchBrief, role?: Pick<LaunchSnapshot, "prompt">) {
+  const parts = [
     "## Instructions",
     brief.task_instructions?.trim() || "No additional instructions.",
     "",
     "## Current Task Goal",
     brief.goal.trim(),
-  ].join("\n")
+  ]
+  const rolePrompt = role?.prompt.trim()
+  if (rolePrompt) parts.push("", "## Role Instructions", rolePrompt)
+  return parts.join("\n")
 }
 
 /** Full dispatch metadata is delivered in a synthetic message part. */
@@ -492,7 +500,7 @@ export function childLaunchPrompt(brief: DispatchBrief, role: LaunchSnapshot) {
 
 export function childLaunchParts(brief: DispatchBrief, role: LaunchSnapshot) {
   return [
-    { type: "text" as const, text: childTaskBrief(brief) },
+    { type: "text" as const, text: childTaskBrief(brief, role) },
     { type: "text" as const, text: childLaunchPrompt(brief, role), synthetic: true, metadata: { kind: "plan_dispatch_context" } },
   ]
 }
@@ -661,7 +669,7 @@ export const BlackboardTool = Tool.define(
   "Blackboard",
   Effect.gen(function* () {
     return {
-      description: "无参读取当前 Step 的 Task 与新消息；仅在风险、阻塞、决策或求助时带 message 发布。",
+      description: "无参读取当前 Step 的 Task 与新消息；用 message 发布简洁的发现、依赖、交接、决策、风险、阻塞或求助，不要发布心跳或重复的普通进度。",
       parameters: AnyObject,
       jsonSchema: BLACKBOARD_INPUT_SCHEMA,
       catalog: {
@@ -686,6 +694,7 @@ export const BlackboardTool = Tool.define(
                 ? value.attachments.filter((item): item is string => typeof item === "string")
                 : undefined,
             })
+            requestToolCatalogRefresh(ctx)
             yield* wakeBlackboardRecipients(ctx, board, message, bridge)
             return jsonResult("Blackboard", message)
           }
@@ -728,6 +737,7 @@ export const BlackboardReplyTool = Tool.define(
               ? value.attachments.filter((item): item is string => typeof item === "string")
               : undefined,
           })
+          requestToolCatalogRefresh(ctx)
           yield* wakeBlackboardRecipients(ctx, board, message, bridge)
           return jsonResult("Blackboard.reply", message)
         }).pipe(Effect.provide(Blackboard.defaultLayer)),
@@ -742,7 +752,7 @@ export const PlanCreateTool = Tool.define(
     const bus = yield* Bus.Service
     return {
       description:
-        "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan_update 展开。需要候选比较时，必须在本次 Plan_create 的 steps[0].tasks 中一次性放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
+        "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan_update 展开。需要候选比较时，在 Plan_create 或后续 clean active Step 的一次 Plan_update 中完整放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
       parameters: AnyObject,
       jsonSchema: PLAN_CREATE_INPUT_SCHEMA,
       catalog: {
@@ -756,9 +766,11 @@ export const PlanCreateTool = Tool.define(
           const bridge = yield* EffectBridge.make()
           const protocol = protocolFor(sessions, bus, { bridge })
           const session = yield* getSession(sessions, ctx.sessionID)
+          const result = yield* Effect.promise(() => protocol.create(protocolContext(session, ctx), input))
+          if (result.ok) requestToolCatalogRefresh(ctx)
           return jsonResult(
             "Plan.create",
-            yield* Effect.promise(() => protocol.create(protocolContext(session, ctx), input)),
+            result,
           )
         }),
     }
@@ -772,7 +784,7 @@ export const PlanUpdateTool = Tool.define(
     const bus = yield* Bus.Service
     return {
       description:
-        "以 revision 乐观锁原子修改方案、展开标准任务、推进单智能体状态或审核子 Agent 汇报。Plan_update(add_task) 不能创建 candidate Step；候选组必须通过 Plan_create 一次性初始化。",
+        "以 revision 乐观锁原子修改方案、展开标准任务、推进单智能体状态或审核子 Agent 汇报。后续 active Step 可在一次调用中用 2-3 个 candidate add_task 初始化候选组；不能向已有 candidate Step 追加或混入 standard Task。",
       parameters: AnyObject,
       jsonSchema: PLAN_UPDATE_INPUT_SCHEMA,
       catalog: {
@@ -799,9 +811,11 @@ export const PlanUpdateTool = Tool.define(
             },
           })
           const session = yield* getSession(sessions, ctx.sessionID)
+          const result = yield* Effect.promise(() => protocol.update(protocolContext(session, ctx), input))
+          if (result.ok) requestToolCatalogRefresh(ctx)
           return jsonResult(
             "Plan.update",
-            yield* Effect.promise(() => protocol.update(protocolContext(session, ctx), input)),
+            result,
           )
         }).pipe(Effect.provide(Blackboard.defaultLayer)),
     }
@@ -834,10 +848,45 @@ export const DispatchDispatchTool = Tool.define(
             promptOps: promptOps(ctx),
             profiles: async () => enabledProfiles(resolveProfiles((await bridge.promise(config.get())).subagents?.profiles)),
           })
+          const result = yield* Effect.promise(() => protocol.dispatch(protocolContext(session, ctx), input))
+          if (result.ok) requestToolCatalogRefresh(ctx)
           return jsonResult(
             "Dispatch.dispatch",
-            yield* Effect.promise(() => protocol.dispatch(protocolContext(session, ctx), input)),
+            result,
           )
+        }),
+    }
+  }),
+)
+
+export const DispatchRolesTool = Tool.define(
+  "Dispatch.roles",
+  Effect.gen(function* () {
+    const config = yield* Config.Service
+    return {
+      description:
+        "List every currently enabled sub-agent role available to Dispatch_dispatch, including its ID, name, description, model, and thinking depth.",
+      parameters: Empty,
+      jsonSchema: { type: "object", additionalProperties: false } satisfies JSONSchema7,
+      catalog: {
+        category: "subagent" as const,
+        mutability: "read" as const,
+        risk: "low" as const,
+        detail: "standard" as const,
+      },
+      execute: (_input: {}, _ctx: Tool.Context) =>
+        Effect.gen(function* () {
+          const profiles = enabledProfiles(resolveProfiles((yield* config.get()).subagents?.profiles))
+          return jsonResult("Dispatch.roles", {
+            count: profiles.length,
+            roles: profiles.map((profile) => ({
+              id: profile.id,
+              name: profile.name,
+              description: profile.description,
+              model: profile.model ?? null,
+              variant: profile.variant ?? null,
+            })),
+          })
         }),
     }
   }),
@@ -849,7 +898,7 @@ export const DispatchCancelTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description: "取消多智能体任务并终止其子 session。",
+      description: "取消多智能体任务并终止其子 session；已取消任务可重复调用，子 session 清理失败会在结果中返回 termination_errors。",
       parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String) }),
       jsonSchema: cancelSchema,
       catalog: {
@@ -863,10 +912,9 @@ export const DispatchCancelTool = Tool.define(
           const bridge = yield* EffectBridge.make()
           const session = yield* getSession(sessions, ctx.sessionID)
           const protocol = protocolFor(sessions, bus, { bridge })
-          return jsonResult(
-            "Dispatch.cancel",
-            yield* Effect.promise(() => protocol.cancel(protocolContext(session, ctx), input.taskIds)),
-          )
+          const result = yield* Effect.promise(() => protocol.cancel(protocolContext(session, ctx), input.taskIds))
+          if (result.ok) requestToolCatalogRefresh(ctx)
+          return jsonResult("Dispatch.cancel", result)
         }),
     }
   }),
@@ -890,6 +938,7 @@ export const CandidateDeclareTool = Tool.define(
           const session = yield* getSession(sessions, ctx.sessionID)
           const protocol = protocolFor(sessions, bus, { bridge, candidateBoard: board })
           const result = yield* Effect.promise(() => protocol.candidateDeclare(protocolContext(session, ctx), input))
+          if (result.ok) requestToolCatalogRefresh(ctx)
           yield* drainProtocolWakeups(protocol, ops, bridge, candidateChildSessionIDs(session), session.id)
           return jsonResult("Candidate.declare", result)
         }).pipe(Effect.provide(Blackboard.defaultLayer)),
@@ -915,6 +964,7 @@ export const CandidateReadyTool = Tool.define(
           const session = yield* getSession(sessions, ctx.sessionID)
           const protocol = protocolFor(sessions, bus, { bridge, candidateBoard: board })
           const result = yield* Effect.promise(() => protocol.candidateReady(protocolContext(session, ctx), {}))
+          if (result.ok) requestToolCatalogRefresh(ctx)
           yield* drainProtocolWakeups(protocol, ops, bridge, session.parentID ? [session.parentID] : [])
           return jsonResult("Candidate.ready", result)
         }).pipe(Effect.provide(Blackboard.defaultLayer)),
@@ -939,6 +989,7 @@ export const CandidateBeginTool = Tool.define(
           const session = yield* getSession(sessions, ctx.sessionID)
           const protocol = protocolFor(sessions, bus, { bridge })
           const result = yield* Effect.promise(() => protocol.candidateBegin(protocolContext(session, ctx), {}))
+          if (result.ok) requestToolCatalogRefresh(ctx)
           yield* drainProtocolWakeups(protocol, ops, bridge, candidateChildSessionIDs(session))
           return jsonResult("Candidate.begin", result)
         }),
@@ -963,6 +1014,7 @@ export const CandidateSubmitTool = Tool.define(
           const session = yield* getSession(sessions, ctx.sessionID)
           const protocol = protocolFor(sessions, bus, { bridge })
           const result = yield* Effect.promise(() => protocol.candidateSubmit(protocolContext(session, ctx), input))
+          if (result.ok) requestToolCatalogRefresh(ctx)
           yield* drainProtocolWakeups(protocol, ops, bridge, session.parentID ? [session.parentID] : [])
           return jsonResult("Candidate.submit", result)
         }),
@@ -1008,6 +1060,7 @@ export const ReportTool = Tool.define(
             },
           })
           const result = yield* Effect.promise(() => protocol.report(protocolContext(session, ctx), input))
+          if (result.ok) requestToolCatalogRefresh(ctx)
           const effectiveRunId = runId(ctx)
           const parentSessionId = effectiveRunId ? parentSessionIdForRunId(effectiveRunId) : undefined
           if (result.ok && parentSessionId) {
@@ -1035,6 +1088,7 @@ export const PlanProtocolTools = [
   PlanCreateTool,
   PlanUpdateTool,
   DispatchDispatchTool,
+  DispatchRolesTool,
   DispatchCancelTool,
   CandidateDeclareTool,
   CandidateReadyTool,

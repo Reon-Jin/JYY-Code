@@ -10,6 +10,7 @@ import { FetchHttpClient } from "effect/unstable/http"
 import { tool as nativeTool, ToolFailure, type JsonSchema, type LLMEvent } from "@jyycode-ai/llm"
 import type { LLMClientShape } from "@jyycode-ai/llm/route"
 import { LLMNative } from "./native-request"
+import type { ToolChoice } from "./tool-choice"
 
 export type RuntimeStatus =
   | { readonly type: "supported"; readonly apiKey: string; readonly baseURL?: string }
@@ -25,7 +26,7 @@ type StreamInput = {
   readonly llmClient: LLMClientShape
   readonly messages: ModelMessage[]
   readonly tools: Record<string, Tool>
-  readonly toolChoice?: "auto" | "required" | "none"
+  readonly toolChoice?: ToolChoice
   readonly temperature?: number
   readonly topP?: number
   readonly topK?: number

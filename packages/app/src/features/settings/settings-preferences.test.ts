@@ -9,23 +9,17 @@ describe("parseDesktopSettings", () => {
   })
 
   it("accepts supported values field by field", () => {
-    expect(parseDesktopSettings({ startup: "home", theme: "light" })).toEqual({
+    expect(parseDesktopSettings({ startup: "home" })).toEqual({
       ...defaultDesktopSettings,
       startup: "home",
-      theme: "light",
     })
-    expect(parseDesktopSettings({ startup: "home", theme: "bad" })).toEqual({
-      ...defaultDesktopSettings,
-      startup: "home",
-      theme: "dark",
-    })
+    expect(parseDesktopSettings({ startup: "bad" })).toEqual(defaultDesktopSettings)
   })
 
   it("migrates legacy settings and ignores unknown fields", () => {
-    expect(parseDesktopSettings({ startup: "home", theme: "light", obsolete: true })).toEqual({
+    expect(parseDesktopSettings({ startup: "home", theme: "light", glass: "on", obsolete: true })).toEqual({
       ...defaultDesktopSettings,
       startup: "home",
-      theme: "light",
     })
   })
 
@@ -33,14 +27,12 @@ describe("parseDesktopSettings", () => {
     expect(
       parseDesktopSettings({
         locale: "en-US",
-        glass: "on",
         notifications: { completion: false, permission: true, question: false, ignored: false },
         updatePolicy: "install",
       }),
     ).toEqual({
       ...defaultDesktopSettings,
       locale: "en-US",
-      glass: "on",
       notifications: { completion: false, permission: true, question: false },
       updatePolicy: "install",
     })
@@ -48,7 +40,6 @@ describe("parseDesktopSettings", () => {
     expect(
       parseDesktopSettings({
         locale: "fr-FR",
-        glass: "auto",
         notifications: { completion: false, permission: "yes" },
         updatePolicy: "sometimes",
       }),
@@ -61,13 +52,13 @@ describe("parseDesktopSettings", () => {
 
 describe("fake desktop settings", () => {
   it("round-trips settings without exposing mutable references", async () => {
-    const desktop = createFakeDesktop({ settings: { ...defaultDesktopSettings, startup: "home", theme: "light" } })
+    const desktop = createFakeDesktop({ settings: { ...defaultDesktopSettings, startup: "home" } })
 
     const loaded = await desktop.bridge.loadSettings()
-    loaded.theme = "dark"
-    expect(desktop.settings()).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
+    loaded.startup = "restore"
+    expect(desktop.settings()).toEqual({ ...defaultDesktopSettings, startup: "home" })
 
-    const next = { ...defaultDesktopSettings, startup: "restore", theme: "dark" } as const
+    const next = { ...defaultDesktopSettings, startup: "restore" } as const
     await desktop.bridge.saveSettings(next)
     expect(desktop.settings()).toEqual(next)
   })

@@ -57,6 +57,7 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { defaultPlanProtocol } from "../../src/plan/protocol"
 
 void Log.init({ print: false })
 
@@ -576,7 +577,7 @@ it.instance("loop calls LLM and returns assistant message", () =>
   }),
 )
 
-it.instance("multi-agent roots must read then create a missing plan through tools", () =>
+it.instance("multi-agent roots tolerate preflight calls before creating a missing plan", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
     const prompt = yield* SessionPrompt.Service
@@ -592,6 +593,10 @@ it.instance("multi-agent roots must read then create a missing plan through tool
       noReply: true,
       parts: [{ type: "text", text: "implement the requested multi-stage change" }],
     })
+    // These calls reproduce the screenshot: the model may batch a roster
+    // lookup and a repeated read before it emits the required Plan_create.
+    yield* llm.tool("Plan_read", {})
+    yield* llm.tool("Dispatch_roles", {})
     yield* llm.tool("Plan_read", {})
     yield* llm.tool("Plan_create", {
       title: "Implementation plan",
@@ -623,19 +628,151 @@ it.instance("multi-agent roots must read then create a missing plan through tool
     yield* prompt.loop({ sessionID: chat.id })
 
     const inputs = yield* llm.inputs
-    expect(inputs).toHaveLength(3)
+    expect(inputs).toHaveLength(5)
     expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_read")
     expect(JSON.stringify(inputs[0]?.tools)).not.toContain("Plan_create")
-    expect(inputs[0]?.tool_choice).toBe("required")
+    expect(inputs[0]?.tool_choice).toMatchObject({ type: "function", function: { name: "Plan_read" } })
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_create")
-    expect(JSON.stringify(inputs[1]?.tools)).not.toContain("Plan_read")
-    expect(inputs[1]?.tool_choice).toBe("required")
+    expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_read")
+    expect(JSON.stringify(inputs[1]?.tools)).toContain("Dispatch_roles")
+    expect(inputs[1]?.tool_choice).toMatchObject({ type: "function", function: { name: "Plan_create" } })
+
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const failedTools = messages
+      .flatMap((message) => message.parts)
+      .filter((part) => part.type === "tool" && part.state.status === "error")
+    expect(failedTools).toHaveLength(0)
 
     const plan = JSON.parse(
       yield* Effect.promise(() => Bun.file(path.join(chat.directory, ".jyycode", "plan", chat.id, "plan.json")).text()),
     )
     expect(plan.steps[0].tasks).toHaveLength(1)
     expect(plan.steps[1].tasks).toEqual([])
+  }),
+)
+
+it.instance("cancelling a dispatched task forces the next turn to redispatch", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Cancel and redispatch",
+      multiAgent: true,
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    const context = { workspaceRoot: chat.directory, sessionId: chat.id, mode: "multi" as const }
+    yield* Effect.promise(() =>
+      defaultPlanProtocol.create(context, {
+        title: "Cancellation recovery",
+        goal: "redispatch a cancelled task",
+        steps: [
+          {
+            title: "Work",
+            goal: "run the task",
+            done_criteria: "the child reports a result",
+            tasks: [
+              {
+                title: "Task",
+                goal: "produce the result",
+                done_criteria: "result.md exists",
+                output_path: "result.md",
+              },
+            ],
+          },
+          { title: "Review", goal: "review the result", done_criteria: "the result is accepted" },
+        ],
+      }),
+    )
+    yield* Effect.promise(() => defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }))
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "stop the current child and continue the task" }],
+    })
+
+    yield* llm.tool("Plan_read", {})
+    yield* llm.tool("Dispatch_cancel", { taskIds: ["s1_t1"] })
+    yield* llm.tool("Dispatch_dispatch", { taskIds: ["s1_t1"], role: "general" })
+
+    yield* prompt.loop({ sessionID: chat.id })
+
+    const inputs = yield* llm.inputs
+    expect(inputs).toHaveLength(3)
+    expect(inputs[2]?.tool_choice).toMatchObject({ type: "function", function: { name: "Dispatch_dispatch" } })
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const failedTools = messages
+      .flatMap((message) => message.parts)
+      .filter((part) => part.type === "tool" && part.state.status === "error")
+    expect(failedTools).toHaveLength(0)
+  }),
+)
+
+it.instance("does not execute stale protocol mutations from one batched response", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Batched protocol mutations",
+      multiAgent: true,
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    const context = { workspaceRoot: chat.directory, sessionId: chat.id, mode: "multi" as const }
+    yield* Effect.promise(() =>
+      defaultPlanProtocol.create(context, {
+        title: "Batched recovery",
+        goal: "cancel and then redispatch exactly once",
+        steps: [
+          {
+            title: "Work",
+            goal: "run the task",
+            done_criteria: "the child reports a result",
+            tasks: [
+              {
+                title: "Task",
+                goal: "produce the result",
+                done_criteria: "result.md exists",
+                output_path: "result.md",
+              },
+            ],
+          },
+          { title: "Review", goal: "review the result", done_criteria: "the result is accepted" },
+        ],
+      }),
+    )
+    yield* Effect.promise(() => defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }))
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "cancel the child and dispatch it again" }],
+    })
+
+    // The provider can return all three calls in one response even though the
+    // protocol gate asks for Plan_read first. Dispatch_dispatch must not run
+    // against the pre-cancel snapshot or produce a tool error.
+    yield* llm.push(
+      reply()
+        .tool("Plan_read", {})
+        .tool("Dispatch_cancel", { taskIds: ["s1_t1"] })
+        .tool("Dispatch_dispatch", { taskIds: ["s1_t1"], role: "general" }),
+    )
+    yield* llm.tool("Dispatch_dispatch", { taskIds: ["s1_t1"], role: "general" })
+
+    yield* prompt.loop({ sessionID: chat.id })
+
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const failedTools = messages
+      .flatMap((message) => message.parts)
+      .filter((part) => part.type === "tool" && part.state.status === "error")
+    expect(failedTools).toHaveLength(0)
+    const batched = messages
+      .flatMap((message) => message.parts)
+      .filter((part): part is MessageV2.ToolPart => part.type === "tool")
+    expect(batched.some((part) => part.tool === "Dispatch_cancel" && part.state.status === "completed")).toBe(true)
+    expect(batched.some((part) => part.tool === "Dispatch_dispatch" && part.state.status === "completed")).toBe(true)
   }),
 )
 

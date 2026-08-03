@@ -54,6 +54,7 @@
 .change-file {
   min-width: 0;
   border-bottom: 1px solid var(--color-border);
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
 }
 
 .change-file__toggle {
@@ -98,7 +99,7 @@
 }
 
 .change-file__status[data-status="added"] {
-  color: #4ade80;
+  color: var(--color-success);
 }
 
 .change-file__status[data-status="deleted"] {
@@ -114,12 +115,12 @@
 }
 
 .change-file__stat b {
-  color: #4ade80;
+  color: var(--color-success);
   font-weight: 500;
 }
 
 .change-file__stat i {
-  color: #fb7185;
+  color: var(--color-danger);
   font-style: normal;
 }
 
@@ -143,8 +144,8 @@
 
 .change-file__hunk {
   padding: 2px var(--space-3);
-  background: #242f3d;
-  color: #bfdbfe;
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
 }
 
 .change-file__line {
@@ -152,16 +153,16 @@
 }
 
 .change-file__line[data-kind="add"] {
-  background: #152b20;
+  background: rgb(76 122 95 / 10%);
 }
 
 .change-file__line[data-kind="delete"] {
-  background: #351c22;
+  background: rgb(156 74 61 / 8%);
 }
 
 .change-file__line-number {
   padding-inline: var(--space-1);
-  border-right: 1px solid rgb(255 255 255 / 6%);
+  border-right: 1px solid var(--color-border);
   color: var(--color-text-muted);
   text-align: right;
   user-select: none;

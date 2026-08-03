@@ -1,6 +1,6 @@
 import { tr } from "../../i18n/i18n-context"
 import { Bot, CircleHelp, RefreshCw } from "lucide-solid"
-import { createEffect, createMemo, createSignal, For, Index, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
@@ -141,13 +141,57 @@ export type MultiAgentPanelViewProps = {
   onOpenChild: (sessionID: string) => void
 }
 
+type PanelViewState = {
+  collapsedSteps: ReadonlySet<number>
+  scrollTop: number
+}
+
+// The plan view can survive a child-session navigation by being recreated.
+// Keep interaction state outside the component and key it by the root plan,
+// so changing the reviewed child does not expand every wave or jump to top.
+const panelViewState = new Map<string, PanelViewState>()
+
+function panelStateKey(sessionID: string | undefined) {
+  return sessionID ?? "__no-plan__"
+}
+
 export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
-  const [collapsedSteps, setCollapsedSteps] = createSignal<ReadonlySet<number>>(new Set())
+  let body: HTMLDivElement | undefined
+  let activeStateKey = panelStateKey(props.sessionID)
+  const [collapsedSteps, setCollapsedSteps] = createSignal<ReadonlySet<number>>(
+    new Set(panelViewState.get(activeStateKey)?.collapsedSteps ?? []),
+  )
   const [cruiseRevisions, setCruiseRevisions] = createSignal<ReadonlyMap<number, number>>(new globalThis.Map())
   let activeTasksByStep = new globalThis.Map<number, ReadonlySet<string>>()
   const completionPercent = () =>
     props.snapshot.totalAgents > 0 ? Math.round((props.snapshot.doneAgents / props.snapshot.totalAgents) * 100) : 0
   const cruiseRevision = (step: number) => cruiseRevisions().get(step) ?? 0
+
+  function savePanelState() {
+    panelViewState.set(activeStateKey, {
+      collapsedSteps: new Set(collapsedSteps()),
+      scrollTop: body?.scrollTop ?? panelViewState.get(activeStateKey)?.scrollTop ?? 0,
+    })
+  }
+
+  function restorePanelState() {
+    const saved = panelViewState.get(activeStateKey)
+    setCollapsedSteps(new Set(saved?.collapsedSteps ?? []))
+    queueMicrotask(() => {
+      if (body && saved) body.scrollTop = saved.scrollTop
+    })
+  }
+
+  onMount(restorePanelState)
+  onCleanup(savePanelState)
+
+  createEffect(() => {
+    const nextKey = panelStateKey(props.sessionID)
+    if (nextKey === activeStateKey) return
+    savePanelState()
+    activeStateKey = nextKey
+    restorePanelState()
+  })
 
   createEffect(() => {
     const nextActiveTasksByStep = new globalThis.Map<number, ReadonlySet<string>>()
@@ -172,6 +216,10 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
       const next = new Set(current)
       if (next.has(index)) next.delete(index)
       else next.add(index)
+      panelViewState.set(activeStateKey, {
+        collapsedSteps: next,
+        scrollTop: body?.scrollTop ?? panelViewState.get(activeStateKey)?.scrollTop ?? 0,
+      })
       return next
     })
   }
@@ -236,7 +284,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                 </p>
               }
             >
-              <div class="multi-agent-panel__body">
+              <div class="multi-agent-panel__body" ref={body} onScroll={savePanelState}>
                 <div class="multi-agent-steps">
                   <Index each={props.snapshot.steps}>
                     {(item) => {
@@ -334,6 +382,7 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                                             onClick={(event) => {
                                               event.preventDefault()
                                               event.stopPropagation()
+                                              savePanelState()
                                               props.onOpenChild(childSessionID())
                                             }}
                                           >

@@ -18,9 +18,34 @@ import {
   createSubagentSkill,
   refreshSubagentProfiles,
   subagentProfilesQueryOptions,
+  subagentToolIDsQueryOptions,
   updateSubagentProfiles,
 } from "./subagent-profiles-query"
 import "./subagent-profiles-panel.css"
+
+const SUBAGENT_SELECTABLE_TOOL_IDS = ["read", "edit", "write", "glob", "grep", "websearch", "webfetch"]
+const SUBAGENT_FORBIDDEN_TOOL_IDS = new Set([
+  "tool_search",
+  "invalid",
+  "bash",
+  "shell",
+  "process",
+  "question",
+  "memory",
+  "Inbox",
+])
+
+function isFixedSubagentTool(toolID: string) {
+  return toolID === "skill" || toolID === "Report" || toolID === "Blackboard" || toolID === "Blackboard.reply" || toolID.startsWith("Candidate.")
+}
+
+function isForbiddenSubagentTool(toolID: string) {
+  return SUBAGENT_FORBIDDEN_TOOL_IDS.has(toolID) || toolID.startsWith("Plan.") || toolID.startsWith("Dispatch.")
+}
+
+function isSelectableSubagentTool(toolID: string) {
+  return SUBAGENT_SELECTABLE_TOOL_IDS.includes(toolID) || (!isFixedSubagentTool(toolID) && !isForbiddenSubagentTool(toolID))
+}
 
 const defaultDraft: SubagentProfile = {
   id: "",
@@ -40,6 +65,7 @@ function draftFromProfile(profile: SubagentProfileView): SubagentProfile {
     avatar: profile.avatar,
     ...(profile.model ? { model: profile.model } : {}),
     ...(profile.variant ? { variant: profile.variant } : {}),
+    ...(profile.tools !== undefined ? { tools: [...profile.tools] } : {}),
     enabled: profile.enabled,
   }
 }
@@ -65,6 +91,7 @@ function modelOptions(value: string | undefined, models: readonly CatalogModel[]
 
 export type SubagentProfilesPanelViewProps = {
   profiles: readonly SubagentProfileView[]
+  toolIDs?: readonly string[]
   models?: readonly CatalogModel[]
   loading?: boolean
   error?: string
@@ -93,7 +120,22 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
   const enabledFor = (profile: SubagentProfileView) => switchOverrides()[profile.id] ?? profile.enabled
   const enabledCount = () => props.profiles.filter((profile) => enabledFor(profile)).length
   const availableModels = () => modelOptions(draft().model, props.models ?? [])
+  const availableToolIDs = createMemo(() => [...(props.toolIDs ?? [])].sort())
+  const selectableToolIDs = createMemo(() => availableToolIDs().filter(isSelectableSubagentTool))
+  const selectedToolCount = () => selectableToolIDs().filter((toolID) => toolEnabled(toolID)).length
   const updateDraft = (patch: Partial<SubagentProfile>) => setDraft((current) => ({ ...current, ...patch }))
+
+  function toolEnabled(toolID: string) {
+    const configured = draft().tools
+    return configured === undefined || configured.includes(toolID)
+  }
+
+  function setToolEnabled(toolID: string, enabled: boolean) {
+    const configured = new Set<string>(draft().tools ?? selectableToolIDs())
+    if (enabled) configured.add(toolID)
+    else configured.delete(toolID)
+    updateDraft({ tools: [...configured] })
+  }
 
   function resetEditor() {
     setCreating(false)
@@ -278,7 +320,7 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
 
       <Dialog
         open={dialogOpen()}
-        title={creating() ? tr("subagents.new") : tr("subagents.edit")}
+        title={draft().name || tr("subagents.untitled")}
         showClose
         onClose={closeEditor}
         class="subagent-profile-dialog"
@@ -286,7 +328,6 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
         <form class="subagent-profile-editor" aria-label={tr("subagents.editor")} onSubmit={save}>
           <div class="subagent-profile-editor__title">
             <div>
-              <p class="subagent-profiles-panel__eyebrow">{creating() ? tr("subagents.new") : tr("subagents.edit")}</p>
               <h3>{draft().name || tr("subagents.untitled")}</h3>
             </div>
             <label class="subagent-profile-editor__toggle">
@@ -382,6 +423,31 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
               </For>
             </div>
           </fieldset>
+          <fieldset class="subagent-profile-editor__tools">
+            <legend>{tr("subagents.tools")}</legend>
+            <p>{tr("subagents.tools-hint")}</p>
+            <Show when={props.toolIDs !== undefined} fallback={<p>{tr("subagents.tools-loading")}</p>}>
+              <p class="subagent-profile-editor__tools-count">
+                {tr("subagents.tools-count", { count: selectedToolCount(), total: selectableToolIDs().length })}
+              </p>
+              <p class="subagent-profile-editor__tools-section-title">{tr("subagents.tools-configurable")}</p>
+              <div class="subagent-profile-editor__tool-list" aria-label={tr("subagents.tools-configurable")}>
+                <For each={selectableToolIDs()}>
+                  {(toolID) => (
+                    <label class="subagent-tool-choice">
+                      <input
+                        type="checkbox"
+                        aria-label={toolID}
+                        checked={toolEnabled(toolID)}
+                        onChange={(event) => setToolEnabled(toolID, event.currentTarget.checked)}
+                      />
+                      <span>{toolID}</span>
+                    </label>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </fieldset>
           <Show when={editingProfile()}>
             {(profile) => (
               <section class="subagent-profile-skills" aria-label={tr("subagents.skills")}>
@@ -457,6 +523,13 @@ export function SubagentProfilesPanel(props: { directory: string; models?: reado
     }),
     data.queryClient,
   )
+  const toolQuery = createQuery(
+    () => ({
+      ...subagentToolIDsQueryOptions({ client: data.client(), directory: props.directory }),
+      enabled: data.connection() === "connected",
+    }),
+    data.queryClient,
+  )
 
   const save = async (profiles: readonly SubagentProfile[]) => {
     await updateSubagentProfiles({ client: data.client(), directory: props.directory, profiles })
@@ -474,6 +547,7 @@ export function SubagentProfilesPanel(props: { directory: string; models?: reado
   return (
     <SubagentProfilesPanelView
       profiles={query.data ?? []}
+      toolIDs={toolQuery.data}
       models={props.models}
       loading={query.isPending}
       error={query.error ? errorText(query.error) : undefined}

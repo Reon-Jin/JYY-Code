@@ -12,6 +12,8 @@ import { Effect, Record } from "effect"
 import { jsonSchema, tool as aiTool, type ModelMessage, type Tool } from "ai"
 import type { Plugin } from "@/plugin"
 import { mergeDeep } from "remeda"
+import type { ToolChoice } from "./tool-choice"
+import { isForcedToolChoice } from "./tool-choice"
 
 const USER_AGENT = `jyycode/${InstallationVersion}`
 
@@ -31,7 +33,7 @@ type PrepareInput = {
   readonly plugin: Plugin.Interface
   readonly flags: RuntimeFlags.Info
   readonly isWorkflow: boolean
-  readonly toolChoice?: "auto" | "required" | "none"
+  readonly toolChoice?: ToolChoice
 }
 
 export type Prepared = {
@@ -94,7 +96,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
   // gate turns intentionally force a tool, so switch only those turns to the
   // provider's non-thinking mode instead of failing the assistant request.
   if (
-    input.toolChoice === "required" &&
+    isForcedToolChoice(input.toolChoice) &&
     input.model.providerID === "deepseek" &&
     input.model.api.id.includes("deepseek-v4")
   ) {

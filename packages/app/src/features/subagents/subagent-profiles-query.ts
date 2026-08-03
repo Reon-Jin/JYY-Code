@@ -3,7 +3,7 @@ import type { SubagentProfile, SubagentProfileView } from "@jyycode-ai/sdk/v2/cl
 import type { DesktopClient } from "../../data/sdk"
 import { keys } from "../../data/query-keys"
 
-type SubagentClient = Pick<DesktopClient, "subagents">
+type SubagentClient = Pick<DesktopClient, "subagents" | "tool">
 
 export type SubagentProfilesQueryInput = {
   client: SubagentClient
@@ -20,10 +20,22 @@ export async function loadSubagentProfiles(input: SubagentProfilesQueryInput): P
   return response.data ?? []
 }
 
+export async function loadSubagentToolIDs(input: SubagentProfilesQueryInput): Promise<string[]> {
+  const response = await input.client.tool.ids({ directory: input.directory }, options(input.signal))
+  return response.data ?? []
+}
+
 export function subagentProfilesQueryOptions(input: SubagentProfilesQueryInput) {
   return {
     queryKey: keys.subagents(input.directory),
     queryFn: ({ signal }: { signal: AbortSignal }) => loadSubagentProfiles({ ...input, signal }),
+  } as const
+}
+
+export function subagentToolIDsQueryOptions(input: SubagentProfilesQueryInput) {
+  return {
+    queryKey: keys.subagentTools(input.directory),
+    queryFn: ({ signal }: { signal: AbortSignal }) => loadSubagentToolIDs({ ...input, signal }),
   } as const
 }
 

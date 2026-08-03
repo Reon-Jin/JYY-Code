@@ -36,6 +36,12 @@
   justify-content: flex-start;
   border: 1px solid var(--color-border-strong);
   padding: var(--space-4);
+  box-shadow: var(--shadow-xs);
+}
+
+.welcome-action.ui-button:hover:not(:disabled) {
+  border-color: var(--color-accent-border);
+  box-shadow: var(--shadow-md);
 }
 
 .welcome-action svg {
@@ -85,6 +91,16 @@
   border-radius: var(--radius-md);
   background: var(--color-panel);
   overflow: hidden;
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
+}
+
+.recent-projects__item:hover {
+  border-color: var(--color-accent-border);
+  box-shadow: var(--shadow-sm);
 }
 
 .recent-projects__item:last-child {
@@ -150,6 +166,9 @@
   align-self: center;
   margin-right: var(--space-1);
   opacity: 0;
+  transition:
+    opacity var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out);
 }
 
 .recent-projects__item:hover .recent-projects__remove,
@@ -221,6 +240,14 @@
   padding: var(--space-3);
   background: var(--color-surface);
   cursor: pointer;
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.project-checkbox:hover {
+  border-color: var(--color-accent-border);
+  box-shadow: var(--shadow-xs);
 }
 
 .project-checkbox input {

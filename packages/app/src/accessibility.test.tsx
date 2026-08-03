@@ -145,10 +145,10 @@ describe("desktop accessibility contract", () => {
     await user.keyboard("{Enter}")
     expect(await screen.findByRole("heading", { name: "设置" })).toBeVisible()
 
-    const light = await screen.findByRole("radio", { name: "浅色" })
-    light.focus()
+    const startup = await screen.findByRole("radio", { name: "启动时显示 Home" })
+    startup.focus()
     await user.keyboard(" ")
-    expect(light).toBeChecked()
+    expect(startup).toBeChecked()
 
     const security = screen.getByRole("link", { name: "权限与安全" })
     security.focus()

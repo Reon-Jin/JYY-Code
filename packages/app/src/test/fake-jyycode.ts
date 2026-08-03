@@ -421,6 +421,9 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     }
     if (url.pathname === "/config") return json({ default_agent: "build", model: "test/test-model" })
     if (url.pathname === "/path") return json({ home: "C:\\Users\\test", state: "state", config: "C:\\config" })
+    if (url.pathname === "/experimental/tool/ids" && request.method === "GET") {
+      return json(["edit", "read", "shell", "skill", "write"])
+    }
 
     if (url.pathname === "/subagents" && request.method === "GET") return json(subagentProfiles)
     if (url.pathname === "/subagents" && request.method === "PUT") {

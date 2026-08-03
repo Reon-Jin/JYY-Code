@@ -22,8 +22,49 @@ import { ToolTelemetry } from "@/tool/telemetry"
 import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
 import { Skill } from "@/skill"
 import { planFilePath, readPlanFileSync, type CandidateDiscussionPhase } from "@/plan/schema"
+import {
+  isSubagentCandidateToolID,
+  isSubagentForbiddenToolID,
+  isSubagentFixedToolID,
+  normalizeSubagentSelectableToolIDs,
+  SUBAGENT_CANDIDATE_TOOL_IDS,
+  SUBAGENT_FIXED_TOOL_IDS,
+} from "@/agent/subagent-tool-policy"
 
 const log = Log.create({ service: "session.tools" })
+
+/**
+ * These tools mutate the persisted protocol state that determines the next
+ * model-visible tool catalog. The AI SDK executes a batch of tool calls with
+ * Promise.all, so protocol mutations must be serialized and stale mutations
+ * after the first successful one must be skipped rather than executed against
+ * an old snapshot.
+ */
+const PROTOCOL_MUTATION_TOOL_IDS = new Set([
+  "Blackboard",
+  "Blackboard.reply",
+  "Plan.create",
+  "Plan.update",
+  "Dispatch.dispatch",
+  "Dispatch.cancel",
+  "Candidate.declare",
+  "Candidate.ready",
+  "Candidate.begin",
+  "Candidate.submit",
+  "Report",
+])
+
+function skippedAfterProtocolMutation(toolID: string) {
+  return {
+    title: "Skipped stale protocol call",
+    metadata: {
+      skipped: true,
+      protocolStateChanged: true,
+      tool: toolID,
+    },
+    output: `${toolID} was skipped because another protocol tool changed the task state. The next model turn will use a refreshed tool catalog.`,
+  }
+}
 
 /**
  * OpenAI-compatible providers reject dots in function names. Keep the
@@ -44,20 +85,59 @@ export function retainOnlyTool(tools: Record<string, AITool>, requiredTool: stri
 }
 
 /**
- * Keep a mandatory plan action while allowing the main agent to refresh its
- * state after a rejected update or dispatch. Blackboard controls are kept in
- * the same tool snapshot: an Agent can post while an update is executing, and
- * models commonly read/reply before ending that response. Hiding the controls
- * until the next model turn turned those valid follow-up calls into unknown
- * tool failures.
+ * Keep a mandatory plan action plus the small recovery surface needed by
+ * providers that ignore a named tool choice or replay a batched call. The
+ * prompt layer still sends an exact tool choice, so these helpers cannot turn
+ * a cancel/recovery action into an endless alternative-tool loop.
  */
 export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredTool: string) {
+  if (requiredTool === "Plan_read") {
+    const required = tools.Plan_read
+    if (!required) throw new Error("Required tool is unavailable: Plan_read")
+    // Keep explicit cancellation available in the preflight snapshot. A
+    // provider may batch the user's stop request behind the mandatory read;
+    // hiding it turns that valid request into an unknown-tool failure.
+    const allowed = new Set([
+      "Plan_read",
+      "Dispatch_cancel",
+      "Dispatch_dispatch",
+      "Blackboard",
+      "Blackboard_Reply",
+      "Dispatch_roles",
+    ])
+    for (const name of Object.keys(tools)) {
+      if (!allowed.has(name)) delete tools[name]
+    }
+    return
+  }
+  if (requiredTool === "Plan_create") {
+    const required = tools.Plan_create
+    if (!required) throw new Error("Required tool is unavailable: Plan_create")
+    // A model can emit these harmless preflight calls after Plan_read before
+    // it commits the first plan write. Keep them visible so a stale or
+    // batched call becomes a real successful protocol call instead of an
+    // AI-SDK unknown-tool failure.
+    const allowed = new Set([
+      "Plan_create",
+      "Plan_read",
+      "Dispatch_roles",
+      "Dispatch_cancel",
+      "Plan_update",
+      "Dispatch_dispatch",
+      "Blackboard",
+      "Blackboard_Reply",
+    ])
+    for (const name of Object.keys(tools)) {
+      if (!allowed.has(name)) delete tools[name]
+    }
+    return
+  }
   if (requiredTool === "Plan_update" || requiredTool === "Dispatch_dispatch") {
     const read = tools.Plan_read
     const required = tools[requiredTool]
     if (!required) throw new Error(`Required tool is unavailable: ${requiredTool}`)
     if (!read) throw new Error("Plan_read is unavailable for plan recovery")
-    const allowed = new Set([requiredTool, "Plan_read", "Blackboard", "Blackboard_Reply"])
+    const allowed = new Set([requiredTool, "Plan_read", "Blackboard", "Blackboard_Reply", "Dispatch_roles", "Dispatch_cancel"])
     for (const name of Object.keys(tools)) {
       if (!allowed.has(name)) delete tools[name]
     }
@@ -120,7 +200,90 @@ export function isPlanToolVisible(itemID: string, session: Pick<Session.Info, "p
   return !itemID.startsWith("Dispatch.") && itemID !== "Report" && itemID !== "Blackboard" && itemID !== "Blackboard.reply"
 }
 
-const CANDIDATE_RUNNING_TOOL_IDS = new Set(["read", "glob", "grep", "webfetch", "websearch", "Candidate.submit"])
+/** Return the explicit allowlist carried by a profile-backed subagent. */
+export function subagentToolIDs(agent: Pick<Agent.Info, "mode" | "options">): ReadonlySet<string> | undefined {
+  if (agent.mode !== "subagent") return undefined
+  const value = agent.options.subagentToolIDs
+  if (!Array.isArray(value) || !value.every((item): item is string => typeof item === "string")) return undefined
+  return new Set(value)
+}
+
+/**
+ * Build the safe role surface before applying a phase-specific protocol gate.
+ * Omitted profile settings retain all currently registered non-system tools,
+ * but never restore forbidden tools. Protocol tools are added by the runtime.
+ */
+export function subagentRoleToolIDs(
+  agent: Pick<Agent.Info, "mode" | "options">,
+  session: Pick<Session.Info, "parentID">,
+  candidateGate?: Pick<CandidateToolGateState, "allowedToolIDs">,
+) {
+  if (agent.mode !== "subagent") return undefined
+  const configured = subagentToolIDs(agent)
+  const allowed = configured ? normalizeSubagentSelectableToolIDs([...configured]) : undefined
+  if (!allowed) return undefined
+  if (session.parentID !== undefined) {
+    for (const id of SUBAGENT_FIXED_TOOL_IDS) allowed.add(id)
+  }
+  if (candidateGate) {
+    for (const id of SUBAGENT_CANDIDATE_TOOL_IDS) {
+      if (candidateGate.allowedToolIDs.has(id)) allowed.add(id)
+    }
+  }
+  return allowed
+}
+
+export function isSubagentToolVisible(
+  id: string,
+  allowedToolIDs: ReadonlySet<string> | undefined,
+  candidateGate: Pick<CandidateToolGateState, "allowedToolIDs" | "phase"> | undefined,
+) {
+  if (allowedToolIDs) {
+    if (!candidateGate) return allowedToolIDs.has(id)
+    return (
+      allowedToolIDs.has(id) &&
+      (candidateGate.allowedToolIDs.has(id) ||
+        (candidateGate.phase === "running" && !isSubagentFixedToolID(id) && !isSubagentForbiddenToolID(id)))
+    )
+  }
+  if (candidateGate) {
+    return (
+      candidateGate.allowedToolIDs.has(id) ||
+      (candidateGate.phase === "running" && !isSubagentFixedToolID(id) && !isSubagentForbiddenToolID(id) && !isSubagentCandidateToolID(id))
+    )
+  }
+  return !isSubagentForbiddenToolID(id) && !isSubagentCandidateToolID(id)
+}
+
+function candidatePhaseToolIDs(
+  candidateGate: CandidateToolGateState | undefined,
+  roleToolIDs: ReadonlySet<string> | undefined,
+) {
+  if (!candidateGate || candidateGate.phase !== "running") return candidateGate?.allowedToolIDs
+  if (!roleToolIDs) return undefined
+  const allowed = new Set(candidateGate.allowedToolIDs)
+  for (const id of roleToolIDs) {
+    if (!isSubagentFixedToolID(id) && !isSubagentForbiddenToolID(id)) allowed.add(id)
+  }
+  return allowed
+}
+
+/** Intersect an optional role allowlist with a phase-specific protocol allowlist. */
+export function intersectToolIDs(
+  roleToolIDs: ReadonlySet<string> | undefined,
+  phaseToolIDs: ReadonlySet<string> | undefined,
+): ReadonlySet<string> | undefined {
+  if (!roleToolIDs) return phaseToolIDs
+  if (!phaseToolIDs) return roleToolIDs
+  return new Set([...roleToolIDs].filter((id) => phaseToolIDs.has(id)))
+}
+
+/** Filter model-visible definitions without allowing synthetic catalog tools to bypass a role allowlist. */
+export function filterToolIDs<T extends { id: string }>(items: readonly T[], allowedToolIDs: ReadonlySet<string> | undefined) {
+  return allowedToolIDs ? items.filter((item) => allowedToolIDs.has(item.id)) : [...items]
+}
+
+const CANDIDATE_RUNNING_TOOL_IDS = new Set(["read", "glob", "grep", "webfetch", "websearch", "skill", "Candidate.submit"])
 
 export type CandidateToolGateState = {
   stepID: string
@@ -173,6 +336,8 @@ export function requiredPlanTool(input: {
   if (input.step === 1) return "Plan_read"
   if (input.multiAgent && input.planExists === false) return "Plan_create"
   if (input.multiAgent) {
+    const currentStep = input.plan?.current_step ? input.plan.steps.find((step) => step.id === input.plan?.current_step) : undefined
+    if (currentStep && currentStep.tasks.length === 0) return "Plan_update"
     const pending = pendingDispatchTasks(input.plan)
     if (pending.length > 0)
       return pending.every((task) => task.done_criteria.trim() && task.output_path?.trim())
@@ -196,7 +361,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   agent: Agent.Info
   model: Provider.Model
   session: Session.Info
-  processor: Pick<SessionProcessor.Handle, "message" | "updateToolCall" | "completeToolCall">
+  processor: Pick<
+    SessionProcessor.Handle,
+    "message" | "updateToolCall" | "completeToolCall" | "requestToolCatalogRefresh" | "toolCatalogRefreshRequested"
+  >
   bypassAgentCheck: boolean
   messages: MessageV2.WithParts[]
   promptOps: TaskPromptOps
@@ -222,6 +390,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
       bypassAgentCheck: input.bypassAgentCheck,
       promptOps: input.promptOps,
       ...(input.promptOps.agentRunID ? { agentRunID: input.promptOps.agentRunID } : {}),
+      requestToolCatalogRefresh: () => input.processor.requestToolCatalogRefresh?.(),
+      toolCatalogRefreshRequested: () => input.processor.toolCatalogRefreshRequested?.() === true,
     },
     agent: input.agent.name,
     messages: input.messages,
@@ -250,6 +420,11 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
         .pipe(Effect.orDie),
   })
 
+  // AI SDK executes all tool calls from one assistant response in parallel.
+  // Serializing protocol mutations gives the first successful mutation a
+  // chance to invalidate the stale calls queued behind it.
+  let protocolMutationTail: Promise<unknown> = Promise.resolve()
+
   const addToolDef = (item: Tool.Def) => {
     const modelToolName = toolNameForModel(item.id)
     const schema = ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
@@ -258,86 +433,109 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
       description: item.description,
       inputSchema: jsonSchema(schema),
       execute(args, options) {
-        return run.promise(
-          Effect.gen(function* () {
-            const ctx = context(args, options)
-            const started = Date.now()
-            return yield* Effect.gen(function* () {
-              yield* plugin.trigger(
-                "tool.execute.before",
-                { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
-                { args },
-              )
-              const result = yield* item.execute(args, ctx)
-              const output = {
-                ...result,
-                attachments: result.attachments?.map((attachment) => ({
-                  ...attachment,
-                  id: PartID.ascending(),
-                  sessionID: ctx.sessionID,
-                  messageID: input.processor.message.id,
-                })),
+        const executeTool = () =>
+          run.promise(
+            Effect.gen(function* () {
+              const ctx = context(args, options)
+              const started = Date.now()
+              const refreshRequested = ctx.extra?.toolCatalogRefreshRequested
+              if (typeof refreshRequested === "function" && refreshRequested()) {
+                return skippedAfterProtocolMutation(item.id)
               }
-              yield* plugin.trigger(
-                "tool.execute.after",
-                { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
-                output,
+              return yield* Effect.gen(function* () {
+                yield* plugin.trigger(
+                  "tool.execute.before",
+                  { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
+                  { args },
+                )
+                const result = yield* item.execute(args, ctx)
+                const output = {
+                  ...result,
+                  attachments: result.attachments?.map((attachment) => ({
+                    ...attachment,
+                    id: PartID.ascending(),
+                    sessionID: ctx.sessionID,
+                    messageID: input.processor.message.id,
+                  })),
+                }
+                yield* plugin.trigger(
+                  "tool.execute.after",
+                  { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
+                  output,
+                )
+                if (options.abortSignal?.aborted) {
+                  yield* input.processor.completeToolCall(options.toolCallId, output)
+                }
+                return output
+              }).pipe(
+                Effect.matchCauseEffect({
+                  onSuccess: (output) =>
+                    ToolTelemetry.executionCompleted(bus, {
+                      sessionID: ctx.sessionID,
+                      messageID: ctx.messageID,
+                      callID: ctx.callID,
+                      tool: item.id,
+                      success: true,
+                      status: "success",
+                      durationMs: Date.now() - started,
+                      delegatedTool:
+                        typeof output.metadata.delegatedTool === "string" ? output.metadata.delegatedTool : undefined,
+                    }).pipe(Effect.as(output)),
+                  onFailure: (cause) => {
+                    const failure = ToolTelemetry.executionFailure(cause)
+                    return ToolTelemetry.executionCompleted(bus, {
+                      sessionID: ctx.sessionID,
+                      messageID: ctx.messageID,
+                      callID: ctx.callID,
+                      tool: item.id,
+                      success: false,
+                      status: failure.status,
+                      durationMs: Date.now() - started,
+                      error: failure.error,
+                    }).pipe(Effect.andThen(Effect.failCause(cause)))
+                  },
+                }),
               )
-              if (options.abortSignal?.aborted) {
-                yield* input.processor.completeToolCall(options.toolCallId, output)
-              }
-              return output
-            }).pipe(
-              Effect.matchCauseEffect({
-                onSuccess: (output) =>
-                  ToolTelemetry.executionCompleted(bus, {
-                    sessionID: ctx.sessionID,
-                    messageID: ctx.messageID,
-                    callID: ctx.callID,
-                    tool: item.id,
-                    success: true,
-                    status: "success",
-                    durationMs: Date.now() - started,
-                    delegatedTool:
-                      typeof output.metadata.delegatedTool === "string" ? output.metadata.delegatedTool : undefined,
-                  }).pipe(Effect.as(output)),
-                onFailure: (cause) => {
-                  const failure = ToolTelemetry.executionFailure(cause)
-                  return ToolTelemetry.executionCompleted(bus, {
-                    sessionID: ctx.sessionID,
-                    messageID: ctx.messageID,
-                    callID: ctx.callID,
-                    tool: item.id,
-                    success: false,
-                    status: failure.status,
-                    durationMs: Date.now() - started,
-                    error: failure.error,
-                  }).pipe(Effect.andThen(Effect.failCause(cause)))
-                },
-              }),
-            )
-          }),
+            }),
+          )
+
+        if (!PROTOCOL_MUTATION_TOOL_IDS.has(item.id)) return executeTool()
+
+        const current = protocolMutationTail.then(() => {
+          if (input.processor.toolCatalogRefreshRequested?.()) return skippedAfterProtocolMutation(item.id)
+          return executeTool()
+        })
+        protocolMutationTail = current.then(
+          () => undefined,
+          () => undefined,
         )
+        return current
       },
     })
   }
 
   const candidateGate = candidateToolGateState(input.session)
+  const roleToolIDs = subagentRoleToolIDs(input.agent, input.session, candidateGate)
+  const allowedToolIDs = intersectToolIDs(roleToolIDs, candidatePhaseToolIDs(candidateGate, roleToolIDs))
   const registryDefs = yield* registry.tools({
     modelID: ModelID.make(input.model.api.id),
     providerID: input.model.providerID,
     agent: input.agent,
     skillScope: Skill.scopeForSession(input.session, input.agent),
     includeMemory: input.session.parentID === undefined,
-    ...(candidateGate ? { toolIDs: candidateGate.allowedToolIDs } : {}),
+    ...(allowedToolIDs ? { toolIDs: allowedToolIDs } : {}),
   })
-  const mcpDefs = candidateGate ? [] : yield* mcp.toolDefs()
-  const visibleRegistryDefs = registryDefs.filter((item) => {
+  const mcpDefs = candidateGate && candidateGate.phase !== "running" ? [] : yield* mcp.toolDefs()
+  const visibleRegistryDefs = filterToolIDs(registryDefs, allowedToolIDs).filter((item) => {
+    if (input.agent.mode === "subagent" && !isSubagentToolVisible(item.id, allowedToolIDs, candidateGate)) return false
     if (candidateGate) return item.id !== "tool_search" || candidateGate.phase === "running"
     if (!PLAN_TOOL_IDS.has(item.id)) return true
     return isPlanToolVisible(item.id, input.session)
   })
-  for (const item of [...visibleRegistryDefs, ...mcpDefs]) {
+  const visibleMcpDefs = filterToolIDs(mcpDefs, allowedToolIDs).filter(
+    (item) => input.agent.mode !== "subagent" || isSubagentToolVisible(item.id, allowedToolIDs, candidateGate),
+  )
+  for (const item of [...visibleRegistryDefs, ...visibleMcpDefs]) {
     addToolDef(item)
   }
 

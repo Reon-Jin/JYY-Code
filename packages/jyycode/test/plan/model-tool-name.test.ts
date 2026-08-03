@@ -5,12 +5,17 @@ import path from "node:path"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import {
   candidateToolGateState,
+  filterToolIDs,
   hasInFlightPlanTasks,
+  intersectToolIDs,
   isPlanToolVisible,
+  isSubagentToolVisible,
   requiredPlanTool,
   retainRequiredPlanTools,
   retainOnlyTool,
   shouldWaitForPlanReport,
+  subagentRoleToolIDs,
+  subagentToolIDs,
   toolNameForModel,
 } from "../../src/session/tools"
 import {
@@ -30,8 +35,10 @@ describe("model-facing plan tool names", () => {
     expect(modelFacingPlanToolName("Plan.read")).toBe("Plan_read")
     expect(modelFacingPlanToolName("Candidate.submit")).toBe("Candidate_submit")
     expect(modelFacingPlanToolName("Blackboard.reply")).toBe("Blackboard_Reply")
+    expect(modelFacingPlanToolName("Dispatch.roles")).toBe("Dispatch_roles")
     expect(toolNameForModel("Plan.read")).toBe("Plan_read")
     expect(toolNameForModel("Dispatch.dispatch")).toBe("Dispatch_dispatch")
+    expect(toolNameForModel("Dispatch.roles")).toBe("Dispatch_roles")
     expect(toolNameForModel("Report")).toBe("Report")
     expect(toolNameForModel("read")).toBe("read")
     expect(toolNameForModel("Blackboard")).toBe("Blackboard")
@@ -41,6 +48,7 @@ describe("model-facing plan tool names", () => {
   it("exposes one context-free Blackboard tool with only optional write fields", () => {
     expect(PLAN_TOOL_IDS.has("Blackboard")).toBe(true)
     expect(PLAN_TOOL_IDS.has("Blackboard.reply")).toBe(true)
+    expect(PLAN_TOOL_IDS.has("Dispatch.roles")).toBe(true)
     expect(BLACKBOARD_INPUT_SCHEMA.required).toBeUndefined()
     expect(Object.keys(BLACKBOARD_INPUT_SCHEMA.properties!)).toEqual([
       "message",
@@ -124,7 +132,7 @@ describe("model-facing plan tool names", () => {
     })
     expect(gate?.phase).toBe("running")
     expect([...gate!.allowedToolIDs]).toEqual(
-      expect.arrayContaining(["read", "glob", "grep", "webfetch", "websearch", "Candidate.submit"]),
+      expect.arrayContaining(["read", "glob", "grep", "webfetch", "websearch", "skill", "Candidate.submit"]),
     )
     expect(gate!.allowedToolIDs.has("shell")).toBe(false)
     expect(gate!.allowedToolIDs.has("Report")).toBe(false)
@@ -141,6 +149,48 @@ describe("model-facing plan tool names", () => {
     fs.rmSync(workspace, { recursive: true, force: true })
   })
 
+  it("enforces profile tool allowlists before phase-specific visibility", () => {
+    const role = {
+      mode: "subagent",
+      options: { subagentToolIDs: ["read", "bash", "plugin_custom", "Candidate.submit"] },
+    } as never
+    const allowlist = subagentToolIDs(role)
+    expect(allowlist).toEqual(new Set(["read", "bash", "plugin_custom", "Candidate.submit"]))
+    expect(intersectToolIDs(allowlist, new Set(["read", "Candidate.submit"]))).toEqual(
+      new Set(["read", "Candidate.submit"]),
+    )
+    expect(filterToolIDs([{ id: "read" }, { id: "shell" }, { id: "tool_search" }], new Set(["read"]))).toEqual([
+      { id: "read" },
+    ])
+    expect(filterToolIDs([{ id: "read" }], new Set())).toEqual([])
+    expect(subagentToolIDs({ mode: "primary", options: {} } as never)).toBeUndefined()
+    expect(subagentToolIDs({ mode: "subagent", options: {} } as never)).toBeUndefined()
+    const roleToolIDs = subagentRoleToolIDs(role, { parentID: "parent" as never }, { allowedToolIDs: new Set(["read", "Candidate.submit"]) })
+    expect(roleToolIDs).toEqual(new Set(["read", "plugin_custom", "skill", "Report", "Blackboard", "Blackboard.reply", "Candidate.submit"])
+    )
+    expect(intersectToolIDs(roleToolIDs, new Set(["read", "Candidate.submit"]))).toEqual(new Set(["read", "Candidate.submit"]))
+    // Omitted settings are represented by an undefined gate so the runtime
+    // can include currently connected plugin and MCP tools, then remove the
+    // reserved system IDs in the catalog filter.
+    expect(subagentRoleToolIDs({ mode: "subagent", options: {} } as never, { parentID: "parent" as never })).toBeUndefined()
+    expect(isSubagentToolVisible("plugin_custom", undefined, undefined)).toBe(true)
+    expect(isSubagentToolVisible("memory", undefined, undefined)).toBe(false)
+    expect(isSubagentToolVisible("Plan.read", undefined, undefined)).toBe(false)
+    expect(isSubagentToolVisible("Candidate.submit", undefined, undefined)).toBe(false)
+    expect(
+      isSubagentToolVisible("Candidate.submit", undefined, {
+        phase: "running",
+        allowedToolIDs: new Set(["Candidate.submit"]),
+      }),
+    ).toBe(true)
+    expect(
+      isSubagentToolVisible("plugin_custom", undefined, {
+        phase: "running",
+        allowedToolIDs: new Set(["read"]),
+      }),
+    ).toBe(true)
+  })
+
   it("forces Plan_read to be the only first-step tool", () => {
     const tools = {
       Plan_read: {} as never,
@@ -154,16 +204,48 @@ describe("model-facing plan tool names", () => {
   })
 
   it("keeps Plan_read available to recover a rejected update or dispatch", () => {
+    const createTools = {
+      Plan_read: {} as never,
+      Plan_create: {} as never,
+      Dispatch_roles: {} as never,
+      Dispatch_dispatch: {} as never,
+      Dispatch_cancel: {} as never,
+      Plan_update: {} as never,
+      Blackboard: {} as never,
+      Blackboard_Reply: {} as never,
+      bash: {} as never,
+    }
+    retainRequiredPlanTools(createTools, "Plan_create")
+    expect(Object.keys(createTools)).toEqual([
+      "Plan_read",
+      "Plan_create",
+      "Dispatch_roles",
+      "Dispatch_dispatch",
+      "Dispatch_cancel",
+      "Plan_update",
+      "Blackboard",
+      "Blackboard_Reply",
+    ])
+
     const updateTools = {
       Plan_read: {} as never,
       Plan_update: {} as never,
       Dispatch_dispatch: {} as never,
       Blackboard: {} as never,
       Blackboard_Reply: {} as never,
+      Dispatch_roles: {} as never,
+      Dispatch_cancel: {} as never,
       bash: {} as never,
     }
     retainRequiredPlanTools(updateTools, "Plan_update")
-    expect(Object.keys(updateTools)).toEqual(["Plan_read", "Plan_update", "Blackboard", "Blackboard_Reply"])
+    expect(Object.keys(updateTools)).toEqual([
+      "Plan_read",
+      "Plan_update",
+      "Blackboard",
+      "Blackboard_Reply",
+      "Dispatch_roles",
+      "Dispatch_cancel",
+    ])
 
     const dispatchTools = {
       Plan_read: {} as never,
@@ -171,10 +253,19 @@ describe("model-facing plan tool names", () => {
       Dispatch_dispatch: {} as never,
       Blackboard: {} as never,
       Blackboard_Reply: {} as never,
+      Dispatch_roles: {} as never,
+      Dispatch_cancel: {} as never,
       bash: {} as never,
     }
     retainRequiredPlanTools(dispatchTools, "Dispatch_dispatch")
-    expect(Object.keys(dispatchTools)).toEqual(["Plan_read", "Dispatch_dispatch", "Blackboard", "Blackboard_Reply"])
+    expect(Object.keys(dispatchTools)).toEqual([
+      "Plan_read",
+      "Dispatch_dispatch",
+      "Blackboard",
+      "Blackboard_Reply",
+      "Dispatch_roles",
+      "Dispatch_cancel",
+    ])
 
     const blackboardTools = {
       Plan_read: {} as never,
@@ -231,6 +322,21 @@ describe("model-facing plan tool names", () => {
         },
       }),
     ).toBe("Plan_update")
+    expect(
+      requiredPlanTool({
+        root: true,
+        multiAgent: true,
+        step: 3,
+        planExists: true,
+        plan: {
+          current_step: "s2",
+          steps: [
+            { id: "s1", tasks: [{ id: "s1_t1", status: "approved", done_criteria: "done", output_path: "s1.md" }] },
+            { id: "s2", tasks: [] },
+          ],
+        },
+      }),
+    ).toBe("Plan_update")
     expect(requiredPlanTool({ root: true, multiAgent: false, step: 2, planExists: false })).toBeUndefined()
     expect(requiredPlanTool({ root: false, multiAgent: true, step: 1, planExists: false })).toBeUndefined()
   })
@@ -270,7 +376,7 @@ describe("model-facing plan tool names", () => {
     expect(DISPATCH_INPUT_SCHEMA.properties?.role).toMatchObject({ type: "string", minLength: 1 })
     expect(DISPATCH_INPUT_SCHEMA.properties?.taskIds).toMatchObject({ description: expect.stringContaining("every candidate Task ID") })
     const createSteps = PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { items?: unknown }
-    expect((PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { description?: string }).description).toContain("one complete 2-3 Task")
+    expect((PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { description?: string }).description).toContain("one complete 2-3 candidate Task group")
     expect(createSteps.items).toMatchObject({
       required: ["title", "goal", "done_criteria"],
       properties: { tasks: { items: { required: ["title", "goal", "done_criteria"] } } },

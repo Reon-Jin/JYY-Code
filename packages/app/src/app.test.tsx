@@ -17,7 +17,6 @@ function bridgeWith(bootstrap: DesktopBridge["bootstrap"]): DesktopBridge {
     saveLastLocation: vi.fn(),
     loadSettings: vi.fn(async () => defaultDesktopSettings),
     saveSettings: vi.fn(),
-    setWindowGlass: vi.fn(),
     requestNotificationPermission: vi.fn(),
     sendNotification: vi.fn(),
     checkForUpdate: vi.fn(),

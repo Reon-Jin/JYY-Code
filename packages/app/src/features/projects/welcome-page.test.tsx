@@ -51,7 +51,6 @@ function createHarness(options?: {
     saveLastLocation: vi.fn(async () => undefined),
     loadSettings: vi.fn(async () => defaultDesktopSettings),
     saveSettings: vi.fn(async () => undefined),
-    setWindowGlass: vi.fn(),
     requestNotificationPermission: vi.fn(),
     sendNotification: vi.fn(),
     checkForUpdate: vi.fn(),

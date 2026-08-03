@@ -62,7 +62,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
 
     const toolIDs = Effect.fn("ExperimentalHttpApi.toolIDs")(function* () {
       const mcpDefs = yield* mcp.toolDefs()
-      return [...(yield* registry.ids()), ...mcpDefs.map((tool) => tool.id)].toSorted()
+      return [...new Set(["tool_search", ...(yield* registry.ids()), ...mcpDefs.map((tool) => tool.id)])].toSorted()
     })
 
     const worktree = Effect.fn("ExperimentalHttpApi.worktree")(function* () {

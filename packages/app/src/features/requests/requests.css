@@ -4,12 +4,13 @@
   max-height: min(40vh, 360px);
   gap: var(--space-2);
   margin: 0 auto var(--space-2);
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   padding: var(--space-3);
   overflow-y: auto;
   background: var(--color-panel);
-  box-shadow: 0 -8px 28px rgb(0 0 0 / 24%);
+  box-shadow: var(--shadow-md);
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
 }
 
 .request-panel__announcement {
@@ -127,10 +128,19 @@
   background: transparent;
   color: var(--color-text-muted);
   font-size: var(--text-xs);
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+.question-tabs button:hover {
+  background: var(--color-accent-muted);
+  color: var(--color-text);
 }
 .question-tabs button[aria-selected="true"] {
-  background: var(--color-surface);
-  color: var(--color-text);
+  background: var(--color-accent-muted);
+  box-shadow: var(--shadow-xs);
+  color: var(--color-accent);
+  font-weight: 620;
 }
 
 .question-page {
@@ -160,9 +170,18 @@
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: var(--space-2);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   padding: var(--space-2);
   background: var(--color-surface);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out);
+}
+.question-option:hover {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-muted);
 }
 .question-option input {
   margin-top: 3px;

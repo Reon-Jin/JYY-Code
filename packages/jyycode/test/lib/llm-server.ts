@@ -96,12 +96,12 @@ function finishLine(reason: string, usage?: Usage) {
   return chunk({ finish: reason, usage })
 }
 
-function toolStartLine(id: string, name: string) {
+function toolStartLine(id: string, name: string, index = 0) {
   return chunk({
     delta: {
       tool_calls: [
         {
-          index: 0,
+          index,
           id,
           type: "function",
           function: {
@@ -114,12 +114,12 @@ function toolStartLine(id: string, name: string) {
   })
 }
 
-function toolArgsLine(value: string) {
+function toolArgsLine(value: string, index = 0) {
   return chunk({
     delta: {
       tool_calls: [
         {
-          index: 0,
+          index,
           function: {
             arguments: value,
           },
@@ -459,6 +459,7 @@ export class Reply {
   #error: unknown
   #reset = false
   #seq = 0
+  #toolIndex = 0
 
   #id() {
     this.#seq += 1
@@ -504,7 +505,8 @@ export class Reply {
   tool(name: string, input: unknown) {
     const id = this.#id()
     const args = JSON.stringify(input)
-    this.#tail = [...this.#tail, toolStartLine(id, name), toolArgsLine(args)]
+    const index = this.#toolIndex++
+    this.#tail = [...this.#tail, toolStartLine(id, name, index), toolArgsLine(args, index)]
     return this.toolCalls()
   }
 
@@ -512,7 +514,8 @@ export class Reply {
     const id = this.#id()
     const args = JSON.stringify(input)
     const size = Math.max(1, Math.floor(args.length / 2))
-    this.#tail = [...this.#tail, toolStartLine(id, name), toolArgsLine(args.slice(0, size))]
+    const index = this.#toolIndex++
+    this.#tail = [...this.#tail, toolStartLine(id, name, index), toolArgsLine(args.slice(0, size), index)]
     return this
   }
 

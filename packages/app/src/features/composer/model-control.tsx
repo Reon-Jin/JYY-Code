@@ -1,5 +1,5 @@
 import { tr } from "../../i18n/i18n-context"
-import { BrainCircuit, Check, SlidersHorizontal } from "lucide-solid"
+import { SlidersHorizontal } from "lucide-solid"
 import { createMemo, createSignal, For } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
@@ -45,7 +45,7 @@ function modelOptions(value: ModelSelection, models: readonly CatalogModel[]) {
   return options
 }
 
-function ModelProfile(props: {
+function ModelFields(props: {
   value: ModelSelection
   models: readonly CatalogModel[]
   disabled?: boolean
@@ -66,51 +66,34 @@ function ModelProfile(props: {
   }
 
   return (
-    <div class="model-control__profile">
-      <div class="model-control__profile-heading">
-        <span class="model-control__profile-icon" aria-hidden="true">
-          <BrainCircuit />
-        </span>
-        <div>
-          <h3>{tr("composer.main-agent")}</h3>
-          <p>{tr("composer.main-agent-description")}</p>
-        </div>
-      </div>
-      <div class="model-control__fields">
-        <label class="model-control__field">
-          <span>{tr("composer.main-agent-model")}</span>
-          <select
-            aria-label={tr("composer.main-agent-model")}
-            value={modelKey(props.value)}
-            disabled={props.disabled}
-            onChange={(event) => changeModel(event.currentTarget.value)}
-          >
-            <For each={modelOptions(props.value, props.models)}>
-              {(option) => <option value={option.value}>{option.label}</option>}
-            </For>
-          </select>
-        </label>
-        <label class="model-control__field">
-          <span>{tr("composer.main-agent-thinking-depth")}</span>
-          <select
-            aria-label={tr("composer.main-agent-thinking-depth")}
-            value={props.value.variant ?? ""}
-            disabled={props.disabled}
-            onChange={(event) => changeVariant(event.currentTarget.value)}
-          >
-            <option value="">{variantLabel(undefined)}</option>
-            <For each={variantsFor(props.value, props.models)}>
-              {(variant) => <option value={variant}>{variantLabel(variant)}</option>}
-            </For>
-          </select>
-        </label>
-      </div>
-      <p class="model-control__current">
-        <Check aria-hidden="true" />
-        <span>
-          {modelLabel(props.value, props.models)} · {variantLabel(props.value.variant)}
-        </span>
-      </p>
+    <div class="model-control__fields">
+      <label class="model-control__field">
+        <span>{tr("composer.model")}</span>
+        <select
+          aria-label={tr("composer.model")}
+          value={modelKey(props.value)}
+          disabled={props.disabled}
+          onChange={(event) => changeModel(event.currentTarget.value)}
+        >
+          <For each={modelOptions(props.value, props.models)}>
+            {(option) => <option value={option.value}>{option.label}</option>}
+          </For>
+        </select>
+      </label>
+      <label class="model-control__field">
+        <span>{tr("multi-agent.thinking-depth")}</span>
+        <select
+          aria-label={tr("multi-agent.thinking-depth")}
+          value={props.value.variant ?? ""}
+          disabled={props.disabled}
+          onChange={(event) => changeVariant(event.currentTarget.value)}
+        >
+          <option value="">{variantLabel(undefined)}</option>
+          <For each={variantsFor(props.value, props.models)}>
+            {(variant) => <option value={variant}>{variantLabel(variant)}</option>}
+          </For>
+        </select>
+      </label>
     </div>
   )
 }
@@ -123,7 +106,9 @@ export function ModelControl(props: {
 }) {
   const [opened, setOpened] = createSignal(false)
   const [mainValue, setMainValue] = createSignal(props.value)
-  const currentLabel = createMemo(() => `${modelLabel(props.value, props.models)} · ${variantLabel(props.value.variant)}`)
+  const currentLabel = createMemo(
+    () => `${modelLabel(props.value, props.models)} · ${variantLabel(props.value.variant)}`,
+  )
 
   function open() {
     setMainValue(props.value)
@@ -168,14 +153,7 @@ export function ModelControl(props: {
           </Button>
         }
       >
-        <div class="model-control__profiles">
-          <ModelProfile
-            value={mainValue()}
-            models={props.models}
-            disabled={props.disabled}
-            onChange={changeMain}
-          />
-        </div>
+        <ModelFields value={mainValue()} models={props.models} disabled={props.disabled} onChange={changeMain} />
       </Dialog>
     </div>
   )

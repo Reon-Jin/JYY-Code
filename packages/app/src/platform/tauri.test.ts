@@ -47,11 +47,11 @@ describe("Tauri desktop settings persistence", () => {
   })
 
   it("round-trips settings through desktop.json", async () => {
-    await tauriBridge.saveSettings({ ...defaultDesktopSettings, startup: "home", theme: "light" })
+    await tauriBridge.saveSettings({ ...defaultDesktopSettings, startup: "home" })
 
-    expect(state.values.get("settings")).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
+    expect(state.values.get("settings")).toEqual({ ...defaultDesktopSettings, startup: "home" })
     expect(state.save).toHaveBeenCalledOnce()
-    expect(await tauriBridge.loadSettings()).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
+    expect(await tauriBridge.loadSettings()).toEqual({ ...defaultDesktopSettings, startup: "home" })
   })
 
   it("supports automatic updates on macOS and Windows WebViews", () => {
@@ -63,7 +63,6 @@ describe("Tauri desktop settings persistence", () => {
     state.invoke.mockImplementation(async (...args: unknown[]) =>
       args[0] === "send_desktop_notification" ? { supported: true } : undefined,
     )
-    await tauriBridge.setWindowGlass(true, "dark")
     await tauriBridge.getNotificationPermission?.()
     await tauriBridge.requestNotificationPermission()
     await expect(tauriBridge.sendNotification({ title: "JYYCode", body: "Ready" })).resolves.toEqual({
@@ -72,7 +71,6 @@ describe("Tauri desktop settings persistence", () => {
     await tauriBridge.saveTextFile("memory.json", "{}")
 
     expect(state.invoke.mock.calls).toEqual([
-      ["set_window_glass", { enabled: true, theme: "dark" }],
       ["send_desktop_notification", { notification: { title: "JYYCode", body: "Ready" } }],
       ["save_text_file", { suggestedName: "memory.json", contents: "{}" }],
     ])

@@ -26,6 +26,9 @@ import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { LLMAISDK } from "./llm/ai-sdk"
 import { LLMNativeRuntime } from "./llm/native-runtime"
 import { LLMRequestPrep } from "./llm/request"
+import type { ToolChoice } from "./llm/tool-choice"
+
+export type { ToolChoice } from "./llm/tool-choice"
 
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
@@ -42,7 +45,7 @@ export type StreamInput = {
   small?: boolean
   tools: Record<string, Tool>
   retries?: number
-  toolChoice?: "auto" | "required" | "none"
+  toolChoice?: ToolChoice
 }
 
 export type StreamRequest = StreamInput & {

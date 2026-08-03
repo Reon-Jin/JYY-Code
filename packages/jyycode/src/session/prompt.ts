@@ -1263,6 +1263,17 @@ export const layer = Layer.effect(
         let loopWarningIssued = false
         let emptyResponseCount = 0
 
+        const resetTurnGuards = () => {
+          // Compaction changes the effective conversation context. A repeated
+          // assistant signature from before compaction must not be compared
+          // with a post-compaction turn, or a healthy second turn can be
+          // mistaken for an endless loop.
+          previousToolTurnSignature = undefined
+          repeatedToolTurnCount = 0
+          loopWarningIssued = false
+          emptyResponseCount = 0
+        }
+
         const createSyntheticReminder = Effect.fn("SessionPrompt.createSyntheticReminder")(function* (input: {
           lastUser: MessageV2.User
           kind: string
@@ -1458,6 +1469,7 @@ export const layer = Layer.effect(
               overflow: task.overflow,
             })
             if (result === "stop") break
+            resetTurnGuards()
             continue
           }
 
@@ -1476,6 +1488,7 @@ export const layer = Layer.effect(
               yield* autoCompactionHalted
               break
             }
+            resetTurnGuards()
             continue
           }
 
@@ -1506,6 +1519,7 @@ export const layer = Layer.effect(
               yield* autoCompactionHalted
               break
             }
+            resetTurnGuards()
             continue
           }
 
@@ -1692,6 +1706,11 @@ export const layer = Layer.effect(
             )
             const format = lastUser.format ?? { type: "text" as const }
             if (!requiredPlanTool && format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+            const toolChoice = requiredPlanTool
+              ? { type: "tool" as const, toolName: requiredPlanTool }
+              : format.type === "json_schema"
+                ? "required" as const
+                : undefined
             const result = yield* handle.process({
               user: lastUser,
               agent,
@@ -1702,7 +1721,7 @@ export const layer = Layer.effect(
               messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
               tools,
               model,
-              toolChoice: requiredPlanTool || format.type === "json_schema" ? "required" : undefined,
+              toolChoice,
             })
 
             // Root sessions are event-driven after dispatch. A child Report, Inbox entry, or
@@ -1720,8 +1739,16 @@ export const layer = Layer.effect(
                 afterTurn.ok && afterTurn.plan?.current_step && blackboard
                   ? yield* blackboard.unreadForMain(session.id)
                   : 0
+              const turnTools = (yield* MessageV2.partsAsync(handle.message.id)).filter(
+                (part): part is MessageV2.ToolPart => part.type === "tool" && !part.metadata?.providerExecuted,
+              )
+              // Plan_read is only a prerequisite. Let the model process the
+              // current user request (including cancellation) before waiting
+              // for an in-flight child; real progress actions still end the turn.
+              const onlyPlanRead = turnTools.length > 0 && turnTools.every((part) => part.tool === "Plan_read")
               if (
                 afterTurn.ok &&
+                !onlyPlanRead &&
                 SessionTools.shouldWaitForPlanReport({
                   plan: afterTurn.plan ?? undefined,
                   blackboardUnread: unreadAfterTurn,
@@ -1764,6 +1791,7 @@ export const layer = Layer.effect(
                 yield* autoCompactionHalted
                 return "break" as const
               }
+              resetTurnGuards()
             }
             return "continue" as const
           }).pipe(

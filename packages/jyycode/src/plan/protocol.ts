@@ -404,6 +404,25 @@ function createStep(input: CreateStepInput, id: string, tasks: PlanTask[] = []):
   return step
 }
 
+/**
+ * Candidate groups are atomic planning decisions. A later active Step may
+ * initialize one by adding all candidates in the same Plan_update, but a
+ * persisted candidate Step can never be extended or mixed with standard work.
+ */
+function finalizeCandidateGroups(plan: PlanFile) {
+  for (const step of plan.steps) {
+    const candidates = step.tasks.filter((task) => task.mode === "candidate")
+    if (!candidates.length) continue
+    if (step.tasks.some((task) => task.mode !== "candidate") || candidates.length < 2 || candidates.length > 3) {
+      inputError(
+        `${step.id} candidate group must contain exactly 2-3 candidate Tasks and no standard Tasks`,
+        "在同一次 Plan_update 中一次性添加 2-3 个 candidate Task；不要单独添加或混入 standard Task",
+      )
+    }
+    if (!step.candidate_discussion) step.candidate_discussion = { phase: "declaring", ready_task_ids: [] }
+  }
+}
+
 function applyEditPlan(plan: PlanFile, fields: { title?: string; goal?: string }) {
   if (plan.status === "done") {
     throw new PlanProtocolError({
@@ -486,10 +505,22 @@ function applyOp(
           hint: `请只对 current_step=${plan.current_step ?? "null"} 使用 add_task；后续阶段保持 Task 骨架为空`,
         })
       }
-      if (step.tasks.some((task) => task.mode === "candidate") || op.task.mode === "candidate")
+      if (step.candidate_discussion)
         inputError(
-          "不能用 Plan_update(add_task) 创建或扩展 candidate Step",
-          "在 Plan_create.steps[0].tasks 中一次性声明 2-3 个 mode=candidate Task；运行时会自动初始化候选讨论元数据",
+          "不能向已有 candidate Step 追加 Task",
+          "候选组必须在 Plan_create 或该 Step 首次激活时的一次 Plan_update 中完整初始化；不要扩展已有 candidate Step",
+        )
+      if (op.task.mode === "candidate" && step.tasks.some((task) => task.mode !== "candidate"))
+        inputError(
+          "candidate Task 不能与 standard Task 混合",
+          "在同一次 Plan_update 中只添加 2-3 个 candidate Task，或只添加 standard Task",
+        )
+      if (op.task.mode === "candidate" && step.tasks.length >= 3)
+        inputError("candidate Step 最多包含 3 个 Task", "candidate group 只能包含 2-3 个候选")
+      if (op.task.mode !== "candidate" && step.tasks.some((task) => task.mode === "candidate"))
+        inputError(
+          "standard Task 不能加入 candidate Step",
+          "候选组必须只包含 candidate Task；如需普通并行，请重新规划为 standard Task 组",
         )
       const id = nextTaskId(step)
       step.tasks.push(createTask(op.task, id, workspaceRoot, rootSessionID))
@@ -965,6 +996,7 @@ export class PlanProtocol {
         } catch (error) {
           throw error
         }
+        finalizeCandidateGroups(draft)
         recomputeProgress(draft, ctx.workspaceRoot)
         draft.revision = latest.revision + 1
         draft.updated_at = nowIso(this.now)
@@ -1172,7 +1204,11 @@ export class PlanProtocol {
     ctx: PlanExecutionContext,
     taskIds: unknown,
   ): Promise<
-    ProtocolResponse<{ cancelled: Array<{ taskId: string; terminated_child_session: string; new_status: "pending" }> }>
+    ProtocolResponse<{
+      cancelled: Array<{ taskId: string; terminated_child_session: string; new_status: "pending" }>
+      next_action_hint: string
+      termination_errors?: Array<{ taskId: string; child_session_id: string; message: string }>
+    }>
   > {
     try {
       assertMain(ctx)
@@ -1201,26 +1237,23 @@ export class PlanProtocol {
             hint: `当前合法 taskId：${planTaskIds(plan).join("、")}`,
           })
         const task = step.tasks.find((item) => item.id === id)!
-        if (
-          !(task.status === "dispatched" || task.status === "running" || task.status === "reported") ||
-          !task.dispatch
-        )
+        if (!task.dispatch)
           throw new PlanProtocolError({
             code: ERROR_CODES.INVALID_STATE,
             message: `任务 ${id} 当前不可取消`,
-            hint: "仅允许取消 dispatched、running 或 reported 任务",
+            hint: "任务必须包含派发记录；已取消任务可以重复调用",
           })
         return task
       })
-      for (const task of targets) if (this.children) await this.children.terminate(task.dispatch!.child_session_id)
       const result = await this.write(ctx, (latest) => {
         if (!latest)
           throw new PlanProtocolError({
             code: ERROR_CODES.INVALID_STATE,
             message: "当前 session 没有方案",
             hint: "先调用 Plan_create",
-          })
+        })
         const next = clonePlan(latest)
+        const toTerminate: Array<{ taskId: string; child_session_id: string }> = []
         const cancelled = targets.map((source) => {
           const task = next.steps.flatMap((step) => step.tasks).find((item) => item.id === source.id)
           if (!task || !task.dispatch)
@@ -1229,6 +1262,8 @@ export class PlanProtocol {
               message: "任务在取消过程中发生变化",
               hint: "重新读取最新 plan 后重试",
             })
+          if (task.dispatch.cancelled_at === null)
+            toTerminate.push({ taskId: task.id, child_session_id: task.dispatch.child_session_id })
           task.status = "pending"
           task.dispatch.cancelled_at = nowIso(this.now)
           return {
@@ -1239,14 +1274,37 @@ export class PlanProtocol {
         })
         next.revision++
         next.updated_at = nowIso(this.now)
+        recomputeProgress(next, ctx.workspaceRoot)
         return {
           mutate(target) {
             Object.assign(target, next)
           },
-          result: { cancelled },
+          result: {
+            cancelled,
+            toTerminate,
+            next_action_hint: nextActionHint(next, this.inbox.pendingCount(ctx.sessionId)),
+          },
         }
       })
-      return { ok: true, ...result.result }
+      const termination_errors: Array<{ taskId: string; child_session_id: string; message: string }> = []
+      if (this.children) {
+        for (const target of result.result.toTerminate) {
+          try {
+            await this.children.terminate(target.child_session_id)
+          } catch (error) {
+            termination_errors.push({
+              ...target,
+              message: error instanceof Error ? error.message : String(error),
+            })
+          }
+        }
+      }
+      return {
+        ok: true,
+        cancelled: result.result.cancelled,
+        next_action_hint: result.result.next_action_hint,
+        ...(termination_errors.length > 0 ? { termination_errors } : {}),
+      }
     } catch (error) {
       return responseFromError(error)
     }

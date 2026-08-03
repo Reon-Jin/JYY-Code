@@ -116,6 +116,70 @@ describe("file-backed plan protocol", () => {
     expect(read.plan.steps[0]?.tasks[0]?.dispatch?.role?.id).toBe("reviewer")
   })
 
+  it("cancels approved and already-cancelled dispatches idempotently", async () => {
+    const root = workspace()
+    let terminations = 0
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      children: {
+        async create(input) {
+          return input.childSessionId
+        },
+        async start() {},
+        async terminate() {
+          terminations++
+        },
+      },
+    })
+    await protocol.create(context(root), createInput(path.join(root, "notes.md")))
+    await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+
+    const stored = JSON.parse(fs.readFileSync(planFilePath(root, "ses_main"), "utf8")) as {
+      steps: Array<{ tasks: Array<{ status: string }> }>
+    }
+    stored.steps[0]!.tasks[0]!.status = "approved"
+    fs.writeFileSync(planFilePath(root, "ses_main"), JSON.stringify(stored))
+
+    expect(await protocol.cancel(context(root), ["s1_t1"])).toMatchObject({
+      ok: true,
+      next_action_hint: expect.stringContaining("pending/rejected"),
+    })
+    expect(await protocol.cancel(context(root), ["s1_t1"])).toMatchObject({ ok: true })
+    expect(terminations).toBe(1)
+
+    const read = await protocol.read(context(root))
+    if (!read.ok || !read.plan) return
+    expect(read.plan.steps[0]?.tasks[0]?.status).toBe("pending")
+    expect(read.plan.steps[0]?.tasks[0]?.dispatch?.cancelled_at).not.toBeNull()
+  })
+
+  it("persists cancellation when child cleanup fails", async () => {
+    const root = workspace()
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      children: {
+        async create(input) {
+          return input.childSessionId
+        },
+        async start() {},
+        async terminate() {
+          throw new Error("child session already gone")
+        },
+      },
+    })
+    await protocol.create(context(root), createInput(path.join(root, "notes.md")))
+    await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+
+    const cancelled = await protocol.cancel(context(root), ["s1_t1"])
+    expect(cancelled).toMatchObject({
+      ok: true,
+      termination_errors: [{ taskId: "s1_t1", message: "child session already gone" }],
+    })
+    const read = await protocol.read(context(root))
+    if (!read.ok || !read.plan) return
+    expect(read.plan.steps[0]?.tasks[0]?.status).toBe("pending")
+  })
+
   it("passes an immutable launch snapshot to the child controller", async () => {
     const root = workspace()
     const profiles = [
@@ -664,17 +728,25 @@ describe("file-backed plan protocol", () => {
       ],
     })
     expect(multiAgentPrompt).toContain("Dispatch_dispatch")
+    expect(multiAgentPrompt).toContain("Dispatch_roles")
     expect(multiAgentPrompt).toContain("Candidate_declare")
     expect(multiAgentPrompt).toContain('mode: "candidate"')
     expect(multiAgentPrompt).toContain("candidate_discussion")
     expect(multiAgentPrompt).toContain("Dispatch_dispatch exactly once")
-    expect(multiAgentPrompt).toContain("Plan_update(add_task) cannot create")
+    expect(multiAgentPrompt).toContain("Plan_update(add_task) cannot extend")
+    expect(multiAgentPrompt).toContain("ordinary parallel")
+    expect(multiAgentPrompt).toContain("candidate parallel")
+    expect(multiAgentPrompt).toContain("single Task")
+    expect(multiAgentPrompt).toContain("Blackboard is the shared coordination channel")
     expect(multiAgentPrompt).not.toMatch(/\b(?:Plan|Dispatch|Candidate)\./)
     expect(multiAgentPrompt).toContain("output_path")
     expect(multiAgentPrompt).toContain("reviewer")
-    expect(planSystemPrompt({ child: false, multiAgent: true, profiles: [] })).toContain("general")
+    expect(planSystemPrompt({ child: false, multiAgent: true, profiles: [] })).toContain("No enabled sub-agent roles")
     expect(multiAgentPrompt).not.toContain("互不冲突")
     expect(planSystemPrompt({ child: false, multiAgent: false })).toContain("pending→running")
+    const childPrompt = planSystemPrompt({ child: true, multiAgent: true })
+    expect(childPrompt).toContain("read Blackboard at the start")
+    expect(childPrompt).toContain("publish a concise finding or handoff")
   })
 
   it("prioritizes main writes, ages normal writes, times out, and reclaims stale locks", async () => {

@@ -2,7 +2,6 @@ import { tr, useI18n } from "../../i18n/i18n-context"
 import { createSignal, onMount, Show } from "solid-js"
 import { InlineError } from "../../components/ui/inline-error"
 import { useDesktopBridge } from "../../platform/context"
-import { applyTheme } from "./theme"
 import {
   defaultDesktopSettings,
   type AppLocale,
@@ -11,7 +10,6 @@ import {
 } from "./settings-preferences"
 import type { DesktopNotificationPermission } from "../../platform/types"
 import { publishDesktopNotificationPermission } from "../notifications/desktop-notifications"
-import { reapplyGlassForTheme, setGlassPreference } from "./glass-preference"
 
 function message(cause: unknown) {
   return cause instanceof Error ? cause.message : tr("settings.unable-to-save-desktop-settings")
@@ -31,10 +29,7 @@ export function GeneralSettings() {
       .catch(() => setNotificationPermission("unsupported"))
     void bridge
       .loadSettings()
-      .then((value) => {
-        setSettings(value)
-        applyTheme(value.theme)
-      })
+      .then(setSettings)
       .catch((cause) => setError(message(cause)))
   })
 
@@ -42,35 +37,11 @@ export function GeneralSettings() {
     const previous = settings()
     setError(undefined)
     setSettings(next)
-    if (next.theme !== previous.theme) applyTheme(next.theme)
     setSaving(true)
     try {
-      if (next.theme !== previous.theme) await reapplyGlassForTheme(bridge, previous, next.theme)
       await bridge.saveSettings(next)
     } catch (cause) {
       setSettings(previous)
-      applyTheme(previous.theme)
-      if (next.theme !== previous.theme) {
-        await reapplyGlassForTheme(bridge, previous, previous.theme).catch(() => undefined)
-      }
-      setError(message(cause))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  async function changeGlass(enabled: boolean) {
-    setError(undefined)
-    setSaving(true)
-    try {
-      const next = await setGlassPreference({
-        bridge,
-        current: settings(),
-        enabled,
-        persist: (value) => bridge.saveSettings(value),
-      })
-      setSettings(next)
-    } catch (cause) {
       setError(message(cause))
     } finally {
       setSaving(false)
@@ -162,39 +133,6 @@ export function GeneralSettings() {
         </fieldset>
       </section>
 
-      <section class="settings-card" aria-labelledby="appearance-setting-title">
-        <h3 id="appearance-setting-title">{tr("settings.appearance")}</h3>
-        <fieldset class="settings-options settings-options--inline" disabled={saving()}>
-          <legend>{tr("settings.color-theme")}</legend>
-          <label>
-            <input
-              type="radio"
-              aria-label={tr("settings.dark")}
-              name="theme"
-              value="dark"
-              checked={settings().theme === "dark"}
-              onChange={() => void save({ ...settings(), theme: "dark" })}
-            />
-            <span>
-              <strong>{tr("settings.dark")}</strong>
-            </span>
-          </label>
-          <label>
-            <input
-              type="radio"
-              aria-label={tr("settings.light-color")}
-              name="theme"
-              value="light"
-              checked={settings().theme === "light"}
-              onChange={() => void save({ ...settings(), theme: "light" })}
-            />
-            <span>
-              <strong>{tr("settings.light-color")}</strong>
-            </span>
-          </label>
-        </fieldset>
-      </section>
-
       <section class="settings-card" aria-labelledby="language-setting-title">
         <h3 id="language-setting-title">{tr("settings.language")}</h3>
         <label class="settings-select-label">
@@ -208,20 +146,6 @@ export function GeneralSettings() {
             <option value="zh-CN">{tr("settings.simplified-chinese")}</option>
             <option value="en-US">{tr("settings.english")}</option>
           </select>
-        </label>
-      </section>
-
-      <section class="settings-card" aria-labelledby="glass-setting-title">
-        <h3 id="glass-setting-title">{tr("settings.apple-style-liquid-glass")}</h3>
-        <label class="settings-disabled-check">
-          <input
-            type="checkbox"
-            aria-label={tr("settings.apple-style-liquid-glass")}
-            checked={settings().glass === "on"}
-            disabled={saving()}
-            onChange={(event) => void changeGlass(event.currentTarget.checked)}
-          />
-          {tr("settings.apple-style-liquid-glass")}
         </label>
       </section>
 

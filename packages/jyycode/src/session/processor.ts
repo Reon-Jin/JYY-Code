@@ -50,6 +50,10 @@ export interface Handle {
       attachments?: MessageV2.FilePart[]
     },
   ) => Effect.Effect<void>
+  /** Mark this assistant turn's tool snapshot stale after a protocol mutation. */
+  readonly requestToolCatalogRefresh?: () => void
+  /** True after a protocol mutation invalidates this turn's tool snapshot. */
+  readonly toolCatalogRefreshRequested?: () => boolean
   readonly process: (streamInput: LLM.StreamInput) => Effect.Effect<Result>
 }
 
@@ -77,6 +81,7 @@ interface ProcessorContext extends Input {
   snapshot: string | undefined
   blocked: boolean
   needsCompaction: boolean
+  refreshToolCatalog: boolean
   currentText: MessageV2.TextPart | undefined
   reasoningMap: Record<string, MessageV2.ReasoningPart>
 }
@@ -117,6 +122,7 @@ export const layer = Layer.effect(
         snapshot: initialSnapshot,
         blocked: false,
         needsCompaction: false,
+        refreshToolCatalog: false,
         currentText: undefined,
         reasoningMap: {},
       }
@@ -813,6 +819,12 @@ export const layer = Layer.effect(
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),
+              // Tool calls in one provider response are executed concurrently
+              // by the AI SDK. Do not truncate the event stream after the
+              // first protocol mutation: doing so leaves later tool-call parts
+              // pending and makes the next prompt replay an incomplete batch.
+              // The tool wrapper serializes protocol mutations and skips stale
+              // calls; the normal one-step stream then ends cleanly.
               Stream.takeUntil(() => ctx.needsCompaction),
               Stream.runDrain,
             )
@@ -876,6 +888,12 @@ export const layer = Layer.effect(
         },
         updateToolCall,
         completeToolCall,
+        requestToolCatalogRefresh() {
+          ctx.refreshToolCatalog = true
+        },
+        toolCatalogRefreshRequested() {
+          return ctx.refreshToolCatalog
+        },
         process,
       } satisfies Handle
     })

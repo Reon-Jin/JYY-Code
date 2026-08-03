@@ -102,9 +102,6 @@ describe("BlackboardPanel", () => {
       const read = [...backend.requests].reverse().find((request) => request.path === `/session/${root.id}/blackboard/read`)
       expect(read?.body.throughMessageID).toBe("bb_reply_2")
     })
-    await user.click(screen.getByRole("button", { name: /回复$/ }))
-    expect(screen.getByText(/回复 子 Agent/)).toBeVisible()
-
     const editor = screen.getByRole("textbox", { name: "发送黑板消息…" })
     await user.type(editor, "Please verify the blocker")
     await user.click(screen.getByRole("button", { name: "发送黑板消息" }))

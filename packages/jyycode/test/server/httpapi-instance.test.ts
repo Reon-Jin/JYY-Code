@@ -399,6 +399,7 @@ describe("instance HttpApi", () => {
           description: "General delegated execution",
           prompt: "",
           avatar: "bot",
+          tools: ["read"],
           enabled: true,
         },
         {
@@ -407,6 +408,7 @@ describe("instance HttpApi", () => {
           description: "Review assigned artifacts",
           prompt: "Read the private role skill first.",
           avatar: "file",
+          tools: ["plugin_custom"],
           enabled: true,
         },
       ]
@@ -417,14 +419,19 @@ describe("instance HttpApi", () => {
       )
       expect(updated.status).toBe(200)
       expect(yield* updated.json).toEqual([
-        expect.objectContaining({ id: "general" }),
-        expect.objectContaining({ id: roleID, name: "Review", skills: [] }),
+        expect.objectContaining({ id: "general", tools: ["read"] }),
+        expect.objectContaining({ id: roleID, name: "Review", tools: ["plugin_custom"], skills: [] }),
       ])
 
       const persisted = yield* HttpClientRequest.get("/subagents").pipe(directoryHeader(dir), HttpClient.execute)
       const persistedBody = yield* persisted.json
       expect(persisted.status, JSON.stringify(persistedBody)).toBe(200)
-      expect(persistedBody).toEqual(expect.arrayContaining([expect.objectContaining({ id: roleID })]))
+      expect(persistedBody).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "general", tools: ["read"] }),
+          expect.objectContaining({ id: roleID, tools: ["plugin_custom"] }),
+        ]),
+      )
 
       const migratedProjectConfig = JSON.parse(
         yield* Effect.promise(() => fs.readFile(path.join(dir, "jyycode.json"), "utf8")),

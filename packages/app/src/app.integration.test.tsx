@@ -205,15 +205,7 @@ describe("desktop GUI journey", () => {
 
     await user.click(await screen.findByRole("radio", { name: "启动时显示 Home" }))
     await waitFor(() => expect(desktop.settings().startup).toBe("home"))
-    await user.click(screen.getByRole("radio", { name: "浅色" }))
-    await waitFor(() => expect(desktop.settings().theme).toBe("light"))
-    expect(document.documentElement).toHaveAttribute("data-theme", "light")
     expect(screen.getByRole("combobox", { name: "语言" })).toBeEnabled()
-    const glass = screen.getByRole("checkbox", { name: "Apple 风格液态玻璃" })
-    expect(glass).toBeEnabled()
-    await user.click(glass)
-    await waitFor(() => expect(desktop.settings().glass).toBe("on"))
-    expect(document.documentElement).toHaveAttribute("data-glass", "on")
     for (const label of ["回复完成", "等待权限", "Agent 提问"]) {
       expect(screen.getByRole("checkbox", { name: label })).toBeEnabled()
     }

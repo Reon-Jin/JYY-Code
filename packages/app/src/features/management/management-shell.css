@@ -50,16 +50,30 @@
   min-height: 44px;
   place-items: center;
   gap: 2px;
+  border: 1px solid transparent;
   border-radius: 6px;
   color: var(--color-text-muted);
   font-size: 11px;
   text-decoration: none;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    transform var(--motion-fast) var(--ease-out);
 }
 
-.management-nav-link:hover,
-.management-nav-link[aria-current="page"] {
-  background: var(--color-surface-hover);
+.management-nav-link:hover {
+  background: var(--color-accent-muted);
   color: var(--color-text);
+  transform: translateY(-1px);
+}
+
+.management-nav-link[aria-current="page"] {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-muted);
+  box-shadow: var(--shadow-xs);
+  color: var(--color-accent);
 }
 
 .management-nav-link svg {

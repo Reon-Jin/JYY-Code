@@ -11,6 +11,7 @@ const profile: SubagentProfileView = {
   description: "General-purpose execution.",
   prompt: "",
   avatar: "bot",
+  tools: ["read"],
   model: "test-provider/test-model",
   enabled: true,
   skills: [
@@ -68,6 +69,7 @@ describe("SubagentProfilesPanelView", () => {
     render(() => (
       <SubagentProfilesPanelView
         profiles={[profile, disabledProfile]}
+        toolIDs={["read", "bash", "write", "mcp_docs"]}
         models={models}
         onSave={onSave}
         onCreateSkill={onCreateSkill}
@@ -93,6 +95,9 @@ describe("SubagentProfilesPanelView", () => {
     expect(refreshButton).not.toBeNull()
     await user.click(refreshButton!)
     expect(onRefresh).toHaveBeenCalledTimes(1)
+    expect(within(editDialog).getByRole("checkbox", { name: "read" })).toBeChecked()
+    expect(within(editDialog).getByRole("checkbox", { name: "mcp_docs" })).not.toBeChecked()
+    expect(within(editDialog).queryByRole("checkbox", { name: "bash" })).not.toBeInTheDocument()
     expect(within(editDialog).getByDisplayValue("general")).toBeVisible()
     expect(within(editDialog).getByText("manual")).toBeVisible()
     expect(within(editDialog).getByText("用于内部派发的唯一标识，创建后不可修改。")).toBeVisible()
@@ -111,6 +116,7 @@ describe("SubagentProfilesPanelView", () => {
 
     await user.click(screen.getByRole("button", { name: "新建子 Agent" }))
     const newDialog = screen.getByRole("dialog")
+    await user.click(within(newDialog).getByRole("checkbox", { name: "write" }))
     await user.type(screen.getByLabelText("角色 ID"), "architect")
     await user.type(screen.getByLabelText("角色名称"), "Reviewer")
     await user.type(screen.getByLabelText("角色描述"), "Checks delegated work.")
@@ -135,6 +141,7 @@ describe("SubagentProfilesPanelView", () => {
         avatar: "code",
         model: "openai/gpt-5",
         variant: "low",
+        tools: ["mcp_docs", "read"],
         enabled: false,
       }),
     ])

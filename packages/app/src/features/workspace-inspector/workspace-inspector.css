@@ -9,6 +9,7 @@
   overflow: hidden;
   border-left: 1px solid var(--color-border);
   background: var(--color-panel);
+  animation: ui-slide-in-right var(--motion-normal) var(--ease-out) both;
 }
 
 .workspace-drawer__stack {
@@ -124,33 +125,10 @@
 }
 
 .workspace-activity-button.ui-button[aria-pressed="true"] {
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
-html[data-glass="on"] body .workspace-activity-button.ui-button:not([aria-pressed="true"]) {
-  border-color: transparent;
-  background-color: transparent;
-  background-image: none;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-html[data-glass="on"] body .workspace-activity-button.ui-button:not([aria-pressed="true"]):hover:not(:disabled) {
-  border-color: transparent;
-  background-color: color-mix(in srgb, var(--color-text) 7%, transparent);
-  background-image: none;
-  box-shadow: none;
-}
-
-html[data-glass="on"] body .workspace-activity-button.ui-button[aria-pressed="true"] {
-  border-color: var(--glass-border-bright);
-  background-color: var(--glass-control-hover);
-  background-image: var(--glass-control-highlight);
-  box-shadow: var(--glass-control-shadow);
-  backdrop-filter: var(--glass-control-blur);
-  -webkit-backdrop-filter: var(--glass-control-blur);
+  border-color: var(--color-accent-border);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-xs);
+  color: var(--color-accent);
 }
 
 .workspace-activity-button svg {
@@ -167,7 +145,7 @@ html[data-glass="on"] body .workspace-activity-button.ui-button[aria-pressed="tr
   height: 14px;
   place-items: center;
   border: 2px solid var(--color-panel);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   padding-inline: 2px;
   background: var(--color-accent);
   color: var(--color-bg);
@@ -208,6 +186,6 @@ html[data-glass="on"] body .workspace-activity-button.ui-button[aria-pressed="tr
     height: auto;
     border: 0;
     padding: 0;
-    background: rgb(0 0 0 / 38%);
+    background: var(--color-overlay);
   }
 }

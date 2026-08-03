@@ -12,10 +12,16 @@ export const PLAN_BASE_PROMPT = `# 新版方案管理协议（强制）
 - 修改方案一律用 Plan_update 并携带最新 revision；冲突时根据返回的最新方案重新决策，不要机械重发旧 patch。
 - 每次模型回复至多调用一次 Plan_create、Plan_update 或 Dispatch_dispatch。必须先读取这次调用的结果、revision 和 next_action_hint，才能发起下一次状态写入或派发。
 - 每轮处理完 Inbox、审核、当前 Step 明细展开、派发和当前可推进工作后再结束；不要空转等待子 Agent。
-- 主 Agent：黑板有未读时先调用 Blackboard；只发布风险、阻塞、决策或求助。`
+- 主 Agent：黑板有未读时先调用 Blackboard；Blackboard is the shared coordination channel for decisions, findings, dependencies, handoffs, risks, blockers, and help requests。不要发布心跳或重复的普通进度。`
 
 export const PLAN_MULTI_PROMPT = `# 新版子 Agent 管理协议
+- 并行优先：在 Plan_create 或 active Step 的 Plan_update(add_task) 前，先做一次“可并行性检查”：把当前工作按独立交付物、独立验证面或独立调查问题拆开。默认目标是让当前 wave 有 2-4 个互不阻塞的 standard Task；只有确实不可拆分的原子工作才保留 single Task，并在 instructions 中说明原因。
+- ordinary parallel：不同文件、不同模块、不同调查问题、不同验证层且不互相等待的工作，必须建成多个 standard Task，并在一次 Dispatch_dispatch 中批量派发；不要把多个独立工作合并成一个大 Task，也不要逐个串行派发。
+- candidate parallel：当多个 Task 解决的是同一个尚未确定的设计/实现选择时，使用 2-3 个 candidate Task 并行探索；候选应共享同一个 Step 目标和验收口径，但各自写隔离 proposal。候选比较不是普通拆分，只有存在真实方案不确定性时才使用。
+- 选择策略：能拆成不同产出就用 ordinary parallel；需要比较多个路线就用 candidate parallel；若两者都不成立才使用 single Task。不要为了凑数量制造重复任务。
+- 批量派发：同一 wave 的所有 ready Task 尽量放入一次 Dispatch_dispatch；candidate group 必须一次包含全部 2-3 个候选。Dispatch_dispatch 返回后立即结束当前 turn，等待 Report/Inbox/Blackboard 事件。
 - 当前 active Step 只要有 pending/rejected Task，主 Agent 不得亲自执行这些 Task；运行时会只开放 Plan_update（补全任务）或 Dispatch_dispatch（派发）。若该调用被拒绝，可使用 Plan_read 获取最新状态后修正一次调用。
+- 当前 active Step 没有 Task 时，先用 Plan_update 一次性展开当前 wave；优先添加多个可独立派发的 standard Task，或在存在真实路线不确定性时添加完整的 2-3 个 candidate Task。
 - 每个可派发 Task 必须有明确的 output_path；若运行时只开放 Plan_update，先用 edit_task 补齐 output_path，下一步立即 Dispatch_dispatch。
 - 独立、耗时且产出明确的当前 Step 任务，用 Dispatch_dispatch 派给子 Agent；需要连续上下文的判断由主 Agent 自己执行。
 - Dispatch_dispatch 只能接收方案中当前 active Step 的 pending/rejected taskId，禁止自行构造任务或一次派发未来阶段。
@@ -30,37 +36,46 @@ export const PLAN_SINGLE_PROMPT = `# 单智能体执行协议
 
 export const PLAN_CHILD_PROMPT = `# 子 Agent 执行协议
 - 启动简报中的 task_title、goal、done_criteria、task_instructions（如有）和 step_context 都是当前任务的完整上下文；previous_feedback 是上次被打回的具体原因。task_instructions 与 done_criteria 冲突时，以 done_criteria 为准，并在 Blackboard 说明风险。
+- Standard child：read Blackboard at the start，先了解当前 Step 的其他 Task、依赖和已有发现；被唤醒处理协作消息时也必须先读 Blackboard。完成工作或发现可复用事实、依赖、交接、风险、阻塞、决策或求助时，publish a concise finding or handoff 到 Blackboard，关联 task_ids；不要发布心跳或重复的普通进度。
 - 先把产出写入 output_path，再调用 Report。status=done 时 artifacts 必须列出真实存在的文件；无法达标则报 partial 或 failed。
+- Report 前再次无参读取 Blackboard，处理所有新消息；如果本 Task 的结果、依赖或交接对其他 Agent 有帮助，先发布一条简洁摘要再 Report。候选 Task 按 Candidate task protocol 的阶段限制执行，不在 running 阶段使用 Blackboard。
 - Report 返回 ok=true 后结束；仅在 retryable=true 时按 hint 使用同一 run_id 补交。
 - 你不能创建或修改父方案，也不能输出 JSON 方案替代 Report。
-- 子 Agent：发现影响协作的风险、阻塞、决策或求助时立即用 Blackboard 发布，不发普通进度；Report 前无参调用 Blackboard 并处理新消息。`
+- 子 Agent：发现影响协作的风险、阻塞、决策、发现、依赖、交接或求助时立即用 Blackboard 发布，不发心跳或重复普通进度；Report 前无参调用 Blackboard 并处理新消息。`
 
 export const PLAN_CANDIDATE_PROMPT = `## Candidate task protocol
 - Candidate mode is for comparing 2-3 independent approaches to the same current Step. It is not ordinary parallel execution.
-- Candidate metadata is created by the runtime. To initialize it, put exactly 2-3 Tasks with \`mode: "candidate"\` in the first Step of the one-time Plan_create call; do not provide \`candidate_discussion\` yourself and do not set candidate \`output_path\`.
+- Candidate metadata is created by the runtime. Initialize it with exactly 2-3 Tasks with \`mode: "candidate"\` either in the first Step of the one-time Plan_create call or together in one Plan_update for a later clean active Step; do not provide \`candidate_discussion\` yourself and do not set candidate \`output_path\`.
 - Valid initialization shape (replace the example content): \`Plan_create({title, goal, steps: [{title, goal, done_criteria, tasks: [{title, goal, done_criteria, mode: "candidate"}, {title, goal, done_criteria, mode: "candidate"}]}, {title, goal, done_criteria}]})\`.
-- Plan_update(add_task) cannot create or extend a candidate Step. If a candidate comparison is needed, declare the complete 2-3 candidate group in Plan_create; do not convert a standard Task into a candidate later.
+- Plan_update(add_task) cannot extend an existing candidate Step. For a later clean active Step, one Plan_update may initialize a complete 2-3 candidate group with multiple candidate add_task operations; never submit only one candidate or mix candidate and standard Tasks.
 - After Plan_create returns the assigned IDs, call Dispatch_dispatch exactly once for the whole group, for example \`{taskIds: ["s1_t1", "s1_t2"], role: "general"}\`. Never dispatch only one candidate or dispatch candidates in separate calls. Use the returned task IDs, not guessed IDs.
 - During declaring, each candidate uses Candidate_declare exactly once. During cross_review, use Blackboard to read peer declarations, reply directly to every other candidate with Blackboard_Reply, then call Candidate_ready.
 - The root session starts the running phase with Candidate_begin. In running, candidates work independently and submit only through Candidate_submit; do not use Report, Blackboard, shell, edit, write, process, MCP, or plugin tools.
 - The root session must choose exactly one approved candidate with Plan_update(select_candidate), may record contributing candidates, and must provide a real workspace synthesis artifact before the Step can complete.`
 
 function dispatchRosterPrompt(profiles: readonly SubagentProfile[] | undefined) {
-  const visible = enabledProfiles(profiles?.length ? profiles : [defaultGeneralProfile])
-  const roster = visible.length > 0 ? visible : [defaultGeneralProfile]
+  const roster = enabledProfiles(profiles === undefined ? [defaultGeneralProfile] : profiles)
   return [
-    "## 可派发角色",
-    ...roster.map((profile) => `- ${profile.id}: ${profile.name} — ${profile.description}`),
-    "无专长匹配时选择 `general`。",
+    "## Dispatchable sub-agent roles (enabled only)",
+    ...(roster.length > 0
+      ? roster.map((profile) => {
+          const model = profile.model ?? "parent model"
+          const variant = profile.variant ? `; thinking depth=${profile.variant}` : ""
+          return `- ${profile.id}: ${profile.name} - ${profile.description}; model=${model}${variant}`
+        })
+      : ["No enabled sub-agent roles are currently available for Dispatch_dispatch."]),
+    "Use Dispatch_roles for a fresh roster; use role IDs exactly as returned.",
   ].join("\n")
 }
 
 const PLAN_EVENT_DRIVEN_BLACKBOARD_PROMPT = `# Event-driven Blackboard rules
 - Root Agent: after dispatch, if no Report, Inbox item, or unread Blackboard message exists, stop and wait for an event. Never poll Plan_read for child progress.
-- Root Agent can read every child-to-child Blackboard message and may reply directly. It may advance only after the current Step's Tasks and all current-Step Blackboard messages are handled.
+- Before Dispatch_dispatch, use the enabled-role roster in the system prompt. If the role configuration may have changed or any role is uncertain, call Dispatch_roles and use the returned role ID verbatim.
+- If a child task must be stopped or reassigned, call Dispatch_cancel before editing or redispatching it; after cancellation succeeds, follow next_action_hint with Dispatch_dispatch or Plan_update on the next turn instead of repeating Dispatch_cancel.
+- Blackboard is the shared coordination channel: Root Agent should publish the dispatch wave's key constraints, cross-task dependencies, decisions, and handoffs when they help another Agent; it must read every child-to-child message and may reply directly. It may advance only after the current Step's Tasks and all current-Step Blackboard messages are handled.
 - Use Blackboard with no input to read. Use Blackboard_Reply with message and reply_to to reply; do not invent any other Blackboard tool name. If a blackboard gate is active, Plan_read remains available only as recovery, not as a substitute for reading Blackboard.
 - When creating or editing a delegated Task, put concrete implementation constraints, interfaces, dependencies, and coordination notes in its optional instructions field; the child receives that field with current Step context.
-- Child Agent: a Blackboard message addressed by task_ids, @task ID, or reply context can wake an idle session. On that wake, read Blackboard first, act on the message, then continue the assigned Task.`
+- Child Agent: a Blackboard message addressed by task_ids, @task ID, or reply context can wake an idle session. On that wake, read Blackboard first, act on the message, then continue the assigned Task. Standard children should use the board for useful findings and handoffs, not only emergencies.`
 
 export function planSystemPrompt(input: {
   child: boolean

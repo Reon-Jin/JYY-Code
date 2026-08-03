@@ -135,6 +135,7 @@ it.instance(
       expect(review).toBeDefined()
       expect(review?.mode).toBe("subagent")
       expect(review?.options.subagentProfileID).toBe("role_review")
+      expect(review?.options.subagentToolIDs).toEqual(["read", "edit", "plugin_custom"])
       expect(review?.name).toBe(profileAgentName("role_review"))
       expect(review?.description).toBe("Reviews implementation changes.")
       expect(review?.prompt).toBeUndefined()
@@ -151,6 +152,7 @@ it.instance(
             description: "Reviews implementation changes.",
             prompt: "Review the delegated task carefully.",
             avatar: "bug",
+            tools: ["read", "edit", "plugin_custom"],
             enabled: true,
           },
         ],

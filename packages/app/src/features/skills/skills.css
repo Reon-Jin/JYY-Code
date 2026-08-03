@@ -56,7 +56,7 @@
   text-align: left;
 }
 .skill-list__row:hover {
-  background: var(--color-surface-hover);
+  background: var(--color-accent-muted);
 }
 .skill-list__primary {
   display: grid;

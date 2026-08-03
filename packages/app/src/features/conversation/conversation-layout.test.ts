@@ -56,7 +56,7 @@ describe("conversation layout CSS", () => {
       /\.conversation-message\[data-role="user"\]\s*\{[^}]*width:\s*fit-content;[^}]*max-width:\s*50%;/s,
     )
     expect(conversationCSS).toMatch(
-      /\.conversation-message\[data-role="user"\]\s*\{[^}]*background:\s*var\(--color-surface\);/s,
+      /\.conversation-message\[data-role="user"\]\s*\{[^}]*background:\s*var\(--color-accent-muted\);/s,
     )
     expect(conversationCSS).toMatch(
       /\.conversation-message\[data-role="assistant"\]\s*\{[^}]*width:\s*100%;[^}]*justify-self:\s*start;/s,

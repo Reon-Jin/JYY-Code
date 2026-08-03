@@ -22,6 +22,7 @@ function snapshot(): MultiAgentSnapshot {
       reviewIssues: [],
       reviewRound: 0,
       elapsedMs: 1,
+      childSessionID: "child_review",
     },
     {
       key: "task_unassigned",
@@ -83,5 +84,48 @@ describe("Plan role presentation", () => {
     expect(screen.getByLabelText("Reviewer")).toHaveAttribute("data-avatar", "code")
     expect(screen.getByLabelText("未分配")).toBeVisible()
     expect(screen.queryByText("通用")).not.toBeInTheDocument()
+  })
+
+  it("preserves the wave expansion and scroll position when reviewing a child", async () => {
+    const user = userEvent.setup()
+    const rootSessionID = "ses_plan_state_preservation"
+    let opened: string | undefined
+    render(() => (
+      <MultiAgentPanelView
+        sessionID={rootSessionID}
+        enabled
+        snapshot={snapshot()}
+        onOpenChild={(sessionID) => {
+          opened = sessionID
+        }}
+      />
+    ))
+
+    const body = document.querySelector<HTMLElement>(".multi-agent-panel__body")
+    expect(body).not.toBeNull()
+    body!.scrollTop = 240
+    body!.dispatchEvent(new Event("scroll"))
+    const toggle = document.querySelector<HTMLButtonElement>(".multi-agent-step__toggle")
+    expect(toggle).not.toBeNull()
+    await user.click(toggle!)
+    expect(toggle).toHaveAttribute("aria-expanded", "false")
+
+    await user.click(screen.getByRole("button", { name: /审阅|review/i }))
+    expect(opened).toBe("child_review")
+
+    cleanup()
+    render(() => (
+      <MultiAgentPanelView
+        sessionID={rootSessionID}
+        enabled
+        snapshot={snapshot()}
+        onOpenChild={() => undefined}
+      />
+    ))
+    await Promise.resolve()
+    const restoredToggle = document.querySelector<HTMLButtonElement>(".multi-agent-step__toggle")
+    const restoredBody = document.querySelector<HTMLElement>(".multi-agent-panel__body")
+    expect(restoredToggle).toHaveAttribute("aria-expanded", "false")
+    expect(restoredBody?.scrollTop).toBe(240)
   })
 })

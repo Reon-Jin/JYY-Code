@@ -79,9 +79,6 @@ export const tauriBridge: DesktopBridge = {
     await store.set(SETTINGS_KEY, parseDesktopSettings(value))
     await store.save()
   },
-  setWindowGlass(enabled, theme) {
-    return invoke<DesktopCapabilityResult>("set_window_glass", { enabled, theme })
-  },
   async getNotificationPermission() {
     return (await isPermissionGranted()) ? "granted" : "default"
   },

@@ -35,7 +35,6 @@ function harness(location: LastLocation = { project: directory, sessionID: sessi
     saveLastLocation: vi.fn(async () => undefined),
     loadSettings: vi.fn(async () => defaultDesktopSettings),
     saveSettings: vi.fn(async () => undefined),
-    setWindowGlass: vi.fn(),
     requestNotificationPermission: vi.fn(),
     sendNotification: vi.fn(),
     checkForUpdate: vi.fn(),
@@ -100,14 +99,14 @@ describe("createLifecycleController", () => {
 
   it("skips last-location restoration when startup is set to Home", async () => {
     const { bridge, controller } = harness()
-    vi.mocked(bridge.loadSettings).mockResolvedValue({ ...defaultDesktopSettings, startup: "home", theme: "light" })
+    vi.mocked(bridge.loadSettings).mockResolvedValue({ ...defaultDesktopSettings, startup: "home" })
 
     await controller.start()
 
     expect(bridge.loadLastLocation).not.toHaveBeenCalled()
     expect(controller.route()).toBe("/")
     expect(controller.phase()).toBe("ready")
-    expect(controller.settings()).toEqual({ ...defaultDesktopSettings, startup: "home", theme: "light" })
+    expect(controller.settings()).toEqual({ ...defaultDesktopSettings, startup: "home" })
   })
 
   it("does not stay loading when the previous project stalls", async () => {
