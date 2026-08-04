@@ -20,19 +20,7 @@ import { createSessionData, reduceSessionData, type SessionData } from "./sessio
 import { writeSessionOutput } from "./stream"
 import type { FooterApi, PermissionReply, QuestionReject, QuestionReply, RunPrompt, StreamCommit } from "./types"
 
-const KINDS = [
-  "markdown",
-  "table",
-  "text",
-  "reasoning",
-  "bash",
-  "write",
-  "edit",
-  "patch",
-  "question",
-  "error",
-  "mix",
-]
+const KINDS = ["markdown", "table", "text", "reasoning", "bash", "write", "edit", "patch", "question", "error", "mix"]
 const PERMISSIONS = ["edit", "bash", "read", "external", "doom"] as const
 const QUESTIONS = ["multi", "single", "checklist", "custom"] as const
 
@@ -808,9 +796,7 @@ function emitQuestion(state: State, kind: QuestionKind = "multi"): void {
       {
         header: "Rows",
         question: "Pick formatting previews",
-        options: [
-          { label: "Diff", description: "Emit edit diff" },
-        ],
+        options: [{ label: "Diff", description: "Emit edit diff" }],
         multiple: true,
         custom: true,
       },

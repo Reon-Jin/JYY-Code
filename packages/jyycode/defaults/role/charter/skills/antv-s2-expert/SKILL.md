@@ -19,31 +19,31 @@ You are the S2 multi-dimensional cross-analysis table development assistant, spe
 
 When a user asks a question, identify their intent and refer to the corresponding reference file:
 
-| User Intent Keywords | Reference File |
-| --- | --- |
-| overview, introduction, getting started | `references/knowledge/00-overview.md` |
-| pivot table, table sheet, sheet types | `references/knowledge/01-sheet-types.md` |
-| React, Vue, SheetComponent | `references/knowledge/02-framework-bindings.md` |
-| theme, style | `references/knowledge/03-theme-style.md` |
-| custom cell, DataCell, ColCell | `references/knowledge/04-custom-cell.md` |
-| event, interaction, on, S2Event | `references/knowledge/05-events-interaction.md` |
-| data config, dataCfg, fields | `references/knowledge/06-data-config.md` |
-| sort | `references/knowledge/07-sort.md` |
-| subtotal, grand total, totals | `references/knowledge/08-totals.md` |
-| copy, export | `references/knowledge/09-copy-export.md` |
-| pagination | `references/knowledge/10-pagination.md` |
-| conditions, field marking | `references/knowledge/11-conditions.md` |
-| tooltip | `references/knowledge/12-tooltip.md` |
-| frozen | `references/knowledge/13-frozen.md` |
-| icon | `references/knowledge/14-icon.md` |
-| SSR, server-side rendering | `references/knowledge/15-ssr.md` |
-| analysis components, advanced sort, drill down, switcher | `references/knowledge/16-react-components.md` |
-| S2Options, options config | `references/type/s2-options.md` |
-| S2DataConfig, data structure | `references/type/s2-data-config.md` |
-| S2Theme, theme type | `references/type/s2-theme.md` |
-| S2Event, event type | `references/type/s2-event.md` |
-| SheetComponent props | `references/type/sheet-component.md` |
-| best practices, how to | `references/examples/` |
+| User Intent Keywords                                     | Reference File                                  |
+| -------------------------------------------------------- | ----------------------------------------------- |
+| overview, introduction, getting started                  | `references/knowledge/00-overview.md`           |
+| pivot table, table sheet, sheet types                    | `references/knowledge/01-sheet-types.md`        |
+| React, Vue, SheetComponent                               | `references/knowledge/02-framework-bindings.md` |
+| theme, style                                             | `references/knowledge/03-theme-style.md`        |
+| custom cell, DataCell, ColCell                           | `references/knowledge/04-custom-cell.md`        |
+| event, interaction, on, S2Event                          | `references/knowledge/05-events-interaction.md` |
+| data config, dataCfg, fields                             | `references/knowledge/06-data-config.md`        |
+| sort                                                     | `references/knowledge/07-sort.md`               |
+| subtotal, grand total, totals                            | `references/knowledge/08-totals.md`             |
+| copy, export                                             | `references/knowledge/09-copy-export.md`        |
+| pagination                                               | `references/knowledge/10-pagination.md`         |
+| conditions, field marking                                | `references/knowledge/11-conditions.md`         |
+| tooltip                                                  | `references/knowledge/12-tooltip.md`            |
+| frozen                                                   | `references/knowledge/13-frozen.md`             |
+| icon                                                     | `references/knowledge/14-icon.md`               |
+| SSR, server-side rendering                               | `references/knowledge/15-ssr.md`                |
+| analysis components, advanced sort, drill down, switcher | `references/knowledge/16-react-components.md`   |
+| S2Options, options config                                | `references/type/s2-options.md`                 |
+| S2DataConfig, data structure                             | `references/type/s2-data-config.md`             |
+| S2Theme, theme type                                      | `references/type/s2-theme.md`                   |
+| S2Event, event type                                      | `references/type/s2-event.md`                   |
+| SheetComponent props                                     | `references/type/sheet-component.md`            |
+| best practices, how to                                   | `references/examples/`                          |
 
 ## Code Generation Guidelines
 

@@ -21,19 +21,19 @@ Here is the reasoning it applies:
 
 ### Mood → base palette
 
-| Content signal | Mood | Background | Accent | Text |
-|---|---|---|---|---|
-| Research, science, analysis | Authoritative | `#0F1F2E` deep ink | `#00B4A6` teal | `#F0EDE6` warm white |
-| Business, strategy, finance | Confident | `#1C1C2B` near-black | `#E8A020` amber | `#F5F2EC` cream |
-| Creative, portfolio, design | Expressive | `#1A0A2E` deep violet | `#FF6B6B` coral | `#FAF5FF` lavender white |
-| Education, academic paper | Scholarly | `#FAFAF7` warm white | `#2C4A7C` navy | `#1A1A2E` dark |
-| Healthcare, wellness | Calm | `#F5F9F8` pale mint | `#2D8B72` forest | `#1E3830` deep green |
-| Resume / personal | Clean | `#FFFFFF` white | pick from content | `#111111` near-black |
-| General / unknown | Neutral | `#F8F6F1` warm off-white | `#3D3D3D` dark gray | `#1A1A1A` black |
-| Formal publications, annual reports | Magazine | `#F2F0EC` warm linen | `#1C3557` deep navy | `#0D1A2B` near-black |
-| Premium/dark reports, tech reviews | Darkroom | `#151C27` deep navy | `#4A6FA5` steel blue | `#F0EDE6` warm white |
-| Technical docs, developer reports | Terminal | `#0D1117` near-black | `#39D353` neon green | `#E6EDF3` cool white |
-| Portfolios, creative, photography | Poster | `#FFFFFF` white | `#0A0A0A` near-black | `#0A0A0A` near-black |
+| Content signal                      | Mood          | Background               | Accent               | Text                     |
+| ----------------------------------- | ------------- | ------------------------ | -------------------- | ------------------------ |
+| Research, science, analysis         | Authoritative | `#0F1F2E` deep ink       | `#00B4A6` teal       | `#F0EDE6` warm white     |
+| Business, strategy, finance         | Confident     | `#1C1C2B` near-black     | `#E8A020` amber      | `#F5F2EC` cream          |
+| Creative, portfolio, design         | Expressive    | `#1A0A2E` deep violet    | `#FF6B6B` coral      | `#FAF5FF` lavender white |
+| Education, academic paper           | Scholarly     | `#FAFAF7` warm white     | `#2C4A7C` navy       | `#1A1A2E` dark           |
+| Healthcare, wellness                | Calm          | `#F5F9F8` pale mint      | `#2D8B72` forest     | `#1E3830` deep green     |
+| Resume / personal                   | Clean         | `#FFFFFF` white          | pick from content    | `#111111` near-black     |
+| General / unknown                   | Neutral       | `#F8F6F1` warm off-white | `#3D3D3D` dark gray  | `#1A1A1A` black          |
+| Formal publications, annual reports | Magazine      | `#F2F0EC` warm linen     | `#1C3557` deep navy  | `#0D1A2B` near-black     |
+| Premium/dark reports, tech reviews  | Darkroom      | `#151C27` deep navy      | `#4A6FA5` steel blue | `#F0EDE6` warm white     |
+| Technical docs, developer reports   | Terminal      | `#0D1117` near-black     | `#39D353` neon green | `#E6EDF3` cool white     |
+| Portfolios, creative, photography   | Poster        | `#FFFFFF` white          | `#0A0A0A` near-black | `#0A0A0A` near-black     |
 
 ### Accent selection rules
 
@@ -45,13 +45,13 @@ Here is the reasoning it applies:
 
 ### Color pairing anti-patterns (never use these)
 
-| ❌ Avoid | Why |
-|---|---|
-| Purple gradient on white | The default AI aesthetic — immediately signals "generated" |
-| Navy + gold | Overused corporate cliché |
-| All-black background | Prints badly, feels aggressive |
-| More than 3 colors in the system | Visual noise |
-| Accent on body text | Destroys readability |
+| ❌ Avoid                         | Why                                                        |
+| -------------------------------- | ---------------------------------------------------------- |
+| Purple gradient on white         | The default AI aesthetic — immediately signals "generated" |
+| Navy + gold                      | Overused corporate cliché                                  |
+| All-black background             | Prints badly, feels aggressive                             |
+| More than 3 colors in the system | Visual noise                                               |
+| Accent on body text              | Destroys readability                                       |
 
 ---
 
@@ -61,16 +61,17 @@ Here is the reasoning it applies:
 
 Two typefaces maximum. Always.
 
-| Role | Criteria | Good choices (system-safe) |
-|---|---|---|
+| Role                      | Criteria                                  | Good choices (system-safe)       |
+| ------------------------- | ----------------------------------------- | -------------------------------- |
 | Display (cover title, H1) | Distinctive, strong contrast, high weight | Times New Roman, Georgia (serif) |
-| Text (body, captions, UI) | Highly readable at 10–11pt | Helvetica, Arial (sans) |
+| Text (body, captions, UI) | Highly readable at 10–11pt                | Helvetica, Arial (sans)          |
 
 Cover fonts are loaded live via `@import url(...)` in the cover HTML — Playwright
 fetches them at render time, no local caching. Body pages always use system fonts
 (Times-Bold / Helvetica) via ReportLab — consistent and offline-safe.
 
 Pairs by mood (cover HTML only — body always uses system fonts):
+
 - Authoritative: `Playfair Display` / `IBM Plex Sans`
 - Confident: `Syne` / `Nunito Sans`
 - Expressive: `Fraunces` / `Inter`
@@ -87,28 +88,28 @@ Pairs by mood (cover HTML only — body always uses system fonts):
 
 All sizes in points. This scale is used by `palette.py` to populate `tokens.json`.
 
-| Token | Size | Leading | Usage |
-|---|---|---|---|
-| `display` | 54pt | 1.0 | Cover title |
-| `h1` | 22pt | 1.3 | Section headings |
-| `h2` | 15pt | 1.4 | Subsection headings |
-| `h3` | 11.5pt | 1.5 | Sub-subsection |
-| `body` | 10.5pt | 1.6 | Main prose |
-| `caption` | 8.5pt | 1.4 | Figure/table captions |
-| `meta` | 8pt | 1.3 | Header/footer text |
+| Token     | Size   | Leading | Usage                 |
+| --------- | ------ | ------- | --------------------- |
+| `display` | 54pt   | 1.0     | Cover title           |
+| `h1`      | 22pt   | 1.3     | Section headings      |
+| `h2`      | 15pt   | 1.4     | Subsection headings   |
+| `h3`      | 11.5pt | 1.5     | Sub-subsection        |
+| `body`    | 10.5pt | 1.6     | Main prose            |
+| `caption` | 8.5pt  | 1.4     | Figure/table captions |
+| `meta`    | 8pt    | 1.3     | Header/footer text    |
 
 ### Spacing system
 
 Margins and rhythm are what separate "looks designed" from "looks printed".
 
-| Token | Value | Notes |
-|---|---|---|
-| `margin_outer` | 2.8cm | Left/right page margin |
-| `margin_top` | 2.8cm | Top page margin |
-| `margin_bottom` | 2.5cm | Bottom page margin |
-| `section_gap` | 26pt | Space before H1 |
-| `para_gap` | 8pt | Space after paragraph |
-| `line_gap` | 17pt | Leading for body text |
+| Token           | Value | Notes                  |
+| --------------- | ----- | ---------------------- |
+| `margin_outer`  | 2.8cm | Left/right page margin |
+| `margin_top`    | 2.8cm | Top page margin        |
+| `margin_bottom` | 2.5cm | Bottom page margin     |
+| `section_gap`   | 26pt  | Space before H1        |
+| `para_gap`      | 8pt   | Space after paragraph  |
+| `line_gap`      | 17pt  | Leading for body text  |
 
 Never use ReportLab's default margins (too tight). Always set explicitly.
 
@@ -123,6 +124,7 @@ The cover is the most important page. It determines whether a reader trusts the 
 `cover.py` selects one based on `tokens.json["cover_pattern"]`.
 
 **1. `fullbleed`** — used for: `report`, `general`
+
 - Deep background fills 100% of page
 - Title: large, left-aligned, upper 60% of page
 - Accent: thin horizontal rule + top-right corner strip
@@ -131,6 +133,7 @@ The cover is the most important page. It determines whether a reader trusts the 
 - Fonts: Playfair Display / IBM Plex Sans
 
 **2. `split`** — used for: `proposal`
+
 - Left 42% panel: solid cover color, title + author
 - Right 58%: off-white, dot-grid decoration
 - Hard vertical dividing line in accent color
@@ -138,6 +141,7 @@ The cover is the most important page. It determines whether a reader trusts the 
 - Fonts: Syne / Nunito Sans
 
 **3. `typographic`** — used for: `resume`, `academic`
+
 - White/off-white background
 - Name or title as oversized display type (60–80pt), left-aligned
 - First word in accent color, remainder in dark
@@ -145,6 +149,7 @@ The cover is the most important page. It determines whether a reader trusts the 
 - Fonts: DM Serif Display / DM Sans (resume) · EB Garamond / Source Sans 3 (academic)
 
 **4. `atmospheric`** — used for: `portfolio`
+
 - Near-black background
 - Soft radial glow in accent color (upper-right quadrant)
 - Title centered-left, 2 lines max
@@ -153,6 +158,7 @@ The cover is the most important page. It determines whether a reader trusts the 
 - Fonts: Fraunces / Inter
 
 **5. `minimal`** — used for: `minimal`
+
 - Near-white background, 8px left accent bar is the only color
 - Title in very large, light-weight display type (300 weight)
 - Hairline rule, author + date as single muted line
@@ -160,18 +166,21 @@ The cover is the most important page. It determines whether a reader trusts the 
 - Fonts: Cormorant Garamond / Jost
 
 **6. `stripe`** — used for: `stripe`
+
 - Page cut into three horizontal bands: accent / dark / light
 - Top band: category label; middle: oversized title in white; bottom: metadata
 - Hard edges, no gradients, no textures — newspaper / brand poster aesthetic
 - Fonts: Barlow Condensed / Barlow
 
 **7. `diagonal`** — used for: `diagonal`
+
 - SVG polygon cuts page diagonally: dark upper-left, light lower-right
 - Accent-colored edge line traces the diagonal cut
 - Title on dark area, metadata on light area
 - Fonts: Montserrat / Montserrat
 
 **8. `frame`** — used for: `frame`
+
 - White/cream background with an inset rectangular border (1.2px, 28px from edges)
 - Accent strips inside top + bottom of frame; small accent corner squares
 - Title centered in the frame space, centered alignment, classical weight
@@ -179,6 +188,7 @@ The cover is the most important page. It determines whether a reader trusts the 
 - Fonts: Cormorant / Crimson Pro
 
 **9. `editorial`** — used for: `editorial`
+
 - Ghost first-letter of title fills upper-right at 5% opacity — visual texture
 - 5px accent top bar; full-width uppercase title in condensed weight
 - Title all-caps, very large (80px), flush-left
@@ -186,6 +196,7 @@ The cover is the most important page. It determines whether a reader trusts the 
 - Fonts: Bebas Neue / Libre Franklin
 
 **10. `magazine`** — used for: `magazine`
+
 - Warm cream/linen background; fully centered, vertical stack layout
 - Org/company name in small spaced caps + 2px accent rule beneath (top anchor)
 - Large bold serif title (52px) centered; short accent rule under title
@@ -195,12 +206,14 @@ The cover is the most important page. It determines whether a reader trusts the 
 - Fonts: Playfair Display / EB Garamond
 
 **11. `darkroom`** — used for: `darkroom`
+
 - Same centered stack layout as `magazine` but deep navy background, white text
 - Org name + rules in semi-transparent white; accent rules desaturated
 - Hero image (if provided) gets `grayscale(20%) brightness(0.9)` filter
 - Fonts: Playfair Display / EB Garamond
 
 **12. `terminal`** — used for: `terminal`
+
 - Near-black background; neon green accent; Space Mono monospace throughout
 - Grid overlay: faint horizontal + vertical lines at 48px intervals (7% opacity)
 - Status label top-left: green dot + `SYSTEM_REPORT // <date>`
@@ -210,6 +223,7 @@ The cover is the most important page. It determines whether a reader trusts the 
 - Fonts: Space Mono / Space Mono
 
 **13. `poster`** — used for: `poster`
+
 - White background; thick 52px left sidebar in accent (typically near-black)
 - Title: 96px, 900-weight, all-caps, condensed — the dominant visual element
 - Subtitle in typewriter font below title; thin 2px rule as separator
@@ -231,8 +245,16 @@ These three rules must appear in every cover HTML file or the output will have
 white borders / incorrect dimensions:
 
 ```css
-body { margin: 0; padding: 0; }
-html, body { width: 794px; height: 1123px; overflow: hidden; }
+body {
+  margin: 0;
+  padding: 0;
+}
+html,
+body {
+  width: 794px;
+  height: 1123px;
+  overflow: hidden;
+}
 ```
 
 No `@page` rules needed — Playwright handles page size via the `pdf()` call.
@@ -288,40 +310,40 @@ Concretely:
 
 All body blocks use the same token system — colors and fonts come from `tokens.json`, never hardcoded.
 
-| Block | Rendering | Design notes |
-|---|---|---|
-| `h1` | 22pt heading + full-width accent rule below | KeepTogether with rule — heading never orphaned |
-| `h2` | 15pt heading, dark text | No rule, no accent — visual hierarchy through size only |
-| `h3` | 11.5pt bold, dark text | **No accent color** — accent on body headings violates the one-accent-location rule |
-| `body` | 10.5pt justified, 17pt leading | Supports `<b>` `<i>` `<font>` markup |
-| `bullet` | Body size with `•` prefix, 14pt indent | Use for unordered lists |
-| `numbered` | Body size with `N.` prefix, hanging indent | Counter auto-resets on any non-numbered block — no manual numbering needed |
-| `callout` | Accent left-border (4px) + light tint background | Max one callout per section — overuse kills impact |
-| `table` | Accent header row, alternating row tint, outer box only | Supports `col_widths` (fractions, e.g. `[0.3, 0.5, 0.2]`) for custom column widths |
-| `image` | Scaled to column width, preserving aspect ratio | Use `path` or `src`; always provide a `caption` |
-| `figure` | Same as image, but caption auto-prefixed "Figure N:" | Figure counter increments across all `figure`, `chart`, `flowchart` blocks |
-| `code` | Courier 8.5pt, accent left-border, light tint background | Supports optional `language` label (rendered above block) |
-| `math` | Formula centered, optional right-aligned equation label | LaTeX syntax; matplotlib mathtext renderer |
-| `chart` | Bar / line / pie chart rendered via matplotlib | Color palette derived from document accent; figure auto-numbered |
-| `flowchart` | Process diagram with labeled arrows | Supports 4 node shapes; back-edges drawn as curved arcs |
-| `bibliography` | Numbered reference list with hanging indent | Heading rendered as h2 + accent rule; items as `[N] text` |
-| `divider` | Accent-colored 1.2pt rule with padding | Use sparingly — only for major thematic breaks |
-| `caption` | 8.5pt muted text, centered | Appears below images/tables via field or explicit block |
-| `pagebreak` | Force page break | — |
-| `spacer` | Vertical whitespace | `pt` field (default 12) |
+| Block          | Rendering                                                | Design notes                                                                        |
+| -------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `h1`           | 22pt heading + full-width accent rule below              | KeepTogether with rule — heading never orphaned                                     |
+| `h2`           | 15pt heading, dark text                                  | No rule, no accent — visual hierarchy through size only                             |
+| `h3`           | 11.5pt bold, dark text                                   | **No accent color** — accent on body headings violates the one-accent-location rule |
+| `body`         | 10.5pt justified, 17pt leading                           | Supports `<b>` `<i>` `<font>` markup                                                |
+| `bullet`       | Body size with `•` prefix, 14pt indent                   | Use for unordered lists                                                             |
+| `numbered`     | Body size with `N.` prefix, hanging indent               | Counter auto-resets on any non-numbered block — no manual numbering needed          |
+| `callout`      | Accent left-border (4px) + light tint background         | Max one callout per section — overuse kills impact                                  |
+| `table`        | Accent header row, alternating row tint, outer box only  | Supports `col_widths` (fractions, e.g. `[0.3, 0.5, 0.2]`) for custom column widths  |
+| `image`        | Scaled to column width, preserving aspect ratio          | Use `path` or `src`; always provide a `caption`                                     |
+| `figure`       | Same as image, but caption auto-prefixed "Figure N:"     | Figure counter increments across all `figure`, `chart`, `flowchart` blocks          |
+| `code`         | Courier 8.5pt, accent left-border, light tint background | Supports optional `language` label (rendered above block)                           |
+| `math`         | Formula centered, optional right-aligned equation label  | LaTeX syntax; matplotlib mathtext renderer                                          |
+| `chart`        | Bar / line / pie chart rendered via matplotlib           | Color palette derived from document accent; figure auto-numbered                    |
+| `flowchart`    | Process diagram with labeled arrows                      | Supports 4 node shapes; back-edges drawn as curved arcs                             |
+| `bibliography` | Numbered reference list with hanging indent              | Heading rendered as h2 + accent rule; items as `[N] text`                           |
+| `divider`      | Accent-colored 1.2pt rule with padding                   | Use sparingly — only for major thematic breaks                                      |
+| `caption`      | 8.5pt muted text, centered                               | Appears below images/tables via field or explicit block                             |
+| `pagebreak`    | Force page break                                         | —                                                                                   |
+| `spacer`       | Vertical whitespace                                      | `pt` field (default 12)                                                             |
 
 ### Math formula guidance
 
 **Input syntax:** standard LaTeX math notation — `\frac{}{}`, `\int`, `\sum`, `\alpha`, `^`, `_`, etc.
 **Rendering engine:** matplotlib mathtext — pure Python, no LaTeX compiler, no browser required.
 
-| Syntax example | Rendered as |
-|---|---|
-| `E = mc^2` | Inline expression |
-| `\frac{\sqrt{\pi}}{2}` | Fraction |
-| `\int_0^\infty e^{-x^2} dx` | Integral |
-| `\sum_{i=1}^{n} x_i` | Summation |
-| `\alpha + \beta = \gamma` | Greek letters |
+| Syntax example              | Rendered as       |
+| --------------------------- | ----------------- |
+| `E = mc^2`                  | Inline expression |
+| `\frac{\sqrt{\pi}}{2}`      | Fraction          |
+| `\int_0^\infty e^{-x^2} dx` | Integral          |
+| `\sum_{i=1}^{n} x_i`        | Summation         |
+| `\alpha + \beta = \gamma`   | Greek letters     |
 
 **Limitations:** matplotlib mathtext covers most common expressions but not advanced LaTeX environments (`align`, `cases`, `matrix`). Split complex multi-line proofs into multiple `math` blocks.
 
@@ -333,11 +355,11 @@ All body blocks use the same token system — colors and fonts come from `tokens
 
 **Rendered entirely in Python** — no external chart services, image files, or internet required.
 
-| chart_type | Use case | Required fields |
-|---|---|---|
-| `bar` | Comparing discrete categories | `labels`, `datasets` |
-| `line` | Trends over time or ordered categories | `labels`, `datasets` |
-| `pie` | Part-to-whole composition | `labels`, `datasets[0].values` |
+| chart_type | Use case                               | Required fields                |
+| ---------- | -------------------------------------- | ------------------------------ |
+| `bar`      | Comparing discrete categories          | `labels`, `datasets`           |
+| `line`     | Trends over time or ordered categories | `labels`, `datasets`           |
+| `pie`      | Part-to-whole composition              | `labels`, `datasets[0].values` |
 
 - Colors are derived from the document accent for visual consistency — do not set custom colors.
 - Multi-series: add multiple objects to `datasets`, each with a `label` and `values` array.
@@ -347,12 +369,12 @@ All body blocks use the same token system — colors and fonts come from `tokens
 
 **Node shapes:**
 
-| shape | Use for |
-|---|---|
-| `rect` (default) | Process step |
-| `diamond` | Decision / condition |
-| `oval` or `terminal` | Start / End |
-| `parallelogram` | Input / Output |
+| shape                | Use for              |
+| -------------------- | -------------------- |
+| `rect` (default)     | Process step         |
+| `diamond`            | Decision / condition |
+| `oval` or `terminal` | Start / End          |
+| `parallelogram`      | Input / Output       |
 
 - Nodes are placed in input order (top to bottom). This controls the layout.
 - Forward edges draw straight arrows; back-edges (to earlier nodes) draw curved arcs.

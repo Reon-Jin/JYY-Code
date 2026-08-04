@@ -984,7 +984,10 @@ const scenarios: Scenario[] = [
       check(body.rootSessionID === ctx.state.id, "posted blackboard message should use the root session")
       check(body.authorKind === "user", "HTTP blackboard posts should be authored by the user")
       const taskIDs = Array.isArray(body.taskIDs) ? [...body.taskIDs] : []
-      check(taskIDs.some((taskID) => taskID === "s1_t1"), "task mentions should link the blackboard message")
+      check(
+        taskIDs.some((taskID) => taskID === "s1_t1"),
+        "task mentions should link the blackboard message",
+      )
     }),
   http.protected
     .post("/session/{sessionID}/blackboard/read", "session.blackboard.read")

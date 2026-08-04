@@ -17,7 +17,12 @@ test("连接后请求权威任务摘要，并忽略中继以外的内容", async
     onmessage?: (event: MessageEvent) => void
     onerror?: () => void
     onclose?: () => void
-    constructor(_url: string) { queueMicrotask(() => { this.readyState = FakeSocket.OPEN; this.onopen?.() }) }
+    constructor(_url: string) {
+      queueMicrotask(() => {
+        this.readyState = FakeSocket.OPEN
+        this.onopen?.()
+      })
+    }
     send(raw: string) {
       const message = JSON.parse(raw) as Record<string, unknown>
       if (message.type === "relay.hello") {
@@ -25,18 +30,38 @@ test("连接后请求权威任务摘要，并忽略中继以外的内容", async
         return
       }
       const response = {
-        type: "relay.envelope", protocolVersion: 1, routeID: "desktop_test", senderID: "desktop_test", recipientID: "web_test", messageID: "response_1",
-        correlationID: message.correlationID, sequence: 1, ciphertext: encryptPayload(sessionKey, { type: "summaryResult", tasks: [] }),
+        type: "relay.envelope",
+        protocolVersion: 1,
+        routeID: "desktop_test",
+        senderID: "desktop_test",
+        recipientID: "web_test",
+        messageID: "response_1",
+        correlationID: message.correlationID,
+        sequence: 1,
+        ciphertext: encryptPayload(sessionKey, { type: "summaryResult", tasks: [] }),
       }
       queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(response) } as MessageEvent))
     }
-    close() { this.readyState = 3; this.onclose?.() }
+    close() {
+      this.readyState = 3
+      this.onclose?.()
+    }
   }
 
   vi.stubGlobal("WebSocket", FakeSocket)
   try {
     const client = new RelayClient({ onTasks: (value) => tasks.push(...value) })
-    await client.restore({ id: "web_test", name: "Safari 浏览器", routeId: "desktop_test", relayUrl: "wss://relay.example.test/connect", ...sealed, pairedAt: Date.now() }, sessionKey)
+    await client.restore(
+      {
+        id: "web_test",
+        name: "Safari 浏览器",
+        routeId: "desktop_test",
+        relayUrl: "wss://relay.example.test/connect",
+        ...sealed,
+        pairedAt: Date.now(),
+      },
+      sessionKey,
+    )
     expect(tasks).toEqual([])
     client.disconnect()
   } finally {

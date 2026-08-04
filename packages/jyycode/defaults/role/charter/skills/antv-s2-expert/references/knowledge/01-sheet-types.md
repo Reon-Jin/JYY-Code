@@ -11,51 +11,45 @@ The pivot table organizes data using `rows`, `columns`, and `values`:
 ```ts
 const s2DataConfig = {
   fields: {
-    rows: ['province', 'city'],
-    columns: ['type', 'sub_type'],
-    values: ['price'],
+    rows: ["province", "city"],
+    columns: ["type", "sub_type"],
+    values: ["price"],
   },
   data: [
-    { province: 'Zhejiang', city: 'Hangzhou', type: 'Furniture', sub_type: 'Table', price: '1' },
-    { province: 'Zhejiang', city: 'Hangzhou', type: 'Furniture', sub_type: 'Sofa', price: '2' },
-    { province: 'Zhejiang', city: 'Hangzhou', type: 'Office', sub_type: 'Pen', price: '3' },
-    { province: 'Zhejiang', city: 'Hangzhou', type: 'Office', sub_type: 'Paper', price: '4' },
+    { province: "Zhejiang", city: "Hangzhou", type: "Furniture", sub_type: "Table", price: "1" },
+    { province: "Zhejiang", city: "Hangzhou", type: "Furniture", sub_type: "Sofa", price: "2" },
+    { province: "Zhejiang", city: "Hangzhou", type: "Office", sub_type: "Pen", price: "3" },
+    { province: "Zhejiang", city: "Hangzhou", type: "Office", sub_type: "Paper", price: "4" },
   ],
-};
+}
 ```
 
 ### Basic Usage
 
 ```ts
-import { PivotSheet } from '@antv/s2';
+import { PivotSheet } from "@antv/s2"
 
 const s2Options = {
   width: 600,
   height: 600,
-};
-
-async function bootstrap() {
-  const container = document.getElementById('container');
-  const s2 = new PivotSheet(container, s2DataConfig, s2Options);
-  await s2.render();
 }
 
-bootstrap();
+async function bootstrap() {
+  const container = document.getElementById("container")
+  const s2 = new PivotSheet(container, s2DataConfig, s2Options)
+  await s2.render()
+}
+
+bootstrap()
 ```
 
 ### React Usage
 
 ```tsx
-import { SheetComponent } from '@antv/s2-react';
-import '@antv/s2-react/dist/s2-react.min.css';
+import { SheetComponent } from "@antv/s2-react"
+import "@antv/s2-react/dist/s2-react.min.css"
 
-const App = () => (
-  <SheetComponent
-    sheetType="pivot"
-    dataCfg={s2DataConfig}
-    options={{ width: 400, height: 200 }}
-  />
-);
+const App = () => <SheetComponent sheetType="pivot" dataCfg={s2DataConfig} options={{ width: 400, height: 200 }} />
 ```
 
 ### Display Modes (hierarchyType)
@@ -65,7 +59,7 @@ const App = () => (
 Each dimension level has an independent column. No expand/collapse support.
 
 ```ts
-const s2Options = { hierarchyType: 'grid' };
+const s2Options = { hierarchyType: "grid" }
 ```
 
 #### Tree Mode
@@ -73,7 +67,7 @@ const s2Options = { hierarchyType: 'grid' };
 All dimension levels share one column, with indentation to distinguish levels. Supports expand/collapse.
 
 ```ts
-const s2Options = { hierarchyType: 'tree' };
+const s2Options = { hierarchyType: "tree" }
 ```
 
 #### Grid-Tree Mode
@@ -82,13 +76,13 @@ Combines grid and tree: each dimension level has an independent column, with exp
 
 ```ts
 const s2Options = {
-  hierarchyType: 'grid-tree',
+  hierarchyType: "grid-tree",
   style: {
     rowCell: {
       expandDepth: 1, // default expand level (starts from 0)
     },
   },
-};
+}
 ```
 
 ### Series Number (Row Index)
@@ -97,9 +91,9 @@ const s2Options = {
 const s2Options = {
   seriesNumber: {
     enable: true,
-    text: 'No.' // custom header text
+    text: "No.", // custom header text
   },
-};
+}
 ```
 
 ### Frozen Row Header
@@ -111,7 +105,7 @@ const s2Options = {
   frozen: {
     rowHeader: false, // default: true
   },
-};
+}
 ```
 
 Control the max frozen width ratio (default `0.5`, range `0-1`):
@@ -121,7 +115,7 @@ const s2Options = {
   frozen: {
     rowHeader: 0.2,
   },
-};
+}
 ```
 
 ### Frozen Rows and Columns
@@ -129,12 +123,12 @@ const s2Options = {
 ```ts
 const s2Options = {
   frozen: {
-    rowCount: 1,          // freeze N leaf rows from top
-    trailingRowCount: 1,  // freeze N leaf rows from bottom
-    colCount: 1,          // freeze N leaf columns from left
-    trailingColCount: 1,  // freeze N leaf columns from right
+    rowCount: 1, // freeze N leaf rows from top
+    trailingRowCount: 1, // freeze N leaf rows from bottom
+    colCount: 1, // freeze N leaf columns from left
+    trailingColCount: 1, // freeze N leaf columns from right
   },
-};
+}
 ```
 
 ---
@@ -152,48 +146,42 @@ For TableSheet, only `columns` is needed in `fields` (no `rows` or `values`):
 ```ts
 const s2DataConfig = {
   fields: {
-    columns: ['province', 'city', 'type', 'price'],
+    columns: ["province", "city", "type", "price"],
   },
   meta: [
-    { field: 'province', name: 'Province' },
-    { field: 'city', name: 'City' },
-    { field: 'type', name: 'Type' },
-    { field: 'price', name: 'Price' },
+    { field: "province", name: "Province" },
+    { field: "city", name: "City" },
+    { field: "type", name: "Type" },
+    { field: "price", name: "Price" },
   ],
   data: [
-    { province: 'Zhejiang', city: 'Hangzhou', type: 'Pen', price: '1' },
-    { province: 'Zhejiang', city: 'Hangzhou', type: 'Paper', price: '2' },
+    { province: "Zhejiang", city: "Hangzhou", type: "Pen", price: "1" },
+    { province: "Zhejiang", city: "Hangzhou", type: "Paper", price: "2" },
   ],
-};
+}
 ```
 
 ### Basic Usage
 
 ```ts
-import { TableSheet } from '@antv/s2';
+import { TableSheet } from "@antv/s2"
 
 async function bootstrap() {
-  const container = document.getElementById('container');
-  const s2 = new TableSheet(container, s2DataConfig, s2Options);
-  await s2.render();
+  const container = document.getElementById("container")
+  const s2 = new TableSheet(container, s2DataConfig, s2Options)
+  await s2.render()
 }
 
-bootstrap();
+bootstrap()
 ```
 
 ### React Usage
 
 ```tsx
-import { SheetComponent } from '@antv/s2-react';
-import '@antv/s2-react/dist/s2-react.min.css';
+import { SheetComponent } from "@antv/s2-react"
+import "@antv/s2-react/dist/s2-react.min.css"
 
-const App = () => (
-  <SheetComponent
-    sheetType="table"
-    dataCfg={s2DataConfig}
-    options={{ width: 400, height: 200 }}
-  />
-);
+const App = () => <SheetComponent sheetType="table" dataCfg={s2DataConfig} options={{ width: 400, height: 200 }} />
 ```
 
 ### Row/Column Freezing
@@ -201,12 +189,12 @@ const App = () => (
 ```ts
 const s2Options = {
   frozen: {
-    rowCount: 2,           // freeze rows from top
-    trailingRowCount: 1,   // freeze rows from bottom
-    colCount: 1,           // freeze columns from left
-    trailingColCount: 1,   // freeze columns from right
+    rowCount: 2, // freeze rows from top
+    trailingRowCount: 1, // freeze rows from bottom
+    colCount: 1, // freeze columns from left
+    trailingColCount: 1, // freeze columns from right
   },
-};
+}
 ```
 
 ### Series Number
@@ -215,20 +203,20 @@ const s2Options = {
 const s2Options = {
   seriesNumber: {
     enable: true,
-    text: 'No.'
+    text: "No.",
   },
-};
+}
 ```
 
 ---
 
 ## When to Use Each Type
 
-| Scenario | Sheet Type |
-|----------|-----------|
-| Multi-dimensional aggregation/cross-analysis | **PivotSheet** |
+| Scenario                                            | Sheet Type     |
+| --------------------------------------------------- | -------------- |
+| Multi-dimensional aggregation/cross-analysis        | **PivotSheet** |
 | Exploring relationships between multiple dimensions | **PivotSheet** |
-| Displaying raw detail/record data | **TableSheet** |
-| Large-volume flat data with column-based layout | **TableSheet** |
-| Need subtotals/grand totals | **PivotSheet** |
-| Simple list with sorting and filtering | **TableSheet** |
+| Displaying raw detail/record data                   | **TableSheet** |
+| Large-volume flat data with column-based layout     | **TableSheet** |
+| Need subtotals/grand totals                         | **PivotSheet** |
+| Simple list with sorting and filtering              | **TableSheet** |

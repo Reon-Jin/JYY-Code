@@ -69,6 +69,7 @@ mainPart.Document = new Document(new Body());
 ## CLI shorthand
 
 All CLI commands below use `$CLI` as shorthand for:
+
 ```bash
 dotnet run --project scripts/dotnet/MiniMaxAIDocx.Cli --
 ```
@@ -111,6 +112,7 @@ Analyze structure for editing scenarios: `$CLI analyze --input document.docx`
 Read `references/scenario_a_create.md`, `references/typography_guide.md`, and `references/design_principles.md` first. Pick an aesthetic recipe from `Samples/AestheticRecipeSamples.cs` that matches the document type — do not invent formatting values. For CJK, also read `references/cjk_typography.md`.
 
 **Choose your path:**
+
 - **Simple** (plain text, minimal formatting): use CLI — `$CLI create --type report --output out.docx --config content.json`
 - **Structural** (custom styles, multi-section, TOC, images, complex tables): write C# directly. Read the relevant `Samples/*.cs` first.
 
@@ -123,10 +125,12 @@ Then run the **validation pipeline** (below).
 Read `references/scenario_b_edit_content.md` first. Preview → analyze → edit → validate.
 
 **Choose your path:**
+
 - **Simple** (text replacement, placeholder fill): use CLI subcommands.
 - **Structural** (add/reorganize sections, modify styles, manipulate tables, insert images): write C# directly. Read `references/openxml_element_order.md` and the relevant `Samples/*.cs`.
 
 Available CLI edit subcommands:
+
 - `replace-text --find "X" --replace "Y"`
 - `fill-placeholders --data '{"key":"value"}'`
 - `fill-table --data table.json`
@@ -138,6 +142,7 @@ $CLI edit fill-placeholders --input in.docx --output out.docx --data '{"name":"J
 ```
 
 Then run the **validation pipeline**. Also run diff to verify minimal changes:
+
 ```bash
 $CLI diff --before in.docx --after out.docx
 ```
@@ -153,9 +158,11 @@ $CLI apply-template --input source.docx --template template.docx --output out.do
 For complex template operations (multi-template merge, per-section headers/footers, style merging), write C# directly — see Critical Rules below for required patterns.
 
 Run the **validation pipeline**, then the **hard gate-check**:
+
 ```bash
 $CLI validate --input out.docx --gate-check assets/xsd/business-rules.xsd
 ```
+
 Gate-check is a **hard requirement**. Do NOT deliver until it passes. If it fails: diagnose, fix, re-run.
 
 Also diff to verify content preservation: `$CLI diff --before source.docx --after out.docx`
@@ -171,12 +178,14 @@ $CLI validate --input doc.docx --business                           # 3. busines
 ```
 
 If XSD fails, auto-repair and retry:
+
 ```bash
 $CLI fix-order --input doc.docx
 $CLI validate --input doc.docx --xsd assets/xsd/wml-subset.xsd
 ```
 
 If XSD still fails, fall back to business rules + preview:
+
 ```bash
 $CLI validate --input doc.docx --business
 scripts/docx_preview.sh doc.docx
@@ -191,13 +200,13 @@ These prevent file corruption — OpenXML is strict about element ordering.
 
 **Element order** (properties always first):
 
-| Parent | Order |
-|--------|-------|
-| `w:p`  | `pPr` → runs |
-| `w:r`  | `rPr` → `t`/`br`/`tab` |
-| `w:tbl`| `tblPr` → `tblGrid` → `tr` |
-| `w:tr` | `trPr` → `tc` |
-| `w:tc` | `tcPr` → `p` (min 1 `<w:p/>`) |
+| Parent   | Order                                 |
+| -------- | ------------------------------------- |
+| `w:p`    | `pPr` → runs                          |
+| `w:r`    | `rPr` → `t`/`br`/`tab`                |
+| `w:tbl`  | `tblPr` → `tblGrid` → `tr`            |
+| `w:tr`   | `trPr` → `tc`                         |
+| `w:tc`   | `tcPr` → `p` (min 1 `<w:p/>`)         |
 | `w:body` | block content → `sectPr` (LAST child) |
 
 **Direct format contamination:** When copying content from a source document, inline `rPr` (fonts, color) and `pPr` (borders, shading, spacing) override template styles. Always strip direct formatting — keep only `pStyle` reference and `t` text. Clean tables too (including `pPr/rPr` inside cells).
@@ -209,6 +218,7 @@ These prevent file corruption — OpenXML is strict about element ordering.
 **Heading styles MUST have OutlineLevel:** When defining heading styles (Heading1, ThesisH1, etc.), always include `new OutlineLevel { Val = N }` in `StyleParagraphProperties` (H1→0, H2→1, H3→2). Without this, Word sees them as plain styled text — TOC and navigation pane won't work.
 
 **Multi-template merge:** When given multiple template files (font, heading, breaks), read `references/scenario_c_apply_template.md` section "Multi-Template Merge" FIRST. Key rules:
+
 - Merge styles from all templates into one styles.xml. Structure (sections/breaks) comes from the breaks template.
 - Each content paragraph must appear exactly ONCE — never duplicate when inserting section breaks.
 - NEVER insert empty/blank paragraphs as padding or section separators. Output paragraph count must equal input. Use section break properties (`w:sectPr` inside `w:pPr`) and style spacing (`w:spacing` before/after) for visual separation.
@@ -217,6 +227,7 @@ These prevent file corruption — OpenXML is strict about element ordering.
 - Copy `titlePg` settings from the breaks template for EACH section. Abstract and TOC sections typically need `titlePg=true`.
 
 **Multi-section headers/footers:** Templates with 10+ sections (e.g., Chinese thesis) have DIFFERENT headers/footers per section (Roman vs Arabic page numbers, different header text per zone). Rules:
+
 - Use C-2 Base-Replace: copy the TEMPLATE as output base, then replace body content. This preserves all sections, headers, footers, and titlePg settings automatically.
 - NEVER recreate headers/footers from scratch — copy template header/footer XML byte-for-byte.
 - NEVER add formatting (borders, alignment, font size) not present in the template header XML.
@@ -231,44 +242,44 @@ Load as needed — don't load all at once. Pick the most relevant files for the 
 
 ### Scenario guides (read first for each pipeline)
 
-| File | When |
-|------|------|
-| `references/scenario_a_create.md` | Pipeline A: creating from scratch |
-| `references/scenario_b_edit_content.md` | Pipeline B: editing existing content |
+| File                                      | When                                     |
+| ----------------------------------------- | ---------------------------------------- |
+| `references/scenario_a_create.md`         | Pipeline A: creating from scratch        |
+| `references/scenario_b_edit_content.md`   | Pipeline B: editing existing content     |
 | `references/scenario_c_apply_template.md` | Pipeline C: applying template formatting |
 
 ### C# code samples (compilable, heavily commented — read when writing code)
 
-| File | Topic |
-|------|-------|
-| `Samples/DocumentCreationSamples.cs` | Document lifecycle: create, open, save, streams, doc defaults, settings, properties, page setup, multi-section |
-| `Samples/StyleSystemSamples.cs` | Styles: Normal/Heading chain, character/table/list styles, DocDefaults, latentStyles, CJK 公文, APA 7th, import, resolve inheritance |
-| `Samples/CharacterFormattingSamples.cs` | RunProperties: fonts, size, bold/italic, all underlines, color, highlight, strike, sub/super, caps, spacing, shading, border, emphasis marks |
-| `Samples/ParagraphFormattingSamples.cs` | ParagraphProperties: justification, indentation, line/paragraph spacing, keep/widow, outline level, borders, tabs, numbering, bidi, frame |
-| `Samples/TableSamples.cs` | Tables: borders, grid, cell props, margins, row height, header repeat, merge (H+V), nested, floating, three-line 三线表, zebra striping |
-| `Samples/HeaderFooterSamples.cs` | Headers/footers: page numbers, "Page X of Y", first/even/odd, logo image, table layout, 公文 "-X-", per-section |
-| `Samples/ImageSamples.cs` | Images: inline, floating, text wrapping, border, alt text, in header/table, replace, SVG fallback, dimension calc |
-| `Samples/ListAndNumberingSamples.cs` | Numbering: bullets, multi-level decimal, custom symbols, outline→headings, legal, Chinese 一/（一）/1./(1), restart/continue |
-| `Samples/FieldAndTocSamples.cs` | Fields: TOC, SimpleField vs complex field, DATE/PAGE/REF/SEQ/MERGEFIELD/IF/STYLEREF, TOC styles |
-| `Samples/FootnoteAndCommentSamples.cs` | Footnotes, endnotes, comments (4-file system), bookmarks, hyperlinks (internal + external) |
-| `Samples/TrackChangesSamples.cs` | Revisions: insertions (w:t), deletions (w:delText!), formatting changes, accept/reject all, move tracking |
-| `Samples/AestheticRecipeSamples.cs` | 13 aesthetic recipes from authoritative sources: ModernCorporate, AcademicThesis, ExecutiveBrief, ChineseGovernment (GB/T 9704), MinimalModern, IEEE Conference, ACM sigconf, APA 7th, MLA 9th, Chicago/Turabian, Springer LNCS, Nature, HBR — each with exact values from official style guides |
+| File                                    | Topic                                                                                                                                                                                                                                                                                            |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Samples/DocumentCreationSamples.cs`    | Document lifecycle: create, open, save, streams, doc defaults, settings, properties, page setup, multi-section                                                                                                                                                                                   |
+| `Samples/StyleSystemSamples.cs`         | Styles: Normal/Heading chain, character/table/list styles, DocDefaults, latentStyles, CJK 公文, APA 7th, import, resolve inheritance                                                                                                                                                             |
+| `Samples/CharacterFormattingSamples.cs` | RunProperties: fonts, size, bold/italic, all underlines, color, highlight, strike, sub/super, caps, spacing, shading, border, emphasis marks                                                                                                                                                     |
+| `Samples/ParagraphFormattingSamples.cs` | ParagraphProperties: justification, indentation, line/paragraph spacing, keep/widow, outline level, borders, tabs, numbering, bidi, frame                                                                                                                                                        |
+| `Samples/TableSamples.cs`               | Tables: borders, grid, cell props, margins, row height, header repeat, merge (H+V), nested, floating, three-line 三线表, zebra striping                                                                                                                                                          |
+| `Samples/HeaderFooterSamples.cs`        | Headers/footers: page numbers, "Page X of Y", first/even/odd, logo image, table layout, 公文 "-X-", per-section                                                                                                                                                                                  |
+| `Samples/ImageSamples.cs`               | Images: inline, floating, text wrapping, border, alt text, in header/table, replace, SVG fallback, dimension calc                                                                                                                                                                                |
+| `Samples/ListAndNumberingSamples.cs`    | Numbering: bullets, multi-level decimal, custom symbols, outline→headings, legal, Chinese 一/（一）/1./(1), restart/continue                                                                                                                                                                     |
+| `Samples/FieldAndTocSamples.cs`         | Fields: TOC, SimpleField vs complex field, DATE/PAGE/REF/SEQ/MERGEFIELD/IF/STYLEREF, TOC styles                                                                                                                                                                                                  |
+| `Samples/FootnoteAndCommentSamples.cs`  | Footnotes, endnotes, comments (4-file system), bookmarks, hyperlinks (internal + external)                                                                                                                                                                                                       |
+| `Samples/TrackChangesSamples.cs`        | Revisions: insertions (w:t), deletions (w:delText!), formatting changes, accept/reject all, move tracking                                                                                                                                                                                        |
+| `Samples/AestheticRecipeSamples.cs`     | 13 aesthetic recipes from authoritative sources: ModernCorporate, AcademicThesis, ExecutiveBrief, ChineseGovernment (GB/T 9704), MinimalModern, IEEE Conference, ACM sigconf, APA 7th, MLA 9th, Chicago/Turabian, Springer LNCS, Nature, HBR — each with exact values from official style guides |
 
 Note: `Samples/` path is relative to `scripts/dotnet/MiniMaxAIDocx.Core/`.
 
 ### Markdown references (read when you need specifications or design rules)
 
-| File | When |
-|------|------|
-| `references/openxml_element_order.md` | XML element ordering rules (prevents corruption) |
-| `references/openxml_units.md` | Unit conversion: DXA, EMU, half-points, eighth-points |
-| `references/openxml_encyclopedia_part1.md` | Detailed C# encyclopedia: document creation, styles, character & paragraph formatting |
-| `references/openxml_encyclopedia_part2.md` | Detailed C# encyclopedia: page setup, tables, headers/footers, sections, doc properties |
-| `references/openxml_encyclopedia_part3.md` | Detailed C# encyclopedia: TOC, footnotes, fields, track changes, comments, images, math, numbering, protection |
-| `references/typography_guide.md` | Font pairing, sizes, spacing, page layout, table design, color schemes |
-| `references/cjk_typography.md` | CJK fonts, 字号 sizes, RunFonts mapping, GB/T 9704 公文 standard |
+| File                                          | When                                                                                                                                                                        |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `references/openxml_element_order.md`         | XML element ordering rules (prevents corruption)                                                                                                                            |
+| `references/openxml_units.md`                 | Unit conversion: DXA, EMU, half-points, eighth-points                                                                                                                       |
+| `references/openxml_encyclopedia_part1.md`    | Detailed C# encyclopedia: document creation, styles, character & paragraph formatting                                                                                       |
+| `references/openxml_encyclopedia_part2.md`    | Detailed C# encyclopedia: page setup, tables, headers/footers, sections, doc properties                                                                                     |
+| `references/openxml_encyclopedia_part3.md`    | Detailed C# encyclopedia: TOC, footnotes, fields, track changes, comments, images, math, numbering, protection                                                              |
+| `references/typography_guide.md`              | Font pairing, sizes, spacing, page layout, table design, color schemes                                                                                                      |
+| `references/cjk_typography.md`                | CJK fonts, 字号 sizes, RunFonts mapping, GB/T 9704 公文 standard                                                                                                            |
 | `references/cjk_university_template_guide.md` | Chinese university thesis templates: numeric styleIds (1/2/3 vs Heading1), document zone structure (cover→abstract→TOC→body→references), font expectations, common mistakes |
-| `references/design_principles.md` | **Aesthetic foundations**: 6 design principles (white space, contrast/scale, proximity, alignment, repetition, hierarchy) — teaches WHY, not just WHAT |
-| `references/design_good_bad_examples.md` | **Good vs Bad comparisons**: 10 categories of typography mistakes with OpenXML values, ASCII mockups, and fixes |
-| `references/track_changes_guide.md` | Revision marks deep dive |
-| `references/troubleshooting.md` | **Symptom-driven fixes**: 13 common problems indexed by what you SEE (headings wrong, images missing, TOC broken, etc.) — search by symptom, find the fix |
+| `references/design_principles.md`             | **Aesthetic foundations**: 6 design principles (white space, contrast/scale, proximity, alignment, repetition, hierarchy) — teaches WHY, not just WHAT                      |
+| `references/design_good_bad_examples.md`      | **Good vs Bad comparisons**: 10 categories of typography mistakes with OpenXML values, ASCII mockups, and fixes                                                             |
+| `references/track_changes_guide.md`           | Revision marks deep dive                                                                                                                                                    |
+| `references/troubleshooting.md`               | **Symptom-driven fixes**: 13 common problems indexed by what you SEE (headings wrong, images missing, TOC broken, etc.) — search by symptom, find the fix                   |

@@ -214,11 +214,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
       <nav class="workspace-activity-rail" aria-label={tr("workspace-inspector.taskbar-page")}>
         <ActivityButton pane="plan" icon={<ListTodo aria-hidden="true" />} badge={props.planBadge} />
         <ActivityButton pane="subagents" icon={<Users aria-hidden="true" />} />
-        <ActivityButton
-          pane="blackboard"
-          icon={<MessageSquare aria-hidden="true" />}
-          badge={props.blackboardBadge}
-        />
+        <ActivityButton pane="blackboard" icon={<MessageSquare aria-hidden="true" />} badge={props.blackboardBadge} />
         <ActivityButton pane="changes" icon={<FileDiff aria-hidden="true" />} badge={props.changesBadge} />
       </nav>
     </>

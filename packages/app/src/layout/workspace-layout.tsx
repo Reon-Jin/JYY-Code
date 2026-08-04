@@ -443,9 +443,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const planSnapshot = createMemo(() => projectPlanState(planQuery.data ?? { plan: null }))
   // A completed plan clears currentStepID, but its blackboard history stays readable.
   const planExists = createMemo(() => planSnapshot().totalSteps > 0)
-  const rootMultiAgentEnabled = createMemo(() =>
-    rootSession() ? effectiveMultiAgent(rootSession()!) : false,
-  )
+  const rootMultiAgentEnabled = createMemo(() => (rootSession() ? effectiveMultiAgent(rootSession()!) : false))
   const blackboardQuery = createQuery(
     () => ({
       ...blackboardQueryOptions({

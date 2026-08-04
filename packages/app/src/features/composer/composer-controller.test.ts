@@ -20,6 +20,7 @@ function setup(draftStore = new Map<string, string>()) {
       command: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
       abort: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: true })),
       interruptPrompt: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
+      terminate: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
     },
   }
   const controller = createComposerController({
@@ -140,6 +141,19 @@ describe("createComposerController", () => {
     const { client, controller } = setup()
     await controller.stop()
     expect(client.session.abort).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
+  })
+
+  it("terminates a plan child assignment through the terminate endpoint", async () => {
+    const { client, controller } = setup()
+
+    const promise = controller.terminate()
+    const duplicate = controller.terminate()
+    expect(duplicate).toBe(promise)
+    await promise
+
+    expect(client.session.terminate).toHaveBeenCalledTimes(1)
+    expect(client.session.terminate).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
+    expect(client.session.abort).not.toHaveBeenCalled()
   })
 
   it("interrupts the current child assignment before steering it", async () => {

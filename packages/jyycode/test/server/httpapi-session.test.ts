@@ -408,7 +408,10 @@ describe("session HttpApi", () => {
           ),
         ).toMatchObject({ ok: true })
         const candidateSnapshot = yield* requestJson<{
-          steps: Array<{ tasks: Array<{ mode?: string; status: string }>; candidate?: { phase: string; ready: number; total: number } }>
+          steps: Array<{
+            tasks: Array<{ mode?: string; status: string }>
+            candidate?: { phase: string; ready: number; total: number }
+          }>
         }>(pathFor(SessionPaths.plan, { sessionID: candidateSession.id }), { headers })
         expect(candidateSnapshot.steps[0]).toMatchObject({ candidate: { phase: "declaring", ready: 0, total: 2 } })
         expect(candidateSnapshot.steps[0]?.tasks.every((task) => task.mode === "candidate")).toBe(true)

@@ -1060,10 +1060,7 @@ export const layer = Layer.effect(
               sessionID: input.sessionID,
               type: "text",
               synthetic: true,
-              text:
-                " Use the above message and context to continue the delegated work for: " +
-                part.name +
-                hint,
+              text: " Use the above message and context to continue the delegated work for: " + part.name + hint,
             },
           ]
         }
@@ -1604,7 +1601,7 @@ export const layer = Layer.effect(
               blackboard
                 ? yield* blackboard.unreadForMain(session.id)
                 : 0
-            const inboxPending = planState?.ok ? planState.progress?.inbox_pending ?? 0 : 0
+            const inboxPending = planState?.ok ? (planState.progress?.inbox_pending ?? 0) : 0
             const lastUserParts = msgs.find((message) => message.info.id === lastUser.id)?.parts ?? []
             const internalWakeOnly =
               lastUserParts.length > 0 && lastUserParts.every((part) => part.type === "text" && part.synthetic)
@@ -1613,7 +1610,7 @@ export const layer = Layer.effect(
               session.multiAgent === true &&
               internalWakeOnly &&
               SessionTools.shouldWaitForPlanReport({
-                plan: planState?.ok ? planState.plan ?? undefined : undefined,
+                plan: planState?.ok ? (planState.plan ?? undefined) : undefined,
                 blackboardUnread,
                 inboxPending,
               })
@@ -1626,7 +1623,7 @@ export const layer = Layer.effect(
               step,
               blackboardUnread,
               planExists: planState?.ok ? planState.plan !== null : undefined,
-              plan: planState?.ok ? planState.plan ?? undefined : undefined,
+              plan: planState?.ok ? (planState.plan ?? undefined) : undefined,
             })
             if (requiredPlanTool) {
               SessionTools.retainRequiredPlanTools(tools, requiredPlanTool)
@@ -1696,11 +1693,7 @@ export const layer = Layer.effect(
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
-            const system = [
-              ...(memorySnapshot ? [memorySnapshot] : []),
-              ...env,
-              ...instructions,
-            ]
+            const system = [...(memorySnapshot ? [memorySnapshot] : []), ...env, ...instructions]
             // Profiles live in the global config; mirror Agent.state's
             // resolution order so the roster in the system prompt matches the
             // materialized subagents.
@@ -1735,7 +1728,7 @@ export const layer = Layer.effect(
             const toolChoice = requiredPlanTool
               ? { type: "tool" as const, toolName: requiredPlanTool }
               : format.type === "json_schema"
-                ? "required" as const
+                ? ("required" as const)
                 : undefined
             const result = yield* handle.process({
               user: lastUser,

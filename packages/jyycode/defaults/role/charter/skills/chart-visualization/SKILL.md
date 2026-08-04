@@ -6,6 +6,7 @@ description: 将数据可视化为图表。当用户需要生成柱状图、折�
 请根据用户输入的内容，将数据可视化为图表。
 
 ## 步骤
+
 1. 分析用户数据和需求，选择最合适的图表类型
 2. 构造符合规范的 JSON 请求体
 3. 使用 curl 工具调用 API 生成图表图片
@@ -38,6 +39,7 @@ POST https://antv-studio.alipay.com/api/gpt-vis
 请求体为 JSON，必须包含 `type` 和 `source: "chart-visualization-skills"` 字段。
 
 示例：
+
 ```bash
 curl -X POST https://antv-studio.alipay.com/api/gpt-vis \
   -H "Content-Type: application/json" \
@@ -45,34 +47,35 @@ curl -X POST https://antv-studio.alipay.com/api/gpt-vis \
 ```
 
 返回示例：
+
 ```json
-{"success":true,"resultObj":"https://..."}
+{ "success": true, "resultObj": "https://..." }
 ```
 
 将 `resultObj` 中的 URL 以 Markdown 图片格式输出：`![图表](URL)`
 
 ## 支持的图表类型
 
-| 分类 | 图表类型 |
-|------|---------|
-| 比较类 | 条形图(bar)、柱状图(column)、瀑布图(waterfall)、双轴图(dual-axes) |
-| 趋势类 | 面积图(area)、折线图(line)、散点图(scatter) |
-| 分布类 | 箱线图(boxplot)、直方图(histogram)、小提琴图(violin)、漏斗图(funnel) |
-| 占比类 | 饼图(pie)、水波图(liquid)、词云(word-cloud) |
+| 分类   | 图表类型                                                                              |
+| ------ | ------------------------------------------------------------------------------------- |
+| 比较类 | 条形图(bar)、柱状图(column)、瀑布图(waterfall)、双轴图(dual-axes)                     |
+| 趋势类 | 面积图(area)、折线图(line)、散点图(scatter)                                           |
+| 分布类 | 箱线图(boxplot)、直方图(histogram)、小提琴图(violin)、漏斗图(funnel)                  |
+| 占比类 | 饼图(pie)、水波图(liquid)、词云(word-cloud)                                           |
 | 层级类 | 组织架构图(organization-chart)、思维导图(mind-map)、矩形树图(treemap)、桑基图(sankey) |
-| 关系类 | 关系图(network-graph)、韦恩图(venn) |
-| 流程类 | 流程图(flow-diagram)、鱼骨图(fishbone-diagram) |
-| 多维类 | 雷达图(radar) |
-| 表格类 | 表格/透视表(spreadsheet) |
+| 关系类 | 关系图(network-graph)、韦恩图(venn)                                                   |
+| 流程类 | 流程图(flow-diagram)、鱼骨图(fishbone-diagram)                                        |
+| 多维类 | 雷达图(radar)                                                                         |
+| 表格类 | 表格/透视表(spreadsheet)                                                              |
 
 ## 通用可选参数
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| theme | string | "default" | 主题："default" / "academy" / "dark" |
-| width | number | 600 | 图表宽度 |
-| height | number | 400 | 图表高度 |
-| title | string | "" | 图表标题 |
+| 参数          | 类型   | 默认值    | 说明                                  |
+| ------------- | ------ | --------- | ------------------------------------- |
+| theme         | string | "default" | 主题："default" / "academy" / "dark"  |
+| width         | number | 600       | 图表宽度                              |
+| height        | number | 400       | 图表高度                              |
+| title         | string | ""        | 图表标题                              |
 | style.texture | string | "default" | 纹理："default" / "rough"（手绘风格） |
 
 带坐标轴的图表还支持：axisXTitle、axisYTitle。

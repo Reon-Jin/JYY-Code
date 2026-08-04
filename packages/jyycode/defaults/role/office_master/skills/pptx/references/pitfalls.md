@@ -76,8 +76,8 @@ function createSlide(pres, theme) { ... }
 ### NEVER use "#" with hex colors
 
 ```javascript
-color: "FF0000"      // CORRECT
-color: "#FF0000"     // CORRUPTS FILE
+color: "FF0000" // CORRECT
+color: "#FF0000" // CORRUPTS FILE
 ```
 
 ### NEVER encode opacity in hex strings
@@ -92,9 +92,13 @@ shadow: { color: "000000", opacity: 0.12 } // CORRECT
 ```javascript
 // Use fit:'shrink' for long titles
 slide.addText("Long Title Here", {
-  x: 0.5, y: 2, w: 9, h: 1,
-  fontSize: 48, fit: "shrink"
-});
+  x: 0.5,
+  y: 2,
+  w: 9,
+  h: 1,
+  fontSize: 48,
+  fit: "shrink",
+})
 ```
 
 ### NEVER reuse option objects across calls

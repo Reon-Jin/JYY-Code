@@ -71,18 +71,16 @@ export type MultiAgentSnapshot = {
   completedSteps: number
 }
 
-const statusPresentation: Record<
-  PlanTask["status"],
-  { tone: MultiAgentTaskTone; labelKey: Parameters<typeof tr>[0] }
-> = {
-  pending: { tone: "queued", labelKey: "multi-agent.task-status-planned" },
-  dispatched: { tone: "queued", labelKey: "multi-agent.task-status-queued" },
-  running: { tone: "running", labelKey: "multi-agent.task-status-running" },
-  reported: { tone: "review", labelKey: "multi-agent.task-status-submitted" },
-  approved: { tone: "done", labelKey: "multi-agent.task-status-accepted" },
-  rejected: { tone: "failed", labelKey: "multi-agent.task-status-revision-requested" },
-  dismissed: { tone: "done", labelKey: "multi-agent.task-status-dismissed" },
-}
+const statusPresentation: Record<PlanTask["status"], { tone: MultiAgentTaskTone; labelKey: Parameters<typeof tr>[0] }> =
+  {
+    pending: { tone: "queued", labelKey: "multi-agent.task-status-planned" },
+    dispatched: { tone: "queued", labelKey: "multi-agent.task-status-queued" },
+    running: { tone: "running", labelKey: "multi-agent.task-status-running" },
+    reported: { tone: "review", labelKey: "multi-agent.task-status-submitted" },
+    approved: { tone: "done", labelKey: "multi-agent.task-status-accepted" },
+    rejected: { tone: "failed", labelKey: "multi-agent.task-status-revision-requested" },
+    dismissed: { tone: "done", labelKey: "multi-agent.task-status-dismissed" },
+  }
 
 function numeric(value: number | string) {
   return Number(value) || 0
@@ -182,7 +180,15 @@ export function projectPlanState(state: SessionPlanResponse): MultiAgentSnapshot
             : {}),
         }
       : undefined
-    return { id: step.id, index, title: step.title, tone, collapsed: tone === "done", tasks, ...(candidate ? { candidate } : {}) }
+    return {
+      id: step.id,
+      index,
+      title: step.title,
+      tone,
+      collapsed: tone === "done",
+      tasks,
+      ...(candidate ? { candidate } : {}),
+    }
   })
   const tasks = steps.flatMap((step) => step.tasks)
   const currentStepID = state.current_step ?? ""

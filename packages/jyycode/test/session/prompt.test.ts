@@ -2654,7 +2654,8 @@ it.instance("profile subagent child session gets role skills in the skill tool a
               id: "office_master",
               name: "office高手",
               description: "精通word/ppt/excel/pdf等office软件的高手",
-              prompt: "你是一位精通各种office的高手，可以使用你的docx,pdf,pptx和xlsx四个技能进行各种office文档的生成和处理。",
+              prompt:
+                "你是一位精通各种office的高手，可以使用你的docx,pdf,pptx和xlsx四个技能进行各种office文档的生成和处理。",
               avatar: "chart",
               tools: ["edit", "glob", "grep", "read", "webfetch", "websearch", "write", "bash", "process"],
               enabled: true,

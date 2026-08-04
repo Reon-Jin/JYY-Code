@@ -416,6 +416,11 @@
   line-height: 1.25;
 }
 
+.composer__active-actions [data-confirming="true"] {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
 .composer-usage {
   display: grid;
   min-width: 0;

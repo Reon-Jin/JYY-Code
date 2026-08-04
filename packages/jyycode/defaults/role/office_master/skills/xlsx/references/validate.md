@@ -74,6 +74,7 @@ python3 SKILL_DIR/scripts/formula_check.py /path/to/file.xlsx --summary
 ```
 
 Exit codes:
+
 - `0` — no hard errors (PASS or PASS with heuristic warnings)
 - `1` — hard errors detected, or file cannot be opened (FAIL)
 
@@ -134,6 +135,7 @@ WARN — 1 heuristic warning(s) require manual review
 ```
 
 Interpretation of each line:
+
 - `[FAIL] [Summary!C12] contains #REF! (formula: Q1!A0/Q1!A1)` — The cell has `t="e"` and `<v>#REF!</v>`. The formula references row 0, which does not exist in Excel's 1-based system. This is an off-by-one error in a generated reference.
 - `[FAIL] [Summary!D15] references missing sheet 'Q5'` — The formula contains `Q5!D15`, but no sheet named `Q5` exists in the workbook. The valid sheet list is provided for comparison.
 - `[FAIL] [Q1!F8] contains #DIV/0!` — This cell's `<v>` is already an error value (the file was previously recalculated). The formula divided by zero.
@@ -186,22 +188,22 @@ Interpretation of each line:
 
 Field reference:
 
-| Field | Meaning |
-|-------|---------|
-| `type: "error_value"` | Cell has `t="e"` — an Excel error is stored in the `<v>` element |
-| `type: "broken_sheet_ref"` | Formula references a sheet name not present in workbook.xml |
-| `type: "unknown_name_ref"` | Formula references an identifier not in `<definedNames>` (heuristic, soft warning) |
-| `type: "malformed_error_cell"` | Cell has `t="e"` but no `<v>` child — structural XML problem |
-| `type: "file_error"` | The file could not be opened (bad ZIP, not found, etc.) |
-| `sheet` | The sheet where the error was found |
-| `cell` | Cell reference in A1 notation |
-| `formula` | The full formula text from the `<f>` element (null if not present) |
-| `error` | The error string from `<v>` (for `error_value` type) |
-| `missing_sheet` | The sheet name extracted from the formula that does not exist |
-| `valid_sheets` | All sheet names actually present in workbook.xml |
-| `unknown_name` | The identifier that was not found in `<definedNames>` |
-| `defined_names` | All named ranges actually present in workbook.xml |
-| `shared_formula_ranges` | Count of shared formula definitions (top-level `<f t="shared" ref="...">` elements) |
+| Field                          | Meaning                                                                             |
+| ------------------------------ | ----------------------------------------------------------------------------------- |
+| `type: "error_value"`          | Cell has `t="e"` — an Excel error is stored in the `<v>` element                    |
+| `type: "broken_sheet_ref"`     | Formula references a sheet name not present in workbook.xml                         |
+| `type: "unknown_name_ref"`     | Formula references an identifier not in `<definedNames>` (heuristic, soft warning)  |
+| `type: "malformed_error_cell"` | Cell has `t="e"` but no `<v>` child — structural XML problem                        |
+| `type: "file_error"`           | The file could not be opened (bad ZIP, not found, etc.)                             |
+| `sheet`                        | The sheet where the error was found                                                 |
+| `cell`                         | Cell reference in A1 notation                                                       |
+| `formula`                      | The full formula text from the `<f>` element (null if not present)                  |
+| `error`                        | The error string from `<v>` (for `error_value` type)                                |
+| `missing_sheet`                | The sheet name extracted from the formula that does not exist                       |
+| `valid_sheets`                 | All sheet names actually present in workbook.xml                                    |
+| `unknown_name`                 | The identifier that was not found in `<definedNames>`                               |
+| `defined_names`                | All named ranges actually present in workbook.xml                                   |
+| `shared_formula_ranges`        | Count of shared formula definitions (top-level `<f t="shared" ref="...">` elements) |
 
 ### Step 2: Manual XML inspection
 
@@ -216,6 +218,7 @@ Navigate to the worksheet file for the reported sheet. The sheet-to-file mapping
 For each reported error cell, locate the `<c r="CELLREF">` element and examine:
 
 **For `error_value` errors:**
+
 ```xml
 <!-- This is what an error cell looks like in XML -->
 <c r="C12" t="e">
@@ -225,6 +228,7 @@ For each reported error cell, locate the `<c r="CELLREF">` element and examine:
 ```
 
 Ask:
+
 - Is the `<f>` formula syntactically correct?
 - Does the cell reference in the formula point to a row/column that exists?
 - If it is a division, is it possible the denominator cell is empty or zero?
@@ -290,11 +294,13 @@ If neither command returns a path, LibreOffice is not installed. Record "Tier 2:
 ### Install LibreOffice (if permitted in the environment)
 
 macOS:
+
 ```bash
 brew install --cask libreoffice
 ```
 
 Ubuntu/Debian:
+
 ```bash
 sudo apt-get install -y libreoffice
 ```
@@ -315,6 +321,7 @@ python3 SKILL_DIR/scripts/libreoffice_recalc.py /path/to/input.xlsx /tmp/recalcu
 ```
 
 Exit codes from `libreoffice_recalc.py`:
+
 - `0` — recalculation succeeded, output file written
 - `2` — LibreOffice not found (note as SKIPPED in report; not a hard failure)
 - `1` — LibreOffice found but failed (timeout, crash, malformed file)
@@ -326,11 +333,13 @@ LibreOffice's `--convert-to xlsx` command opens the file using the full Calc eng
 **If LibreOffice is not installed:**
 
 macOS:
+
 ```bash
 brew install --cask libreoffice
 ```
 
 Ubuntu/Debian:
+
 ```bash
 sudo apt-get install -y libreoffice
 ```
@@ -358,11 +367,13 @@ This second Tier 1 pass is the definitive runtime error check. Any errors it fin
 **What it means:** The formula references a cell, range, or sheet that no longer exists or never existed.
 
 **Common causes in generated files:**
+
 - Off-by-one error in row/column calculation (e.g., referencing row 0 which does not exist in Excel's 1-based system)
 - Column letter computed incorrectly (e.g., column 64 maps to `BL`, not `BK`)
 - Formula references a sheet that was never created or was renamed
 
 **XML signature:**
+
 ```xml
 <c r="D5" t="e">
   <f>Sheet2!A0</f>
@@ -371,6 +382,7 @@ This second Tier 1 pass is the definitive runtime error check. Any errors it fin
 ```
 
 **Fix — correct the reference:**
+
 ```xml
 <c r="D5">
   <f>Sheet2!A1</f>
@@ -389,10 +401,12 @@ Note: remove `t="e"` and clear `<v>` after correcting the formula. The error typ
 **What it means:** The formula divides by a value that is zero or an empty cell (empty cells evaluate to 0 in arithmetic context).
 
 **Common causes in generated files:**
+
 - Percentage change formula `=(B2-B1)/B1` where `B1` is empty or zero
 - Rate formula `=Value/Total` where the total row hasn't been populated yet
 
 **XML signature:**
+
 ```xml
 <c r="C8" t="e">
   <f>B8/B7</f>
@@ -401,6 +415,7 @@ Note: remove `t="e"` and clear `<v>` after correcting the formula. The error typ
 ```
 
 **Fix — wrap with IFERROR:**
+
 ```xml
 <c r="C8">
   <f>IFERROR(B8/B7,0)</f>
@@ -409,6 +424,7 @@ Note: remove `t="e"` and clear `<v>` after correcting the formula. The error typ
 ```
 
 Alternative — explicit zero check:
+
 ```xml
 <c r="C8">
   <f>IF(B7=0,0,B8/B7)</f>
@@ -425,10 +441,12 @@ Alternative — explicit zero check:
 **What it means:** The formula attempts an arithmetic or logical operation on a value of the wrong type (e.g., adding a text string to a number).
 
 **Common causes in generated files:**
+
 - A cell intended to hold a number was written as a string type (`t="s"` or `t="inlineStr"`) instead of a numeric type
 - A formula references a cell containing text (e.g., a unit label like "thousands") and treats it as a number
 
 **XML signature:**
+
 ```xml
 <c r="F3" t="e">
   <f>E3+D3</f>
@@ -439,6 +457,7 @@ Alternative — explicit zero check:
 **Fix — check source cells for incorrect type:**
 
 If `D3` was incorrectly written as a string:
+
 ```xml
 <!-- Wrong: numeric value stored as string -->
 <c r="D3" t="inlineStr"><is><t>1000</t></is></c>
@@ -448,6 +467,7 @@ If `D3` was incorrectly written as a string:
 ```
 
 Alternatively, wrap the formula with `VALUE()` conversion:
+
 ```xml
 <c r="F3">
   <f>VALUE(E3)+VALUE(D3)</f>
@@ -464,10 +484,12 @@ Alternatively, wrap the formula with `VALUE()` conversion:
 **What it means:** The formula contains an identifier that Excel does not recognize — either a misspelled function name, an undefined named range, or a function that is not available in the target Excel version.
 
 **Common causes in generated files:**
+
 - LLM writes a function name with a typo: `SUMIF` written as `SUMIFS` when only 3 arguments are provided, or `XLOOKUP` used in a context targeting Excel 2010
 - Named range referenced in formula does not exist in `xl/workbook.xml`
 
 **XML signature:**
+
 ```xml
 <c r="B2" t="e">
   <f>SUMSQ(A2:A10)</f>
@@ -478,6 +500,7 @@ Alternatively, wrap the formula with `VALUE()` conversion:
 **Fix — verify function name and named ranges:**
 
 Check named ranges in `xl/workbook.xml`:
+
 ```xml
 <definedNames>
   <definedName name="RevenueRange">Sheet1!$B$2:$B$13</definedName>
@@ -485,6 +508,7 @@ Check named ranges in `xl/workbook.xml`:
 ```
 
 If the formula references `RevenuRange` (typo), correct it to `RevenueRange`:
+
 ```xml
 <c r="B2">
   <f>SUM(RevenueRange)</f>
@@ -501,10 +525,12 @@ If the formula references `RevenuRange` (typo), correct it to `RevenueRange`:
 **What it means:** A lookup function (VLOOKUP, HLOOKUP, MATCH, INDEX/MATCH, XLOOKUP) searched for a value that does not exist in the lookup table.
 
 **Common causes in generated files:**
+
 - Lookup key exists in the formula but the lookup table is empty or not yet populated
 - Key format mismatch (text "2024" vs numeric 2024)
 
 **XML signature:**
+
 ```xml
 <c r="G5" t="e">
   <f>VLOOKUP(F5,Assumptions!$A$2:$B$20,2,0)</f>
@@ -513,6 +539,7 @@ If the formula references `RevenuRange` (typo), correct it to `RevenueRange`:
 ```
 
 **Fix — wrap with IFERROR for missing-match tolerance:**
+
 ```xml
 <c r="G5">
   <f>IFERROR(VLOOKUP(F5,Assumptions!$A$2:$B$20,2,0),0)</f>
@@ -529,10 +556,12 @@ If the formula references `RevenuRange` (typo), correct it to `RevenueRange`:
 **What it means:** The space operator (which computes the intersection of two ranges) was applied to two ranges that do not intersect.
 
 **Common causes in generated files:**
+
 - Accidental space between two range references: `=SUM(A1:A5 C1:C5)` instead of `=SUM(A1:A5,C1:C5)`
 - Rarely seen in typical financial models; usually indicates a formula generation error
 
 **XML signature:**
+
 ```xml
 <c r="H10" t="e">
   <f>SUM(A1:A5 C1:C5)</f>
@@ -541,6 +570,7 @@ If the formula references `RevenuRange` (typo), correct it to `RevenueRange`:
 ```
 
 **Fix — replace space with comma (union) or colon (range):**
+
 ```xml
 <!-- Union of two separate ranges -->
 <c r="H10">
@@ -558,11 +588,13 @@ If the formula references `RevenuRange` (typo), correct it to `RevenueRange`:
 **What it means:** A formula produced a number that Excel cannot represent (overflow, underflow) or a mathematical operation that has no real-number result (square root of negative, LOG of zero or negative).
 
 **Common causes in generated files:**
+
 - IRR or NPV formula where the cash flow series has no convergent solution
 - `SQRT()` applied to a cell that can be negative
 - Very large exponentiation
 
 **XML signature:**
+
 ```xml
 <c r="J15" t="e">
   <f>IRR(B5:B15)</f>
@@ -571,6 +603,7 @@ If the formula references `RevenuRange` (typo), correct it to `RevenueRange`:
 ```
 
 **Fix — add a conditional guard:**
+
 ```xml
 <c r="J15">
   <f>IFERROR(IRR(B5:B15),"")</f>
@@ -579,6 +612,7 @@ If the formula references `RevenuRange` (typo), correct it to `RevenueRange`:
 ```
 
 For SQRT:
+
 ```xml
 <c r="K5">
   <f>IF(A5>=0,SQRT(A5),"")</f>
@@ -592,19 +626,20 @@ For SQRT:
 
 ## Auto-Fix vs. Human Review Decision Matrix
 
-| Error Type | Auto-Fix Safe? | Condition | Action |
-|------------|---------------|-----------|--------|
-| `#DIV/0!` | Yes | Always | Wrap with `IFERROR(formula,0)` |
-| `#NULL!` | Yes | Always | Replace space operator with comma |
-| `#REF!` | Yes | Only if correct target is unambiguous from context | Correct reference; otherwise flag |
-| `#NAME?` | Yes | Only if typo has exactly one plausible correction | Fix name; otherwise flag |
-| `#N/A` | Conditional | If a zero/blank default is business-acceptable | Add IFERROR wrapper; document assumption |
-| `#VALUE!` | Conditional | Only if source cell type is clearly wrong | Fix type; otherwise flag |
-| `#NUM!` | No | Always | Add IFERROR to suppress display, then flag |
-| Broken sheet ref | Yes | Only if renamed sheet can be identified from workbook.xml | Correct name |
-| Business logic errors | Never | Any case | Human review only |
+| Error Type            | Auto-Fix Safe? | Condition                                                 | Action                                     |
+| --------------------- | -------------- | --------------------------------------------------------- | ------------------------------------------ |
+| `#DIV/0!`             | Yes            | Always                                                    | Wrap with `IFERROR(formula,0)`             |
+| `#NULL!`              | Yes            | Always                                                    | Replace space operator with comma          |
+| `#REF!`               | Yes            | Only if correct target is unambiguous from context        | Correct reference; otherwise flag          |
+| `#NAME?`              | Yes            | Only if typo has exactly one plausible correction         | Fix name; otherwise flag                   |
+| `#N/A`                | Conditional    | If a zero/blank default is business-acceptable            | Add IFERROR wrapper; document assumption   |
+| `#VALUE!`             | Conditional    | Only if source cell type is clearly wrong                 | Fix type; otherwise flag                   |
+| `#NUM!`               | No             | Always                                                    | Add IFERROR to suppress display, then flag |
+| Broken sheet ref      | Yes            | Only if renamed sheet can be identified from workbook.xml | Correct name                               |
+| Business logic errors | Never          | Any case                                                  | Human review only                          |
 
 **What counts as a business logic error (never auto-fix):**
+
 - A formula that produces a wrong number but no Excel error (e.g., `=SUM(B2:B8)` when the intent was `=SUM(B2:B9)`)
 - A formula where the IFERROR default value is meaningful (e.g., whether to use 0, blank, or a prior-period value)
 - Any formula where fixing the error requires knowing what the formula was supposed to calculate
@@ -632,10 +667,10 @@ Every validation task must produce a structured report. This report is the deliv
 **Status**: PASS / FAIL
 **Tool**: formula_check.py (direct XML scan)
 
-| Sheet | Cell | Error Type | Detail | Fix Applied |
-|-------|------|-----------|--------|-------------|
-| Summary | C12 | #REF! | Formula: Q1!A0 | Corrected to Q1!A1 |
-| Summary | D15 | broken_sheet_ref | References missing sheet 'Q5' | Renamed to Q4 |
+| Sheet   | Cell | Error Type       | Detail                        | Fix Applied        |
+| ------- | ---- | ---------------- | ----------------------------- | ------------------ |
+| Summary | C12  | #REF!            | Formula: Q1!A0                | Corrected to Q1!A1 |
+| Summary | D15  | broken_sheet_ref | References missing sheet 'Q5' | Renamed to Q4      |
 
 _(If no errors: "No errors detected.")_
 
@@ -648,9 +683,9 @@ _(If no errors: "No errors detected.")_
 
 _(If SKIPPED: state the reason — LibreOffice not installed, timeout, etc.)_
 
-| Sheet | Cell | Error Type | Detail | Fix Applied |
-|-------|------|-----------|--------|-------------|
-| Q1 | F8 | #DIV/0! | Formula: C8/C7 | Wrapped with IFERROR |
+| Sheet | Cell | Error Type | Detail         | Fix Applied          |
+| ----- | ---- | ---------- | -------------- | -------------------- |
+| Q1    | F8   | #DIV/0!    | Formula: C8/C7 | Wrapped with IFERROR |
 
 _(If no errors: "No runtime errors detected after recalculation.")_
 
@@ -665,14 +700,15 @@ _(If no errors: "No runtime errors detected after recalculation.")_
 
 ### Human Review Required
 
-| Cell | Error | Reason Auto-Fix Not Applied |
-|------|-------|----------------------------|
+| Cell   | Error | Reason Auto-Fix Not Applied                          |
+| ------ | ----- | ---------------------------------------------------- |
 | Q2!B15 | #NUM! | IRR formula — business must confirm cash flow inputs |
 ```
 
 ### Minimum required fields
 
 The report is invalid (and delivery is blocked) if any of these are missing:
+
 - File path and date
 - Which sheets were checked
 - Total formula count

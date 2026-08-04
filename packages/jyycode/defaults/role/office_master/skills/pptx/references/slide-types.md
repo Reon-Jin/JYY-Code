@@ -10,16 +10,20 @@ Classify **every slide** as **exactly one** of these 5 types:
 ### Layout Options
 
 **Asymmetric Left-Right Layout**
+
 - Text concentrated on one side, image on the opposite
 - Best for: Corporate presentations, product launches, professional reports
+
 ```
 |  Title & Subtitle  |    Visual/Image    |
 |  Description       |                    |
 ```
 
 **Center-Aligned Layout**
+
 - Content centered with background image
 - Best for: Inspirational talks, event presentations, creative pitches
+
 ```
 |                                        |
 |           [Background Image]           |
@@ -30,14 +34,15 @@ Classify **every slide** as **exactly one** of these 5 types:
 
 ### Font Size Hierarchy
 
-| Element | Recommended Size | Ratio to Base |
-|---------|-----------------|---------------|
-| Main Title | 72-120px | 3x-5x |
-| Subtitle | 28-40px | 1.5x-2x |
-| Supporting Text | 18-24px | 1x (base) |
-| Meta Info (date, name) | 14-18px | 0.7x-1x |
+| Element                | Recommended Size | Ratio to Base |
+| ---------------------- | ---------------- | ------------- |
+| Main Title             | 72-120px         | 3x-5x         |
+| Subtitle               | 28-40px          | 1.5x-2x       |
+| Supporting Text        | 18-24px          | 1x (base)     |
+| Meta Info (date, name) | 14-18px          | 0.7x-1x       |
 
 **Key Principles:**
+
 1. **Dramatic Contrast**: Main title should be at least 2-3x larger than subtitle
 2. **Visual Anchor**: The largest text becomes the focal point
 3. **Readable Hierarchy**: Viewers should instantly understand what's most important
@@ -73,6 +78,7 @@ Consider: Purpose (corporate/educational/creative), Audience, Tone, Content Volu
 ### Layout Options
 
 **Numbered Vertical List** — Best for 3-5 sections, straightforward presentations
+
 ```
 |  TABLE OF CONTENTS            |
 |                                |
@@ -82,6 +88,7 @@ Consider: Purpose (corporate/educational/creative), Audience, Tone, Content Volu
 ```
 
 **Two-Column Grid** — Best for 4-6 sections, content-rich presentations
+
 ```
 |  TABLE OF CONTENTS              |
 |                                  |
@@ -91,6 +98,7 @@ Consider: Purpose (corporate/educational/creative), Audience, Tone, Content Volu
 ```
 
 **Sidebar Navigation** — Best for 3-5 sections, modern/corporate
+
 ```
 | ▌01 |  Section Title One           |
 | ▌02 |  Section Title Two           |
@@ -98,6 +106,7 @@ Consider: Purpose (corporate/educational/creative), Audience, Tone, Content Volu
 ```
 
 **Card-Based** — Best for 3-4 sections, creative/modern
+
 ```
 |  TABLE OF CONTENTS                    |
 |  ┌─────┐  ┌─────┐  ┌─────┐  ┌─────┐  |
@@ -108,14 +117,15 @@ Consider: Purpose (corporate/educational/creative), Audience, Tone, Content Volu
 
 ### Font Size Hierarchy
 
-| Element | Recommended Size | Ratio to Base |
-|---------|-----------------|---------------|
-| Page Title ("Table of Contents" / "Agenda") | 36-44px | 2.5x-3x |
-| Section Number | 28-36px | 2x-2.5x |
-| Section Title | 20-28px | 1.5x-2x |
-| Section Description | 14-16px | 1x (base) |
+| Element                                     | Recommended Size | Ratio to Base |
+| ------------------------------------------- | ---------------- | ------------- |
+| Page Title ("Table of Contents" / "Agenda") | 36-44px          | 2.5x-3x       |
+| Section Number                              | 28-36px          | 2x-2.5x       |
+| Section Title                               | 20-28px          | 1.5x-2x       |
+| Section Description                         | 14-16px          | 1x (base)     |
 
 **Key Principles:**
+
 1. **Clear Numbering**: Section numbers should be visually prominent — bold, accent color, or larger size
 2. **Scannable Structure**: Viewer should scan all sections in 2-3 seconds
 3. **Consistent Spacing**: Equal vertical spacing between sections
@@ -157,6 +167,7 @@ Consider: Purpose (corporate/educational/creative), Audience, Tone, Content Volu
 ### Layout Options
 
 **Bold Center** — Best for minimal, modern presentations
+
 ```
 |                  02                    |
 |           SECTION TITLE               |
@@ -164,6 +175,7 @@ Consider: Purpose (corporate/educational/creative), Audience, Tone, Content Volu
 ```
 
 **Left-Aligned with Accent Block** — Best for corporate, structured presentations
+
 ```
 | ████ |  02                            |
 | ████ |  SECTION TITLE                 |
@@ -171,6 +183,7 @@ Consider: Purpose (corporate/educational/creative), Audience, Tone, Content Volu
 ```
 
 **Split Background** — Best for high-contrast, dramatic transitions
+
 ```
 | ██████████ |     SECTION TITLE        |
 | ██  02  ██ |     Optional intro       |
@@ -178,6 +191,7 @@ Consider: Purpose (corporate/educational/creative), Audience, Tone, Content Volu
 ```
 
 **Full-Bleed Background with Overlay** — Best for creative, bold presentations
+
 ```
 | ████████████████████████████████████  |
 | ████       large 02        █████████ |
@@ -187,13 +201,14 @@ Consider: Purpose (corporate/educational/creative), Audience, Tone, Content Volu
 
 ### Font Size Hierarchy
 
-| Element | Recommended Size | Notes |
-|---------|-----------------|-------|
-| Section Number | 72-120px | Bold, accent color or semi-transparent |
-| Section Title | 36-48px | Bold, clear, primary text color |
-| Intro Text | 16-20px | Light weight, muted color, optional |
+| Element        | Recommended Size | Notes                                  |
+| -------------- | ---------------- | -------------------------------------- |
+| Section Number | 72-120px         | Bold, accent color or semi-transparent |
+| Section Title  | 36-48px          | Bold, clear, primary text color        |
+| Intro Text     | 16-20px          | Light weight, muted color, optional    |
 
 **Key Principles:**
+
 1. **Dramatic Number**: Section number = most prominent visual element
 2. **Strong Title**: Large but clearly secondary to the number
 3. **Minimal Content**: Just number + title + optional one-liner
@@ -230,7 +245,9 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 ### Subtypes
 
 **Text** — Bullets, quotes, or short paragraphs
+
 - Must still include icons or SVG shapes — never plain text only
+
 ```
 |  SLIDE TITLE                          |
 |  * Bullet point one                   |
@@ -239,6 +256,7 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 ```
 
 **Mixed Media** — Two-column or half-bleed image + text
+
 ```
 |  SLIDE TITLE                          |
 |  Text content     |  [Image/Visual]   |
@@ -246,7 +264,9 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 ```
 
 **Data Visualization** — Chart (SVG bar/progress/ring) + takeaways
+
 - Must include data source
+
 ```
 |  SLIDE TITLE                          |
 |  [SVG Chart]      |  Key Takeaway 1   |
@@ -255,6 +275,7 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 ```
 
 **Comparison** — Side-by-side columns or cards (A vs B, pros/cons)
+
 ```
 |  SLIDE TITLE                          |
 |  ┌─ Option A ─┐  ┌─ Option B ─┐      |
@@ -263,6 +284,7 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 ```
 
 **Timeline / Process** — Steps with arrows, journey, phases
+
 ```
 |  SLIDE TITLE                          |
 |  [1] ──→ [2] ──→ [3] ──→ [4]         |
@@ -270,6 +292,7 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 ```
 
 **Image Showcase** — Hero image, gallery, visual-first layout
+
 ```
 |  SLIDE TITLE                          |
 |  ┌────────────────────────────────┐   |
@@ -280,15 +303,16 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 
 ### Font Size Hierarchy
 
-| Element | Recommended Size | Notes |
-|---------|-----------------|-------|
-| Slide Title | 36-44px | Bold, top of slide |
-| Section Header | 20-24px | Bold, for sub-sections within slide |
-| Body Text | 14-16px | Regular weight, left-aligned |
-| Captions / Source | 10-12px | Muted color, smallest text |
-| Stat Callout | 60-72px | Large bold numbers for key statistics |
+| Element           | Recommended Size | Notes                                 |
+| ----------------- | ---------------- | ------------------------------------- |
+| Slide Title       | 36-44px          | Bold, top of slide                    |
+| Section Header    | 20-24px          | Bold, for sub-sections within slide   |
+| Body Text         | 14-16px          | Regular weight, left-aligned          |
+| Captions / Source | 10-12px          | Muted color, smallest text            |
+| Stat Callout      | 60-72px          | Large bold numbers for key statistics |
 
 **Key Principles:**
+
 1. **Left-align body text** — never center paragraphs or bullet lists
 2. **Size contrast** — title must be 36pt+ to stand out from 14-16pt body
 3. **Visual elements required** — every content slide must have at least one non-text element
@@ -327,6 +351,7 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 ### Layout Options
 
 **Key Takeaways** — Best for educational, corporate, data-driven presentations
+
 ```
 |  KEY TAKEAWAYS                        |
 |  ✓  Takeaway one                      |
@@ -335,6 +360,7 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 ```
 
 **CTA / Next Steps** — Best for sales pitches, proposals, project kick-offs
+
 ```
 |  NEXT STEPS                           |
 |  [1] Action item one                  |
@@ -343,6 +369,7 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 ```
 
 **Thank You / Contact** — Best for conference talks, keynotes
+
 ```
 |            THANK YOU                   |
 |         name@company.com              |
@@ -350,6 +377,7 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 ```
 
 **Split Recap** — Best for presentations needing both recap and action
+
 ```
 |  SUMMARY            |  NEXT STEPS      |
 |  * Point one        |  Contact us at   |
@@ -359,14 +387,15 @@ Pick a subtype based on the content. Each content slide belongs to exactly ONE s
 
 ### Font Size Hierarchy
 
-| Element | Recommended Size | Notes |
-|---------|-----------------|-------|
-| Closing Title ("Thank You" / "Summary") | 48-72px | Bold, commanding |
-| Takeaway / Action Item | 18-24px | Clear, scannable |
-| Supporting Text | 14-16px | Regular weight |
-| Contact Info | 14-16px | Muted color |
+| Element                                 | Recommended Size | Notes            |
+| --------------------------------------- | ---------------- | ---------------- |
+| Closing Title ("Thank You" / "Summary") | 48-72px          | Bold, commanding |
+| Takeaway / Action Item                  | 18-24px          | Clear, scannable |
+| Supporting Text                         | 14-16px          | Regular weight   |
+| Contact Info                            | 14-16px          | Muted color      |
 
 **Key Principles:**
+
 1. **Strong closing statement**: Main message should be largest, most prominent
 2. **Scannable items**: Takeaways/action items concise (one line each)
 3. **Contact clarity**: Legible but not dominant

@@ -84,7 +84,12 @@ export function App() {
 
   async function removeDevice(id: string) {
     if (id === activeDeviceID()) {
-      try { await client.revokeCurrentDevice() } catch { await client.store.remove(id); client.disconnect() }
+      try {
+        await client.revokeCurrentDevice()
+      } catch {
+        await client.store.remove(id)
+        client.disconnect()
+      }
       setActiveDeviceID(undefined)
       setTasks([])
       setLocked(true)
@@ -114,12 +119,21 @@ export function App() {
     client.disconnect()
     await client.store.clear()
     await Promise.all((await caches.keys()).map((key) => caches.delete(key)))
-    setDevices([]); setTasks([]); setActiveDeviceID(undefined); setLocked(true); setPage("devices")
+    setDevices([])
+    setTasks([])
+    setActiveDeviceID(undefined)
+    setLocked(true)
+    setPage("devices")
     showNotice("已清除本地配对和缓存")
   }
 
-  function openTask(task: RemoteTask) { setSelectedTask(task); setPage("task") }
-  function navigate(next: PrimaryPage) { setPage(next) }
+  function openTask(task: RemoteTask) {
+    setSelectedTask(task)
+    setPage("task")
+  }
+  function navigate(next: PrimaryPage) {
+    setPage(next)
+  }
 
   createEffect(() => {
     const active = activeDeviceID()
@@ -129,9 +143,14 @@ export function App() {
   onMount(() => {
     void reloadDevices()
     const visibility = () => {
-      if (document.visibilityState === "hidden") { hiddenAt = Date.now(); return }
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now()
+        return
+      }
       if (hiddenAt && Date.now() - hiddenAt > 5 * 60_000) {
-        client.disconnect(); setLocked(true); showNotice("离开超过五分钟，已重新锁定")
+        client.disconnect()
+        setLocked(true)
+        showNotice("离开超过五分钟，已重新锁定")
       } else if (!locked()) {
         void client.refresh().catch(() => undefined)
       }
@@ -140,24 +159,120 @@ export function App() {
     document.addEventListener("visibilitychange", visibility)
     onCleanup(() => document.removeEventListener("visibilitychange", visibility))
   })
-  onCleanup(() => { client.disconnect(); if (noticeTimer) window.clearTimeout(noticeTimer) })
+  onCleanup(() => {
+    client.disconnect()
+    if (noticeTimer) window.clearTimeout(noticeTimer)
+  })
 
-  return <>
-    <Show when={!locked()} fallback={<LockScreen devices={devices()} onUnlock={() => void unlock()} onPair={() => { setLocked(false); setPage("devices") }} />}>
-      <Show when={page() === "task" && selectedTask()}>{(task) => <TaskDetailPage task={task()} online={relayState() === "online"} onBack={() => setPage("workbench")} onCommand={runCommand} />}</Show>
-      <Show when={page() === "settings"}><SettingsPage summaryOnly={summaryOnly()} notifications={notifications()} onSummaryOnly={setSummaryOnly} onNotifications={setNotifications} onClear={clearLocalData} onRelock={() => { client.disconnect(); setLocked(true) }} onBack={() => setPage("devices")} /></Show>
-      <Show when={page() === "workbench" || page() === "inbox" || page() === "devices"}>
-        <MobileShell page={page() as PrimaryPage} onNavigate={navigate}>
-          <Show when={page() === "workbench"}><WorkbenchPage tasks={tasks()} selectedProject={selectedProject()} online={relayState() === "online"} deviceName={activeDevice()?.name} onProject={setSelectedProject} onDevices={() => setPage("devices")} onOpenTask={openTask} onRefresh={() => void client.refresh().catch((error) => showNotice(error instanceof Error ? error.message : "刷新失败"))} onCreate={async (action) => { await runCommand(action) }} /></Show>
-          <Show when={page() === "inbox"}><InboxPage tasks={tasks()} onOpenTask={openTask} /></Show>
-          <Show when={page() === "devices"}><DevicesPage devices={devices()} activeDeviceID={activeDeviceID()} onPair={pair} onSelect={selectDevice} onRemove={removeDevice} onSettings={() => setPage("settings")} /></Show>
-        </MobileShell>
+  return (
+    <>
+      <Show
+        when={!locked()}
+        fallback={
+          <LockScreen
+            devices={devices()}
+            onUnlock={() => void unlock()}
+            onPair={() => {
+              setLocked(false)
+              setPage("devices")
+            }}
+          />
+        }
+      >
+        <Show when={page() === "task" && selectedTask()}>
+          {(task) => (
+            <TaskDetailPage
+              task={task()}
+              online={relayState() === "online"}
+              onBack={() => setPage("workbench")}
+              onCommand={runCommand}
+            />
+          )}
+        </Show>
+        <Show when={page() === "settings"}>
+          <SettingsPage
+            summaryOnly={summaryOnly()}
+            notifications={notifications()}
+            onSummaryOnly={setSummaryOnly}
+            onNotifications={setNotifications}
+            onClear={clearLocalData}
+            onRelock={() => {
+              client.disconnect()
+              setLocked(true)
+            }}
+            onBack={() => setPage("devices")}
+          />
+        </Show>
+        <Show when={page() === "workbench" || page() === "inbox" || page() === "devices"}>
+          <MobileShell page={page() as PrimaryPage} onNavigate={navigate}>
+            <Show when={page() === "workbench"}>
+              <WorkbenchPage
+                tasks={tasks()}
+                selectedProject={selectedProject()}
+                online={relayState() === "online"}
+                deviceName={activeDevice()?.name}
+                onProject={setSelectedProject}
+                onDevices={() => setPage("devices")}
+                onOpenTask={openTask}
+                onRefresh={() =>
+                  void client
+                    .refresh()
+                    .catch((error) => showNotice(error instanceof Error ? error.message : "刷新失败"))
+                }
+                onCreate={async (action) => {
+                  await runCommand(action)
+                }}
+              />
+            </Show>
+            <Show when={page() === "inbox"}>
+              <InboxPage tasks={tasks()} onOpenTask={openTask} />
+            </Show>
+            <Show when={page() === "devices"}>
+              <DevicesPage
+                devices={devices()}
+                activeDeviceID={activeDeviceID()}
+                onPair={pair}
+                onSelect={selectDevice}
+                onRemove={removeDevice}
+                onSettings={() => setPage("settings")}
+              />
+            </Show>
+          </MobileShell>
+        </Show>
       </Show>
-    </Show>
-    <Show when={notice()}>{(message) => <p class="toast" role="status">{message()}</p>}</Show>
-  </>
+      <Show when={notice()}>
+        {(message) => (
+          <p class="toast" role="status">
+            {message()}
+          </p>
+        )}
+      </Show>
+    </>
+  )
 }
 
 function LockScreen(props: { devices: StoredDevice[]; onUnlock: () => void; onPair: () => void }) {
-  return <main class="lock-screen"><LockKeyhole /><span class="wordmark">JYYCode 移动版</span><h1>任务已锁定</h1><p>{props.devices.length ? "为保护已配对电脑的信息，请先解锁此 Safari 会话。" : "扫描桌面端二维码，即可开始监控和处理任务。"}</p><button class="primary-button" onClick={props.devices.length ? props.onUnlock : props.onPair}>{props.devices.length ? <><Unlock />解锁并连接</> : "添加电脑"}</button><small>离开页面超过五分钟将自动重新锁定；请同时启用 iPhone 的设备锁定。</small></main>
+  return (
+    <main class="lock-screen">
+      <LockKeyhole />
+      <span class="wordmark">JYYCode 移动版</span>
+      <h1>任务已锁定</h1>
+      <p>
+        {props.devices.length
+          ? "为保护已配对电脑的信息，请先解锁此 Safari 会话。"
+          : "扫描桌面端二维码，即可开始监控和处理任务。"}
+      </p>
+      <button class="primary-button" onClick={props.devices.length ? props.onUnlock : props.onPair}>
+        {props.devices.length ? (
+          <>
+            <Unlock />
+            解锁并连接
+          </>
+        ) : (
+          "添加电脑"
+        )}
+      </button>
+      <small>离开页面超过五分钟将自动重新锁定；请同时启用 iPhone 的设备锁定。</small>
+    </main>
+  )
 }

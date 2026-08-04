@@ -61,7 +61,9 @@ test("rejects envelopes from an unregistered client", async () => {
 
 test("stores an APNs token as metadata and forwards only a generic event", async () => {
   let resolvePush: ((value: { token: string; kind: string }) => void) | undefined
-  const pushed = new Promise<{ token: string; kind: string }>((resolve) => { resolvePush = resolve })
+  const pushed = new Promise<{ token: string; kind: string }>((resolve) => {
+    resolvePush = resolve
+  })
   relay = createRelay({
     port: 0,
     pushSender: async (token, notification) => resolvePush?.({ token, kind: notification.kind }),
@@ -70,12 +72,24 @@ test("stores an APNs token as metadata and forwards only a generic event", async
   await opened(desktop)
   desktop.send(JSON.stringify(hello("desktop")))
   await nextMessage(desktop)
-  desktop.send(JSON.stringify({
-    type: "relay.push-token", protocolVersion: PROTOCOL_VERSION, routeID: "route_1", deviceID: "phone", token: "a".repeat(64),
-  }))
-  desktop.send(JSON.stringify({
-    type: "relay.notification", protocolVersion: PROTOCOL_VERSION, routeID: "route_1", deviceID: "phone", kind: "attention",
-  }))
+  desktop.send(
+    JSON.stringify({
+      type: "relay.push-token",
+      protocolVersion: PROTOCOL_VERSION,
+      routeID: "route_1",
+      deviceID: "phone",
+      token: "a".repeat(64),
+    }),
+  )
+  desktop.send(
+    JSON.stringify({
+      type: "relay.notification",
+      protocolVersion: PROTOCOL_VERSION,
+      routeID: "route_1",
+      deviceID: "phone",
+      kind: "attention",
+    }),
+  )
   expect(await pushed).toEqual({ token: "a".repeat(64), kind: "attention" })
   desktop.close()
 })
@@ -96,7 +110,13 @@ test("can serve a built Safari application beside the opaque relay", async () =>
 })
 
 function hello(clientID: string) {
-  return { type: "relay.hello", protocolVersion: PROTOCOL_VERSION, routeID: "route_1", clientID, role: clientID === "desktop" ? "desktop" : "web" }
+  return {
+    type: "relay.hello",
+    protocolVersion: PROTOCOL_VERSION,
+    routeID: "route_1",
+    clientID,
+    role: clientID === "desktop" ? "desktop" : "web",
+  }
 }
 
 function opened(socket: WebSocket) {

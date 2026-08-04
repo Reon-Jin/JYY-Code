@@ -57,6 +57,10 @@
   min-width: 0;
   gap: var(--space-2);
   animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
+  /* Full history is loaded into the timeline; skip layout/paint for
+     off-screen messages so long sessions stay cheap to render. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
 }
 
 .conversation-message > header {

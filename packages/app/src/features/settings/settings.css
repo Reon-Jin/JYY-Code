@@ -320,9 +320,19 @@
   color: var(--color-text);
   font-size: var(--text-xs);
 }
-.mobile-settings__address > div { display: flex; align-items: center; gap: var(--space-3); }
-.mobile-settings__address a { color: var(--color-text); font-size: var(--text-sm); }
-.mobile-settings__address small { color: var(--color-text-muted); font-size: var(--text-xs); }
+.mobile-settings__address > div {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.mobile-settings__address a {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+.mobile-settings__address small {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
 .mobile-settings__devices {
   display: grid;
   gap: var(--space-2);

@@ -52,7 +52,9 @@ const planState: SessionPlanResponse = {
   current_step: "s1",
   pending_review: 0,
   inbox_pending: 0,
-  steps: [{ id: "s1", title: "Implement", status: "active", tasks: [{ id: "s1_t1", title: "Code", status: "running" }] }],
+  steps: [
+    { id: "s1", title: "Implement", status: "active", tasks: [{ id: "s1_t1", title: "Code", status: "running" }] },
+  ],
 }
 
 afterEach(() => {

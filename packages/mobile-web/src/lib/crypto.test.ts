@@ -17,5 +17,8 @@ test("round-trips an opaque encrypted relay payload", () => {
   const key = crypto.getRandomValues(new Uint8Array(32))
   const ciphertext = encryptPayload(key, { type: "summary", taskText: "不能由中继读取" })
   expect(ciphertext).not.toContain("不能由中继读取")
-  expect(decryptPayload<{ type: string; taskText: string }>(key, ciphertext)).toEqual({ type: "summary", taskText: "不能由中继读取" })
+  expect(decryptPayload<{ type: string; taskText: string }>(key, ciphertext)).toEqual({
+    type: "summary",
+    taskText: "不能由中继读取",
+  })
 })

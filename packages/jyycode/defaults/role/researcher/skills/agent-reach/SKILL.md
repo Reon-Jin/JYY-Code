@@ -23,13 +23,13 @@ triggers:
   - research: 调研/全网调研/帮我调研/研究一下/research/深入了解
   - search: 搜/查/找/search/搜索/查一下/帮我搜/看看大家怎么说
   - social:
-    - 小红书: xiaohongshu/xhs/小红书/红书
-    - Twitter: twitter/推特/x.com/推文
-    - B站: bilibili/b站/哔哩哔哩
-    - V2EX: v2ex
-    - Reddit: reddit
-    - Facebook: facebook/fb/facebook groups
-    - Instagram: instagram/ig
+      - 小红书: xiaohongshu/xhs/小红书/红书
+      - Twitter: twitter/推特/x.com/推文
+      - B站: bilibili/b站/哔哩哔哩
+      - V2EX: v2ex
+      - Reddit: reddit
+      - Facebook: facebook/fb/facebook groups
+      - Instagram: instagram/ig
   - career: 招聘/职位/求职/linkedin/领英/找工作
   - dev: github/代码/仓库/gh/issue/pr/分支/commit
   - web: 网页/链接/文章/rss/读一下/打开这个
@@ -59,14 +59,14 @@ metadata:
 
 ## 路由表
 
-| 用户意图 | 分类 | 详细文档 |
-|---------|------|---------|
-| 网页搜索/代码搜索 | search | [references/search.md](references/search.md) |
+| 用户意图                                       | 分类   | 详细文档                                     |
+| ---------------------------------------------- | ------ | -------------------------------------------- |
+| 网页搜索/代码搜索                              | search | [references/search.md](references/search.md) |
 | 小红书/推特/B站/V2EX/Reddit/Facebook/Instagram | social | [references/social.md](references/social.md) |
-| 招聘/职位/LinkedIn | career | [references/career.md](references/career.md) |
-| GitHub/代码 | dev | [references/dev.md](references/dev.md) |
-| 网页/文章/RSS | web | [references/web.md](references/web.md) |
-| YouTube/B站/播客字幕 | video | [references/video.md](references/video.md) |
+| 招聘/职位/LinkedIn                             | career | [references/career.md](references/career.md) |
+| GitHub/代码                                    | dev    | [references/dev.md](references/dev.md)       |
+| 网页/文章/RSS                                  | web    | [references/web.md](references/web.md)       |
+| YouTube/B站/播客字幕                           | video  | [references/video.md](references/video.md)   |
 
 ## 零配置快速命令
 

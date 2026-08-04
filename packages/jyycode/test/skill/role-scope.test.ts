@@ -102,10 +102,7 @@ it.effect("keeps primary identity from granting root scope to a child", () =>
     expect(Skill.scopeForSession({}, primary)).toEqual(Skill.rootScope)
     expect(Skill.scopeForSession({ parentID: "primary-session" }, primary)).toEqual(Skill.childScope())
     expect(
-      Skill.scopeForSession(
-        { parentID: "role-session" },
-        { ...primary, options: { subagentProfileID: "review" } },
-      ),
+      Skill.scopeForSession({ parentID: "role-session" }, { ...primary, options: { subagentProfileID: "review" } }),
     ).toEqual(Skill.roleScope("review"))
   }),
 )

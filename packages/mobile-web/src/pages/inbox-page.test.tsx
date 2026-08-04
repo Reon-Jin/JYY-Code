@@ -7,8 +7,34 @@ import type { RemoteTask } from "../lib/models"
 afterEach(cleanup)
 
 const tasks: RemoteTask[] = [
-  { id: "failed", deviceID: "desktop", project: "官网改版", title: "构建失败", status: "failed", summary: "任务需要重试。", progress: 0, updatedAt: new Date().toISOString(), todo: [], children: [], pending: null, timeline: [] },
-  { id: "permission", deviceID: "desktop", project: "桌面端", title: "更新设置", status: "waiting", summary: "等待你的处理。", progress: 0, updatedAt: new Date().toISOString(), todo: [], children: [], pending: { type: "permission", id: "permission-request", title: "需要批准权限" }, timeline: [] },
+  {
+    id: "failed",
+    deviceID: "desktop",
+    project: "官网改版",
+    title: "构建失败",
+    status: "failed",
+    summary: "任务需要重试。",
+    progress: 0,
+    updatedAt: new Date().toISOString(),
+    todo: [],
+    children: [],
+    pending: null,
+    timeline: [],
+  },
+  {
+    id: "permission",
+    deviceID: "desktop",
+    project: "桌面端",
+    title: "更新设置",
+    status: "waiting",
+    summary: "等待你的处理。",
+    progress: 0,
+    updatedAt: new Date().toISOString(),
+    todo: [],
+    children: [],
+    pending: { type: "permission", id: "permission-request", title: "需要批准权限" },
+    timeline: [],
+  },
 ]
 
 test("待处理页按类别筛选并保留项目来源", async () => {

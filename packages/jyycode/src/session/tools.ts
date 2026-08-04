@@ -164,7 +164,14 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
     const required = tools[requiredTool]
     if (!required) throw new Error(`Required tool is unavailable: ${requiredTool}`)
     if (!read) throw new Error("Plan_read is unavailable for plan recovery")
-    const allowed = new Set([requiredTool, "Plan_read", "Blackboard", "Blackboard_Reply", "Dispatch_roles", "Dispatch_cancel"])
+    const allowed = new Set([
+      requiredTool,
+      "Plan_read",
+      "Blackboard",
+      "Blackboard_Reply",
+      "Dispatch_roles",
+      "Dispatch_cancel",
+    ])
     pruneOrStubTools(tools, allowed, requiredTool)
     return
   }
@@ -198,7 +205,10 @@ function pendingDispatchTasks(plan: PlanToolGateState | undefined) {
 
 /** A root turn must yield after dispatching work; child reports wake it when action is needed. */
 export function hasInFlightPlanTasks(plan: PlanToolGateState | undefined) {
-  return plan?.steps.some((step) => step.tasks.some((task) => task.status === "dispatched" || task.status === "running")) ?? false
+  return (
+    plan?.steps.some((step) => step.tasks.some((task) => task.status === "dispatched" || task.status === "running")) ??
+    false
+  )
 }
 
 /**
@@ -213,16 +223,21 @@ export function shouldWaitForPlanReport(input: {
 }) {
   if ((input.blackboardUnread ?? 0) > 0 || (input.inboxPending ?? 0) > 0) return false
   if (pendingDispatchTasks(input.plan).length > 0) return false
-  const currentStep = input.plan?.current_step ? input.plan.steps.find((step) => step.id === input.plan?.current_step) : undefined
+  const currentStep = input.plan?.current_step
+    ? input.plan.steps.find((step) => step.id === input.plan?.current_step)
+    : undefined
   if (currentStep?.candidate_discussion?.phase === "awaiting_main") return false
   const hasReported = input.plan?.steps.some((step) => step.tasks.some((task) => task.status === "reported")) ?? false
   return hasInFlightPlanTasks(input.plan) && !hasReported
 }
 
 export function isPlanToolVisible(itemID: string, session: Pick<Session.Info, "parentID" | "multiAgent">) {
-  if (session.parentID !== undefined) return itemID === "Report" || itemID === "Blackboard" || itemID === "Blackboard.reply"
+  if (session.parentID !== undefined)
+    return itemID === "Report" || itemID === "Blackboard" || itemID === "Blackboard.reply"
   if (session.multiAgent === true) return true
-  return !itemID.startsWith("Dispatch.") && itemID !== "Report" && itemID !== "Blackboard" && itemID !== "Blackboard.reply"
+  return (
+    !itemID.startsWith("Dispatch.") && itemID !== "Report" && itemID !== "Blackboard" && itemID !== "Blackboard.reply"
+  )
 }
 
 /** Return the explicit allowlist carried by a profile-backed subagent. */
@@ -274,7 +289,10 @@ export function isSubagentToolVisible(
   if (candidateGate) {
     return (
       candidateGate.allowedToolIDs.has(id) ||
-      (candidateGate.phase === "running" && !isSubagentFixedToolID(id) && !isSubagentForbiddenToolID(id) && !isSubagentCandidateToolID(id))
+      (candidateGate.phase === "running" &&
+        !isSubagentFixedToolID(id) &&
+        !isSubagentForbiddenToolID(id) &&
+        !isSubagentCandidateToolID(id))
     )
   }
   return !isSubagentForbiddenToolID(id) && !isSubagentCandidateToolID(id)
@@ -304,11 +322,22 @@ export function intersectToolIDs(
 }
 
 /** Filter model-visible definitions without allowing synthetic catalog tools to bypass a role allowlist. */
-export function filterToolIDs<T extends { id: string }>(items: readonly T[], allowedToolIDs: ReadonlySet<string> | undefined) {
+export function filterToolIDs<T extends { id: string }>(
+  items: readonly T[],
+  allowedToolIDs: ReadonlySet<string> | undefined,
+) {
   return allowedToolIDs ? items.filter((item) => allowedToolIDs.has(item.id)) : [...items]
 }
 
-const CANDIDATE_RUNNING_TOOL_IDS = new Set(["read", "glob", "grep", "webfetch", "websearch", "skill", "Candidate.submit"])
+const CANDIDATE_RUNNING_TOOL_IDS = new Set([
+  "read",
+  "glob",
+  "grep",
+  "webfetch",
+  "websearch",
+  "skill",
+  "Candidate.submit",
+])
 
 export type CandidateToolGateState = {
   stepID: string
@@ -330,9 +359,7 @@ export function candidateToolGateState(
   for (const step of plan.steps) {
     const discussion = step.candidate_discussion
     if (!discussion) continue
-    const task = step.tasks.find(
-      (item) => item.mode === "candidate" && item.dispatch?.child_session_id === session.id,
-    )
+    const task = step.tasks.find((item) => item.mode === "candidate" && item.dispatch?.child_session_id === session.id)
     if (!task) continue
     const allowedToolIDs =
       discussion.phase === "declaring"
@@ -361,7 +388,9 @@ export function requiredPlanTool(input: {
   if (input.step === 1) return "Plan_read"
   if (input.multiAgent && input.planExists === false) return "Plan_create"
   if (input.multiAgent) {
-    const currentStep = input.plan?.current_step ? input.plan.steps.find((step) => step.id === input.plan?.current_step) : undefined
+    const currentStep = input.plan?.current_step
+      ? input.plan.steps.find((step) => step.id === input.plan?.current_step)
+      : undefined
     if (currentStep && currentStep.tasks.length === 0) return "Plan_update"
     const pending = pendingDispatchTasks(input.plan)
     if (pending.length > 0)

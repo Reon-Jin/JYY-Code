@@ -159,7 +159,10 @@ export interface Interface {
     stepID: string
     taskID: string
   }) => Effect.Effect<CandidatePeerReplyCoverage>
-  readonly candidateParticipants: (input: { rootSessionID: SessionID; stepID: string }) => Effect.Effect<CandidateParticipant[]>
+  readonly candidateParticipants: (input: {
+    rootSessionID: SessionID
+    stepID: string
+  }) => Effect.Effect<CandidateParticipant[]>
   readonly recipientsForMessage: (message: Message) => Effect.Effect<MessageRecipient[]>
   readonly listUser: (input: ListUserInput) => Effect.Effect<Snapshot>
   readonly readAgent: (sessionID: SessionID) => Effect.Effect<AgentReadResult>
@@ -247,7 +250,11 @@ function isWithin(root: string, target: string) {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
 }
 
-function normalizeAttachments(values: readonly string[] | undefined, workspaceRoot: string, allowUserLocalFile: boolean) {
+function normalizeAttachments(
+  values: readonly string[] | undefined,
+  workspaceRoot: string,
+  allowUserLocalFile: boolean,
+) {
   return (values ?? []).map((value) => {
     let url: URL | undefined
     try {
@@ -255,23 +262,24 @@ function normalizeAttachments(values: readonly string[] | undefined, workspaceRo
     } catch {
       // A workspace-relative or absolute path is handled below.
     }
-    if (url?.protocol === "http:" || url?.protocol === "https:")
-      return { type: "url" as const, value: url.toString() }
+    if (url?.protocol === "http:" || url?.protocol === "https:") return { type: "url" as const, value: url.toString() }
     if (url?.protocol === "file:") {
-      if (!allowUserLocalFile) throw new BlackboardError("INVALID_ATTACHMENT", `Agent 不允许使用本地 file:// 附件：${value}`)
+      if (!allowUserLocalFile)
+        throw new BlackboardError("INVALID_ATTACHMENT", `Agent 不允许使用本地 file:// 附件：${value}`)
       return { type: "path" as const, value: url.toString() }
     }
     const resolved = path.resolve(workspaceRoot, value)
     if (!fs.existsSync(resolved)) throw new BlackboardError("INVALID_ATTACHMENT", `附件不存在：${value}`)
-    if (!isWithin(workspaceRoot, resolved))
-      throw new BlackboardError("INVALID_ATTACHMENT", `附件超出工作区：${value}`)
+    if (!isWithin(workspaceRoot, resolved)) throw new BlackboardError("INVALID_ATTACHMENT", `附件超出工作区：${value}`)
     return { type: fs.statSync(resolved).isDirectory() ? ("directory" as const) : ("path" as const), value: resolved }
   })
 }
 
 function makeService(bus: Bus.Interface): Interface {
   const session = Effect.fn("Blackboard.session")(function* (sessionID: SessionID) {
-    const row = yield* db((database) => database.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
+    const row = yield* db((database) =>
+      database.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get(),
+    )
     if (!row) throw new BlackboardError("SESSION_NOT_FOUND", `找不到 session ${sessionID}`)
     return row
   })
@@ -282,7 +290,11 @@ function makeService(bus: Bus.Interface): Interface {
     return current
   })
 
-  const tasksFor = Effect.fn("Blackboard.tasksFor")(function* (_rootSessionID: SessionID, step: PlanStep, selfTaskID?: string) {
+  const tasksFor = Effect.fn("Blackboard.tasksFor")(function* (
+    _rootSessionID: SessionID,
+    step: PlanStep,
+    selfTaskID?: string,
+  ) {
     const dispatches = step.tasks
       .filter((task) => task.dispatch?.child_session_id)
       .map((task) => [task.id, task.dispatch!.child_session_id] as const)
@@ -335,7 +347,11 @@ function makeService(bus: Bus.Interface): Interface {
       eq(BlackboardMessageTable.root_session_id, input.rootSessionID),
       eq(BlackboardMessageTable.step_id, input.stepID),
       input.before ? lt(BlackboardMessageTable.id, input.before) : undefined,
-      input.taskID ? (taskMessageIDs.length ? inArray(BlackboardMessageTable.id, taskMessageIDs) : eq(BlackboardMessageTable.id, "")) : undefined,
+      input.taskID
+        ? taskMessageIDs.length
+          ? inArray(BlackboardMessageTable.id, taskMessageIDs)
+          : eq(BlackboardMessageTable.id, "")
+        : undefined,
       isNull(BlackboardMessageTable.parent_message_id),
     ].filter(Boolean) as SQL<unknown>[]
     const rows = yield* db((database) =>
@@ -349,9 +365,7 @@ function makeService(bus: Bus.Interface): Interface {
     )
     const page = rows.slice(0, input.limit).reverse()
     const ids = page.map((row) => row.id)
-    const topLevelAndReplyIDs = rows.length
-      ? rows.map((row) => row.id)
-      : ids
+    const topLevelAndReplyIDs = rows.length ? rows.map((row) => row.id) : ids
     const links = topLevelAndReplyIDs.length
       ? yield* db((database) =>
           database
@@ -368,16 +382,19 @@ function makeService(bus: Bus.Interface): Interface {
           database
             .select()
             .from(BlackboardMessageTable)
-            .where(and(inArray(BlackboardMessageTable.parent_message_id, ids), eq(BlackboardMessageTable.step_id, input.stepID)))
+            .where(
+              and(
+                inArray(BlackboardMessageTable.parent_message_id, ids),
+                eq(BlackboardMessageTable.step_id, input.stepID),
+              ),
+            )
             .orderBy(asc(BlackboardMessageTable.id))
             .all(),
         )
       : []
     const repliesByParent = new Map<string, Message[]>()
     for (const reply of replyRows) {
-      const replyTasks = links
-        .filter((link) => link.message_id === reply.id)
-        .map((link) => link.task_id)
+      const replyTasks = links.filter((link) => link.message_id === reply.id).map((link) => link.task_id)
       const normalized = normalizeMessage(reply, replyTasks)
       const parent = reply.parent_message_id!
       repliesByParent.set(parent, [...(repliesByParent.get(parent) ?? []), normalized])
@@ -410,7 +427,13 @@ function makeService(bus: Bus.Interface): Interface {
           database.select().from(BlackboardMessageTable).where(eq(BlackboardMessageTable.id, input.replyTo!)).get(),
         )
       : undefined
-    if (input.replyTo && (!parent || parent.parent_message_id || parent.root_session_id !== input.rootSessionID || parent.step_id !== input.stepID))
+    if (
+      input.replyTo &&
+      (!parent ||
+        parent.parent_message_id ||
+        parent.root_session_id !== input.rootSessionID ||
+        parent.step_id !== input.stepID)
+    )
       throw new BlackboardError("INVALID_REPLY", "回复必须指向同一根 Session、同一 Step 的顶层消息")
     const parentTaskIDs = parent
       ? yield* db((database) =>
@@ -473,7 +496,8 @@ function makeService(bus: Bus.Interface): Interface {
     const { mentions, mentionedTaskIDs } = parseMentions(input.message, step)
     const taskIDs = unique([...(input.taskIDs ?? []), ...mentionedTaskIDs])
     for (const taskID of taskIDs)
-      if (!step.tasks.some((task) => task.id === taskID)) throw new BlackboardError("INVALID_TASK", `Task ${taskID} 不属于当前 Step`)
+      if (!step.tasks.some((task) => task.id === taskID))
+        throw new BlackboardError("INVALID_TASK", `Task ${taskID} 不属于当前 Step`)
     return yield* post({
       ...input,
       rootSessionID: input.rootSessionID,
@@ -501,18 +525,28 @@ function makeService(bus: Bus.Interface): Interface {
       if (phase === "declaring" || phase === "running")
         throw new BlackboardError("INVALID_STEP", "candidate children cannot use Blackboard in this phase")
       if (phase === "cross_review") {
-        if (!input.replyTo) throw new BlackboardError("INVALID_REPLY", "candidate cross-review messages must reply to a declaration")
+        if (!input.replyTo)
+          throw new BlackboardError("INVALID_REPLY", "candidate cross-review messages must reply to a declaration")
         const parent = yield* db((database) =>
           database.select().from(BlackboardMessageTable).where(eq(BlackboardMessageTable.id, input.replyTo!)).get(),
         )
-        if (!parent || parent.parent_message_id || parent.purpose !== "candidate_declaration" || parent.author_task_id === selfTask.id)
-          throw new BlackboardError("INVALID_REPLY", "candidate replies must target another candidate's top-level declaration")
+        if (
+          !parent ||
+          parent.parent_message_id ||
+          parent.purpose !== "candidate_declaration" ||
+          parent.author_task_id === selfTask.id
+        )
+          throw new BlackboardError(
+            "INVALID_REPLY",
+            "candidate replies must target another candidate's top-level declaration",
+          )
       }
     }
     const { mentions, mentionedTaskIDs } = parseMentions(input.message, step)
     const taskIDs = unique([...(input.taskIDs ?? []), ...mentionedTaskIDs])
     for (const taskID of taskIDs)
-      if (!step.tasks.some((task) => task.id === taskID)) throw new BlackboardError("INVALID_TASK", `Task ${taskID} 不属于当前 Step`)
+      if (!step.tasks.some((task) => task.id === taskID))
+        throw new BlackboardError("INVALID_TASK", `Task ${taskID} 不属于当前 Step`)
     return yield* post({
       ...input,
       rootSessionID: rootSession.id as SessionID,
@@ -532,7 +566,8 @@ function makeService(bus: Bus.Interface): Interface {
     stepID: string
   }) {
     const rootSession = yield* root(input.rootSessionID)
-    if (rootSession.id !== input.rootSessionID) throw new BlackboardError("SESSION_NOT_FOUND", "candidate root session mismatch")
+    if (rootSession.id !== input.rootSessionID)
+      throw new BlackboardError("SESSION_NOT_FOUND", "candidate root session mismatch")
     const plan = readPlan(rootSession.directory, rootSession.id as SessionID)
     const step = selectedStep(plan, input.stepID)
     if (!step.tasks.some((task) => task.mode === "candidate")) return []
@@ -612,10 +647,11 @@ function makeService(bus: Bus.Interface): Interface {
     const self = participants.find((item) => item.taskID === input.taskID)
     if (!self) throw new BlackboardError("INVALID_TASK", `candidate task ${input.taskID} is not in this step`)
     const declarations = yield* candidateDeclarations({ rootSessionID: input.rootSessionID, stepID: input.stepID })
-    const peerDeclarations = declarations.filter((message) => message.authorTaskID && message.authorTaskID !== input.taskID)
+    const peerDeclarations = declarations.filter(
+      (message) => message.authorTaskID && message.authorTaskID !== input.taskID,
+    )
     const declarationIDs = peerDeclarations.map((message) => message.id)
-    if (!declarationIDs.length)
-      return { taskID: input.taskID, repliedTaskIDs: [], missingTaskIDs: [], complete: true }
+    if (!declarationIDs.length) return { taskID: input.taskID, repliedTaskIDs: [], missingTaskIDs: [], complete: true }
     const replies = yield* db((database) =>
       database
         .select()
@@ -645,11 +681,15 @@ function makeService(bus: Bus.Interface): Interface {
     return { taskID: input.taskID, repliedTaskIDs, missingTaskIDs, complete: missingTaskIDs.length === 0 }
   })
 
-  const postCandidateDeclaration = Effect.fn("Blackboard.postCandidateDeclaration")(function* (input: CandidateDeclarationInput) {
+  const postCandidateDeclaration = Effect.fn("Blackboard.postCandidateDeclaration")(function* (
+    input: CandidateDeclarationInput,
+  ) {
     const rootSession = yield* root(input.sessionID)
     const plan = readPlan(rootSession.directory, rootSession.id as SessionID)
     const step = currentStep(plan)
-    const selfTask = step.tasks.find((task) => task.mode === "candidate" && task.dispatch?.child_session_id === input.sessionID)
+    const selfTask = step.tasks.find(
+      (task) => task.mode === "candidate" && task.dispatch?.child_session_id === input.sessionID,
+    )
     if (!selfTask) throw new BlackboardError("CHILD_NOT_IN_STEP", "only a dispatched candidate child may declare")
     if (step.candidate_discussion && step.candidate_discussion.phase !== "declaring")
       throw new BlackboardError("INVALID_STEP", "candidate declarations are closed")
@@ -757,8 +797,13 @@ function makeService(bus: Bus.Interface): Interface {
     const rootSession = yield* root(sessionID)
     const plan = readPlan(rootSession.directory, rootSession.id as SessionID)
     const step = currentStep(plan)
-    const selfTask = step.tasks.find((task) => task.mode === "candidate" && task.dispatch?.child_session_id === sessionID)
-    if (selfTask && (step.candidate_discussion?.phase === "declaring" || step.candidate_discussion?.phase === "running"))
+    const selfTask = step.tasks.find(
+      (task) => task.mode === "candidate" && task.dispatch?.child_session_id === sessionID,
+    )
+    if (
+      selfTask &&
+      (step.candidate_discussion?.phase === "declaring" || step.candidate_discussion?.phase === "running")
+    )
       throw new BlackboardError("INVALID_STEP", "candidate children cannot use Blackboard in this phase")
     const participantKey = sessionID === rootSession.id ? `main:${rootSession.id}` : `agent:${sessionID}`
     const cursor = yield* db((database) =>
@@ -810,7 +855,8 @@ function makeService(bus: Bus.Interface): Interface {
         )
       : []
     const messageTaskIDs = new Map<string, string[]>()
-    for (const link of links) messageTaskIDs.set(link.message_id, [...(messageTaskIDs.get(link.message_id) ?? []), link.task_id])
+    for (const link of links)
+      messageTaskIDs.set(link.message_id, [...(messageTaskIDs.get(link.message_id) ?? []), link.task_id])
     const messages = rows.slice(0, 50).map((row) => normalizeMessage(row, messageTaskIDs.get(row.id) ?? []))
     const last = messages.at(-1)
     yield* Database.withTransaction((database) =>

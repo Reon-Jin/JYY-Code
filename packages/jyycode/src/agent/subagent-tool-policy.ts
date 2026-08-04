@@ -61,7 +61,9 @@ export function isSubagentCandidateToolID(id: string) {
 }
 
 export function isSubagentFixedToolID(id: string) {
-  return SUBAGENT_FIXED_TOOL_IDS.includes(id as (typeof SUBAGENT_FIXED_TOOL_IDS)[number]) || isSubagentCandidateToolID(id)
+  return (
+    SUBAGENT_FIXED_TOOL_IDS.includes(id as (typeof SUBAGENT_FIXED_TOOL_IDS)[number]) || isSubagentCandidateToolID(id)
+  )
 }
 
 export function isSubagentForbiddenToolID(id: string) {

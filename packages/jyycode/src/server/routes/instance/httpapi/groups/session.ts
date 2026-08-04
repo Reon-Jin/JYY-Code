@@ -237,6 +237,7 @@ export const SessionPaths = {
   fork: `${root}/:sessionID/fork`,
   abort: `${root}/:sessionID/abort`,
   interruptPrompt: `${root}/:sessionID/interrupt-prompt`,
+  terminate: `${root}/:sessionID/terminate`,
   share: `${root}/:sessionID/share`,
   init: `${root}/:sessionID/init`,
   summarize: `${root}/:sessionID/summarize`,
@@ -484,6 +485,18 @@ export const SessionApi = HttpApi.make("session")
             summary: "Interrupt child assignment and send message",
             description:
               "Stop a running plan child assignment before sending a steering message to that child session.",
+          }),
+        ),
+        HttpApiEndpoint.post("terminate", SessionPaths.terminate, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(HttpApiSchema.NoContent, "Terminated the plan child session"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.terminate",
+            summary: "Terminate a plan child session",
+            description: "Stop a running plan child assignment and notify the parent session through its Inbox.",
           }),
         ),
         HttpApiEndpoint.post("init", SessionPaths.init, {

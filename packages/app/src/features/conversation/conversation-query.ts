@@ -12,8 +12,12 @@ export type ConversationQueryInput = {
 }
 
 export async function loadConversation(input: ConversationQueryInput) {
+  // Fetch the full history (no limit) so context compaction never makes
+  // earlier messages disappear from the UI. Compaction only affects the
+  // model's context on the backend; every message stays in storage, and
+  // the messages endpoint returns all of them when no limit is given.
   const result = await input.client.session.messages(
-    { directory: input.directory, sessionID: input.sessionID, limit: 100 },
+    { directory: input.directory, sessionID: input.sessionID },
     input.signal ? { throwOnError: true, signal: input.signal } : { throwOnError: true },
   )
   const snapshot = snapshotFromMessages(input.sessionID, result.data ?? [])

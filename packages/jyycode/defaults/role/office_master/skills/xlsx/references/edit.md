@@ -23,16 +23,16 @@ Do NOT use this path for creating a brand-new workbook from scratch. For that, s
 
 openpyxl `load_workbook()` followed by `workbook.save()` is a **destructive operation** on any file that contains advanced features. The library silently drops content it does not understand:
 
-| Feature | openpyxl behavior | Consequence |
-|---------|-------------------|-------------|
-| VBA macros (`vbaProject.bin`) | Dropped entirely | All automation is lost; file saved as `.xlsx` not `.xlsm` |
-| Pivot tables (`xl/pivotTables/`) | Dropped | Interactive analysis is destroyed |
-| Slicers | Dropped | Filter UI is lost |
-| Sparklines (`<sparklineGroups>`) | Dropped | In-cell mini-charts disappear |
-| Chart formatting details | Partially lost | Series colors, custom axes may revert |
-| Print area / page breaks | Sometimes lost | Print layout changes |
-| Custom XML parts | Dropped | Third-party data bindings broken |
-| Theme-linked colors | May be de-themed | Colors converted to absolute, breaking theme switching |
+| Feature                          | openpyxl behavior | Consequence                                               |
+| -------------------------------- | ----------------- | --------------------------------------------------------- |
+| VBA macros (`vbaProject.bin`)    | Dropped entirely  | All automation is lost; file saved as `.xlsx` not `.xlsm` |
+| Pivot tables (`xl/pivotTables/`) | Dropped           | Interactive analysis is destroyed                         |
+| Slicers                          | Dropped           | Filter UI is lost                                         |
+| Sparklines (`<sparklineGroups>`) | Dropped           | In-cell mini-charts disappear                             |
+| Chart formatting details         | Partially lost    | Series colors, custom axes may revert                     |
+| Print area / page breaks         | Sometimes lost    | Print layout changes                                      |
+| Custom XML parts                 | Dropped           | Third-party data bindings broken                          |
+| Theme-linked colors              | May be de-themed  | Colors converted to absolute, breaking theme switching    |
 
 Even on a "plain" file without these features, openpyxl may normalize whitespace in XML that Excel relies on, alter namespace declarations, or reset `calcMode` flags.
 
@@ -99,15 +99,15 @@ Look for these elements in the target `sheet*.xml` before editing:
 
 Before writing a single character, produce a written list of exactly which XML nodes change. This prevents scope creep.
 
-| User intent | Files to change | Nodes to change |
-|-------------|----------------|-----------------|
-| Change a cell's numeric value | `xl/worksheets/sheetN.xml` | `<v>` inside target `<c>` |
-| Change a cell's text | `xl/sharedStrings.xml` (append) + `xl/worksheets/sheetN.xml` | New `<si>`, update cell `<v>` index |
-| Change a cell's formula | `xl/worksheets/sheetN.xml` | `<f>` text inside target `<c>` |
-| Add a new data row at the bottom | `xl/worksheets/sheetN.xml` + possibly `xl/sharedStrings.xml` | Append `<row>` element |
-| Apply a new style to cells | `xl/styles.xml` + `xl/worksheets/sheetN.xml` | Append `<xf>` in `<cellXfs>`, update `s` attribute on `<c>` |
-| Rename a sheet | `xl/workbook.xml` | `name` attribute on `<sheet>` element |
-| Rename a sheet (with cross-sheet formulas) | `xl/workbook.xml` + all `xl/worksheets/*.xml` | `name` attribute + `<f>` text referencing old name |
+| User intent                                | Files to change                                              | Nodes to change                                             |
+| ------------------------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------- |
+| Change a cell's numeric value              | `xl/worksheets/sheetN.xml`                                   | `<v>` inside target `<c>`                                   |
+| Change a cell's text                       | `xl/sharedStrings.xml` (append) + `xl/worksheets/sheetN.xml` | New `<si>`, update cell `<v>` index                         |
+| Change a cell's formula                    | `xl/worksheets/sheetN.xml`                                   | `<f>` text inside target `<c>`                              |
+| Add a new data row at the bottom           | `xl/worksheets/sheetN.xml` + possibly `xl/sharedStrings.xml` | Append `<row>` element                                      |
+| Apply a new style to cells                 | `xl/styles.xml` + `xl/worksheets/sheetN.xml`                 | Append `<xf>` in `<cellXfs>`, update `s` attribute on `<c>` |
+| Rename a sheet                             | `xl/workbook.xml`                                            | `name` attribute on `<sheet>` element                       |
+| Rename a sheet (with cross-sheet formulas) | `xl/workbook.xml` + all `xl/worksheets/*.xml`                | `name` attribute + `<f>` text referencing old name          |
 
 ### Step 4 — Execute Changes
 
@@ -137,6 +137,7 @@ The pack script validates XML well-formedness before creating the ZIP. Fix any r
 Find the `<c r="B5">` element in the worksheet XML and replace the `<v>` text.
 
 **Before:**
+
 ```xml
 <c r="B5">
   <v>1000</v>
@@ -144,6 +145,7 @@ Find the `<c r="B5">` element in the worksheet XML and replace the `<v>` text.
 ```
 
 **After (new value 1500):**
+
 ```xml
 <c r="B5">
   <v>1500</v>
@@ -151,6 +153,7 @@ Find the `<c r="B5">` element in the worksheet XML and replace the `<v>` text.
 ```
 
 Rules:
+
 - Do not add or remove the `s` attribute (style) unless explicitly changing the style.
 - Do not add a `t` attribute — numbers omit `t` or use `t="n"`.
 - Do not change the `r` attribute (cell reference).
@@ -162,6 +165,7 @@ Rules:
 Text cells reference the shared strings table by index (`t="s"`). You cannot edit the string in-place without affecting every other cell that uses the same index. The safe approach is to append a new entry.
 
 **Before — shared strings file (`xl/sharedStrings.xml`):**
+
 ```xml
 <sst count="4" uniqueCount="4">
   <si><t>Revenue</t></si>
@@ -172,6 +176,7 @@ Text cells reference the shared strings table by index (`t="s"`). You cannot edi
 ```
 
 **After — append new string, increment counts:**
+
 ```xml
 <sst count="5" uniqueCount="5">
   <si><t>Revenue</t></si>
@@ -185,6 +190,7 @@ Text cells reference the shared strings table by index (`t="s"`). You cannot edi
 New string is at index 4 (zero-based).
 
 **Before — cell in worksheet XML:**
+
 ```xml
 <c r="A7" t="s">
   <v>3</v>
@@ -192,6 +198,7 @@ New string is at index 4 (zero-based).
 ```
 
 **After — point to new index:**
+
 ```xml
 <c r="A7" t="s">
   <v>4</v>
@@ -199,6 +206,7 @@ New string is at index 4 (zero-based).
 ```
 
 Rules:
+
 - Never modify or delete existing `<si>` entries. Only append.
 - Both `count` and `uniqueCount` must be incremented together.
 - If the new string contains `&`, `<`, or `>`, escape them: `&amp;`, `&lt;`, `&gt;`.
@@ -214,6 +222,7 @@ Rules:
 Formulas are stored in `<f>` elements **without a leading `=`** (unlike what you type in Excel's UI).
 
 **Before:**
+
 ```xml
 <c r="C10">
   <f>SUM(C2:C9)</f>
@@ -222,6 +231,7 @@ Formulas are stored in `<f>` elements **without a leading `=`** (unlike what you
 ```
 
 **After (extended range):**
+
 ```xml
 <c r="C10">
   <f>SUM(C2:C11)</f>
@@ -230,12 +240,14 @@ Formulas are stored in `<f>` elements **without a leading `=`** (unlike what you
 ```
 
 Rules:
+
 - Clear `<v>` to an empty string when changing the formula. The cached value is now stale.
 - Do not add `t="s"` or any type attribute to formula cells. The `t` attribute is absent or uses a result-type value, not a formula marker.
 - Cross-sheet references use `SheetName!CellRef`. If the sheet name contains spaces, wrap in single quotes: `'Q1 Data'!B5`.
 - The `<f>` text must not include the leading `=`.
 
 **Before (converting a hardcoded value to a live formula):**
+
 ```xml
 <c r="D15">
   <v>95000</v>
@@ -243,6 +255,7 @@ Rules:
 ```
 
 **After:**
+
 ```xml
 <c r="D15">
   <f>SUM(D2:D14)</f>
@@ -257,6 +270,7 @@ Rules:
 Append after the last `<row>` element inside `<sheetData>`. Row numbers in OOXML are 1-based and must be sequential.
 
 **Before (last row is row 10):**
+
 ```xml
   <row r="10">
     <c r="A10" t="s"><v>3</v></c>
@@ -268,6 +282,7 @@ Append after the last `<row>` element inside `<sheetData>`. Row numbers in OOXML
 ```
 
 **After (new row 11 appended):**
+
 ```xml
   <row r="10">
     <c r="A10" t="s"><v>3</v></c>
@@ -285,6 +300,7 @@ Append after the last `<row>` element inside `<sheetData>`. Row numbers in OOXML
 ```
 
 Rules:
+
 - Every `<c>` inside the row must have `r` set to the correct cell address (e.g., `A11`).
 - Text cells need `t="s"` and a sharedStrings index in `<v>`. Numeric cells omit `t`.
 - Formula cells use `<f>` and an empty `<v>`.
@@ -299,6 +315,7 @@ Rules:
 Append new `<c>` elements to each existing `<row>` and, if present, update the `<cols>` section.
 
 **Before (rows have columns A–C):**
+
 ```xml
 <cols>
   <col min="1" max="3" width="14" customWidth="1"/>
@@ -318,6 +335,7 @@ Append new `<c>` elements to each existing `<row>` and, if present, update the `
 ```
 
 **After (adding column D):**
+
 ```xml
 <cols>
   <col min="1" max="3" width="14" customWidth="1"/>
@@ -340,6 +358,7 @@ Append new `<c>` elements to each existing `<row>` and, if present, update the `
 ```
 
 Rules:
+
 - Adding a column at the end (after the last existing column) is safe — no existing formula references shift.
 - Inserting a column in the middle shifts all columns to the right, which requires the same cascade updates as row insertion (see Section 5).
 - Update the `<dimension>` element if present.
@@ -353,6 +372,7 @@ Styles use a multi-level indirect reference chain. Read `ooxml-cheatsheet.md` fo
 **Scenario:** Add a blue-font style (for hardcoded input cells) that doesn't yet exist.
 
 **Step 1 — Check if a matching font already exists in `xl/styles.xml`:**
+
 ```xml
 <!-- Look inside <fonts> for an existing blue font -->
 <font>
@@ -366,6 +386,7 @@ If found, note its index (zero-based position in the `<fonts>` list). If not fou
 **Step 2 — Append the new font if needed:**
 
 Before:
+
 ```xml
 <fonts count="3">
   <font>...</font>   <!-- index 0 -->
@@ -375,6 +396,7 @@ Before:
 ```
 
 After:
+
 ```xml
 <fonts count="4">
   <font>...</font>   <!-- index 0 -->
@@ -392,6 +414,7 @@ After:
 **Step 3 — Append a new `<xf>` in `<cellXfs>`:**
 
 Before:
+
 ```xml
 <cellXfs count="5">
   <xf .../>   <!-- index 0 -->
@@ -403,6 +426,7 @@ Before:
 ```
 
 After:
+
 ```xml
 <cellXfs count="6">
   <xf .../>   <!-- index 0 -->
@@ -418,6 +442,7 @@ After:
 **Step 4 — Apply to target cells:**
 
 Before:
+
 ```xml
 <c r="B3">
   <v>0.08</v>
@@ -425,6 +450,7 @@ Before:
 ```
 
 After:
+
 ```xml
 <c r="B3" s="5">
   <v>0.08</v>
@@ -432,6 +458,7 @@ After:
 ```
 
 Rules:
+
 - Never delete or reorder existing entries in `<fonts>`, `<fills>`, `<borders>`, `<cellXfs>`.
 - Always update the `count` attribute when appending.
 - The new `cellXfs` index = the old `count` value before appending (zero-based: if count was 5, new index is 5).
@@ -445,11 +472,13 @@ Rules:
 **Only `xl/workbook.xml` needs to change** — unless cross-sheet formulas reference the old name.
 
 **Before (`xl/workbook.xml`):**
+
 ```xml
 <sheet name="Sheet1" sheetId="1" r:id="rId1"/>
 ```
 
 **After:**
+
 ```xml
 <sheet name="Revenue" sheetId="1" r:id="rId1"/>
 ```
@@ -457,26 +486,31 @@ Rules:
 **If any formula in any worksheet references the old name, update those too:**
 
 Before (`xl/worksheets/sheet2.xml`):
+
 ```xml
 <c r="B5"><f>Sheet1!C10</f><v></v></c>
 ```
 
 After:
+
 ```xml
 <c r="B5"><f>Revenue!C10</f><v></v></c>
 ```
 
 If the new name contains spaces:
+
 ```xml
 <c r="B5"><f>'Q1 Revenue'!C10</f><v></v></c>
 ```
 
 Scan all worksheet XML files for the old name:
+
 ```bash
 grep -r "Sheet1!" /tmp/xlsx_work/xl/worksheets/
 ```
 
 Rules:
+
 - The `.rels` file and `[Content_Types].xml` do NOT need to change — they reference the XML file path, not the sheet name.
 - `sheetId` must not change; it is a stable internal identifier.
 - Sheet names are case-sensitive in formula references.
@@ -491,18 +525,18 @@ Inserting a row at position N shifts all rows from N downward. Every reference t
 
 **Files to check and update:**
 
-| XML region | What to update | Example shift |
-|------------|---------------|---------------|
-| Worksheet `<row r="...">` attributes | Increment row number for all rows >= N | `r="7"` → `r="8"` |
-| All `<c r="...">` within those rows | Increment row number in cell address | `r="A7"` → `r="A8"` |
-| All `<f>` formula text in any sheet | Shift absolute row references >= N | `B7` → `B8` |
-| `<mergeCell ref="...">` | Shift start and end rows | `A7:C7` → `A8:C8` |
-| `<conditionalFormatting sqref="...">` | Shift range | `A5:D20` → `A5:D21` |
-| `<dataValidations sqref="...">` | Shift range | `B6:B50` → `B7:B51` |
-| `xl/charts/chartN.xml` data source ranges | Shift series ranges | `Sheet1!$B$5:$B$20` → `Sheet1!$B$6:$B$21` |
-| `xl/pivotTables/*.xml` source ranges | Shift source data range | Handle with extreme care — see Section 7 |
-| `<dimension ref="...">` | Expand to include new extent | `A1:D20` → `A1:D21` |
-| `xl/tables/tableN.xml` `ref` attribute | Expand table boundary | `A1:D20` → `A1:D21` |
+| XML region                                | What to update                         | Example shift                             |
+| ----------------------------------------- | -------------------------------------- | ----------------------------------------- |
+| Worksheet `<row r="...">` attributes      | Increment row number for all rows >= N | `r="7"` → `r="8"`                         |
+| All `<c r="...">` within those rows       | Increment row number in cell address   | `r="A7"` → `r="A8"`                       |
+| All `<f>` formula text in any sheet       | Shift absolute row references >= N     | `B7` → `B8`                               |
+| `<mergeCell ref="...">`                   | Shift start and end rows               | `A7:C7` → `A8:C8`                         |
+| `<conditionalFormatting sqref="...">`     | Shift range                            | `A5:D20` → `A5:D21`                       |
+| `<dataValidations sqref="...">`           | Shift range                            | `B6:B50` → `B7:B51`                       |
+| `xl/charts/chartN.xml` data source ranges | Shift series ranges                    | `Sheet1!$B$5:$B$20` → `Sheet1!$B$6:$B$21` |
+| `xl/pivotTables/*.xml` source ranges      | Shift source data range                | Handle with extreme care — see Section 7  |
+| `<dimension ref="...">`                   | Expand to include new extent           | `A1:D20` → `A1:D21`                       |
+| `xl/tables/tableN.xml` `ref` attribute    | Expand table boundary                  | `A1:D20` → `A1:D21`                       |
 
 **Do not attempt row insertion manually in large or formula-heavy files.** Use the dedicated shift script instead:
 
@@ -517,12 +551,14 @@ python3 SKILL_DIR/scripts/xlsx_shift_rows.py /tmp/xlsx_work/ delete 8 1
 The script updates in one pass: `<row r="...">` attributes, `<c r="...">` cell addresses, all `<f>` formula text across every worksheet, `<mergeCell>` ranges, `<conditionalFormatting sqref="...">`, `<dataValidation sqref="...">`, `<dimension ref="...">`, table `ref` attributes in `xl/tables/`, chart series ranges in `xl/charts/`, and pivot cache source ranges in `xl/pivotCaches/`.
 
 **After running the shift script, always repack and validate:**
+
 ```bash
 python3 SKILL_DIR/scripts/xlsx_pack.py /tmp/xlsx_work/ output.xlsx
 python3 SKILL_DIR/scripts/formula_check.py output.xlsx
 ```
 
 **What the script does NOT update (review manually):**
+
 - Named ranges in `xl/workbook.xml` `<definedNames>` — check and update if they reference shifted rows.
 - Structured table references (`Table[@Column]`) inside formulas.
 - External workbook links in `xl/externalLinks/`.
@@ -549,19 +585,20 @@ Templates designate certain cells as input zones. Common patterns to recognize t
 
 ### 6.1 How Templates Signal Input Zones
 
-| Signal | XML manifestation | What to look for |
-|--------|-------------------|-----------------|
-| Blue font color | `s` attribute pointing to a `cellXfs` entry with `fontId` → `<color rgb="000000FF"/>` | Check `styles.xml` to decode `s` values |
-| Yellow fill (highlight) | `s` → `fillId` → `<fill><patternFill><fgColor rgb="00FFFF00"/>` | |
-| Empty `<v>` element | `<c r="B5"><v></v></c>` or cell entirely absent from `<row>` | The cell has no value yet |
-| Comment/annotation near cell | `xl/comments1.xml` with `ref="B5"` | Comments often label input fields |
-| Named ranges | `xl/workbook.xml` `<definedName>` elements | Template may define `InputRevenue` etc. |
+| Signal                       | XML manifestation                                                                     | What to look for                        |
+| ---------------------------- | ------------------------------------------------------------------------------------- | --------------------------------------- |
+| Blue font color              | `s` attribute pointing to a `cellXfs` entry with `fontId` → `<color rgb="000000FF"/>` | Check `styles.xml` to decode `s` values |
+| Yellow fill (highlight)      | `s` → `fillId` → `<fill><patternFill><fgColor rgb="00FFFF00"/>`                       |                                         |
+| Empty `<v>` element          | `<c r="B5"><v></v></c>` or cell entirely absent from `<row>`                          | The cell has no value yet               |
+| Comment/annotation near cell | `xl/comments1.xml` with `ref="B5"`                                                    | Comments often label input fields       |
+| Named ranges                 | `xl/workbook.xml` `<definedName>` elements                                            | Template may define `InputRevenue` etc. |
 
 ### 6.2 Filling a Template Cell
 
 Do not change `s` attributes. Do not change `t` attributes unless you must change from empty to typed. Only change `<v>` or add `<f>`.
 
 **Before (empty input cell with style preserved):**
+
 ```xml
 <c r="C5" s="3">
   <v></v>
@@ -569,6 +606,7 @@ Do not change `s` attributes. Do not change `t` attributes unless you must chang
 ```
 
 **After (filled with a number, style unchanged):**
+
 ```xml
 <c r="C5" s="3">
   <v>125000</v>
@@ -576,6 +614,7 @@ Do not change `s` attributes. Do not change `t` attributes unless you must chang
 ```
 
 **After (filled with text — requires shared string entry first):**
+
 ```xml
 <!-- 1. Append to sharedStrings.xml: <si><t>North Region</t></si> at index 7 -->
 <c r="C5" t="s" s="3">
@@ -584,6 +623,7 @@ Do not change `s` attributes. Do not change `t` attributes unless you must chang
 ```
 
 **After (filled with a formula, preserving style):**
+
 ```xml
 <c r="C5" s="3">
   <f>Assumptions!D12</f>
@@ -601,6 +641,7 @@ After unpacking, decode the style index on suspected input cells to determine if
 4. In `<fonts>`, look at the 3rd entry (index 2) and check for `<color rgb="000000FF"/>` (blue) or other input marker.
 
 If the template uses named ranges as input fields, read them from `xl/workbook.xml`:
+
 ```xml
 <definedNames>
   <definedName name="InputGrowthRate">Assumptions!$B$5</definedName>
@@ -623,22 +664,22 @@ Fill the target cells (`Assumptions!B5`, `Assumptions!B6`) directly.
 
 ### 7.1 Absolute no-touch list
 
-| File / location | Why |
-|-----------------|-----|
-| `xl/vbaProject.bin` | Binary VBA bytecode. Any byte modification corrupts the macro project. Editing even one bit makes the macros fail to load. |
-| `xl/pivotCaches/pivotCacheDefinition*.xml` | The cache definition ties the pivot table to its source data. Editing it without also updating the corresponding `pivotTable*.xml` will corrupt the pivot. |
-| `xl/pivotTables/*.xml` | Pivot table XML is tightly coupled with the cache definition and with internal state Excel rebuilds on load. Do not edit. If you shifted rows and the pivot's source range now points to wrong data, update only the `<cacheSource>` range in the cache definition, and only the `ref` attribute in the pivot table — no other changes. |
-| `xl/slicers/*.xml` | Slicers are connected to specific cache IDs and pivot fields. Breaking these connections silently corrupts the file. |
-| `xl/connections.xml` | External data connections. Editing breaks live data refresh. |
-| `xl/externalLinks/` | External workbook links. The binary `.bin` files in here must not be modified. |
+| File / location                            | Why                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `xl/vbaProject.bin`                        | Binary VBA bytecode. Any byte modification corrupts the macro project. Editing even one bit makes the macros fail to load.                                                                                                                                                                                                              |
+| `xl/pivotCaches/pivotCacheDefinition*.xml` | The cache definition ties the pivot table to its source data. Editing it without also updating the corresponding `pivotTable*.xml` will corrupt the pivot.                                                                                                                                                                              |
+| `xl/pivotTables/*.xml`                     | Pivot table XML is tightly coupled with the cache definition and with internal state Excel rebuilds on load. Do not edit. If you shifted rows and the pivot's source range now points to wrong data, update only the `<cacheSource>` range in the cache definition, and only the `ref` attribute in the pivot table — no other changes. |
+| `xl/slicers/*.xml`                         | Slicers are connected to specific cache IDs and pivot fields. Breaking these connections silently corrupts the file.                                                                                                                                                                                                                    |
+| `xl/connections.xml`                       | External data connections. Editing breaks live data refresh.                                                                                                                                                                                                                                                                            |
+| `xl/externalLinks/`                        | External workbook links. The binary `.bin` files in here must not be modified.                                                                                                                                                                                                                                                          |
 
 ### 7.2 Conditionally safe files (update only specific attributes)
 
-| File | What you may update | What to leave alone |
-|------|--------------------|--------------------|
-| `xl/charts/chartN.xml` | Data series range references (`<numRef><f>`) after a row/column shift | Chart type, formatting, layout |
-| `xl/tables/tableN.xml` | `ref` attribute on `<table>` after adding rows | Column definitions, style info |
-| `xl/pivotCaches/pivotCacheDefinition*.xml` | `ref` attribute on `<cacheSource><worksheetSource>` after shifting source data | All other content |
+| File                                       | What you may update                                                            | What to leave alone            |
+| ------------------------------------------ | ------------------------------------------------------------------------------ | ------------------------------ |
+| `xl/charts/chartN.xml`                     | Data series range references (`<numRef><f>`) after a row/column shift          | Chart type, formatting, layout |
+| `xl/tables/tableN.xml`                     | `ref` attribute on `<table>` after adding rows                                 | Column definitions, style info |
+| `xl/pivotCaches/pivotCacheDefinition*.xml` | `ref` attribute on `<cacheSource><worksheetSource>` after shifting source data | All other content              |
 
 ---
 
@@ -659,6 +700,7 @@ python3 SKILL_DIR/scripts/formula_check.py /tmp/recalc.xlsx
 ```
 
 If `formula_check.py` reports any error:
+
 1. Unpack the output file again (it is the packed version).
 2. Locate the reported cell in the worksheet XML.
 3. Fix the `<f>` element.
@@ -670,15 +712,15 @@ Do not deliver the file until `formula_check.py` reports zero errors.
 
 ## 9. Absolute Rules Summary
 
-| Rule | Rationale |
-|------|-----------|
-| Never use openpyxl `load_workbook` + `save` on an existing file | Round-trip destroys pivot tables, VBA, sparklines, slicers |
-| Never delete or reorder existing `<si>` entries in sharedStrings | Breaks every cell referencing that index |
-| Never delete or reorder existing `<xf>` entries in `<cellXfs>` | Breaks every cell using that style index |
-| Never modify `vbaProject.bin` | Binary file; any change corrupts VBA |
-| Never change `sheetId` when renaming a sheet | Internal ID is stable; changing it breaks relationships |
-| Never skip post-edit validation | Leaves broken references undetected |
-| Never edit more XML nodes than required | Extra changes risk introducing subtle corruption |
-| Clear `<v>` to empty string when changing a formula | Prevents stale cached value from misleading downstream consumers |
-| Append-only to sharedStrings | Existing indexes must remain valid |
-| Append-only to styles collections | Existing style indexes must remain valid |
+| Rule                                                             | Rationale                                                        |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Never use openpyxl `load_workbook` + `save` on an existing file  | Round-trip destroys pivot tables, VBA, sparklines, slicers       |
+| Never delete or reorder existing `<si>` entries in sharedStrings | Breaks every cell referencing that index                         |
+| Never delete or reorder existing `<xf>` entries in `<cellXfs>`   | Breaks every cell using that style index                         |
+| Never modify `vbaProject.bin`                                    | Binary file; any change corrupts VBA                             |
+| Never change `sheetId` when renaming a sheet                     | Internal ID is stable; changing it breaks relationships          |
+| Never skip post-edit validation                                  | Leaves broken references undetected                              |
+| Never edit more XML nodes than required                          | Extra changes risk introducing subtle corruption                 |
+| Clear `<v>` to empty string when changing a formula              | Prevents stale cached value from misleading downstream consumers |
+| Append-only to sharedStrings                                     | Existing indexes must remain valid                               |
+| Append-only to styles collections                                | Existing style indexes must remain valid                         |

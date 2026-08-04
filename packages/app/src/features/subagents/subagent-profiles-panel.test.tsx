@@ -152,7 +152,8 @@ describe("SubagentProfilesPanelView", () => {
 
     await user.click(screen.getByRole("button", { name: "删除角色 Reviewer" }))
     const deleteDialog = screen.getByRole("dialog")
-    expect(within(deleteDialog).getByText(/Reviewer/)).toBeVisible()
+    expect(within(deleteDialog).getByText("Reviewer · reviewer")).toBeVisible()
+    expect(within(deleteDialog).getByText(/此操作将删除角色 Reviewer/)).toBeVisible()
     await user.click(within(deleteDialog).getByRole("button", { name: "取消" }))
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(onDelete).not.toHaveBeenCalled()

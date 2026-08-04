@@ -67,7 +67,9 @@ export async function sealSessionKey(sessionKey: Uint8Array) {
 export async function openSessionKey(vaultKey: CryptoKey, sealedSessionKey: string) {
   const value = fromBase64(sealedSessionKey)
   if (value.length <= 12) throw new Error("本地安全存储无效")
-  return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: value.slice(0, 12) }, vaultKey, value.slice(12)))
+  return new Uint8Array(
+    await crypto.subtle.decrypt({ name: "AES-GCM", iv: value.slice(0, 12) }, vaultKey, value.slice(12)),
+  )
 }
 
 export function encryptPayload(key: Uint8Array, value: unknown) {

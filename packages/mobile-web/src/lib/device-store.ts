@@ -22,7 +22,9 @@ export class DeviceStore {
 
   async get(id: string) {
     const database = await this.open()
-    return await request<StoredDevice | undefined>(database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).get(id))
+    return await request<StoredDevice | undefined>(
+      database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).get(id),
+    )
   }
 
   async put(device: StoredDevice) {

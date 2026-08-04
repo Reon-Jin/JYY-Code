@@ -71,12 +71,7 @@ describe("Plan role presentation", () => {
   it("renders the frozen role name and shared avatar, with neutral unassigned copy", async () => {
     const user = userEvent.setup()
     render(() => (
-      <MultiAgentPanelView
-        sessionID="ses_root"
-        enabled
-        snapshot={snapshot()}
-        onOpenChild={() => undefined}
-      />
+      <MultiAgentPanelView sessionID="ses_root" enabled snapshot={snapshot()} onOpenChild={() => undefined} />
     ))
 
     await user.click(screen.getByText("Review the patch"))
@@ -120,12 +115,7 @@ describe("Plan role presentation", () => {
 
     cleanup()
     render(() => (
-      <MultiAgentPanelView
-        sessionID={rootSessionID}
-        enabled
-        snapshot={snapshot()}
-        onOpenChild={() => undefined}
-      />
+      <MultiAgentPanelView sessionID={rootSessionID} enabled snapshot={snapshot()} onOpenChild={() => undefined} />
     ))
     await Promise.resolve()
     const restoredToggle = document.querySelector<HTMLButtonElement>(".multi-agent-step__toggle")

@@ -38,11 +38,13 @@ export function createComposerController(input: ComposerControllerInput) {
   const [draft, setDraftSignal] = createSignal(draftStore.get(draftKey) ?? "")
   const [sending, setSending] = createSignal(false)
   const [stopping, setStopping] = createSignal(false)
+  const [terminating, setTerminating] = createSignal(false)
   const [failure, setFailure] = createSignal<unknown>()
   const [lastFailedDraft, setLastFailedDraft] = createSignal<string>()
   let lastFailedAttachments: readonly ComposerAttachment[] = []
   let inFlight: Promise<void> | undefined
   let stopInFlight: Promise<void> | undefined
+  let terminateInFlight: Promise<void> | undefined
 
   function setDraft(value: string) {
     setDraftSignal(value)
@@ -192,7 +194,44 @@ export function createComposerController(input: ComposerControllerInput) {
     return task
   }
 
-  return { draft, setDraft, sending, stopping, failure, lastFailedDraft, send, interruptAndSend, retry, stop }
+  // Terminate a plan child assignment entirely: the server stops the child
+  // run, parks the task, and notifies the parent session through its Inbox.
+  function terminate(): Promise<void> {
+    if (terminateInFlight) return terminateInFlight
+    setTerminating(true)
+    setFailure(undefined)
+    const task = Promise.resolve().then(async () => {
+      try {
+        await input.client.session.terminate(
+          { directory: resolve(input.directory), sessionID: resolve(input.sessionID) },
+          { throwOnError: true },
+        )
+      } catch (cause) {
+        setFailure(cause)
+        throw cause
+      } finally {
+        terminateInFlight = undefined
+        setTerminating(false)
+      }
+    })
+    terminateInFlight = task
+    return task
+  }
+
+  return {
+    draft,
+    setDraft,
+    sending,
+    stopping,
+    terminating,
+    failure,
+    lastFailedDraft,
+    send,
+    interruptAndSend,
+    retry,
+    stop,
+    terminate,
+  }
 }
 
 export type ComposerController = ReturnType<typeof createComposerController>

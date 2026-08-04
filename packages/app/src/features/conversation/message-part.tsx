@@ -5,11 +5,7 @@ import { presentMessageText } from "./message-presentation"
 import { TextPartView } from "./text-part"
 import { ToolCallCard } from "./tool-call-card"
 
-export function MessagePartView(props: {
-  part: Part
-  messageRole?: string
-  messageAgent?: string
-}) {
+export function MessagePartView(props: { part: Part; messageRole?: string; messageAgent?: string }) {
   return (
     <Switch
       fallback={

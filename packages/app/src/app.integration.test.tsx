@@ -131,9 +131,13 @@ describe("desktop GUI journey", () => {
       expect(backend.requests.some((request) => request.path === "/subagents" && request.method === "PUT")).toBe(true),
     )
     await waitFor(() => {
-      expect(backend.requests.filter((request) => request.path === "/subagents" && request.method === "GET").length).toBeGreaterThan(before.profiles)
+      expect(
+        backend.requests.filter((request) => request.path === "/subagents" && request.method === "GET").length,
+      ).toBeGreaterThan(before.profiles)
       expect(backend.requests.filter((request) => request.path === "/agent").length).toBeGreaterThan(before.agents)
-      expect(backend.requests.filter((request) => request.path === "/config/providers").length).toBeGreaterThan(before.providers)
+      expect(backend.requests.filter((request) => request.path === "/config/providers").length).toBeGreaterThan(
+        before.providers,
+      )
       expect(backend.requests.filter((request) => request.path === "/provider").length).toBeGreaterThan(before.models)
       expect(backend.requests.filter((request) => request.path === "/config").length).toBeGreaterThan(before.config)
       expect(backend.requests.filter((request) => request.path.endsWith("/plan")).length).toBeGreaterThan(before.plans)
@@ -401,7 +405,9 @@ describe("desktop GUI journey", () => {
 
     render(() => <App bridge={desktop.bridge} />)
 
-    expect(await screen.findByRole("heading", { name: "Completed Multi-Agent Session" }, { timeout: 5_000 })).toBeVisible()
+    expect(
+      await screen.findByRole("heading", { name: "Completed Multi-Agent Session" }, { timeout: 5_000 }),
+    ).toBeVisible()
     await user.click(await screen.findByRole("button", { name: "协作黑板" }))
 
     const panel = await screen.findByRole("group", { name: "协作黑板" })
@@ -424,7 +430,9 @@ describe("desktop GUI journey", () => {
 
     expect(await screen.findByRole("heading", { name: "Toggle Session" }, { timeout: 5_000 })).toBeVisible()
     await user.click(await screen.findByRole("button", { name: "协作黑板" }))
-    await waitFor(() => expect(screen.getByRole("group", { name: "协作黑板" })).toHaveTextContent("Child found a blocker"))
+    await waitFor(() =>
+      expect(screen.getByRole("group", { name: "协作黑板" })).toHaveTextContent("Child found a blocker"),
+    )
     expect(screen.getByRole("textbox", { name: "发送黑板消息…" })).toBeVisible()
 
     const mode = screen.getByRole("switch", { name: "多智能体" })
@@ -639,7 +647,12 @@ describe("desktop GUI journey", () => {
               role: { id: "worker", name: "Worker", description: "Implementation work", avatar: "code" },
               child: { session_id: "ses_child", elapsed_sec: 1 },
             },
-            { id: "s1_t2", title: "Research", status: "dispatched", child: { session_id: "ses_sibling", elapsed_sec: 0 } },
+            {
+              id: "s1_t2",
+              title: "Research",
+              status: "dispatched",
+              child: { session_id: "ses_sibling", elapsed_sec: 0 },
+            },
           ],
         },
       ],
@@ -718,13 +731,17 @@ describe("desktop GUI journey", () => {
 
     expect(await screen.findByRole("heading", { name: "Root Session" }, { timeout: 5_000 })).toBeVisible()
     const blackboardButton = await screen.findByRole("button", { name: "协作黑板" })
-    await waitFor(() => expect(blackboardButton.querySelector(".workspace-activity-button__badge")).toHaveTextContent("2"))
+    await waitFor(() =>
+      expect(blackboardButton.querySelector(".workspace-activity-button__badge")).toHaveTextContent("2"),
+    )
     await user.click(blackboardButton)
 
     const panel = await screen.findByRole("group", { name: "协作黑板" })
     expect(panel).toHaveTextContent("Child found a blocker")
     expect(panel).toHaveTextContent("Implement feature")
-    await waitFor(() => expect(blackboardButton.querySelector(".workspace-activity-button__badge")).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(blackboardButton.querySelector(".workspace-activity-button__badge")).not.toBeInTheDocument(),
+    )
     expect(
       [...backend.requests].reverse().find((request) => request.path === "/session/ses_root/blackboard/read")?.body
         .throughMessageID,

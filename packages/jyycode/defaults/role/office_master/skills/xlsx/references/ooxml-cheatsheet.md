@@ -38,6 +38,7 @@ AA1 → column 27, row 1
 ```
 
 Column letter ↔ number conversion:
+
 ```python
 def col_letter(n):  # 1-based → letter
     r = ""
@@ -59,14 +60,14 @@ def col_number(s):  # letter → 1-based
 
 ### Data Types
 
-| Type | `t` attr | XML Example | Value |
-|------|---------|-------------|-------|
-| Number | omit | `<c r="B2"><v>1000</v></c>` | 1000 |
-| String (shared) | `s` | `<c r="A1" t="s"><v>0</v></c>` | sharedStrings[0] |
-| String (inline) | `inlineStr` | `<c r="A1" t="inlineStr"><is><t>Hi</t></is></c>` | "Hi" |
-| Boolean | `b` | `<c r="D1" t="b"><v>1</v></c>` | TRUE |
-| Error | `e` | `<c r="E1" t="e"><v>#REF!</v></c>` | #REF! |
-| Formula | omit | `<c r="B4"><f>SUM(B2:B3)</f><v></v></c>` | computed |
+| Type            | `t` attr    | XML Example                                      | Value            |
+| --------------- | ----------- | ------------------------------------------------ | ---------------- |
+| Number          | omit        | `<c r="B2"><v>1000</v></c>`                      | 1000             |
+| String (shared) | `s`         | `<c r="A1" t="s"><v>0</v></c>`                   | sharedStrings[0] |
+| String (inline) | `inlineStr` | `<c r="A1" t="inlineStr"><is><t>Hi</t></is></c>` | "Hi"             |
+| Boolean         | `b`         | `<c r="D1" t="b"><v>1</v></c>`                   | TRUE             |
+| Error           | `e`         | `<c r="E1" t="e"><v>#REF!</v></c>`               | #REF!            |
+| Formula         | omit        | `<c r="B4"><f>SUM(B2:B3)</f><v></v></c>`         | computed         |
 
 ### Formula Types
 
@@ -124,16 +125,16 @@ blue color    no fill      no border    "0.0%"
 
 ### Built-in numFmtIds (no declaration needed)
 
-| ID | Format | Display |
-|----|--------|---------|
-| 0 | General | as-is |
-| 1 | 0 | 2024 (use for years!) |
-| 2 | 0.00 | 1000.00 |
-| 3 | #,##0 | 1,000 |
-| 4 | #,##0.00 | 1,000.00 |
-| 9 | 0% | 15% |
-| 10 | 0.00% | 15.25% |
-| 14 | m/d/yyyy | 3/21/2026 |
+| ID  | Format   | Display               |
+| --- | -------- | --------------------- |
+| 0   | General  | as-is                 |
+| 1   | 0        | 2024 (use for years!) |
+| 2   | 0.00     | 1000.00               |
+| 3   | #,##0    | 1,000                 |
+| 4   | #,##0.00 | 1,000.00              |
+| 9   | 0%       | 15%                   |
+| 10  | 0.00%    | 15.25%                |
+| 14  | m/d/yyyy | 3/21/2026             |
 
 ---
 
@@ -148,11 +149,13 @@ blue color    no fill      no border    "0.0%"
 ```
 
 Text with leading/trailing spaces:
+
 ```xml
 <si><t xml:space="preserve">  indented  </t></si>
 ```
 
 Special characters:
+
 ```xml
 <si><t>R&amp;D Expenses</t></si>   <!-- & must be &amp; -->
 ```
@@ -178,6 +181,7 @@ Every `<sheet>` in workbook.xml needs a matching `<Relationship>` in workbook.xm
 ```
 
 And a matching `<Override>` in `[Content_Types].xml`:
+
 ```xml
 <Override PartName="/xl/worksheets/sheet3.xml"
   ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
@@ -205,6 +209,7 @@ And a matching `<Override>` in `[Content_Types].xml`:
 ## Freeze Panes
 
 Inside `<sheetView>`:
+
 ```xml
 <!-- Freeze row 1 (header row stays visible) -->
 <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
@@ -220,12 +225,12 @@ Inside `<sheetView>`:
 
 ## 7 Excel Error Types (All Must Be Absent at Delivery)
 
-| Error | Meaning | Detect in XML |
-|-------|---------|---------------|
-| `#REF!` | Invalid cell reference | `<c t="e"><v>#REF!</v></c>` |
-| `#DIV/0!` | Divide by zero | `<c t="e"><v>#DIV/0!</v></c>` |
-| `#VALUE!` | Wrong data type | `<c t="e"><v>#VALUE!</v></c>` |
-| `#NAME?` | Unknown function/name | `<c t="e"><v>#NAME?</v></c>` |
-| `#NULL!` | Empty intersection | `<c t="e"><v>#NULL!</v></c>` |
-| `#NUM!` | Number out of range | `<c t="e"><v>#NUM!</v></c>` |
-| `#N/A` | Value not found | `<c t="e"><v>#N/A</v></c>` |
+| Error     | Meaning                | Detect in XML                 |
+| --------- | ---------------------- | ----------------------------- |
+| `#REF!`   | Invalid cell reference | `<c t="e"><v>#REF!</v></c>`   |
+| `#DIV/0!` | Divide by zero         | `<c t="e"><v>#DIV/0!</v></c>` |
+| `#VALUE!` | Wrong data type        | `<c t="e"><v>#VALUE!</v></c>` |
+| `#NAME?`  | Unknown function/name  | `<c t="e"><v>#NAME?</v></c>`  |
+| `#NULL!`  | Empty intersection     | `<c t="e"><v>#NULL!</v></c>`  |
+| `#NUM!`   | Number out of range    | `<c t="e"><v>#NUM!</v></c>`   |
+| `#N/A`    | Value not found        | `<c t="e"><v>#N/A</v></c>`    |

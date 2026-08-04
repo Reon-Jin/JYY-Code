@@ -393,12 +393,7 @@ export const layer = Layer.effect(
       for (const match of matches) {
         const location = yield* fsys.realPath(match).pipe(Effect.catch(() => Effect.succeed(path.resolve(match))))
         const relative = path.relative(realRoot, location)
-        if (
-          relative === "" ||
-          relative === ".." ||
-          relative.startsWith(`..${path.sep}`) ||
-          path.isAbsolute(relative)
-        )
+        if (relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
           continue
 
         const name = path.basename(path.dirname(location))
@@ -438,10 +433,7 @@ export const layer = Layer.effect(
       return (yield* all(scope)).find((skill) => skill.name === name)
     })
 
-    const requireAvailable = Effect.fn("Skill.requireAvailable")(function* (
-      scope: SkillAccessScope,
-      name: string,
-    ) {
+    const requireAvailable = Effect.fn("Skill.requireAvailable")(function* (scope: SkillAccessScope, name: string) {
       const info = yield* get(name, scope)
       if (info) return info
       return yield* new NotFoundError({
@@ -458,10 +450,7 @@ export const layer = Layer.effect(
       return (yield* InstanceState.get(discovered)).dirs
     })
 
-    const available = Effect.fn("Skill.available")(function* (
-      scope: SkillAccessScope = rootScope,
-      agent?: Agent.Info,
-    ) {
+    const available = Effect.fn("Skill.available")(function* (scope: SkillAccessScope = rootScope, agent?: Agent.Info) {
       const list = (yield* all(scope)).toSorted((a, b) => a.name.localeCompare(b.name))
       if (!agent) return list
       return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")

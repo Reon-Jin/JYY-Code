@@ -80,6 +80,7 @@ function renderComposer(input?: {
       command: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
       abort: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: true })),
       interruptPrompt: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
+      terminate: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
     },
   }
   const [status, setStatus] = createSignal<SessionStatus>(input?.status ?? { type: "idle" })
@@ -149,6 +150,29 @@ describe("Composer", () => {
     await waitFor(() => expect(client.session.interruptPrompt).toHaveBeenCalledOnce())
     expect(client.session.promptAsync).not.toHaveBeenCalled()
     expect(screen.getByText("发送此消息会中断当前任务。")).toBeVisible()
+  })
+
+  it("terminates a child assignment only after confirming", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer({ minimal: true, childSteering: true, status: { type: "busy" } })
+
+    await user.click(screen.getByRole("button", { name: "终止" }))
+    expect(client.session.terminate).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole("button", { name: "确认终止？" }))
+    await waitFor(() => expect(client.session.terminate).toHaveBeenCalledOnce())
+    expect(client.session.terminate).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
+  })
+
+  it("lets a minimal child composer send while the child session is idle", async () => {
+    const user = userEvent.setup()
+    const client = renderComposer({ minimal: true, childSteering: false, status: { type: "idle" } })
+
+    await user.type(screen.getByRole("textbox", { name: "消息" }), "follow up")
+    await user.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
+    expect(client.session.interruptPrompt).not.toHaveBeenCalled()
   })
 
   it("converts native desktop file paths into prompt attachments", () => {
@@ -385,7 +409,8 @@ describe("Composer", () => {
 
     expect(screen.getByRole("textbox", { name: "消息" })).toBeVisible()
     expect(screen.queryByLabelText("智能体")).not.toBeInTheDocument()
-    expect(screen.queryByRole("button")).not.toBeInTheDocument()
+    // The only control is the icon-only send button; selectors stay hidden.
+    expect(screen.getByRole("button", { name: "发送" })).toBeVisible()
     await user.type(screen.getByRole("textbox", { name: "消息" }), "review this{enter}")
     await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
   })

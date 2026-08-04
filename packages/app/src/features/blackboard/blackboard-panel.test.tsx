@@ -56,7 +56,11 @@ function board(rootSessionID: string): SessionBlackboardResponse {
   }
 }
 
-function renderPanel(backend: ReturnType<typeof createFakeJyycode>, rootSessionID: string, props?: { postingEnabled?: boolean }) {
+function renderPanel(
+  backend: ReturnType<typeof createFakeJyycode>,
+  rootSessionID: string,
+  props?: { postingEnabled?: boolean },
+) {
   vi.stubGlobal("fetch", backend.fetch)
   return render(() => (
     <DataProvider
@@ -68,7 +72,10 @@ function renderPanel(backend: ReturnType<typeof createFakeJyycode>, rootSessionI
         directory={directory}
         rootSessionID={rootSessionID}
         postingEnabled={props?.postingEnabled}
-        steps={[{ id: "step_1", title: "Discovery" }, { id: "step_2", title: "Implementation" }]}
+        steps={[
+          { id: "step_1", title: "Discovery" },
+          { id: "step_2", title: "Implementation" },
+        ]}
         taskLabels={{ task_a: "Investigate", task_b: "Verify" }}
       />
     </DataProvider>
@@ -108,19 +115,26 @@ describe("BlackboardPanel", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
 
     await waitFor(() => {
-      const read = [...backend.requests].reverse().find((request) => request.path === `/session/${root.id}/blackboard/read`)
+      const read = [...backend.requests]
+        .reverse()
+        .find((request) => request.path === `/session/${root.id}/blackboard/read`)
       expect(read?.body.throughMessageID).toBe("bb_reply_2")
     })
     const editor = screen.getByRole("textbox", { name: "发送黑板消息…" })
     await user.type(editor, "Please verify the blocker")
     await user.click(screen.getByRole("button", { name: "发送黑板消息" }))
     await waitFor(() =>
-      expect(backend.requests.some((request) => request.path === `/session/${root.id}/blackboard` && request.method === "POST")).toBe(true),
+      expect(
+        backend.requests.some(
+          (request) => request.path === `/session/${root.id}/blackboard` && request.method === "POST",
+        ),
+      ).toBe(true),
     )
     expect(
-      [...backend.requests].reverse().find(
-        (request) => request.path === `/session/${root.id}/blackboard` && request.method === "POST",
-      )?.body.message,
+      [...backend.requests]
+        .reverse()
+        .find((request) => request.path === `/session/${root.id}/blackboard` && request.method === "POST")?.body
+        .message,
     ).toBe("Please verify the blocker")
   })
 

@@ -11,85 +11,109 @@
 > Turn one prompt into a persistent, observable engineering run.
 
 <p align="center">
-  <img src="./logo/logo.gif" alt="JYY-Code animated logo" width="500" />
+  <img src="./logo/screenshot.png" alt="JYY-Code desktop multi-agent mode: plan panel and collaboration blackboard on the right" width="900" />
 </p>
 
-JYY-Code is a terminal-first Multi-Agent system for real software and documentation work. Instead of asking one general-purpose agent to carry the entire context and judge its own output, JYY-Code turns a goal into a managed engineering workflow: a primary agent plans the work, delegates it to specialists, reviews every result, sends rejected work back for revision, and synthesizes only accepted results into the final delivery.
+<p align="center">
+  <sub>The desktop app in multi-agent mode: the root agent reviews child reports one by one while the plan panel tracks step progress and the blackboard collects findings and handoffs from every sub-agent.</sub>
+</p>
 
-```text
-Plan → Delegate → Execute in parallel → Review → Revise → Synthesize
-```
+**TUI install:** `npm install -g jyycode-ai` · **Launch:** `jyy`
 
-**Install:** `npm install -g jyycode-ai` · **Launch:** `jyy`
-
-Press **F9** to enable the Multi-Agent workflow. Configure project sub-agent profiles and their models from the workspace right rail.
+**Desktop install:** https://github.com/Reon-Jin/JYY-Code/releases
 
 ## Why JYY-Code
 
-| Typical coding agent                       | JYY-Code                                                                                    |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| Forgets context between sessions           | Keeps structured project and user memory                                                    |
-| Hides work inside a text stream            | Shows plans, tasks, agents, and status in the TUI                                           |
-| Loses background-task state                | Persists sessions, cluster runs, tasks, and events in SQLite                                |
-| One agent writes and judges its own result | Specialists produce code and documents; the primary agent reviews, rejects, and synthesizes |
+Most AI coding tools are "one chat box + one agent": you watch it work step by step, restart from scratch when it goes wrong, and lose context, accountability, and momentum as soon as the task gets large.
 
-## Highlights
+JYY-Code upgrades a single request into **an organized engineering run**:
 
-### A Closed-Loop Multi-Agent Workflow
+- **Enforced by protocol, not by goodwill.** Planning, dispatch, reporting, and review are all enforced by a runtime protocol — child agents can only report; they cannot rewrite the plan. A rejection must state the exact gap, and the feedback is automatically carried into the next dispatch.
+- **Backed by state, not by memory.** Plans persist as revisioned structured files with optimistic-concurrency writes; sessions, snapshots, and the blackboard all live in SQLite (WAL), so runs resume precisely after restarts or channel switches.
+- **Powered by a team, not a lone agent.** One root agent orchestrates up to 20 parallel sub-agents with distinct roles and models, coordinating over a shared blackboard — with structured human-in-the-loop questions at decision points.
 
-Press **F9** to enable Multi-Agent mode and turn a large request into a dependency-aware execution plan. The main Agent dispatches enabled project profiles from the workspace right rail, with each task capturing its selected role, model, and launch instructions.
+You hand over a one-line goal; you get back reviewed, auditable engineering output.
 
-- **Plan:** the main Agent converts the goal into explicit tasks, dependencies, acceptance criteria, and expected artifacts.
-- **Delegate:** enabled project profiles receive focused context and can run in parallel.
-- **Review:** every submitted result is checked against its acceptance criteria; unfinished tasks cannot pass the completion gate.
-- **Revise:** rejected work is returned to the same specialist session with concrete issues, preserving context across review rounds.
-- **Synthesize:** the primary waits for terminal task states and combines only accepted outputs into one coherent code or document delivery.
-- Configurable concurrency and per-profile model routing balance quality, speed, and cost.
-- Git worktree isolation keeps parallel coding tasks from stepping on each other.
+## Core Highlights
 
-This separation of planning, production, and quality control gives JYY-Code stronger code and document delivery than a single agent that must research, implement, verify, and self-review inside one context window.
+### A Closed-Loop Multi-Agent Engineering Workflow
 
-### Structured Memory That Tracks Work Before and After Execution
+The core of JYY-Code is an engineering loop enforced by the runtime — not a prompt that asks agents to "please cooperate":
 
-JYY-Code uses transparent, schema-validated JSON memory instead of an opaque vector database:
+```text
+Plan_create → Plan_update(add_task) → Dispatch_dispatch → Report → review_task
+     ↑                                                              ↓
+     └────── reject + concrete feedback (auto-injected next time) ──┘
+```
 
-- `MEMORY.json` stores the evolving task state and final outcome for each primary session; `USER.json` stores durable user facts and preferences.
-- A semantic update runs at the start of a user step, so the active request is captured before execution, then runs again after the assistant finishes to replace it with the verified completion state.
-- In Multi-Agent runs, memory ignores the intermediate planning response and learns from the final synthesis, preventing plans from being mistaken for delivered results.
-- Each entry has an importance score, normalized keywords, concise content, and—for task memory—date and session provenance. The most important and relevant entries are injected into the prompt, while on-demand search ranks matches by keywords, content, and importance.
-- Deterministic upserts replace entries with the same normalized keyword key instead of endlessly appending near-duplicates.
-- At capacity thresholds, automatic compaction merges overlapping entries and retains information using importance, recency, and keyword reuse; hard limits prevent uncontrolled prompt growth.
-- Strict schema validation, sensitive-data rejection, primary-session-only writes, file locks, atomic replacement, and an append-only audit trail protect integrity and make every mutation traceable.
+- **Staged plans**: work is decomposed into Steps, each with observable, judgeable `done_criteria` (e.g. "file X exists and contains Y") — vague criteria like "done properly" are rejected. Only when the current Step passes review does the next Step expand into tasks: the plan evolves with understanding instead of being frozen up front.
+- **State-machine task lifecycle**: every Task moves strictly through `pending → dispatched → running → reported → approved / rejected / dismissed`; illegal transitions are refused by the protocol itself.
+- **Review as a gate**: the root agent checks each report against `done_criteria` and spot-checks artifacts before ruling. A `reject` must state which criterion failed and how; on redispatch the tool automatically injects `previous_feedback` into the child's brief — failures are never silently swallowed.
+- **Permission isolation**: child sessions can only `Report` and can never touch the parent plan. Every Task binds to its own `output_path`, and paths escaping the workspace are rejected at dispatch time.
+- **Exception Inbox**: failed report pre-checks, cancelled children, and runtime errors all land in an Inbox with suggested actions; the root agent must clear exceptions before moving on.
+- **Optimistic concurrency & recovery**: plan writes are revision-checked and conflicts return the latest state for re-decision; plan files, snapshots, and events are all persisted, so a crashed run resumes where it stopped.
 
-The result is memory that is selective rather than noisy, inspectable rather than opaque, and safe to share across a Multi-Agent run without letting sub-agents pollute the durable record.
+### Extreme Parallelism
 
-### Durable Runs You Can Trust
+JYY-Code writes "parallelize everything parallelizable" into the protocol instead of leaving it to model discretion:
 
-Long-running work should not disappear when a terminal refreshes.
+- **Batch dispatch**: all ready Tasks in a wave must go into a single `Dispatch_dispatch` — **up to 20 parallel sub-agents per wave**, no splitting, no serial trickling.
+- **Parallelizability check**: before decomposing a medium/large task, the protocol requires enumerating every split dimension — independent deliverables, independent modules, independent research questions, independent verification surfaces, independent role expertise — targeting 4–8 non-blocking Tasks per wave by default; waves under 4 Tasks must justify each dimension that fails.
+- **Role-based waves**: Tasks for different roles dispatch in separate waves, while same-role Tasks merge into one wave for maximum scheduling efficiency.
+- **Worktree isolation**: built-in Git worktree management keeps parallel experiments from polluting each other's workspace.
+- **Event-driven, zero polling**: after dispatch the root agent suspends immediately and wakes precisely on Report / Inbox / blackboard events — not a single token wasted on waiting.
 
-- Sessions, messages, Todos, cluster runs, cluster tasks, and events are stored in SQLite.
-- Child sessions stay bound to their plan task IDs.
-- Background work remains observable through `task` and `task_status`.
-- The `/sessions` dialog restores persisted root sessions.
-- Release channels use isolated databases to prevent accidental schema crossover.
+### Multi-Candidate Competition
 
-### A TUI Built for Agent Work
+For undecided route choices — technology selection, architecture, copy style — the root agent doesn't just pick one. JYY-Code starts **candidate mode**: a controlled competition:
 
-The sidebar separates three different kinds of progress:
+1. **Blind declaration**: 2–3 candidate agents each submit `approach / assumptions / risks / differentiator`, independently.
+2. **Cross review**: candidates reply directly to every peer's declaration on the blackboard; all mutual reviews must complete before anyone is ready.
+3. **Independent execution**: in the running phase, candidates implement their proposals in a sandbox (shell, edit, MCP and similar tools disabled), each producing an isolated proposal.
+4. **Synthesis & verdict**: the root agent generates a synthesis artifact from all proposals, atomically selects exactly one winner, and records contributing runners-up plus the rationale — capturing the upside of competition with a full decision audit trail.
 
-- **Multi-Agent Plan** — goal, run status, steps, and agent counts.
-- **Tasks** — queued, running, done, and failed cluster tasks.
-- **Todo** — ordinary `todowrite` items without duplicating structured task state.
+### Rich Built-In Roles
 
-You can see what is happening, what is blocked, and what finished—without reading the entire transcript.
+A well-staffed team out of the box; each role carries its own **model, thinking depth, tool whitelist, and dedicated skills**:
 
-Core tools cover file discovery, search, atomic multi-editing, shell execution, long-running processes, sub-agent tasks, and output truncation.
+| Role | Specialty | Bundled skills |
+| --- | --- | --- |
+| **Planner** | Deep trade-off analysis, high-quality implementation plans | writing-plans |
+| **Frontend Engineer** | Polished UI / frontend implementation | design, ui-ux-pro-max, efficiency, executing-plans |
+| **Backend Engineer** | Rigorous, reliable backend code | efficiency, executing-plans |
+| **Researcher** | Broad web investigation and synthesis | agent-reach (fine-grained search across major platforms), firecrawl MCP |
+| **Office Master** | Word / PowerPoint / Excel / PDF generation and processing | docx, pptx, xlsx, pdf |
+| **Charter** | All kinds of charts (garbled-free CJK rendering) | chart, graph, chart-visualization, antv-s2-expert |
+| **General** | General-purpose delegated execution | — |
+
+Roles are configuration, not a black box: edit, disable, delete, or add roles freely — changes persist to the global config, and project-level `.jyycode/agent/` holds team-specific agent definitions.
+
+### Shared Blackboard
+
+Parallel agents are not islands. JYY-Code provides a Step-scoped shared blackboard as the team's coordination hub:
+
+- **Typed messages**: five semantic kinds — `info / risk / blocker / decision / help` — with @mentions, attachments, threaded replies, and task linking.
+- **Read cursors**: every participant keeps an independent read position; unread counts are live, and wakeups mean immediate handling.
+- **Humans on the same board**: the user, root agent, and sub-agents collaborate on one surface; the root can read child-to-child conversations and step in directly.
+- **Anti-noise discipline**: the protocol explicitly forbids heartbeats and repeated progress spam — the board carries only findings, dependencies, handoffs, and help requests.
+- Candidate-mode blind declarations and cross reviews run on the same blackboard: one mechanism, unified semantics.
+
+### Structured Memory, Calibrated Before and After Execution
+
+JYY-Code's memory is not "chat history archiving" — it is a schema-governed, capacity-disciplined two-layer store:
+
+- **Two layers**: `MEMORY.json` accumulates project outcomes, conventions, environment facts, and lessons; `USER.json` holds stable user identity and preferences — separated so neither dilutes the other.
+- **Two-phase calibration**: the same memory entry is updated once during the **user-input phase** ("the user asked for A") and again during the **assistant-completion phase** ("I used B, and ultimately learned C") — understanding is calibrated before execution, experience is deposited after it. No "written then forgotten", no stale errors left uncorrected.
+- **Structured entries**: every entry carries an importance score (1–10) and normalized keywords with automatic dedup; writes follow strict character budgets — no rambling logs.
+- **Auto-injected every request**: a top-memory snapshot rides in every system prompt, so a brand-new session starts with the team's accumulated knowledge.
+- **Self-managing capacity**: approaching the cap triggers deterministic compaction and merging that frees space without dropping key points; sub-agent sessions are read-only to prevent concurrent corruption.
+- An explicit memory management tool (add / replace / remove / compact) is available whenever the user wants to intervene.
 
 ## Quick Start
 
 ### Install
 
-Requirements: Node.js 20+ and npm. Bun is only required for source development.
+End users only need Node.js 20+ and npm; Bun is required only for source development.
 
 ```bash
 npm install -g jyycode-ai
@@ -99,9 +123,9 @@ jyy
 
 Inside JYY-Code, run `/connect` to configure a model provider.
 
-`jyy` and `jyycode` are the same CLI. The current terminal directory becomes the agent workspace.
+`jyy` and `jyycode` are the same CLI. The terminal directory you launch from becomes the agent's workspace.
 
-### Configure by File
+### Configuration file
 
 Global config: `~/.config/jyycode/jyycode.jsonc`
 
@@ -119,64 +143,31 @@ Global config: `~/.config/jyycode/jyycode.jsonc`
 }
 ```
 
-Project config lives in `.jyycode/jyycode.jsonc`. Main areas are `provider`, `permission`, `subagents`, `mcp`, `skills`, and `plugin`.
+Project config lives at `.jyycode/jyycode.jsonc`. Main keys: `provider`, `permission`, `subagents`, `mcp`, `skills`, and `plugin`.
 
-## How It Works
+## More Built-In Capabilities
 
-```text
-User request
-  → Restore session + memory
-  → Build system prompt (instructions + skills + memory + tools)
-  → Plan and delegate work
-  → Run agents and tools with permission checks
-  → Persist tasks, events, messages, and results
-  → Review output and gate completion
-  → Evaluate durable memory after the turn
-```
+- **Layered context engineering**: full compaction, reactive compaction, and overflow recovery pipelines with context-usage estimation — long runs never "lose their memory".
+- **Git-grade snapshots & revert**: every turn's file changes land in a shadow Git snapshot; revert / unrevert at message granularity with per-file diffs; sessions can fork and generate share links.
+- **Human-in-the-loop questions**: when execution hits ambiguity, the agent asks you structured multiple-choice questions mid-run (with recommended options and multi-select), keeping decisions on track.
+- **Permission system**: per-tool allow / ask / deny rules, plus an independent tool policy and fixed toolset for sub-agents.
+- **Open extensibility**: MCP servers, provider plugins (Codex, GitHub Copilot, xAI, Azure, Cloudflare, and more), LSP diagnostics, ACP protocol adapter, project-level custom commands and custom tools (`.jyycode/tool/*.ts`), and swappable themes.
+- **Multilingual glossaries**: built-in translation glossaries for 16 languages keep terminology consistent across multilingual deliverables.
+- **Every surface covered**: terminal TUI (OpenTUI + Solid), a Tauri 2 desktop app, iOS and mobile web clients (paired through an end-to-end-encrypted relay that never sees task plaintext), plus a full HTTP server, OpenAPI spec, and JS SDK for embedding into any automation system.
 
-In Multi-Agent mode:
+## Session Safety & Recovery
 
-```text
-Goal
-  → Main Agent plan
-  → Persisted dependency graph
-  → Parallel sub-agents
-  → Reviewer
-  → Final synthesis
-```
-
-## More Built In
-
-- **20+ model providers** — Anthropic, OpenAI, Gemini, Bedrock, Azure, GitHub Copilot, OpenRouter, xAI, Groq, Mistral, and more.
-- **MCP and plugins** — connect external tools, hooks, and TUI extensions.
-- **Skills** — load reusable domain knowledge and workflows from local or remote sources.
-- **LSP integration** — give agents code intelligence beyond text search.
-- **Email adapters** — SMTP, IMAP, OAuth2, and MIME attachments.
-- **Context awareness** — estimate active context without counting PDF and image data URLs as raw text.
-- **Session sync** — restore and synchronize work across environments.
-- **Permission controls** — configure ask, allow, or deny rules by tool, agent, and session.
-
-## Session Safety and Recovery
-
-JYY-Code keeps packaged and source-development databases separate. Use:
+JYY-Code isolates the databases of released builds and source-development builds. Run:
 
 ```bash
 jyycode db status
 ```
 
-This shows the active database, release channel, migrations, and session counts without modifying other databases. Stop JYY-Code and back up the database together with its `-wal` and `-shm` files before changing channel policy.
+to inspect the current database, release channel, migration status, and session counts without touching any other database. Before changing channel policy, stop JYY-Code and back up the database together with its `-wal` and `-shm` files.
 
-If a session appears missing, confirm the active database with `jyycode db status`, then open `/sessions` from the same project or worktree.
+If sessions appear "lost", first confirm the current database with `jyycode db status`, then open `/sessions` from the same project or worktree.
 
-## Desktop Preview
-
-The desktop app uses the same authenticated local backend as the TUI. Projects, Sessions, messages, Provider
-configuration, permission requests, Agent questions, and Multi-Agent state remain shared, so the same directory can be
-opened in either interface. Windows x64 has automated NSIS, MSI, and portable artifacts. Apple Silicon macOS supports
-source development and local app/DMG builds, but has no uploaded, Developer ID-signed, or notarized distribution yet.
-See [`packages/desktop/README.md`](packages/desktop/README.md) for platform prerequisites and commands.
-
-## Develop From Source
+## Develop from Source
 
 ```bash
 git clone https://github.com/Reon-Jin/JYY-Code.git
@@ -190,24 +181,25 @@ packages/jyycode/   Main CLI, agents, sessions, memory, tools, and TUI
 packages/core/      Filesystem, providers, and shared utilities
 packages/llm/       LLM protocol and runtime adapters
 packages/plugin/    Plugin SDK and extension interfaces
-packages/sdk/       JYY-Code API client
-packages/app/       Desktop web UI
+packages/sdk/       JYY-Code API client (JS) and OpenAPI
+packages/app/       Desktop web UI (Solid)
 packages/desktop/   Tauri desktop shell and sidecar packaging
+packages/relay/     End-to-end-encrypted mobile relay
+packages/mobile-web/ Mobile web / PWA client
+apps/ios/           Native iOS client
 .jyycode/           Project agents, skills, commands, themes, and config
 memory/             Structured persistent memory
 ```
 
+Foundation: Bun + TypeScript throughout, an Effect-based service architecture, Drizzle ORM + SQLite (WAL), Turbo monorepo, oxlint.
+
 ## Downloads
 
-Official Windows installers, portable builds, checksums, and update manifests are published on the [GitHub Releases page](https://github.com/Reon-Jin/JYY-Code/releases).
-
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). SignPath signing is not active yet; current Windows artifacts are not Authenticode-signed. See the [Code signing policy](CODE_SIGNING_POLICY.md) and the signing status in each release.
+Windows installers, checksums, and update manifests are published on the [GitHub Releases page](https://github.com/Reon-Jin/JYY-Code/releases).
 
 ## Privacy
 
-JYY-Code stores application data locally and connects to services that you configure or invoke. See the [Privacy Policy](PRIVACY.md) for details.
+JYY-Code stores application data locally and connects only to services you explicitly configure or invoke. See the [privacy policy](PRIVACY.md) for details.
 
 ## License
 

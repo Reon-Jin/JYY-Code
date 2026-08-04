@@ -14,11 +14,11 @@
 
 ## Packages
 
-| Package | Description |
-|---------|-------------|
-| `@antv/s2` | Core library (framework-agnostic), based on Canvas rendering |
-| `@antv/s2-react` | React component wrapper around `@antv/s2` |
-| `@antv/s2-vue` | Vue 3.0 component wrapper around `@antv/s2` |
+| Package          | Description                                                  |
+| ---------------- | ------------------------------------------------------------ |
+| `@antv/s2`       | Core library (framework-agnostic), based on Canvas rendering |
+| `@antv/s2-react` | React component wrapper around `@antv/s2`                    |
+| `@antv/s2-vue`   | Vue 3.0 component wrapper around `@antv/s2`                  |
 
 ## Core Concepts
 
@@ -31,13 +31,13 @@
 
 A pivot table is composed of five regions:
 
-| Region | Description |
-|--------|-------------|
-| **Row Header** (`rowHeader`) | Displays row dimension hierarchy. Structure determined by `s2DataConfig.fields.rows`. Supports grid (flat) and tree display modes. |
-| **Column Header** (`colHeader`) | Displays column dimension hierarchy. Structure determined by `s2DataConfig.fields.columns`. |
-| **Corner Header** (`cornerHeader`) | Top-left area. Used as the layout anchor for calculating row/column sizes and coordinates. Displays row/column field names. |
-| **Data Cell** (`dataCell`) | The cross-intersection area of row and column dimensions. Displays measure values — the core data presentation area. |
-| **Frame** (`frame`) | Overlay layer above all other regions. Handles separators, scrollbars, and shadow effects between regions. |
+| Region                             | Description                                                                                                                        |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **Row Header** (`rowHeader`)       | Displays row dimension hierarchy. Structure determined by `s2DataConfig.fields.rows`. Supports grid (flat) and tree display modes. |
+| **Column Header** (`colHeader`)    | Displays column dimension hierarchy. Structure determined by `s2DataConfig.fields.columns`.                                        |
+| **Corner Header** (`cornerHeader`) | Top-left area. Used as the layout anchor for calculating row/column sizes and coordinates. Displays row/column field names.        |
+| **Data Cell** (`dataCell`)         | The cross-intersection area of row and column dimensions. Displays measure values — the core data presentation area.               |
+| **Frame** (`frame`)                | Overlay layer above all other regions. Handles separators, scrollbars, and shadow effects between regions.                         |
 
 ### Key Terminology
 
@@ -67,36 +67,36 @@ S2DataConfig → DataSet → Facet (layout) → Nodes → Cells (rendering)
 ## Basic Usage
 
 ```ts
-import { PivotSheet } from '@antv/s2';
+import { PivotSheet } from "@antv/s2"
 
 const s2DataConfig = {
   fields: {
-    rows: ['province', 'city'],
-    columns: ['type'],
-    values: ['price'],
+    rows: ["province", "city"],
+    columns: ["type"],
+    values: ["price"],
   },
   data: [
-    { province: 'Zhejiang', city: 'Hangzhou', type: 'Pen', price: '1' },
-    { province: 'Zhejiang', city: 'Hangzhou', type: 'Paper', price: '2' },
+    { province: "Zhejiang", city: "Hangzhou", type: "Pen", price: "1" },
+    { province: "Zhejiang", city: "Hangzhou", type: "Paper", price: "2" },
   ],
   meta: [
-    { field: 'price', name: 'Price' },
-    { field: 'province', name: 'Province' },
-    { field: 'city', name: 'City' },
-    { field: 'type', name: 'Type' },
+    { field: "price", name: "Price" },
+    { field: "province", name: "Province" },
+    { field: "city", name: "City" },
+    { field: "type", name: "Type" },
   ],
-};
+}
 
 const s2Options = {
   width: 600,
   height: 600,
-};
-
-async function bootstrap() {
-  const container = document.getElementById('container');
-  const s2 = new PivotSheet(container, s2DataConfig, s2Options);
-  await s2.render();
 }
 
-bootstrap();
+async function bootstrap() {
+  const container = document.getElementById("container")
+  const s2 = new PivotSheet(container, s2DataConfig, s2Options)
+  await s2.render()
+}
+
+bootstrap()
 ```

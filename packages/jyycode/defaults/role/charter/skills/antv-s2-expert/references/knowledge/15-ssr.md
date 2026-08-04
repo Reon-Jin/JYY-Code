@@ -20,11 +20,13 @@ npm install @antv/s2-ssr
 `@antv/s2-ssr` depends on [node-canvas](https://github.com/Automattic/node-canvas), which requires Cairo and Pango:
 
 **macOS:**
+
 ```bash
 brew install pkg-config cairo pango libpng jpeg giflib librsvg
 ```
 
 **Ubuntu/Debian:**
+
 ```bash
 sudo apt-get install build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
 ```
@@ -34,9 +36,9 @@ sudo apt-get install build-essential libcairo2-dev libpango1.0-dev libjpeg-dev l
 Before importing `@antv/s2-ssr`, set CSS module loaders (Node.js cannot natively handle CSS imports):
 
 ```javascript
-require.extensions['.css'] = () => {};
-require.extensions['.less'] = () => {};
-require.extensions['.svg'] = () => {};
+require.extensions[".css"] = () => {}
+require.extensions[".less"] = () => {}
+require.extensions[".svg"] = () => {}
 ```
 
 ## Basic Usage
@@ -44,62 +46,60 @@ require.extensions['.svg'] = () => {};
 ### Pivot Table
 
 ```javascript
-require.extensions['.css'] = () => {};
-require.extensions['.less'] = () => {};
-require.extensions['.svg'] = () => {};
+require.extensions[".css"] = () => {}
+require.extensions[".less"] = () => {}
+require.extensions[".svg"] = () => {}
 
-const { createSpreadsheet } = require('@antv/s2-ssr');
+const { createSpreadsheet } = require("@antv/s2-ssr")
 
 async function main() {
   const spreadsheet = await createSpreadsheet({
-    sheetType: 'pivot',
+    sheetType: "pivot",
     width: 600,
     height: 400,
     dataCfg: {
       fields: {
-        rows: ['province', 'city'],
-        columns: ['type'],
-        values: ['price'],
+        rows: ["province", "city"],
+        columns: ["type"],
+        values: ["price"],
       },
       data: [
-        { province: 'Zhejiang', city: 'Hangzhou', type: 'Pen', price: 10 },
-        { province: 'Zhejiang', city: 'Hangzhou', type: 'Paper', price: 20 },
+        { province: "Zhejiang", city: "Hangzhou", type: "Pen", price: 10 },
+        { province: "Zhejiang", city: "Hangzhou", type: "Paper", price: 20 },
       ],
     },
-  });
+  })
 
-  spreadsheet.exportToFile('./pivot-table.png');
-  spreadsheet.destroy();
+  spreadsheet.exportToFile("./pivot-table.png")
+  spreadsheet.destroy()
 }
 
-main();
+main()
 ```
 
 ### Table Sheet
 
 ```javascript
-const { createSpreadsheet } = require('@antv/s2-ssr');
+const { createSpreadsheet } = require("@antv/s2-ssr")
 
 async function main() {
   const spreadsheet = await createSpreadsheet({
-    sheetType: 'table',
+    sheetType: "table",
     width: 500,
     height: 300,
     dataCfg: {
       fields: {
-        columns: ['province', 'city', 'type', 'price'],
+        columns: ["province", "city", "type", "price"],
       },
-      data: [
-        { province: 'Zhejiang', city: 'Hangzhou', type: 'Pen', price: 10 },
-      ],
+      data: [{ province: "Zhejiang", city: "Hangzhou", type: "Pen", price: 10 }],
     },
-  });
+  })
 
-  spreadsheet.exportToFile('./table-sheet.png');
-  spreadsheet.destroy();
+  spreadsheet.exportToFile("./table-sheet.png")
+  spreadsheet.destroy()
 }
 
-main();
+main()
 ```
 
 ## Export Formats
@@ -109,9 +109,9 @@ main();
 ```javascript
 const spreadsheet = await createSpreadsheet({
   ...options,
-  imageType: 'png',  // or 'jpeg'
-});
-spreadsheet.exportToFile('./output.png');
+  imageType: "png", // or 'jpeg'
+})
+spreadsheet.exportToFile("./output.png")
 ```
 
 ### SVG
@@ -119,9 +119,9 @@ spreadsheet.exportToFile('./output.png');
 ```javascript
 const spreadsheet = await createSpreadsheet({
   ...options,
-  outputType: 'svg',
-});
-spreadsheet.exportToFile('./output.svg');
+  outputType: "svg",
+})
+spreadsheet.exportToFile("./output.svg")
 ```
 
 ### PDF
@@ -129,23 +129,23 @@ spreadsheet.exportToFile('./output.svg');
 ```javascript
 const spreadsheet = await createSpreadsheet({
   ...options,
-  outputType: 'pdf',
-});
-spreadsheet.exportToFile('./output.pdf');
+  outputType: "pdf",
+})
+spreadsheet.exportToFile("./output.pdf")
 ```
 
 ## Other Export Methods
 
 ```javascript
-const spreadsheet = await createSpreadsheet(options);
+const spreadsheet = await createSpreadsheet(options)
 
 // Get Buffer (for uploading to OSS, sending emails, etc.)
-const buffer = spreadsheet.toBuffer();
+const buffer = spreadsheet.toBuffer()
 
 // Get Base64 DataURL (for embedding in HTML)
-const dataURL = spreadsheet.toDataURL();
+const dataURL = spreadsheet.toDataURL()
 
-spreadsheet.destroy();
+spreadsheet.destroy()
 ```
 
 ## Theme Support
@@ -157,37 +157,37 @@ SSR fully supports S2's theme system:
 const spreadsheet = await createSpreadsheet({
   ...options,
   themeCfg: {
-    name: 'dark',
+    name: "dark",
   },
-});
+})
 
 // Custom theme
 const spreadsheet = await createSpreadsheet({
   ...options,
   themeCfg: {
     theme: {
-      cornerCell: { cell: { backgroundColor: '#1a1a2e' } },
-      colCell: { cell: { backgroundColor: '#16213e' } },
+      cornerCell: { cell: { backgroundColor: "#1a1a2e" } },
+      colCell: { cell: { backgroundColor: "#16213e" } },
     },
   },
-});
+})
 ```
 
 ## Configuration Reference
 
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| sheetType | `'pivot' \| 'table'` | `'pivot'` | Table type |
-| width | `number` | - | Canvas width (pixels) |
-| height | `number` | - | Canvas height (pixels) |
-| autoFit | `boolean` | `true` | Auto-crop canvas to actual table size |
-| dataCfg | `S2DataConfig` | - | Data configuration (same as browser) |
-| options | `S2Options` | `{}` | Table options (same as browser) |
-| themeCfg | `ThemeCfg` | - | Theme configuration |
-| devicePixelRatio | `number` | `2` | Device pixel ratio (affects image clarity) |
-| outputType | `'image' \| 'svg' \| 'pdf'` | `'image'` | Output type |
-| imageType | `'png' \| 'jpeg'` | `'png'` | Image format |
-| waitForRender | `number` | `100` | Wait time for render completion (ms) |
+| Property         | Type                        | Default   | Description                                |
+| ---------------- | --------------------------- | --------- | ------------------------------------------ |
+| sheetType        | `'pivot' \| 'table'`        | `'pivot'` | Table type                                 |
+| width            | `number`                    | -         | Canvas width (pixels)                      |
+| height           | `number`                    | -         | Canvas height (pixels)                     |
+| autoFit          | `boolean`                   | `true`    | Auto-crop canvas to actual table size      |
+| dataCfg          | `S2DataConfig`              | -         | Data configuration (same as browser)       |
+| options          | `S2Options`                 | `{}`      | Table options (same as browser)            |
+| themeCfg         | `ThemeCfg`                  | -         | Theme configuration                        |
+| devicePixelRatio | `number`                    | `2`       | Device pixel ratio (affects image clarity) |
+| outputType       | `'image' \| 'svg' \| 'pdf'` | `'image'` | Output type                                |
+| imageType        | `'png' \| 'jpeg'`           | `'png'`   | Image format                               |
+| waitForRender    | `number`                    | `100`     | Wait time for render completion (ms)       |
 
 ## CLI Tool
 
@@ -208,9 +208,7 @@ Where `data.json` contains the configuration:
       "columns": ["type"],
       "values": ["price"]
     },
-    "data": [
-      { "province": "Zhejiang", "city": "Hangzhou", "type": "Pen", "price": 10 }
-    ]
+    "data": [{ "province": "Zhejiang", "city": "Hangzhou", "type": "Pen", "price": 10 }]
   }
 }
 ```

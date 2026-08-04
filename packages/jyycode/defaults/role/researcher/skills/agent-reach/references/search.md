@@ -13,9 +13,9 @@ mcporter call 'exa.get_code_context_exa(query: "code question", tokensNum: 3000)
 
 ### 使用场景
 
-| 场景 | 参数 |
-|-----|------|
-| 网页搜索 | `web_search_exa(query: "...", numResults: 5)` |
+| 场景     | 参数                                                  |
+| -------- | ----------------------------------------------------- |
+| 网页搜索 | `web_search_exa(query: "...", numResults: 5)`         |
 | 代码搜索 | `get_code_context_exa(query: "...", tokensNum: 3000)` |
 
 ### 特点
@@ -26,8 +26,8 @@ mcporter call 'exa.get_code_context_exa(query: "code question", tokensNum: 3000)
 
 ## 与其他搜索工具对比
 
-| 工具 | 来源 | 适用场景 |
-|-----|------|---------|
-| Exa | agent-reach | 英文/技术/代码搜索 |
-| 智谱搜索 | my-mcp-tools | 中文搜索 |
-| GitHub 搜索 | agent-reach (dev.md) | 仓库/代码搜索 |
+| 工具        | 来源                 | 适用场景           |
+| ----------- | -------------------- | ------------------ |
+| Exa         | agent-reach          | 英文/技术/代码搜索 |
+| 智谱搜索    | my-mcp-tools         | 中文搜索           |
+| GitHub 搜索 | agent-reach (dev.md) | 仓库/代码搜索      |

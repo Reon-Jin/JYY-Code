@@ -309,7 +309,9 @@ it.instance("resolves participants, associations, replies, cursors, mentions, an
         { sessionID: domainChildASessionID, role: "sub_agent" },
       ]),
     )
-    expect(blockerRecipients).not.toEqual(expect.arrayContaining([{ sessionID: domainChildBSessionID, role: "sub_agent" }]))
+    expect(blockerRecipients).not.toEqual(
+      expect.arrayContaining([{ sessionID: domainChildBSessionID, role: "sub_agent" }]),
+    )
     const rootRead = yield* board.readAgent(domainRootSessionID)
     expect(rootRead.messages.map((item) => item.id)).toEqual(expect.arrayContaining([blocker.id, childA.id, reply.id]))
     const mainReply = yield* board.postAgent({
@@ -361,7 +363,9 @@ it.instance("resolves participants, associations, replies, cursors, mentions, an
     expect(firstPage.remaining).toBeGreaterThan(0)
     const secondPage = yield* board.readAgent(domainChildASessionID)
     expect(secondPage.messages.length).toBeGreaterThan(0)
-    expect(secondPage.messages.map((item) => item.id)).not.toEqual(expect.arrayContaining(firstPage.messages.map((item) => item.id)))
+    expect(secondPage.messages.map((item) => item.id)).not.toEqual(
+      expect.arrayContaining(firstPage.messages.map((item) => item.id)),
+    )
 
     const nextPlan = structuredClone(domainPlan) as any
     nextPlan.current_step = "s2"
@@ -373,9 +377,7 @@ it.instance("resolves participants, associations, replies, cursors, mentions, an
     expect(nextMessage.stepID).toBe("s2")
     const historical = yield* board.listUser({ rootSessionID: domainRootSessionID, stepID: "s1" })
     expect(historical.readonly).toBe(true)
-    const oldStepAgent = yield* Effect.exit(
-      board.postAgent({ sessionID: domainChildASessionID, message: "old step" }),
-    )
+    const oldStepAgent = yield* Effect.exit(board.postAgent({ sessionID: domainChildASessionID, message: "old step" }))
     expect(Exit.isFailure(oldStepAgent)).toBe(true)
   }),
 )
@@ -407,16 +409,20 @@ it.instance("stores candidate declarations as top-level messages and validates p
     })
     expect(declarationA.parentMessageID).toBeUndefined()
     expect(declarationA.purpose).toBe("candidate_declaration")
-    expect((yield* board.candidateDeclarations({ rootSessionID: candidateRootSessionID, stepID: "s1" })).map((item) => item.authorTaskID)).toEqual([
-      "s1_t1",
-      "s1_t2",
-    ])
+    expect(
+      (yield* board.candidateDeclarations({ rootSessionID: candidateRootSessionID, stepID: "s1" })).map(
+        (item) => item.authorTaskID,
+      ),
+    ).toEqual(["s1_t1", "s1_t2"])
     expect(Exit.isFailure(yield* Effect.exit(board.readAgent(candidateChildBSessionID)))).toBe(true)
     const crossReviewPlan = structuredClone(candidatePlan) as any
     crossReviewPlan.steps[0]!.candidate_discussion.phase = "cross_review"
     const candidatePlanPath = path.join(ctx.directory, ".jyycode", "plan", candidateRootSessionID, "plan.json")
     yield* Effect.promise(() => fs.writeFile(candidatePlanPath, JSON.stringify(crossReviewPlan)))
-    const userMessage = yield* board.postUser({ rootSessionID: candidateRootSessionID, message: "Please compare the risks" })
+    const userMessage = yield* board.postUser({
+      rootSessionID: candidateRootSessionID,
+      message: "Please compare the risks",
+    })
     expect(userMessage.purpose).toBe("general")
     expect((yield* board.readAgent(candidateChildASessionID)).messages.map((item) => item.id)).toContain(userMessage.id)
 
@@ -438,7 +444,11 @@ it.instance("stores candidate declarations as top-level messages and validates p
     runningPlan.steps[0]!.candidate_discussion.phase = "running"
     const runningPlanPath = path.join(ctx.directory, ".jyycode", "plan", candidateRootSessionID, "plan.json")
     yield* Effect.promise(() => fs.writeFile(runningPlanPath, JSON.stringify(runningPlan)))
-    expect(Exit.isFailure(yield* Effect.exit(board.postAgent({ sessionID: candidateChildASessionID, message: "second round" })))).toBe(true)
+    expect(
+      Exit.isFailure(
+        yield* Effect.exit(board.postAgent({ sessionID: candidateChildASessionID, message: "second round" })),
+      ),
+    ).toBe(true)
     expect(Exit.isFailure(yield* Effect.exit(board.readAgent(candidateChildASessionID)))).toBe(true)
   }),
 )
@@ -476,7 +486,9 @@ it.instance("keeps blackboard history readable after the plan completes", () =>
     expect(explicit.messages.map((item) => item.id)).toContain(posted.id)
 
     // Posting is still rejected once no current step exists.
-    expect(Exit.isFailure(yield* Effect.exit(board.postUser({ rootSessionID: doneRootSessionID, message: "late" })))).toBe(true)
+    expect(
+      Exit.isFailure(yield* Effect.exit(board.postUser({ rootSessionID: doneRootSessionID, message: "late" }))),
+    ).toBe(true)
   }),
 )
 
@@ -494,7 +506,9 @@ it.instance("keeps the blackboard readable but rejects user posts in single-agen
     })
     const board = yield* Blackboard.Service
 
-    const exit = yield* Effect.exit(board.postUser({ rootSessionID: singleRootSessionID, message: "single agent note" }))
+    const exit = yield* Effect.exit(
+      board.postUser({ rootSessionID: singleRootSessionID, message: "single agent note" }),
+    )
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) expect(String(exit.cause)).toContain("单智能体模式下黑板只读")
 

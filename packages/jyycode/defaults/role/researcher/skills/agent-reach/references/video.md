@@ -122,10 +122,10 @@ agent-reach doctor
 
 ## 选择指南
 
-| 场景 | 推荐工具 |
-|-----|---------|
-| YouTube 字幕 | yt-dlp |
-| B站视频详情/搜索 | bili-cli |
-| B站字幕 | opencli bilibili subtitle |
-| 播客转录 | 小宇宙 transcribe.sh |
-| 无字幕音视频 | agent-reach transcribe（B站音频先 `bili audio`） |
+| 场景             | 推荐工具                                         |
+| ---------------- | ------------------------------------------------ |
+| YouTube 字幕     | yt-dlp                                           |
+| B站视频详情/搜索 | bili-cli                                         |
+| B站字幕          | opencli bilibili subtitle                        |
+| 播客转录         | 小宇宙 transcribe.sh                             |
+| 无字幕音视频     | agent-reach transcribe（B站音频先 `bili audio`） |

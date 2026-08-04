@@ -16,22 +16,22 @@ Conditions are configured via `s2Options.conditions`:
 ```ts
 const s2Options = {
   conditions: {
-    text: [],       // TextCondition[]
+    text: [], // TextCondition[]
     background: [], // BackgroundCondition[]
-    interval: [],   // IntervalCondition[]
-    icon: [],       // IconCondition[]
+    interval: [], // IntervalCondition[]
+    icon: [], // IconCondition[]
   },
-};
+}
 ```
 
 ## Conditions Type
 
 ```ts
 interface Conditions {
-  text?: TextCondition[];
-  background?: BackgroundCondition[];
-  interval?: IntervalCondition[];
-  icon?: IconCondition[];
+  text?: TextCondition[]
+  background?: BackgroundCondition[]
+  interval?: IntervalCondition[]
+  icon?: IconCondition[]
 }
 ```
 
@@ -39,10 +39,10 @@ interface Conditions {
 
 All condition types inherit from `Condition`:
 
-| Property | Description | Type | Required |
-|----------|-------------|------|----------|
-| field | Field ID or regex to match field IDs | `string \| RegExp` | ✓ |
-| mapping | Callback function for condition rendering | `ConditionMapping` | ✓ |
+| Property | Description                               | Type               | Required |
+| -------- | ----------------------------------------- | ------------------ | -------- |
+| field    | Field ID or regex to match field IDs      | `string \| RegExp` | ✓        |
+| mapping  | Callback function for condition rendering | `ConditionMapping` | ✓        |
 
 ### field
 
@@ -58,10 +58,11 @@ type ConditionMapping<T = unknown> = (
   fieldValue: number | string,
   data: RawData,
   cell?: S2CellType,
-) => ConditionMappingResult<T>;
+) => ConditionMappingResult<T>
 ```
 
 Parameters:
+
 - `fieldValue`: Current cell value
 - `data`: For data cells, the cell's raw data; for header cells, the cell's `Node` information
 - `cell`: The cell instance (for accessing any additional data)
@@ -75,7 +76,7 @@ If `mapping` returns `null`/`undefined`, no condition marking is rendered for th
 The mapping result follows `TextTheme` — controls text color, opacity, alignment, font, etc.
 
 ```ts
-type TextConditionMappingResult = TextTheme;
+type TextConditionMappingResult = TextTheme
 ```
 
 ```ts
@@ -83,28 +84,28 @@ const s2Options = {
   conditions: {
     text: [
       {
-        field: 'price',
+        field: "price",
         mapping(fieldValue, data) {
           return {
-            fill: '#5B8FF9',
+            fill: "#5B8FF9",
             fontSize: 16,
             opacity: 0.8,
-            textAlign: 'right',
-          };
+            textAlign: "right",
+          }
         },
       },
     ],
   },
-};
+}
 ```
 
 ### BackgroundCondition
 
 ```ts
 type BackgroundConditionMappingResult = {
-  fill: string;                        // Background color (required)
-  intelligentReverseTextColor?: boolean; // Auto-reverse text color for readability
-};
+  fill: string // Background color (required)
+  intelligentReverseTextColor?: boolean // Auto-reverse text color for readability
+}
 ```
 
 When `intelligentReverseTextColor` is `true`, text automatically turns white on dark backgrounds to meet WCAG 2.0 AA contrast standards. Priority: `background condition`'s `intelligentReverseTextColor` < `text condition`'s `fill`.
@@ -114,17 +115,17 @@ const s2Options = {
   conditions: {
     background: [
       {
-        field: 'number',
+        field: "number",
         mapping() {
           return {
-            fill: '#000',
+            fill: "#000",
             intelligentReverseTextColor: true,
-          };
+          }
         },
       },
     ],
   },
-};
+}
 ```
 
 ### IntervalCondition
@@ -133,12 +134,12 @@ Renders bar charts inside cells.
 
 ```ts
 type IntervalConditionMappingResult = {
-  fill?: string;       // Bar color (supports gradients)
-  isCompare?: boolean; // Enable custom range
-  minValue?: number;   // Custom minimum value
-  maxValue?: number;   // Custom maximum value
-  fieldValue?: number; // Override the cell value used for bar rendering
-};
+  fill?: string // Bar color (supports gradients)
+  isCompare?: boolean // Enable custom range
+  minValue?: number // Custom minimum value
+  maxValue?: number // Custom maximum value
+  fieldValue?: number // Override the cell value used for bar rendering
+}
 ```
 
 By default, the bar range is determined by the min/max values of all data for that field. Set `isCompare: true` to define a custom range. Use `cell.getValueRange()` to get the default range.
@@ -148,19 +149,19 @@ const s2Options = {
   conditions: {
     interval: [
       {
-        field: 'number',
+        field: "number",
         mapping(value, data, cell) {
           return {
-            fill: '#80BFFF',
+            fill: "#80BFFF",
             isCompare: true,
             maxValue: 8000,
             minValue: 300,
-          };
+          }
         },
       },
     ],
   },
-};
+}
 ```
 
 **Bidirectional bar chart** — use different colors for positive/negative values:
@@ -189,15 +190,15 @@ mapping(fieldValue) {
 
 Has an additional `position` property compared to other conditions:
 
-| Property | Description | Type | Default |
-|----------|-------------|------|---------|
+| Property | Description                    | Type                | Default   |
+| -------- | ------------------------------ | ------------------- | --------- |
 | position | Icon position relative to text | `'left' \| 'right'` | `'right'` |
 
 ```ts
 type IconConditionMappingResult = {
-  fill: string;  // Icon color
-  icon: string;  // Icon name (registered or built-in)
-};
+  fill: string // Icon color
+  icon: string // Icon name (registered or built-in)
+}
 ```
 
 ```ts
@@ -205,21 +206,22 @@ const s2Options = {
   conditions: {
     icon: [
       {
-        field: 'number',
-        position: 'left',
+        field: "number",
+        position: "left",
         mapping() {
           return {
-            icon: 'CellUp',
-            fill: '#2498D1',
-          };
+            icon: "CellUp",
+            fill: "#2498D1",
+          }
         },
       },
     ],
   },
-};
+}
 ```
 
 When both condition icons and header action icons exist, the layout is:
+
 - `[header action icons] [condition icon] [text]` (position: left)
 - `[text] [condition icon] [header action icons]` (position: right)
 
@@ -243,27 +245,27 @@ const s2Options = {
   conditions: {
     text: [
       {
-        field: 'province',
+        field: "province",
         mapping: (fieldValue, data, cell) => ({
-          fill: 'green',
+          fill: "green",
           fontSize: 16,
         }),
       },
     ],
     background: [
       {
-        field: 'count',
+        field: "count",
         mapping: (fieldValue, data, cell) => ({
-          fill: 'green',
+          fill: "green",
           intelligentReverseTextColor: true,
         }),
       },
     ],
     interval: [
       {
-        field: 'sub_type',
+        field: "sub_type",
         mapping: (fieldValue, data, cell) => ({
-          fill: 'green',
+          fill: "green",
           isCompare: true,
           maxValue: 8000,
           minValue: 300,
@@ -272,14 +274,14 @@ const s2Options = {
     ],
     icon: [
       {
-        field: 'number',
-        position: 'left',
+        field: "number",
+        position: "left",
         mapping: (fieldValue, data, cell) => ({
-          icon: 'InfoCircle',
-          fill: 'green',
+          icon: "InfoCircle",
+          fill: "green",
         }),
       },
     ],
   },
-};
+}
 ```

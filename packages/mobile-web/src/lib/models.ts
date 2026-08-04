@@ -37,16 +37,34 @@ export type RemoteAction =
   | { type: "revokeDevice" }
 
 export type InboxKind = "question" | "permission" | "failed" | "completed"
-export type InboxItem = { id: string; taskID: string; project: string; title: string; kind: InboxKind; updatedAt: string }
+export type InboxItem = {
+  id: string
+  taskID: string
+  project: string
+  title: string
+  kind: InboxKind
+  updatedAt: string
+}
 
 export function inboxItems(tasks: RemoteTask[]): InboxItem[] {
   return tasks.flatMap<InboxItem>((task) => {
     const project = task.project || "未命名项目"
     if (task.pending?.type === "permission" || task.pending?.type === "question") {
-      return [{ id: task.pending.id, taskID: task.id, project, title: task.pending.title, kind: task.pending.type, updatedAt: task.updatedAt }]
+      return [
+        {
+          id: task.pending.id,
+          taskID: task.id,
+          project,
+          title: task.pending.title,
+          kind: task.pending.type,
+          updatedAt: task.updatedAt,
+        },
+      ]
     }
     if (task.status === "failed" || task.status === "completed") {
-      return [{ id: task.id, taskID: task.id, project, title: task.title, kind: task.status, updatedAt: task.updatedAt }]
+      return [
+        { id: task.id, taskID: task.id, project, title: task.title, kind: task.status, updatedAt: task.updatedAt },
+      ]
     }
     return []
   })

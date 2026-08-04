@@ -112,7 +112,7 @@ export type InboxEntry = {
   session_id: string
   task_id?: string
   run_id?: string
-  kind: "report_precheck_failed" | "cancelled" | "runtime_error"
+  kind: "report_precheck_failed" | "cancelled" | "runtime_error" | "user_interrupt" | "user_terminated"
   message: string
   step_id?: string
   task_title?: string

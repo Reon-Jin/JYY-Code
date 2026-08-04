@@ -315,12 +315,15 @@ export function validatePlanFile(value: unknown): string[] {
         errors.push(errorAt(`${prefix}.tasks`, "must be an array"))
         continue
       }
-      const taskModes = rawStep.tasks
-        .filter(isRecord)
-        .map((task) => (task.mode === undefined ? "standard" : task.mode))
+      const taskModes = rawStep.tasks.filter(isRecord).map((task) => (task.mode === undefined ? "standard" : task.mode))
       const hasCandidates = taskModes.includes("candidate")
-      if (hasCandidates && (taskModes.some((mode) => mode !== "candidate") || taskModes.length < 2 || taskModes.length > 3))
-        errors.push(errorAt(`${prefix}.tasks`, "candidate steps must contain 2-3 candidate tasks and no standard tasks"))
+      if (
+        hasCandidates &&
+        (taskModes.some((mode) => mode !== "candidate") || taskModes.length < 2 || taskModes.length > 3)
+      )
+        errors.push(
+          errorAt(`${prefix}.tasks`, "candidate steps must contain 2-3 candidate tasks and no standard tasks"),
+        )
       if (hasCandidates) {
         const outputPaths = new Set<string>()
         for (const [taskIndex, rawTask] of rawStep.tasks.entries()) {
@@ -373,7 +376,11 @@ export function validatePlanFile(value: unknown): string[] {
           errors.push(errorAt(`${taskPrefix}.output_path`, "must be string or null"))
         if (rawTask.mode !== undefined && !["standard", "candidate"].includes(String(rawTask.mode)))
           errors.push(errorAt(`${taskPrefix}.mode`, "invalid mode"))
-        if (!["pending", "dispatched", "running", "reported", "approved", "rejected", "dismissed"].includes(String(rawTask.status)))
+        if (
+          !["pending", "dispatched", "running", "reported", "approved", "rejected", "dismissed"].includes(
+            String(rawTask.status),
+          )
+        )
           errors.push(errorAt(`${taskPrefix}.status`, "invalid status"))
         if (!("dispatch" in rawTask) || (rawTask.dispatch !== null && !isValidDispatch(rawTask.dispatch)))
           errors.push(errorAt(`${taskPrefix}.dispatch`, "invalid dispatch record"))
@@ -472,7 +479,8 @@ function pathWithin(workspace: string, candidate: string) {
 export function isStepComplete(step: PlanStep, workspace: string): boolean {
   const isCandidate = step.tasks.some((task) => task.mode === "candidate")
   if (!isCandidate) return step.tasks.length > 0 && step.tasks.every((task) => task.status === "approved")
-  if (step.tasks.length < 2 || step.tasks.length > 3 || step.tasks.some((task) => task.mode !== "candidate")) return false
+  if (step.tasks.length < 2 || step.tasks.length > 3 || step.tasks.some((task) => task.mode !== "candidate"))
+    return false
   const selection = step.candidate_selection
   if (!selection) return false
   const synthesisPath = path.resolve(workspace, selection.synthesis_artifact)

@@ -28,7 +28,10 @@ import {
   PLAN_CREATE_INPUT_SCHEMA,
   PLAN_UPDATE_INPUT_SCHEMA,
   PLAN_TOOL_IDS,
+  resolveChildModel,
 } from "../../src/plan/tools"
+import { Provider } from "../../src/provider/provider"
+import { Effect } from "effect"
 
 describe("model-facing plan tool names", () => {
   it("uses one underscore-separated name on the model wire", () => {
@@ -57,7 +60,9 @@ describe("model-facing plan tool names", () => {
       "reply_to",
       "attachments",
     ])
-    expect(Object.keys(BLACKBOARD_INPUT_SCHEMA.properties!).some((key) => /step|sender|session|author|mention/i.test(key))).toBe(false)
+    expect(
+      Object.keys(BLACKBOARD_INPUT_SCHEMA.properties!).some((key) => /step|sender|session|author|mention/i.test(key)),
+    ).toBe(false)
     expect(BLACKBOARD_REPLY_INPUT_SCHEMA.required).toEqual(["message", "reply_to"])
   })
 
@@ -137,14 +142,24 @@ describe("model-facing plan tool names", () => {
     expect(gate!.allowedToolIDs.has("shell")).toBe(false)
     expect(gate!.allowedToolIDs.has("Report")).toBe(false)
     const persistedPath = `${planDirectory}/plan.json`
-    const persisted = JSON.parse(fs.readFileSync(persistedPath, "utf8")) as { steps: Array<{ candidate_discussion: { phase: string } }> }
+    const persisted = JSON.parse(fs.readFileSync(persistedPath, "utf8")) as {
+      steps: Array<{ candidate_discussion: { phase: string } }>
+    }
     persisted.steps[0]!.candidate_discussion.phase = "declaring"
     fs.writeFileSync(persistedPath, JSON.stringify(persisted))
-    const declaringGate = candidateToolGateState({ id: "candidate-child" as never, parentID: rootSession as never, directory: workspace })
+    const declaringGate = candidateToolGateState({
+      id: "candidate-child" as never,
+      parentID: rootSession as never,
+      directory: workspace,
+    })
     expect([...declaringGate!.allowedToolIDs]).toEqual(["Candidate.declare"])
     persisted.steps[0]!.candidate_discussion.phase = "cross_review"
     fs.writeFileSync(persistedPath, JSON.stringify(persisted))
-    const reviewGate = candidateToolGateState({ id: "candidate-child" as never, parentID: rootSession as never, directory: workspace })
+    const reviewGate = candidateToolGateState({
+      id: "candidate-child" as never,
+      parentID: rootSession as never,
+      directory: workspace,
+    })
     expect([...reviewGate!.allowedToolIDs]).toEqual(["Blackboard", "Blackboard.reply", "Candidate.ready"])
     fs.rmSync(workspace, { recursive: true, force: true })
   })
@@ -165,14 +180,32 @@ describe("model-facing plan tool names", () => {
     expect(filterToolIDs([{ id: "read" }], new Set())).toEqual([])
     expect(subagentToolIDs({ mode: "primary", options: {} } as never)).toBeUndefined()
     expect(subagentToolIDs({ mode: "subagent", options: {} } as never)).toBeUndefined()
-    const roleToolIDs = subagentRoleToolIDs(role, { parentID: "parent" as never }, { allowedToolIDs: new Set(["read", "Candidate.submit"]) })
-    expect(roleToolIDs).toEqual(new Set(["read", "bash", "plugin_custom", "skill", "Report", "Blackboard", "Blackboard.reply", "Candidate.submit"])
+    const roleToolIDs = subagentRoleToolIDs(
+      role,
+      { parentID: "parent" as never },
+      { allowedToolIDs: new Set(["read", "Candidate.submit"]) },
     )
-    expect(intersectToolIDs(roleToolIDs, new Set(["read", "Candidate.submit"]))).toEqual(new Set(["read", "Candidate.submit"]))
+    expect(roleToolIDs).toEqual(
+      new Set([
+        "read",
+        "bash",
+        "plugin_custom",
+        "skill",
+        "Report",
+        "Blackboard",
+        "Blackboard.reply",
+        "Candidate.submit",
+      ]),
+    )
+    expect(intersectToolIDs(roleToolIDs, new Set(["read", "Candidate.submit"]))).toEqual(
+      new Set(["read", "Candidate.submit"]),
+    )
     // Omitted settings are represented by an undefined gate so the runtime
     // can include currently connected plugin and MCP tools, then remove the
     // reserved system IDs in the catalog filter.
-    expect(subagentRoleToolIDs({ mode: "subagent", options: {} } as never, { parentID: "parent" as never })).toBeUndefined()
+    expect(
+      subagentRoleToolIDs({ mode: "subagent", options: {} } as never, { parentID: "parent" as never }),
+    ).toBeUndefined()
     expect(isSubagentToolVisible("plugin_custom", undefined, undefined)).toBe(true)
     expect(isSubagentToolVisible("memory", undefined, undefined)).toBe(false)
     expect(isSubagentToolVisible("Plan.read", undefined, undefined)).toBe(false)
@@ -309,10 +342,16 @@ describe("model-facing plan tool names", () => {
     ])
     const stub = tools.Plan_update as {
       description?: string
-      execute: (args: unknown, options: unknown) => Promise<{ title: string; output: string; metadata: Record<string, unknown> }>
+      execute: (
+        args: unknown,
+        options: unknown,
+      ) => Promise<{ title: string; output: string; metadata: Record<string, unknown> }>
     }
     expect(stub.description).toContain("暂时禁用")
-    const result = await stub.execute({ revision: 22, ops: [{ op: "dismiss_task" }] }, { toolCallId: "t1", messages: [] })
+    const result = await stub.execute(
+      { revision: 22, ops: [{ op: "dismiss_task" }] },
+      { toolCallId: "t1", messages: [] },
+    )
     expect(result.metadata).toMatchObject({ gated: true, tool: "Plan_update", requiredTool: "Plan_read" })
     expect(result.output).toContain("Plan_read")
     expect(result.output).toContain("未执行")
@@ -417,36 +456,49 @@ describe("model-facing plan tool names", () => {
   it("publishes complete nested schemas for progressive plans and all update operations", () => {
     expect(DISPATCH_INPUT_SCHEMA.required).toEqual(["taskIds", "role"])
     expect(DISPATCH_INPUT_SCHEMA.properties?.role).toMatchObject({ type: "string", minLength: 1 })
-    expect(DISPATCH_INPUT_SCHEMA.properties?.taskIds).toMatchObject({ description: expect.stringContaining("every candidate Task ID") })
+    expect(DISPATCH_INPUT_SCHEMA.properties?.taskIds).toMatchObject({
+      description: expect.stringContaining("every candidate Task ID"),
+    })
     const createSteps = PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { items?: unknown }
-    expect((PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { description?: string }).description).toContain("one complete 2-3 candidate Task group")
+    expect((PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { description?: string }).description).toContain(
+      "one complete 2-3 candidate Task group",
+    )
     expect(createSteps.items).toMatchObject({
       required: ["title", "goal", "done_criteria"],
       properties: { tasks: { items: { required: ["title", "goal", "done_criteria"] } } },
     })
-    const taskProperties = (createSteps.items as { properties: { tasks: { description?: string; items: { properties: object } } } }).properties.tasks
+    const taskProperties = (
+      createSteps.items as { properties: { tasks: { description?: string; items: { properties: object } } } }
+    ).properties.tasks
     expect(taskProperties.description).toContain("2-3 candidate Tasks")
     expect(taskProperties.items.properties).toHaveProperty("instructions")
-    expect((taskProperties.items.properties as { mode?: { description?: string } }).mode?.description).toContain("exactly 2-3")
+    expect((taskProperties.items.properties as { mode?: { description?: string } }).mode?.description).toContain(
+      "exactly 2-3",
+    )
 
     const updateOps = PLAN_UPDATE_INPUT_SCHEMA.properties?.ops as { items?: { oneOf?: unknown[] } }
     const operations = updateOps.items?.oneOf ?? []
     expect(operations).toHaveLength(10)
-    expect(operations.map((operation) => (operation as { properties: { op: { const: string } } }).properties.op.const))
-      .toEqual([
-        "edit_plan",
-        "add_step",
-        "edit_step",
-        "remove_step",
-        "add_task",
-        "edit_task",
-        "remove_task",
-        "set_task_status",
-        "review_task",
-        "select_candidate",
-      ])
-    expect(operations.find((operation) => (operation as { properties?: { op?: { const?: string } } }).properties?.op?.const === "review_task"))
-      .toMatchObject({ then: { required: ["feedback"] } })
+    expect(
+      operations.map((operation) => (operation as { properties: { op: { const: string } } }).properties.op.const),
+    ).toEqual([
+      "edit_plan",
+      "add_step",
+      "edit_step",
+      "remove_step",
+      "add_task",
+      "edit_task",
+      "remove_task",
+      "set_task_status",
+      "review_task",
+      "select_candidate",
+    ])
+    expect(
+      operations.find(
+        (operation) =>
+          (operation as { properties?: { op?: { const?: string } } }).properties?.op?.const === "review_task",
+      ),
+    ).toMatchObject({ then: { required: ["feedback"] } })
   })
 
   it("builds child launches from the frozen role snapshot", () => {
@@ -459,12 +511,22 @@ describe("model-facing plan tool names", () => {
       model: "openai/gpt-5",
       variant: "low",
     }
-    expect(childModelForRole({ id: ModelID.make("root-model"), providerID: ProviderID.make("root-provider"), variant: "high" }, role)).toEqual({
+    expect(
+      childModelForRole(
+        { id: ModelID.make("root-model"), providerID: ProviderID.make("root-provider"), variant: "high" },
+        role,
+      ),
+    ).toEqual({
       id: ModelID.make("gpt-5"),
       providerID: ProviderID.make("openai"),
       variant: "low",
     })
-    expect(childModelForRole({ id: ModelID.make("root-model"), providerID: ProviderID.make("root-provider"), variant: "high" }, { ...role, model: undefined })).toEqual({
+    expect(
+      childModelForRole(
+        { id: ModelID.make("root-model"), providerID: ProviderID.make("root-provider"), variant: "high" },
+        { ...role, model: undefined },
+      ),
+    ).toEqual({
       id: ModelID.make("root-model"),
       providerID: ProviderID.make("root-provider"),
       variant: "low",

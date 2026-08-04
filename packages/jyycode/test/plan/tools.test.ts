@@ -49,7 +49,7 @@ describe("plan runtime event bridge", () => {
       expect(brief).not.toContain("output_path")
       expect(brief).not.toContain("step_context")
       expect(brief).not.toContain("step_directory")
-    })
+    }),
   )
 
   it.effect("keeps the first child prompt visible while isolating dispatch metadata", () =>

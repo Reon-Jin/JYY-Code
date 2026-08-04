@@ -24,10 +24,7 @@ import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { containsPath, type InstanceContext } from "../project/instance-context"
 import { NonNegativeInt, PositiveInt, type DeepMutable } from "@jyycode-ai/core/schema"
 import { ConfigAgent } from "./agent"
-import {
-  Profile as SubagentProfileSchema,
-  resolveProfiles,
-} from "@/agent/subagent-profile"
+import { Profile as SubagentProfileSchema, resolveProfiles } from "@/agent/subagent-profile"
 import { ConfigAttachment } from "./attachment"
 import { ConfigCommand } from "./command"
 import { ConfigFormatter } from "./formatter"

@@ -433,7 +433,10 @@ export class EventBridge {
   #apply(
     action: Exclude<
       CacheAction,
-      ConversationAction | PlanAction | Extract<CacheAction, { kind: "blackboard.updated" }> | { kind: "server.connected"; eventID: string }
+      | ConversationAction
+      | PlanAction
+      | Extract<CacheAction, { kind: "blackboard.updated" }>
+      | { kind: "server.connected"; eventID: string }
     >,
   ) {
     const directory = this.#options.directory

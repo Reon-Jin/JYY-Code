@@ -51,7 +51,11 @@ export class RelayClient {
     const invitation = parsePairingInvitation(qrPayload)
     const keyPair = await createPairingKeyPair()
     const id = `web_${crypto.randomUUID()}`
-    const sessionKey = await deriveSessionKey(keyPair.privateKey, invitation.temporaryPublicKey, invitation.pairingSecret)
+    const sessionKey = await deriveSessionKey(
+      keyPair.privateKey,
+      invitation.temporaryPublicKey,
+      invitation.pairingSecret,
+    )
     const sealed = await sealSessionKey(sessionKey)
     const device: StoredDevice = {
       id,
@@ -139,7 +143,15 @@ export class RelayClient {
       this.socket = socket
       const timeout = window.setTimeout(() => reject(new Error("连接中继服务超时")), 10_000)
       socket.onopen = () => {
-        socket.send(JSON.stringify({ type: "relay.hello", protocolVersion: PROTOCOL_VERSION, routeID: this.device!.routeId, clientID: this.device!.id, role: "web" }))
+        socket.send(
+          JSON.stringify({
+            type: "relay.hello",
+            protocolVersion: PROTOCOL_VERSION,
+            routeID: this.device!.routeId,
+            clientID: this.device!.id,
+            role: "web",
+          }),
+        )
       }
       socket.onmessage = (event) => {
         try {
@@ -175,7 +187,9 @@ export class RelayClient {
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30_000)
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined
-      void this.connect().then(() => this.refresh()).catch(() => undefined)
+      void this.connect()
+        .then(() => this.refresh())
+        .catch(() => undefined)
     }, delay)
   }
 
@@ -207,7 +221,12 @@ export class RelayClient {
   private handleEnvelope(raw: Record<string, unknown>) {
     const envelope = parseRelayMessage(raw)
     if (envelope.type !== "relay.envelope" || !this.device || !this.sessionKey) return
-    if (envelope.routeID !== this.device.routeId || envelope.recipientID !== this.device.id || envelope.sequence <= this.incomingSequence) return
+    if (
+      envelope.routeID !== this.device.routeId ||
+      envelope.recipientID !== this.device.id ||
+      envelope.sequence <= this.incomingSequence
+    )
+      return
     this.incomingSequence = envelope.sequence
     const payload = decryptPayload<RelayResponse>(this.sessionKey, envelope.ciphertext)
     void this.store.put({ ...this.device, lastSeen: Date.now() })

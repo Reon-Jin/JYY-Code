@@ -4,11 +4,7 @@ import { createEffect, createMemo, createSignal, For, Index, onCleanup, onMount,
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
-import {
-  type MultiAgentSnapshot,
-  type MultiAgentTaskTone,
-  type MultiAgentTaskView,
-} from "../plan/plan-state"
+import { type MultiAgentSnapshot, type MultiAgentTaskTone, type MultiAgentTaskView } from "../plan/plan-state"
 import { planRoleDescription, planRoleLabel } from "../plan/plan-role-presentation"
 import { SubagentAvatar } from "../subagents/subagent-avatar-catalog"
 import "./multi-agent.css"
@@ -197,7 +193,9 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
     const nextActiveTasksByStep = new globalThis.Map<number, ReadonlySet<string>>()
     const restartedSteps = new globalThis.Set<number>()
     for (const step of props.snapshot.steps) {
-      const activeTasks = new globalThis.Set(step.tasks.filter((task) => task.tone === "running").map((task) => task.id))
+      const activeTasks = new globalThis.Set(
+        step.tasks.filter((task) => task.tone === "running").map((task) => task.id),
+      )
       const previous = activeTasksByStep.get(step.index)
       if (previous && [...activeTasks].some((taskID) => !previous.has(taskID))) restartedSteps.add(step.index)
       nextActiveTasksByStep.set(step.index, activeTasks)
@@ -245,7 +243,9 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
           max={Math.max(props.snapshot.totalAgents, 1)}
           value={props.snapshot.doneAgents}
         />
-        <span class="multi-agent-panel__progress-value" aria-hidden="true">{completionPercent()}%</span>
+        <span class="multi-agent-panel__progress-value" aria-hidden="true">
+          {completionPercent()}%
+        </span>
       </div>
 
       <Show
@@ -272,7 +272,11 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
         >
           <Show
             when={props.sessionID}
-            fallback={<p class="multi-agent-panel__empty">{tr("multi-agent.view-multi-agent-tasks-after-selecting-a-session")}</p>}
+            fallback={
+              <p class="multi-agent-panel__empty">
+                {tr("multi-agent.view-multi-agent-tasks-after-selecting-a-session")}
+              </p>
+            }
           >
             <Show
               when={props.snapshot.tasks.length > 0}
@@ -303,115 +307,139 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                       const collapsed = () => collapsedSteps().has(wave().index)
                       const taskListID = () => `multi-agent-step-tasks-${wave().index}`
                       return (
-                      <section
-                        class="multi-agent-step"
-                        data-tone={wave().tone}
-                        data-collapsed={collapsed()}
-                        aria-labelledby={`multi-agent-step-${wave().index}`}
-                      >
-                        <header>
-                          <h3 id={`multi-agent-step-${wave().index}`}>
-                            <span class="multi-agent-step__marker" aria-hidden="true" />
-                            <span>{tr("multi-agent.wave", { index: String(step.index).padStart(2, "0"), status: waveLabel(step.tone) })}</span>
-                            <span class="multi-agent-step__title">— {step.title}</span>
-                          </h3>
-                          <Show when={wave().candidate}>
-                            {(candidate) => (
-                              <span class="multi-agent-step__candidate" data-candidate-phase={candidate().phase}>
-                                {tr("multi-agent.candidate-discussion")} · {candidatePhaseLabel(candidate().phase)} · {candidate().ready}/{candidate().total}
+                        <section
+                          class="multi-agent-step"
+                          data-tone={wave().tone}
+                          data-collapsed={collapsed()}
+                          aria-labelledby={`multi-agent-step-${wave().index}`}
+                        >
+                          <header>
+                            <h3 id={`multi-agent-step-${wave().index}`}>
+                              <span class="multi-agent-step__marker" aria-hidden="true" />
+                              <span>
+                                {tr("multi-agent.wave", {
+                                  index: String(step.index).padStart(2, "0"),
+                                  status: waveLabel(step.tone),
+                                })}
                               </span>
-                            )}
-                          </Show>
-                          <div class="multi-agent-step__actions">
-                            <span class="multi-agent-step__ratio">
-                              {wave().tasks.filter((task) => task.tone === "done").length}/{wave().tasks.length}
-                            </span>
-                            <button
-                              class="multi-agent-step__toggle"
-                              type="button"
-                              data-expanded={!collapsed()}
-                              aria-controls={taskListID()}
-                              aria-expanded={!collapsed()}
-                              aria-label={tr("multi-agent.toggle-wave", { index: wave().index })}
-                              onClick={() => toggleStep(wave().index)}
-                            >
-                              <span aria-hidden="true">&gt;</span>
-                            </button>
-                          </div>
-                        </header>
-                        <Show when={!collapsed()}>
-                          <Show when={wave().candidate?.selection}>
-                            {(selection) => (
-                              <aside class="multi-agent-candidate-selection" aria-label={tr("multi-agent.candidate-selection")}>
-                                <strong>{tr("multi-agent.candidate-selected-task")}</strong>
-                                <span>{selection().selectedTaskID}</span>
-                                <strong>{tr("multi-agent.candidate-contributions")}</strong>
-                                <span>{selection().contributingTaskIDs.join(", ") || tr("multi-agent.candidate-none")}</span>
-                                <strong>{tr("multi-agent.candidate-synthesis")}</strong>
-                                <span>{selection().synthesisArtifact}</span>
-                              </aside>
-                            )}
-                          </Show>
-                          <ol id={taskListID()} aria-label={tr("multi-agent.tasks-for-step", { index: wave().index })}>
-                            <Index each={wave().tasks}>
-                              {(task) => (
-                                <li
-                                  class="multi-agent-task"
-                                  data-tone={task().tone}
-                                  data-cruise-revision={cruiseRevision(wave().index)}
-                                  style={{ "--multi-agent-cruise-duration": `${2.8 + cruiseRevision(wave().index) / 1000}s` }}
-                                  data-selected={
-                                    task().childSessionID && task().childSessionID === props.selectedChildSessionID
-                                      ? "true"
-                                      : "false"
-                                  }
-                                >
-                                  <details>
-                                    <summary>
-                                      <RoleAvatar role={task().role} />
-                                      <span class="multi-agent-task__content">
-                                        <strong>{task().title}</strong>
-                                        <small>{roleMeta(task())}</small>
-                                      </span>
-                                      <Show when={task().childSessionID}>
-                                        {(childSessionID) => (
-                                          <Button
-                                            size="small"
-                                            variant="ghost"
-                                            aria-label={tr("multi-agent.review-task", { title: task().title })}
-                                            onClick={(event) => {
-                                              event.preventDefault()
-                                              event.stopPropagation()
-                                              savePanelState()
-                                              props.onOpenChild(childSessionID())
-                                            }}
-                                          >
-                                            {tr("multi-agent.review")}
-                                          </Button>
-                                        )}
-                                      </Show>
-                                      <Show when={!task().childSessionID}>
-                                        <span class="multi-agent-task__matrix">{task().statusLabel}</span>
-                                      </Show>
-                                    </summary>
-                                    <TaskDetails task={task()} />
-                                  </details>
-                                </li>
+                              <span class="multi-agent-step__title">— {step.title}</span>
+                            </h3>
+                            <Show when={wave().candidate}>
+                              {(candidate) => (
+                                <span class="multi-agent-step__candidate" data-candidate-phase={candidate().phase}>
+                                  {tr("multi-agent.candidate-discussion")} · {candidatePhaseLabel(candidate().phase)} ·{" "}
+                                  {candidate().ready}/{candidate().total}
+                                </span>
                               )}
-                            </Index>
-                          </ol>
-                        </Show>
-                      </section>
+                            </Show>
+                            <div class="multi-agent-step__actions">
+                              <span class="multi-agent-step__ratio">
+                                {wave().tasks.filter((task) => task.tone === "done").length}/{wave().tasks.length}
+                              </span>
+                              <button
+                                class="multi-agent-step__toggle"
+                                type="button"
+                                data-expanded={!collapsed()}
+                                aria-controls={taskListID()}
+                                aria-expanded={!collapsed()}
+                                aria-label={tr("multi-agent.toggle-wave", { index: wave().index })}
+                                onClick={() => toggleStep(wave().index)}
+                              >
+                                <span aria-hidden="true">&gt;</span>
+                              </button>
+                            </div>
+                          </header>
+                          <Show when={!collapsed()}>
+                            <Show when={wave().candidate?.selection}>
+                              {(selection) => (
+                                <aside
+                                  class="multi-agent-candidate-selection"
+                                  aria-label={tr("multi-agent.candidate-selection")}
+                                >
+                                  <strong>{tr("multi-agent.candidate-selected-task")}</strong>
+                                  <span>{selection().selectedTaskID}</span>
+                                  <strong>{tr("multi-agent.candidate-contributions")}</strong>
+                                  <span>
+                                    {selection().contributingTaskIDs.join(", ") || tr("multi-agent.candidate-none")}
+                                  </span>
+                                  <strong>{tr("multi-agent.candidate-synthesis")}</strong>
+                                  <span>{selection().synthesisArtifact}</span>
+                                </aside>
+                              )}
+                            </Show>
+                            <ol
+                              id={taskListID()}
+                              aria-label={tr("multi-agent.tasks-for-step", { index: wave().index })}
+                            >
+                              <Index each={wave().tasks}>
+                                {(task) => (
+                                  <li
+                                    class="multi-agent-task"
+                                    data-tone={task().tone}
+                                    data-cruise-revision={cruiseRevision(wave().index)}
+                                    style={{
+                                      "--multi-agent-cruise-duration": `${2.8 + cruiseRevision(wave().index) / 1000}s`,
+                                    }}
+                                    data-selected={
+                                      task().childSessionID && task().childSessionID === props.selectedChildSessionID
+                                        ? "true"
+                                        : "false"
+                                    }
+                                  >
+                                    <details>
+                                      <summary>
+                                        <RoleAvatar role={task().role} />
+                                        <span class="multi-agent-task__content">
+                                          <strong>{task().title}</strong>
+                                          <small>{roleMeta(task())}</small>
+                                        </span>
+                                        <Show when={task().childSessionID}>
+                                          {(childSessionID) => (
+                                            <Button
+                                              size="small"
+                                              variant="ghost"
+                                              aria-label={tr("multi-agent.review-task", { title: task().title })}
+                                              onClick={(event) => {
+                                                event.preventDefault()
+                                                event.stopPropagation()
+                                                savePanelState()
+                                                props.onOpenChild(childSessionID())
+                                              }}
+                                            >
+                                              {tr("multi-agent.review")}
+                                            </Button>
+                                          )}
+                                        </Show>
+                                        <Show when={!task().childSessionID}>
+                                          <span class="multi-agent-task__matrix">{task().statusLabel}</span>
+                                        </Show>
+                                      </summary>
+                                      <TaskDetails task={task()} />
+                                    </details>
+                                  </li>
+                                )}
+                              </Index>
+                            </ol>
+                          </Show>
+                        </section>
                       )
                     }}
                   </Index>
                 </div>
 
                 <footer class="multi-agent-legend" aria-label={tr("multi-agent.task-status-legend")}>
-                  <span data-tone="queued"><i /> {tr("multi-agent.wave-status-queued")}</span>
-                  <span data-tone="running"><i /> {tr("multi-agent.count-active")}</span>
-                  <span data-tone="done"><i /> {tr("multi-agent.count-done")}</span>
-                  <span data-tone="interrupted"><i /> {tr("multi-agent.count-interrupted")}</span>
+                  <span data-tone="queued">
+                    <i /> {tr("multi-agent.wave-status-queued")}
+                  </span>
+                  <span data-tone="running">
+                    <i /> {tr("multi-agent.count-active")}
+                  </span>
+                  <span data-tone="done">
+                    <i /> {tr("multi-agent.count-done")}
+                  </span>
+                  <span data-tone="interrupted">
+                    <i /> {tr("multi-agent.count-interrupted")}
+                  </span>
                 </footer>
               </div>
             </Show>

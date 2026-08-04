@@ -22,10 +22,7 @@ const MEMORY_RULES = [
 
 export interface Interface {
   readonly environment: (model: Provider.Model, options?: { includeMemory?: boolean }) => Effect.Effect<string[]>
-  readonly skills: (
-    agent: Agent.Info,
-    scope?: Skill.SkillAccessScope,
-  ) => Effect.Effect<string | undefined>
+  readonly skills: (agent: Agent.Info, scope?: Skill.SkillAccessScope) => Effect.Effect<string | undefined>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/SystemPrompt") {}

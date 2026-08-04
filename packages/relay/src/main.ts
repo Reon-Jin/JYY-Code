@@ -7,4 +7,5 @@ const relay = createRelay({
 })
 
 console.log(`JYYCode relay listening on ws://${relay.hostname}:${relay.port}/connect`)
-if (Bun.env.JYYCODE_MOBILE_WEB_ROOT) console.log(`JYYCode Safari web app served on http://${relay.hostname}:${relay.port}/`)
+if (Bun.env.JYYCODE_MOBILE_WEB_ROOT)
+  console.log(`JYYCode Safari web app served on http://${relay.hostname}:${relay.port}/`)

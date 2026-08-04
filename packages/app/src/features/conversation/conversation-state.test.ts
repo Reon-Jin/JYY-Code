@@ -123,7 +123,7 @@ describe("conversation state", () => {
     expect(next.needsRefetch).toBe(true)
   })
 
-  it("loads the latest 100 SDK messages without changing their domain shape", async () => {
+  it("loads all SDK messages without a limit and without changing their domain shape", async () => {
     const messages = [{ info: message, parts: [part] }]
     const client = {
       session: { messages: vi.fn(async () => ({ data: messages })) },
@@ -132,7 +132,7 @@ describe("conversation state", () => {
     const snapshot = await loadConversation({ client: client as never, directory: "C:\\work\\demo", sessionID })
 
     expect(client.session.messages).toHaveBeenCalledWith(
-      { directory: "C:\\work\\demo", sessionID, limit: 100 },
+      { directory: "C:\\work\\demo", sessionID },
       { throwOnError: true },
     )
     expect(snapshot.messages).toEqual(messages)
@@ -152,7 +152,7 @@ describe("conversation state", () => {
     await options.queryFn({ signal })
 
     expect(client.session.messages).toHaveBeenCalledWith(
-      { directory: "C:\\work\\demo", sessionID, limit: 100 },
+      { directory: "C:\\work\\demo", sessionID },
       { throwOnError: true, signal },
     )
   })

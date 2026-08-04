@@ -79,9 +79,7 @@ export const layer = Layer.effect(
       const root = roleRoot(roleID)
       if (!(yield* fs.isDir(root))) return [] as Skill.Info[]
 
-      const realRoot = yield* fs
-        .realPath(root)
-        .pipe(Effect.mapError(() => new UnsafePathError({ roleID, path: root })))
+      const realRoot = yield* fs.realPath(root).pipe(Effect.mapError(() => new UnsafePathError({ roleID, path: root })))
       const matches = yield* Effect.matchEffect(
         Effect.tryPromise({
           try: () => Glob.scan("**/SKILL.md", { cwd: root, absolute: true, include: "file", symlink: true, dot: true }),

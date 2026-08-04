@@ -18,7 +18,7 @@ describe("desktop startup shell", () => {
   it("paints a branded loading state before JavaScript is ready", () => {
     expect(indexHTML).toContain('data-startup-shell="true"')
     expect(indexHTML).toContain("正在启动 JYYCode")
-    expect(indexHTML).toMatch(/html,\s*body,\s*#root\s*\{[^}]*background:\s*#181818;/s)
+    expect(indexHTML).toMatch(/html,\s*body,\s*#root\s*\{[^}]*background:\s*#efede7;/s)
     expect(entrySource).toContain("root.replaceChildren()")
   })
 

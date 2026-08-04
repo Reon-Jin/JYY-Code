@@ -65,7 +65,8 @@ export function MobileSettings() {
       setPairing(invitation)
       await loadStatus()
       await Promise.resolve()
-      if (qrCanvas) await QRCode.toCanvas(qrCanvas, invitation.qrPayload, { width: 420, margin: 2, errorCorrectionLevel: "M" })
+      if (qrCanvas)
+        await QRCode.toCanvas(qrCanvas, invitation.qrPayload, { width: 420, margin: 2, errorCorrectionLevel: "M" })
     } catch (cause) {
       setFailure(cause instanceof Error ? cause.message : i18n.t("settings.mobile-start-failed"))
     } finally {
@@ -90,7 +91,10 @@ export function MobileSettings() {
     onCleanup(() => window.clearInterval(timer))
   })
 
-  const safariUrl = () => status()?.relayUrl.replace(/^wss:/, "https:").replace(/\/connect$/, "")
+  const safariUrl = () =>
+    status()
+      ?.relayUrl.replace(/^wss:/, "https:")
+      .replace(/\/connect$/, "")
   const tunnelReady = () => status()?.tunnelReady === true
 
   return (
@@ -98,9 +102,7 @@ export function MobileSettings() {
       <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>
       <section class="settings-card" aria-labelledby="mobile-pairing-title">
         <h3 id="mobile-pairing-title">{i18n.t("settings.mobile-pair-iphone")}</h3>
-        <p class="settings-description">
-          {i18n.t("settings.mobile-pair-description")}
-        </p>
+        <p class="settings-description">{i18n.t("settings.mobile-pair-description")}</p>
         <Show when={safariUrl()}>
           {(url) => (
             <div class="mobile-settings__address" role="status">
@@ -110,14 +112,18 @@ export function MobileSettings() {
                 <Button size="small" onClick={() => void copy(url(), i18n.t("settings.mobile-link-copied"))}>
                   {i18n.t("settings.mobile-copy-link")}
                 </Button>
-                <a href={url()} target="_blank" rel="noreferrer">{i18n.t("settings.mobile-open-link")}</a>
+                <a href={url()} target="_blank" rel="noreferrer">
+                  {i18n.t("settings.mobile-open-link")}
+                </a>
               </div>
               <small>{i18n.t("settings.mobile-address-note")}</small>
             </div>
           )}
         </Show>
         <Show when={!tunnelReady()}>
-          <p class="settings-card__hint" role="status">{i18n.t("settings.mobile-tunnel-starting")}</p>
+          <p class="settings-card__hint" role="status">
+            {i18n.t("settings.mobile-tunnel-starting")}
+          </p>
         </Show>
         <Button disabled={!tunnelReady()} loading={starting()} onClick={() => void startPairing()}>
           {i18n.t("settings.mobile-show-qr")}
@@ -126,8 +132,15 @@ export function MobileSettings() {
           {(invitation) => (
             <div class="mobile-settings__qr" role="status">
               <canvas ref={(element) => (qrCanvas = element)} aria-label={i18n.t("settings.mobile-qr-label")} />
-              <p>{i18n.t("settings.mobile-expires", { time: new Date(invitation().expiresAt * 1000).toLocaleTimeString(i18n.locale()) })}</p>
-              <Button size="small" onClick={() => void copy(invitation().qrPayload, i18n.t("settings.mobile-code-copied"))}>
+              <p>
+                {i18n.t("settings.mobile-expires", {
+                  time: new Date(invitation().expiresAt * 1000).toLocaleTimeString(i18n.locale()),
+                })}
+              </p>
+              <Button
+                size="small"
+                onClick={() => void copy(invitation().qrPayload, i18n.t("settings.mobile-code-copied"))}
+              >
                 {i18n.t("settings.mobile-copy-pairing-code")}
               </Button>
               <Show when={copied()}>{(value) => <small>{value()}</small>}</Show>
@@ -151,7 +164,11 @@ export function MobileSettings() {
               <article>
                 <div>
                   <strong>{device.name}</strong>
-                  <small>{i18n.t("settings.mobile-paired-at", { time: new Date(device.pairedAt * 1000).toLocaleString(i18n.locale()) })}</small>
+                  <small>
+                    {i18n.t("settings.mobile-paired-at", {
+                      time: new Date(device.pairedAt * 1000).toLocaleString(i18n.locale()),
+                    })}
+                  </small>
                 </div>
                 <Button variant="danger" size="small" onClick={() => void revoke(device.id)}>
                   {i18n.t("settings.mobile-revoke")}

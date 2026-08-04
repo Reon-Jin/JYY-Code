@@ -8887,6 +8887,40 @@ export type SessionInterruptPromptResponses = {
 
 export type SessionInterruptPromptResponse = SessionInterruptPromptResponses[keyof SessionInterruptPromptResponses]
 
+export type SessionTerminateData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/terminate"
+}
+
+export type SessionTerminateErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+}
+
+export type SessionTerminateError = SessionTerminateErrors[keyof SessionTerminateErrors]
+
+export type SessionTerminateResponses = {
+  /**
+   * Terminated the plan child session
+   */
+  204: void
+}
+
+export type SessionTerminateResponse = SessionTerminateResponses[keyof SessionTerminateResponses]
+
 export type SessionInitData = {
   body?: {
     modelID: string

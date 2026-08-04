@@ -7,7 +7,12 @@ import { useData } from "../../data/context"
 import { errorMessage } from "../projects/project-controller"
 import { renderMarkdown } from "../conversation/markdown"
 import { tr } from "../../i18n/i18n-context"
-import { blackboardMessagePurpose, blackboardQueryOptions, createBlackboardApi, type BlackboardSnapshot } from "./blackboard-query"
+import {
+  blackboardMessagePurpose,
+  blackboardQueryOptions,
+  createBlackboardApi,
+  type BlackboardSnapshot,
+} from "./blackboard-query"
 import "./blackboard.css"
 
 type BlackboardKind = "info" | "risk" | "blocker" | "decision" | "help"
@@ -53,7 +58,8 @@ type BlackboardMessageCursor = {
 
 function messageCursor(value: unknown): BlackboardMessageCursor | undefined {
   if (typeof value !== "object" || value === null || !("id" in value) || typeof value.id !== "string") return undefined
-  const timeCreated = "timeCreated" in value && typeof value.timeCreated === "number" ? value.timeCreated : Number.NEGATIVE_INFINITY
+  const timeCreated =
+    "timeCreated" in value && typeof value.timeCreated === "number" ? value.timeCreated : Number.NEGATIVE_INFINITY
   const replies = "replies" in value && Array.isArray(value.replies) ? value.replies : []
   return { id: value.id, timeCreated, replies }
 }
@@ -86,14 +92,13 @@ function latestVisibleMessageID(messages: readonly BlackboardMessage[]) {
 function messageSender(message: BlackboardMessage, taskLabels: Record<string, string>) {
   if (message.authorKind === "user") return tr("blackboard.user")
   if (message.authorKind === "main_agent") return tr("blackboard.main-agent")
-  const task = message.authorTaskID ? taskLabels[message.authorTaskID] ?? message.authorTaskID : tr("blackboard.all-tasks")
+  const task = message.authorTaskID
+    ? (taskLabels[message.authorTaskID] ?? message.authorTaskID)
+    : tr("blackboard.all-tasks")
   return tr("blackboard.sub-agent", { task })
 }
 
-function uniqueSteps(
-  steps: readonly { id: string; title: string }[],
-  snapshot: SessionBlackboardResponse | undefined,
-) {
+function uniqueSteps(steps: readonly { id: string; title: string }[], snapshot: SessionBlackboardResponse | undefined) {
   const result = [...steps]
   for (const id of [snapshot?.currentStepID, snapshot?.selectedStepID]) {
     if (id && !result.some((step) => step.id === id)) result.push({ id, title: id })
@@ -137,7 +142,8 @@ function loadLayout(key: string): BoardLayout {
     const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(key)
     if (!raw) return { zTop: 1, notes: {} }
     const parsed = JSON.parse(raw) as BoardLayout
-    if (typeof parsed?.zTop !== "number" || typeof parsed?.notes !== "object" || parsed.notes === null) throw new Error("invalid")
+    if (typeof parsed?.zTop !== "number" || typeof parsed?.notes !== "object" || parsed.notes === null)
+      throw new Error("invalid")
     return { zTop: parsed.zTop, notes: parsed.notes }
   } catch {
     return { zTop: 1, notes: {} }
@@ -180,7 +186,9 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
   const [sending, setSending] = createSignal(false)
   const [submitError, setSubmitError] = createSignal<string>()
   const [expandedID, setExpandedID] = createSignal<string>()
-  const [layout, setLayout] = createSignal<BoardLayout>(loadLayout(layoutStorageKey(props.directory, props.rootSessionID)))
+  const [layout, setLayout] = createSignal<BoardLayout>(
+    loadLayout(layoutStorageKey(props.directory, props.rootSessionID)),
+  )
   const [draggingID, setDraggingID] = createSignal<string>()
   let suppressClick = false
   const markedThrough = new Map<string, string>()
@@ -280,7 +288,10 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
   })
   const expandedMessage = createMemo(() => visibleMessages().find((message) => message.id === expandedID()))
   const boardHeight = createMemo(() =>
-    visibleMessages().reduce((height, message, index) => Math.max(height, notePosition(message.id, index).y + 250), 260),
+    visibleMessages().reduce(
+      (height, message, index) => Math.max(height, notePosition(message.id, index).y + 250),
+      260,
+    ),
   )
   const readonly = createMemo(
     () =>
@@ -288,7 +299,13 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
       (Boolean(snapshot()?.currentStepID) && Boolean(activeStep()) && snapshot()?.currentStepID !== activeStep()),
   )
   const canCompose = createMemo(
-    () => posting() && enabled() && Boolean(props.rootSessionID) && Boolean(snapshot()?.currentStepID) && !readonly() && !query.error,
+    () =>
+      posting() &&
+      enabled() &&
+      Boolean(props.rootSessionID) &&
+      Boolean(snapshot()?.currentStepID) &&
+      !readonly() &&
+      !query.error,
   )
 
   createEffect(() => {
@@ -366,15 +383,25 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
         <div class="blackboard-panel__filters">
           <label>
             <span>{tr("blackboard.current-step")}</span>
-            <select aria-label={tr("blackboard.current-step")} value={activeStep()} onChange={(event) => selectStep(event.currentTarget.value)}>
+            <select
+              aria-label={tr("blackboard.current-step")}
+              value={activeStep()}
+              onChange={(event) => selectStep(event.currentTarget.value)}
+            >
               <For each={stepOptions()}>{(step) => <option value={step.id}>{step.title}</option>}</For>
             </select>
           </label>
           <label>
             <span>{tr("blackboard.task-filter")}</span>
-            <select aria-label={tr("blackboard.task-filter")} value={selectedTask()} onChange={(event) => setSelectedTask(event.currentTarget.value)}>
+            <select
+              aria-label={tr("blackboard.task-filter")}
+              value={selectedTask()}
+              onChange={(event) => setSelectedTask(event.currentTarget.value)}
+            >
               <option value="all">{tr("blackboard.all-tasks")}</option>
-              <For each={tasks()}>{(task) => <option value={task.id}>{taskLabels()[task.id] ?? task.title}</option>}</For>
+              <For each={tasks()}>
+                {(task) => <option value={task.id}>{taskLabels()[task.id] ?? task.title}</option>}
+              </For>
             </select>
           </label>
           <Show when={Number(snapshot()?.unreadCount ?? 0) > 0}>
@@ -392,7 +419,9 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
         <p class="blackboard-panel__empty">{tr("blackboard.no-plan")}</p>
       </Show>
       <Show when={enabled() && props.rootSessionID && query.isPending}>
-        <p class="blackboard-panel__empty" role="status">{tr("blackboard.loading")}</p>
+        <p class="blackboard-panel__empty" role="status">
+          {tr("blackboard.loading")}
+        </p>
       </Show>
       <Show when={enabled() && query.error}>
         <div class="blackboard-panel__empty">
@@ -404,7 +433,10 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
       </Show>
       <Show when={enabled() && props.rootSessionID && !query.isPending && !query.error}>
         <div class="blackboard-board" aria-live="polite" style={{ "min-height": `${boardHeight()}px` }}>
-          <Show when={visibleMessages().length > 0} fallback={<p class="blackboard-panel__empty">{tr("blackboard.no-messages")}</p>}>
+          <Show
+            when={visibleMessages().length > 0}
+            fallback={<p class="blackboard-panel__empty">{tr("blackboard.no-messages")}</p>}
+          >
             <Index each={visibleMessages()}>
               {(message, index) => {
                 const replies = () => replyBodies(message().replies)
@@ -433,7 +465,10 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
                     }}
                   >
                     <span class="blackboard-note__pin" aria-hidden="true" />
-                    <header class="blackboard-note__header" onPointerDown={(event) => startDrag(event, message().id, index)}>
+                    <header
+                      class="blackboard-note__header"
+                      onPointerDown={(event) => startDrag(event, message().id, index)}
+                    >
                       <span class="blackboard-note__kind" aria-label={kindLabel(message().kind)}>
                         <span aria-hidden="true">{kindGlyph(message().kind)}</span> {kindLabel(message().kind)}
                       </span>
@@ -447,7 +482,9 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
                     </header>
                     <div class="blackboard-note__body" innerHTML={renderMarkdown(message().body)} />
                     <Show when={replies().length > 0}>
-                      <span class="blackboard-note__reply-count">{tr("blackboard.replies", { count: replies().length })}</span>
+                      <span class="blackboard-note__reply-count">
+                        {tr("blackboard.replies", { count: replies().length })}
+                      </span>
                     </Show>
                   </article>
                 )
@@ -517,7 +554,10 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
                   </ul>
                 </Show>
                 <Show when={replies().length > 0}>
-                  <div class="blackboard-note__replies" aria-label={tr("blackboard.replies", { count: replies().length })}>
+                  <div
+                    class="blackboard-note__replies"
+                    aria-label={tr("blackboard.replies", { count: replies().length })}
+                  >
                     <For each={replies()}>{(reply) => <div class="blackboard-note__reply">{reply}</div>}</For>
                   </div>
                 </Show>
@@ -528,16 +568,24 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
       </Show>
 
       <Show when={enabled() && props.rootSessionID && !posting()}>
-        <p class="blackboard-panel__readonly" role="note">{tr("blackboard.single-agent-readonly")}</p>
+        <p class="blackboard-panel__readonly" role="note">
+          {tr("blackboard.single-agent-readonly")}
+        </p>
       </Show>
       <Show when={posting() && readonly() && props.rootSessionID}>
-        <p class="blackboard-panel__readonly" role="note">{tr("blackboard.readonly")}</p>
+        <p class="blackboard-panel__readonly" role="note">
+          {tr("blackboard.readonly")}
+        </p>
       </Show>
       <Show when={canCompose()}>
         <div class="blackboard-composer" aria-label={tr("blackboard.send")}>
           <label class="blackboard-composer__kind">
             <span>{tr("blackboard.message-kind")}</span>
-            <select aria-label={tr("blackboard.message-kind")} value={kind()} onChange={(event) => setKind(event.currentTarget.value as BlackboardKind)}>
+            <select
+              aria-label={tr("blackboard.message-kind")}
+              value={kind()}
+              onChange={(event) => setKind(event.currentTarget.value as BlackboardKind)}
+            >
               <For each={kinds}>{(value) => <option value={value}>{kindLabel(value)}</option>}</For>
             </select>
           </label>
@@ -566,7 +614,9 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
             <Send aria-hidden="true" />
           </IconButton>
           <Show when={submitError()}>
-            <p class="blackboard-composer__error" role="alert">{submitError()}</p>
+            <p class="blackboard-composer__error" role="alert">
+              {submitError()}
+            </p>
           </Show>
         </div>
       </Show>

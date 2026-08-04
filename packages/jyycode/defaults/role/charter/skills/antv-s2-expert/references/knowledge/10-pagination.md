@@ -13,33 +13,33 @@ const s2Options = {
   width: 600,
   height: 480,
   pagination: {
-    pageSize: 4,   // rows per page
-    current: 1,    // current page (1-based)
+    pageSize: 4, // rows per page
+    current: 1, // current page (1-based)
   },
-};
+}
 ```
 
 ## Pagination Type
 
-| Property | Description | Type | Default | Required |
-|---|---|---|---|---|
-| `pageSize` | Number of rows per page | `number` | - | ✓ |
-| `current` | Current page number (starts from 1) | `number` | `1` | ✓ |
-| `total` | Total number of data items (read-only, set by S2 internally) | `number` | - | |
+| Property   | Description                                                  | Type     | Default | Required |
+| ---------- | ------------------------------------------------------------ | -------- | ------- | -------- |
+| `pageSize` | Number of rows per page                                      | `number` | -       | ✓        |
+| `current`  | Current page number (starts from 1)                          | `number` | `1`     | ✓        |
+| `total`    | Total number of data items (read-only, set by S2 internally) | `number` | -       |          |
 
 ## React Integration Example
 
 Combine S2's pagination config with a UI pagination component:
 
 ```tsx
-import React, { useState } from 'react';
-import { SheetComponent } from '@antv/s2-react';
-import { Pagination } from 'antd';
+import React, { useState } from "react"
+import { SheetComponent } from "@antv/s2-react"
+import { Pagination } from "antd"
 
 function PaginatedTable({ dataCfg }) {
-  const [current, setCurrent] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [total, setTotal] = useState(0);
+  const [current, setCurrent] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [total, setTotal] = useState(0)
 
   const s2Options = {
     width: 600,
@@ -48,7 +48,7 @@ function PaginatedTable({ dataCfg }) {
       pageSize,
       current,
     },
-  };
+  }
 
   return (
     <div>
@@ -56,7 +56,7 @@ function PaginatedTable({ dataCfg }) {
         dataCfg={dataCfg}
         options={s2Options}
         onMounted={(instance) => {
-          setTotal(instance.facet.viewCellHeights.getTotalLength());
+          setTotal(instance.facet.viewCellHeights.getTotalLength())
         }}
       />
       <Pagination
@@ -64,19 +64,19 @@ function PaginatedTable({ dataCfg }) {
         pageSize={pageSize}
         total={total}
         onChange={(page, size) => {
-          setCurrent(page);
-          setPageSize(size);
+          setCurrent(page)
+          setPageSize(size)
         }}
       />
     </div>
-  );
+  )
 }
 ```
 
 ## Vanilla JS Example
 
 ```ts
-import { PivotSheet } from '@antv/s2';
+import { PivotSheet } from "@antv/s2"
 
 const s2Options = {
   width: 600,
@@ -85,18 +85,18 @@ const s2Options = {
     pageSize: 5,
     current: 1,
   },
-};
+}
 
-const s2 = new PivotSheet(container, s2DataConfig, s2Options);
-await s2.render();
+const s2 = new PivotSheet(container, s2DataConfig, s2Options)
+await s2.render()
 
 // Change page
 function goToPage(page) {
   s2.updatePagination({
     current: page,
     pageSize: 5,
-  });
-  s2.render(false); // re-render without reinitializing
+  })
+  s2.render(false) // re-render without reinitializing
 }
 ```
 

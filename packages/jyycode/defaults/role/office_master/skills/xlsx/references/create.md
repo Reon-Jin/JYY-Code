@@ -9,6 +9,7 @@ live Excel formula.
 ## When to Use This Path
 
 Use this document when the user wants:
+
 - A brand-new Excel file that does not yet exist
 - A generated report, financial model, or data table
 - Any "create / build / generate / make" request
@@ -105,6 +106,7 @@ Four files must be kept in sync. Work through them in this order:
 
 **IMPORTANT — rId collision rule**: In the template's `workbook.xml.rels`, the IDs
 `rId1`, `rId2`, and `rId3` are already taken:
+
 - `rId1` → `worksheets/sheet1.xml`
 - `rId2` → `styles.xml`
 - `rId3` → `sharedStrings.xml`
@@ -122,6 +124,7 @@ New worksheet entries MUST start at `rId4` and count upward.
 ```
 
 Special characters in sheet names:
+
 - `&` → `&amp;` in XML: `<sheet name="P&amp;L" .../>`
 - Max 31 characters
 - Forbidden: `/ \ ? * [ ] :`
@@ -193,12 +196,12 @@ Copy `sheet1.xml` to `sheet2.xml` and `sheet3.xml`, then clear the `<sheetData>`
 
 **Sync checklist** — every time you add a sheet, verify all four are consistent:
 
-| Check | What to verify |
-|-------|---------------|
-| `workbook.xml` | New `<sheet name="..." sheetId="N" r:id="rIdX"/>` exists |
-| `workbook.xml.rels` | New `<Relationship Id="rIdX" ... Target="worksheets/sheetN.xml"/>` exists |
-| `[Content_Types].xml` | New `<Override PartName="/xl/worksheets/sheetN.xml" .../>` exists |
-| Filesystem | `xl/worksheets/sheetN.xml` file actually exists |
+| Check                 | What to verify                                                            |
+| --------------------- | ------------------------------------------------------------------------- |
+| `workbook.xml`        | New `<sheet name="..." sheetId="N" r:id="rIdX"/>` exists                  |
+| `workbook.xml.rels`   | New `<Relationship Id="rIdX" ... Target="worksheets/sheetN.xml"/>` exists |
+| `[Content_Types].xml` | New `<Override PartName="/xl/worksheets/sheetN.xml" .../>` exists         |
+| Filesystem            | `xl/worksheets/sheetN.xml` file actually exists                           |
 
 ---
 
@@ -228,6 +231,7 @@ then fill in indices while writing worksheet XML. This avoids re-counting indice
 ```
 
 **Attribute rules**:
+
 - `uniqueCount` = number of `<si>` elements (unique strings in the table)
 - `count` = total number of cell references to strings across the entire workbook
   (if "Revenue" appears in 3 sheets, count is `uniqueCount + 2`)
@@ -279,14 +283,14 @@ and cells.
 
 #### Data Type Reference
 
-| Data | `t` attr | XML Example | Notes |
-|------|---------|-------------|-------|
-| Shared string (text) | `s` | `<c r="A1" t="s" s="4"><v>0</v></c>` | `<v>` = sharedStrings index |
-| Number | omit | `<c r="B2" s="5"><v>1000000</v></c>` | default type, `t` omitted |
-| Percentage (as decimal) | omit | `<c r="C2" s="7"><v>0.125</v></c>` | 12.5% stored as 0.125 |
-| Boolean | `b` | `<c r="D1" t="b"><v>1</v></c>` | 1=TRUE, 0=FALSE |
-| Formula | omit | `<c r="B4" s="2"><f>SUM(B2:B3)</f><v></v></c>` | `<v>` left empty |
-| Cross-sheet formula | omit | `<c r="C1" s="3"><f>Assumptions!B2</f><v></v></c>` | use s=3 (green) |
+| Data                    | `t` attr | XML Example                                        | Notes                       |
+| ----------------------- | -------- | -------------------------------------------------- | --------------------------- |
+| Shared string (text)    | `s`      | `<c r="A1" t="s" s="4"><v>0</v></c>`               | `<v>` = sharedStrings index |
+| Number                  | omit     | `<c r="B2" s="5"><v>1000000</v></c>`               | default type, `t` omitted   |
+| Percentage (as decimal) | omit     | `<c r="C2" s="7"><v>0.125</v></c>`                 | 12.5% stored as 0.125       |
+| Boolean                 | `b`      | `<c r="D1" t="b"><v>1</v></c>`                     | 1=TRUE, 0=FALSE             |
+| Formula                 | omit     | `<c r="B4" s="2"><f>SUM(B2:B3)</f><v></v></c>`     | `<v>` left empty            |
+| Cross-sheet formula     | omit     | `<c r="C1" s="3"><f>Assumptions!B2</f><v></v></c>` | use s=3 (green)             |
 
 #### A Full Sheet Data Example
 
@@ -360,12 +364,12 @@ The template's `xl/styles.xml` has 13 pre-built semantic style slots (indices 0�
 
 Quick reference for the most common slots:
 
-| `s` | Role | Example |
-|-----|------|---------|
-| 4 | Header (bold) | Column/row titles |
-| 5 / 6 | Currency input (blue) / formula (black) | `$#,##0` |
-| 7 / 8 | Percentage input / formula | `0.0%` |
-| 11 | Year (no comma) | 2024 not 2,024 |
+| `s`   | Role                                    | Example           |
+| ----- | --------------------------------------- | ----------------- |
+| 4     | Header (bold)                           | Column/row titles |
+| 5 / 6 | Currency input (blue) / formula (black) | `$#,##0`          |
+| 7 / 8 | Percentage input / formula              | `0.0%`            |
+| 11    | Year (no comma)                         | 2024 not 2,024    |
 
 Design principle: Blue = human sets this. Black = Excel computes this. Green = cross-sheet.
 
@@ -493,6 +497,7 @@ python3 SKILL_DIR/scripts/xlsx_pack.py /tmp/xlsx_work/ /path/to/output.xlsx
 ```
 
 `xlsx_pack.py` will:
+
 1. Check that `[Content_Types].xml` exists at the root
 2. Parse every `.xml` and `.rels` file for well-formedness — abort if any fail
 3. Create the ZIP archive with correct compression
@@ -504,6 +509,7 @@ python3 SKILL_DIR/scripts/formula_check.py /path/to/output.xlsx
 ```
 
 `formula_check.py` will:
+
 1. Scan every cell for `<c t="e">` entries (cached error values) — all 7 error types
 2. Extract sheet name references from every `<f>` formula
 3. Verify each referenced sheet exists in `workbook.xml`
@@ -530,28 +536,28 @@ Run through this list before handing the file to the user:
 
 ## Common Mistakes and Fixes
 
-| Mistake | Symptom | Fix |
-|---------|---------|-----|
-| Formula has leading `=` | Cell shows `=SUM(...)` as text | Remove `=` from `<f>` content |
-| sharedStrings `count` not updated | Excel warning or blank cells | Count `<si>` elements, update both `count` and `uniqueCount` |
-| Style index out of range | File corruption / Excel repair | Ensure `s` < `cellXfs count`; append new `<xf>` if needed |
-| New sheet rId conflicts with styles/sharedStrings rId | Sheet missing or styles lost | New sheets use rId4, rId5, … (rId1-3 are reserved in template) |
-| Sheet name has `&` unescaped in XML | XML parse error | Use `&amp;` in `workbook.xml` name attribute |
-| Cross-sheet ref to sheet with space, no quotes | `#REF!` error | Wrap sheet name in single quotes: `'Sheet Name'!B5` |
-| Cross-sheet ref to non-existent sheet | `#REF!` error | Check `workbook.xml` sheet list vs formula |
-| Number stored as text (`t="s"`) | Left-aligned, can't sum | Remove `t` attribute from number cells |
-| Year displayed as `2,024` | Readability issue | Use `s="11"` (numFmtId=1, format `0`) |
-| Hardcoded Python result instead of formula | "Dead table" — won't update | Replace `<v>N</v>` with `<f>formula</f><v></v>` |
+| Mistake                                               | Symptom                        | Fix                                                            |
+| ----------------------------------------------------- | ------------------------------ | -------------------------------------------------------------- |
+| Formula has leading `=`                               | Cell shows `=SUM(...)` as text | Remove `=` from `<f>` content                                  |
+| sharedStrings `count` not updated                     | Excel warning or blank cells   | Count `<si>` elements, update both `count` and `uniqueCount`   |
+| Style index out of range                              | File corruption / Excel repair | Ensure `s` < `cellXfs count`; append new `<xf>` if needed      |
+| New sheet rId conflicts with styles/sharedStrings rId | Sheet missing or styles lost   | New sheets use rId4, rId5, … (rId1-3 are reserved in template) |
+| Sheet name has `&` unescaped in XML                   | XML parse error                | Use `&amp;` in `workbook.xml` name attribute                   |
+| Cross-sheet ref to sheet with space, no quotes        | `#REF!` error                  | Wrap sheet name in single quotes: `'Sheet Name'!B5`            |
+| Cross-sheet ref to non-existent sheet                 | `#REF!` error                  | Check `workbook.xml` sheet list vs formula                     |
+| Number stored as text (`t="s"`)                       | Left-aligned, can't sum        | Remove `t` attribute from number cells                         |
+| Year displayed as `2,024`                             | Readability issue              | Use `s="11"` (numFmtId=1, format `0`)                          |
+| Hardcoded Python result instead of formula            | "Dead table" — won't update    | Replace `<v>N</v>` with `<f>formula</f><v></v>`                |
 
 ---
 
 ## Column Letter Reference
 
 | Col # | Letter | Col # | Letter | Col # | Letter |
-|-------|--------|-------|--------|-------|--------|
-| 1 | A | 26 | Z | 27 | AA |
-| 28 | AB | 52 | AZ | 53 | BA |
-| 54 | BB | 78 | BZ | 79 | CA |
+| ----- | ------ | ----- | ------ | ----- | ------ |
+| 1     | A      | 26    | Z      | 27    | AA     |
+| 28    | AB     | 52    | AZ     | 53    | BA     |
+| 54    | BB     | 78    | BZ     | 79    | CA     |
 
 Python conversion (use when building formulas programmatically):
 

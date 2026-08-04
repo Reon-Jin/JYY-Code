@@ -264,9 +264,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* profileViews(resolved)
     })
 
-    const deleteSubagent = Effect.fn("InstanceHttpApi.subagentDelete")(function* (ctx: {
-      params: { roleID: string }
-    }) {
+    const deleteSubagent = Effect.fn("InstanceHttpApi.subagentDelete")(function* (ctx: { params: { roleID: string } }) {
       const resolved = yield* profiles()
       if (!profileByID(resolved, ctx.params.roleID)) {
         return yield* new ApiSubagentNotFoundError({
@@ -301,9 +299,9 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
           data: { message: `Subagent role "${ctx.params.roleID}" was not found`, roleID: ctx.params.roleID },
         })
       }
-      const result = yield* roleSkillManagement.create(ctx.params.roleID, ctx.payload).pipe(
-        Effect.mapError(mapSubagentError),
-      )
+      const result = yield* roleSkillManagement
+        .create(ctx.params.roleID, ctx.payload)
+        .pipe(Effect.mapError(mapSubagentError))
       yield* markInstanceForDisposal(yield* InstanceState.context)
       return result
     })

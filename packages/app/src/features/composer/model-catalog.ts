@@ -121,12 +121,12 @@ export async function loadModelCatalog(input: {
 }): Promise<ModelCatalog> {
   const options = { throwOnError: true } as const
   const [agentsResponse, configuredResponse, providersResponse, configResponse, pathResponse] = await Promise.all([
-      input.client.app.agents({ directory: input.directory }, options),
-      input.client.config.providers({ directory: input.directory }, options),
-      input.client.provider.list({ directory: input.directory }, options),
-      input.client.config.get({ directory: input.directory }, options),
-      input.client.path.get({ directory: input.directory }, options),
-    ])
+    input.client.app.agents({ directory: input.directory }, options),
+    input.client.config.providers({ directory: input.directory }, options),
+    input.client.provider.list({ directory: input.directory }, options),
+    input.client.config.get({ directory: input.directory }, options),
+    input.client.path.get({ directory: input.directory }, options),
+  ])
   const allAgents = dataOrThrow(agentsResponse, "app.agents")
   const configured = dataOrThrow(configuredResponse, "config.providers")
   const providers = dataOrThrow(providersResponse, "provider.list")

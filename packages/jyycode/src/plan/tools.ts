@@ -14,6 +14,7 @@ import {
   parentSessionIdForRunId,
   registerChildRun,
   runIdForChildSession,
+  takeChildRunIntent,
   type DispatchBrief,
   type PlanExecutionContext,
 } from "./protocol"
@@ -21,6 +22,9 @@ import type { LaunchSnapshot } from "@/agent/subagent-profile"
 import { PlanProtocolError, planFilePath, readPlanFileSync } from "./schema"
 import { RuntimeEvent } from "./runtime-event"
 import { Blackboard } from "./blackboard"
+import * as Log from "@jyycode-ai/core/util/log"
+
+const log = Log.create({ service: "plan" })
 
 const Empty = Schema.Struct({})
 const AnyObject = Schema.declare<unknown>((_u): _u is unknown => true)
@@ -302,9 +306,8 @@ export const BLACKBOARD_INPUT_SCHEMA: JSONSchema7 = {
 function persistedRunId(session: Session.Info) {
   const rootID = session.parentID ?? session.id
   const plan = readPlanFileSync(planFilePath(session.directory, rootID))
-  return plan?.steps
-    .flatMap((step) => step.tasks)
-    .find((task) => task.dispatch?.child_session_id === session.id)?.dispatch?.run_id
+  return plan?.steps.flatMap((step) => step.tasks).find((task) => task.dispatch?.child_session_id === session.id)
+    ?.dispatch?.run_id
 }
 
 function runId(ctx: Tool.Context, session?: Session.Info) {
@@ -328,7 +331,11 @@ function protocolContext(session: Session.Info, ctx: Tool.Context): PlanExecutio
 }
 
 function jsonResult(tool: string, value: unknown) {
-  return { title: modelFacingPlanToolName(tool), metadata: { protocol: "plan-v1" }, output: JSON.stringify(value, null, 2) }
+  return {
+    title: modelFacingPlanToolName(tool),
+    metadata: { protocol: "plan-v1" },
+    output: JSON.stringify(value, null, 2),
+  }
 }
 
 function getSession(sessions: Session.Interface, sessionID: Tool.Context["sessionID"]) {
@@ -383,9 +390,8 @@ function drainProtocolWakeups(
   const events = sessionIDs
     .filter((sessionID) => sessionID !== currentSessionID)
     .flatMap((sessionID) => protocol.drainWakeups(sessionID))
-  bridge.fork(Effect.forEach(
-    events,
-    (event) =>
+  bridge.fork(
+    Effect.forEach(events, (event) =>
       ops
         .wake({
           sessionID: event.session_id as SessionID,
@@ -396,7 +402,8 @@ function drainProtocolWakeups(
               : "候选流程有新的可处理事件。请先读取当前方案状态，再继续候选任务。",
         })
         .pipe(Effect.ignore),
-  ).pipe(Effect.asVoid))
+    ).pipe(Effect.asVoid),
+  )
   return Effect.void
 }
 
@@ -497,16 +504,57 @@ export function childModelForRole(parentModel: Session.Info["model"], role: Laun
   }
 }
 
+/**
+ * Resolve the child session model for a role, falling back to "follow the
+ * main Agent" when the role's configured model is not usable (its provider is
+ * not connected or the model does not exist). The fallback keeps the role's
+ * thinking-depth override, matching the semantics of an unset role model.
+ */
+export async function resolveChildModel(
+  run: <A, E, R>(effect: Effect.Effect<A, E, R>) => Promise<A>,
+  parentModel: Session.Info["model"],
+  role: LaunchSnapshot,
+) {
+  if (!role.model) return childModelForRole(parentModel, role)
+  const parsed = Provider.parseModel(role.model)
+  try {
+    const available = await run(
+      Provider.Service.use((provider) => provider.getModel(parsed.providerID, parsed.modelID)).pipe(
+        Effect.map(() => true),
+        Effect.catch(() => Effect.succeed(false)),
+      ),
+    )
+    if (available) return childModelForRole(parentModel, role)
+    log.warn("role model unavailable, falling back to parent model", {
+      role: role.id,
+      model: role.model,
+      parent: parentModel ? `${parentModel.providerID}/${parentModel.id}` : undefined,
+    })
+    return childModelForRole(parentModel, { ...role, model: undefined })
+  } catch (error) {
+    // Never let the availability probe break dispatch; keep the configured model.
+    log.error("role model availability check failed", { role: role.id, model: role.model, error })
+    return childModelForRole(parentModel, role)
+  }
+}
+
 export function childLaunchPrompt(brief: DispatchBrief, role: LaunchSnapshot) {
-  return [childInternalTaskBrief(brief), "## Role instructions (launch only)", role.prompt.trim() || "No additional role instructions."].join(
-    "\n\n",
-  )
+  return [
+    childInternalTaskBrief(brief),
+    "## Role instructions (launch only)",
+    role.prompt.trim() || "No additional role instructions.",
+  ].join("\n\n")
 }
 
 export function childLaunchParts(brief: DispatchBrief, role: LaunchSnapshot) {
   return [
     { type: "text" as const, text: childTaskBrief(brief, role) },
-    { type: "text" as const, text: childLaunchPrompt(brief, role), synthetic: true, metadata: { kind: "plan_dispatch_context" } },
+    {
+      type: "text" as const,
+      text: childLaunchPrompt(brief, role),
+      synthetic: true,
+      metadata: { kind: "plan_dispatch_context" },
+    },
   ]
 }
 
@@ -537,7 +585,7 @@ function protocolFor(
             parentID: parent.id,
             title: `Plan task ${input.taskId}`,
             agent: profileAgentName(input.role.id),
-            model: childModelForRole(parent.model, input.role),
+            model: await resolveChildModel(run, parent.model, input.role),
             permission: parent.permission,
             workspaceID: parent.workspaceID,
             directory: parent.directory,
@@ -556,6 +604,12 @@ function protocolFor(
         // otherwise leave its task in running forever.
         const settleAndNotify = (message?: string) =>
           Effect.gen(function* () {
+            // A user-driven steer/terminate endpoint marks an intent before
+            // cancelling this run and owns the resulting settle, Inbox entry,
+            // and parent wakeup itself. Skip the automatic path so the main
+            // agent never sees a bogus "child stopped without Report" entry
+            // for an intentional interruption.
+            if (takeChildRunIntent(input.childSessionId)) return
             const outcome = yield* Effect.promise(() =>
               protocol.settleChildExit({
                 workspaceRoot: input.brief.workspace_root,
@@ -599,13 +653,12 @@ function protocolFor(
               parts: childLaunchParts(input.brief, input.role),
             })
             yield* ops.loop({ sessionID: input.childSessionId as SessionID })
-          })
-            .pipe(
-              Effect.catchCause((cause) => settleAndNotify(`子 Agent 启动或执行失败：${Cause.pretty(cause)}`)),
-              // Runs after clean exits and after the recovered failure above;
-              // the second call is a no-op when the task was already settled.
-              Effect.flatMap(() => settleAndNotify()),
-            ),
+          }).pipe(
+            Effect.catchCause((cause) => settleAndNotify(`子 Agent 启动或执行失败：${Cause.pretty(cause)}`)),
+            // Runs after clean exits and after the recovered failure above;
+            // the second call is a no-op when the task was already settled.
+            Effect.flatMap(() => settleAndNotify()),
+          ),
         )
       },
       async terminate(sessionId) {
@@ -623,15 +676,24 @@ function protocolFor(
             ),
           candidateDeclarations: (input) =>
             runtime.bridge.promise(
-              runtime.candidateBoard!.candidateDeclarations({ ...input, rootSessionID: input.rootSessionID as SessionID }),
+              runtime.candidateBoard!.candidateDeclarations({
+                ...input,
+                rootSessionID: input.rootSessionID as SessionID,
+              }),
             ),
           candidatePeerReplyCoverage: (input) =>
             runtime.bridge.promise(
-              runtime.candidateBoard!.candidatePeerReplyCoverage({ ...input, rootSessionID: input.rootSessionID as SessionID }),
+              runtime.candidateBoard!.candidatePeerReplyCoverage({
+                ...input,
+                rootSessionID: input.rootSessionID as SessionID,
+              }),
             ),
           candidateParticipants: (input) =>
             runtime.bridge.promise(
-              runtime.candidateBoard!.candidateParticipants({ ...input, rootSessionID: input.rootSessionID as SessionID }),
+              runtime.candidateBoard!.candidateParticipants({
+                ...input,
+                rootSessionID: input.rootSessionID as SessionID,
+              }),
             ),
         }
       : undefined,
@@ -697,7 +759,8 @@ export const BlackboardTool = Tool.define(
   "Blackboard",
   Effect.gen(function* () {
     return {
-      description: "无参读取当前 Step 的 Task 与新消息；用 message 发布简洁的发现、依赖、交接、决策、风险、阻塞或求助，不要发布心跳或重复的普通进度。",
+      description:
+        "无参读取当前 Step 的 Task 与新消息；用 message 发布简洁的发现、依赖、交接、决策、风险、阻塞或求助，不要发布心跳或重复的普通进度。",
       parameters: AnyObject,
       jsonSchema: BLACKBOARD_INPUT_SCHEMA,
       catalog: {
@@ -710,13 +773,16 @@ export const BlackboardTool = Tool.define(
         Effect.gen(function* () {
           const board = yield* Blackboard.Service
           const bridge = yield* EffectBridge.make()
-          const value = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
+          const value =
+            input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
           if (typeof value.message === "string") {
             const message = yield* board.postAgent({
               sessionID: ctx.sessionID,
               message: value.message,
               kind: typeof value.kind === "string" ? (value.kind as Blackboard.BlackboardKind) : undefined,
-              taskIDs: Array.isArray(value.task_ids) ? value.task_ids.filter((item): item is string => typeof item === "string") : undefined,
+              taskIDs: Array.isArray(value.task_ids)
+                ? value.task_ids.filter((item): item is string => typeof item === "string")
+                : undefined,
               replyTo: typeof value.reply_to === "string" ? value.reply_to : undefined,
               attachments: Array.isArray(value.attachments)
                 ? value.attachments.filter((item): item is string => typeof item === "string")
@@ -749,7 +815,8 @@ export const BlackboardReplyTool = Tool.define(
         Effect.gen(function* () {
           const board = yield* Blackboard.Service
           const bridge = yield* EffectBridge.make()
-          const value = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
+          const value =
+            input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
           if (typeof value.message !== "string" || typeof value.reply_to !== "string")
             throw new PlanProtocolError({
               code: "SCHEMA_VALIDATION",
@@ -796,10 +863,7 @@ export const PlanCreateTool = Tool.define(
           const session = yield* getSession(sessions, ctx.sessionID)
           const result = yield* Effect.promise(() => protocol.create(protocolContext(session, ctx), input))
           if (result.ok) requestToolCatalogRefresh(ctx)
-          return jsonResult(
-            "Plan.create",
-            result,
-          )
+          return jsonResult("Plan.create", result)
         }),
     }
   }),
@@ -841,10 +905,7 @@ export const PlanUpdateTool = Tool.define(
           const session = yield* getSession(sessions, ctx.sessionID)
           const result = yield* Effect.promise(() => protocol.update(protocolContext(session, ctx), input))
           if (result.ok) requestToolCatalogRefresh(ctx)
-          return jsonResult(
-            "Plan.update",
-            result,
-          )
+          return jsonResult("Plan.update", result)
         }).pipe(Effect.provide(Blackboard.defaultLayer)),
     }
   }),
@@ -874,14 +935,12 @@ export const DispatchDispatchTool = Tool.define(
           const protocol = protocolFor(sessions, bus, {
             bridge,
             promptOps: promptOps(ctx),
-            profiles: async () => enabledProfiles(resolveProfiles((await bridge.promise(config.get())).subagents?.profiles)),
+            profiles: async () =>
+              enabledProfiles(resolveProfiles((await bridge.promise(config.get())).subagents?.profiles)),
           })
           const result = yield* Effect.promise(() => protocol.dispatch(protocolContext(session, ctx), input))
           if (result.ok) requestToolCatalogRefresh(ctx)
-          return jsonResult(
-            "Dispatch.dispatch",
-            result,
-          )
+          return jsonResult("Dispatch.dispatch", result)
         }),
     }
   }),
@@ -926,7 +985,8 @@ export const DispatchCancelTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description: "取消多智能体任务并终止其子 session；已取消任务可重复调用，子 session 清理失败会在结果中返回 termination_errors。",
+      description:
+        "取消多智能体任务并终止其子 session；已取消任务可重复调用，子 session 清理失败会在结果中返回 termination_errors。",
       parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String) }),
       jsonSchema: cancelSchema,
       catalog: {
@@ -957,7 +1017,12 @@ export const CandidateDeclareTool = Tool.define(
       description: "在候选讨论的 declaring 阶段提交一次盲声明。",
       parameters: AnyObject,
       jsonSchema: candidateDeclareSchema,
-      catalog: { category: "communication" as const, mutability: "write" as const, risk: "low" as const, detail: "standard" as const },
+      catalog: {
+        category: "communication" as const,
+        mutability: "write" as const,
+        risk: "low" as const,
+        detail: "standard" as const,
+      },
       execute: (input: unknown, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const board = yield* Blackboard.Service
@@ -983,7 +1048,12 @@ export const CandidateReadyTool = Tool.define(
       description: "确认已回复每位其他候选的顶层声明。",
       parameters: Empty,
       jsonSchema: { type: "object", additionalProperties: false } satisfies JSONSchema7,
-      catalog: { category: "communication" as const, mutability: "write" as const, risk: "low" as const, detail: "standard" as const },
+      catalog: {
+        category: "communication" as const,
+        mutability: "write" as const,
+        risk: "low" as const,
+        detail: "standard" as const,
+      },
       execute: (_input: {}, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const board = yield* Blackboard.Service
@@ -1009,7 +1079,12 @@ export const CandidateBeginTool = Tool.define(
       description: "由根会话显式开始候选的独立执行阶段。",
       parameters: Empty,
       jsonSchema: { type: "object", additionalProperties: false } satisfies JSONSchema7,
-      catalog: { category: "subagent" as const, mutability: "execute" as const, risk: "medium" as const, detail: "advanced" as const },
+      catalog: {
+        category: "subagent" as const,
+        mutability: "execute" as const,
+        risk: "medium" as const,
+        detail: "advanced" as const,
+      },
       execute: (_input: {}, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const bridge = yield* EffectBridge.make()
@@ -1034,7 +1109,12 @@ export const CandidateSubmitTool = Tool.define(
       description: "把候选方案写入服务端隔离提案并提交候选报告。",
       parameters: AnyObject,
       jsonSchema: candidateSubmitSchema,
-      catalog: { category: "subagent" as const, mutability: "write" as const, risk: "medium" as const, detail: "standard" as const },
+      catalog: {
+        category: "subagent" as const,
+        mutability: "write" as const,
+        risk: "medium" as const,
+        detail: "standard" as const,
+      },
       execute: (input: unknown, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const bridge = yield* EffectBridge.make()

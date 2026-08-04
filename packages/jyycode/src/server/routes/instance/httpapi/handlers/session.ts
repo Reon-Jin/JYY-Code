@@ -17,8 +17,10 @@ import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
-import { PlanProtocol } from "@/plan/protocol"
+import { clearChildRunIntent, markChildRunIntent, peekChildRunIntent, PlanProtocol } from "@/plan/protocol"
 import { Blackboard } from "@/plan/blackboard"
+import { defaultPlanEvents, defaultPlanInbox } from "@/plan/events"
+import { RuntimeEvent } from "@/plan/runtime-event"
 import { planFilePath, readPlanFileSync } from "@/plan/schema"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NamedError } from "@jyycode-ai/core/util/error"
@@ -54,6 +56,40 @@ const tryParseJson = (text: string) =>
     try: () => JSON.parse(text) as unknown,
     catch: () => new HttpApiError.BadRequest({}),
   })
+
+type ChildTaskRef = {
+  parentSessionId: string
+  childSessionId: string
+  taskId: string
+  runId: string
+  workspaceRoot: string
+}
+
+/**
+ * Locate the in-flight plan task that owns this child session. Only tasks
+ * still expecting work from the child (dispatched/running, not cancelled)
+ * qualify; anything else means the run is already accounted for.
+ */
+function activePlanTaskForChild(child: Session.Info): ChildTaskRef | undefined {
+  if (!child.parentID) return undefined
+  const plan = readPlanFileSync(planFilePath(child.directory, child.parentID))
+  if (!plan) return undefined
+  for (const step of plan.steps) {
+    for (const task of step.tasks) {
+      const dispatch = task.dispatch
+      if (!dispatch || dispatch.child_session_id !== child.id || dispatch.cancelled_at !== null) continue
+      if (task.status !== "running" && task.status !== "dispatched") continue
+      return {
+        parentSessionId: child.parentID,
+        childSessionId: child.id,
+        taskId: task.id,
+        runId: dispatch.run_id,
+        workspaceRoot: child.directory,
+      }
+    }
+  }
+  return undefined
+}
 
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
   Effect.gen(function* () {
@@ -101,6 +137,85 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return current
     })
 
+    // Push a plan.updated event onto the bus so desktop clients refetch the
+    // plan snapshot after handler-side plan mutations. Protocol writes done
+    // through PlanProtocol only reach the in-process event hub.
+    const publishPlanRefresh = (ref: ChildTaskRef) =>
+      Effect.gen(function* () {
+        const event = defaultPlanEvents.publish({
+          type: "plan.updated",
+          session_id: ref.parentSessionId,
+          revision: readPlanFileSync(planFilePath(ref.workspaceRoot, ref.parentSessionId))?.revision,
+          payload: new PlanProtocol().snapshot({
+            workspaceRoot: ref.workspaceRoot,
+            sessionId: ref.parentSessionId,
+            mode: "multi",
+          }),
+        })
+        yield* bus.publish(RuntimeEvent, event).pipe(Effect.ignore)
+      })
+
+    // Add an Inbox entry for the parent session and wake it so the main agent
+    // processes the event; mirrors the dispatch watcher's settle notification.
+    const notifyParent = (input: {
+      ref: ChildTaskRef
+      kind: "user_interrupt" | "user_terminated" | "runtime_error"
+      message: string
+      suggestedActions: string[]
+      wakeKind: string
+      wakeText: string
+    }) =>
+      Effect.gen(function* () {
+        defaultPlanInbox.add({
+          session_id: input.ref.parentSessionId,
+          task_id: input.ref.taskId,
+          run_id: input.ref.runId,
+          kind: input.kind,
+          message: input.message,
+          suggested_actions: input.suggestedActions,
+        })
+        yield* publishPlanRefresh(input.ref)
+        yield* promptSvc
+          .wake({
+            sessionID: input.ref.parentSessionId as SessionID,
+            kind: input.wakeKind,
+            text: input.wakeText,
+          })
+          .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+      })
+
+    const settleChildTask = (ref: ChildTaskRef) =>
+      Effect.promise(() =>
+        new PlanProtocol().settleChildExit({
+          workspaceRoot: ref.workspaceRoot,
+          parentSessionId: ref.parentSessionId,
+          childSessionId: ref.childSessionId,
+          taskId: ref.taskId,
+          runId: ref.runId,
+        }),
+      ).pipe(Effect.orElseSucceed(() => ({ settled: false, reason: "settle_failed" }) as const))
+
+    // Runs when a steered (user-interrupted) child turn ends. The dispatch
+    // watcher skipped this run via the steer intent, so without this watcher a
+    // steered child that stops without Report would strand its task. A newer
+    // steer/terminate intent means a newer owner handles the run instead.
+    const settleSteeredTurn = (ref: ChildTaskRef, seq: number) =>
+      Effect.gen(function* () {
+        const pending = peekChildRunIntent(ref.childSessionId)
+        if (pending && pending.seq > seq) return
+        if (pending) clearChildRunIntent(ref.childSessionId, pending.seq)
+        const outcome = yield* settleChildTask(ref)
+        if (!outcome.settled) return
+        yield* notifyParent({
+          ref,
+          kind: "runtime_error",
+          message: `子 Agent 未提交 Report 即停止运行：任务 ${ref.taskId} 已标记为需要修改，可修正后重新派发或取消。`,
+          suggestedActions: ["读取 Inbox 查看错误", "取消任务并修正后重新派发"],
+          wakeKind: "plan_child_runtime_error",
+          wakeText: `子 Agent ${ref.childSessionId} 执行 ${ref.taskId} 时停止运行，任务状态已同步更新。先调用 Plan_read，再处理 Inbox。`,
+        })
+      })
+
     const get = Effect.fn("SessionHttpApi.get")(function* (ctx: { params: { sessionID: SessionID } }) {
       return yield* requireSession(ctx.params.sessionID)
     })
@@ -135,9 +250,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       }
     })
 
-    const plan = Effect.fn("SessionHttpApi.plan")(function* (ctx: {
-      params: { sessionID: SessionID }
-    }) {
+    const plan = Effect.fn("SessionHttpApi.plan")(function* (ctx: { params: { sessionID: SessionID } }) {
       const root = yield* requireSession(ctx.params.sessionID)
       return new PlanProtocol().snapshot({
         workspaceRoot: root.directory,
@@ -195,7 +308,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         })
         .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
       const planFile = readPlanFileSync(planFilePath(root.directory, root.id))
-      const currentStep = planFile?.current_step ? planFile.steps.find((step) => step.id === planFile.current_step) : undefined
+      const currentStep = planFile?.current_step
+        ? planFile.steps.find((step) => step.id === planFile.current_step)
+        : undefined
       const phase = currentStep?.candidate_discussion?.phase
       if (currentStep && phase && phase !== "running") {
         const candidates = yield* blackboard.candidateParticipants({ rootSessionID: root.id, stepID: currentStep.id })
@@ -378,7 +493,25 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       const child = yield* requireSession(ctx.params.sessionID)
+      const ref = activePlanTaskForChild(child)
+      // Mark the steer intent before cancelling so the dispatch watcher skips
+      // its automatic "child exited" settle for this intentional interruption.
+      const intent = ref ? markChildRunIntent(child.id, "steer") : undefined
+      yield* promptSvc.cancel(child.id)
+      if (ref) {
+        yield* notifyParent({
+          ref,
+          kind: "user_interrupt",
+          message: `用户打断了子 Agent 并发送了新指令：任务 ${ref.taskId} 正在按新指令继续执行。`,
+          suggestedActions: ["读取 Inbox 查看详情", "必要时用 Dispatch_cancel 取消该任务"],
+          wakeKind: "plan_child_user_interrupted",
+          wakeText: `用户手动打断了子 Agent ${child.id}（任务 ${ref.taskId}）并发送了新指令。先调用 Plan_read，再处理 Inbox。`,
+        })
+      }
       yield* promptSvc.prompt({ ...ctx.payload, sessionID: child.id }).pipe(
+        // The steered turn owns the task now; when it ends, park the task if
+        // the child stopped without reporting (idempotent, run-scoped).
+        Effect.ensuring(ref && intent ? settleSteeredTurn(ref, intent.seq) : Effect.void),
         Effect.catchCause((cause) =>
           Effect.gen(function* () {
             yield* Effect.logError("interrupt_prompt failed").pipe(Effect.annotateLogs({ sessionID: child.id, cause }))
@@ -390,6 +523,30 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
         ),
         Effect.forkIn(scope, { startImmediately: true }),
       )
+      return HttpApiSchema.NoContent.make()
+    })
+
+    const terminate = Effect.fn("SessionHttpApi.terminate")(function* (ctx: { params: { sessionID: SessionID } }) {
+      const child = yield* requireSession(ctx.params.sessionID)
+      const ref = activePlanTaskForChild(child)
+      // The endpoint owns the settle and the Inbox notification; the dispatch
+      // watcher and any steered-turn watcher skip this run via the intent.
+      const intent = ref ? markChildRunIntent(child.id, "terminate") : undefined
+      yield* promptSvc.cancel(child.id)
+      if (ref) {
+        const outcome = yield* settleChildTask(ref)
+        yield* notifyParent({
+          ref,
+          kind: "user_terminated",
+          message: outcome.settled
+            ? `用户手动终止了子 Agent：任务 ${ref.taskId} 已标记为需要修改，可修正后重新派发或取消。`
+            : `用户手动终止了子 Agent：任务 ${ref.taskId} 的最新状态请通过 Plan_read 确认。`,
+          suggestedActions: ["读取 Inbox 查看详情", "取消任务或修正后重新派发"],
+          wakeKind: "plan_child_user_terminated",
+          wakeText: `用户手动终止了子 Agent ${child.id}（任务 ${ref.taskId}），任务状态已同步更新。先调用 Plan_read，再处理 Inbox。`,
+        })
+        if (intent) clearChildRunIntent(child.id, intent.seq)
+      }
       return HttpApiSchema.NoContent.make()
     })
 
@@ -591,6 +748,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("blackboardPost", blackboardPost)
       .handle("blackboardRead", blackboardRead)
       .handle("interruptPrompt", interruptPrompt)
+      .handle("terminate", terminate)
       .handle("init", init)
       .handle("share", share)
       .handle("unshare", unshare)

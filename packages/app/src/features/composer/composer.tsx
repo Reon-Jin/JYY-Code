@@ -1,7 +1,7 @@
 import { tr } from "../../i18n/i18n-context"
 import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
-import { File, ListPlus, Plus, RotateCcw, Send, Square, X } from "lucide-solid"
+import { File, ListPlus, OctagonX, Plus, RotateCcw, Send, Square, X } from "lucide-solid"
 import { createEffect, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { Button, IconButton } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
@@ -136,6 +136,8 @@ export function Composer(props: ComposerProps) {
   })
   const [queuePhase, setQueuePhase] = createSignal<"ready" | "awaiting-busy" | "busy-observed">("ready")
   const [guiding, setGuiding] = createSignal(false)
+  const [confirmingTerminate, setConfirmingTerminate] = createSignal(false)
+  let confirmTerminateTimer: ReturnType<typeof setTimeout> | undefined
   const [focused, setFocused] = createSignal(false)
   const [autocompleteDismissed, setAutocompleteDismissed] = createSignal(false)
   const [attachments, setAttachments] = createSignal<readonly ComposerAttachment[]>([])
@@ -243,6 +245,23 @@ export function Composer(props: ComposerProps) {
   function stop() {
     void controller.stop().catch(() => {})
   }
+
+  // Two-click terminate: the first click arms the confirmation, the second
+  // stops the child assignment and notifies the main agent through the Inbox.
+  function terminate() {
+    if (props.disabled || controller.terminating()) return
+    if (!confirmingTerminate()) {
+      setConfirmingTerminate(true)
+      clearTimeout(confirmTerminateTimer)
+      confirmTerminateTimer = setTimeout(() => setConfirmingTerminate(false), 3000)
+      return
+    }
+    clearTimeout(confirmTerminateTimer)
+    setConfirmingTerminate(false)
+    void controller.terminate().catch(() => {})
+  }
+
+  onCleanup(() => clearTimeout(confirmTerminateTimer))
 
   async function guide(id: string) {
     if (guiding() || props.disabled) return
@@ -415,6 +434,27 @@ export function Composer(props: ComposerProps) {
               event.preventDefault()
               submit()
             }}
+            onPaste={(event) => {
+              const clipboard = event.clipboardData
+              if (!clipboard) return
+              const files = Array.from(clipboard.items)
+                .filter((item) => item.kind === "file")
+                .map((item) => item.getAsFile())
+                .filter((file): file is globalThis.File => file !== null)
+              if (files.length === 0) return
+              event.preventDefault()
+              const timestamp = new Date().toISOString().replace(/[:.]/gu, "-")
+              const renamed = files.map((file, index) => {
+                const extension =
+                  (file.name.includes(".") ? file.name.split(".").at(-1) : file.type.split("/").at(-1)) ?? "png"
+                const name =
+                  file.name === "" || file.name.startsWith("image")
+                    ? `pasted-${timestamp}${index > 0 ? `-${index + 1}` : ""}.${extension}`
+                    : file.name
+                return new globalThis.File([file], name, { type: file.type })
+              })
+              void addFiles(renamed)
+            }}
           />
           <Show when={!props.minimal}>
             <button
@@ -427,68 +467,76 @@ export function Composer(props: ComposerProps) {
               <Plus aria-hidden="true" />
             </button>
           </Show>
-          <Show when={!props.minimal || active()}>
-            <div class="composer__action">
-              <Show
-                when={active()}
-                fallback={
-                  <Show when={!props.minimal}>
-                    <IconButton
-                      label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
-                      disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
-                      loading={controller.sending()}
-                      loadingLabel={tr("composer.sending")}
-                      onClick={submit}
-                    >
-                      <Send aria-hidden="true" />
-                    </IconButton>
-                  </Show>
-                }
-              >
-                <Show
-                  when={props.minimal && props.childSteering}
-                  fallback={
-                    <div class="composer__active-actions">
-                      <Show when={!props.minimal}>
-                        <IconButton
-                          label={tr("composer.join-queue")}
-                          disabled={!controller.draft().trim() && attachments().length === 0}
-                          onClick={submit}
-                        >
-                          <ListPlus aria-hidden="true" />
-                        </IconButton>
-                      </Show>
-                      <Button
-                        size="small"
-                        variant="secondary"
-                        loading={controller.stopping()}
-                        loadingLabel={tr("composer.stopping")}
-                        onClick={stop}
-                      >
-                        <Square aria-hidden="true" />
-                        {tr("composer.stop")}
-                      </Button>
-                    </div>
-                  }
+          <div class="composer__action">
+            <Show
+              when={active()}
+              fallback={
+                <IconButton
+                  label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
+                  disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
+                  loading={controller.sending()}
+                  loadingLabel={tr("composer.sending")}
+                  onClick={submit}
                 >
+                  <Send aria-hidden="true" />
+                </IconButton>
+              }
+            >
+              <Show
+                when={props.minimal && props.childSteering}
+                fallback={
                   <div class="composer__active-actions">
-                    <span class="composer__steering-warning">{tr("composer.interrupt-assignment-warning")}</span>
+                    <Show when={!props.minimal}>
+                      <IconButton
+                        label={tr("composer.join-queue")}
+                        disabled={!controller.draft().trim() && attachments().length === 0}
+                        onClick={submit}
+                      >
+                        <ListPlus aria-hidden="true" />
+                      </IconButton>
+                    </Show>
                     <Button
                       size="small"
                       variant="secondary"
-                      disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
-                      loading={controller.sending()}
-                      loadingLabel={tr("composer.sending")}
-                      onClick={submit}
+                      loading={controller.stopping()}
+                      loadingLabel={tr("composer.stopping")}
+                      onClick={stop}
                     >
-                      <Send aria-hidden="true" />
-                      {tr("composer.send-and-interrupt")}
+                      <Square aria-hidden="true" />
+                      {tr("composer.stop")}
                     </Button>
                   </div>
-                </Show>
+                }
+              >
+                <div class="composer__active-actions">
+                  <span class="composer__steering-warning">{tr("composer.interrupt-assignment-warning")}</span>
+                  <Button
+                    size="small"
+                    variant="secondary"
+                    disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
+                    loading={controller.sending()}
+                    loadingLabel={tr("composer.sending")}
+                    onClick={submit}
+                  >
+                    <Send aria-hidden="true" />
+                    {tr("composer.send-and-interrupt")}
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="secondary"
+                    disabled={props.disabled || controller.sending()}
+                    loading={controller.terminating()}
+                    loadingLabel={tr("composer.terminating")}
+                    data-confirming={confirmingTerminate() ? "true" : undefined}
+                    onClick={terminate}
+                  >
+                    <OctagonX aria-hidden="true" />
+                    {confirmingTerminate() ? tr("composer.terminate-confirm") : tr("composer.terminate")}
+                  </Button>
+                </div>
               </Show>
-            </div>
-          </Show>
+            </Show>
+          </div>
         </div>
 
         <Show when={props.usage} keyed>

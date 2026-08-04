@@ -741,6 +741,10 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       event("session.idle", { sessionID })
       return json(true)
     }
+    if (sessionID && url.pathname.endsWith("/terminate") && request.method === "POST") {
+      event("session.idle", { sessionID })
+      return new Response(null, { status: 204 })
+    }
     if (sessionID && request.method === "GET") return json(sessions.find((session) => session.id === sessionID))
 
     if (url.pathname === "/permission" && request.method === "GET") return json(permissions)

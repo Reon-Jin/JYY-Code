@@ -22,12 +22,15 @@ describe("workspace inspector preferences", () => {
     expect(defaultInspectorPreferences).toEqual({ panes: [], ratios: [], width: 420 })
   })
 
-  it.each(["plan", "subagents", "blackboard", "changes"] as const)("round-trips the %s pane per normalized project", (pane) => {
-    saveInspectorPreferences("C:/Work/Demo/", { panes: [pane], ratios: [1], width: 360 })
+  it.each(["plan", "subagents", "blackboard", "changes"] as const)(
+    "round-trips the %s pane per normalized project",
+    (pane) => {
+      saveInspectorPreferences("C:/Work/Demo/", { panes: [pane], ratios: [1], width: 360 })
 
-    expect(loadInspectorPreferences("c:\\work\\demo")).toEqual({ panes: [pane], ratios: [1], width: 360 })
-    expect(loadInspectorPreferences("D:\\other")).toEqual({ panes: [], ratios: [], width: 420 })
-  })
+      expect(loadInspectorPreferences("c:\\work\\demo")).toEqual({ panes: [pane], ratios: [1], width: 360 })
+      expect(loadInspectorPreferences("D:\\other")).toEqual({ panes: [], ratios: [], width: 420 })
+    },
+  )
 
   it("closes the drawer for malformed values", () => {
     localStorage.setItem("jyycode:workspace-inspector:c:\\bad", "not-json")

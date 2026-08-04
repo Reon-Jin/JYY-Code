@@ -66,9 +66,7 @@ export const EditTool = Tool.define(
           yield* Effect.scoped(
             Effect.gen(function* () {
               const handle = yield* Effect.acquireRelease(
-                Effect.tryPromise(() =>
-                  fileWriteLock.acquire(filePath, { holder: ctx.sessionID, signal: ctx.abort }),
-                ),
+                Effect.tryPromise(() => fileWriteLock.acquire(filePath, { holder: ctx.sessionID, signal: ctx.abort })),
                 (lock) => Effect.sync(() => lock.release()),
               )
               waitedMs = handle.waitedMs

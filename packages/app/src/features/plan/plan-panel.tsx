@@ -71,9 +71,7 @@ export function PlanPanel(props: {
         waitingForPlanMessage={tr("plan.waiting-for-plan")}
         noPlanMessage={tr("plan.no-plan")}
         loading={Boolean(props.rootSessionID) && planQuery.isPending}
-        error={
-          planQuery.error ? errorMessage(planQuery.error, tr("plan.unable-to-load-plan")) : undefined
-        }
+        error={planQuery.error ? errorMessage(planQuery.error, tr("plan.unable-to-load-plan")) : undefined}
         onRetry={() => void planQuery.refetch()}
         onOpenChild={props.onOpenChild}
       />

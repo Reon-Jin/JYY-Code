@@ -590,13 +590,16 @@ describe("file-backed plan protocol", () => {
     const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
     expect(dispatched.ok).toBe(true)
     if (!dispatched.ok) return
-    const reported = await protocol.report({ ...context(root, "single", "child_blackboard_gate"), runId: dispatched.dispatched[0]!.run_id }, {
-      run_id: dispatched.dispatched[0]!.run_id,
-      status: "done",
-      summary: "ready",
-      artifacts: [artifact],
-      issues: [],
-    })
+    const reported = await protocol.report(
+      { ...context(root, "single", "child_blackboard_gate"), runId: dispatched.dispatched[0]!.run_id },
+      {
+        run_id: dispatched.dispatched[0]!.run_id,
+        status: "done",
+        summary: "ready",
+        artifacts: [artifact],
+        issues: [],
+      },
+    )
     expect(reported.ok).toBe(true)
     const blocked = await protocol.update(context(root), {
       revision: 3,

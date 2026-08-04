@@ -7,8 +7,18 @@ import type { RemoteTask } from "../lib/models"
 afterEach(cleanup)
 
 const task: RemoteTask = {
-  id: "one", deviceID: "desktop", project: "桌面端", title: "修复设置页面", status: "running", summary: "正在处理任务。", progress: 0.4,
-  updatedAt: new Date().toISOString(), todo: [{ id: "todo", title: "补充测试", isComplete: false }], children: [], pending: null, timeline: [],
+  id: "one",
+  deviceID: "desktop",
+  project: "桌面端",
+  title: "修复设置页面",
+  status: "running",
+  summary: "正在处理任务。",
+  progress: 0.4,
+  updatedAt: new Date().toISOString(),
+  todo: [{ id: "todo", title: "补充测试", isComplete: false }],
+  children: [],
+  pending: null,
+  timeline: [],
 }
 
 test("仅在用户打开对话时才请求完整内容", async () => {

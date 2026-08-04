@@ -40,11 +40,7 @@ function groupKey(group: PresentedMessageGroup) {
   return `${group.type}:${group.parts[0]?.id ?? "empty"}`
 }
 
-function PresentedGroupView(props: {
-  group: PresentedMessageGroup
-  messageRole: string
-  messageAgent?: string
-}) {
+function PresentedGroupView(props: { group: PresentedMessageGroup; messageRole: string; messageAgent?: string }) {
   const partIDs = createMemo(() => props.group.parts.map((part) => part.id))
   const partsByID = createMemo(() => new Map(props.group.parts.map((part) => [part.id, part])))
   const running = () =>
@@ -192,9 +188,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
             >
               <div class="message-timeline__content">
                 <For each={messageIDs()}>
-                  {(messageID) => (
-                    <PresentedMessageView message={messagesByID().get(messageID)!} />
-                  )}
+                  {(messageID) => <PresentedMessageView message={messagesByID().get(messageID)!} />}
                 </For>
               </div>
             </Show>

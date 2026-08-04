@@ -53,9 +53,7 @@ export const WriteTool = Tool.define(
           const { exists, waitedMs } = yield* Effect.scoped(
             Effect.gen(function* () {
               const handle = yield* Effect.acquireRelease(
-                Effect.tryPromise(() =>
-                  fileWriteLock.acquire(filepath, { holder: ctx.sessionID, signal: ctx.abort }),
-                ),
+                Effect.tryPromise(() => fileWriteLock.acquire(filepath, { holder: ctx.sessionID, signal: ctx.abort })),
                 (lock) => Effect.sync(() => lock.release()),
               )
               yield* ctx.metadata({ metadata: { filepath, waitedMs: handle.waitedMs } })

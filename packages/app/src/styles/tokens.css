@@ -86,12 +86,8 @@
   /* Overlay & elevation */
   --color-overlay: rgb(29 32 37 / 34%);
   --shadow-xs: 0 1px 2px rgb(31 34 40 / 5%);
-  --shadow-sm:
-    0 1px 2px rgb(31 34 40 / 4%),
-    0 2px 8px rgb(31 34 40 / 5%);
-  --shadow-md:
-    0 2px 6px rgb(31 34 40 / 4%),
-    0 12px 32px -8px rgb(31 34 40 / 12%);
+  --shadow-sm: 0 1px 2px rgb(31 34 40 / 4%), 0 2px 8px rgb(31 34 40 / 5%);
+  --shadow-md: 0 2px 6px rgb(31 34 40 / 4%), 0 12px 32px -8px rgb(31 34 40 / 12%);
   --shadow-panel: 0 24px 64px -16px rgb(31 34 40 / 22%);
   --focus-ring: 0 0 0 3px rgb(71 90 116 / 20%);
 }

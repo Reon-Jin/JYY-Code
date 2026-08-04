@@ -53,7 +53,6 @@ describe("projectPlanState", () => {
       avatar: "code",
     })
     expect(result.tasks[1]?.role).toBeUndefined()
-
     ;(
       snapshot as unknown as { steps: Array<{ tasks: Array<{ role: { name: string } }> }> }
     ).steps[0]!.tasks[0]!.role!.name = "Changed later"

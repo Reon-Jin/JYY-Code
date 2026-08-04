@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 import { createDesktopQueryClient } from "../../data/query-client"
-import { blackboardMessagePurpose, blackboardQueryOptions, createBlackboardApi, loadBlackboard } from "./blackboard-query"
+import {
+  blackboardMessagePurpose,
+  blackboardQueryOptions,
+  createBlackboardApi,
+  loadBlackboard,
+} from "./blackboard-query"
 
 describe("blackboard query boundary", () => {
   it("loads a root-scoped snapshot with optional step filters", async () => {

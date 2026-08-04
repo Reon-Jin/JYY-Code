@@ -51,7 +51,13 @@ export function createRelay(options: RelayOptions = {}): Relay {
     async fetch(request, server) {
       const url = new URL(request.url)
       if (url.pathname === "/health") return Response.json({ ok: true })
-      if (url.pathname === "/connect" && server.upgrade(request, { data: { messageIDs: new Set(), windowStartedAt: Date.now(), envelopeCount: 0, pairingCount: 0 } })) return
+      if (
+        url.pathname === "/connect" &&
+        server.upgrade(request, {
+          data: { messageIDs: new Set(), windowStartedAt: Date.now(), envelopeCount: 0, pairingCount: 0 },
+        })
+      )
+        return
       if (staticRoot && request.method === "GET") return serveStatic(staticRoot, url.pathname)
       return new Response("Not found", { status: 404 })
     },
@@ -110,17 +116,28 @@ function staticResponse(file: Blob, filename: string) {
   })
 }
 
-function registerPushToken(tokens: Map<string, Map<string, string>>, socket: ServerWebSocket<SocketData>, message: RelayPushToken) {
+function registerPushToken(
+  tokens: Map<string, Map<string, string>>,
+  socket: ServerWebSocket<SocketData>,
+  message: RelayPushToken,
+) {
   const hello = socket.data.hello
-  if (!hello || hello.role !== "desktop" || hello.routeID !== message.routeID) return sendError(socket, "not_registered")
+  if (!hello || hello.role !== "desktop" || hello.routeID !== message.routeID)
+    return sendError(socket, "not_registered")
   const routeTokens = tokens.get(message.routeID) ?? new Map()
   routeTokens.set(message.deviceID, message.token)
   tokens.set(message.routeID, routeTokens)
 }
 
-async function sendNotification(tokens: Map<string, Map<string, string>>, sender: PushSender | undefined, socket: ServerWebSocket<SocketData>, message: RelayNotification) {
+async function sendNotification(
+  tokens: Map<string, Map<string, string>>,
+  sender: PushSender | undefined,
+  socket: ServerWebSocket<SocketData>,
+  message: RelayNotification,
+) {
   const hello = socket.data.hello
-  if (!hello || hello.role !== "desktop" || hello.routeID !== message.routeID) return sendError(socket, "not_registered")
+  if (!hello || hello.role !== "desktop" || hello.routeID !== message.routeID)
+    return sendError(socket, "not_registered")
   const token = tokens.get(message.routeID)?.get(message.deviceID)
   if (!token || !sender) return
   try {
@@ -130,7 +147,11 @@ async function sendNotification(tokens: Map<string, Map<string, string>>, sender
   }
 }
 
-function register(routes: Map<string, Map<string, ServerWebSocket<SocketData>>>, socket: ServerWebSocket<SocketData>, hello: RelayHello) {
+function register(
+  routes: Map<string, Map<string, ServerWebSocket<SocketData>>>,
+  socket: ServerWebSocket<SocketData>,
+  hello: RelayHello,
+) {
   unregister(routes, socket)
   const clients = routes.get(hello.routeID) ?? new Map()
   routes.set(hello.routeID, clients)
@@ -139,7 +160,11 @@ function register(routes: Map<string, Map<string, ServerWebSocket<SocketData>>>,
   socket.send(JSON.stringify({ type: "relay.ready", routeID: hello.routeID, clientID: hello.clientID }))
 }
 
-function forward(routes: Map<string, Map<string, ServerWebSocket<SocketData>>>, socket: ServerWebSocket<SocketData>, envelope: RelayEnvelope) {
+function forward(
+  routes: Map<string, Map<string, ServerWebSocket<SocketData>>>,
+  socket: ServerWebSocket<SocketData>,
+  envelope: RelayEnvelope,
+) {
   const hello = socket.data.hello
   if (!hello || hello.routeID !== envelope.routeID || hello.clientID !== envelope.senderID) {
     return sendError(socket, "not_registered")
@@ -165,7 +190,10 @@ function isRateLimited(socket: ServerWebSocket<SocketData>, envelope: RelayEnvel
   return socket.data.pairingCount > MAX_PAIRING_ATTEMPTS_PER_WINDOW
 }
 
-function unregister(routes: Map<string, Map<string, ServerWebSocket<SocketData>>>, socket: ServerWebSocket<SocketData>) {
+function unregister(
+  routes: Map<string, Map<string, ServerWebSocket<SocketData>>>,
+  socket: ServerWebSocket<SocketData>,
+) {
   const hello = socket.data.hello
   if (!hello) return
   const clients = routes.get(hello.routeID)

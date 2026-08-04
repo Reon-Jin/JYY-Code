@@ -21,12 +21,12 @@ python3 SKILL_DIR/scripts/formula_check.py output.xlsx
 
 ## Error-to-Fix Mapping
 
-| Error | Fix Strategy |
-|-------|-------------|
-| `#DIV/0!` | Wrap: `IFERROR(original_formula, "-")` |
-| `#NAME?` | Fix misspelled function (e.g. `SUMM` → `SUM`) |
-| `#REF!` | Reconstruct the broken reference |
-| `#VALUE!` | Fix type mismatch |
+| Error     | Fix Strategy                                  |
+| --------- | --------------------------------------------- |
+| `#DIV/0!` | Wrap: `IFERROR(original_formula, "-")`        |
+| `#NAME?`  | Fix misspelled function (e.g. `SUMM` → `SUM`) |
+| `#REF!`   | Reconstruct the broken reference              |
+| `#VALUE!` | Fix type mismatch                             |
 
 For the full list of Excel error types and advanced diagnostics, see `validate.md`.
 

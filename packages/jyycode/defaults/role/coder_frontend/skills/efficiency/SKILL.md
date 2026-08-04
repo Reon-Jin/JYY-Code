@@ -30,18 +30,16 @@ name: efficiency
 ## 配置与存储契约
 
 ```ts
-type SubagentAvatar =
-  | "bot" | "search" | "code" | "bug" | "chart"
-  | "file" | "image" | "folder" | "pen" | "sparkles"
+type SubagentAvatar = "bot" | "search" | "code" | "bug" | "chart" | "file" | "image" | "folder" | "pen" | "sparkles"
 
 type SubagentProfile = {
-  id: string          // 稳定 dispatch role，例如 general、role_01j...
-  name: string        // 可编辑显示名
+  id: string // 稳定 dispatch role，例如 general、role_01j...
+  name: string // 可编辑显示名
   description: string // 给主 Agent 选择角色时使用的短描述
-  prompt: string      // 仅子会话启动首轮使用
+  prompt: string // 仅子会话启动首轮使用
   avatar: SubagentAvatar
-  model?: string      // 缺省表示继承根会话模型
-  variant?: string    // 思考深度 / 模型 variant
+  model?: string // 缺省表示继承根会话模型
+  variant?: string // 思考深度 / 模型 variant
   enabled: boolean
 }
 

@@ -374,14 +374,14 @@ describe("instance HttpApi", () => {
       yield* Effect.addFinalizer(() => Effect.sync(() => (Global.Path.config = previousGlobalConfig)))
       const roleID = `review-${path.basename(dir)}`
       const roleRoot = path.join(Global.Path.home, ".jyycode", "role", roleID, "skills")
-      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(path.dirname(path.dirname(roleRoot)), { recursive: true, force: true })))
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(() => fs.rm(path.dirname(path.dirname(roleRoot)), { recursive: true, force: true })),
+      )
 
       const list = yield* HttpClientRequest.get("/subagents").pipe(directoryHeader(dir), HttpClient.execute)
       expect(list.status).toBe(200)
       const initial = yield* list.json
-      expect(initial).toEqual([
-        expect.objectContaining({ id: "general", skills: [] }),
-      ])
+      expect(initial).toEqual([expect.objectContaining({ id: "general", skills: [] })])
       const projectConfig = JSON.parse(yield* Effect.promise(() => fs.readFile(path.join(dir, "jyycode.json"), "utf8")))
       expect(projectConfig.model).toBe("openai/gpt-5")
       expect(projectConfig.subagents).toBeUndefined()

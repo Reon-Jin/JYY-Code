@@ -24,17 +24,27 @@ import {
 } from "./subagent-profiles-query"
 import "./subagent-profiles-panel.css"
 
-const SUBAGENT_SELECTABLE_TOOL_IDS = ["read", "edit", "write", "glob", "grep", "websearch", "webfetch", "bash", "process"]
-const SUBAGENT_FORBIDDEN_TOOL_IDS = new Set([
-  "tool_search",
-  "invalid",
-  "question",
-  "memory",
-  "Inbox",
-])
+const SUBAGENT_SELECTABLE_TOOL_IDS = [
+  "read",
+  "edit",
+  "write",
+  "glob",
+  "grep",
+  "websearch",
+  "webfetch",
+  "bash",
+  "process",
+]
+const SUBAGENT_FORBIDDEN_TOOL_IDS = new Set(["tool_search", "invalid", "question", "memory", "Inbox"])
 
 function isFixedSubagentTool(toolID: string) {
-  return toolID === "skill" || toolID === "Report" || toolID === "Blackboard" || toolID === "Blackboard.reply" || toolID.startsWith("Candidate.")
+  return (
+    toolID === "skill" ||
+    toolID === "Report" ||
+    toolID === "Blackboard" ||
+    toolID === "Blackboard.reply" ||
+    toolID.startsWith("Candidate.")
+  )
 }
 
 function isForbiddenSubagentTool(toolID: string) {
@@ -42,7 +52,9 @@ function isForbiddenSubagentTool(toolID: string) {
 }
 
 function isSelectableSubagentTool(toolID: string) {
-  return SUBAGENT_SELECTABLE_TOOL_IDS.includes(toolID) || (!isFixedSubagentTool(toolID) && !isForbiddenSubagentTool(toolID))
+  return (
+    SUBAGENT_SELECTABLE_TOOL_IDS.includes(toolID) || (!isFixedSubagentTool(toolID) && !isForbiddenSubagentTool(toolID))
+  )
 }
 
 const defaultDraft: SubagentProfile = {
@@ -76,15 +88,33 @@ function modelKey(model: Pick<CatalogModel, "providerID" | "modelID">) {
   return `${model.providerID}/${model.modelID}`
 }
 
-function modelOptions(value: string | undefined, models: readonly CatalogModel[]) {
-  const options = models.map((model) => ({
-    value: modelKey(model),
-    label: `${model.providerName} · ${model.modelName}`,
-  }))
-  if (value && !options.some((option) => option.value === value)) {
-    options.unshift({ value, label: `${value} · ${tr("subagents.model-unavailable")}` })
+/**
+ * Catalog options must keep referential identity across draft updates:
+ * <For> keys by item identity, so freshly mapped objects would replace every
+ * <option> node on each selection change and real browsers reset the select
+ * to the first option (跟随主 Agent 模型), making an explicit choice appear
+ * reverted. Memoize the catalog mapping and only vary the fallback entry.
+ */
+function createModelOptions(models: () => readonly CatalogModel[]) {
+  const catalogOptions = createMemo(() =>
+    models().map((model) => ({
+      value: modelKey(model),
+      label: `${model.providerName} · ${model.modelName}`,
+    })),
+  )
+  // Keep unavailable-value entries referentially stable as well, so <For>
+  // never replaces the <option> nodes of a select whose value just changed.
+  const fallbackOptions = new Map<string, { value: string; label: string }>()
+  return (value: string | undefined) => {
+    const options = catalogOptions()
+    if (!value || options.some((option) => option.value === value)) return options
+    let fallback = fallbackOptions.get(value)
+    if (!fallback) {
+      fallback = { value, label: `${value} · ${tr("subagents.model-unavailable")}` }
+      fallbackOptions.set(value, fallback)
+    }
+    return [fallback, ...options]
   }
-  return options
 }
 
 export type SubagentProfilesPanelViewProps = {
@@ -122,7 +152,8 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
   const dialogOpen = () => creating() || Boolean(editingID())
   const enabledFor = (profile: SubagentProfileView) => switchOverrides()[profile.id] ?? profile.enabled
   const enabledCount = () => props.profiles.filter((profile) => enabledFor(profile)).length
-  const availableModels = () => modelOptions(draft().model, props.models ?? [])
+  const modelOptionsFor = createModelOptions(() => props.models ?? [])
+  const availableModels = () => modelOptionsFor(draft().model)
   const availableToolIDs = createMemo(() => [...(props.toolIDs ?? [])].sort())
   const selectableToolIDs = createMemo(() => availableToolIDs().filter(isSelectableSubagentTool))
   const selectedToolCount = () => selectableToolIDs().filter((toolID) => toolEnabled(toolID)).length
@@ -314,10 +345,17 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
       <Show when={!dialogOpen() && error()}>{(message) => <InlineError message={message()} />}</Show>
 
       <div class="subagent-profiles-panel__list" role="list" aria-label={tr("subagents.profiles")}>
-        <Show when={props.profiles.length > 0} fallback={<p class="subagent-profiles-panel__status">{tr("subagents.empty")}</p>}>
+        <Show
+          when={props.profiles.length > 0}
+          fallback={<p class="subagent-profiles-panel__status">{tr("subagents.empty")}</p>}
+        >
           <For each={props.profiles}>
             {(profile) => (
-              <article class="subagent-profile-row" role="listitem" data-enabled={enabledFor(profile) ? "true" : "false"}>
+              <article
+                class="subagent-profile-row"
+                role="listitem"
+                data-enabled={enabledFor(profile) ? "true" : "false"}
+              >
                 <span class="subagent-profile-row__avatar">
                   <SubagentAvatar id={profile.avatar as SubagentAvatarID} />
                 </span>
@@ -439,7 +477,11 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
               <select
                 aria-label={tr("subagents.thinking-depth")}
                 value={draft().variant ?? "default"}
-                onChange={(event) => updateDraft({ variant: event.currentTarget.value === "default" ? undefined : event.currentTarget.value })}
+                onChange={(event) =>
+                  updateDraft({
+                    variant: event.currentTarget.value === "default" ? undefined : event.currentTarget.value,
+                  })
+                }
               >
                 <option value="default">{tr("composer.thinking-depth-default")}</option>
                 <option value="low">{tr("composer.thinking-depth-low")}</option>
@@ -516,7 +558,10 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
                     </Button>
                   </div>
                 </div>
-                <Show when={profile().skills.length > 0} fallback={<p class="subagent-profiles-panel__status">{tr("subagents.no-skills")}</p>}>
+                <Show
+                  when={profile().skills.length > 0}
+                  fallback={<p class="subagent-profiles-panel__status">{tr("subagents.no-skills")}</p>}
+                >
                   <ul class="subagent-profile-skills__list">
                     <For each={profile().skills}>
                       {(skill) => (
@@ -534,13 +579,27 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
                   <div class="subagent-skill-create">
                     <label>
                       {tr("subagents.skill-name")}
-                      <input aria-label={tr("subagents.skill-name")} value={skillName()} onInput={(event) => setSkillName(event.currentTarget.value)} />
+                      <input
+                        aria-label={tr("subagents.skill-name")}
+                        value={skillName()}
+                        onInput={(event) => setSkillName(event.currentTarget.value)}
+                      />
                     </label>
                     <label>
                       {tr("subagents.skill-content")}
-                      <textarea aria-label="SKILL.md" rows={6} value={skillContent()} onInput={(event) => setSkillContent(event.currentTarget.value)} />
+                      <textarea
+                        aria-label="SKILL.md"
+                        rows={6}
+                        value={skillContent()}
+                        onInput={(event) => setSkillContent(event.currentTarget.value)}
+                      />
                     </label>
-                    <Button type="button" loading={skillBusy()} loadingLabel={tr("subagents.creating-skill")} onClick={() => void createSkill()}>
+                    <Button
+                      type="button"
+                      loading={skillBusy()}
+                      loadingLabel={tr("subagents.creating-skill")}
+                      onClick={() => void createSkill()}
+                    >
                       {tr("subagents.create-skill")}
                     </Button>
                   </div>
@@ -568,7 +627,12 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
             <Button variant="ghost" onClick={closeDelete}>
               {tr("github.cancel")}
             </Button>
-            <Button variant="danger" loading={deleteBusy()} loadingLabel={tr("skills.processing")} onClick={() => void confirmDelete()}>
+            <Button
+              variant="danger"
+              loading={deleteBusy()}
+              loadingLabel={tr("skills.processing")}
+              onClick={() => void confirmDelete()}
+            >
               {tr("mcp.confirm-deletion")}
             </Button>
           </>
@@ -583,7 +647,11 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
   )
 }
 
-export function SubagentProfilesPanel(props: { directory: string; models?: readonly CatalogModel[]; onSaved?: () => void | Promise<void> }) {
+export function SubagentProfilesPanel(props: {
+  directory: string
+  models?: readonly CatalogModel[]
+  onSaved?: () => void | Promise<void>
+}) {
   const data = useData()
   const query = createQuery(
     () => ({

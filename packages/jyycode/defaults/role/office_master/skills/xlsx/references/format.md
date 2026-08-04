@@ -24,16 +24,17 @@ After completing data entry or formula writing, formatting is applied as the fin
 
 The primary convention of financial modeling: **font color encodes the cell's role, not decoration**. A reviewer can glance at colors to determine which cells are adjustable parameters and which are model-calculated results. This is an industry-wide convention (followed by investment banks, the Big Four, and corporate finance teams).
 
-| Role | Font Color | AARRGGBB | Use Case |
-|------|-----------|----------|----------|
-| Hard-coded input / assumption | Blue | `000000FF` | Growth rates, discount rates, tax rates, and other user-modifiable parameters |
-| Formula / calculated result | Black | `00000000` | All cells containing a `<f>` element |
-| Same-workbook cross-sheet reference | Green | `00008000` | Cells whose formula starts with `SheetName!` |
-| External file link | Red | `00FF0000` | Cells whose formula contains `[FileName.xlsx]` (flagged as fragile links) |
-| Label / text | Black (default) | theme color | Row labels, category headings |
-| Key assumption requiring review | Blue font + yellow fill | Font `000000FF` / Fill `00FFFF00` | Provisional values, parameters pending confirmation |
+| Role                                | Font Color              | AARRGGBB                          | Use Case                                                                      |
+| ----------------------------------- | ----------------------- | --------------------------------- | ----------------------------------------------------------------------------- |
+| Hard-coded input / assumption       | Blue                    | `000000FF`                        | Growth rates, discount rates, tax rates, and other user-modifiable parameters |
+| Formula / calculated result         | Black                   | `00000000`                        | All cells containing a `<f>` element                                          |
+| Same-workbook cross-sheet reference | Green                   | `00008000`                        | Cells whose formula starts with `SheetName!`                                  |
+| External file link                  | Red                     | `00FF0000`                        | Cells whose formula contains `[FileName.xlsx]` (flagged as fragile links)     |
+| Label / text                        | Black (default)         | theme color                       | Row labels, category headings                                                 |
+| Key assumption requiring review     | Blue font + yellow fill | Font `000000FF` / Fill `00FFFF00` | Provisional values, parameters pending confirmation                           |
 
 **Decision tree**:
+
 ```
 Does the cell contain a <f> element?
   +-- Yes -> Does the formula start with [FileName]?
@@ -50,32 +51,32 @@ Does the cell contain a <f> element?
 
 ### 2.2 Number Format Matrix
 
-| Data Type | formatCode | numFmtId | Display Example | Applicable Scenario |
-|-----------|-----------|----------|-----------------|---------------------|
-| Standard currency (whole dollars) | `$#,##0;($#,##0);"-"` | 164 | $1,234 / ($1,234) / - | P&L, balance sheet amount rows |
-| Standard currency (with cents) | `$#,##0.00;($#,##0.00);"-"` | 169 | $1,234.56 / ($1,234.56) / - | Unit prices, detailed costs |
-| Thousands (K) | `#,##0,"K"` | 171 | 1,234K | Simplified display for management reports |
-| Millions (M) | `#,##0,,"M"` | 172 | 1M | Macro-level summary rows |
-| Percentage (1 decimal) | `0.0%` | 165 | 12.5% | Growth rates, gross margins |
-| Percentage (2 decimals) | `0.00%` | 170 | 12.50% | IRR, precise interest rates |
-| Multiple / valuation multiplier | `0.0x` | 166 | 8.5x | EV/EBITDA, P/E |
-| Integer (thousands separator) | `#,##0` | 167 | 12,345 | Employee count, unit quantities |
-| Year | `0` | 1 (built-in, no declaration needed) | 2024 | Column header years, prevents 2,024 |
-| Date | `m/d/yyyy` | 14 (built-in, no declaration needed) | 3/21/2026 | Timelines |
-| General text | General | 0 (built-in, no declaration needed) | — | Label rows, cells with no format requirement |
+| Data Type                         | formatCode                  | numFmtId                             | Display Example             | Applicable Scenario                          |
+| --------------------------------- | --------------------------- | ------------------------------------ | --------------------------- | -------------------------------------------- |
+| Standard currency (whole dollars) | `$#,##0;($#,##0);"-"`       | 164                                  | $1,234 / ($1,234) / -       | P&L, balance sheet amount rows               |
+| Standard currency (with cents)    | `$#,##0.00;($#,##0.00);"-"` | 169                                  | $1,234.56 / ($1,234.56) / - | Unit prices, detailed costs                  |
+| Thousands (K)                     | `#,##0,"K"`                 | 171                                  | 1,234K                      | Simplified display for management reports    |
+| Millions (M)                      | `#,##0,,"M"`                | 172                                  | 1M                          | Macro-level summary rows                     |
+| Percentage (1 decimal)            | `0.0%`                      | 165                                  | 12.5%                       | Growth rates, gross margins                  |
+| Percentage (2 decimals)           | `0.00%`                     | 170                                  | 12.50%                      | IRR, precise interest rates                  |
+| Multiple / valuation multiplier   | `0.0x`                      | 166                                  | 8.5x                        | EV/EBITDA, P/E                               |
+| Integer (thousands separator)     | `#,##0`                     | 167                                  | 12,345                      | Employee count, unit quantities              |
+| Year                              | `0`                         | 1 (built-in, no declaration needed)  | 2024                        | Column header years, prevents 2,024          |
+| Date                              | `m/d/yyyy`                  | 14 (built-in, no declaration needed) | 3/21/2026                   | Timelines                                    |
+| General text                      | General                     | 0 (built-in, no declaration needed)  | —                           | Label rows, cells with no format requirement |
 
 numFmtId 169–172 are custom formats that need to be appended beyond the 4 formats (164–167) pre-defined in the minimal_xlsx template. When appending, assign IDs according to the rules (see Section 3.4).
 
 **Built-in format IDs do not need to be declared in `<numFmts>`** (IDs 0–163 are built into Excel/LibreOffice; simply reference the numFmtId in `<xf>`):
 
-| numFmtId | formatCode | Description |
-|----------|-----------|-------------|
-| 0 | General | General format |
-| 1 | `0` | Integer, no thousands separator (use this ID for years) |
-| 3 | `#,##0` | Thousands-separated integer (no decimals) |
-| 9 | `0%` | Percentage integer |
-| 10 | `0.00%` | Percentage with two decimals |
-| 14 | `m/d/yyyy` | Short date |
+| numFmtId | formatCode | Description                                             |
+| -------- | ---------- | ------------------------------------------------------- |
+| 0        | General    | General format                                          |
+| 1        | `0`        | Integer, no thousands separator (use this ID for years) |
+| 3        | `#,##0`    | Thousands-separated integer (no decimals)               |
+| 9        | `0%`       | Percentage integer                                      |
+| 10       | `0.00%`    | Percentage with two decimals                            |
+| 14       | `m/d/yyyy` | Short date                                              |
 
 ### 2.3 Negative Number Display Standards
 
@@ -101,11 +102,11 @@ Rule: Once a style is determined, maintain it across the entire workbook. Do not
 
 In financial models, "0" and "no data" have different semantics and should be visually distinct:
 
-| Scenario | Recommended Display | formatCode Third Segment |
-|----------|-------------------|--------------------------|
-| Sparse matrix (most rows have zero-value periods) | Dash `-` | `"-"` |
-| Quantity counts (zero itself is meaningful) | `0` | `0` or omit |
-| Placeholder row (explicitly empty) | Leave blank | Do not write to cell |
+| Scenario                                          | Recommended Display | formatCode Third Segment |
+| ------------------------------------------------- | ------------------- | ------------------------ |
+| Sparse matrix (most rows have zero-value periods) | Dash `-`            | `"-"`                    |
+| Quantity counts (zero itself is meaningful)       | `0`                 | `0` or omit              |
+| Placeholder row (explicitly empty)                | Leave blank         | Do not write to cell     |
 
 Four-segment format syntax: `positive format;negative format;zero value format;text format`
 
@@ -135,6 +136,7 @@ $#,##0...       black
 Audit steps:
 
 **Step 1**: Read `<numFmts>` and record all declared custom formats and their IDs:
+
 ```xml
 <numFmts count="4">
   <numFmt numFmtId="164" formatCode="$#,##0;($#,##0);&quot;-&quot;"/>
@@ -143,9 +145,11 @@ Audit steps:
   <numFmt numFmtId="167" formatCode="#,##0"/>
 </numFmts>
 ```
+
 Record: current maximum custom numFmtId = 167, next available ID = 168.
 
 **Step 2**: Read `<fonts>` and list each `<font>` by 0-based index with its color and style:
+
 ```
 fontId=0 -> No explicit color (theme default black)
 fontId=1 -> color rgb="000000FF" (blue, input role)
@@ -155,6 +159,7 @@ fontId=4 -> <b/> + color rgb="00000000" (bold black, header)
 ```
 
 **Step 3**: Read `<fills>` and confirm that fills[0] and fills[1] are spec-mandated reserved entries (never delete):
+
 ```
 fillId=0 -> patternType="none" (spec-mandated)
 fillId=1 -> patternType="gray125" (spec-mandated)
@@ -162,6 +167,7 @@ fillId=2 -> Yellow highlight (if present)
 ```
 
 **Step 4**: Read `<cellXfs>` and list each `<xf>` entry by 0-based index with its combination:
+
 ```
 index 0 -> numFmtId=0,   fontId=0, fillId=0 -> Default style
 index 1 -> numFmtId=0,   fontId=1, fillId=0 -> Blue font general (input)
@@ -181,6 +187,7 @@ Complete atomic operation sequence for appending new styles (all 5 steps must be
 **Step 1**: Determine if a new `<numFmt>` is needed
 
 Built-in formats (ID 0–163) skip this step. Custom formats are appended to the end of `<numFmts>`:
+
 ```xml
 <numFmts count="5">  <!-- count +1 -->
   <!-- Keep existing entries unchanged -->
@@ -196,6 +203,7 @@ Built-in formats (ID 0–163) skip this step. Custom formats are appended to the
 **Step 2**: Determine if a new `<font>` is needed
 
 Check whether the existing fonts already contain a matching color+style combination. If not, append to the end of `<fonts>`:
+
 ```xml
 <fonts count="6">  <!-- count +1 -->
   <!-- Keep existing entries unchanged -->
@@ -208,11 +216,13 @@ Check whether the existing fonts already contain a matching color+style combinat
   </font>
 </fonts>
 ```
+
 New fontId = the count value before appending (when original count=5, new fontId=5).
 
 **Step 3**: Determine if a new `<fill>` is needed
 
 If a new background color is needed, append to the end of `<fills>` (note: fills[0] and fills[1] must never be modified):
+
 ```xml
 <fills count="4">  <!-- count +1 -->
   <fill><patternFill patternType="none"/></fill>       <!-- 0: spec-mandated -->
@@ -234,6 +244,7 @@ If a new background color is needed, append to the end of `<fills>` (note: fills
 ```
 
 **Step 4**: Append a new `<xf>` combination at the end of `<cellXfs>`
+
 ```xml
 <cellXfs count="14">  <!-- count +1 -->
   <!-- Keep existing entries 0-12 unchanged -->
@@ -243,6 +254,7 @@ If a new background color is needed, append to the end of `<fills>` (note: fills
       applyFont="1" applyNumberFormat="1"/>
 </cellXfs>
 ```
+
 New style index = the count value before appending (when original count=13, new index=13).
 
 **Step 5**: Record the new style index; subsequently set the `s` attribute of corresponding cells in the sheet XML to this value.
@@ -260,15 +272,15 @@ Alpha Red Green Blue
 - Alpha channel: `00` = fully opaque (normal use value); `FF` = fully transparent (invisible, never use this)
 - Financial color standards always use `00` as the Alpha prefix
 
-| Color | AARRGGBB | Corresponding Role |
-|-------|----------|-------------------|
-| Blue (input) | `000000FF` | Hard-coded assumptions |
-| Black (formula) | `00000000` | Calculated results |
-| Green (cross-sheet reference) | `00008000` | Same-workbook cross-sheet |
-| Red (external link) | `00FF0000` | References to other files |
-| Yellow (review-required fill) | `00FFFF00` | Key assumption highlight |
+| Color                               | AARRGGBB   | Corresponding Role                             |
+| ----------------------------------- | ---------- | ---------------------------------------------- |
+| Blue (input)                        | `000000FF` | Hard-coded assumptions                         |
+| Black (formula)                     | `00000000` | Calculated results                             |
+| Green (cross-sheet reference)       | `00008000` | Same-workbook cross-sheet                      |
+| Red (external link)                 | `00FF0000` | References to other files                      |
+| Yellow (review-required fill)       | `00FFFF00` | Key assumption highlight                       |
 | Light gray (projection period fill) | `00D3D3D3` | Distinguishing historical vs. forecast periods |
-| White | `00FFFFFF` | Pure white fill |
+| White                               | `00FFFFFF` | Pure white fill                                |
 
 **Common mistake**: Mistakenly writing HTML format `#0000FF` as `FF0000FF` (Alpha=FF makes the color fully transparent and invisible). Correct format: `000000FF`.
 
@@ -280,6 +292,7 @@ ID 164+     -> Custom formats, must be explicitly declared as <numFmt> elements 
 ```
 
 Rules for assigning new IDs:
+
 1. Read all `numFmtId` attribute values in the current `<numFmts>`
 2. Take the maximum value + 1 as the next custom format ID
 3. Do not reuse existing IDs; do not skip numbers
@@ -292,23 +305,24 @@ The minimal_xlsx template pre-defines IDs: 164, 165, 166, 167. The next availabl
 
 The following are the 13 style slots (cellXfs index 0–12) pre-defined in the minimal_xlsx template's `styles.xml`, which can be directly referenced in the cell `s` attribute in sheet XML:
 
-| Index | Semantic Role | Font Color | Fill | numFmtId | Format Display | Typical Use |
-|-------|--------------|------------|------|----------|---------------|-------------|
-| **0** | Default style | Theme black | None | 0 | General | Cells requiring no special formatting |
-| **1** | Input / assumption (general) | Blue `000000FF` | None | 0 | General | Text-type assumptions, flags |
-| **2** | Formula / calculated result (general) | Black `00000000` | None | 0 | General | Text concatenation formulas, non-numeric calculations |
-| **3** | Cross-sheet reference (general) | Green `00008000` | None | 0 | General | Values pulled from cross-sheet (general format) |
-| **4** | Header (bold) | Bold black | None | 0 | General | Row/column headings |
-| **5** | Currency input | Blue `000000FF` | None | 164 | $1,234 / ($1,234) / - | Amount inputs in the assumptions area |
-| **6** | Currency formula | Black `00000000` | None | 164 | $1,234 / ($1,234) / - | Amount calculations in the model area (revenue, EBITDA) |
-| **7** | Percentage input | Blue `000000FF` | None | 165 | 12.5% | Rate inputs in the assumptions area (growth rate, gross margin assumptions) |
-| **8** | Percentage formula | Black `00000000` | None | 165 | 12.5% | Rate calculations in the model area (actual gross margin) |
-| **9** | Integer (comma) input | Blue `000000FF` | None | 167 | 12,345 | Quantity inputs in the assumptions area (employee count) |
-| **10** | Integer (comma) formula | Black `00000000` | None | 167 | 12,345 | Quantity calculations in the model area |
-| **11** | Year input | Blue `000000FF` | None | 1 | 2024 | Column header years (no thousands separator) |
-| **12** | Key assumption highlight | Blue `000000FF` | Yellow `00FFFF00` | 0 | General | Key parameters pending review or confirmation |
+| Index  | Semantic Role                         | Font Color       | Fill              | numFmtId | Format Display        | Typical Use                                                                 |
+| ------ | ------------------------------------- | ---------------- | ----------------- | -------- | --------------------- | --------------------------------------------------------------------------- |
+| **0**  | Default style                         | Theme black      | None              | 0        | General               | Cells requiring no special formatting                                       |
+| **1**  | Input / assumption (general)          | Blue `000000FF`  | None              | 0        | General               | Text-type assumptions, flags                                                |
+| **2**  | Formula / calculated result (general) | Black `00000000` | None              | 0        | General               | Text concatenation formulas, non-numeric calculations                       |
+| **3**  | Cross-sheet reference (general)       | Green `00008000` | None              | 0        | General               | Values pulled from cross-sheet (general format)                             |
+| **4**  | Header (bold)                         | Bold black       | None              | 0        | General               | Row/column headings                                                         |
+| **5**  | Currency input                        | Blue `000000FF`  | None              | 164      | $1,234 / ($1,234) / - | Amount inputs in the assumptions area                                       |
+| **6**  | Currency formula                      | Black `00000000` | None              | 164      | $1,234 / ($1,234) / - | Amount calculations in the model area (revenue, EBITDA)                     |
+| **7**  | Percentage input                      | Blue `000000FF`  | None              | 165      | 12.5%                 | Rate inputs in the assumptions area (growth rate, gross margin assumptions) |
+| **8**  | Percentage formula                    | Black `00000000` | None              | 165      | 12.5%                 | Rate calculations in the model area (actual gross margin)                   |
+| **9**  | Integer (comma) input                 | Blue `000000FF`  | None              | 167      | 12,345                | Quantity inputs in the assumptions area (employee count)                    |
+| **10** | Integer (comma) formula               | Black `00000000` | None              | 167      | 12,345                | Quantity calculations in the model area                                     |
+| **11** | Year input                            | Blue `000000FF`  | None              | 1        | 2024                  | Column header years (no thousands separator)                                |
+| **12** | Key assumption highlight              | Blue `000000FF`  | Yellow `00FFFF00` | 0        | General               | Key parameters pending review or confirmation                               |
 
 **Selection guide**:
+
 - Determine "input" vs. "formula" -> Choose odd-numbered (input/blue) or even-numbered (formula/black) paired slots
 - Determine data type -> Choose the corresponding currency (5/6) / percentage (7/8) / integer (9/10) / year (11) slot
 - Cross-sheet reference needing number format -> Append a new green + number format combination (see Section 5.4)
@@ -323,6 +337,7 @@ The following are the 13 style slots (cellXfs index 0–12) pre-defined in the m
 Assumption separation principle: **Input assumptions are centralized in a dedicated area (sheet or block); the model calculation area contains only formulas, no hard-coded values**.
 
 Recommended structure:
+
 ```
 Workbook sheet layout
   sheet 1 "Assumptions"  -> All blue-font cells (style 1/5/7/9/11/12)
@@ -330,6 +345,7 @@ Workbook sheet layout
 ```
 
 Same-sheet zoning approach for simple models:
+
 ```
 Rows 1-5:   [Assumptions block - blue font]
 Row 6:      [Empty row separator]
@@ -457,6 +473,7 @@ python3 SKILL_DIR/scripts/xlsx_unpack.py input.xlsx /tmp/xlsx_fmt/
 ```
 
 If the script is unavailable, unpack manually:
+
 ```bash
 mkdir -p /tmp/xlsx_fmt && cp input.xlsx /tmp/xlsx_fmt/input.xlsx
 cd /tmp/xlsx_fmt && unzip input.xlsx -d unpacked/
@@ -465,12 +482,14 @@ cd /tmp/xlsx_fmt && unzip input.xlsx -d unpacked/
 ### 6.3 Step 2 — Audit styles.xml
 
 Execute according to the method in Section 3.1. Quick check for minimal_xlsx template initial state:
+
 - `<cellXfs count="13">` and `<numFmts count="4">` -> Template initial state, all 13 pre-defined slots can be used directly
 - Otherwise -> A complete review of the existing index mapping is required
 
 ### 6.4 Step 3 — Audit Sheet XML, Build Formatting Plan
 
 Read `xl/worksheets/sheet*.xml` and evaluate each cell:
+
 1. Does it contain a `<f>` element (formula)? -> Requires black/green/red style
 2. Is it a hard-coded numeric parameter? -> Requires blue style
 3. Is the data type currency/percentage/integer/year? -> Select the corresponding number format slot
@@ -501,6 +520,7 @@ Execute according to the atomic operation sequence in Section 3.2. Update the co
 ```
 
 For consecutive rows of the same type, row-level default styles can be used to reduce repetition:
+
 ```xml
 <!-- Entire row uses style=6, only override for exception cells -->
 <row r="5" s="6" customFormat="1">
@@ -526,6 +546,7 @@ python3 SKILL_DIR/scripts/formula_check.py /tmp/output.xlsx
 ```
 
 Manual style reference integrity check:
+
 ```bash
 # Find the maximum s attribute value in the sheet XML
 grep -o 's="[0-9]*"' /tmp/xlsx_fmt/unpacked/xl/worksheets/sheet1.xml \
@@ -542,6 +563,7 @@ python3 SKILL_DIR/scripts/xlsx_pack.py /tmp/xlsx_fmt/unpacked/ output.xlsx
 ```
 
 If the script is unavailable, pack manually:
+
 ```bash
 cd /tmp/xlsx_fmt/unpacked/
 zip -r ../output.xlsx . -x "*.DS_Store"
@@ -554,6 +576,7 @@ zip -r ../output.xlsx . -x "*.DS_Store"
 Verify each item before delivery:
 
 ### Color Role Consistency
+
 - [ ] All numeric cells containing `<f>` elements: fontId corresponds to black (formula) or green (cross-sheet reference)
 - [ ] All hard-coded numeric values that are user-adjustable parameters: fontId corresponds to blue (input)
 - [ ] Cross-sheet references (formula contains `SheetName!`): fontId corresponds to green
@@ -561,6 +584,7 @@ Verify each item before delivery:
 - [ ] No cell simultaneously contains a `<f>` element and uses blue font (color role contradiction)
 
 ### Number Format Correctness
+
 - [ ] Year columns: numFmtId="1" (`0` format), displays as 2024 not 2,024
 - [ ] Currency rows: numFmtId="164" or variant, negative numbers display as ($1,234) not -$1,234
 - [ ] Percentage rows: values stored as decimals (0.08 = 8%), format numFmtId="165", displays as 8.0%
@@ -569,6 +593,7 @@ Verify each item before delivery:
 - [ ] Negative number display style is consistent throughout the entire workbook (parenthetical or red minus sign)
 
 ### styles.xml Structural Integrity
+
 - [ ] `<numFmts count>` = actual number of `<numFmt>` elements
 - [ ] `<fonts count>` = actual number of `<font>` elements
 - [ ] `<fills count>` = actual number of `<fill>` elements (including spec-mandated fills[0] and fills[1])
@@ -578,16 +603,19 @@ Verify each item before delivery:
 - [ ] All cell `s` attribute values < `cellXfs count` (no out-of-bounds references)
 
 ### Assumption Separation Verification
+
 - [ ] No black-font numeric cells in the assumptions area/sheet (black numeric = formula, should not be in assumptions)
 - [ ] No blue-font non-year numeric cells in the model area/sheet (blue numeric = hard-coded, should be in assumptions)
 - [ ] Input parameters in the model area reference the assumptions area via formulas, not by directly copying values
 
 ### Formula and Format Linkage
+
 - [ ] All cells with `<f>` elements have an explicit `s` attribute (must not use default style=0, whose font color is not explicitly black)
 - [ ] SUM summary rows: style uses black font + corresponding number format (e.g., s="6" for currency summaries)
 - [ ] Percentage formulas: values stored as decimals, format is `0.0%`; do not multiply values by 100 before applying percentage format
 
 ### Visual Hierarchy
+
 - [ ] Header rows (years/metric names): style=4 (bold black)
 - [ ] Summary rows (Total/EBITDA/Net Income): bold + corresponding number format (append style if needed)
 - [ ] Unit description rows (e.g., "$ thousands"): use style=0 or style=2 (blue not needed)
@@ -636,6 +664,7 @@ Cause: 8% was stored as `<v>8</v>` instead of `<v>0.08</v>`. Excel's `%` format 
 Cause: A `<font>` or `<xf>` element was appended but the count attribute was not updated; Excel reads beyond bounds using the old count.
 
 Fix: Update the corresponding count immediately after appending each element:
+
 ```xml
 <!-- After appending the 6th font, count must be changed from 5 to 6 -->
 <fonts count="6">
@@ -670,6 +699,7 @@ Cause: A formula cell mistakenly uses an input style (e.g., s="5" for currency i
 Cause: Directly modifying attributes of the Nth `<xf>` in cellXfs, causing all cells with `s="N"` to be batch-changed.
 
 Fix: Keep existing entries unchanged, append a new entry at the end, and only change the `s` attribute of cells that need the new style to the new index:
+
 ```xml
 <!-- Incorrect: Modified the existing xf at index=6 -->
 <xf numFmtId="164" fontId="2" fillId="0" borderId="0" xfId="0"
@@ -697,13 +727,13 @@ Fix: Keep existing entries unchanged, append a new entry at the end, and only ch
 
 ### 10.2 Row Type Standards
 
-| Row Type | Style Recommendation | Example |
-|----------|---------------------|---------|
-| Category heading row | Bold, optionally with fill color | "Revenue" |
-| Line item row | Normal style | "Product A", "Product B" |
-| Subtotal row | Bold + top border | "Total Revenue" |
-| Operating metric row | Normal style | "Gross Margin %" |
-| Separator row | Empty row | (empty) |
+| Row Type             | Style Recommendation             | Example                  |
+| -------------------- | -------------------------------- | ------------------------ |
+| Category heading row | Bold, optionally with fill color | "Revenue"                |
+| Line item row        | Normal style                     | "Product A", "Product B" |
+| Subtotal row         | Bold + top border                | "Total Revenue"          |
+| Operating metric row | Normal style                     | "Gross Margin %"         |
+| Separator row        | Empty row                        | (empty)                  |
 
 ### 10.3 Multi-Year Model Column Layout
 
