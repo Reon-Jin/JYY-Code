@@ -109,4 +109,26 @@ describe("presentConversationMessages", () => {
       { type: "activity", parts: [secondReasoning] },
     ])
   })
+
+  it("hides internal patch metadata from conversation messages", () => {
+    const patch: Part = {
+      id: "part_patch",
+      sessionID,
+      messageID: assistant.id,
+      type: "patch",
+      hash: "abc123",
+      files: ["D:/jyycode/.jyycode/plan/ses_1/plan.json"],
+    }
+    const answer: Part = {
+      id: "part_answer",
+      sessionID,
+      messageID: assistant.id,
+      type: "text",
+      text: "done",
+    }
+
+    const result = presentConversationMessages([{ info: assistant, parts: [patch, answer] }])
+
+    expect(result[0]?.groups).toEqual([{ type: "content", parts: [answer] }])
+  })
 })

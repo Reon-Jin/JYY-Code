@@ -1,4 +1,4 @@
-import type { StepFinishPart, StepStartPart } from "@jyycode-ai/sdk/v2/client"
+import type { PatchPart, StepFinishPart, StepStartPart } from "@jyycode-ai/sdk/v2/client"
 import { cleanup, render, screen } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it } from "vitest"
 import { MessagePartView } from "./message-part"
@@ -26,5 +26,19 @@ describe("MessagePartView", () => {
     ))
 
     expect(screen.queryByText(/Unsupported content/)).not.toBeInTheDocument()
+  })
+
+  it("does not expose snapshot patch metadata as unsupported content", () => {
+    const patch: PatchPart = {
+      ...base,
+      id: "part_patch",
+      type: "patch",
+      hash: "abc123",
+      files: ["D:/jyycode/.jyycode/plan/ses_1/plan.json"],
+    }
+    render(() => <MessagePartView part={patch} />)
+
+    expect(screen.queryByText(/Unsupported content/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/plan\.json/)).not.toBeInTheDocument()
   })
 })
