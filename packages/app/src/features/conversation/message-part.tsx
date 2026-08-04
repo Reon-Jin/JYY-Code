@@ -16,7 +16,10 @@ export function MessagePartView(props: { part: Part; messageRole?: string; messa
         ) : null
       }
     >
-      <Match when={props.part.type === "step-start" || props.part.type === "step-finish"}>{null}</Match>
+      {/* Internal metadata (step markers, patch snapshots) never renders. */}
+      <Match when={props.part.type === "step-start" || props.part.type === "step-finish" || props.part.type === "patch"}>
+        {null}
+      </Match>
       <Match when={props.part.type === "text" ? props.part : undefined}>
         {(part) => {
           const presentation = () =>

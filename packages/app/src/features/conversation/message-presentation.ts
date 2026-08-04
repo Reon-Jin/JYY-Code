@@ -24,7 +24,9 @@ function isActivityPart(part: Part) {
 }
 
 function isVisiblePart(part: Part, message: ConversationMessage) {
-  if (part.type === "step-start" || part.type === "step-finish") return false
+  // Step markers and patch snapshots are internal metadata used for
+  // undo/revert and session diffing, not user-facing chat content.
+  if (part.type === "step-start" || part.type === "step-finish" || part.type === "patch") return false
   if (part.type !== "text") return true
   if (!part.text.trim()) return false
   return (
