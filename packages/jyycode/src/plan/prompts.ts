@@ -66,6 +66,7 @@ function dispatchRosterPrompt(profiles: readonly SubagentProfile[] | undefined) 
           return `- ${profile.id}: ${profile.name} - ${profile.description}; model=${model}${variant}`
         })
       : ["No enabled sub-agent roles are currently available for Dispatch_dispatch."]),
+    "Roles may carry dedicated skills; the child loads them itself with the skill tool. Keep task instructions focused on goals, constraints, and handoff context — do not prescribe a specific toolchain that would bypass the role's skills unless it is a hard technical requirement.",
     "Use Dispatch_roles for a fresh roster; use role IDs exactly as returned.",
   ].join("\n")
 }

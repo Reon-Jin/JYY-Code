@@ -85,6 +85,37 @@ export function retainOnlyTool(tools: Record<string, AITool>, requiredTool: stri
 }
 
 /**
+ * Plan write tools the model is actively prompted to call. When a protocol
+ * gate hides one of them, swap in a no-op stub instead of deleting it: a hard
+ * AI-SDK unknown-tool failure reads as "unavailable tool 'invalid'" and makes
+ * the model retry blindly, while the stub returns a clear, recoverable result.
+ */
+const GATED_PLAN_WRITE_TOOL_NAMES = new Set(["Plan_create", "Plan_update", "Dispatch_dispatch"])
+
+function gatedPlanWriteStub(name: string, requiredTool: string): AITool {
+  return tool({
+    description: `${name} 当前被协议门控暂时禁用`,
+    inputSchema: jsonSchema({ type: "object", additionalProperties: true }),
+    execute: async () => ({
+      title: `${name} gated by protocol`,
+      output: `当前步骤必须先调用 ${requiredTool}；${name} 未执行，方案未变更。请先完成 ${requiredTool} 并读取其结果（含最新 revision），下一步回复会重新开放 ${name}，届时携带最新 revision 重试。`,
+      metadata: { gated: true, tool: name, requiredTool },
+    }),
+  })
+}
+
+function pruneOrStubTools(tools: Record<string, AITool>, allowed: ReadonlySet<string>, requiredTool: string) {
+  for (const name of Object.keys(tools)) {
+    if (allowed.has(name)) continue
+    if (GATED_PLAN_WRITE_TOOL_NAMES.has(name)) {
+      tools[name] = gatedPlanWriteStub(name, requiredTool)
+      continue
+    }
+    delete tools[name]
+  }
+}
+
+/**
  * Keep a mandatory plan action plus the small recovery surface needed by
  * providers that ignore a named tool choice or replay a batched call. The
  * prompt layer still sends an exact tool choice, so these helpers cannot turn
@@ -105,9 +136,7 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
       "Blackboard_Reply",
       "Dispatch_roles",
     ])
-    for (const name of Object.keys(tools)) {
-      if (!allowed.has(name)) delete tools[name]
-    }
+    pruneOrStubTools(tools, allowed, requiredTool)
     return
   }
   if (requiredTool === "Plan_create") {
@@ -127,9 +156,7 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
       "Blackboard",
       "Blackboard_Reply",
     ])
-    for (const name of Object.keys(tools)) {
-      if (!allowed.has(name)) delete tools[name]
-    }
+    pruneOrStubTools(tools, allowed, requiredTool)
     return
   }
   if (requiredTool === "Plan_update" || requiredTool === "Dispatch_dispatch") {
@@ -138,9 +165,7 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
     if (!required) throw new Error(`Required tool is unavailable: ${requiredTool}`)
     if (!read) throw new Error("Plan_read is unavailable for plan recovery")
     const allowed = new Set([requiredTool, "Plan_read", "Blackboard", "Blackboard_Reply", "Dispatch_roles", "Dispatch_cancel"])
-    for (const name of Object.keys(tools)) {
-      if (!allowed.has(name)) delete tools[name]
-    }
+    pruneOrStubTools(tools, allowed, requiredTool)
     return
   }
   if (requiredTool === "Blackboard") {

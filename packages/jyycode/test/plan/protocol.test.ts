@@ -877,4 +877,167 @@ describe("file-backed plan protocol", () => {
     expect(recovered).toBe("recovered")
     expect(events).toHaveLength(0)
   })
+
+  it("settles a dead child run back to rejected instead of leaving it running", async () => {
+    const root = workspace()
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      children: {
+        async create(input) {
+          return input.childSessionId
+        },
+        async start() {},
+        async terminate() {},
+      },
+    })
+    await protocol.create(context(root), createInput(path.join(root, "notes.md")))
+    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+    expect(dispatched.ok).toBe(true)
+    if (!dispatched.ok) return
+    const runId = dispatched.dispatched[0]!.run_id
+    const childSessionId = dispatched.dispatched[0]!.child_session_id
+    const settle = () =>
+      protocol.settleChildExit({
+        workspaceRoot: root,
+        parentSessionId: "ses_main",
+        childSessionId,
+        taskId: "s1_t1",
+        runId,
+      })
+
+    const stale = await protocol.settleChildExit({
+      workspaceRoot: root,
+      parentSessionId: "ses_main",
+      childSessionId,
+      taskId: "s1_t1",
+      runId: "run__ses_main__s1_t2",
+    })
+    expect(stale).toEqual({ settled: false, reason: "stale_run" })
+
+    expect(await settle()).toEqual({ settled: true, reason: "child_exited" })
+    const read = await protocol.read(context(root))
+    if (!read.ok || !read.plan) return
+    expect(read.plan.steps[0]?.tasks[0]?.status).toBe("rejected")
+    expect(read.plan.steps[0]?.status).toBe("active")
+
+    // Idempotent: a second settle for the same run changes nothing.
+    expect(await settle()).toEqual({ settled: false, reason: "already_settled" })
+
+    // The main agent is unblocked and can redispatch the task right away.
+    const retried = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+    expect(retried.ok).toBe(true)
+    if (!retried.ok) return
+    expect(retried.dispatched[0]?.idempotent).toBe(false)
+    expect(retried.dispatched[0]?.run_id).toBe(runId)
+  })
+
+  it("does not settle cancelled or reported runs", async () => {
+    const root = workspace()
+    const artifact = path.join(root, "notes.md")
+    fs.writeFileSync(artifact, "done")
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      children: {
+        async create(input) {
+          return input.childSessionId
+        },
+        async start() {},
+        async terminate() {},
+      },
+    })
+    await protocol.create(context(root), createInput(artifact))
+    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+    expect(dispatched.ok).toBe(true)
+    if (!dispatched.ok) return
+    const runId = dispatched.dispatched[0]!.run_id
+    const childSessionId = dispatched.dispatched[0]!.child_session_id
+    const settle = () =>
+      protocol.settleChildExit({
+        workspaceRoot: root,
+        parentSessionId: "ses_main",
+        childSessionId,
+        taskId: "s1_t1",
+        runId,
+      })
+
+    const report = await protocol.report(
+      { ...context(root, "single", childSessionId), runId },
+      { run_id: runId, status: "done", summary: "完成", artifacts: [artifact], issues: [] },
+    )
+    expect(report.ok).toBe(true)
+    expect(await settle()).toEqual({ settled: false, reason: "already_settled" })
+    const read = await protocol.read(context(root))
+    if (!read.ok || !read.plan) return
+    expect(read.plan.steps[0]?.tasks[0]?.status).toBe("reported")
+
+    expect((await protocol.cancel(context(root), ["s1_t1"])).ok).toBe(true)
+    expect(await settle()).toEqual({ settled: false, reason: "cancelled" })
+  })
+
+  it("keeps candidate children waiting on discussion checkpoints running", async () => {
+    const root = workspace()
+    const now = new Date().toISOString()
+    const candidate = (id: string) => ({
+      id,
+      title: id,
+      goal: "g",
+      done_criteria: "d",
+      output_path: null,
+      mode: "candidate",
+      status: "running",
+      dispatch: {
+        run_id: `run__ses_main__${id}`,
+        child_session_id: `child_ses_main_${id}`,
+        dispatched_at: now,
+        cancelled_at: null,
+      },
+      report: null,
+    })
+    const planPath = planFilePath(root, "ses_main")
+    fs.mkdirSync(path.dirname(planPath), { recursive: true })
+    const plan = {
+      title: "c",
+      goal: "g",
+      status: "active",
+      revision: 1,
+      current_step: "s1",
+      steps: [
+        {
+          id: "s1",
+          title: "t",
+          goal: "g",
+          done_criteria: "d",
+          status: "active",
+          candidate_discussion: { phase: "declaring", ready_task_ids: [] },
+          tasks: [candidate("s1_t1"), candidate("s1_t2")],
+        },
+      ],
+      created_at: now,
+      updated_at: now,
+    }
+    fs.writeFileSync(planPath, JSON.stringify(plan))
+    const protocol = new PlanProtocol({ store: new PlanStore() })
+    const settle = () =>
+      protocol.settleChildExit({
+        workspaceRoot: root,
+        parentSessionId: "ses_main",
+        childSessionId: "child_ses_main_s1_t1",
+        taskId: "s1_t1",
+        runId: "run__ses_main__s1_t1",
+      })
+
+    // A candidate that ends its turn during declaring/cross_review is waiting
+    // for a checkpoint wakeup, not dead.
+    expect(await settle()).toEqual({ settled: false, reason: "candidate_waiting" })
+
+    // Once independent execution starts, exiting without Candidate_submit
+    // means the child is dead and must not stay running.
+    const running = JSON.parse(fs.readFileSync(planPath, "utf8"))
+    running.steps[0].candidate_discussion.phase = "running"
+    fs.writeFileSync(planPath, JSON.stringify(running))
+    expect(await settle()).toEqual({ settled: true, reason: "child_exited" })
+    const settled = JSON.parse(fs.readFileSync(planPath, "utf8"))
+    expect(settled.steps[0].tasks[0].status).toBe("rejected")
+    expect(settled.steps[0].tasks[1].status).toBe("running")
+  })
 })

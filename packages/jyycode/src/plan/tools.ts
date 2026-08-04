@@ -549,6 +549,44 @@ function protocolFor(
         if (!runtime.promptOps) return
         const ops = runtime.promptOps
         registerChildRun(input.childSessionId, input.brief.run_id)
+        // Align the task with its child run once the loop terminates. The
+        // loop can also end without an Effect failure — tool errors, the
+        // repeated-turn guard, or the empty-response guard all finish the
+        // turn "normally" — and a child that stops without Report would
+        // otherwise leave its task in running forever.
+        const settleAndNotify = (message?: string) =>
+          Effect.gen(function* () {
+            const outcome = yield* Effect.promise(() =>
+              protocol.settleChildExit({
+                workspaceRoot: input.brief.workspace_root,
+                parentSessionId: input.parentSessionId,
+                childSessionId: input.childSessionId,
+                taskId: input.taskId,
+                runId: input.brief.run_id,
+              }),
+            ).pipe(Effect.orElseSucceed(() => ({ settled: false, reason: "settle_failed" })))
+            // A clean exit only needs a notification when it actually parked
+            // the task; children that already reported and candidate children
+            // waiting on a checkpoint ended their turn on purpose.
+            if (message === undefined && !outcome.settled) return
+            protocol.inbox.add({
+              session_id: input.parentSessionId,
+              task_id: input.taskId,
+              run_id: input.brief.run_id,
+              kind: "runtime_error",
+              message:
+                message ??
+                `子 Agent 未提交 Report 即停止运行：任务 ${input.taskId} 已标记为需要修改，可修正后重新派发或取消。`,
+              suggested_actions: ["读取 Inbox 查看错误", "取消任务并修正后重新派发"],
+            })
+            yield* ops
+              .wake({
+                sessionID: input.parentSessionId as SessionID,
+                kind: "plan_child_runtime_error",
+                text: `子 Agent ${input.childSessionId} 执行 ${input.taskId} 时停止运行，任务状态已同步更新。先调用 Plan_read，再处理 Inbox。`,
+              })
+              .pipe(Effect.ignore)
+          })
         runtime.bridge.fork(
           Effect.gen(function* () {
             // Persist the visible user prompt before starting the model loop. A
@@ -563,25 +601,10 @@ function protocolFor(
             yield* ops.loop({ sessionID: input.childSessionId as SessionID })
           })
             .pipe(
-              Effect.catchCause((cause) =>
-                Effect.gen(function* () {
-                  protocol.inbox.add({
-                    session_id: input.parentSessionId,
-                    task_id: input.taskId,
-                    run_id: input.brief.run_id,
-                    kind: "runtime_error",
-                    message: `子 Agent 启动或执行失败：${Cause.pretty(cause)}`,
-                    suggested_actions: ["读取 Inbox 查看错误", "取消任务并修正后重新派发"],
-                  })
-                  yield* ops
-                    .wake({
-                      sessionID: input.parentSessionId as SessionID,
-                      kind: "plan_child_runtime_error",
-                      text: `子 Agent ${input.childSessionId} 执行 ${input.taskId} 时发生运行时错误。先调用 Plan_read，再处理 Inbox。`,
-                    })
-                    .pipe(Effect.ignore)
-                }),
-              ),
+              Effect.catchCause((cause) => settleAndNotify(`子 Agent 启动或执行失败：${Cause.pretty(cause)}`)),
+              // Runs after clean exits and after the recovered failure above;
+              // the second call is a no-op when the task was already settled.
+              Effect.flatMap(() => settleAndNotify()),
             ),
         )
       },

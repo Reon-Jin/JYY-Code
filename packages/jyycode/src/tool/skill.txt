@@ -1,5 +1,5 @@
-Load a specialized skill when the task at hand matches one of the skills listed in the system prompt.
+Load a specialized skill when the task at hand matches one of the available skills listed below in this tool's own description.
 
-Use this tool to inject the skill's instructions and resources into current conversation. The output may contain detailed workflow guidance as well as references to scripts, files, etc in the same directory as the skill.
+Use this tool to inject the skill's instructions and resources into the current conversation. The output may contain detailed workflow guidance as well as references to scripts, files, etc. in the same directory as the skill.
 
-The skill name must match one of the skills listed in your system prompt.
+The skill name must exactly match one of the skills listed in the "Available Skills" section of this tool's description. Do not read SKILL.md files directly with the read tool as a substitute for loading the skill through this tool.

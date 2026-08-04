@@ -3,6 +3,7 @@ import { FetchHttpClient } from "effect/unstable/http"
 import { expect, test } from "bun:test"
 import { Cause, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect"
 import path from "path"
+import fs from "fs/promises"
 import { fileURLToPath, pathToFileURL } from "url"
 import { NamedError } from "@jyycode-ai/core/util/error"
 import { Agent as AgentSvc } from "../../src/agent/agent"
@@ -309,6 +310,7 @@ function makePrompt(input?: { processor?: "blocking"; memory?: Layer.Layer<Memor
   )
   const promptLayer = SessionPrompt.layer.pipe(
     Layer.provide(SessionRevert.defaultLayer),
+    Layer.provide(Skill.defaultLayer),
     Layer.provide(Image.defaultLayer),
     Layer.provide(Reference.defaultLayer),
     Layer.provide(summary),
@@ -630,7 +632,11 @@ it.instance("multi-agent roots tolerate preflight calls before creating a missin
     const inputs = yield* llm.inputs
     expect(inputs).toHaveLength(5)
     expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_read")
-    expect(JSON.stringify(inputs[0]?.tools)).not.toContain("Plan_create")
+    // Gated plan write tools stay visible as inert stubs: providers that
+    // ignore the forced tool choice then get a recoverable gated result
+    // instead of a hard unknown-tool failure.
+    expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_create")
+    expect(JSON.stringify(inputs[0]?.tools)).toContain("暂时禁用")
     expect(inputs[0]?.tool_choice).toMatchObject({ type: "function", function: { name: "Plan_read" } })
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_create")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_read")
@@ -2614,4 +2620,87 @@ noLLMServer.instance(
       }
     }),
   30_000,
+)
+
+it.instance("profile subagent child session gets role skills in the skill tool and first-turn system prompt", () =>
+  Effect.gen(function* () {
+    const home = process.env.JYYCODE_TEST_HOME
+    expect(home).toBeTruthy()
+    const roleRoot = path.join(home!, ".jyycode", "role", "office_master")
+    yield* Effect.promise(async () => {
+      for (const name of ["docx", "pdf"]) {
+        const dir = path.join(roleRoot, "skills", name)
+        await fs.mkdir(dir, { recursive: true })
+        await fs.writeFile(
+          path.join(dir, "SKILL.md"),
+          `---\nname: ${name}\ndescription: ${name} 文档处理技能\n---\n\n# ${name}\n`,
+        )
+      }
+    })
+    yield* Effect.gen(function* () {
+      const { llm } = yield* useServerConfig((url) => ({
+        ...providerCfg(url),
+        subagents: {
+          profiles: [
+            {
+              id: "general",
+              name: "General",
+              description: "General-purpose agent for delegated execution.",
+              prompt: "",
+              avatar: "bot",
+              enabled: false,
+            },
+            {
+              id: "office_master",
+              name: "office高手",
+              description: "精通word/ppt/excel/pdf等office软件的高手",
+              prompt: "你是一位精通各种office的高手，可以使用你的docx,pdf,pptx和xlsx四个技能进行各种office文档的生成和处理。",
+              avatar: "chart",
+              tools: ["edit", "glob", "grep", "read", "webfetch", "websearch", "write", "bash", "process"],
+              enabled: true,
+            },
+          ],
+        },
+      }))
+
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const root = yield* sessions.create({
+        title: "root",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      const child = yield* sessions.create({
+        title: "child",
+        parentID: root.id,
+        agent: "subagent:office_master",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
+      yield* prompt.prompt({
+        sessionID: child.id,
+        agent: "subagent:office_master",
+        model: ref,
+        noReply: true,
+        parts: [{ type: "text", text: "请生成一个精美的中文PDF报告" }],
+      })
+      yield* llm.text("好的，我来处理。")
+      yield* prompt.loop({ sessionID: child.id })
+
+      const inputs = yield* llm.inputs
+      expect(inputs.length).toBeGreaterThan(0)
+      const body = inputs.at(-1) as {
+        tools?: Array<{ type?: string; function?: { name?: string; description?: string } }>
+      }
+      const skillTool = (body.tools ?? []).find((item) => item.function?.name === "skill")
+      // The role catalog is scoped to this profile: global/built-in skills
+      // must not leak into a child session, and role skills must be listed.
+      expect(skillTool?.function?.description).toContain("docx")
+      expect(skillTool?.function?.description).toContain("pdf")
+      expect(skillTool?.function?.description).not.toContain("customize-jyycode")
+      // First-turn system context carries the role catalog so the child loads
+      // its skills even when the dispatch brief prescribes a raw toolchain.
+      const payload = JSON.stringify(body)
+      expect(payload).toContain("你的专属技能")
+      expect(payload).toContain("docx 文档处理技能")
+    }).pipe(Effect.ensuring(Effect.promise(() => fs.rm(roleRoot, { recursive: true, force: true }))))
+  }),
 )

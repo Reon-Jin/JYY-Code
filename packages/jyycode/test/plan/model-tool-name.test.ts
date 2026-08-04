@@ -241,6 +241,7 @@ describe("model-facing plan tool names", () => {
     expect(Object.keys(updateTools)).toEqual([
       "Plan_read",
       "Plan_update",
+      "Dispatch_dispatch",
       "Blackboard",
       "Blackboard_Reply",
       "Dispatch_roles",
@@ -258,8 +259,11 @@ describe("model-facing plan tool names", () => {
       bash: {} as never,
     }
     retainRequiredPlanTools(dispatchTools, "Dispatch_dispatch")
+    // Plan_update stays as a gated no-op stub instead of disappearing, so a
+    // batched call gets a recoverable message rather than an unknown-tool error.
     expect(Object.keys(dispatchTools)).toEqual([
       "Plan_read",
+      "Plan_update",
       "Dispatch_dispatch",
       "Blackboard",
       "Blackboard_Reply",
@@ -276,6 +280,45 @@ describe("model-facing plan tool names", () => {
     }
     retainRequiredPlanTools(blackboardTools, "Blackboard")
     expect(Object.keys(blackboardTools)).toEqual(["Plan_read", "Blackboard", "Blackboard_Reply", "Plan_update", "bash"])
+  })
+
+  it("replaces gated plan write tools with recoverable stubs under the Plan_read gate", async () => {
+    const tools = {
+      Plan_read: {} as never,
+      Plan_create: {} as never,
+      Plan_update: {} as never,
+      Dispatch_dispatch: {} as never,
+      Dispatch_cancel: {} as never,
+      Dispatch_roles: {} as never,
+      Blackboard: {} as never,
+      Blackboard_Reply: {} as never,
+      bash: {} as never,
+    }
+    retainRequiredPlanTools(tools, "Plan_read")
+    // Dispatch_dispatch is part of the Plan_read recovery surface; the write
+    // tools stay visible as stubs and only bash is removed.
+    expect(Object.keys(tools)).toEqual([
+      "Plan_read",
+      "Plan_create",
+      "Plan_update",
+      "Dispatch_dispatch",
+      "Dispatch_cancel",
+      "Dispatch_roles",
+      "Blackboard",
+      "Blackboard_Reply",
+    ])
+    const stub = tools.Plan_update as {
+      description?: string
+      execute: (args: unknown, options: unknown) => Promise<{ title: string; output: string; metadata: Record<string, unknown> }>
+    }
+    expect(stub.description).toContain("暂时禁用")
+    const result = await stub.execute({ revision: 22, ops: [{ op: "dismiss_task" }] }, { toolCallId: "t1", messages: [] })
+    expect(result.metadata).toMatchObject({ gated: true, tool: "Plan_update", requiredTool: "Plan_read" })
+    expect(result.output).toContain("Plan_read")
+    expect(result.output).toContain("未执行")
+    const createStub = tools.Plan_create as typeof stub
+    const createResult = await createStub.execute({}, { toolCallId: "t2", messages: [] })
+    expect(createResult.metadata).toMatchObject({ gated: true, tool: "Plan_create", requiredTool: "Plan_read" })
   })
 
   it("forces multi-agent roots to create, prepare, and dispatch active work instead of doing it themselves", () => {

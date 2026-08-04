@@ -1732,6 +1732,83 @@ export class PlanProtocol {
     })
   }
 
+  /**
+   * Align a task with a child run whose loop has terminated. A child that
+   * exits without calling Report can never report again, so leaving its task
+   * in running would deadlock the main agent on a report that will never
+   * arrive; park the task as rejected so it can be redispatched or taken
+   * over. The check is idempotent and run-scoped: superseded runs, cancelled
+   * tasks, and tasks that already reported are left untouched.
+   */
+  async settleChildExit(input: {
+    workspaceRoot: string
+    parentSessionId: string
+    childSessionId: string
+    taskId: string
+    runId: string
+  }): Promise<{ settled: boolean; reason: string }> {
+    const ctx: PlanExecutionContext = {
+      workspaceRoot: input.workspaceRoot,
+      sessionId: input.parentSessionId,
+      mode: "multi",
+    }
+    const classify = (plan: PlanFile | null) => {
+      if (!plan) return "plan_missing"
+      const step = plan.steps.find((item) => item.tasks.some((task) => task.id === input.taskId))
+      const task = step?.tasks.find((item) => item.id === input.taskId)
+      if (!step || !task) return "task_missing"
+      if (
+        !task.dispatch ||
+        task.dispatch.run_id !== input.runId ||
+        task.dispatch.child_session_id !== input.childSessionId
+      )
+        return "stale_run"
+      if (task.dispatch.cancelled_at !== null) return "cancelled"
+      if (task.status !== "running" && task.status !== "dispatched") return "already_settled"
+      // Candidate children intentionally end their turn while the discussion
+      // waits on other candidates or on the main agent; only the independent
+      // execution phase expects the loop to run until Candidate_submit.
+      if ((task.mode ?? "standard") === "candidate" && step.candidate_discussion?.phase !== "running")
+        return "candidate_waiting"
+      return "settle"
+    }
+    const probe = classify(this.store.read(this.path(ctx)))
+    if (probe !== "settle") return { settled: false, reason: probe }
+    // Record the terminal activity before write() publishes its snapshot, so
+    // the plan panel stops presenting the dead child as actively running.
+    const map = this.activities.get(input.parentSessionId) ?? new Map<string, ActivityState>()
+    map.set(input.taskId, { activity: "子 Agent 已停止", at: nowIso(this.now) })
+    this.activities.set(input.parentSessionId, map)
+    try {
+      await this.write(ctx, (latest) => {
+        const verdict = classify(latest)
+        if (verdict !== "settle")
+          throw new PlanProtocolError({
+            code: ERROR_CODES.RUN_STALE,
+            message: `child run 状态已变化：${verdict}`,
+            hint: "该 run 已被其他流程处理，无需重复对齐",
+          })
+        const next = clonePlan(latest!)
+        const task = next.steps.flatMap((step) => step.tasks).find((item) => item.id === input.taskId)!
+        task.status = "rejected"
+        next.revision++
+        next.updated_at = nowIso(this.now)
+        recomputeProgress(next, input.workspaceRoot)
+        return {
+          mutate(target) {
+            Object.assign(target, next)
+          },
+          result: { settled: true },
+        }
+      })
+      return { settled: true, reason: "child_exited" }
+    } catch (error) {
+      if (error instanceof PlanProtocolError && error.code === ERROR_CODES.RUN_STALE)
+        return { settled: false, reason: "raced" }
+      throw error
+    }
+  }
+
   drainWakeups(sessionId: string) {
     return this.wakeups.drain(sessionId)
   }

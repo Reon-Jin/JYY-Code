@@ -67,6 +67,7 @@ import { defaultPlanProtocol } from "@/plan/protocol"
 import { enabledProfiles, resolveProfiles } from "@/agent/subagent-profile"
 import { Memory } from "@/memory/memory"
 import { Blackboard } from "@/plan/blackboard"
+import { Skill } from "@/skill"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -157,6 +158,7 @@ export const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
     const blackboard = Option.getOrUndefined(yield* Effect.serviceOption(Blackboard.Service))
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
+    const skill = Option.getOrUndefined(yield* Effect.serviceOption(Skill.Service))
     const evaluateMemoryDecision: Memory.DecisionEvaluator = (input) =>
       Effect.gen(function* () {
         const history = yield* sessions.messages({ sessionID: input.sessionID })
@@ -1669,9 +1671,12 @@ export const layer = Layer.effect(
 
             // Environment and the persistent-memory snapshot are session-static
             // context: inject them only during the session's first turn instead
-            // of paying their token cost on every request. The skill catalog is
-            // not injected here at all — the skill tool description already
-            // lists the available skills on every request.
+            // of paying their token cost on every request. The root skill
+            // catalog is not injected here — the skill tool description already
+            // lists it on every request. Profile-backed child sessions
+            // additionally get their role skill catalog injected below on the
+            // first turn, because the dispatch brief often prescribes a
+            // toolchain that would otherwise bypass the role's skills.
             const firstSessionTurn = !msgs.some((message) => message.info.role === "assistant")
 
             const memorySnapshot =
@@ -1696,7 +1701,11 @@ export const layer = Layer.effect(
               ...env,
               ...instructions,
             ]
-            const promptProfiles = enabledProfiles(resolveProfiles((yield* config.get()).subagents?.profiles))
+            // Profiles live in the global config; mirror Agent.state's
+            // resolution order so the roster in the system prompt matches the
+            // materialized subagents.
+            const subagentConfig = (yield* config.getGlobal()).subagents ?? (yield* config.get()).subagents
+            const promptProfiles = enabledProfiles(resolveProfiles(subagentConfig?.profiles))
             system.push(
               planSystemPrompt({
                 child: session.parentID !== undefined,
@@ -1704,6 +1713,23 @@ export const layer = Layer.effect(
                 profiles: promptProfiles,
               }),
             )
+            if (session.parentID !== undefined && firstSessionTurn && skill) {
+              const roleSkills = yield* skill
+                .available(Skill.scopeForSession(session, agent), agent)
+                .pipe(Effect.catchCause(() => Effect.succeed([] as Skill.Info[])))
+              if (roleSkills.length > 0) {
+                system.push(
+                  [
+                    "# 你的专属技能（必须通过 skill 工具加载）",
+                    "开始任务前先调用 skill 工具加载与本任务相关的技能，并严格遵循其工作流程。",
+                    "派发简报中的做法与技能流程冲突时，以技能流程为准。",
+                    "不要用 read 等工具直接读取 SKILL.md 文件来代替加载。",
+                    "",
+                    Skill.fmt(roleSkills, { verbose: false }),
+                  ].join("\n"),
+                )
+              }
+            }
             const format = lastUser.format ?? { type: "text" as const }
             if (!requiredPlanTool && format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const toolChoice = requiredPlanTool
@@ -1987,7 +2013,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
-    Layer.provide(Layer.mergeAll(Image.defaultLayer, Memory.defaultLayer)),
+    Layer.provide(Layer.mergeAll(Image.defaultLayer, Memory.defaultLayer, Skill.defaultLayer)),
     Layer.provide(
       Layer.mergeAll(
         EventV2Bridge.defaultLayer,
