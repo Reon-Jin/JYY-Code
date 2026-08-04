@@ -1,6 +1,6 @@
 import type { SubagentProfile, SubagentProfileView } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
-import { Pencil, Plus, RefreshCw } from "lucide-solid"
+import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { Button, IconButton } from "../../components/ui/button"
 import { Dialog } from "../../components/ui/dialog"
@@ -16,6 +16,7 @@ import {
 } from "./subagent-avatar-catalog"
 import {
   createSubagentSkill,
+  deleteSubagentProfile,
   refreshSubagentProfiles,
   subagentProfilesQueryOptions,
   subagentToolIDsQueryOptions,
@@ -93,6 +94,7 @@ export type SubagentProfilesPanelViewProps = {
   loading?: boolean
   error?: string
   onSave: (profiles: readonly SubagentProfile[]) => Promise<void>
+  onDelete: (roleID: string) => Promise<void>
   onCreateSkill: (roleID: string, input: { name: string; content: string }) => Promise<void>
   onRefresh: () => void | Promise<void>
 }
@@ -111,8 +113,12 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
   const [skillError, setSkillError] = createSignal<string>()
   const [skillName, setSkillName] = createSignal("")
   const [skillContent, setSkillContent] = createSignal("")
+  const [deletingID, setDeletingID] = createSignal<string>()
+  const [deleteBusy, setDeleteBusy] = createSignal(false)
+  const [deleteError, setDeleteError] = createSignal<string>()
 
   const editingProfile = createMemo(() => props.profiles.find((profile) => profile.id === editingID()))
+  const deletingProfile = createMemo(() => props.profiles.find((profile) => profile.id === deletingID()))
   const dialogOpen = () => creating() || Boolean(editingID())
   const enabledFor = (profile: SubagentProfileView) => switchOverrides()[profile.id] ?? profile.enabled
   const enabledCount = () => props.profiles.filter((profile) => enabledFor(profile)).length
@@ -165,6 +171,39 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
     setError(undefined)
     setSkillError(undefined)
     setSkillCreating(false)
+  }
+
+  function askDelete(profile: SubagentProfileView) {
+    if (deleteBusy()) return
+    setDeletingID(profile.id)
+    setDeleteError(undefined)
+  }
+
+  function closeDelete() {
+    if (deleteBusy()) return
+    setDeletingID(undefined)
+    setDeleteError(undefined)
+  }
+
+  async function confirmDelete() {
+    const roleID = deletingID()
+    if (!roleID || deleteBusy()) return
+    setDeleteBusy(true)
+    setDeleteError(undefined)
+    try {
+      await props.onDelete(roleID)
+      setSwitchOverrides((current) => {
+        const nextOverrides = { ...current }
+        delete nextOverrides[roleID]
+        return nextOverrides
+      })
+      if (editingID() === roleID) resetEditor()
+      setDeletingID(undefined)
+    } catch (cause) {
+      setDeleteError(cause instanceof Error && cause.message ? cause.message : tr("subagents.delete-failed"))
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   async function toggleProfile(profile: SubagentProfileView) {
@@ -307,6 +346,15 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
                     onClick={() => editProfile(profile)}
                   >
                     <Pencil aria-hidden="true" />
+                  </IconButton>
+                  <IconButton
+                    class="subagent-profile-row__delete"
+                    label={`${tr("subagents.delete")} ${profile.name}`}
+                    variant="ghost"
+                    disabled={deleteBusy()}
+                    onClick={() => askDelete(profile)}
+                  >
+                    <Trash2 aria-hidden="true" />
                   </IconButton>
                 </span>
               </article>
@@ -507,6 +555,30 @@ export function SubagentProfilesPanelView(props: SubagentProfilesPanelViewProps)
           </div>
         </form>
       </Dialog>
+
+      <Dialog
+        open={deletingProfile() !== undefined}
+        title={tr("subagents.delete")}
+        description={deletingProfile() ? `${deletingProfile()!.name} · ${deletingProfile()!.id}` : undefined}
+        showClose
+        onClose={closeDelete}
+        class="subagent-profile-delete-dialog"
+        footer={
+          <>
+            <Button variant="ghost" onClick={closeDelete}>
+              {tr("github.cancel")}
+            </Button>
+            <Button variant="danger" loading={deleteBusy()} loadingLabel={tr("skills.processing")} onClick={() => void confirmDelete()}>
+              {tr("mcp.confirm-deletion")}
+            </Button>
+          </>
+        }
+      >
+        <Show when={deletingProfile()}>
+          {(profile) => <p>{tr("subagents.delete-warning", { name: profile().name })}</p>}
+        </Show>
+        <Show when={deleteError()}>{(message) => <InlineError message={message()} />}</Show>
+      </Dialog>
     </section>
   )
 }
@@ -541,6 +613,13 @@ export function SubagentProfilesPanel(props: { directory: string; models?: reado
     await props.onSaved?.()
   }
 
+  const remove = async (roleID: string) => {
+    await deleteSubagentProfile({ client: data.client(), directory: props.directory, roleID })
+    await refreshSubagentProfiles(data.queryClient(), props.directory)
+    await query.refetch()
+    await props.onSaved?.()
+  }
+
   return (
     <SubagentProfilesPanelView
       profiles={query.data ?? []}
@@ -549,6 +628,7 @@ export function SubagentProfilesPanel(props: { directory: string; models?: reado
       loading={query.isPending}
       error={query.error ? errorText(query.error) : undefined}
       onSave={save}
+      onDelete={remove}
       onCreateSkill={createSkill}
       onRefresh={() => query.refetch().then(() => undefined)}
     />

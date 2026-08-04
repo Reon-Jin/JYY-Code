@@ -264,6 +264,32 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* profileViews(resolved)
     })
 
+    const deleteSubagent = Effect.fn("InstanceHttpApi.subagentDelete")(function* (ctx: {
+      params: { roleID: string }
+    }) {
+      const resolved = yield* profiles()
+      if (!profileByID(resolved, ctx.params.roleID)) {
+        return yield* new ApiSubagentNotFoundError({
+          name: "SubagentNotFoundError",
+          data: { message: `Subagent role "${ctx.params.roleID}" was not found`, roleID: ctx.params.roleID },
+        })
+      }
+      let remaining: ReturnType<typeof resolveProfiles>
+      try {
+        remaining = resolveProfiles(resolved.filter((profile) => profile.id !== ctx.params.roleID))
+      } catch (error) {
+        return yield* new ApiSubagentInvalidError({
+          name: "SubagentInvalidError",
+          data: { message: error instanceof Error ? error.message : String(error) },
+        })
+      }
+      yield* roleSkillManagement.remove(ctx.params.roleID).pipe(Effect.mapError(mapSubagentError))
+      yield* config.updateGlobal({ subagents: { profiles: remaining } })
+      yield* config.updateProject({ subagents: undefined })
+      yield* markInstanceForDisposal(yield* InstanceState.context)
+      return yield* profileViews(remaining)
+    })
+
     const createSubagentSkill = Effect.fn("InstanceHttpApi.subagentsSkillCreate")(function* (ctx: {
       params: { roleID: string }
       payload: RoleSkillManagement.CreateInput
@@ -355,6 +381,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       .handle("agent", getAgent)
       .handle("subagents", getSubagents)
       .handle("subagentsUpdate", updateSubagents)
+      .handle("subagentDelete", deleteSubagent)
       .handle("subagentSkillCreate", createSubagentSkill)
       .handle("skill", getSkill)
       .handle("skillCreate", createSkill)

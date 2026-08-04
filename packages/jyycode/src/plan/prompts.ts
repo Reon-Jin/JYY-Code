@@ -1,4 +1,4 @@
-import { defaultGeneralProfile, enabledProfiles, type SubagentProfile } from "@/agent/subagent-profile"
+import { defaultProfiles, enabledProfiles, type SubagentProfile } from "@/agent/subagent-profile"
 
 export const PLAN_BASE_PROMPT = `# 新版方案管理协议（强制）
 - 每个用户回合的第一个动作必须调用 Plan_read；运行时也会只开放该工具，不能跳过。
@@ -15,13 +15,16 @@ export const PLAN_BASE_PROMPT = `# 新版方案管理协议（强制）
 - 主 Agent：黑板有未读时先调用 Blackboard；Blackboard is the shared coordination channel for decisions, findings, dependencies, handoffs, risks, blockers, and help requests。不要发布心跳或重复的普通进度。`
 
 export const PLAN_MULTI_PROMPT = `# 新版子 Agent 管理协议
-- 并行优先：在 Plan_create 或 active Step 的 Plan_update(add_task) 前，先做一次“可并行性检查”：把当前工作按独立交付物、独立验证面或独立调查问题拆开。默认目标是让当前 wave 有 2-4 个互不阻塞的 standard Task；只有确实不可拆分的原子工作才保留 single Task，并在 instructions 中说明原因。
+- 规模判断：拆分前先评估任务规模。简单任务（单一交付物、没有独立的并行面、一两个子 Agent 即可覆盖）只建 1-2 个 Task，不要把一件小事切成碎片；拆分的目标是缩短关键路径和提高质量，不是堆数量。只有中大型任务才适用下面的默认拆分目标。
+- 并行优先：中大型任务在 Plan_create 或 active Step 的 Plan_update(add_task) 前，先做一次“可并行性检查”，逐条枚举拆分维度：①独立交付物（每个输出文件/报告一个 Task）②独立模块或代码区域 ③独立调查问题或信息源 ④独立验证面（测试、审查、对比）⑤独立角色专长（调查、前端、后端、文档、图表等）。每个成立的维度至少产出 1 个 standard Task；默认目标是让当前 wave 有 4-8 个互不阻塞的 standard Task（上限 20 个）。
+- 拆分举证：中大型任务的 wave 少于 4 个 Task 时，必须在 instructions 或 Blackboard 中逐条说明各拆分维度为何不成立；只有确实不可拆分的原子工作才保留 single Task。
+- 合并检测：Task 的标题或 goal 用“和/以及/同时”连接多个交付物时，必须拆开成多个 Task。
 - ordinary parallel：不同文件、不同模块、不同调查问题、不同验证层且不互相等待的工作，必须建成多个 standard Task，并在一次 Dispatch_dispatch 中批量派发；不要把多个独立工作合并成一个大 Task，也不要逐个串行派发。
-- candidate parallel：当多个 Task 解决的是同一个尚未确定的设计/实现选择时，使用 2-3 个 candidate Task 并行探索；候选应共享同一个 Step 目标和验收口径，但各自写隔离 proposal。候选比较不是普通拆分，只有存在真实方案不确定性时才使用。
-- 选择策略：能拆成不同产出就用 ordinary parallel；需要比较多个路线就用 candidate parallel；若两者都不成立才使用 single Task。不要为了凑数量制造重复任务。
-- 批量派发：同一 wave 的所有 ready Task 尽量放入一次 Dispatch_dispatch；candidate group 必须一次包含全部 2-3 个候选。Dispatch_dispatch 返回后立即结束当前 turn，等待 Report/Inbox/Blackboard 事件。
+- candidate parallel：涉及技术选型、结构设计、文案风格等尚无定论的路线选择时，默认用 2-3 个 candidate Task 并行比较，而不是主 Agent 直接拍板；候选应共享同一个 Step 目标和验收口径，但各自写隔离 proposal。简单的执行性工作不要用 candidate。
+- 不重复：每个 Task 必须有互不重叠的 output_path 和交付物；禁止两个 Task 产出同一产物，禁止为凑数量制造内容重复的 Task。
+- 批量派发：同一 wave 的所有 ready Task 必须一次放入 Dispatch_dispatch（上限 20 个），不得分批；candidate group 必须一次包含全部 2-3 个候选。Dispatch_dispatch 返回后立即结束当前 turn，等待 Report/Inbox/Blackboard 事件。
 - 当前 active Step 只要有 pending/rejected Task，主 Agent 不得亲自执行这些 Task；运行时会只开放 Plan_update（补全任务）或 Dispatch_dispatch（派发）。若该调用被拒绝，可使用 Plan_read 获取最新状态后修正一次调用。
-- 当前 active Step 没有 Task 时，先用 Plan_update 一次性展开当前 wave；优先添加多个可独立派发的 standard Task，或在存在真实路线不确定性时添加完整的 2-3 个 candidate Task。
+- 当前 active Step 没有 Task 时，先用 Plan_update 一次性展开当前 wave：简单任务添加 1-2 个 Task 即可；中大型任务按可并行性检查添加多个可独立派发的 standard Task，或在存在路线不确定性时添加完整的 2-3 个 candidate Task。
 - 每个可派发 Task 必须有明确的 output_path；若运行时只开放 Plan_update，先用 edit_task 补齐 output_path，下一步立即 Dispatch_dispatch。output_path 可写工作区相对路径或工作区内绝对路径，派发时运行时会统一解析为工作区内绝对路径再交给子 Agent；越出工作区的路径会被拒绝。
 - 给 Task 写 instructions 时可以直接使用工作区相对路径：子 Agent 与主 Agent 共享同一个工作目录，相对路径的解析结果一致。
 - 独立、耗时且产出明确的当前 Step 任务，用 Dispatch_dispatch 派给子 Agent；需要连续上下文的判断由主 Agent 自己执行。
@@ -56,7 +59,7 @@ export const PLAN_CANDIDATE_PROMPT = `## Candidate task protocol
 - The root session must choose exactly one approved candidate with Plan_update(select_candidate), may record contributing candidates, and must provide a real workspace synthesis artifact before the Step can complete.`
 
 function dispatchRosterPrompt(profiles: readonly SubagentProfile[] | undefined) {
-  const roster = enabledProfiles(profiles === undefined ? [defaultGeneralProfile] : profiles)
+  const roster = enabledProfiles(profiles === undefined ? defaultProfiles() : profiles)
   return [
     "## Dispatchable sub-agent roles (enabled only)",
     ...(roster.length > 0
@@ -67,6 +70,7 @@ function dispatchRosterPrompt(profiles: readonly SubagentProfile[] | undefined) 
         })
       : ["No enabled sub-agent roles are currently available for Dispatch_dispatch."]),
     "Roles may carry dedicated skills; the child loads them itself with the skill tool. Keep task instructions focused on goals, constraints, and handoff context — do not prescribe a specific toolchain that would bypass the role's skills unless it is a hard technical requirement.",
+    "拆分 Task 时对照上面的角色清单，尽量让每个 Task 落在某个角色的专长上；Dispatch_dispatch 一次只能带一个 role，因此同一角色的多个 Task 要合并进同一波批量派发，不同角色的 Task 分波派发。",
     "Use Dispatch_roles for a fresh roster; use role IDs exactly as returned.",
   ].join("\n")
 }

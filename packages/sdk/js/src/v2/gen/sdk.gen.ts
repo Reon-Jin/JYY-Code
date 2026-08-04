@@ -286,6 +286,8 @@ import type {
   SkillUpdateErrors,
   SkillUpdateResponses,
   SubagentProfilesUpdate,
+  SubagentsDeleteErrors,
+  SubagentsDeleteResponses,
   SubagentsListErrors,
   SubagentsListResponses,
   SubagentsSkillCreateErrors,
@@ -2965,6 +2967,38 @@ export class Subagents extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Delete subagent profile
+   *
+   * Delete one subagent role together with its private skill directory.
+   */
+  public delete<ThrowOnError extends boolean = false>(
+    parameters: {
+      roleID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "roleID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<SubagentsDeleteResponses, SubagentsDeleteErrors, ThrowOnError>({
+      url: "/subagents/{roleID}",
+      ...options,
+      ...params,
     })
   }
 

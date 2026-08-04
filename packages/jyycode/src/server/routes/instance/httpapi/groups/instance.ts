@@ -184,6 +184,7 @@ export const InstancePaths = {
   command: "/command",
   agent: "/agent",
   subagents: "/subagents",
+  subagentRole: "/subagents/:roleID",
   subagentSkills: "/subagents/:roleID/skills",
   skill: "/skill",
   skillByName: "/skill/:name",
@@ -372,6 +373,18 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "subagents.update",
             summary: "Replace subagent profiles",
             description: "Atomically replace the global subagent profile configuration.",
+          }),
+        ),
+        HttpApiEndpoint.delete("subagentDelete", InstancePaths.subagentRole, {
+          params: { roleID: Schema.String },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Array(SubagentProfileView), "Remaining subagent profiles"),
+          error: SubagentMutationErrors,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "subagents.delete",
+            summary: "Delete subagent profile",
+            description: "Delete one subagent role together with its private skill directory.",
           }),
         ),
         HttpApiEndpoint.post("subagentSkillCreate", InstancePaths.subagentSkills, {

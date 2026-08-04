@@ -55,7 +55,15 @@ it.instance("returns default native agents when no config", () =>
     const names = agents.map((a) => a.name)
     expect(names).toContain("build")
     expect(names).toContain("plan")
+    // Built-in roles that ship enabled by default
     expect(names).toContain(profileAgentName("general"))
+    expect(names).toContain(profileAgentName("researcher"))
+    expect(names).toContain(profileAgentName("Planner"))
+    expect(names).toContain(profileAgentName("office_master"))
+    expect(names).toContain(profileAgentName("charter"))
+    // Built-in roles that ship disabled by default
+    expect(names).not.toContain(profileAgentName("coder_backend"))
+    expect(names).not.toContain(profileAgentName("coder_frontend"))
     expect(names).not.toContain("general")
     expect(names).not.toContain("explore")
     expect(names).not.toContain("scout")
@@ -117,13 +125,13 @@ withGitRefs.instance(
   },
 )
 
-it.instance("general agent denies todo tools", () =>
+it.instance("enabled built-in subagent denies todo tools", () =>
   Effect.gen(function* () {
-    const general = yield* load((svc) => svc.get(profileAgentName("general")))
-    expect(general).toBeDefined()
-    expect(general?.mode).toBe("subagent")
-    expect(general?.hidden).toBeUndefined()
-    expect(evalPerm(general, "todowrite")).toBe("deny")
+    const researcher = yield* load((svc) => svc.get(profileAgentName("researcher")))
+    expect(researcher).toBeDefined()
+    expect(researcher?.mode).toBe("subagent")
+    expect(researcher?.hidden).toBeUndefined()
+    expect(evalPerm(researcher, "todowrite")).toBe("deny")
   }),
 )
 
@@ -478,7 +486,7 @@ it.instance(
     Effect.gen(function* () {
       const names = (yield* load((svc) => svc.list())).map((a) => a.name)
       expect(names[0]).toBe("plan")
-      expect(names.slice(1)).toEqual(names.slice(1).toSorted((a, b) => a.localeCompare(b)))
+      expect(names.slice(1)).toEqual(names.slice(1).toSorted())
     }),
   {
     config: {

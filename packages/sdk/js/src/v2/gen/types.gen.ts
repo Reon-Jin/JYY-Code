@@ -6525,6 +6525,44 @@ export type SubagentsUpdateResponses = {
 
 export type SubagentsUpdateResponse = SubagentsUpdateResponses[keyof SubagentsUpdateResponses]
 
+export type SubagentsDeleteData = {
+  body?: never
+  path: {
+    roleID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/subagents/{roleID}"
+}
+
+export type SubagentsDeleteErrors = {
+  /**
+   * SubagentInvalidError | SubagentUnsafePathError | InvalidRequestError
+   */
+  400: SubagentInvalidError | SubagentUnsafePathError | InvalidRequestError
+  /**
+   * SubagentNotFoundError
+   */
+  404: SubagentNotFoundError
+  /**
+   * SubagentDuplicateError
+   */
+  409: SubagentDuplicateError
+}
+
+export type SubagentsDeleteError = SubagentsDeleteErrors[keyof SubagentsDeleteErrors]
+
+export type SubagentsDeleteResponses = {
+  /**
+   * Remaining subagent profiles
+   */
+  200: Array<SubagentProfileView>
+}
+
+export type SubagentsDeleteResponse = SubagentsDeleteResponses[keyof SubagentsDeleteResponses]
+
 export type SubagentsSkillCreateData = {
   body?: {
     name: string

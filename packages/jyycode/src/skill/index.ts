@@ -12,6 +12,7 @@ import { Config } from "@/config/config"
 import { ConfigMarkdown } from "@/config/markdown"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Glob } from "@jyycode-ai/core/util/glob"
+import { BuiltinRoles } from "./builtin-roles"
 import * as Log from "@jyycode-ai/core/util/log"
 import { Discovery } from "./discovery"
 import CUSTOMIZE_JYYCODE_SKILL_BODY from "./prompt/customize-jyycode.md" with { type: "text" }
@@ -373,6 +374,7 @@ export const layer = Layer.effect(
     const roleSkills = Effect.fn("Skill.roleSkills")(function* (roleID: string) {
       if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(roleID)) return [] as Info[]
 
+      yield* BuiltinRoles.seed(roleID, fsys)
       const root = path.join(Global.Path.home, ".jyycode", "role", roleID, "skills")
       if (!(yield* fsys.isDir(root))) return [] as Info[]
       const realRoot = yield* fsys.realPath(root).pipe(Effect.catch(() => Effect.succeed(path.resolve(root))))

@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import {
-  defaultGeneralProfile,
+  defaultProfiles,
   enabledProfiles,
   launchSnapshot,
   profileByID,
@@ -304,7 +304,7 @@ function nextActionHint(plan: PlanFile, inboxPending: number) {
   if (inboxPending > 0) return `有 ${inboxPending} 个异常待处理：先处理 Inbox`
   const current = plan.current_step ? plan.steps.find((step) => step.id === plan.current_step) : undefined
   if (!current) return "方案已完成，可向用户交付总结"
-  if (current.tasks.length === 0) return `${current.id} 当前没有任务，请用 Plan_update(add_task) 展开明细`
+  if (current.tasks.length === 0) return `${current.id} 当前没有任务，请用 Plan_update(add_task) 展开明细：简单任务 1-2 个即可；中大型任务默认展开 4-8 个可并行 Task（上限 20 个）`
   const candidates = current.tasks.filter((task) => task.mode === "candidate")
   if (candidates.length > 0) {
     const candidateIDs = candidates.map((task) => task.id).join("、")
@@ -325,7 +325,7 @@ function nextActionHint(plan: PlanFile, inboxPending: number) {
   const reported = plan.steps.flatMap((step) => step.tasks).filter((task) => task.status === "reported")
   if (reported.length) return `有 ${reported.length} 个任务待审核：${reported.map((task) => task.id).join("、")}`
   const pending = current.tasks.filter((task) => task.status === "pending" || task.status === "rejected")
-  if (pending.length) return `${current.id} 有 ${pending.length} 个 pending/rejected 任务，可开始派发或执行`
+  if (pending.length) return `${current.id} 有 ${pending.length} 个 pending/rejected 任务，可开始派发或执行；多智能体模式请一次 Dispatch_dispatch 放入全部 ready 任务，不要分批`
   if (plan.status === "done") return "方案已完成，可向用户交付总结"
   return `${current.id} 已无可立即推进的任务，等待运行中任务汇报或审核`
 }
@@ -739,7 +739,7 @@ export class PlanProtocol {
     this.eventSink = options.eventSink
     this.beforeReport = options.beforeReport
     this.beforeStepAdvance = options.beforeStepAdvance
-    this.profiles = options.profiles ?? (() => Promise.resolve([defaultGeneralProfile]))
+    this.profiles = options.profiles ?? (() => Promise.resolve(defaultProfiles()))
   }
 
   private publish(event: Parameters<PlanEventHub["publish"]>[0]) {

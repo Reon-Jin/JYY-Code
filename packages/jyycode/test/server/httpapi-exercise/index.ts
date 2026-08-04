@@ -156,6 +156,15 @@ const scenarios: Scenario[] = [
       body: { name: `exercise-private-${process.pid}`, content: "# Exercise private skill\n" },
     }))
     .json(200, object, "status"),
+  http.protected
+    .delete("/subagents/{roleID}", "subagents.delete")
+    .mutating()
+    .at((ctx) => ({ path: route("/subagents/{roleID}", { roleID: "general" }), headers: ctx.headers() }))
+    .json(200, array, "status"),
+  http.protected
+    .delete("/subagents/{roleID}", "subagents.delete.missing")
+    .at((ctx) => ({ path: route("/subagents/{roleID}", { roleID: "general" }), headers: ctx.headers() }))
+    .status(404),
   http.protected.get("/skill", "app.skills").json(200, array, "status"),
   http.protected.get("/lsp", "lsp.status").json(200, array),
   http.protected.get("/formatter", "formatter.status").json(200, array),

@@ -54,6 +54,30 @@ const createEmbeddedWebUIBundle = async () => {
 
 const embeddedFileMap = skipEmbedWebUi ? null : await createEmbeddedWebUIBundle()
 
+const createEmbeddedBuiltinRolesBundle = async () => {
+  const root = path.join(dir, "defaults", "role")
+  if (!fs.existsSync(root)) return null
+  const files = (await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: root })))
+    .map((file) => file.replaceAll("\\", "/"))
+    .sort()
+  if (files.length === 0) return null
+  console.log(`Embedding ${files.length} built-in subagent role files`)
+  const imports = files.map((file, i) => {
+    return `import role_file_${i} from ${JSON.stringify(`./defaults/role/${file}`)} with { type: "file" };`
+  })
+  const entries = files.map((file, i) => `  ${JSON.stringify(file)}: role_file_${i},`)
+  return [
+    `// Import all built-in role files as role_file_$i with type: "file"`,
+    ...imports,
+    `// Export with "<roleID>/<relative path>" mappings`,
+    `export default {`,
+    ...entries,
+    `}`,
+  ].join("\n")
+}
+
+const embeddedBuiltinRolesMap = await createEmbeddedBuiltinRolesBundle()
+
 const allTargets: {
   os: string
   arch: "arm64" | "x64"
@@ -187,8 +211,17 @@ for (const item of targets) {
       execArgv: [`--user-agent=jyycode/${Script.version}`, "--use-system-ca", "--"],
       windows: {},
     },
-    files: embeddedFileMap ? { "jyycode-web-ui.gen.ts": embeddedFileMap } : {},
-    entrypoints: ["./src/index.ts", parserWorker, workerPath, ...(embeddedFileMap ? ["jyycode-web-ui.gen.ts"] : [])],
+    files: {
+      ...(embeddedFileMap ? { "jyycode-web-ui.gen.ts": embeddedFileMap } : {}),
+      ...(embeddedBuiltinRolesMap ? { "jyycode-builtin-roles.gen.ts": embeddedBuiltinRolesMap } : {}),
+    },
+    entrypoints: [
+      "./src/index.ts",
+      parserWorker,
+      workerPath,
+      ...(embeddedFileMap ? ["jyycode-web-ui.gen.ts"] : []),
+      ...(embeddedBuiltinRolesMap ? ["jyycode-builtin-roles.gen.ts"] : []),
+    ],
     define: {
       JYYCODE_VERSION: `'${Script.version}'`,
       JYYCODE_MODELS_DEV: generated.modelsData,

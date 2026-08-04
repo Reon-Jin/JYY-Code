@@ -64,6 +64,7 @@ describe("SubagentProfilesPanelView", () => {
   it("lists profiles with switches and opens the editor from each row", async () => {
     const user = userEvent.setup()
     const onSave = vi.fn().mockResolvedValue(undefined)
+    const onDelete = vi.fn().mockResolvedValue(undefined)
     const onCreateSkill = vi.fn().mockResolvedValue(undefined)
     const onRefresh = vi.fn().mockResolvedValue(undefined)
     render(() => (
@@ -72,6 +73,7 @@ describe("SubagentProfilesPanelView", () => {
         toolIDs={["read", "bash", "write", "mcp_docs"]}
         models={models}
         onSave={onSave}
+        onDelete={onDelete}
         onCreateSkill={onCreateSkill}
         onRefresh={onRefresh}
       />
@@ -82,6 +84,8 @@ describe("SubagentProfilesPanelView", () => {
     expect(screen.getByRole("switch", { name: "启用角色 Reviewer" })).toHaveAttribute("aria-checked", "false")
     expect(screen.getByRole("button", { name: "编辑角色 General" })).toBeVisible()
     expect(screen.getByRole("button", { name: "编辑角色 Reviewer" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "删除角色 General" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "删除角色 Reviewer" })).toBeVisible()
 
     await user.click(screen.getByRole("switch", { name: "启用角色 Reviewer" }))
     expect(onSave).toHaveBeenLastCalledWith([
@@ -145,5 +149,16 @@ describe("SubagentProfilesPanelView", () => {
         enabled: false,
       }),
     ])
+
+    await user.click(screen.getByRole("button", { name: "删除角色 Reviewer" }))
+    const deleteDialog = screen.getByRole("dialog")
+    expect(within(deleteDialog).getByText(/Reviewer/)).toBeVisible()
+    await user.click(within(deleteDialog).getByRole("button", { name: "取消" }))
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(onDelete).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole("button", { name: "删除角色 Reviewer" }))
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "确认删除" }))
+    expect(onDelete).toHaveBeenCalledWith("reviewer")
   })
 })

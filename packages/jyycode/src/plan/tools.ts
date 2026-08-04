@@ -65,7 +65,7 @@ const stepInputSchema: JSONSchema7 = {
       type: "array",
       items: taskInputSchema,
       description:
-        "For a candidate Step, include exactly 2-3 candidate Tasks together. The initial Step may declare them in Plan_create; a later clean active Step may initialize them with one Plan_update containing 2-3 candidate add_task operations.",
+        "Simple work needs only 1-2 standard Tasks; for a larger task, declare 4-8 independent parallel standard Tasks here (max 20). For a candidate Step, include exactly 2-3 candidate Tasks together. The initial Step may declare them in Plan_create; a later clean active Step may initialize them with one Plan_update containing 2-3 candidate add_task operations.",
     },
   },
 }
@@ -82,7 +82,7 @@ export const PLAN_CREATE_INPUT_SCHEMA: JSONSchema7 = {
       minItems: 2,
       items: stepInputSchema,
       description:
-        "Only steps[0] may contain Task details at creation. Later active Steps are expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group.",
+        "Only steps[0] may contain Task details at creation. For a larger task, put all currently parallel-ready standard Tasks (target 4-8, max 20) into steps[0].tasks; simple work needs only 1-2. Later active Steps are expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group.",
     },
   },
 }
@@ -251,7 +251,7 @@ export const DISPATCH_INPUT_SCHEMA: JSONSchema7 = {
       maxItems: 20,
       items: taskIdSchema,
       description:
-        "Batch all ready standard Task IDs from the current wave in one call. For a candidate Step, pass every candidate Task ID from the same Step in this one call; never dispatch candidates individually.",
+        "Pass every ready standard Task ID from the current wave in this one call (max 20); never split a wave into batches. For a candidate Step, pass every candidate Task ID from the same Step in this one call; never dispatch candidates individually.",
     },
     role: { type: "string", minLength: 1, description: "Use an enabled role such as general." },
   },
@@ -780,7 +780,7 @@ export const PlanCreateTool = Tool.define(
     const bus = yield* Bus.Service
     return {
       description:
-        "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan_update 展开。需要候选比较时，在 Plan_create 或后续 clean active Step 的一次 Plan_update 中完整放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
+        "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan_update 展开。简单任务 steps[0].tasks 放 1-2 个 Task 即可；中大型任务默认放 4-8 个可并行的 standard Task（上限 20 个）。需要候选比较时，在 Plan_create 或后续 clean active Step 的一次 Plan_update 中完整放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
       parameters: AnyObject,
       jsonSchema: PLAN_CREATE_INPUT_SCHEMA,
       catalog: {

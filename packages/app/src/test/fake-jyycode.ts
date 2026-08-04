@@ -436,6 +436,14 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       return json(subagentProfiles)
     }
     const roleSkill = /^\/subagents\/([^/]+)\/skills$/u.exec(url.pathname)
+    const roleDelete = /^\/subagents\/([^/]+)$/u.exec(url.pathname)
+    if (roleDelete && request.method === "DELETE") {
+      const roleID = decodeURIComponent(roleDelete[1] ?? "")
+      const profile = subagentProfiles.find((candidate) => candidate.id === roleID)
+      if (!profile) return json({ name: "SubagentNotFoundError", message: "Subagent not found" }, 404)
+      subagentProfiles = subagentProfiles.filter((candidate) => candidate.id !== roleID)
+      return json(subagentProfiles)
+    }
     if (roleSkill && request.method === "POST") {
       const roleID = decodeURIComponent(roleSkill[1] ?? "")
       const profile = subagentProfiles.find((candidate) => candidate.id === roleID)

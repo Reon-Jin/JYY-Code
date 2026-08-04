@@ -4,6 +4,7 @@ import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { Global } from "@jyycode-ai/core/global"
 import { Glob } from "@jyycode-ai/core/util/glob"
 import { Skill } from "."
+import { BuiltinRoles } from "./builtin-roles"
 import { canonicalContent, contained, frontmatter, isSafeName, writeAtomic } from "./management"
 
 export const CreateInput = Schema.Struct({
@@ -37,6 +38,7 @@ export type Error = InvalidRoleIDError | InvalidContentError | DuplicateError | 
 export interface Interface {
   readonly list: (roleID: string) => Effect.Effect<Skill.Info[], Error>
   readonly create: (roleID: string, input: CreateInput) => Effect.Effect<Skill.Info, Error>
+  readonly remove: (roleID: string) => Effect.Effect<{ changed: boolean }, Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/RoleSkillManagement") {}
@@ -73,6 +75,7 @@ export const layer = Layer.effect(
 
     const list = Effect.fn("RoleSkillManagement.list")(function* (roleID: string) {
       if (!safeRoleID(roleID)) return yield* new InvalidRoleIDError({ roleID })
+      yield* BuiltinRoles.seed(roleID, fs)
       const root = roleRoot(roleID)
       if (!(yield* fs.isDir(root))) return [] as Skill.Info[]
 
@@ -135,7 +138,24 @@ export const layer = Layer.effect(
       return makeInfo(roleID, input.name, parsed.description, target, content)
     })
 
-    return Service.of({ list, create })
+    const remove = Effect.fn("RoleSkillManagement.remove")(function* (roleID: string) {
+      if (!safeRoleID(roleID)) return yield* new InvalidRoleIDError({ roleID })
+      const roleDirectory = path.dirname(roleRoot(roleID))
+      if (!(yield* fs.isDir(roleDirectory))) return { changed: false }
+      const realHome = yield* fs.realPath(Global.Path.home).pipe(Effect.orDie)
+      const expected = path.join(realHome, ".jyycode", "role", roleID)
+      const realDirectory = yield* fs
+        .realPath(roleDirectory)
+        .pipe(Effect.mapError(() => new UnsafePathError({ roleID, path: roleDirectory })))
+      // Only ever delete the exact per-role directory; refuse symlink escapes.
+      if (realDirectory !== expected) {
+        return yield* new UnsafePathError({ roleID, path: realDirectory })
+      }
+      yield* fs.remove(realDirectory, { recursive: true, force: true }).pipe(Effect.orDie)
+      return { changed: true }
+    })
+
+    return Service.of({ list, create, remove })
   }),
 )
 

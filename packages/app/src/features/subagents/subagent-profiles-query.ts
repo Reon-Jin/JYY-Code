@@ -51,6 +51,14 @@ export async function updateSubagentProfiles(input: {
   return response.data ?? []
 }
 
+export async function deleteSubagentProfile(input: { client: SubagentClient; directory: string; roleID: string }) {
+  const response = await input.client.subagents.delete(
+    { directory: input.directory, roleID: input.roleID },
+    { throwOnError: true },
+  )
+  return response.data ?? []
+}
+
 export async function createSubagentSkill(input: {
   client: SubagentClient
   directory: string
