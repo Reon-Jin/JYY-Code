@@ -554,4 +554,63 @@ describe("model-facing plan tool names", () => {
     expect(prompt).toContain("## Role instructions (launch only)")
     expect(prompt).toContain("Use the review checklist.")
   })
+
+  it("falls back to the parent model when the role model is unavailable", async () => {
+    const parent = {
+      id: ModelID.make("root-model"),
+      providerID: ProviderID.make("root-provider"),
+      variant: "high",
+    }
+    const role = {
+      id: "reviewer",
+      name: "Reviewer",
+      description: "Checks delegated work.",
+      prompt: "Use the review checklist.",
+      avatar: "bug" as const,
+      model: "openai/gpt-5",
+      variant: "low",
+    }
+    const probe = (available: boolean, calls: string[] = []) => {
+      const provider = {
+        getModel: (providerID: ProviderID, modelID: ModelID) => {
+          calls.push(`${providerID}/${modelID}`)
+          return available ? Effect.succeed({}) : Effect.fail(new Error("not found"))
+        },
+      } as unknown as Provider.Interface
+      return <A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> =>
+        Effect.runPromise(
+          effect.pipe(Effect.provideService(Provider.Service, provider)) as Effect.Effect<A, E, never>,
+        )
+    }
+
+    const availableCalls: string[] = []
+    expect(await resolveChildModel(probe(true, availableCalls), parent, role)).toEqual({
+      id: ModelID.make("gpt-5"),
+      providerID: ProviderID.make("openai"),
+      variant: "low",
+    })
+    expect(availableCalls).toEqual(["openai/gpt-5"])
+
+    expect(await resolveChildModel(probe(false), parent, role)).toEqual({
+      id: ModelID.make("root-model"),
+      providerID: ProviderID.make("root-provider"),
+      variant: "low",
+    })
+
+    const failingRun = <A, E, R>(_effect: Effect.Effect<A, E, R>): Promise<A> =>
+      Promise.reject(new Error("provider service missing"))
+    expect(await resolveChildModel(failingRun, parent, role)).toEqual({
+      id: ModelID.make("gpt-5"),
+      providerID: ProviderID.make("openai"),
+      variant: "low",
+    })
+
+    const followCalls: string[] = []
+    expect(await resolveChildModel(probe(true, followCalls), parent, { ...role, model: undefined })).toEqual({
+      id: ModelID.make("root-model"),
+      providerID: ProviderID.make("root-provider"),
+      variant: "low",
+    })
+    expect(followCalls).toEqual([])
+  })
 })
