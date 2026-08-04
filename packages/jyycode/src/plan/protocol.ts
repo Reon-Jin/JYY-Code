@@ -354,7 +354,7 @@ function nextActionHint(plan: PlanFile, inboxPending: number) {
   const current = plan.current_step ? plan.steps.find((step) => step.id === plan.current_step) : undefined
   if (!current) return "方案已完成，可向用户交付总结"
   if (current.tasks.length === 0)
-    return `${current.id} 当前没有任务，请用 Plan_update(add_task) 展开明细：简单任务 1-2 个即可；中大型任务默认展开 4-8 个可并行 Task（上限 20 个）`
+    return `${current.id} 当前没有任务，请用 Plan_update(add_task) 展开明细：默认展开 3-10 个可并行 Task（上限 20 个），能拆就拆、优先多派子 Agent`
   const candidates = current.tasks.filter((task) => task.mode === "candidate")
   if (candidates.length > 0) {
     const candidateIDs = candidates.map((task) => task.id).join("、")

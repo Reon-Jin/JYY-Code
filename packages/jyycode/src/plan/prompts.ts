@@ -15,16 +15,15 @@ export const PLAN_BASE_PROMPT = `# 新版方案管理协议（强制）
 - 主 Agent：黑板有未读时先调用 Blackboard；Blackboard is the shared coordination channel for decisions, findings, dependencies, handoffs, risks, blockers, and help requests。不要发布心跳或重复的普通进度。`
 
 export const PLAN_MULTI_PROMPT = `# 新版子 Agent 管理协议
-- 规模判断：拆分前先评估任务规模。简单任务（单一交付物、没有独立的并行面、一两个子 Agent 即可覆盖）只建 1-2 个 Task，不要把一件小事切成碎片；拆分的目标是缩短关键路径和提高质量，不是堆数量。只有中大型任务才适用下面的默认拆分目标。
-- 并行优先：中大型任务在 Plan_create 或 active Step 的 Plan_update(add_task) 前，先做一次“可并行性检查”，逐条枚举拆分维度：①独立交付物（每个输出文件/报告一个 Task）②独立模块或代码区域 ③独立调查问题或信息源 ④独立验证面（测试、审查、对比）⑤独立角色专长（调查、前端、后端、文档、图表等）。每个成立的维度至少产出 1 个 standard Task；默认目标是让当前 wave 有 4-8 个互不阻塞的 standard Task（上限 20 个）。
-- 拆分举证：中大型任务的 wave 少于 4 个 Task 时，必须在 instructions 或 Blackboard 中逐条说明各拆分维度为何不成立；只有确实不可拆分的原子工作才保留 single Task。
+- 并行优先：在 Plan_create 或 active Step 的 Plan_update(add_task) 前，先做一次“可并行性检查”，逐条枚举拆分维度：①独立交付物（每个输出文件/报告一个 Task）②独立模块或代码区域 ③独立调查问题或信息源 ④独立验证面（测试、审查、对比）⑤独立角色专长（调查、前端、后端、文档、图表等）。每个成立的维度至少产出 1 个 standard Task；默认目标是让当前 wave 有 3-10 个互不阻塞的 standard Task（上限 20 个）。能拆就拆，优先多派子 Agent，不要为了少派而合并任务。
+- 拆分举证：wave 少于 3 个 Task 时，必须在 instructions 或 Blackboard 中逐条说明各拆分维度为何无法继续拆分；只有确实不可拆分的原子工作才保留 single Task。
 - 合并检测：Task 的标题或 goal 用“和/以及/同时”连接多个交付物时，必须拆开成多个 Task。
 - ordinary parallel：不同文件、不同模块、不同调查问题、不同验证层且不互相等待的工作，必须建成多个 standard Task，并在一次 Dispatch_dispatch 中批量派发；不要把多个独立工作合并成一个大 Task，也不要逐个串行派发。
 - candidate parallel：涉及技术选型、结构设计、文案风格等尚无定论的路线选择时，默认用 2-3 个 candidate Task 并行比较，而不是主 Agent 直接拍板；候选应共享同一个 Step 目标和验收口径，但各自写隔离 proposal。简单的执行性工作不要用 candidate。
 - 不重复：每个 Task 必须有互不重叠的 output_path 和交付物；禁止两个 Task 产出同一产物，禁止为凑数量制造内容重复的 Task。
 - 批量派发：同一 wave 的所有 ready Task 必须一次放入 Dispatch_dispatch（上限 20 个），不得分批；candidate group 必须一次包含全部 2-3 个候选。Dispatch_dispatch 返回后立即结束当前 turn，等待 Report/Inbox/Blackboard 事件。
 - 当前 active Step 只要有 pending/rejected Task，主 Agent 不得亲自执行这些 Task；运行时会只开放 Plan_update（补全任务）或 Dispatch_dispatch（派发）。若该调用被拒绝，可使用 Plan_read 获取最新状态后修正一次调用。
-- 当前 active Step 没有 Task 时，先用 Plan_update 一次性展开当前 wave：简单任务添加 1-2 个 Task 即可；中大型任务按可并行性检查添加多个可独立派发的 standard Task，或在存在路线不确定性时添加完整的 2-3 个 candidate Task。
+- 当前 active Step 没有 Task 时，先用 Plan_update 一次性展开当前 wave：按可并行性检查添加 3-10 个可独立派发的 standard Task（上限 20 个），或在存在路线不确定性时添加完整的 2-3 个 candidate Task。
 - 每个可派发 Task 必须有明确的 output_path；若运行时只开放 Plan_update，先用 edit_task 补齐 output_path，下一步立即 Dispatch_dispatch。output_path 可写工作区相对路径或工作区内绝对路径，派发时运行时会统一解析为工作区内绝对路径再交给子 Agent；越出工作区的路径会被拒绝。
 - 给 Task 写 instructions 时可以直接使用工作区相对路径：子 Agent 与主 Agent 共享同一个工作目录，相对路径的解析结果一致。
 - 独立、耗时且产出明确的当前 Step 任务，用 Dispatch_dispatch 派给子 Agent；需要连续上下文的判断由主 Agent 自己执行。
