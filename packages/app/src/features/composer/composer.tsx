@@ -299,7 +299,14 @@ export function Composer(props: ComposerProps) {
         theme="light"
         borderRadius={8}
         active={active()}
-        strength={0.5}
+        strength={1}
+        style={
+          {
+            "--beam-stroke-opacity": 1.5,
+            "--beam-inner-opacity": 1.4,
+            "--beam-bloom-opacity": 1.5,
+          } as JSX.CSSProperties
+        }
       >
         <section
           class="composer"
