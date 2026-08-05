@@ -4,6 +4,7 @@ import type { QueryClient } from "@tanstack/solid-query"
 import { File, ListPlus, OctagonX, Plus, RotateCcw, Send, Square, X } from "lucide-solid"
 import { createEffect, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { Button, IconButton } from "../../components/ui/button"
+import { BorderBeam } from "../../components/ui/border-beam"
 import { InlineError } from "../../components/ui/inline-error"
 import type { DesktopClient } from "../../data/sdk"
 import { errorMessage } from "../projects/project-controller"
@@ -292,11 +293,19 @@ export function Composer(props: ComposerProps) {
           onRemove={queue.remove}
         />
       </Show>
-      <section
-        class="composer"
-        data-minimal={props.minimal ? "true" : "false"}
-        aria-label={tr("composer.message-editor")}
+      <BorderBeam
+        class="composer__beam"
+        colorVariant="jyy"
+        theme="light"
+        borderRadius={8}
+        active={active()}
+        strength={0.5}
       >
+        <section
+          class="composer"
+          data-minimal={props.minimal ? "true" : "false"}
+          aria-label={tr("composer.message-editor")}
+        >
         <Show when={!props.minimal}>
           <div class="composer__selectors">
             <AgentSelect
@@ -347,197 +356,199 @@ export function Composer(props: ComposerProps) {
             if (event.dataTransfer?.files.length) void addFiles(event.dataTransfer.files)
           }}
         >
-          <SkillAutocomplete
-            client={props.client}
-            queryClient={props.queryClient}
-            directory={props.directory}
-            agent={props.selectedAgent}
-            open={autocompleteOpen()}
-            query={slashQuery() ?? ""}
-            ref={(handle) => {
-              skillAutocomplete = handle
-            }}
-            onDismiss={() => setAutocompleteDismissed(true)}
-            onSelect={(name) => {
-              controller.setDraft(`/${name} `)
-              setAutocompleteDismissed(true)
-              queueMicrotask(() => {
-                textarea.focus()
-                textarea.setSelectionRange(textarea.value.length, textarea.value.length)
-                resizeDraft(textarea)
-              })
-            }}
-          />
-          <label class="composer__label" for="composer-message">
-            {tr("composer.information")}
-          </label>
-          <input
-            ref={fileInput}
-            class="composer__file-input"
-            type="file"
-            multiple
-            aria-label={tr("composer.choose-files")}
-            onChange={(event) => {
-              if (event.currentTarget.files?.length) void addFiles(event.currentTarget.files)
-              event.currentTarget.value = ""
-            }}
-          />
-          <Show when={attachments().length > 0}>
-            <ul class="composer__attachments" aria-label={tr("composer.attachments")}>
-              <For each={attachments()}>
-                {(attachment, index) => (
-                  <li>
-                    <File aria-hidden="true" />
-                    <span title={attachment.filename}>{attachment.filename}</span>
-                    <button
-                      type="button"
-                      aria-label={tr("composer.remove-attachment", { name: attachment.filename })}
-                      onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index()))}
-                    >
-                      <X aria-hidden="true" />
-                    </button>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
-          <textarea
-            ref={textarea}
-            id="composer-message"
-            aria-label={tr("composer.information")}
-            rows={1}
-            value={controller.draft()}
-            aria-autocomplete="list"
-            aria-expanded={autocompleteOpen()}
-            aria-controls={autocompleteOpen() ? "composer-skill-listbox" : undefined}
-            disabled={controller.sending()}
-            placeholder={tr("composer.send-message-to-agent")}
-            onInput={(event) => {
-              controller.setDraft(event.currentTarget.value)
-              setAutocompleteDismissed(false)
-              resizeDraft(event.currentTarget)
-            }}
-            onFocus={() => {
-              setFocused(true)
-              setAutocompleteDismissed(false)
-            }}
-            onBlur={() => setFocused(false)}
-            onCompositionStart={() => {
-              composing = true
-            }}
-            onCompositionEnd={() => {
-              composing = false
-            }}
-            onKeyDown={(event) => {
-              if (skillAutocomplete?.handleKeyDown(event)) return
-              if (event.key !== "Enter" || event.shiftKey || event.isComposing || composing) return
-              event.preventDefault()
-              submit()
-            }}
-            onPaste={(event) => {
-              const clipboard = event.clipboardData
-              if (!clipboard) return
-              const files = Array.from(clipboard.items)
-                .filter((item) => item.kind === "file")
-                .map((item) => item.getAsFile())
-                .filter((file): file is globalThis.File => file !== null)
-              if (files.length === 0) return
-              event.preventDefault()
-              const timestamp = new Date().toISOString().replace(/[:.]/gu, "-")
-              const renamed = files.map((file, index) => {
-                const extension =
-                  (file.name.includes(".") ? file.name.split(".").at(-1) : file.type.split("/").at(-1)) ?? "png"
-                const name =
-                  file.name === "" || file.name.startsWith("image")
-                    ? `pasted-${timestamp}${index > 0 ? `-${index + 1}` : ""}.${extension}`
-                    : file.name
-                return new globalThis.File([file], name, { type: file.type })
-              })
-              void addFiles(renamed)
-            }}
-          />
-          <Show when={!props.minimal}>
-            <button
-              type="button"
-              class="composer__attach"
-              aria-label={tr("composer.add-attachment")}
-              disabled={props.disabled || controller.sending()}
-              onClick={() => fileInput.click()}
-            >
-              <Plus aria-hidden="true" />
-            </button>
-          </Show>
-          <div class="composer__action">
-            <Show
-              when={active()}
-              fallback={
-                <IconButton
-                  label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
-                  disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
-                  loading={controller.sending()}
-                  loadingLabel={tr("composer.sending")}
-                  onClick={submit}
-                >
-                  <Send aria-hidden="true" />
-                </IconButton>
-              }
-            >
-              <Show
-                when={props.minimal && props.childSteering}
-                fallback={
-                  <div class="composer__active-actions">
-                    <Show when={!props.minimal}>
-                      <IconButton
-                        label={tr("composer.join-queue")}
-                        disabled={!controller.draft().trim() && attachments().length === 0}
-                        onClick={submit}
+            <SkillAutocomplete
+              client={props.client}
+              queryClient={props.queryClient}
+              directory={props.directory}
+              agent={props.selectedAgent}
+              open={autocompleteOpen()}
+              query={slashQuery() ?? ""}
+              ref={(handle) => {
+                skillAutocomplete = handle
+              }}
+              onDismiss={() => setAutocompleteDismissed(true)}
+              onSelect={(name) => {
+                controller.setDraft(`/${name} `)
+                setAutocompleteDismissed(true)
+                queueMicrotask(() => {
+                  textarea.focus()
+                  textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+                  resizeDraft(textarea)
+                })
+              }}
+            />
+            <label class="composer__label" for="composer-message">
+              {tr("composer.information")}
+            </label>
+            <input
+              ref={fileInput}
+              class="composer__file-input"
+              type="file"
+              multiple
+              aria-label={tr("composer.choose-files")}
+              onChange={(event) => {
+                if (event.currentTarget.files?.length) void addFiles(event.currentTarget.files)
+                event.currentTarget.value = ""
+              }}
+            />
+            <Show when={attachments().length > 0}>
+              <ul class="composer__attachments" aria-label={tr("composer.attachments")}>
+                <For each={attachments()}>
+                  {(attachment, index) => (
+                    <li>
+                      <File aria-hidden="true" />
+                      <span title={attachment.filename}>{attachment.filename}</span>
+                      <button
+                        type="button"
+                        aria-label={tr("composer.remove-attachment", { name: attachment.filename })}
+                        onClick={() =>
+                          setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index()))
+                        }
                       >
-                        <ListPlus aria-hidden="true" />
-                      </IconButton>
-                    </Show>
-                    <Button
-                      size="small"
-                      variant="secondary"
-                      loading={controller.stopping()}
-                      loadingLabel={tr("composer.stopping")}
-                      onClick={stop}
-                    >
-                      <Square aria-hidden="true" />
-                      {tr("composer.stop")}
-                    </Button>
-                  </div>
-                }
+                        <X aria-hidden="true" />
+                      </button>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
+            <textarea
+              ref={textarea}
+              id="composer-message"
+              aria-label={tr("composer.information")}
+              rows={1}
+              value={controller.draft()}
+              aria-autocomplete="list"
+              aria-expanded={autocompleteOpen()}
+              aria-controls={autocompleteOpen() ? "composer-skill-listbox" : undefined}
+              disabled={controller.sending()}
+              placeholder={tr("composer.send-message-to-agent")}
+              onInput={(event) => {
+                controller.setDraft(event.currentTarget.value)
+                setAutocompleteDismissed(false)
+                resizeDraft(event.currentTarget)
+              }}
+              onFocus={() => {
+                setFocused(true)
+                setAutocompleteDismissed(false)
+              }}
+              onBlur={() => setFocused(false)}
+              onCompositionStart={() => {
+                composing = true
+              }}
+              onCompositionEnd={() => {
+                composing = false
+              }}
+              onKeyDown={(event) => {
+                if (skillAutocomplete?.handleKeyDown(event)) return
+                if (event.key !== "Enter" || event.shiftKey || event.isComposing || composing) return
+                event.preventDefault()
+                submit()
+              }}
+              onPaste={(event) => {
+                const clipboard = event.clipboardData
+                if (!clipboard) return
+                const files = Array.from(clipboard.items)
+                  .filter((item) => item.kind === "file")
+                  .map((item) => item.getAsFile())
+                  .filter((file): file is globalThis.File => file !== null)
+                if (files.length === 0) return
+                event.preventDefault()
+                const timestamp = new Date().toISOString().replace(/[:.]/gu, "-")
+                const renamed = files.map((file, index) => {
+                  const extension =
+                    (file.name.includes(".") ? file.name.split(".").at(-1) : file.type.split("/").at(-1)) ?? "png"
+                  const name =
+                    file.name === "" || file.name.startsWith("image")
+                      ? `pasted-${timestamp}${index > 0 ? `-${index + 1}` : ""}.${extension}`
+                      : file.name
+                  return new globalThis.File([file], name, { type: file.type })
+                })
+                void addFiles(renamed)
+              }}
+            />
+            <Show when={!props.minimal}>
+              <button
+                type="button"
+                class="composer__attach"
+                aria-label={tr("composer.add-attachment")}
+                disabled={props.disabled || controller.sending()}
+                onClick={() => fileInput.click()}
               >
-                <div class="composer__active-actions">
-                  <span class="composer__steering-warning">{tr("composer.interrupt-assignment-warning")}</span>
-                  <Button
-                    size="small"
-                    variant="secondary"
+                <Plus aria-hidden="true" />
+              </button>
+            </Show>
+            <div class="composer__action">
+              <Show
+                when={active()}
+                fallback={
+                  <IconButton
+                    label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
                     disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
                     loading={controller.sending()}
                     loadingLabel={tr("composer.sending")}
                     onClick={submit}
                   >
                     <Send aria-hidden="true" />
-                    {tr("composer.send-and-interrupt")}
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="secondary"
-                    disabled={props.disabled || controller.sending()}
-                    loading={controller.terminating()}
-                    loadingLabel={tr("composer.terminating")}
-                    data-confirming={confirmingTerminate() ? "true" : undefined}
-                    onClick={terminate}
-                  >
-                    <OctagonX aria-hidden="true" />
-                    {confirmingTerminate() ? tr("composer.terminate-confirm") : tr("composer.terminate")}
-                  </Button>
-                </div>
+                  </IconButton>
+                }
+              >
+                <Show
+                  when={props.minimal && props.childSteering}
+                  fallback={
+                    <div class="composer__active-actions">
+                      <Show when={!props.minimal}>
+                        <IconButton
+                          label={tr("composer.join-queue")}
+                          disabled={!controller.draft().trim() && attachments().length === 0}
+                          onClick={submit}
+                        >
+                          <ListPlus aria-hidden="true" />
+                        </IconButton>
+                      </Show>
+                      <Button
+                        size="small"
+                        variant="secondary"
+                        loading={controller.stopping()}
+                        loadingLabel={tr("composer.stopping")}
+                        onClick={stop}
+                      >
+                        <Square aria-hidden="true" />
+                        {tr("composer.stop")}
+                      </Button>
+                    </div>
+                  }
+                >
+                  <div class="composer__active-actions">
+                    <span class="composer__steering-warning">{tr("composer.interrupt-assignment-warning")}</span>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
+                      loading={controller.sending()}
+                      loadingLabel={tr("composer.sending")}
+                      onClick={submit}
+                    >
+                      <Send aria-hidden="true" />
+                      {tr("composer.send-and-interrupt")}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      disabled={props.disabled || controller.sending()}
+                      loading={controller.terminating()}
+                      loadingLabel={tr("composer.terminating")}
+                      data-confirming={confirmingTerminate() ? "true" : undefined}
+                      onClick={terminate}
+                    >
+                      <OctagonX aria-hidden="true" />
+                      {confirmingTerminate() ? tr("composer.terminate-confirm") : tr("composer.terminate")}
+                    </Button>
+                  </div>
+                </Show>
               </Show>
-            </Show>
+            </div>
           </div>
-        </div>
 
         <Show when={props.usage} keyed>
           {(usage) => <ComposerUsage metrics={usage} permissionControl={props.permissionControl} />}
@@ -557,6 +568,7 @@ export function Composer(props: ComposerProps) {
           )}
         </Show>
       </section>
+      </BorderBeam>
     </div>
   )
 }

@@ -352,10 +352,6 @@
 .multi-agent-task {
   position: relative;
   margin-left: 28px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
 }
 
 .multi-agent-task::before {
@@ -369,35 +365,28 @@
   content: "";
 }
 
-.multi-agent-task[data-tone="done"] {
+.multi-agent-task .multi-agent-task__beam {
+  display: block;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
+  overflow: visible;
+}
+
+.multi-agent-task[data-tone="done"] .multi-agent-task__beam {
   opacity: 0.82;
 }
-.multi-agent-task[data-tone="queued"] {
+.multi-agent-task[data-tone="queued"] .multi-agent-task__beam {
   border-style: dashed;
 }
 .multi-agent-task[data-tone="interrupted"],
-.multi-agent-task[data-tone="failed"] {
+.multi-agent-task[data-tone="failed"] .multi-agent-task__beam {
   border-style: dashed;
   opacity: 0.72;
 }
-.multi-agent-task[data-selected="true"] {
+.multi-agent-task[data-selected="true"] .multi-agent-task__beam {
   border-color: var(--color-text);
-}
-
-.multi-agent-task[data-tone="running"]::after {
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  left: 12px;
-  width: 20px;
-  height: 6px;
-  clip-path: polygon(0 50%, 18% 22%, 50% 0, 82% 22%, 100% 50%, 82% 78%, 50% 100%, 18% 78%);
-  background: var(--color-accent);
-  box-shadow: 0 0 6px rgb(71 90 116 / 40%);
-  content: "";
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-  animation: multi-agent-active-edge var(--multi-agent-cruise-duration, 2.8s) linear infinite;
 }
 
 .multi-agent-task details {
@@ -625,55 +614,6 @@
   border-style: dashed;
 }
 
-@keyframes multi-agent-active-edge {
-  /* The tapered white dash stays on one edge at a time: → ↓ ← ↑. */
-  0% {
-    top: 0;
-    left: 12px;
-    transform: translate(-50%, -50%) rotate(0deg);
-  }
-  23% {
-    top: 0;
-    left: calc(100% - 12px);
-    transform: translate(-50%, -50%) rotate(0deg);
-  }
-  25% {
-    top: 12px;
-    left: 100%;
-    transform: translate(-50%, -50%) rotate(90deg);
-  }
-  48% {
-    top: calc(100% - 12px);
-    left: 100%;
-    transform: translate(-50%, -50%) rotate(90deg);
-  }
-  50% {
-    top: 100%;
-    left: calc(100% - 12px);
-    transform: translate(-50%, -50%) rotate(180deg);
-  }
-  73% {
-    top: 100%;
-    left: 12px;
-    transform: translate(-50%, -50%) rotate(180deg);
-  }
-  75% {
-    top: calc(100% - 12px);
-    left: 0;
-    transform: translate(-50%, -50%) rotate(270deg);
-  }
-  98% {
-    top: 12px;
-    left: 0;
-    transform: translate(-50%, -50%) rotate(270deg);
-  }
-  100% {
-    top: 0;
-    left: 12px;
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-
 @keyframes multi-agent-wave-pulse {
   0%,
   100% {
@@ -689,7 +629,6 @@
 @media (prefers-reduced-motion: reduce) {
   .multi-agent-switch[data-active="true"]::before,
   .multi-agent-switch[data-active="true"]::after,
-  .multi-agent-task[data-tone="running"]::after,
   .multi-agent-step[data-tone="running"] .multi-agent-step__marker,
   .multi-agent-step[data-tone="review"] .multi-agent-step__marker {
     animation: none;

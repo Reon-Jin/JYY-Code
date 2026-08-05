@@ -187,6 +187,10 @@
   box-shadow: var(--focus-ring);
 }
 
+.composer-stack .composer__beam {
+  overflow: visible;
+}
+
 .composer__input {
   position: relative;
   border-radius: var(--radius-md);

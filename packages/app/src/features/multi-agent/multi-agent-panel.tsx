@@ -2,6 +2,7 @@ import { tr } from "../../i18n/i18n-context"
 import { Bot, CircleHelp, RefreshCw } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
+import { BorderBeam } from "../../components/ui/border-beam"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
 import { type MultiAgentSnapshot, type MultiAgentTaskTone, type MultiAgentTaskView } from "../plan/plan-state"
@@ -157,11 +158,8 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
   const [collapsedSteps, setCollapsedSteps] = createSignal<ReadonlySet<number>>(
     new Set(panelViewState.get(activeStateKey)?.collapsedSteps ?? []),
   )
-  const [cruiseRevisions, setCruiseRevisions] = createSignal<ReadonlyMap<number, number>>(new globalThis.Map())
-  let activeTasksByStep = new globalThis.Map<number, ReadonlySet<string>>()
   const completionPercent = () =>
     props.snapshot.totalAgents > 0 ? Math.round((props.snapshot.doneAgents / props.snapshot.totalAgents) * 100) : 0
-  const cruiseRevision = (step: number) => cruiseRevisions().get(step) ?? 0
 
   function savePanelState() {
     panelViewState.set(activeStateKey, {
@@ -187,26 +185,6 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
     savePanelState()
     activeStateKey = nextKey
     restorePanelState()
-  })
-
-  createEffect(() => {
-    const nextActiveTasksByStep = new globalThis.Map<number, ReadonlySet<string>>()
-    const restartedSteps = new globalThis.Set<number>()
-    for (const step of props.snapshot.steps) {
-      const activeTasks = new globalThis.Set(
-        step.tasks.filter((task) => task.tone === "running").map((task) => task.id),
-      )
-      const previous = activeTasksByStep.get(step.index)
-      if (previous && [...activeTasks].some((taskID) => !previous.has(taskID))) restartedSteps.add(step.index)
-      nextActiveTasksByStep.set(step.index, activeTasks)
-    }
-    activeTasksByStep = nextActiveTasksByStep
-    if (restartedSteps.size === 0) return
-    setCruiseRevisions((current) => {
-      const next = new globalThis.Map(current)
-      for (const step of restartedSteps) next.set(step, (next.get(step) ?? 0) + 1)
-      return next
-    })
   })
 
   function toggleStep(index: number) {
@@ -376,46 +354,50 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
                                   <li
                                     class="multi-agent-task"
                                     data-tone={task().tone}
-                                    data-cruise-revision={cruiseRevision(wave().index)}
-                                    style={{
-                                      "--multi-agent-cruise-duration": `${2.8 + cruiseRevision(wave().index) / 1000}s`,
-                                    }}
                                     data-selected={
                                       task().childSessionID && task().childSessionID === props.selectedChildSessionID
                                         ? "true"
                                         : "false"
                                     }
                                   >
-                                    <details>
-                                      <summary>
-                                        <RoleAvatar role={task().role} />
-                                        <span class="multi-agent-task__content">
-                                          <strong>{task().title}</strong>
-                                          <small>{roleMeta(task())}</small>
-                                        </span>
-                                        <Show when={task().childSessionID}>
-                                          {(childSessionID) => (
-                                            <Button
-                                              size="small"
-                                              variant="ghost"
-                                              aria-label={tr("multi-agent.review-task", { title: task().title })}
-                                              onClick={(event) => {
-                                                event.preventDefault()
-                                                event.stopPropagation()
-                                                savePanelState()
-                                                props.onOpenChild(childSessionID())
-                                              }}
-                                            >
-                                              {tr("multi-agent.review")}
-                                            </Button>
-                                          )}
-                                        </Show>
-                                        <Show when={!task().childSessionID}>
-                                          <span class="multi-agent-task__matrix">{task().statusLabel}</span>
-                                        </Show>
-                                      </summary>
-                                      <TaskDetails task={task()} />
-                                    </details>
+                                    <BorderBeam
+                                      class="multi-agent-task__beam"
+                                      colorVariant="jyy"
+                                      theme="light"
+                                      borderRadius={4}
+                                      active={task().tone === "running"}
+                                    >
+                                      <details>
+                                        <summary>
+                                          <RoleAvatar role={task().role} />
+                                          <span class="multi-agent-task__content">
+                                            <strong>{task().title}</strong>
+                                            <small>{roleMeta(task())}</small>
+                                          </span>
+                                          <Show when={task().childSessionID}>
+                                            {(childSessionID) => (
+                                              <Button
+                                                size="small"
+                                                variant="ghost"
+                                                aria-label={tr("multi-agent.review-task", { title: task().title })}
+                                                onClick={(event) => {
+                                                  event.preventDefault()
+                                                  event.stopPropagation()
+                                                  savePanelState()
+                                                  props.onOpenChild(childSessionID())
+                                                }}
+                                              >
+                                                {tr("multi-agent.review")}
+                                              </Button>
+                                            )}
+                                          </Show>
+                                          <Show when={!task().childSessionID}>
+                                            <span class="multi-agent-task__matrix">{task().statusLabel}</span>
+                                          </Show>
+                                        </summary>
+                                        <TaskDetails task={task()} />
+                                      </details>
+                                    </BorderBeam>
                                   </li>
                                 )}
                               </Index>
