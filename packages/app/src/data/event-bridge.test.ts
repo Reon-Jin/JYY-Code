@@ -16,6 +16,7 @@ import { createDesktopQueryClient } from "./query-client"
 import { keys } from "./query-keys"
 import { authorizationHeader, createDesktopClient } from "./sdk"
 import { snapshotFromMessages, type ConversationSnapshot } from "../features/conversation/conversation-state"
+import * as soundEffects from "../features/sound-effects/sound-effects"
 
 const session: Session = {
   id: "ses_1",
@@ -647,6 +648,185 @@ describe("event routing", () => {
 
     bridge.abort()
     releaseStream()
+  })
+
+  it("publishes a typing sound only for active main-agent text deltas", async () => {
+    const publish = vi.spyOn(soundEffects, "publishSoundEffectEvent")
+    const queryClient = createDesktopQueryClient()
+    const assistantMessage = { ...message, id: "msg_typing", role: "assistant" }
+    const typingPart = { ...part, id: "part_typing", messageID: assistantMessage.id }
+    queryClient.setQueryData(keys.session("C:\\a", session.id), session)
+    queryClient.setQueryData(
+      keys.messages("C:\\a", session.id),
+      snapshotFromMessages(session.id, [{ info: assistantMessage, parts: [typingPart] }]),
+    )
+    const events = [
+      {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_typing_1",
+          type: "message.part.delta",
+          properties: {
+            sessionID: session.id,
+            messageID: assistantMessage.id,
+            partID: typingPart.id,
+            field: "text",
+            delta: " more",
+          },
+        },
+      },
+      {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_typing_2",
+          type: "message.part.delta",
+          properties: {
+            sessionID: session.id,
+            messageID: assistantMessage.id,
+            partID: typingPart.id,
+            field: "text",
+            delta: " output",
+          },
+        },
+      },
+    ] as GlobalEvent[]
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    const stream = (async function* () {
+      yield* events
+      await streamWait
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      activeSessionID: () => session.id,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+    scheduled?.(0)
+    await Promise.resolve()
+
+    await vi.waitFor(() => {
+      expect(publish).toHaveBeenCalledWith({ kind: "typing", eventID: "evt_typing_1" })
+    })
+    expect(publish).toHaveBeenCalledWith({ kind: "typing", eventID: "evt_typing_2" })
+
+    bridge.abort()
+    releaseStream()
+  })
+
+  it("does not publish a typing sound for child sessions", async () => {
+    const publish = vi.spyOn(soundEffects, "publishSoundEffectEvent")
+    const queryClient = createDesktopQueryClient()
+    const childMessage = { ...message, id: "msg_child", role: "assistant" }
+    const childPart = { ...part, id: "part_child", messageID: childMessage.id }
+    queryClient.setQueryData(keys.session("C:\\a", session.id), { ...session, parentID: "ses_root" })
+    queryClient.setQueryData(
+      keys.messages("C:\\a", session.id),
+      snapshotFromMessages(session.id, [{ info: childMessage, parts: [childPart] }]),
+    )
+    const stream = (async function* () {
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_typing_child",
+          type: "message.part.delta",
+          properties: {
+            sessionID: session.id,
+            messageID: childMessage.id,
+            partID: childPart.id,
+            field: "text",
+            delta: " child",
+          },
+        },
+      } as GlobalEvent
+      await new Promise(() => undefined)
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      activeSessionID: () => session.id,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+    scheduled?.(0)
+    await vi.waitFor(() => {
+      const snapshot = queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", session.id))
+      expect(snapshot?.messages[0]?.parts[0]).toMatchObject({ text: "Hello child" })
+    })
+
+    expect(publish).not.toHaveBeenCalled()
+    bridge.abort()
+  })
+
+  it("does not publish a typing sound for reasoning deltas", async () => {
+    const publish = vi.spyOn(soundEffects, "publishSoundEffectEvent")
+    const queryClient = createDesktopQueryClient()
+    const assistantMessage = { ...message, id: "msg_reasoning", role: "assistant" }
+    const reasoningPart = { ...part, id: "part_reasoning", messageID: assistantMessage.id, type: "reasoning", text: "" }
+    queryClient.setQueryData(keys.session("C:\\a", session.id), session)
+    queryClient.setQueryData(
+      keys.messages("C:\\a", session.id),
+      snapshotFromMessages(session.id, [{ info: assistantMessage, parts: [reasoningPart] }]),
+    )
+    const stream = (async function* () {
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_typing_reasoning",
+          type: "message.part.delta",
+          properties: {
+            sessionID: session.id,
+            messageID: assistantMessage.id,
+            partID: reasoningPart.id,
+            field: "text",
+            delta: " thinking",
+          },
+        },
+      } as GlobalEvent
+      await new Promise(() => undefined)
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      activeSessionID: () => session.id,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+    scheduled?.(0)
+    await vi.waitFor(() => {
+      const snapshot = queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", session.id))
+      expect(snapshot?.messages[0]?.parts[0]).toMatchObject({ text: " thinking" })
+    })
+
+    expect(publish).not.toHaveBeenCalled()
+    bridge.abort()
   })
 
   it("caps reconnect backoff and clears its timer on abort", async () => {

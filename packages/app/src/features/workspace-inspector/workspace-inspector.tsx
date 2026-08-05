@@ -6,6 +6,7 @@ import { ChangesPanel } from "../changes/changes-panel"
 import { PlanPanel } from "../plan/plan-panel"
 import { SubagentProfilesPanel } from "../subagents/subagent-profiles-panel"
 import { normalizeInspectorRatios, type InspectorPane, type InspectorPreferences } from "./inspector-preferences"
+import { playSoundEffect } from "../sound-effects/sound-effects"
 import "./workspace-inspector.css"
 
 function paneLabel(pane: InspectorPane) {
@@ -121,6 +122,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
 
   function keydown(event: KeyboardEvent) {
     if (event.key !== "Escape" || props.preferences.panes.length === 0 || !isNarrow()) return
+    playSoundEffect("panel-close")
     update({ panes: [], ratios: [] })
   }
 
@@ -132,6 +134,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
     return (
       <IconButton
         class="workspace-activity-button"
+        data-sound-effect={active() ? "panel-close" : "panel-open"}
         label={paneLabel(buttonProps.pane)}
         variant="ghost"
         aria-controls={active() ? "workspace-drawer" : undefined}
@@ -161,6 +164,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
         <button
           type="button"
           class="workspace-drawer-scrim"
+          data-sound-effect="panel-close"
           aria-label={tr("workspace-inspector.close-the-taskbar-page")}
           onClick={() => update({ panes: [], ratios: [] })}
         />

@@ -53,6 +53,7 @@ export function ComposerQueuePanel(props: {
               <span class="composer-queue__index">{index() + 1}</span>
               <p>{item.text || item.attachments.map((attachment) => attachment.filename).join(", ")}</p>
               <IconButton
+                data-sound-effect="none"
                 label={tr("composer.steer-queued-message", { index: index() + 1 })}
                 variant="ghost"
                 onClick={() => props.onGuide(item.id)}
@@ -60,6 +61,7 @@ export function ComposerQueuePanel(props: {
                 <MessageSquareMore aria-hidden="true" />
               </IconButton>
               <IconButton
+                data-sound-effect="cancel"
                 label={tr("composer.remove-queued-message", { index: index() + 1 })}
                 variant="ghost"
                 onClick={() => props.onRemove(item.id)}

@@ -18,6 +18,7 @@ import type { ComposerUsageMetrics } from "./usage-metrics"
 import { ProviderConnectButton } from "./provider-connect"
 import { ModelControl } from "./model-control"
 import { SkillAutocomplete, type SkillAutocompleteHandle } from "./skill-autocomplete"
+import { playSoundEffect } from "../sound-effects/sound-effects"
 import "./composer.css"
 
 export type ComposerProps = {
@@ -221,10 +222,12 @@ export function Composer(props: ComposerProps) {
     queue.enqueue({ text, agent: props.selectedAgent, model: props.selectedModel, attachments: files })
     controller.setDraft("")
     setAttachments([])
+    playSoundEffect("send")
   }
 
   async function submit() {
     if (props.disabled) return
+    const sendingContent = Boolean(controller.draft().trim() || attachments().length > 0)
     // Minimal child composers have no queue UI, so steering always sends directly.
     if (!props.minimal && (active() || queuePhase() !== "ready" || queue.items().length > 0)) {
       enqueueDraft()
@@ -232,10 +235,17 @@ export function Composer(props: ComposerProps) {
     }
     const files = attachments()
     try {
-      if (props.childSteering && active()) await controller.interruptAndSend(undefined, undefined, files)
-      else await controller.send(undefined, undefined, files)
+      if (props.childSteering && active()) {
+        await controller.interruptAndSend(undefined, undefined, files)
+        if (sendingContent) playSoundEffect("send")
+      } else {
+        await controller.send(undefined, undefined, files)
+        if (sendingContent) playSoundEffect("send")
+      }
       setAttachments([])
-    } catch {}
+    } catch {
+      playSoundEffect("error")
+    }
   }
 
   async function addFiles(files: FileList | readonly globalThis.File[]) {
@@ -275,9 +285,11 @@ export function Composer(props: ComposerProps) {
       queue.remove(id)
       setQueuePhase("awaiting-busy")
       await controller.send(item.text, { agent: item.agent, model: item.model }, item.attachments)
+      playSoundEffect("send")
     } catch {
       setQueuePhase("ready")
       // The controller exposes the actionable failure beside the composer.
+      playSoundEffect("error")
     } finally {
       setGuiding(false)
     }
@@ -490,6 +502,7 @@ export function Composer(props: ComposerProps) {
                 when={active()}
                 fallback={
                   <IconButton
+                    data-sound-effect="none"
                     label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
                     disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
                     loading={controller.sending()}
@@ -506,6 +519,7 @@ export function Composer(props: ComposerProps) {
                     <div class="composer__active-actions">
                       <Show when={!props.minimal}>
                         <IconButton
+                          data-sound-effect="none"
                           label={tr("composer.join-queue")}
                           disabled={!controller.draft().trim() && attachments().length === 0}
                           onClick={submit}
@@ -514,6 +528,7 @@ export function Composer(props: ComposerProps) {
                         </IconButton>
                       </Show>
                       <Button
+                        data-sound-effect="cancel"
                         size="small"
                         variant="secondary"
                         loading={controller.stopping()}
@@ -529,6 +544,7 @@ export function Composer(props: ComposerProps) {
                   <div class="composer__active-actions">
                     <span class="composer__steering-warning">{tr("composer.interrupt-assignment-warning")}</span>
                     <Button
+                      data-sound-effect="none"
                       size="small"
                       variant="secondary"
                       disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}

@@ -5,6 +5,7 @@ import { DesktopBridgeProvider } from "../../platform/context"
 import { createFakeDesktop } from "../../test/fake-desktop"
 import { GeneralSettings } from "./general-settings"
 import { I18nProvider } from "../../i18n/i18n-context"
+import * as soundEffects from "../sound-effects/sound-effects"
 
 function renderGeneral() {
   const desktop = createFakeDesktop()
@@ -99,5 +100,18 @@ describe("GeneralSettings", () => {
     await waitFor(() => expect(desktop.settings().notifications.completion).toBe(true))
     expect(desktop.bridge.requestNotificationPermission).toHaveBeenCalledOnce()
     expect(screen.getByRole("status")).toHaveTextContent("已拒绝")
+  })
+
+  it("persists the sound effects preference and notifies the sound system", async () => {
+    const desktop = renderGeneral()
+    const publish = vi.spyOn(soundEffects, "publishSoundEffectsEnabled")
+    const toggle = await screen.findByRole("switch", { name: "开启声音效果" })
+
+    expect(toggle).toBeChecked()
+    await userEvent.setup().click(toggle)
+
+    await waitFor(() => expect(desktop.settings().soundEffects).toBe(false))
+    expect(desktop.bridge.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ soundEffects: false }))
+    expect(publish).toHaveBeenCalledWith(false)
   })
 })

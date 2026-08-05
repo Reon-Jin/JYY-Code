@@ -252,6 +252,65 @@
   color: var(--color-text-muted);
   font-size: var(--text-xs);
 }
+.settings-switch-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  cursor: pointer;
+}
+.settings-switch-label > span {
+  display: grid;
+  gap: var(--space-1);
+}
+.settings-switch-label small {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.settings-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  margin: 0;
+  flex: none;
+  appearance: none;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: var(--color-surface);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out);
+}
+.settings-switch::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  content: "";
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out);
+}
+.settings-switch:checked {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+.settings-switch:checked::after {
+  background: #fff;
+  transform: translateX(20px);
+}
+.settings-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.settings-switch:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .settings-notification-options {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

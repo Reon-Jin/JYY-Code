@@ -13,6 +13,7 @@ import { AppRoutes } from "./routes"
 import { I18nProvider } from "./i18n/i18n-context"
 import { createDesktopNotifications } from "./features/notifications/desktop-notifications"
 import { runDesktopUpdater } from "./features/settings/desktop-updater"
+import { SoundEffectsHost } from "./features/sound-effects/sound-effects-host"
 
 export type AppProps = {
   bridge?: DesktopBridge
@@ -56,31 +57,34 @@ function DesktopApplication() {
   }
 
   return (
-    <Switch fallback={<StartupLoading phase={loadingPhase()} />}>
-      <Match when={lifecycle.phase() === "failed"}>
-        <BackendUnavailable
-          reason={tr("app.backend-start-failed", {
-            reason: lifecycle.failure() ?? tr("app.local-backend-is-not-responding"),
-          })}
-          logPath={lifecycle.bootstrap()?.logPath}
-          recovering={lifecycle.recovering()}
-          recoveryAvailable={lifecycle.recoveryAvailable()}
-          onRestart={() => void lifecycle.recover()}
-          onBack={() => void lifecycle.returnToProjectSelection()}
-        />
-      </Match>
-      <Match when={lifecycle.phase() === "ready"}>
-        <Show when={lifecycle.bootstrap()} keyed fallback={<StartupLoading phase="booting" />}>
-          {(bootstrap) => (
-            <Show when={lifecycle.projects()} keyed fallback={<StartupLoading phase="booting" />}>
-              {(projects) => (
-                <ProjectApplication bootstrap={bootstrap} controller={projects} route={lifecycle.route()} />
-              )}
-            </Show>
-          )}
-        </Show>
-      </Match>
-    </Switch>
+    <>
+      <SoundEffectsHost bridge={bridge} />
+      <Switch fallback={<StartupLoading phase={loadingPhase()} />}>
+        <Match when={lifecycle.phase() === "failed"}>
+          <BackendUnavailable
+            reason={tr("app.backend-start-failed", {
+              reason: lifecycle.failure() ?? tr("app.local-backend-is-not-responding"),
+            })}
+            logPath={lifecycle.bootstrap()?.logPath}
+            recovering={lifecycle.recovering()}
+            recoveryAvailable={lifecycle.recoveryAvailable()}
+            onRestart={() => void lifecycle.recover()}
+            onBack={() => void lifecycle.returnToProjectSelection()}
+          />
+        </Match>
+        <Match when={lifecycle.phase() === "ready"}>
+          <Show when={lifecycle.bootstrap()} keyed fallback={<StartupLoading phase="booting" />}>
+            {(bootstrap) => (
+              <Show when={lifecycle.projects()} keyed fallback={<StartupLoading phase="booting" />}>
+                {(projects) => (
+                  <ProjectApplication bootstrap={bootstrap} controller={projects} route={lifecycle.route()} />
+                )}
+              </Show>
+            )}
+          </Show>
+        </Match>
+      </Switch>
+    </>
   )
 }
 

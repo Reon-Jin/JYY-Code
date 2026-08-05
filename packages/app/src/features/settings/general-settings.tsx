@@ -10,6 +10,7 @@ import {
 } from "./settings-preferences"
 import type { DesktopNotificationPermission } from "../../platform/types"
 import { publishDesktopNotificationPermission } from "../notifications/desktop-notifications"
+import { publishSoundEffectsEnabled } from "../sound-effects/sound-effects"
 
 function message(cause: unknown) {
   return cause instanceof Error ? cause.message : tr("settings.unable-to-save-desktop-settings")
@@ -66,6 +67,16 @@ export function GeneralSettings() {
       ...settings(),
       notifications: { ...settings().notifications, [kind]: enabled },
     })
+  }
+
+  async function changeSoundEffects(enabled: boolean) {
+    setError(undefined)
+    try {
+      await save({ ...settings(), soundEffects: enabled })
+      publishSoundEffectsEnabled(enabled)
+    } catch (cause) {
+      setError(message(cause))
+    }
   }
 
   function notificationPermissionText() {
@@ -181,6 +192,25 @@ export function GeneralSettings() {
         <p class="settings-card__hint" role="status" aria-live="polite">
           {notificationPermissionText()}
         </p>
+      </section>
+
+      <section class="settings-card" aria-labelledby="sound-effects-setting-title">
+        <h3 id="sound-effects-setting-title">{tr("settings.sound-effects")}</h3>
+        <label class="settings-switch-label">
+          <input
+            type="checkbox"
+            role="switch"
+            class="settings-switch"
+            checked={settings().soundEffects}
+            disabled={saving()}
+            aria-label={tr("settings.enable-sound-effects")}
+            onChange={(event) => void changeSoundEffects(event.currentTarget.checked)}
+          />
+          <span>
+            <strong>{tr("settings.enable-sound-effects")}</strong>
+            <small>{tr("settings.sound-effects-description")}</small>
+          </span>
+        </label>
       </section>
     </div>
   )

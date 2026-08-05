@@ -13,6 +13,7 @@ import {
   createBlackboardApi,
   type BlackboardSnapshot,
 } from "./blackboard-query"
+import { playSoundEffect, suppressNextBlackboardSound } from "../sound-effects/sound-effects"
 import "./blackboard.css"
 
 type BlackboardKind = "info" | "risk" | "blocker" | "decision" | "help"
@@ -367,8 +368,11 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
         kind: kind(),
       })
       setDraft("")
+      playSoundEffect("send")
+      suppressNextBlackboardSound()
     } catch (cause) {
       setSubmitError(errorMessage(cause, tr("blackboard.unable-to-load")))
+      playSoundEffect("error")
     } finally {
       setSending(false)
     }
@@ -604,6 +608,7 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
           />
           <IconButton
             class="blackboard-composer__send"
+            data-sound-effect="none"
             label={tr("blackboard.send")}
             variant="primary"
             disabled={sending() || !draft().trim()}

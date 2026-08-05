@@ -19,6 +19,7 @@ import {
 } from "../features/conversation/conversation-state"
 import { keys, normalizeDirectory } from "./query-keys"
 import { publishDesktopNotificationEvent } from "../features/notifications/desktop-notifications"
+import { publishSoundEffectEvent } from "../features/sound-effects/sound-effects"
 
 export type ConnectionState = "connecting" | "connected" | "disconnected"
 
@@ -255,14 +256,22 @@ function publishNotificationAction(action: CacheAction) {
         sessionID: action.sessionID,
         status: status === "busy" ? "running" : status,
       })
+      publishSoundEffectEvent({
+        kind: "status",
+        eventID: action.eventID,
+        sessionID: action.sessionID,
+        status: status === "busy" ? "running" : status,
+      })
     }
     return
   }
   if (action.kind === "permission.upsert") {
     publishDesktopNotificationEvent({ kind: "permission", eventID: action.eventID })
+    publishSoundEffectEvent({ kind: "attention", eventID: action.eventID })
   }
   if (action.kind === "question.upsert") {
     publishDesktopNotificationEvent({ kind: "question", eventID: action.eventID })
+    publishSoundEffectEvent({ kind: "attention", eventID: action.eventID })
   }
 }
 
@@ -298,6 +307,7 @@ export class EventBridge {
   readonly #abort = new AbortController()
   readonly #queue: GlobalEvent[] = []
   readonly #seenEventIDs = new Set<string>()
+  readonly #partTypes = new Map<string, Part["type"]>()
   #frame: number | undefined
   #started = false
   #reconnectAttempt = 0
@@ -385,6 +395,16 @@ export class EventBridge {
     for (const event of events) {
       for (const action of routeEvent(this.#options.directory, event)) {
         publishNotificationAction(action)
+        if (action.kind === "part.upsert") {
+          this.#partTypes.set(action.part.id, action.part.type)
+          if (this.#partTypes.size > 4_096) {
+            const oldest = this.#partTypes.keys().next().value
+            if (oldest !== undefined) this.#partTypes.delete(oldest)
+          }
+        }
+        if (action.kind === "part.delta" && action.field === "text" && this.#shouldPlayTypingSound(action)) {
+          publishSoundEffectEvent({ kind: "typing", eventID: action.eventID })
+        }
         if (action.kind === "server.connected") {
           await this.#connected()
           continue
@@ -400,6 +420,7 @@ export class EventBridge {
           continue
         }
         if (action.kind === "blackboard.updated") {
+          publishSoundEffectEvent({ kind: "blackboard", eventID: action.eventID })
           changedBlackboards.add(action.rootSessionID)
           continue
         }
@@ -428,6 +449,26 @@ export class EventBridge {
     for (const rootSessionID of changedBlackboards) {
       this.#invalidate(keys.blackboard(this.#options.directory, rootSessionID))
     }
+  }
+
+  #shouldPlayTypingSound(action: Extract<CacheAction, { kind: "part.delta" }>) {
+    if (this.#options.activeSessionID?.() !== action.sessionID) return false
+    const session = this.#options.queryClient.getQueryData<Session>(
+      keys.session(this.#options.directory, action.sessionID),
+    )
+    if (session && session.parentID !== undefined) return false
+
+    const partType = this.#partTypes.get(action.partID)
+    if (partType !== undefined) return partType === "text"
+
+    const snapshot = this.#options.queryClient.getQueryData<ConversationSnapshot>(
+      keys.messages(this.#options.directory, action.sessionID),
+    )
+    for (const message of snapshot?.messages ?? []) {
+      const part = message.parts.find((candidate) => candidate.id === action.partID)
+      if (part) return part.type === "text" && message.info.role === "assistant"
+    }
+    return false
   }
 
   #apply(

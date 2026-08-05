@@ -13,6 +13,7 @@ export type DesktopSettings = {
   locale: AppLocale
   notifications: NotificationPreferences
   updatePolicy: UpdatePolicy
+  soundEffects: boolean
 }
 
 export const defaultDesktopSettings: DesktopSettings = {
@@ -20,6 +21,7 @@ export const defaultDesktopSettings: DesktopSettings = {
   locale: "zh-CN",
   notifications: { completion: true, permission: true, question: true },
   updatePolicy: "notify",
+  soundEffects: true,
 }
 
 export function parseDesktopSettings(value: unknown): DesktopSettings {
@@ -40,5 +42,6 @@ export function parseDesktopSettings(value: unknown): DesktopSettings {
       candidate.updatePolicy === "install" || candidate.updatePolicy === "notify" || candidate.updatePolicy === "off"
         ? candidate.updatePolicy
         : "notify",
+    soundEffects: typeof candidate.soundEffects === "boolean" ? candidate.soundEffects : true,
   }
 }

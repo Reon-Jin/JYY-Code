@@ -29,12 +29,14 @@ describe("parseDesktopSettings", () => {
         locale: "en-US",
         notifications: { completion: false, permission: true, question: false, ignored: false },
         updatePolicy: "install",
+        soundEffects: false,
       }),
     ).toEqual({
       ...defaultDesktopSettings,
       locale: "en-US",
       notifications: { completion: false, permission: true, question: false },
       updatePolicy: "install",
+      soundEffects: false,
     })
 
     expect(
@@ -42,10 +44,12 @@ describe("parseDesktopSettings", () => {
         locale: "fr-FR",
         notifications: { completion: false, permission: "yes" },
         updatePolicy: "sometimes",
+        soundEffects: "yes",
       }),
     ).toEqual({
       ...defaultDesktopSettings,
       notifications: { completion: false, permission: true, question: true },
+      soundEffects: true,
     })
   })
 })

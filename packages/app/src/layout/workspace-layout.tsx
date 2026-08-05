@@ -266,6 +266,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
 
       <IconButton
         class="workspace-rail-toggle"
+        data-sound-effect={railOpen() ? "panel-close" : "panel-open"}
         label={railOpen() ? tr("layout.collapse-session-navigation") : tr("layout.expand-session-navigation")}
         variant="secondary"
         aria-controls="session-navigation"
