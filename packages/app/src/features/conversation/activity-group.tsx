@@ -1,7 +1,8 @@
 import { tr } from "../../i18n/i18n-context"
 import type { Part } from "@jyycode-ai/sdk/v2/client"
-import { ChevronDown, LoaderCircle } from "lucide-solid"
+import { ChevronDown } from "lucide-solid"
 import { createSignal, createUniqueId, Show, type ParentProps } from "solid-js"
+import { ThinkingOrb } from "../../components/ui/thinking-orb"
 
 export type PartGroup = { type: "activity"; id: string; parts: Part[] } | { type: "part"; id: string; part: Part }
 
@@ -41,7 +42,7 @@ export function ActivityGroup(
   props: ParentProps<{
     label: string
     count: number
-    running?: boolean
+    pending?: boolean
     defaultExpanded?: boolean
     class?: string
   }>,
@@ -58,8 +59,8 @@ export function ActivityGroup(
         aria-controls={contentID}
         onClick={() => setExpanded((value) => !value)}
       >
-        <Show when={props.running}>
-          <LoaderCircle class="activity-group__spinner" aria-hidden="true" />
+        <Show when={props.pending}>
+          <ThinkingOrb state="searching" size={20} theme="light" class="activity-group__spinner" aria-hidden="true" />
         </Show>
         <span>{props.label}</span>
         <small>

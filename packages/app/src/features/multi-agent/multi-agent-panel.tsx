@@ -4,7 +4,7 @@ import { createEffect, createMemo, createSignal, For, Index, onCleanup, onMount,
 import { Button } from "../../components/ui/button"
 import { BorderBeam } from "../../components/ui/border-beam"
 import { InlineError } from "../../components/ui/inline-error"
-import { Spinner } from "../../components/ui/spinner"
+import { ThinkingOrb } from "../../components/ui/thinking-orb"
 import { type MultiAgentSnapshot, type MultiAgentTaskTone, type MultiAgentTaskView } from "../plan/plan-state"
 import { planRoleDescription, planRoleLabel } from "../plan/plan-role-presentation"
 import { SubagentAvatar } from "../subagents/subagent-avatar-catalog"
@@ -230,7 +230,8 @@ export function MultiAgentPanelView(props: MultiAgentPanelViewProps) {
         when={!props.loading}
         fallback={
           <p class="multi-agent-panel__loading" role="status" aria-live="polite">
-            <Spinner /> {tr("multi-agent.loading-multi-agent-tasks")}
+            <ThinkingOrb state="working" size={20} theme="light" aria-hidden="true" />{" "}
+            {tr("multi-agent.loading-multi-agent-tasks")}
           </p>
         }
       >

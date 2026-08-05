@@ -25,7 +25,7 @@ export function TaskActivityContent(props: { messages: readonly ConversationMess
         class="tool-call__activity"
         label={tr("conversation.task-execution-process")}
         count={parts().length}
-        running={props.running}
+        pending={props.running}
         defaultExpanded
       >
         <Show

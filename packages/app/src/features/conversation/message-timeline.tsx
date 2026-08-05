@@ -40,13 +40,15 @@ function groupKey(group: PresentedMessageGroup) {
   return `${group.type}:${group.parts[0]?.id ?? "empty"}`
 }
 
-function PresentedGroupView(props: { group: PresentedMessageGroup; messageRole: string; messageAgent?: string }) {
+function PresentedGroupView(props: {
+  group: PresentedMessageGroup
+  messageRole: string
+  messageAgent?: string
+  pendingActivityKeys: ReadonlySet<string>
+}) {
   const partIDs = createMemo(() => props.group.parts.map((part) => part.id))
   const partsByID = createMemo(() => new Map(props.group.parts.map((part) => [part.id, part])))
-  const running = () =>
-    props.group.parts.some(
-      (part) => part.type === "tool" && (part.state.status === "pending" || part.state.status === "running"),
-    )
+  const pending = () => props.group.type === "activity" && props.pendingActivityKeys.has(groupKey(props.group))
 
   const parts = () => (
     <For each={partIDs()}>
@@ -65,7 +67,7 @@ function PresentedGroupView(props: { group: PresentedMessageGroup; messageRole: 
       <ActivityGroup
         label={tr("conversation.thinking-and-tool-calling")}
         count={props.group.parts.length}
-        running={running()}
+        pending={pending()}
       >
         {parts()}
       </ActivityGroup>
@@ -73,7 +75,10 @@ function PresentedGroupView(props: { group: PresentedMessageGroup; messageRole: 
   )
 }
 
-function PresentedMessageView(props: { message: PresentedConversationMessage }) {
+function PresentedMessageView(props: {
+  message: PresentedConversationMessage
+  pendingActivityKeys: ReadonlySet<string>
+}) {
   const groupKeys = createMemo(() => props.message.groups.map(groupKey))
   const groupsByKey = createMemo(() => new Map(props.message.groups.map((group) => [groupKey(group), group])))
   const agent = () =>
@@ -97,6 +102,7 @@ function PresentedMessageView(props: { message: PresentedConversationMessage }) 
               group={groupsByKey().get(key)!}
               messageRole={props.message.info.role}
               messageAgent={agent()}
+              pendingActivityKeys={props.pendingActivityKeys}
             />
           )}
         </For>
@@ -109,6 +115,17 @@ export function MessageTimeline(props: MessageTimelineProps) {
   const [hasNewMessages, setHasNewMessages] = createSignal(false)
   const signature = createMemo(() => messageSignature(props.messages))
   const presentedMessages = createMemo(() => presentConversationMessages(props.messages))
+  const pendingActivityKeys = createMemo(() => {
+    const groups = presentedMessages().flatMap((message) => message.groups)
+    const keys = new Set<string>()
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i]!
+      if (group.type !== "activity") continue
+      const hasFormalContentAfter = groups.slice(i + 1).some((next) => next.type === "content")
+      if (!hasFormalContentAfter) keys.add(groupKey(group))
+    }
+    return keys
+  })
   const messageIDs = createMemo(() => presentedMessages().map((message) => message.info.id))
   const messagesByID = createMemo(() => new Map(presentedMessages().map((message) => [message.info.id, message])))
   let viewport: HTMLDivElement | undefined
@@ -188,7 +205,12 @@ export function MessageTimeline(props: MessageTimelineProps) {
             >
               <div class="message-timeline__content">
                 <For each={messageIDs()}>
-                  {(messageID) => <PresentedMessageView message={messagesByID().get(messageID)!} />}
+                  {(messageID) => (
+                    <PresentedMessageView
+                      message={messagesByID().get(messageID)!}
+                      pendingActivityKeys={pendingActivityKeys()}
+                    />
+                  )}
                 </For>
               </div>
             </Show>

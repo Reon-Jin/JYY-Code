@@ -262,7 +262,7 @@
   transform: none;
 }
 .activity-group__toggle .activity-group__spinner {
-  animation: ui-spin 900ms linear infinite;
+  flex: 0 0 auto;
 }
 .activity-group__content {
   display: grid;
