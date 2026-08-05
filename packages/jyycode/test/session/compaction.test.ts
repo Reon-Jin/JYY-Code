@@ -787,42 +787,68 @@ describe("session.compaction.create", () => {
         const sessions = yield* SessionNs.Service
         const compact = yield* SessionCompaction.Service
         const info = yield* sessions.create()
-        const first = yield* createUserMessage(info.id, "first")
-        yield* sessions.updateMessage({
-          id: MessageID.ascending(),
-          role: "assistant",
+        for (const label of ["first", "second", "third"]) {
+          const user = yield* createUserMessage(info.id, label)
+          yield* sessions.updateMessage({
+            id: MessageID.ascending(),
+            role: "assistant",
+            sessionID: info.id,
+            parentID: user.id,
+            mode: "compaction",
+            agent: "compaction",
+            summary: true,
+            path: { cwd: info.directory, root: info.directory },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: ref.modelID,
+            providerID: ref.providerID,
+            error: new MessageV2.ContextOverflowError({ message: `failed ${label}` }).toObject(),
+            time: { created: Date.now() },
+            finish: "error",
+          })
+        }
+
+        const created = yield* compact.create({
           sessionID: info.id,
-          parentID: first.id,
-          mode: "compaction",
-          agent: "compaction",
-          summary: true,
-          path: { cwd: info.directory, root: info.directory },
-          cost: 0,
-          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          modelID: ref.modelID,
-          providerID: ref.providerID,
-          error: new MessageV2.ContextOverflowError({ message: "failed one" }).toObject(),
-          time: { created: Date.now() },
-          finish: "error",
+          agent: "build",
+          model: ref,
+          auto: true,
         })
-        const second = yield* createUserMessage(info.id, "second")
-        yield* sessions.updateMessage({
-          id: MessageID.ascending(),
-          role: "assistant",
-          sessionID: info.id,
-          parentID: second.id,
-          mode: "compaction",
-          agent: "compaction",
-          summary: true,
-          path: { cwd: info.directory, root: info.directory },
-          cost: 0,
-          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          modelID: ref.modelID,
-          providerID: ref.providerID,
-          error: new MessageV2.ContextOverflowError({ message: "failed two" }).toObject(),
-          time: { created: Date.now() },
-          finish: "error",
-        })
+
+        expect(created).toBe(false)
+        const messages = yield* sessions.messages({ sessionID: info.id })
+        expect(messages.flatMap((msg) => msg.parts).filter((part) => part.type === "compaction")).toHaveLength(0)
+      }),
+    { timeout: 10_000 },
+  )
+
+  it.instance(
+    "opens an auto-compaction circuit after repeated empty summaries",
+    () =>
+      Effect.gen(function* () {
+        const sessions = yield* SessionNs.Service
+        const compact = yield* SessionCompaction.Service
+        const info = yield* sessions.create()
+
+        for (const label of ["first", "second", "third"]) {
+          const user = yield* createUserMessage(info.id, label)
+          yield* sessions.updateMessage({
+            id: MessageID.ascending(),
+            role: "assistant",
+            sessionID: info.id,
+            parentID: user.id,
+            mode: "compaction",
+            agent: "compaction",
+            summary: true,
+            path: { cwd: info.directory, root: info.directory },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: ref.modelID,
+            providerID: ref.providerID,
+            time: { created: Date.now() },
+            finish: "stop",
+          })
+        }
 
         const created = yield* compact.create({
           sessionID: info.id,

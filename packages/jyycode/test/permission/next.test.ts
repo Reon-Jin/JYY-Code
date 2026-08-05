@@ -174,6 +174,22 @@ test("fromConfig - documented fallback-first example", () => {
   expect(Permission.evaluate("read", "foo.ts", ruleset).action).toBe("ask")
 })
 
+test("fromConfig - maps write key to edit so write deny is honored", () => {
+  const ruleset = Permission.fromConfig({ write: "deny" } as Parameters<typeof Permission.fromConfig>[0])
+  expect(ruleset).toEqual([{ permission: "edit", pattern: "*", action: "deny" }])
+  expect(Permission.evaluate("edit", "src/main.ts", ruleset).action).toBe("deny")
+})
+
+test("fromConfig - write sub-patterns map to edit", () => {
+  const ruleset = Permission.fromConfig({
+    write: { "*": "deny", "src/*": "allow" },
+  } as Parameters<typeof Permission.fromConfig>[0])
+  expect(ruleset).toEqual([
+    { permission: "edit", pattern: "*", action: "deny" },
+    { permission: "edit", pattern: "src/*", action: "allow" },
+  ])
+})
+
 test("fromConfig - expands exact tilde to home directory", () => {
   const result = Permission.fromConfig({ external_directory: { "~": "allow" } })
   expect(result).toEqual([{ permission: "external_directory", pattern: os.homedir(), action: "allow" }])
@@ -607,6 +623,27 @@ it.instance(
       expect(yield* waitForPending(1)).toHaveLength(1)
       yield* rejectAll()
       yield* Fiber.await(fiber)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - times out and clears the pending request after timeoutMs",
+  () =>
+    Effect.gen(function* () {
+      const err = yield* fail(
+        ask({
+          sessionID: SessionID.make("session_test"),
+          permission: "bash",
+          patterns: ["ls"],
+          metadata: {},
+          always: [],
+          ruleset: [],
+          timeoutMs: 50,
+        }),
+      )
+      expect(err).toBeInstanceOf(Permission.TimeoutError)
+      expect(yield* list()).toHaveLength(0)
     }),
   { git: true },
 )

@@ -14,7 +14,7 @@ const prefixes = {
   workspace: "wrk",
 } as const
 
-const LENGTH = 26
+const LENGTH = 30
 
 // State for monotonic ID generation
 let lastTimestamp = 0
@@ -62,18 +62,24 @@ export function create(prefix: string, direction: "descending" | "ascending", ti
 
   now = direction === "descending" ? ~now : now
 
-  const timeBytes = Buffer.alloc(6)
-  for (let i = 0; i < 6; i++) {
-    timeBytes[i] = Number((now >> BigInt(40 - 8 * i)) & BigInt(0xff))
+  // 8-byte time field: `ms * 4096 + counter` needs 53 bits today and will not
+  // wrap for ~142,000 years (previously 6 bytes wrapped every ~2.18 years,
+  // most recently on 2026-08-14, which made new IDs sort before old ones).
+  const timeBytes = Buffer.alloc(8)
+  for (let i = 0; i < 8; i++) {
+    timeBytes[i] = Number((now >> BigInt(56 - 8 * i)) & BigInt(0xff))
   }
 
-  return prefix + "_" + timeBytes.toString("hex") + randomBase62(LENGTH - 12)
+  return prefix + "_" + timeBytes.toString("hex") + randomBase62(LENGTH - 16)
 }
 
 /** Extract timestamp from an ascending ID. Does not work with descending IDs. */
 export function timestamp(id: string): number {
   const prefix = id.split("_")[0]
-  const hex = id.slice(prefix.length + 1, prefix.length + 13)
+  // New IDs carry 16 hex chars (8 bytes); legacy IDs carry 12 hex chars (6
+  // bytes) and are decoded with the same `ms * 4096` semantics as before.
+  const timeChars = id.length >= prefix.length + 1 + 30 ? 16 : 12
+  const hex = id.slice(prefix.length + 1, prefix.length + 1 + timeChars)
   const encoded = BigInt("0x" + hex)
   return Number(encoded / BigInt(0x1000))
 }

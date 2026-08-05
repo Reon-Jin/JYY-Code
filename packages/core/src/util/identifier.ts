@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto"
 
 export namespace Identifier {
-  const LENGTH = 26
+  const LENGTH = 30
 
   // State for monotonic ID generation
   let lastTimestamp = 0
@@ -38,11 +38,13 @@ export namespace Identifier {
 
     now = descending ? ~now : now
 
-    const timeBytes = Buffer.alloc(6)
-    for (let i = 0; i < 6; i++) {
-      timeBytes[i] = Number((now >> BigInt(40 - 8 * i)) & BigInt(0xff))
+    // 8-byte time field so IDs stay monotonic instead of wrapping every
+    // ~2.18 years (the old 6-byte field wrapped again on 2026-08-14).
+    const timeBytes = Buffer.alloc(8)
+    for (let i = 0; i < 8; i++) {
+      timeBytes[i] = Number((now >> BigInt(56 - 8 * i)) & BigInt(0xff))
     }
 
-    return timeBytes.toString("hex") + randomBase62(LENGTH - 12)
+    return timeBytes.toString("hex") + randomBase62(LENGTH - 16)
   }
 }

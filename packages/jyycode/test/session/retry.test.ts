@@ -115,6 +115,31 @@ describe("session.retry.delay", () => {
       }),
     ),
   )
+
+  test("policy stops retrying after RETRY_MAX_ATTEMPTS", async () => {
+    const error = apiError({ "retry-after-ms": "0" })
+    let setCalls = 0
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const step = yield* Schedule.toStepWithMetadata(
+          SessionRetry.policy({
+            provider: "test",
+            parse: Schema.decodeUnknownSync(MessageV2.APIError.Schema),
+            set: () =>
+              Effect.sync(() => {
+                setCalls++
+            }),
+          }),
+        )
+        // Attempts 1..RETRY_MAX_ATTEMPTS schedule a retry; the next failure
+        // exceeds the cap and stops the schedule (surfaced as a Done exit).
+        for (let i = 0; i < SessionRetry.RETRY_MAX_ATTEMPTS + 3; i++) {
+          yield* step(error).pipe(Effect.exit)
+        }
+        expect(setCalls).toBe(SessionRetry.RETRY_MAX_ATTEMPTS)
+      }),
+    )
+  })
 })
 
 describe("session.retry.retryable", () => {

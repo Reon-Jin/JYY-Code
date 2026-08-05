@@ -59,6 +59,35 @@ describe("conversation state", () => {
     expect(textOf(twice, part.id)).toBe("hello")
   })
 
+  it("orders messages by time.created even when IDs sort backwards", () => {
+    const older = { ...message, id: "msg_ffffffffffffOlder", time: { created: 100 } }
+    const newer = { ...message, id: "msg_000000000000Newer", time: { created: 200 } }
+
+    const snapshot = snapshotFromMessages(sessionID, [
+      { info: newer, parts: [] },
+      { info: older, parts: [] },
+    ])
+
+    expect(snapshot.messages.map((item) => item.info.id)).toEqual([older.id, newer.id])
+  })
+
+  it("inserts a new message at its chronological position", () => {
+    const older = { ...message, id: "msg_old", time: { created: 100 } }
+    const newer = { ...message, id: "msg_new", time: { created: 300 } }
+    const snapshot = snapshotFromMessages(sessionID, [{ info: older, parts: [] }])
+
+    const next = applyConversationEvent(
+      snapshot,
+      event({
+        id: "evt_new",
+        type: "message.updated",
+        properties: { sessionID, info: newer },
+      }),
+    )
+
+    expect(next.messages.map((item) => item.info.id)).toEqual([older.id, newer.id])
+  })
+
   it("does not duplicate the stream tail when deltas and the full-text update land in the same batch", () => {
     const snapshot = snapshotFromMessages(sessionID, [{ info: message, parts: [part] }])
     const full: TextPart = { ...part, text: "你好。" }

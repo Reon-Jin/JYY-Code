@@ -1318,7 +1318,12 @@ export const layer = Layer.effect(
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
-          if (step === 0 && canUsePersistentMemory && memory && (!lastAssistant || lastUser.id > lastAssistant.id)) {
+          if (
+            step === 0 &&
+            canUsePersistentMemory &&
+            memory &&
+            (!lastAssistant || MessageV2.compareChronological(lastUser, lastAssistant) > 0)
+          ) {
             const updated = yield* memory
               .updateStepBegin(sessionID, evaluateMemoryDecision, { userText: latestMemoryUserText })
               .pipe(
@@ -1418,7 +1423,8 @@ export const layer = Layer.effect(
             lastAssistant?.finish &&
             !["tool-calls"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
-            lastUser.id < lastAssistant.id
+            (lastAssistant.parentID === lastUser.id ||
+              (lastAssistant.parentID === undefined && MessageV2.compareChronological(lastUser, lastAssistant) < 0))
           ) {
             // A finished assistant turn that produced neither text nor tool calls
             // delivered nothing — for subagents this silently returns an empty
@@ -1642,7 +1648,7 @@ export const layer = Layer.effect(
 
             if (step > 1 && lastFinished) {
               for (const m of msgs) {
-                if (m.info.role !== "user" || m.info.id <= lastFinished.id) continue
+                if (m.info.role !== "user" || MessageV2.compareChronological(m.info, lastFinished) <= 0) continue
                 for (const p of m.parts) {
                   if (p.type !== "text" || p.ignored || p.synthetic) continue
                   if (!p.text.trim()) continue
@@ -2034,7 +2040,7 @@ function latestRealUserText(messages: MessageV2.WithParts[]) {
       .filter(Boolean)
       .join("\n")
     if (!text) continue
-    if (!selected || message.info.id > selected.info.id) selected = message
+    if (!selected || MessageV2.compareChronological(message.info, selected.info) > 0) selected = message
   }
   if (!selected) return ""
   return selected.parts
@@ -2050,7 +2056,7 @@ function memoryUserText(messages: MessageV2.WithParts[]) {
     if (message.info.role !== "user") continue
     const hasRealPart = message.parts.some((part) => !(part.type === "text" && part.synthetic))
     if (!hasRealPart) continue
-    if (!selected || message.info.id > selected.info.id) selected = message
+    if (!selected || MessageV2.compareChronological(message.info, selected.info) > 0) selected = message
   }
   if (!selected) return ""
   const text = latestRealUserText([selected])

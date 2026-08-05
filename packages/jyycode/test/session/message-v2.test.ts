@@ -1665,4 +1665,63 @@ describe("session.message-v2.latest", () => {
     expect(state.tasks).toHaveLength(1)
     expect(state.tasks[0]).toMatchObject({ type: "compaction", auto: true })
   })
+
+  test("picks the latest messages by time.created even when IDs wrap", () => {
+    const olderUser: MessageV2.WithParts = {
+      info: { ...userInfo("msg_ffffffffffff00000000000001"), time: { created: 100 } },
+      parts: [],
+    }
+    const olderAssistant: MessageV2.WithParts = {
+      info: {
+        ...assistantInfo("msg_ffffffffffff00000000000002", olderUser.info.id),
+        time: { created: 101 },
+        finish: "stop",
+      } as MessageV2.Assistant,
+      parts: [],
+    }
+    const newerUser: MessageV2.WithParts = {
+      info: { ...userInfo("msg_00000000000000000000000001"), time: { created: 200 } },
+      parts: [],
+    }
+
+    const state = MessageV2.latest([olderUser, olderAssistant, newerUser])
+
+    expect(state.user?.id).toBe(newerUser.info.id)
+    expect(state.finished?.id).toBe(olderAssistant.info.id)
+    expect(state.assistant?.id).toBe(olderAssistant.info.id)
+  })
+})
+
+describe("session.message-v2.filterCompacted", () => {
+  test("does not treat an empty summary as a completed compaction", () => {
+    const tailUser: MessageV2.WithParts = {
+      info: userInfo("msg_tail"),
+      parts: [{ ...basePart("msg_tail", "p1"), type: "text", text: "original prompt" }] as MessageV2.Part[],
+    }
+    const compactionUser: MessageV2.WithParts = {
+      info: userInfo("msg_compact"),
+      parts: [
+        {
+          ...basePart("msg_compact", "p1"),
+          type: "compaction",
+          auto: true,
+          tail_start_id: tailUser.info.id,
+        },
+      ] as MessageV2.Part[],
+    }
+    const emptySummary: MessageV2.WithParts = {
+      info: {
+        ...assistantInfo("msg_summary", compactionUser.info.id),
+        summary: true,
+        finish: "stop",
+      } as MessageV2.Assistant,
+      parts: [],
+    }
+
+    const result = MessageV2.filterCompacted([tailUser, compactionUser, emptySummary])
+
+    // The head must not be hidden: an empty summary produced no useful
+    // context, so the compaction is not complete.
+    expect(result.some((message) => message.info.id === tailUser.info.id)).toBe(true)
+  })
 })

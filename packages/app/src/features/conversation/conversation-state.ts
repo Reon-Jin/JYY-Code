@@ -20,7 +20,7 @@ export function snapshotFromMessages(sessionID: string, messages: SessionMessage
     sessionID,
     messages: [...messages]
       .map((message) => ({ info: message.info, parts: sortByID(message.parts) }))
-      .sort((left, right) => left.info.id.localeCompare(right.info.id)),
+      .sort((left, right) => compareMessages(left.info, right.info)),
     processedEventIDs: [],
     needsRefetch: false,
   }
@@ -41,6 +41,25 @@ function sortByID<T extends { id: string }>(values: readonly T[]) {
   return [...values].sort((left, right) => left.id.localeCompare(right.id))
 }
 
+function compareMessages(left: Pick<ConversationMessage["info"], "id" | "time">, right: Pick<ConversationMessage["info"], "id" | "time">) {
+  const leftTime = left.time?.created ?? 0
+  const rightTime = right.time?.created ?? 0
+  if (leftTime !== rightTime) return leftTime < rightTime ? -1 : 1
+  if (left.id === right.id) return 0
+  return left.id < right.id ? -1 : 1
+}
+
+function lowerBound<T>(values: readonly T[], value: T, compare: (left: T, right: T) => number) {
+  let low = 0
+  let high = values.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (compare(values[middle]!, value) < 0) low = middle + 1
+    else high = middle
+  }
+  return low
+}
+
 function locate<T>(values: readonly T[], id: string, idOf: (value: T) => string) {
   let low = 0
   let high = values.length
@@ -50,6 +69,11 @@ function locate<T>(values: readonly T[], id: string, idOf: (value: T) => string)
     else high = middle
   }
   return { index: low, found: low < values.length && idOf(values[low]!) === id }
+}
+
+function locateMessage(messages: ConversationSnapshot["messages"], id: string) {
+  const index = messages.findIndex((message) => message.info.id === id)
+  return { index, found: index >= 0 }
 }
 
 function eventSessionID(event: GlobalEvent) {
@@ -85,7 +109,7 @@ function updatePart(
   partID: string,
   update: (part: Part) => Part | undefined,
 ) {
-  const messageLocation = locate(snapshot.messages, messageID, (message) => message.info.id)
+  const messageLocation = locateMessage(snapshot.messages, messageID)
   if (!messageLocation.found) return missingTarget(snapshot, eventID)
   const message = snapshot.messages[messageLocation.index]!
   const partLocation = locate(message.parts, partID, (part) => part.id)
@@ -109,17 +133,18 @@ export function applyConversationEvent(snapshot: ConversationSnapshot, event: Gl
   switch (event.payload.type) {
     case "message.updated": {
       const messages = [...snapshot.messages]
-      const location = locate(messages, event.payload.properties.info.id, (message) => message.info.id)
+      const location = locateMessage(messages, event.payload.properties.info.id)
       if (location.found) {
         const current = messages[location.index]!
         messages[location.index] = { ...current, info: event.payload.properties.info }
       } else {
-        messages.splice(location.index, 0, { info: event.payload.properties.info, parts: [] })
+        const entry = { info: event.payload.properties.info, parts: [] }
+        messages.splice(lowerBound(messages, entry, (left, right) => compareMessages(left.info, right.info)), 0, entry)
       }
       return remember(snapshot, eventID, { messages })
     }
     case "message.removed": {
-      const location = locate(snapshot.messages, event.payload.properties.messageID, (message) => message.info.id)
+      const location = locateMessage(snapshot.messages, event.payload.properties.messageID)
       if (!location.found) return missingTarget(snapshot, eventID)
       const messages = [...snapshot.messages]
       messages.splice(location.index, 1)
@@ -127,7 +152,7 @@ export function applyConversationEvent(snapshot: ConversationSnapshot, event: Gl
     }
     case "message.part.updated": {
       const part = event.payload.properties.part
-      const messageLocation = locate(snapshot.messages, part.messageID, (message) => message.info.id)
+      const messageLocation = locateMessage(snapshot.messages, part.messageID)
       if (!messageLocation.found) return missingTarget(snapshot, eventID)
       const message = snapshot.messages[messageLocation.index]!
       const parts = [...message.parts]
@@ -149,7 +174,7 @@ export function applyConversationEvent(snapshot: ConversationSnapshot, event: Gl
     }
     case "message.part.removed": {
       const { messageID, partID } = event.payload.properties
-      const messageLocation = locate(snapshot.messages, messageID, (message) => message.info.id)
+      const messageLocation = locateMessage(snapshot.messages, messageID)
       if (!messageLocation.found) return missingTarget(snapshot, eventID)
       const message = snapshot.messages[messageLocation.index]!
       const partLocation = locate(message.parts, partID, (part) => part.id)

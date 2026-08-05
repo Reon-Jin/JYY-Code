@@ -140,6 +140,9 @@ function completedCompactions(messages: MessageV2.WithParts[]) {
   return messages.flatMap((msg, assistantIndex): CompletedCompaction[] => {
     if (msg.info.role !== "assistant") return []
     if (!msg.info.summary || !msg.info.finish || msg.info.error) return []
+    // A compaction that finished without any summary text produced nothing
+    // useful and must not be treated as completed.
+    if (!summaryText(msg)) return []
     const userIndex = users.get(msg.info.parentID)
     if (userIndex === undefined) return []
     return [{ userIndex, assistantIndex, summary: summaryText(msg) }]
@@ -641,11 +644,15 @@ export const layer = Layer.effect(
             parts: [],
           },
         )
-        if (flags.experimentalEventSystem) {
+        // An empty summary is a failed compaction: it did not reduce context,
+        // so it must not emit a successful `Compaction.Ended` event. The
+        // failure is counted by `failedAutoCompactions` so the auto-compaction
+        // circuit opens after repeated empty summaries.
+        if (summary && flags.experimentalEventSystem) {
           yield* events.publish(SessionEvent.Compaction.Ended, {
             sessionID: input.sessionID,
             timestamp: DateTime.makeUnsafe(Date.now()),
-            text: summary ?? "",
+            text: summary,
             include: selected.tail_start_id,
           })
         }
@@ -664,7 +671,15 @@ export const layer = Layer.effect(
           failed++
           continue
         }
-        if (msg.info.finish) break
+        if (msg.info.finish) {
+          // A "successful" compaction that returned no text is still a
+          // failure: it does not reduce context and would only loop.
+          if (!summaryText(msg)) {
+            failed++
+            continue
+          }
+          break
+        }
       }
       return failed
     }

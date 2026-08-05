@@ -71,24 +71,34 @@ export const layer = Layer.effect(
     const fs = yield* AppFileSystem.Service
 
     const cleanup = Effect.fn("Truncate.cleanup")(function* () {
-      const cutoff = Identifier.timestamp(
-        Identifier.create("tool", "ascending", Date.now() - Duration.toMillis(RETENTION)),
-      )
+      const cutoff = Date.now() - Duration.toMillis(RETENTION)
+      // A file is stale if its ID timestamp (logical age) or its real mtime
+      // is older than the retention window. Checking both keeps the ID-based
+      // semantics (and existing tests) while remaining correct after the ID
+      // time field would otherwise wrap.
+      const isStale = (filePath: string, name: string) =>
+        Effect.gen(function* () {
+          if (name.startsWith("tool_") && Identifier.timestamp(name) < cutoff) return true
+          const info = yield* fs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          if (!info) return false
+          return Option.getOrElse(info.mtime, () => new Date(0)).getTime() < cutoff
+        })
       const rootEntries = yield* fs.readDirectory(TRUNCATION_DIR).pipe(Effect.catch(() => Effect.succeed([])))
       for (const entry of rootEntries) {
         const fullPath = path.join(TRUNCATION_DIR, entry)
         if (yield* fs.isDir(fullPath).pipe(Effect.catch(() => Effect.succeed(false)))) {
           const subEntries = yield* fs.readDirectory(fullPath).pipe(Effect.catch(() => Effect.succeed([])))
           for (const sub of subEntries) {
-            if (Identifier.timestamp(sub) < cutoff) {
-              yield* fs.remove(path.join(fullPath, sub)).pipe(Effect.catch(() => Effect.void))
+            const subPath = path.join(fullPath, sub)
+            if (yield* isStale(subPath, sub)) {
+              yield* fs.remove(subPath).pipe(Effect.catch(() => Effect.void))
             }
           }
           const remaining = yield* fs.readDirectory(fullPath).pipe(Effect.catch(() => Effect.succeed([])))
           if (remaining.length === 0) {
             yield* fs.remove(fullPath).pipe(Effect.catch(() => Effect.void))
           }
-        } else if (entry.startsWith("tool_") && Identifier.timestamp(entry) < cutoff) {
+        } else if (yield* isStale(fullPath, entry)) {
           yield* fs.remove(fullPath).pipe(Effect.catch(() => Effect.void))
         }
       }

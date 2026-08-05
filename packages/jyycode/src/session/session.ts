@@ -707,7 +707,9 @@ export const layer: Layer.Layer<
       const idMap = new Map<string, MessageID>()
 
       for (const msg of msgs) {
-        if (input.messageID && msg.info.id >= input.messageID) break
+        // `messages()` is ordered chronologically; stop at the exact fork
+        // point instead of comparing IDs (IDs wrap and are not sortable).
+        if (input.messageID && msg.info.id === input.messageID) break
         const newID = MessageID.ascending()
         idMap.set(msg.info.id, newID)
 

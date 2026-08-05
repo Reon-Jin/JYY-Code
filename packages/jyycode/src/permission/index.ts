@@ -9,12 +9,14 @@ import { Database } from "@/storage/db"
 import { eq } from "drizzle-orm"
 import * as Log from "@jyycode-ai/core/util/log"
 import { Wildcard } from "@jyycode-ai/core/util/wildcard"
-import { Deferred, Effect, Layer, Schema, Context } from "effect"
+import { Context, Deferred, Duration, Effect, Layer, Schema } from "effect"
 import os from "os"
 import { PermissionV2 } from "@jyycode-ai/core/permission"
 import { PermissionID } from "./schema"
 
 const log = Log.create({ service: "permission" })
+
+export const ASK_TIMEOUT_MS = 10 * 60 * 1000
 
 export const Action = PermissionV2.Action.annotate({ identifier: "PermissionAction" })
 export type Action = Schema.Schema.Type<typeof Action>
@@ -92,6 +94,14 @@ export class CorrectedError extends Schema.TaggedErrorClass<CorrectedError>()("P
   }
 }
 
+export class TimeoutError extends Schema.TaggedErrorClass<TimeoutError>()("PermissionTimeoutError", {
+  requestID: PermissionID,
+}) {
+  override get message() {
+    return "Timed out waiting for permission approval."
+  }
+}
+
 export class DeniedError extends Schema.TaggedErrorClass<DeniedError>()("PermissionDeniedError", {
   ruleset: Schema.Any,
 }) {
@@ -104,12 +114,13 @@ export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Per
   requestID: PermissionID,
 }) {}
 
-export type Error = DeniedError | RejectedError | CorrectedError
+export type Error = DeniedError | RejectedError | CorrectedError | TimeoutError
 
 export const AskInput = Schema.Struct({
   ...Request.fields,
   id: Schema.optional(PermissionID),
   ruleset: Ruleset,
+  timeoutMs: Schema.optional(Schema.Number),
 }).annotate({ identifier: "PermissionAskInput" })
 export type AskInput = Schema.Schema.Type<typeof AskInput>
 
@@ -127,7 +138,7 @@ export interface Interface {
 
 interface PendingEntry {
   info: Request
-  deferred: Deferred.Deferred<void, RejectedError | CorrectedError>
+  deferred: Deferred.Deferred<void, RejectedError | CorrectedError | TimeoutError>
 }
 
 interface State {
@@ -199,11 +210,25 @@ export const layer = Layer.effect(
       }
       log.info("asking", { id, permission: info.permission, patterns: info.patterns })
 
-      const deferred = yield* Deferred.make<void, RejectedError | CorrectedError>()
+      const deferred = yield* Deferred.make<void, RejectedError | CorrectedError | TimeoutError>()
       pending.set(id, { info, deferred })
       yield* bus.publish(Event.Asked, info)
       return yield* Effect.ensuring(
-        Deferred.await(deferred),
+        Deferred.await(deferred).pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.millis(input.timeoutMs ?? ASK_TIMEOUT_MS),
+            orElse: () =>
+              Effect.gen(function* () {
+                yield* bus.publish(Event.Replied, {
+                  sessionID: info.sessionID,
+                  requestID: id,
+                  reply: "reject",
+                })
+                yield* Deferred.fail(deferred, new TimeoutError({ requestID: id }))
+                return yield* Effect.fail(new TimeoutError({ requestID: id }))
+              }),
+          }),
+        ),
         Effect.sync(() => {
           pending.delete(id)
         }),
@@ -288,12 +313,19 @@ function expand(pattern: string): string {
 export function fromConfig(permission: ConfigPermission.Info) {
   const ruleset: Rule[] = []
   for (const [key, value] of Object.entries(permission)) {
+    // WriteTool/EditTool request `permission: "edit"`; accept the intuitive
+    // `write` key as an alias so `{ "write": "deny" }` is not silently ignored.
+    const permissionName = key === "write" ? "edit" : key
     if (typeof value === "string") {
-      ruleset.push({ permission: key, action: value, pattern: "*" })
+      ruleset.push({ permission: permissionName, action: value, pattern: "*" })
       continue
     }
     ruleset.push(
-      ...Object.entries(value).map(([pattern, action]) => ({ permission: key, pattern: expand(pattern), action })),
+      ...Object.entries(value).map(([pattern, action]) => ({
+        permission: permissionName,
+        pattern: expand(pattern),
+        action,
+      })),
     )
   }
   return ruleset

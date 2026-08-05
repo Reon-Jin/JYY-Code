@@ -26,6 +26,8 @@ export const RETRY_INITIAL_DELAY = 2000
 export const RETRY_BACKOFF_FACTOR = 2
 export const RETRY_MAX_DELAY_NO_HEADERS = 30_000 // 30 seconds
 export const RETRY_MAX_DELAY = 2_147_483_647 // max 32-bit signed integer for setTimeout
+export const RETRY_MAX_ATTEMPTS = 8
+export const RETRY_MAX_TOTAL_DELAY = 10 * 60 * 1000 // 10 minutes
 
 function cap(ms: number) {
   return Math.min(ms, RETRY_MAX_DELAY)
@@ -181,7 +183,11 @@ export function policy(opts: {
     Effect.succeed((meta: Schedule.InputMetadata<unknown>) => {
       const error = opts.parse(meta.input)
       const retry = retryable(error, opts.provider)
-      if (!retry) return Cause.done(meta.attempt)
+      // Bound retries: a provider that is down for hours (or a quota that
+      // resets in days) must not keep a session retrying indefinitely.
+      if (!retry || meta.attempt > RETRY_MAX_ATTEMPTS || meta.elapsed >= RETRY_MAX_TOTAL_DELAY) {
+        return Cause.done(meta.attempt)
+      }
       return Effect.gen(function* () {
         const wait = delay(meta.attempt, MessageV2.APIError.isInstance(error) ? error : undefined)
         const now = yield* Clock.currentTimeMillis
