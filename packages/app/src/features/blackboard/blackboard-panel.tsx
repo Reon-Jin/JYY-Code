@@ -133,6 +133,8 @@ const NOTE_SLOT_WIDTH = 200
 const NOTE_SLOT_HEIGHT = 240
 const NOTE_PAD_X = 28
 const NOTE_PAD_Y = 44
+const NOTE_HEIGHT = 250
+const DEFAULT_BOARD_HEIGHT = 560
 
 function layoutStorageKey(directory: string, rootSessionID?: string) {
   return `jyycode.blackboard.layout:${directory}:${rootSessionID ?? ""}`
@@ -191,6 +193,8 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
     loadLayout(layoutStorageKey(props.directory, props.rootSessionID)),
   )
   const [draggingID, setDraggingID] = createSignal<string>()
+  const [boardElement, setBoardElement] = createSignal<HTMLDivElement>()
+  const [boardViewportHeight, setBoardViewportHeight] = createSignal(0)
   let suppressClick = false
   const markedThrough = new Map<string, string>()
 
@@ -201,8 +205,24 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
     ),
   )
 
+  createEffect(() => {
+    const element = boardElement()
+    if (!element) return
+    const measure = () => setBoardViewportHeight(element.clientHeight)
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    onCleanup(() => observer.disconnect())
+  })
+
+  // Notes must stay inside the visible board so a low note can neither
+  // disappear below the fold nor stretch the panel and squeeze the composer.
+  const maxNoteY = createMemo(() => Math.max(NOTE_PAD_Y, (boardViewportHeight() || DEFAULT_BOARD_HEIGHT) - NOTE_HEIGHT))
+
   function notePosition(id: string, index: number): NotePosition {
-    return layout().notes[id] ?? defaultNotePosition(id, index)
+    const position = layout().notes[id] ?? defaultNotePosition(id, index)
+    return { ...position, y: Math.min(Math.max(0, position.y), maxNoteY()) }
   }
 
   function persistLayout() {
@@ -234,7 +254,11 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
       const dy = next.clientY - origin.y
       if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return
       moved = true
-      latest = { ...latest, x: Math.max(0, start.x + dx), y: Math.max(0, start.y + dy) }
+      latest = {
+        ...latest,
+        x: Math.max(0, start.x + dx),
+        y: Math.min(Math.max(0, start.y + dy), maxNoteY()),
+      }
       setLayout((current) => ({ ...current, notes: { ...current.notes, [id]: latest } }))
     }
     const up = () => {
@@ -288,12 +312,6 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
       .sort((left, right) => left.timeCreated - right.timeCreated)
   })
   const expandedMessage = createMemo(() => visibleMessages().find((message) => message.id === expandedID()))
-  const boardHeight = createMemo(() =>
-    visibleMessages().reduce(
-      (height, message, index) => Math.max(height, notePosition(message.id, index).y + 250),
-      260,
-    ),
-  )
   const readonly = createMemo(
     () =>
       Boolean(snapshot()?.readonly) ||
@@ -436,7 +454,7 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
         </div>
       </Show>
       <Show when={enabled() && props.rootSessionID && !query.isPending && !query.error}>
-        <div class="blackboard-board" aria-live="polite" style={{ "min-height": `${boardHeight()}px` }}>
+        <div class="blackboard-board" aria-live="polite" ref={setBoardElement}>
           <Show
             when={visibleMessages().length > 0}
             fallback={<p class="blackboard-panel__empty">{tr("blackboard.no-messages")}</p>}

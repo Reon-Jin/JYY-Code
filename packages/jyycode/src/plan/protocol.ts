@@ -1057,7 +1057,11 @@ export class PlanProtocol {
         for (const op of value.ops)
           applyOp(projected, op, ctx.mode, projectedAssigned, projectedReviewed, ctx.workspaceRoot, ctx.sessionId)
         recomputeProgress(projected, ctx.workspaceRoot)
-        if (projected.current_step !== latestForGate.current_step) await this.beforeStepAdvance(ctx)
+        // A completed plan has no current Step. Resuming it with a new Step is
+        // a fresh wave, not an advance from one active Step to the next, so
+        // there is no current-Step Blackboard backlog that must be read first.
+        if (latestForGate.current_step !== null && projected.current_step !== latestForGate.current_step)
+          await this.beforeStepAdvance(ctx)
       }
       const assigned = { steps: [] as string[], tasks: [] as string[] }
       const reviewed: Array<{ taskId: string; result: "approved" | "rejected" }> = []

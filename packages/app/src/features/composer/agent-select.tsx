@@ -10,7 +10,6 @@ export function AgentSelect(props: {
 }) {
   return (
     <label class="composer-select">
-      <span>{tr("composer.agent")}</span>
       <select
         aria-label={tr("composer.agent")}
         value={props.value}

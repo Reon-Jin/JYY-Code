@@ -37,7 +37,7 @@ describe("conversation layout CSS", () => {
   })
 
   it("uses compact inline metrics and keeps Multi-Agent motion on active work", () => {
-    expect(composerCSS).toMatch(/\.composer-select\s*\{[^}]*width:\s*80px;[^}]*min-width:\s*80px;/s)
+    expect(composerCSS).toMatch(/\.composer-select\s*\{[^}]*width:\s*100px;[^}]*min-width:\s*100px;/s)
     expect(composerCSS).toMatch(/\.composer-usage__item\s*\{[^}]*display:\s*flex;[^}]*align-items:\s*center;/s)
     expect(multiAgentCSS).toMatch(
       /\.multi-agent-step\[data-tone="running"\] \.multi-agent-step__marker,[^{]*\{[^}]*animation:/s,

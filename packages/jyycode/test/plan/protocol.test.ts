@@ -620,6 +620,65 @@ describe("file-backed plan protocol", () => {
     expect(gateCalls).toBe(2)
   })
 
+  it("lets a completed plan resume with add_step without the step-advance gate", async () => {
+    const root = workspace()
+    let gateCalls = 0
+    let gateEnabled = false
+    const protocol = new PlanProtocol({
+      beforeStepAdvance: async () => {
+        gateCalls++
+        if (gateEnabled)
+          throw new PlanProtocolError({
+            code: "BLACKBOARD_UNREAD",
+            message: "gate should not run for a fresh wave",
+            hint: "none",
+            retryable: true,
+          })
+      },
+    })
+    await protocol.create(context(root, "single"), createInput())
+    await protocol.update(context(root, "single"), {
+      revision: 1,
+      ops: [
+        { op: "set_task_status", stepId: "s1", taskId: "s1_t1", to: "running" },
+        { op: "set_task_status", stepId: "s1", taskId: "s1_t1", to: "reported" },
+        { op: "set_task_status", stepId: "s1", taskId: "s1_t1", to: "approved" },
+      ],
+    })
+    await protocol.update(context(root, "single"), {
+      revision: 2,
+      ops: [{ op: "add_task", stepId: "s2", task: { title: "实现", goal: "实现", done_criteria: "通过测试" } }],
+    })
+    await protocol.update(context(root, "single"), {
+      revision: 3,
+      ops: [
+        { op: "set_task_status", stepId: "s2", taskId: "s2_t1", to: "running" },
+        { op: "set_task_status", stepId: "s2", taskId: "s2_t1", to: "reported" },
+        { op: "set_task_status", stepId: "s2", taskId: "s2_t1", to: "approved" },
+      ],
+    })
+    const done = await protocol.read(context(root, "single"))
+    if (!done.ok || !done.plan) return
+    expect(done.plan).toMatchObject({ status: "done", current_step: null })
+    expect(gateCalls).toBe(2)
+
+    gateEnabled = true
+    const resumed = await protocol.update(context(root, "single"), {
+      revision: 4,
+      ops: [{ op: "add_step", step: { title: "追加", goal: "追加", done_criteria: "完成" } }],
+    })
+    expect(resumed).toMatchObject({ ok: true, assigned_ids: { steps: ["s3"] } })
+    const after = await protocol.read(context(root, "single"))
+    expect(after).toMatchObject({ ok: true, plan: { status: "active", current_step: "s3" } })
+    expect(gateCalls).toBe(2)
+
+    const withTask = await protocol.update(context(root, "single"), {
+      revision: 5,
+      ops: [{ op: "add_task", stepId: "s3", task: { title: "新任务", goal: "新任务", done_criteria: "完成" } }],
+    })
+    expect(withTask).toMatchObject({ ok: true, assigned_ids: { tasks: ["s3_t1"] } })
+  })
+
   it("covers the nine-op protection matrix and rejects malformed stored plans", async () => {
     const doneRoot = workspace()
     const doneProtocol = new PlanProtocol()

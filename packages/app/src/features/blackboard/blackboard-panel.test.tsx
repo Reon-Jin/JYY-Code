@@ -204,4 +204,21 @@ describe("BlackboardPanel", () => {
     fireEvent.click(note)
     expect(await screen.findByRole("dialog")).toBeVisible()
   })
+
+  it("clamps legacy low note positions and does not stretch the board", async () => {
+    const backend = createFakeJyycode(directory)
+    const root = backend.addSession({ id: "ses_root", title: "Root" })
+    backend.setBlackboard(root.id, board(root.id))
+    localStorage.setItem(
+      `jyycode.blackboard.layout:${directory}:${root.id}`,
+      JSON.stringify({ zTop: 1, notes: { bb_current: { x: 20, y: 9999, z: 1 } } }),
+    )
+    renderPanel(backend, root.id)
+
+    const note = (await screen.findByText("Blocked")).closest("article")!
+    expect(Number.parseFloat(note.style.top)).toBeLessThanOrEqual(310)
+    const boardElement = note.parentElement!
+    expect(boardElement.classList).toContain("blackboard-board")
+    expect(boardElement.style.minHeight).toBe("")
+  })
 })
