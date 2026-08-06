@@ -39,14 +39,6 @@ function messageSignature(messages: readonly ConversationMessage[]) {
     .join("|")
 }
 
-type TimelineEntry =
-  | { kind: "message"; message: PresentedConversationMessage }
-  | { kind: "marker"; marker: "start" | "end"; at: number; showOrb?: boolean }
-
-function timelineEntryKey(entry: TimelineEntry) {
-  return entry.kind === "message" ? `msg:${entry.message.info.id}` : `marker:${entry.marker}`
-}
-
 function GoalTimelineMarker(props: { marker: "start" | "end"; showOrb?: boolean }) {
   return (
     <div class="goal-timeline-marker" data-marker={props.marker}>
@@ -149,44 +141,8 @@ export function MessageTimeline(props: MessageTimelineProps) {
       }`,
   )
   const presentedMessages = createMemo(() => presentConversationMessages(props.messages))
-  const timelineEntries = createMemo<TimelineEntry[]>(() => {
-    const entries: TimelineEntry[] = []
-    const status = goalStatus()
-    const startAt = goalStartedAt()
-    const endAt = goalCompletedAt()
-    let insertedStart = startAt === undefined
-    let insertedEnd = endAt === undefined
-    for (const message of presentedMessages()) {
-      const at = message.info.time?.created ?? 0
-      if (!insertedEnd && endAt !== undefined && at > endAt) {
-        entries.push({ kind: "marker", marker: "end", at: endAt })
-        insertedEnd = true
-      }
-      if (!insertedStart && startAt !== undefined && at >= startAt) {
-        entries.push({
-          kind: "marker",
-          marker: "start",
-          at: startAt,
-          showOrb: status === "running",
-        })
-        insertedStart = true
-      }
-      entries.push({ kind: "message", message })
-    }
-    if (!insertedStart && startAt !== undefined)
-      entries.push({
-        kind: "marker",
-        marker: "start",
-        at: startAt,
-        showOrb: status === "running",
-      })
-    if (!insertedEnd && endAt !== undefined) entries.push({ kind: "marker", marker: "end", at: endAt })
-    return entries
-  })
-  const timelineEntryKeys = createMemo(() => timelineEntries().map(timelineEntryKey))
-  const timelineEntriesByKey = createMemo(
-    () => new Map(timelineEntries().map((entry) => [timelineEntryKey(entry), entry])),
-  )
+  const messageIDs = createMemo(() => presentedMessages().map((message) => message.info.id))
+  const messagesByID = createMemo(() => new Map(presentedMessages().map((message) => [message.info.id, message])))
   const pendingActivityKeys = createMemo(() => {
     const groups = presentedMessages().flatMap((message) => message.groups)
     const keys = new Set<string>()
@@ -292,16 +248,20 @@ export function MessageTimeline(props: MessageTimelineProps) {
               }
             >
               <div class="message-timeline__content">
-                <For each={timelineEntryKeys()}>
-                  {(key) => {
-                    const entry = timelineEntriesByKey().get(key)!
-                    return entry.kind === "message" ? (
-                      <PresentedMessageView message={entry.message} pendingActivityKeys={pendingActivityKeys()} />
-                    ) : (
-                      <GoalTimelineMarker marker={entry.marker} showOrb={entry.showOrb} />
-                    )
-                  }}
+                <Show when={goalStartedAt() !== undefined}>
+                  <GoalTimelineMarker marker="start" showOrb={goalStatus() === "running"} />
+                </Show>
+                <For each={messageIDs()}>
+                  {(messageID) => (
+                    <PresentedMessageView
+                      message={messagesByID().get(messageID)!}
+                      pendingActivityKeys={pendingActivityKeys()}
+                    />
+                  )}
                 </For>
+                <Show when={goalCompletedAt() !== undefined}>
+                  <GoalTimelineMarker marker="end" />
+                </Show>
               </div>
             </Show>
           </div>
