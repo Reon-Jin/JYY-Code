@@ -436,13 +436,14 @@ export class EventBridge {
     for (const [sessionID, conversationEvents] of conversations) {
       const queryKey = keys.messages(this.#options.directory, sessionID)
       let current = this.#options.queryClient.getQueryData<ConversationSnapshot>(queryKey)
-      if (!isConversationSnapshot(current)) {
+      const hadNoSnapshot = !isConversationSnapshot(current)
+      if (hadNoSnapshot) {
         void this.#options.queryClient.cancelQueries({ queryKey, exact: true })
-        current = emptyConversationSnapshot(sessionID)
       }
+      current = isConversationSnapshot(current) ? current : emptyConversationSnapshot(sessionID)
       const patched = applyConversationEvents(current, conversationEvents)
       this.#options.queryClient.setQueryData(queryKey, patched)
-      if (!current.needsRefetch && patched.needsRefetch) this.#invalidate(queryKey)
+      if (hadNoSnapshot || (!current.needsRefetch && patched.needsRefetch)) this.#invalidate(queryKey)
     }
 
     for (const sessionID of changedPlans) this.#invalidate(keys.plan(this.#options.directory, sessionID))

@@ -585,6 +585,7 @@ describe("event routing", () => {
   it("creates a live snapshot when SSE events beat the initial message query", async () => {
     const queryClient = createDesktopQueryClient()
     const cancelQueries = vi.spyOn(queryClient, "cancelQueries")
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries")
     const livePart = { ...part, text: "" }
     let releaseStream = () => {}
     const streamWait = new Promise<void>((resolve) => {
@@ -644,7 +645,78 @@ describe("event routing", () => {
       const snapshot = queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", session.id))
       expect(snapshot?.messages[0]?.parts[0]).toMatchObject({ text: "streaming" })
     })
+    // This is exactly the dangerous case: the event batch already contains the
+    // new message, so needsRefetch stays false and the old code never refetched
+    // the full history. The forced invalidate below is the fix.
+    expect(
+      queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", session.id))?.needsRefetch,
+    ).toBe(false)
     expect(cancelQueries).toHaveBeenCalledWith({ queryKey: keys.messages("C:\\a", session.id), exact: true })
+    // Even though the event batch already contains the new message (so
+    // needsRefetch stays false), the bridge must force a full-history refetch
+    // so earlier messages are not lost from the UI.
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: keys.messages("C:\\a", session.id), exact: true })
+
+    bridge.abort()
+    releaseStream()
+  })
+
+  it("forces a full-history refetch for child Agent sessions when events beat the query", async () => {
+    const child: Session = { ...session, id: "ses_child", parentID: session.id }
+    const queryClient = createDesktopQueryClient()
+    const cancelQueries = vi.spyOn(queryClient, "cancelQueries")
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries")
+    const childMessage: Message = { ...message, id: "msg_child", sessionID: child.id }
+    const childPart: TextPart = { ...part, id: "part_child", sessionID: child.id, messageID: childMessage.id }
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    const stream = (async function* () {
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_child_1",
+          type: "message.updated",
+          properties: { sessionID: child.id, info: childMessage },
+        },
+      } as GlobalEvent
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_child_2",
+          type: "message.part.updated",
+          properties: { sessionID: child.id, part: childPart },
+        },
+      } as GlobalEvent
+      await streamWait
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+    scheduled?.(0)
+    await Promise.resolve()
+
+    await vi.waitFor(() => {
+      const snapshot = queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", child.id))
+      expect(snapshot?.messages[0]?.parts[0]).toMatchObject({ text: "Hello" })
+    })
+    expect(queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", child.id))?.needsRefetch).toBe(
+      false,
+    )
+    expect(cancelQueries).toHaveBeenCalledWith({ queryKey: keys.messages("C:\\a", child.id), exact: true })
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: keys.messages("C:\\a", child.id), exact: true })
 
     bridge.abort()
     releaseStream()
