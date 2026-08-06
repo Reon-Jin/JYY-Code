@@ -85,8 +85,12 @@ export function BorderBeam(props: BorderBeamProps) {
 
   createEffect(() => {
     const active = props.active ?? true
-    if (active && !isActive() && !isFading()) setIsActive(true)
-    else if (!active && isActive() && !isFading()) setIsFading(true)
+    if (active && (!isActive() || isFading())) {
+      setIsFading(false)
+      setIsActive(true)
+    } else if (!active && isActive() && !isFading()) {
+      setIsFading(true)
+    }
   })
 
   createEffect(() => {
@@ -149,7 +153,7 @@ export function BorderBeam(props: BorderBeamProps) {
   const finalSaturation = () => props.saturation ?? themeConfig().saturation
   const finalBrightness = () => props.brightness ?? themeConfig().brightness ?? 1.3
   const finalHueRange = () => (size() === "line" ? Math.min(props.hueRange ?? 30, 13) : (props.hueRange ?? 30))
-  const finalStaticColors = () => (props.colorVariant === "mono" ? true : props.staticColors ?? false)
+  const finalStaticColors = () => (props.colorVariant === "mono" ? true : (props.staticColors ?? false))
 
   const cssStyles = createMemo(() =>
     generateBeamCSS({
@@ -174,14 +178,7 @@ export function BorderBeam(props: BorderBeamProps) {
 
   const driverConfig = createMemo(() =>
     isPulse()
-      ? getPulseDriverConfig(
-          size(),
-          resolvedTheme(),
-          finalDuration(),
-          finalHueRange(),
-          finalStaticColors(),
-          id,
-        )
+      ? getPulseDriverConfig(size(), resolvedTheme(), finalDuration(), finalHueRange(), finalStaticColors(), id)
       : null,
   )
 
