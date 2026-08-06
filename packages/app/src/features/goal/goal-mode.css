@@ -1,0 +1,51 @@
+.goal-mode-control {
+  display: inline-flex;
+  align-self: end;
+  gap: 2px;
+}
+
+.goal-mode-switch {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-3);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.goal-mode-switch:hover:not(:disabled):not([data-active="true"]) {
+  border-color: var(--color-text);
+}
+
+.goal-mode-switch > span {
+  position: relative;
+  z-index: 1;
+}
+
+.goal-mode-switch[data-active="true"] {
+  border-color: color-mix(in srgb, #10b981 55%, var(--color-text));
+  background: #06281c;
+  color: #fff;
+}
+
+.goal-mode-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.goal-mode-switch:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.goal-mode-control .ui-inline-error {
+  max-width: 280px;
+  font-size: var(--text-xs);
+}

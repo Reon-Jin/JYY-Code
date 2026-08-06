@@ -581,6 +581,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   })
   const mcpDefs = candidateGate && candidateGate.phase !== "running" ? [] : yield* mcp.toolDefs()
   const visibleRegistryDefs = filterToolIDs(registryDefs, allowedToolIDs).filter((item) => {
+    if (item.id === "Goal_done" && (input.session.parentID !== undefined || input.session.goal?.status !== "running"))
+      return false
     if (input.agent.mode === "subagent" && !isSubagentToolVisible(item.id, allowedToolIDs, candidateGate)) return false
     if (candidateGate) return item.id !== "tool_search" || candidateGate.phase === "running"
     if (!PLAN_TOOL_IDS.has(item.id)) return true

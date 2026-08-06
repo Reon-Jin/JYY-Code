@@ -29,6 +29,7 @@ import {
 } from "../features/composer/model-catalog"
 import { ProviderEmpty } from "../features/composer/provider-empty"
 import { effectiveMultiAgent, MultiAgentControl } from "../features/multi-agent/multi-agent-control"
+import { GoalModeControl } from "../features/goal/goal-mode-control"
 import { McpControl } from "../features/mcp/mcp-control"
 import { PlanPanel } from "../features/plan/plan-panel"
 import { planQueryOptions } from "../features/plan/plan-query"
@@ -49,6 +50,7 @@ import { permissionQueryOptions, questionQueryOptions, selectActiveRequest } fro
 import { createSessionApi, sessionQueryOptions } from "../features/sessions/session-api"
 import { SessionEmpty } from "../features/sessions/session-empty"
 import { SessionList } from "../features/sessions/session-list"
+import { playSoundEffect } from "../features/sound-effects/sound-effects"
 import { useDesktopBridge } from "../platform/context"
 import "../features/sessions/sessions.css"
 import { settingsHref } from "../features/settings/settings-navigation"
@@ -148,6 +150,24 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
       props.activeSession ??
       [...props.activeSessions, ...props.archivedSessions].find((session) => session.id === props.activeSessionID),
   )
+  let previousGoalSessionID: string | undefined
+  let previousGoalStatus: "running" | "done" | "failed" | "cancelled" | undefined
+  createEffect(() => {
+    const session = selected()
+    const goal = session?.goal
+    const status = goal?.status
+    if (session?.id !== previousGoalSessionID) {
+      previousGoalSessionID = session?.id
+      previousGoalStatus = status
+      return
+    }
+    if (status === "running" && previousGoalStatus !== "running") {
+      playSoundEffect("goal-start")
+    } else if (status && status !== "running" && previousGoalStatus === "running") {
+      playSoundEffect("goal-end")
+    }
+    previousGoalStatus = status
+  })
   const rootActiveSessions = () => props.activeSessions.filter((session) => session.parentID === undefined)
   const rootArchivedSessions = () => props.archivedSessions.filter((session) => session.parentID === undefined)
   const list = () => (filter() === "active" ? rootActiveSessions() : rootArchivedSessions())
@@ -319,6 +339,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
             </Show>
             <MessageTimeline
               messages={props.conversation?.messages ?? []}
+              goal={selected()?.goal}
               loading={props.conversationLoading}
               error={props.conversationError}
               onRetry={props.onRetryConversation}
@@ -808,6 +829,18 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                       <Show when={activeSession()} keyed>
                         {(session) => (
                           <MultiAgentControl
+                            client={data.client()}
+                            queryClient={data.queryClient()}
+                            directory={data.directory()}
+                            session={session}
+                          />
+                        )}
+                      </Show>
+                    }
+                    goalModeControl={
+                      <Show when={activeSession()} keyed>
+                        {(session) => (
+                          <GoalModeControl
                             client={data.client()}
                             queryClient={data.queryClient()}
                             directory={data.directory()}

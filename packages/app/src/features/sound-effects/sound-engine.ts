@@ -6,6 +6,8 @@ export type SoundEffectName =
   | "typing"
   | "agent-start"
   | "agent-end"
+  | "goal-start"
+  | "goal-end"
   | "error"
   | "attention"
   | "blackboard"
@@ -55,11 +57,7 @@ type ToneOptions = {
   release?: number
 }
 
-function tone(
-  context: AudioContext,
-  master: GainNode,
-  options: ToneOptions,
-) {
+function tone(context: AudioContext, master: GainNode, options: ToneOptions) {
   const oscillator = context.createOscillator()
   const gain = context.createGain()
   const start = Math.max(options.start, context.currentTime)
@@ -93,11 +91,7 @@ type NoiseOptions = {
   filterType?: BiquadFilterType
 }
 
-function noiseBurst(
-  context: AudioContext,
-  master: GainNode,
-  options: NoiseOptions,
-) {
+function noiseBurst(context: AudioContext, master: GainNode, options: NoiseOptions) {
   const source = context.createBufferSource()
   const filter = context.createBiquadFilter()
   const gain = context.createGain()
@@ -156,29 +150,100 @@ function playPattern(context: AudioContext, master: GainNode, name: SoundEffectN
   const now = context.currentTime
   switch (name) {
     case "click":
-      mechanicalClick(context, master, { start: now, cutoff: 950, body: 220, volume: 0.19 })
+      mechanicalClick(context, master, { start: now, cutoff: 950, body: 220, volume: 0.3 })
       break
     case "toggle-on":
-      mechanicalClick(context, master, { start: now, cutoff: 900, body: 240, volume: 0.17 })
-      mechanicalClick(context, master, { start: now + 0.045, cutoff: 700, body: 200, volume: 0.13 })
+      mechanicalClick(context, master, { start: now, cutoff: 900, body: 240, volume: 0.26 })
+      mechanicalClick(context, master, { start: now + 0.045, cutoff: 700, body: 200, volume: 0.2 })
       break
     case "toggle-off":
-      mechanicalClick(context, master, { start: now, cutoff: 750, body: 200, volume: 0.17 })
-      mechanicalClick(context, master, { start: now + 0.045, cutoff: 600, body: 180, volume: 0.13 })
+      mechanicalClick(context, master, { start: now, cutoff: 750, body: 200, volume: 0.26 })
+      mechanicalClick(context, master, { start: now + 0.045, cutoff: 600, body: 180, volume: 0.2 })
       break
     case "send":
-      mechanicalClick(context, master, { start: now, cutoff: 1000, body: 260, volume: 0.19 })
+      mechanicalClick(context, master, { start: now, cutoff: 1000, body: 260, volume: 0.3 })
       break
     case "typing":
-      tone(context, master, { frequency: 480, endFrequency: 420, start: now, duration: 0.035, volume: 0.08, type: "triangle", attack: 0.004, release: 0.025 })
+      tone(context, master, {
+        frequency: 480,
+        endFrequency: 420,
+        start: now,
+        duration: 0.035,
+        volume: 0.08,
+        type: "triangle",
+        attack: 0.004,
+        release: 0.025,
+      })
       break
     case "agent-start":
-      noiseBurst(context, master, { start: now, duration: 0.26, volume: 0.1, frequency: 150, endFrequency: 450, q: 0.5, filterType: "lowpass" })
+      noiseBurst(context, master, {
+        start: now,
+        duration: 0.26,
+        volume: 0.1,
+        frequency: 150,
+        endFrequency: 450,
+        q: 0.5,
+        filterType: "lowpass",
+      })
       tone(context, master, { frequency: 130, start: now, duration: 0.28, volume: 0.17, release: 0.14 })
       break
     case "agent-end":
       tone(context, master, { frequency: 520, start: now, duration: 0.22, volume: 0.13, release: 0.11 })
       tone(context, master, { frequency: 780, start: now + 0.05, duration: 0.26, volume: 0.1, release: 0.13 })
+      break
+    case "goal-start":
+      noiseBurst(context, master, {
+        start: now,
+        duration: 0.3,
+        volume: 0.045,
+        frequency: 220,
+        endFrequency: 720,
+        q: 0.45,
+        filterType: "lowpass",
+      })
+      tone(context, master, {
+        frequency: 392,
+        start: now,
+        duration: 0.16,
+        volume: 0.06,
+        type: "triangle",
+        release: 0.08,
+      })
+      tone(context, master, {
+        frequency: 523.25,
+        start: now + 0.06,
+        duration: 0.18,
+        volume: 0.06,
+        type: "triangle",
+        release: 0.09,
+      })
+      tone(context, master, {
+        frequency: 659.25,
+        start: now + 0.12,
+        duration: 0.24,
+        volume: 0.065,
+        type: "triangle",
+        release: 0.12,
+      })
+      break
+    case "goal-end":
+      tone(context, master, { frequency: 880, start: now, duration: 0.22, volume: 0.06, type: "sine", release: 0.11 })
+      tone(context, master, {
+        frequency: 659.25,
+        start: now + 0.08,
+        duration: 0.24,
+        volume: 0.055,
+        type: "sine",
+        release: 0.12,
+      })
+      tone(context, master, {
+        frequency: 440,
+        start: now + 0.16,
+        duration: 0.34,
+        volume: 0.055,
+        type: "sine",
+        release: 0.18,
+      })
       break
     case "error":
       tone(context, master, { frequency: 130, start: now, duration: 0.26, volume: 0.14, release: 0.14 })
@@ -193,24 +258,58 @@ function playPattern(context: AudioContext, master: GainNode, name: SoundEffectN
       mechanicalClick(context, master, { start: now + 0.055, cutoff: 650, body: 190, volume: 0.08 })
       break
     case "panel-open":
-      noiseBurst(context, master, { start: now, duration: 0.22, volume: 0.11, frequency: 180, endFrequency: 480, q: 0.45, filterType: "lowpass" })
-      tone(context, master, { frequency: 160, endFrequency: 300, start: now, duration: 0.2, volume: 0.06, type: "sine", attack: 0.015, release: 0.1 })
+      noiseBurst(context, master, {
+        start: now,
+        duration: 0.22,
+        volume: 0.11,
+        frequency: 180,
+        endFrequency: 480,
+        q: 0.45,
+        filterType: "lowpass",
+      })
+      tone(context, master, {
+        frequency: 160,
+        endFrequency: 300,
+        start: now,
+        duration: 0.2,
+        volume: 0.06,
+        type: "sine",
+        attack: 0.015,
+        release: 0.1,
+      })
       break
     case "panel-close":
-      noiseBurst(context, master, { start: now, duration: 0.22, volume: 0.11, frequency: 480, endFrequency: 180, q: 0.45, filterType: "lowpass" })
-      tone(context, master, { frequency: 300, endFrequency: 160, start: now, duration: 0.2, volume: 0.06, type: "sine", attack: 0.015, release: 0.1 })
+      noiseBurst(context, master, {
+        start: now,
+        duration: 0.22,
+        volume: 0.11,
+        frequency: 480,
+        endFrequency: 180,
+        q: 0.45,
+        filterType: "lowpass",
+      })
+      tone(context, master, {
+        frequency: 300,
+        endFrequency: 160,
+        start: now,
+        duration: 0.2,
+        volume: 0.06,
+        type: "sine",
+        attack: 0.015,
+        release: 0.1,
+      })
       break
     case "mode-switch":
-      mechanicalClick(context, master, { start: now, cutoff: 700, body: 200, volume: 0.15 })
-      mechanicalClick(context, master, { start: now + 0.05, cutoff: 950, body: 240, volume: 0.15 })
+      mechanicalClick(context, master, { start: now, cutoff: 700, body: 200, volume: 0.24 })
+      mechanicalClick(context, master, { start: now + 0.05, cutoff: 950, body: 240, volume: 0.24 })
       break
     case "confirm":
-      mechanicalClick(context, master, { start: now, cutoff: 800, body: 220, volume: 0.16 })
-      mechanicalClick(context, master, { start: now + 0.06, cutoff: 950, body: 250, volume: 0.16 })
+      mechanicalClick(context, master, { start: now, cutoff: 800, body: 220, volume: 0.25 })
+      mechanicalClick(context, master, { start: now + 0.06, cutoff: 950, body: 250, volume: 0.25 })
       break
     case "cancel":
-      mechanicalClick(context, master, { start: now, cutoff: 800, body: 220, volume: 0.15 })
-      mechanicalClick(context, master, { start: now + 0.06, cutoff: 600, body: 180, volume: 0.15 })
+      mechanicalClick(context, master, { start: now, cutoff: 800, body: 220, volume: 0.24 })
+      mechanicalClick(context, master, { start: now + 0.06, cutoff: 600, body: 180, volume: 0.24 })
       break
   }
 }
@@ -244,6 +343,8 @@ const soundEffects: Record<SoundEffectName, true> = {
   typing: true,
   "agent-start": true,
   "agent-end": true,
+  "goal-start": true,
+  "goal-end": true,
   error: true,
   attention: true,
   blackboard: true,

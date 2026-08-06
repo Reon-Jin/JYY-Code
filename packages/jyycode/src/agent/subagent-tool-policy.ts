@@ -45,6 +45,7 @@ export const SUBAGENT_FORBIDDEN_TOOL_IDS = [
   "Dispatch.dispatch",
   "Dispatch.roles",
   "Dispatch.cancel",
+  "Goal_done",
 ] as const
 
 export function isSubagentSelectableToolID(id: string) {

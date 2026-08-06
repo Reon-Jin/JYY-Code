@@ -55,6 +55,7 @@ function renderComposer(input?: {
   disabled?: boolean
   branchControl?: JSX.Element
   multiAgentControl?: JSX.Element
+  goalModeControl?: JSX.Element
   mcpControl?: JSX.Element
   permissionControl?: JSX.Element
   identityLocked?: boolean
@@ -100,6 +101,7 @@ function renderComposer(input?: {
       disabled={input?.disabled}
       branchControl={input?.branchControl}
       multiAgentControl={input?.multiAgentControl}
+      goalModeControl={input?.goalModeControl}
       mcpControl={input?.mcpControl}
       permissionControl={input?.permissionControl}
       identityLocked={input?.identityLocked}

@@ -558,6 +558,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       if (typeof value.agent === "string") overrides.agent = value.agent
       if (typeof value.model === "object" && value.model !== null) overrides.model = value.model as Session["model"]
       if (typeof value.multiAgent === "boolean") overrides.multiAgent = value.multiAgent
+      if (value.goal && typeof value.goal === "object") overrides.goal = value.goal as Session["goal"]
       const session = addSession(overrides)
       event("session.created", { info: session })
       return json(session)
@@ -572,6 +573,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       const session = sessions.find((candidate) => candidate.id === sessionID)
       if (!session) return json({ name: "NotFoundError", message: "Session not found" }, 404)
       if (typeof value.multiAgent === "boolean") session.multiAgent = value.multiAgent
+      if (value.goal !== undefined) session.goal = value.goal === null ? undefined : (value.goal as Session["goal"])
       if (typeof value.title === "string") session.title = value.title
       session.time.updated = Date.now()
       event("session.updated", { sessionID, info: session })

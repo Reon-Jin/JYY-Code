@@ -390,6 +390,7 @@ export class EventBridge {
     const conversations = new Map<string, GlobalEvent[]>()
     const changedPlans = new Set<string>()
     const changedBlackboards = new Set<string>()
+    const idleSessionIDs = new Set<string>()
     const invalidatedVcs = new Set<string>()
 
     for (const event of events) {
@@ -408,6 +409,9 @@ export class EventBridge {
         if (action.kind === "server.connected") {
           await this.#connected()
           continue
+        }
+        if (action.kind === "status.set" && action.status.type === "idle") {
+          idleSessionIDs.add(action.sessionID)
         }
         if (isConversationAction(action)) {
           const current = conversations.get(action.sessionID) ?? []
@@ -449,6 +453,9 @@ export class EventBridge {
     for (const sessionID of changedPlans) this.#invalidate(keys.plan(this.#options.directory, sessionID))
     for (const rootSessionID of changedBlackboards) {
       this.#invalidate(keys.blackboard(this.#options.directory, rootSessionID))
+    }
+    for (const sessionID of idleSessionIDs) {
+      this.#invalidate(keys.messages(this.#options.directory, sessionID))
     }
   }
 

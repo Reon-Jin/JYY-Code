@@ -646,8 +646,11 @@ it.instance("multi-agent roots tolerate preflight calls before creating a missin
     const messages = yield* sessions.messages({ sessionID: chat.id })
     const failedTools = messages
       .flatMap((message) => message.parts)
-      .filter((part) => part.type === "tool" && part.state.status === "error")
-    expect(failedTools).toHaveLength(0)
+      .filter((part): part is MessageV2.ToolPart => part.type === "tool" && part.state.status === "error")
+    expect(
+      failedTools[0],
+      JSON.stringify(failedTools.map((part) => ("error" in part.state ? part.state.error : "?"))),
+    ).toBeUndefined()
 
     const plan = JSON.parse(
       yield* Effect.promise(() => Bun.file(path.join(chat.directory, ".jyycode", "plan", chat.id, "plan.json")).text()),
@@ -710,7 +713,7 @@ it.instance("cancelling a dispatched task forces the next turn to redispatch", (
     const messages = yield* sessions.messages({ sessionID: chat.id })
     const failedTools = messages
       .flatMap((message) => message.parts)
-      .filter((part) => part.type === "tool" && part.state.status === "error")
+      .filter((part): part is MessageV2.ToolPart => part.type === "tool" && part.state.status === "error")
     expect(failedTools).toHaveLength(0)
   }),
 )
@@ -779,6 +782,248 @@ it.instance("does not execute stale protocol mutations from one batched response
       .filter((part): part is MessageV2.ToolPart => part.type === "tool")
     expect(batched.some((part) => part.tool === "Dispatch_cancel" && part.state.status === "completed")).toBe(true)
     expect(batched.some((part) => part.tool === "Dispatch_dispatch" && part.state.status === "completed")).toBe(true)
+  }),
+)
+
+it.instance("goal mode continues after a finished turn until the turn budget is exhausted", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Goal loop",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* sessions.setGoal({
+      sessionID: chat.id,
+      goal: {
+        condition: "finish the work",
+        status: "running",
+        startedAt: Date.now(),
+        updatedAt: Date.now(),
+        maxTurns: 1,
+      },
+    })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "work on the goal" }],
+    })
+    const started = yield* sessions.get(chat.id)
+    expect(started.goal?.condition).toBe("work on the goal")
+    yield* llm.text("first result")
+    yield* llm.text("second result")
+
+    yield* prompt.loop({ sessionID: chat.id })
+
+    const inputs = yield* llm.inputs
+    expect(inputs).toHaveLength(2)
+    const current = yield* sessions.get(chat.id)
+    expect(current.goal?.status).toBe("failed")
+    expect(current.goal?.turns).toBe(1)
+    expect(current.goal?.result).toContain("turn budget")
+  }),
+)
+
+it.instance("Goal_done stops a goal-mode loop", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Goal done",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* sessions.setGoal({
+      sessionID: chat.id,
+      goal: {
+        condition: "finish the work",
+        status: "running",
+        startedAt: Date.now(),
+        updatedAt: Date.now(),
+        maxTurns: 5,
+      },
+    })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "work on the goal" }],
+    })
+    yield* llm.tool("Plan_read", {})
+    yield* llm.tool("Goal_done", { summary: "goal reached" })
+    yield* llm.text("all done")
+
+    yield* prompt.loop({ sessionID: chat.id })
+
+    const inputs = yield* llm.inputs
+    expect(JSON.stringify(inputs)).toContain("Goal_done")
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const failedTools = messages
+      .flatMap((message) => message.parts)
+      .filter((part): part is MessageV2.ToolPart => part.type === "tool" && part.state.status === "error")
+    expect(
+      failedTools[0],
+      JSON.stringify(failedTools.map((part) => ("error" in part.state ? part.state.error : "?"))),
+    ).toBeUndefined()
+    const current = yield* sessions.get(chat.id)
+    expect(current.goal?.status).toBe("done")
+    expect(current.goal?.result).toBe("goal reached")
+    const assistantTexts = messages
+      .flatMap((message) => message.parts)
+      .filter((part): part is MessageV2.TextPart => part.type === "text")
+      .map((part) => part.text)
+    expect(assistantTexts.join("\n")).toContain("all done")
+  }),
+)
+
+it.instance("goal mode parks while multi-agent children are running", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Goal + multi-agent",
+      multiAgent: true,
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* sessions.setGoal({
+      sessionID: chat.id,
+      goal: {
+        condition: "ship the feature",
+        status: "running",
+        startedAt: Date.now(),
+        updatedAt: Date.now(),
+        maxTurns: 5,
+      },
+    })
+    const context = { workspaceRoot: chat.directory, sessionId: chat.id, mode: "multi" as const }
+    yield* Effect.promise(() =>
+      defaultPlanProtocol.create(context, {
+        title: "Goal plan",
+        goal: "ship the feature",
+        steps: [
+          {
+            title: "Work",
+            goal: "run the task",
+            done_criteria: "the child reports a result",
+            tasks: [
+              {
+                title: "Task",
+                goal: "produce the result",
+                done_criteria: "result.md exists",
+                output_path: "result.md",
+              },
+            ],
+          },
+          { title: "Review", goal: "review the result", done_criteria: "the result is accepted" },
+        ],
+      }),
+    )
+    yield* Effect.promise(() => defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }))
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "start the plan" }],
+    })
+
+    yield* prompt.wake({
+      sessionID: chat.id,
+      kind: "goal_continue",
+      text: "Goal mode wants to continue, but children are still running.",
+    })
+
+    expect(yield* llm.calls).toBe(0)
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    expect(
+      messages
+        .filter((message) => message.info.role === "assistant")
+        .flatMap((message) => message.parts)
+        .some((part) => (part.type === "text" && !part.synthetic) || part.type === "tool"),
+      JSON.stringify(messages.map((message) => message.info.role)),
+    ).toBe(false)
+  }),
+)
+
+it.instance("goal mode resumes the main agent after a child report arrives", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Goal + report",
+      multiAgent: true,
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* sessions.setGoal({
+      sessionID: chat.id,
+      goal: {
+        condition: "ship the feature",
+        status: "running",
+        startedAt: Date.now(),
+        updatedAt: Date.now(),
+        maxTurns: 1,
+      },
+    })
+    const context = { workspaceRoot: chat.directory, sessionId: chat.id, mode: "multi" as const }
+    yield* Effect.promise(() =>
+      defaultPlanProtocol.create(context, {
+        title: "Goal plan",
+        goal: "ship the feature",
+        steps: [
+          {
+            title: "Work",
+            goal: "run the task",
+            done_criteria: "the child reports a result",
+            tasks: [
+              {
+                title: "Task",
+                goal: "produce the result",
+                done_criteria: "result.md exists",
+                output_path: "result.md",
+              },
+            ],
+          },
+          { title: "Review", goal: "review the result", done_criteria: "the result is accepted" },
+        ],
+      }),
+    )
+    yield* Effect.promise(() => defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }))
+    yield* writeText(path.join(chat.directory, "result.md"), "done")
+    const runId = `run__${chat.id}__s1_t1`
+    const report = yield* Effect.promise(() =>
+      defaultPlanProtocol.report(
+        { workspaceRoot: chat.directory, sessionId: chat.id, mode: "multi", runId },
+        {
+          run_id: runId,
+          status: "done",
+          summary: "result ready",
+          artifacts: [path.join(chat.directory, "result.md")],
+        },
+      ),
+    )
+    expect(report.ok).toBe(true)
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "start the plan" }],
+    })
+    yield* llm.text("reviewing report")
+    yield* llm.text("next step")
+
+    yield* prompt.wake({
+      sessionID: chat.id,
+      kind: "goal_continue",
+      text: "A child report arrived; continue the goal.",
+    })
+
+    const inputs = yield* llm.inputs
+    expect(inputs).toHaveLength(2)
+    const current = yield* sessions.get(chat.id)
+    expect(current.goal?.status).toBe("failed")
   }),
 )
 

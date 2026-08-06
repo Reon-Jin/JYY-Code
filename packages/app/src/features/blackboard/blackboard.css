@@ -383,6 +383,11 @@
   line-height: 1.5;
 }
 
+.blackboard-note__reply + .blackboard-note__reply {
+  border-top: 1px solid #cfc9b8;
+  padding-top: var(--space-1);
+}
+
 /* ---------------------------------------------------------------------------
  * Composer — kind select, input, square send button. Nothing else.
  * ------------------------------------------------------------------------ */

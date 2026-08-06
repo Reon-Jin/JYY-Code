@@ -454,6 +454,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       if (ctx.payload.multiAgent !== undefined) {
         yield* session.setMultiAgent({ sessionID: ctx.params.sessionID, enabled: ctx.payload.multiAgent })
       }
+      if (ctx.payload.goal !== undefined) {
+        yield* session.setGoal({ sessionID: ctx.params.sessionID, goal: ctx.payload.goal })
+      }
       if (ctx.payload.time?.archived !== undefined) {
         yield* session.setArchived({ sessionID: ctx.params.sessionID, time: ctx.payload.time.archived })
       }

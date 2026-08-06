@@ -705,6 +705,20 @@ describe("session HttpApi", () => {
         })
         expect(updated).toMatchObject({ id: created.id, title: "updated", time: { archived: 1 } })
 
+        const withGoal = yield* requestJson<Session.Info>(pathFor(SessionPaths.update, { sessionID: created.id }), {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ goal: { condition: "npm test passes", status: "running" } }),
+        })
+        expect(withGoal.goal).toMatchObject({ condition: "npm test passes", status: "running", maxTurns: 30 })
+
+        const clearedGoal = yield* requestJson<Session.Info>(pathFor(SessionPaths.update, { sessionID: created.id }), {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({ goal: null }),
+        })
+        expect(clearedGoal.goal).toBeUndefined()
+
         const fullPermission = [{ permission: "*", pattern: "*", action: "allow" as const }]
         const withFullPermission = yield* requestJson<Session.Info>(
           pathFor(SessionPaths.update, { sessionID: created.id }),

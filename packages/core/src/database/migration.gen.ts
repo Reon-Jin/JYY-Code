@@ -30,5 +30,6 @@ export const migrations = (
     import("./migration/20260801090000_remove_agent_cluster"),
     import("./migration/20260802045805_step_blackboard"),
     import("./migration/20260802101138_candidate_task_blackboard"),
+    import("./migration/20260806031414_session_goal"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

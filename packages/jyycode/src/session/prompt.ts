@@ -1187,6 +1187,16 @@ export const layer = Layer.effect(
           synthetic: [] as string[],
         },
       )
+      const userGoalText = nextPrompt.text.join("\n").trim()
+      if (userGoalText) {
+        const goalSession = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+        if (goalSession.parentID === undefined && goalSession.goal?.status === "running") {
+          yield* sessions.setGoal({
+            sessionID: input.sessionID,
+            goal: { ...goalSession.goal, condition: userGoalText },
+          })
+        }
+      }
       // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
       if (flags.experimentalEventSystem) {
         yield* events.publish(SessionEvent.Prompted, {
@@ -1253,12 +1263,13 @@ export const layer = Layer.effect(
         let structured: unknown
         let latestMemoryUserText = ""
         let step = 0
-        const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
+        let session = yield* sessions.get(sessionID).pipe(Effect.orDie)
         const canUsePersistentMemory = session.parentID === undefined
         let previousToolTurnSignature: string | undefined
         let repeatedToolTurnCount = 0
         const stuckLoopReminderKind = "stuck_loop_warning"
         const emptyResponseReminderKind = "empty_response_retry"
+        const goalContinueReminderKind = "goal_continue"
         let loopWarningIssued = false
         let emptyResponseCount = 0
 
@@ -1309,6 +1320,7 @@ export const layer = Layer.effect(
         })
 
         while (true) {
+          session = yield* sessions.get(sessionID).pipe(Effect.orDie)
           yield* status.set(sessionID, { type: "busy" })
           yield* slog.info("loop", { step })
 
@@ -1448,6 +1460,63 @@ export const layer = Layer.effect(
                 ],
               })
               continue
+            }
+            if (session.parentID === undefined && session.goal?.status === "running" && !lastAssistantInfo?.error) {
+              let parked = false
+              if (session.multiAgent === true) {
+                const planState = yield* Effect.promise(() =>
+                  defaultPlanProtocol.read({
+                    workspaceRoot: session.directory,
+                    sessionId: session.id,
+                    mode: "multi",
+                  }),
+                )
+                const unread =
+                  planState.ok && planState.plan?.current_step && blackboard
+                    ? yield* blackboard.unreadForMain(session.id)
+                    : 0
+                parked =
+                  planState.ok &&
+                  SessionTools.shouldWaitForPlanReport({
+                    plan: planState.plan ?? undefined,
+                    blackboardUnread: unread,
+                    inboxPending: planState.progress?.inbox_pending ?? 0,
+                  })
+              }
+              if (!parked) {
+                const goal = session.goal
+                const maxTurns = goal.maxTurns ?? Session.DEFAULT_GOAL_MAX_TURNS
+                if ((goal.turns ?? 0) >= maxTurns) {
+                  yield* sessions.setGoal({
+                    sessionID,
+                    goal: {
+                      ...goal,
+                      status: "failed",
+                      result: `Goal exceeded the ${maxTurns} turn budget without being marked done.`,
+                    },
+                  })
+                  yield* slog.warn("goal max turns reached", { sessionID, maxTurns })
+                  break
+                }
+                yield* sessions.setGoal({
+                  sessionID,
+                  goal: {
+                    ...goal,
+                    turns: (goal.turns ?? 0) + 1,
+                  },
+                })
+                yield* createSyntheticReminder({
+                  lastUser,
+                  kind: goalContinueReminderKind,
+                  lines: [
+                    "Goal mode is active.",
+                    `Goal condition: ${goal.condition}`,
+                    "Your previous turn ended. If the goal is now fully satisfied, call Goal_done with a summary.",
+                    "Otherwise continue making progress toward the goal. Do not repeat identical actions; if you are blocked or the goal is impossible, call Goal_done with status=failed and a reason.",
+                  ],
+                })
+                continue
+              }
             }
             yield* slog.info("exiting loop")
             break
@@ -1712,6 +1781,17 @@ export const layer = Layer.effect(
                 profiles: promptProfiles,
               }),
             )
+            if (session.goal?.status === "running" && session.parentID === undefined) {
+              system.push(
+                [
+                  "# Active Goal",
+                  `Condition: ${session.goal.condition}`,
+                  `Turns used: ${session.goal.turns ?? 0} / ${session.goal.maxTurns ?? Session.DEFAULT_GOAL_MAX_TURNS}`,
+                  "Keep working until the condition is met. When it is met, call Goal_done.",
+                  "If the goal cannot be reached, call Goal_done with status=failed and a reason.",
+                ].join("\n"),
+              )
+            }
             if (session.parentID !== undefined && firstSessionTurn && skill) {
               const roleSkills = yield* skill
                 .available(Skill.scopeForSession(session, agent), agent)
