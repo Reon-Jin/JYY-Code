@@ -28,7 +28,6 @@
     "lucide-solid": "catalog:",
     "marked": "catalog:",
     "marked-katex-extension": "catalog:",
-    "qrcode": "1.5.4",
     "solid-js": "catalog:"
   },
   "devDependencies": {
@@ -36,7 +35,6 @@
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/user-event": "catalog:",
     "@types/node": "catalog:",
-    "@types/qrcode": "1.5.5",
     "jsdom": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",

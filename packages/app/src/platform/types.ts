@@ -42,29 +42,6 @@ export type DesktopSaveResult = DesktopCapabilityResult & {
   saved: boolean
 }
 
-export type MobileDevice = {
-  id: string
-  name: string
-  publicKey: string
-  pairedAt: number
-}
-
-export type MobilePairingInvitation = {
-  routeId: string
-  relayUrl: string
-  temporaryPublicKey: string
-  expiresAt: number
-  qrPayload: string
-}
-
-export type MobileCompanionStatus = {
-  routeId: string
-  relayUrl: string
-  tunnelReady: boolean
-  pairedDevices: number
-  pendingPairingExpiresAt?: number
-}
-
 export interface DesktopBridge {
   supportsAutomaticUpdates?: boolean
   bootstrap(): Promise<DesktopBootstrap>
@@ -84,10 +61,6 @@ export interface DesktopBridge {
   installAvailableUpdate(): Promise<DesktopCapabilityResult>
   saveTextFile(suggestedName: string, contents: string): Promise<DesktopSaveResult>
   revealConfigFile(path: string): Promise<void>
-  mobileListDevices?(): Promise<MobileDevice[]>
-  mobileStartPairing?(): Promise<MobilePairingInvitation>
-  mobilePairingStatus?(): Promise<MobileCompanionStatus>
-  mobileRevokeDevice?(deviceID: string): Promise<void>
 }
 
 export function parseLastLocation(value: unknown): LastLocation {

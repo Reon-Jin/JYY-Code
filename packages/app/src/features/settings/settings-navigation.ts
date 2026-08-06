@@ -1,4 +1,4 @@
-export type SettingsSection = "general" | "security" | "mobile" | "advanced"
+export type SettingsSection = "general" | "security" | "advanced"
 
 export function sanitizeSettingsReturnTo(value: string | undefined | null) {
   if (value === "/" || value === "/workspace") return value

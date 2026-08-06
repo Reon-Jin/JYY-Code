@@ -445,15 +445,6 @@ impl BackendSupervisor {
         let _ = self.stop_owned_child();
     }
 
-    pub fn bootstrap(&self) -> Result<DesktopBootstrap, String> {
-        match self.phase()?.clone() {
-            BackendPhase::Ready(bootstrap) => Ok(bootstrap),
-            BackendPhase::Starting => Err("JYYCode backend is still starting".into()),
-            BackendPhase::Failed(message) => Err(message),
-            BackendPhase::Stopped => Err("JYYCode backend is stopped".into()),
-        }
-    }
-
     async fn stop_for_update(&self) -> Result<(), String> {
         let Some(pid) = self.stop_owned_child()? else {
             return Ok(());

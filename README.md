@@ -186,7 +186,6 @@ packages/app/       Desktop web UI (Solid)
 packages/desktop/   Tauri desktop shell and sidecar packaging
 packages/relay/     End-to-end-encrypted mobile relay
 packages/mobile-web/ Mobile web / PWA client
-apps/ios/           Native iOS client
 .jyycode/           Project agents, skills, commands, themes, and config
 memory/             Structured persistent memory
 ```

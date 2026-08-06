@@ -186,7 +186,6 @@ packages/app/       桌面端 Web UI（Solid）
 packages/desktop/   Tauri 桌面外壳与 sidecar 打包
 packages/relay/     移动端端到端加密中继
 packages/mobile-web/ 移动 Web / PWA 客户端
-apps/ios/           iOS 原生客户端
 .jyycode/           项目 Agent、技能、命令、主题和配置
 memory/             结构化持久记忆
 ```
