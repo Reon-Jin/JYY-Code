@@ -26,6 +26,7 @@ import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { LLMAISDK } from "./llm/ai-sdk"
 import { LLMNativeRuntime } from "./llm/native-runtime"
 import { LLMRequestPrep } from "./llm/request"
+import { isTruncatedToolCall } from "./llm/tool-call"
 import type { ToolChoice } from "./llm/tool-choice"
 
 export type { ToolChoice } from "./llm/tool-choice"
@@ -291,11 +292,29 @@ const live: Layer.Layer<
                 toolName: lower,
               }
             }
+            if (!prepared.tools["invalid"]) {
+              // The `invalid` repair target is not in this turn's tool catalog
+              // (e.g. a plan-gated turn or a profile-backed subagent catalog).
+              // Leave the call to the SDK's native invalid-tool handling so the
+              // model sees the parse error instead of an "unavailable tool"
+              // failure that makes it retry blindly.
+              l.info("repair target unavailable; leaving tool call invalid", {
+                tool: failed.toolCall.toolName,
+              })
+              return null
+            }
+            const truncated = isTruncatedToolCall(failed.toolCall.input, failed.error)
+            l.info("repairing invalid tool call", {
+              tool: failed.toolCall.toolName,
+              truncated,
+            })
             return {
               ...failed.toolCall,
               input: JSON.stringify({
                 tool: failed.toolCall.toolName,
-                error: failed.error.message,
+                error: truncated
+                  ? `${failed.error.message} The tool call arguments were truncated before they were complete (likely by the model's output token limit). Retry with smaller arguments, split the operation into multiple calls, or use a file-based payload instead of repeating the same large call.`
+                  : failed.error.message,
               }),
               toolName: "invalid",
             }

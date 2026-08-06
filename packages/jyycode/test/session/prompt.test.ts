@@ -579,6 +579,133 @@ it.instance("loop calls LLM and returns assistant message", () =>
   }),
 )
 
+it.instance("continues once when the assistant output is truncated by length", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Pinned",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "hello" }],
+    })
+    yield* llm.push(reply().text("partial answer").finish("length"))
+    yield* llm.text("continued answer")
+
+    const result = yield* prompt.loop({ sessionID: chat.id })
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const reminders = messages
+      .flatMap((message) => message.parts)
+      .filter(
+        (part): part is MessageV2.TextPart =>
+          part.type === "text" && part.synthetic === true && part.metadata?.kind === "output_truncated_retry",
+      )
+    expect(reminders).toHaveLength(1)
+    expect(reminders[0]?.text).toContain("output token limit")
+    const continued = result.parts.filter(
+      (part) => part.type === "text" && !("synthetic" in part && part.synthetic) && part.text === "continued answer",
+    )
+    expect(continued).toHaveLength(1)
+    expect(result.info.role).toBe("assistant")
+    if (result.info.role === "assistant") {
+      expect(result.info.finish).toBe("stop")
+      expect(result.info.error).toBeUndefined()
+    }
+    expect(yield* llm.inputs).toHaveLength(2)
+  }),
+)
+
+it.instance("stops with an error after two consecutive truncated outputs", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Pinned",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "hello" }],
+    })
+    yield* llm.push(reply().text("first partial").finish("length"))
+    yield* llm.push(reply().text("second partial").finish("length"))
+
+    const result = yield* prompt.loop({ sessionID: chat.id })
+
+    expect(result.info.role).toBe("assistant")
+    if (result.info.role === "assistant") {
+      expect(result.info.finish).toBe("length")
+      expect(result.info.error).toBeTruthy()
+      expect(NamedError.Unknown.isInstance(result.info.error)).toBe(true)
+      if (NamedError.Unknown.isInstance(result.info.error)) {
+        expect(result.info.error.data.message).toContain("output token limit")
+      }
+    }
+    const delivered = result.parts.filter(
+      (part) => part.type === "text" && !("synthetic" in part && part.synthetic) && part.text === "second partial",
+    )
+    expect(delivered).toHaveLength(1)
+    expect(yield* llm.inputs).toHaveLength(2)
+  }),
+)
+
+it.instance("repairs a truncated tool call with a truncation-specific message", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const parent = yield* sessions.create({ title: "Parent" })
+    // Child sessions bypass the root plan gate, so the full tool catalog
+    // (including the `invalid` repair target) is available to the stream.
+    const chat = yield* sessions.create({
+      parentID: parent.id,
+      title: "Child",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "hello" }],
+    })
+    yield* llm.push(
+      reply()
+        .pendingTool("bash", { command: "echo hello".repeat(200) })
+        .finish("length"),
+    )
+    yield* llm.text("done")
+
+    const result = yield* prompt.loop({ sessionID: chat.id })
+
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const toolParts = messages
+      .flatMap((message) => message.parts)
+      .filter((part): part is MessageV2.ToolPart => part.type === "tool")
+    const invalid = toolParts.find((part) => part.tool === "invalid")
+    expect(invalid).toBeDefined()
+    if (invalid && "output" in invalid.state) {
+      expect(invalid.state.output).toContain("truncated before they were complete")
+    }
+    const reminders = messages
+      .flatMap((message) => message.parts)
+      .filter(
+        (part): part is MessageV2.TextPart =>
+          part.type === "text" && part.synthetic === true && part.metadata?.kind === "output_truncated_retry",
+      )
+    expect(reminders).toHaveLength(1)
+    expect(result.info.role).toBe("assistant")
+    if (result.info.role === "assistant") expect(result.info.finish).toBe("stop")
+  }),
+)
+
 it.instance("multi-agent roots tolerate preflight calls before creating a missing plan", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)

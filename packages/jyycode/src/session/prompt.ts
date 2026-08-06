@@ -1270,8 +1270,15 @@ export const layer = Layer.effect(
         const stuckLoopReminderKind = "stuck_loop_warning"
         const emptyResponseReminderKind = "empty_response_retry"
         const goalContinueReminderKind = "goal_continue"
+        const truncationReminderKind = "output_truncated_retry"
+        // Stop after two consecutive `length` finishes: the first one gets one
+        // bounded continuation attempt, the second proves the output limit is
+        // being hit repeatedly and should be surfaced to the user.
+        const MAX_TRUNCATION_FINISHES = 2
         let loopWarningIssued = false
         let emptyResponseCount = 0
+        let truncationCount = 0
+        let lastUserID: string | undefined
 
         const resetTurnGuards = () => {
           // Compaction changes the effective conversation context. A repeated
@@ -1282,6 +1289,7 @@ export const layer = Layer.effect(
           repeatedToolTurnCount = 0
           loopWarningIssued = false
           emptyResponseCount = 0
+          truncationCount = 0
         }
 
         const createSyntheticReminder = Effect.fn("SessionPrompt.createSyntheticReminder")(function* (input: {
@@ -1330,6 +1338,13 @@ export const layer = Layer.effect(
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+          // A genuinely new user message (not a synthetic reminder) starts a
+          // fresh recovery budget for truncation and empty-response retries.
+          const latestUserMsg = msgs.find((message) => message.info.id === lastUser.id)
+          const latestUserIsSynthetic =
+            latestUserMsg?.parts.some((part) => part.type === "text" && part.synthetic) ?? false
+          if (lastUser.id !== lastUserID && !latestUserIsSynthetic) resetTurnGuards()
+          lastUserID = lastUser.id
           if (
             step === 0 &&
             canUsePersistentMemory &&
@@ -1897,6 +1912,42 @@ export const layer = Layer.effect(
                 return "break" as const
               }
               resetTurnGuards()
+            }
+
+            // `length` is a recoverable finish, not a successful completion:
+            // the model was cut off mid-output. Give it one bounded chance to
+            // continue from the breakpoint; a second consecutive truncation
+            // stops the turn and tells the user the response is incomplete.
+            if (handle.message.finish === "length" && !handle.message.error) {
+              truncationCount++
+              if (truncationCount < MAX_TRUNCATION_FINISHES) {
+                yield* slog.warn("assistant output truncated by token limit; requesting continuation", {
+                  attempt: truncationCount,
+                })
+                yield* createSyntheticReminder({
+                  lastUser,
+                  kind: truncationReminderKind,
+                  lines: [
+                    "Your previous response was cut off because it reached the model's output token limit before finishing.",
+                    "Continue from exactly where it stopped. Do not repeat content that was already delivered.",
+                    "If you were writing a large file, patch, or long structured output, split it into smaller operations or use a file-based payload instead of one large call.",
+                  ],
+                })
+                return "continue" as const
+              }
+              yield* slog.warn("assistant output truncated repeatedly; stopping", {
+                attempts: truncationCount,
+              })
+              handle.message.error = new NamedError.Unknown({
+                message:
+                  "The model's response hit the output token limit repeatedly and could not be completed. The response above may be cut off. Send a message to continue, or split the request into smaller parts.",
+              }).toObject()
+              yield* sessions.updateMessage(handle.message)
+              yield* bus.publish(Session.Event.Error, {
+                sessionID,
+                error: handle.message.error,
+              })
+              return "break" as const
             }
             return "continue" as const
           }).pipe(

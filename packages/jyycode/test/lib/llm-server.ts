@@ -494,6 +494,14 @@ export class Reply {
     return this
   }
 
+  finish(reason: string) {
+    this.#finish = reason
+    this.#hang = false
+    this.#error = undefined
+    this.#reset = false
+    return this
+  }
+
   toolCalls() {
     this.#finish = "tool_calls"
     this.#hang = false
