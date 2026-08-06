@@ -36,6 +36,7 @@ export type ComposerProps = {
   disabled?: boolean
   branchControl?: JSX.Element
   multiAgentControl?: JSX.Element
+  goalModeControl?: JSX.Element
   mcpControl?: JSX.Element
   permissionControl?: JSX.Element
   identityLocked?: boolean
@@ -347,6 +348,7 @@ export function Composer(props: ComposerProps) {
             />
             {props.branchControl}
             {props.multiAgentControl}
+            {props.goalModeControl}
             {props.mcpControl}
           </div>
         </Show>

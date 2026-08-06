@@ -53,6 +53,7 @@ import { Memory } from "@/memory/memory"
 import { CatalogSearch } from "./catalog-search"
 import { ToolTelemetry } from "./telemetry"
 import { PlanProtocolTools } from "@/plan/tools"
+import { GoalTool } from "./goal"
 
 const log = Log.create({ service: "tool.registry" })
 
@@ -160,6 +161,7 @@ export const layer: Layer.Layer<
     const process = yield* ProcessTool
     const greptool = yield* GrepTool
     const skilltool = yield* SkillTool
+    const goal = yield* GoalTool
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
     const memtool = memory ? yield* MemoryTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
     const agent = yield* Agent.Service
@@ -277,6 +279,7 @@ export const layer: Layer.Layer<
           skill: Tool.init(skilltool),
           question: Tool.init(question),
           memory: memtool ? Tool.init(memtool) : Effect.succeed(undefined),
+          goal: Tool.init(goal),
         })
 
         return {
@@ -294,6 +297,7 @@ export const layer: Layer.Layer<
             tool.fetch,
             tool.search,
             tool.skill,
+            tool.goal,
             ...(tool.memory ? [tool.memory] : []),
             ...planProtocolTools,
           ],

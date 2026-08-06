@@ -48,6 +48,16 @@ export const SessionTable = sqliteTable(
       providerID: string
       variant?: string
     }>(),
+    goal: text({ mode: "json" }).$type<{
+      condition: string
+      status: "running" | "done" | "failed" | "cancelled"
+      startedAt?: number
+      updatedAt?: number
+      completedAt?: number
+      turns?: number
+      maxTurns?: number
+      result?: string
+    }>(),
     multi_agent_enabled: integer({ mode: "boolean" }),
     ...Timestamps,
     time_compacting: integer(),

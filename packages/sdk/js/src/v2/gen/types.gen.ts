@@ -746,6 +746,17 @@ export type PermissionRule = {
 
 export type PermissionRuleset = Array<PermissionRule>
 
+export type Goal = {
+  condition: string
+  status: "running" | "done" | "failed" | "cancelled"
+  startedAt?: number
+  updatedAt?: number
+  completedAt?: number
+  turns?: number
+  maxTurns?: number
+  result?: string
+}
+
 export type Session = {
   id: string
   slug: string
@@ -781,6 +792,7 @@ export type Session = {
     variant?: string
   }
   multiAgent?: boolean
+  goal?: Goal
   version: string
   time: {
     created: number
@@ -2474,6 +2486,7 @@ export type SyncEventSessionUpdated = {
         variant?: string
       } | null
       multiAgent?: boolean | null
+      goal?: Goal | null
       version?: string | null
       time?: {
         created?: number | null
@@ -3857,6 +3870,7 @@ export type SessionInfo = {
     archived?: number
   }
   title: string
+  goal?: Goal
 }
 
 export type SessionDelivery = "immediate" | "deferred"
@@ -8045,6 +8059,7 @@ export type SessionCreateData = {
       variant?: string
     }
     multiAgent?: boolean
+    goal?: Goal
     permission?: PermissionRuleset
     workspaceID?: string
   }
@@ -8176,6 +8191,7 @@ export type SessionUpdateData = {
   body?: {
     title?: string
     multiAgent?: boolean
+    goal?: Goal | null
     permission?: PermissionRuleset
     time?: {
       archived?: number

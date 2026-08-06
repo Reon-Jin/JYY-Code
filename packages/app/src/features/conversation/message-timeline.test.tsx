@@ -408,4 +408,53 @@ describe("MessageTimeline", () => {
     await user.click(jump)
     await waitFor(() => expect(viewport.scrollTop).toBe(1_000))
   })
+
+  it("renders goal start and end markers with the working orb", () => {
+    render(() => (
+      <MessageTimeline
+        messages={[
+          conversation([{ id: "part_goal", sessionID, messageID: info.id, type: "text", text: "goal work" }], {
+            ...info,
+            time: { created: 50 },
+          }),
+        ]}
+        goal={{
+          condition: "finish",
+          status: "done",
+          startedAt: 10,
+          updatedAt: 100,
+          completedAt: 100,
+          maxTurns: 30,
+        }}
+      />
+    ))
+
+    expect(screen.getByText("目标开始")).toBeVisible()
+    expect(screen.getByText("目标结束")).toBeVisible()
+    expect(screen.queryByRole("img", { name: "目标进行中" })).not.toBeInTheDocument()
+  })
+
+  it("shows the working orb only while the goal is running", () => {
+    render(() => (
+      <MessageTimeline
+        messages={[
+          conversation([{ id: "part_goal_running", sessionID, messageID: info.id, type: "text", text: "goal work" }], {
+            ...info,
+            time: { created: 50 },
+          }),
+        ]}
+        goal={{
+          condition: "finish",
+          status: "running",
+          startedAt: 10,
+          updatedAt: 50,
+          maxTurns: 30,
+        }}
+      />
+    ))
+
+    expect(screen.getByText("目标开始")).toBeVisible()
+    expect(screen.getByRole("img", { name: "目标进行中" })).toBeVisible()
+    expect(screen.queryByText("目标结束")).not.toBeInTheDocument()
+  })
 })

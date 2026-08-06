@@ -1,4 +1,9 @@
 export const zhCN = {
+  "goal-mode.goal-mode": "目标模式",
+  "goal-mode.working": "目标进行中",
+  "goal-mode.started": "目标开始",
+  "goal-mode.ended": "目标结束",
+  "goal-mode.unable-to-update-goal-mode": "无法更新目标模式",
   "multi-agent.count-tasks": "任务",
   "multi-agent.count-done": "已完成",
   "multi-agent.count-active": "进行中",
@@ -882,6 +887,11 @@ export const zhCN = {
 export type MessageKey = keyof typeof zhCN
 
 export const enUS = {
+  "goal-mode.goal-mode": "Goal",
+  "goal-mode.working": "Goal working",
+  "goal-mode.started": "Goal started",
+  "goal-mode.ended": "Goal ended",
+  "goal-mode.unable-to-update-goal-mode": "Unable to update goal mode",
   "multi-agent.count-tasks": "Tasks",
   "multi-agent.count-done": "Done",
   "multi-agent.count-active": "Active",

@@ -648,14 +648,56 @@ describe("event routing", () => {
     // This is exactly the dangerous case: the event batch already contains the
     // new message, so needsRefetch stays false and the old code never refetched
     // the full history. The forced invalidate below is the fix.
-    expect(
-      queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", session.id))?.needsRefetch,
-    ).toBe(false)
+    expect(queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", session.id))?.needsRefetch).toBe(false)
     expect(cancelQueries).toHaveBeenCalledWith({ queryKey: keys.messages("C:\\a", session.id), exact: true })
     // Even though the event batch already contains the new message (so
     // needsRefetch stays false), the bridge must force a full-history refetch
     // so earlier messages are not lost from the UI.
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: keys.messages("C:\\a", session.id), exact: true })
+
+    bridge.abort()
+    releaseStream()
+  })
+
+  it("refetches the conversation when a session goes idle to reconcile dropped stream events", async () => {
+    const queryClient = createDesktopQueryClient()
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries")
+    queryClient.setQueryData(
+      keys.messages("C:\\a", session.id),
+      snapshotFromMessages(session.id, [{ info: message, parts: [part] }]),
+    )
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    const stream = (async function* () {
+      yield {
+        directory: "C:\\a",
+        payload: { id: "evt_idle", type: "session.idle", properties: { sessionID: session.id } },
+      } as GlobalEvent
+      await streamWait
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+    scheduled?.(0)
+    await Promise.resolve()
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: keys.messages("C:\\a", session.id),
+      exact: true,
+    })
 
     bridge.abort()
     releaseStream()
@@ -712,9 +754,7 @@ describe("event routing", () => {
       const snapshot = queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", child.id))
       expect(snapshot?.messages[0]?.parts[0]).toMatchObject({ text: "Hello" })
     })
-    expect(queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", child.id))?.needsRefetch).toBe(
-      false,
-    )
+    expect(queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", child.id))?.needsRefetch).toBe(false)
     expect(cancelQueries).toHaveBeenCalledWith({ queryKey: keys.messages("C:\\a", child.id), exact: true })
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: keys.messages("C:\\a", child.id), exact: true })
 

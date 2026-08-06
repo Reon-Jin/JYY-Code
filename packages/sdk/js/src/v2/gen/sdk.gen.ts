@@ -49,6 +49,7 @@ import type {
   ExperimentalWorkspaceRemoveResponses,
   ExperimentalWorkspaceStatusErrors,
   ExperimentalWorkspaceStatusResponses,
+  Goal,
   ExperimentalWorkspaceSyncListErrors,
   ExperimentalWorkspaceSyncListResponses,
   ExperimentalWorkspaceWarpErrors,
@@ -4664,6 +4665,7 @@ export class Session2 extends HeyApiClient {
         variant?: string
       }
       multiAgent?: boolean
+      goal?: Goal
       permission?: PermissionRuleset
       workspaceID?: string
     },
@@ -4681,6 +4683,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "agent" },
             { in: "body", key: "model" },
             { in: "body", key: "multiAgent" },
+            { in: "body", key: "goal" },
             { in: "body", key: "permission" },
             { in: "body", key: "workspaceID" },
           ],
@@ -4805,6 +4808,7 @@ export class Session2 extends HeyApiClient {
       workspace?: string
       title?: string
       multiAgent?: boolean
+      goal?: Goal | null
       permission?: PermissionRuleset
       time?: {
         archived?: number
@@ -4822,6 +4826,7 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "workspace" },
             { in: "body", key: "title" },
             { in: "body", key: "multiAgent" },
+            { in: "body", key: "goal" },
             { in: "body", key: "permission" },
             { in: "body", key: "time" },
           ],

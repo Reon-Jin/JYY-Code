@@ -48,6 +48,7 @@ export const StatusMap = Schema.Record(Schema.String, SessionStatus.Info)
 export const UpdatePayload = Schema.Struct({
   title: Schema.optional(Schema.String),
   multiAgent: Schema.optional(Schema.Boolean),
+  goal: Schema.optional(Schema.NullOr(Session.Goal)),
   permission: Schema.optional(Permission.Ruleset),
   time: Schema.optional(
     Schema.Struct({
@@ -68,6 +69,7 @@ export const CreatePayload = Schema.optional(
       }),
     ),
     multiAgent: Schema.optional(Schema.Boolean),
+    goal: Schema.optional(Session.Goal),
     permission: Schema.optional(Permission.Ruleset),
     workspaceID: Schema.optional(WorkspaceID),
   }),

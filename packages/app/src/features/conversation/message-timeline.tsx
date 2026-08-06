@@ -1,9 +1,11 @@
 import { tr } from "../../i18n/i18n-context"
+import type { Goal } from "@jyycode-ai/sdk/v2/client"
 import { ArrowDown, MessageCircle } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
+import { ThinkingOrb } from "../../components/ui/thinking-orb"
 import type { ConversationMessage } from "./conversation-state"
 import { ActivityGroup } from "./activity-group"
 import { MessagePartView } from "./message-part"
@@ -16,6 +18,7 @@ import "./conversation.css"
 
 export type MessageTimelineProps = {
   messages: readonly ConversationMessage[]
+  goal?: Goal
   loading?: boolean
   error?: string
   onRetry?: () => void
@@ -34,6 +37,29 @@ function messageSignature(messages: readonly ConversationMessage[]) {
           .join(",")}`,
     )
     .join("|")
+}
+
+type TimelineEntry =
+  | { kind: "message"; message: PresentedConversationMessage }
+  | { kind: "marker"; marker: "start" | "end"; at: number; showOrb?: boolean }
+
+function timelineEntryKey(entry: TimelineEntry) {
+  return entry.kind === "message" ? `msg:${entry.message.info.id}` : `marker:${entry.marker}`
+}
+
+function GoalTimelineMarker(props: { marker: "start" | "end"; showOrb?: boolean }) {
+  return (
+    <div class="goal-timeline-marker" data-marker={props.marker}>
+      <span class="goal-timeline-marker__line" />
+      <Show when={props.marker === "start" && props.showOrb}>
+        <ThinkingOrb class="thinking-orb" state="working" size={20} aria-label={tr("goal-mode.working")} />
+      </Show>
+      <span class="goal-timeline-marker__label">
+        {props.marker === "start" ? tr("goal-mode.started") : tr("goal-mode.ended")}
+      </span>
+      <span class="goal-timeline-marker__line" />
+    </div>
+  )
 }
 
 function groupKey(group: PresentedMessageGroup) {
@@ -113,8 +139,54 @@ function PresentedMessageView(props: {
 
 export function MessageTimeline(props: MessageTimelineProps) {
   const [hasNewMessages, setHasNewMessages] = createSignal(false)
-  const signature = createMemo(() => messageSignature(props.messages))
+  const goalStatus = createMemo(() => props.goal?.status)
+  const goalStartedAt = createMemo(() => props.goal?.startedAt)
+  const goalCompletedAt = createMemo(() => props.goal?.completedAt)
+  const signature = createMemo(
+    () =>
+      `${messageSignature(props.messages)}|goal:${goalStatus() ?? ""}:${goalStartedAt() ?? ""}:${
+        goalCompletedAt() ?? ""
+      }`,
+  )
   const presentedMessages = createMemo(() => presentConversationMessages(props.messages))
+  const timelineEntries = createMemo<TimelineEntry[]>(() => {
+    const entries: TimelineEntry[] = []
+    const status = goalStatus()
+    const startAt = goalStartedAt()
+    const endAt = goalCompletedAt()
+    let insertedStart = startAt === undefined
+    let insertedEnd = endAt === undefined
+    for (const message of presentedMessages()) {
+      const at = message.info.time?.created ?? 0
+      if (!insertedEnd && endAt !== undefined && at > endAt) {
+        entries.push({ kind: "marker", marker: "end", at: endAt })
+        insertedEnd = true
+      }
+      if (!insertedStart && startAt !== undefined && at >= startAt) {
+        entries.push({
+          kind: "marker",
+          marker: "start",
+          at: startAt,
+          showOrb: status === "running",
+        })
+        insertedStart = true
+      }
+      entries.push({ kind: "message", message })
+    }
+    if (!insertedStart && startAt !== undefined)
+      entries.push({
+        kind: "marker",
+        marker: "start",
+        at: startAt,
+        showOrb: status === "running",
+      })
+    if (!insertedEnd && endAt !== undefined) entries.push({ kind: "marker", marker: "end", at: endAt })
+    return entries
+  })
+  const timelineEntryKeys = createMemo(() => timelineEntries().map(timelineEntryKey))
+  const timelineEntriesByKey = createMemo(
+    () => new Map(timelineEntries().map((entry) => [timelineEntryKey(entry), entry])),
+  )
   const pendingActivityKeys = createMemo(() => {
     const groups = presentedMessages().flatMap((message) => message.groups)
     const keys = new Set<string>()
@@ -126,12 +198,11 @@ export function MessageTimeline(props: MessageTimelineProps) {
     }
     return keys
   })
-  const messageIDs = createMemo(() => presentedMessages().map((message) => message.info.id))
-  const messagesByID = createMemo(() => new Map(presentedMessages().map((message) => [message.info.id, message])))
   let viewport: HTMLDivElement | undefined
   let pinnedToBottom = true
   let initialized = false
   let scrollFrame: number | undefined
+  let touchStartY = 0
 
   function distanceFromBottom() {
     if (!viewport) return 0
@@ -188,9 +259,26 @@ export function MessageTimeline(props: MessageTimelineProps) {
           <div
             ref={viewport}
             class="message-timeline__viewport"
+            onWheel={(event) => {
+              if (event.deltaY < 0) {
+                initialized = true
+                pinnedToBottom = false
+              }
+            }}
+            onTouchStart={(event) => {
+              touchStartY = event.touches[0]?.clientY ?? 0
+            }}
+            onTouchMove={(event) => {
+              const y = event.touches[0]?.clientY ?? touchStartY
+              if (y > touchStartY) {
+                initialized = true
+                pinnedToBottom = false
+              }
+              touchStartY = y
+            }}
             onScroll={() => {
               initialized = true
-              pinnedToBottom = distanceFromBottom() <= 80
+              pinnedToBottom = distanceFromBottom() <= 4
               if (pinnedToBottom) setHasNewMessages(false)
             }}
           >
@@ -204,13 +292,15 @@ export function MessageTimeline(props: MessageTimelineProps) {
               }
             >
               <div class="message-timeline__content">
-                <For each={messageIDs()}>
-                  {(messageID) => (
-                    <PresentedMessageView
-                      message={messagesByID().get(messageID)!}
-                      pendingActivityKeys={pendingActivityKeys()}
-                    />
-                  )}
+                <For each={timelineEntryKeys()}>
+                  {(key) => {
+                    const entry = timelineEntriesByKey().get(key)!
+                    return entry.kind === "message" ? (
+                      <PresentedMessageView message={entry.message} pendingActivityKeys={pendingActivityKeys()} />
+                    ) : (
+                      <GoalTimelineMarker marker={entry.marker} showOrb={entry.showOrb} />
+                    )
+                  }}
                 </For>
               </div>
             </Show>

@@ -91,6 +91,7 @@ export function fromRow(row: SessionRow): Info {
       : undefined,
     version: row.version,
     multiAgent: row.multi_agent_enabled ?? undefined,
+    goal: row.goal ?? undefined,
     summary,
     cost: row.cost,
     tokens: {
@@ -127,6 +128,7 @@ export function toRow(info: Info) {
     agent: info.agent,
     model: info.model,
     multi_agent_enabled: info.multiAgent,
+    goal: info.goal,
     version: info.version,
     share_url: info.share?.url,
     summary_additions: info.summary?.additions,
@@ -209,6 +211,22 @@ const Model = Schema.Struct({
   variant: optionalOmitUndefined(Schema.String),
 })
 
+export const GoalStatus = Schema.Literals(["running", "done", "failed", "cancelled"])
+
+export const Goal = Schema.Struct({
+  condition: Schema.String,
+  status: GoalStatus,
+  startedAt: optionalOmitUndefined(NonNegativeInt),
+  updatedAt: optionalOmitUndefined(NonNegativeInt),
+  completedAt: optionalOmitUndefined(NonNegativeInt),
+  turns: optionalOmitUndefined(NonNegativeInt),
+  maxTurns: optionalOmitUndefined(NonNegativeInt),
+  result: optionalOmitUndefined(Schema.String),
+})
+export type Goal = Types.DeepMutable<Schema.Schema.Type<typeof Goal>>
+
+export const DEFAULT_GOAL_MAX_TURNS = 30
+
 export const Info = Schema.Struct({
   id: SessionID,
   slug: Schema.String,
@@ -225,6 +243,7 @@ export const Info = Schema.Struct({
   agent: optionalOmitUndefined(Schema.String),
   model: optionalOmitUndefined(Model),
   multiAgent: optionalOmitUndefined(Schema.Boolean),
+  goal: optionalOmitUndefined(Goal),
   version: Schema.String,
   time: Time,
   permission: optionalOmitUndefined(Permission.Ruleset),
@@ -252,6 +271,7 @@ export const CreateInput = Schema.optional(
     agent: Schema.optional(Schema.String),
     model: Schema.optional(Model),
     multiAgent: Schema.optional(Schema.Boolean),
+    goal: Schema.optional(Goal),
     permission: Schema.optional(Permission.Ruleset),
     workspaceID: Schema.optional(WorkspaceID),
     directory: Schema.optional(Schema.String),
@@ -328,6 +348,7 @@ const UpdatedInfo = Schema.Struct({
   agent: Schema.optional(Schema.NullOr(Schema.String)),
   model: Schema.optional(Schema.NullOr(Model)),
   multiAgent: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  goal: Schema.optional(Schema.NullOr(Goal)),
   version: Schema.optional(Schema.NullOr(Schema.String)),
   time: Schema.optional(UpdatedTime),
   permission: Schema.optional(Schema.NullOr(Permission.Ruleset)),
@@ -465,6 +486,7 @@ export interface Interface {
     agent?: string
     model?: Schema.Schema.Type<typeof Model>
     multiAgent?: boolean
+    goal?: Goal
     permission?: Permission.Ruleset
     workspaceID?: WorkspaceID
     directory?: string
@@ -476,6 +498,7 @@ export interface Interface {
   readonly setArchived: (input: { sessionID: SessionID; time?: number }) => Effect.Effect<void>
   readonly setPermission: (input: { sessionID: SessionID; permission: Permission.Ruleset }) => Effect.Effect<void>
   readonly setMultiAgent: (input: { sessionID: SessionID; enabled: boolean }) => Effect.Effect<void>
+  readonly setGoal: (input: { sessionID: SessionID; goal: Goal | null }) => Effect.Effect<void>
   readonly setRevert: (input: {
     sessionID: SessionID
     revert: Info["revert"]
@@ -537,6 +560,7 @@ export const layer: Layer.Layer<
       agent?: string
       model?: Schema.Schema.Type<typeof Model>
       multiAgent?: boolean
+      goal?: Goal
       parentID?: SessionID
       workspaceID?: WorkspaceID
       directory: string
@@ -557,6 +581,7 @@ export const layer: Layer.Layer<
         agent: input.agent,
         model: input.model,
         multiAgent: input.multiAgent,
+        goal: input.goal,
         permission: input.permission ? [...input.permission] : undefined,
         cost: 0,
         tokens: EmptyTokens,
@@ -673,6 +698,7 @@ export const layer: Layer.Layer<
       agent?: string
       model?: Schema.Schema.Type<typeof Model>
       multiAgent?: boolean
+      goal?: Goal
       permission?: Permission.Ruleset
       workspaceID?: WorkspaceID
       directory?: string
@@ -688,6 +714,7 @@ export const layer: Layer.Layer<
         agent: input?.agent,
         model: input?.model,
         multiAgent: input?.multiAgent,
+        goal: input?.goal,
         permission: input?.permission,
         workspaceID: input?.workspaceID ?? workspace,
       })
@@ -763,6 +790,23 @@ export const layer: Layer.Layer<
       enabled: boolean
     }) {
       yield* patch(input.sessionID, { multiAgent: input.enabled, time: { updated: Date.now() } })
+    })
+
+    const setGoal = Effect.fn("Session.setGoal")(function* (input: { sessionID: SessionID; goal: Goal | null }) {
+      const now = Date.now()
+      const goal = input.goal
+        ? {
+            condition: input.goal.condition,
+            status: input.goal.status,
+            startedAt: input.goal.startedAt ?? now,
+            updatedAt: now,
+            completedAt: input.goal.completedAt ?? (input.goal.status === "running" ? undefined : now),
+            turns: input.goal.turns ?? 0,
+            maxTurns: input.goal.maxTurns ?? DEFAULT_GOAL_MAX_TURNS,
+            ...(input.goal.result !== undefined ? { result: input.goal.result } : {}),
+          }
+        : null
+      yield* patch(input.sessionID, { goal, time: { updated: now } })
     })
 
     const setRevert = Effect.fn("Session.setRevert")(function* (input: {
@@ -872,6 +916,7 @@ export const layer: Layer.Layer<
       setArchived,
       setPermission,
       setMultiAgent,
+      setGoal,
       setRevert,
       clearRevert,
       setSummary,
