@@ -1566,7 +1566,26 @@ export const layer = Layer.effect(
             Effect.provideService(AppFileSystem.Service, fsys),
             Effect.provideService(Session.Service, sessions),
           )
-          if (yield* compaction.shouldCompact({ messages: msgs, model })) {
+          const episodicDigest =
+            canUsePersistentMemory && episodic
+              ? yield* episodic
+                  .readLatestDigest({ sessionID, workspaceRoot: ctx.worktree })
+                  .pipe(Effect.catch(() => Effect.succeed(Option.none())))
+              : Option.none<string>()
+          const historyForModel = Option.isSome(episodicDigest) ? sliceLastTurns(msgs, 2) : msgs
+          if (yield* compaction.shouldCompact({ messages: historyForModel, model })) {
+            if (canUsePersistentMemory && episodic) {
+              yield* episodic
+                .compactIfDue({
+                  sessionID,
+                  workspaceRoot: ctx.worktree,
+                  reason: "threshold",
+                  totalTurns: Math.max(0, countRealUserTurns(msgs) - 1),
+                  previousSummary: undefined,
+                  generate: (prompt) => generateDigest(prompt, model).pipe(Effect.orDie),
+                })
+                .pipe(Effect.ignore)
+            }
             const created = yield* compaction.create({
               sessionID,
               agent: lastUser.agent,
@@ -1747,11 +1766,19 @@ export const layer = Layer.effect(
                 ? sys.environment(model, { includeMemory: canUsePersistentMemory })
                 : Effect.succeed([] as string[]),
               instruction.system().pipe(Effect.orDie),
-              MessageV2.toModelMessagesEffect(msgs, model),
+              MessageV2.toModelMessagesEffect(historyForModel, model),
             ])
             const system = [...(memorySnapshot ? [memorySnapshot] : []), ...env, ...instructions]
+            if (Option.isSome(episodicDigest)) {
+              system.push(EpisodicMemory.formatEpisodicDigest(episodicDigest.value))
+            }
             if (Option.isSome(sessionState)) {
-              system.push(SessionState.formatSessionState(sessionState.value))
+              system.push(
+                SessionState.formatSessionState(sessionState.value, {
+                  omitTurnDetails: Option.isSome(episodicDigest),
+                  omitRollingSummary: Option.isSome(episodicDigest),
+                }),
+              )
             }
             // Profiles live in the global config; mirror Agent.state's
             // resolution order so the roster in the system prompt matches the
