@@ -168,17 +168,27 @@ export const layer = Layer.effect(
         }
         const model = yield* provider.getModel(latestUser.info.model.providerID, latestUser.info.model.modelID)
         const language = yield* provider.getLanguage(model)
-        const historyText = history
-          .flatMap((message) => {
-            if (message.info.role !== "user" && message.info.role !== "assistant") return []
-            const text = memoryMessageText(message)
-            return text ? [`${message.info.role === "user" ? "User" : "Assistant"}: ${text}`] : []
-          })
-          .join("\n")
+        const sessionInfo = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+        const digest = episodic
+          ? yield* episodic
+              .readLatestDigest({ sessionID: input.sessionID, workspaceRoot: sessionInfo.directory })
+              .pipe(Effect.catch(() => Effect.succeed(Option.none())))
+          : Option.none<string>()
+        const historyBase = Option.isSome(digest) ? sliceLastTurns(history, 2) : history
+        const historyText = [
+          ...(Option.isSome(digest) ? ["<episodic-digest>", digest.value, "</episodic-digest>"] : []),
+          ...historyBase
+            .flatMap((message) => {
+              if (message.info.role !== "user" && message.info.role !== "assistant") return []
+              const text = memoryMessageText(message)
+              return text ? [`${message.info.role === "user" ? "User" : "Assistant"}: ${text}`] : []
+            })
+            .join("\n"),
+        ].join("\n")
         const isUserPhase = input.phase === "user"
         const prompt = [
           "You are a semantic memory compressor. Rewrite this session's single task-memory entry and output one JSON object.",
-          "Merge the previous task memory, the full conversation history, and the current turn into a session-wide executive summary: a complete replacement, not a delta, and never a summary of only the latest exchange. Preserve intent, constraints, decisions, milestones, and the current state; discard superseded details. Never shorten by slicing text or using ellipses.",
+          "Merge the previous task memory, the reduced working history plus the episodic digest, and the current turn into a session-wide executive summary: a complete replacement, not a delta, and never a summary of only the latest exchange. Preserve intent, constraints, decisions, milestones, and the current state; discard superseded details. Never shorten by slicing text or using ellipses.",
           isUserPhase
             ? 'This update runs immediately after a user prompt. task.content must have exactly the form "用户要求<A>" — no method or learned knowledge yet.'
             : 'This update runs immediately before the assistant answer is returned. task.content must have exactly the form "用户要求<A>，我用了<B>，最终学会了<C>".',
