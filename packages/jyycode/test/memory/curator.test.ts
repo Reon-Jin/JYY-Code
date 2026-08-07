@@ -40,6 +40,7 @@ function decision(content: string, user: Memory.MemoryDecision["user"] = []): Me
     reason: "semantic compression",
     task: { importance: 7, keywords: ["赛车游戏"], content },
     user,
+    experiences: [],
   }
 }
 
@@ -110,7 +111,7 @@ describe("two-phase semantic memory curator", () => {
       ),
     )
 
-    expect(result).toEqual({ status: "updated", taskUpdated: true, userUpdated: 0 })
+    expect(result).toEqual({ status: "updated", taskUpdated: true, userUpdated: 0, experienceCandidates: [] })
     expect(received).toMatchObject({
       phase: "user",
       previousTaskContent: undefined,
@@ -332,7 +333,7 @@ describe("two-phase semantic memory curator", () => {
       ),
     )
 
-    expect(result).toEqual({ status: "updated", taskUpdated: true, userUpdated: 1 })
+    expect(result).toEqual({ status: "updated", taskUpdated: true, userUpdated: 1, experienceCandidates: [] })
     const stored = Memory.parseStore("user", ctx.files.get(ctx.userPath)!).entries as Memory.UserMemoryEntry[]
     expect(stored).toHaveLength(1)
     expect(stored[0]).toMatchObject({ importance: 10, content: "User name is 金毅阳" })
@@ -381,5 +382,46 @@ describe("two-phase semantic memory curator", () => {
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
     expect(entries).toHaveLength(1)
     expect(entries[0]?.content).toBe("当前任务：修复记忆系统；进展：完成回归测试；下一步：验证生命周期校验")
+  })
+
+  test("requires a failure experience when the turn has a tool failure hint", async () => {
+    const ctx = fixture()
+    ctx.setMessages(messages("修复部署脚本", "已尝试修复，但脚本仍报错。", "failure"))
+
+    await expect(
+      ctx.run(
+        Memory.Service.use((memory) =>
+          memory.updateAfterTurn(
+            sessionID,
+            () => Effect.succeed(decision("当前任务：修复部署脚本；进展：完成尝试；下一步：定位报错")),
+            { userText: "修复部署脚本", assistantText: "已尝试修复，但脚本仍报错。", failureHint: "Tool shell: exit 1" },
+          ),
+        ),
+      ),
+    ).rejects.toThrow("failureHint present: experiences must include a kind=failure entry")
+
+    const failureExperience: Memory.ExperienceCandidate = {
+      kind: "failure",
+      importance: 8,
+      keywords: ["部署"],
+      content: "部署脚本报错时先看日志再重试",
+      evidence: `[${sessionID}#1] deploy.sh`,
+      confidence: "high",
+    }
+    const result = await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateAfterTurn(
+          sessionID,
+          () =>
+            Effect.succeed({
+              ...decision("当前任务：修复部署脚本；进展：完成尝试；下一步：定位报错"),
+              experiences: [failureExperience],
+            }),
+          { userText: "修复部署脚本", assistantText: "已尝试修复，但脚本仍报错。", failureHint: "Tool shell: exit 1" },
+        ),
+      ),
+    )
+
+    expect(result).toMatchObject({ status: "updated", taskUpdated: true, experienceCandidates: [failureExperience] })
   })
 })

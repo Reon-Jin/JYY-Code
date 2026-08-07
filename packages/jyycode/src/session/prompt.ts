@@ -186,36 +186,61 @@ export const layer = Layer.effect(
             .join("\n"),
         ].join("\n")
         const isUserPhase = input.phase === "user"
+        let existingUserHint = ""
+        const turnNumber = countRealUserTurns(history)
         const prompt = [
-          "You are a semantic memory compressor. Rewrite this session's single task-memory entry and output one JSON object.",
-          "Merge the previous task memory, the reduced working history plus the episodic digest, and the current turn into a session-wide executive summary: a complete replacement, not a delta, and never a summary of only the latest exchange. Preserve intent, constraints, decisions, milestones, and the current state; discard superseded details. Never shorten by slicing text or using ellipses.",
-          isUserPhase
-            ? 'This update runs immediately after a user prompt. task.content must have exactly the form "用户要求<A>" — no method or learned knowledge yet.'
-            : 'This update runs immediately before the assistant answer is returned. task.content must have exactly the form "用户要求<A>，我用了<B>，最终学会了<C>".',
-          "Limits excluding prefixes and punctuation: A ≤100, B ≤180, C ≤100 Unicode chars. Rephrase semantically to fit; never truncate.",
-          "A task entry is mandatory on every phase, including greetings: always set shouldUpdate to true and always return task. Put explicit stable user identity facts or long-term preferences in user as well; that never replaces the task entry.",
-          "Every keyword must contain 2 to 4 characters; one to three keywords per candidate. The service supplies sessionID and date — do not include them.",
+          "You are a semantic memory curator. Rewrite this session's single task-memory entry and output one JSON object.",
+          "The task entry is working memory for THIS session only: a compact executive state, never a completion log.",
+          'task.content must have exactly the form "当前任务：<goal>；进展：<progress>；下一步：<next>".',
+          "Limits excluding prefixes: goal ≤120, progress ≤160, next ≤80 Unicode chars. Rephrase semantically to fit; never truncate, never use ellipses, and never write 我用了/最终学会了.",
+          "A task entry is mandatory on every phase, including greetings: always set shouldUpdate to true and always return task.",
+          "user: return ONLY stable, non-obvious user identity facts or long-term preferences that are NEW or CHANGED. Never put task results, progress, or one-off requests here.",
+          ...(isUserPhase && existingUserHint ? [existingUserHint] : []),
+          "experiences: return reusable cross-session rules ONLY when this turn produced a durable success, failure, or correction. kind ∈ success | failure | lesson; content is a reusable rule (what worked or failed and why), one line, ≤200 chars; evidence starts with [sessionID#turn] and may add path/command/error, ≤160 chars; confidence ∈ low | medium | high. Never emit session completion logs or facts that belong in user.",
+          ...(input.failureHint
+            ? [
+                "",
+                "FAILURE HINT (from this turn's tool errors):",
+                input.failureHint,
+                "You MUST return exactly one experiences entry with kind=failure and a [sessionID#turn] evidence anchor.",
+                "",
+              ]
+            : []),
+          "Every keyword must contain 2 to 4 characters; one to three keywords per candidate. The service supplies sessionID, date, and turn number — do not invent them.",
           "",
           "EXPECTED JSON OUTPUT FORMAT (output a valid JSON object matching this shape):",
           "{",
           '  "shouldUpdate": true,',
-          '  "reason": "brief justification for the decision",',
+          '  "reason": "brief justification",',
           '  "task": {',
           '    "importance": 7,',
-          '    "keywords": ["编程"],',
-          `    "content": "${isUserPhase ? "用户要求修复认证缺陷" : "用户要求修复认证缺陷，我用了中间件测试，最终学会了边界隔离"}"`,
+          '    "keywords": ["修复"],',
+          '    "content": "当前任务：修复认证缺陷；进展：已定位中间件边界；下一步：补回归测试"',
           "  },",
           '  "user": [',
           "    {",
-          '      "importance": 5,',
-          '      "keywords": ["偏好"],',
-          '      "content": "User prefers concise answers in Chinese"',
+          '      "importance": 8,',
+          '      "keywords": ["中文"],',
+          '      "content": "用户偏好始终使用中文交流"',
+          "    }",
+          "  ],",
+          '  "experiences": [',
+          "    {",
+          '      "kind": "failure",',
+          '      "importance": 7,',
+          '      "keywords": ["认证"],',
+          '      "content": "改动认证中间件前先运行权限回归，否则用例会静默失败",',
+          '      "evidence": "[ses_xxx#3] src/auth/middleware.ts npm test",',
+          '      "confidence": "high"',
           "    }",
           "  ]",
           "}",
           "",
           "Previous task memory:",
           input.previousTaskContent ?? "(none)",
+          "",
+          "Turn number for evidence anchors:",
+          String(turnNumber),
           "",
           "Conversation history:",
           historyText || "(none)",
@@ -2095,10 +2120,14 @@ export const layer = Layer.effect(
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
         const result = yield* lastAssistant(sessionID)
         if (canUsePersistentMemory && memory) {
+          const freshMessages = yield* sessions
+            .messages({ sessionID })
+            .pipe(Effect.catch(() => Effect.succeed([] as MessageV2.WithParts[])))
           const curated = yield* memory
             .updateAfterTurn(sessionID, evaluateMemoryDecision, {
               userText: latestMemoryUserText,
               assistantText: latestRealAssistantText(result),
+              failureHint: lastToolFailureHint(freshMessages),
             })
             .pipe(
               Effect.catchCause((cause) =>
@@ -2357,6 +2386,20 @@ function latestRealAssistantText(message: MessageV2.WithParts) {
   } catch {
     return String(message.info.structured)
   }
+}
+
+function lastToolFailureHint(messages: MessageV2.WithParts[]): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!
+    if (message.info.role !== "assistant") continue
+    const errors = message.parts.flatMap((part) => {
+      if (part.type !== "tool" || part.state.status !== "error") return []
+      const text = typeof part.state.error === "string" ? part.state.error : JSON.stringify(part.state.error)
+      return [`Tool ${part.tool}: ${text.trim()}`]
+    })
+    if (errors.length > 0) return errors.join("\n").slice(0, 400)
+  }
+  return undefined
 }
 
 const ModelRef = Schema.Struct({

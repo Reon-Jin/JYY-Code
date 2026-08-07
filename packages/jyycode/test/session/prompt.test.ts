@@ -181,12 +181,12 @@ const memoryLifecycleLayer = Layer.succeed(
       Effect.gen(function* () {
         memoryLifecycleUpdates.push({ sessionID, phase: "received" })
         if (memoryStepBeginGate) yield* Deferred.await(memoryStepBeginGate)
-        return { status: "updated" as const, taskUpdated: true, userUpdated: 0 }
+        return { status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }
       }),
     updateAfterTurn: (sessionID) =>
       Effect.sync(() => {
         memoryLifecycleUpdates.push({ sessionID, phase: "before_final" })
-        return { status: "updated" as const, taskUpdated: true, userUpdated: 0 }
+        return { status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }
       }),
   }),
 )
@@ -224,8 +224,10 @@ const snapshotMemoryLayer = Layer.succeed(
     compact: () => Effect.die("unexpected direct memory compact"),
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed("PERSISTENT MEMORY SNAPSHOT"),
-    updateStepBegin: () => Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0 }),
-    updateAfterTurn: () => Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0 }),
+    updateStepBegin: () =>
+      Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }),
+    updateAfterTurn: () =>
+      Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }),
   }),
 )
 

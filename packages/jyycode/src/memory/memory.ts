@@ -10,6 +10,14 @@ import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { MessageV2 } from "@/session/message-v2"
 import * as Log from "@jyycode-ai/core/util/log"
+import {
+  EXPERIENCE_CONFIDENCES,
+  EXPERIENCE_CONTENT_CHAR_LIMIT,
+  EXPERIENCE_EVIDENCE_ANCHOR,
+  EXPERIENCE_EVIDENCE_CHAR_LIMIT,
+  EXPERIENCE_KINDS,
+} from "./experience-schema"
+import type { ExperienceCandidate, ExperienceConfidence, ExperienceKind } from "./experience-schema"
 const log = Log.create({ service: "memory" })
 
 const MEMORY_FILE = "MEMORY.json"
@@ -268,6 +276,7 @@ export type MemoryDecision = {
   reason: string
   task: MemoryCandidate
   user: MemoryCandidate[]
+  experiences: ExperienceCandidate[]
 }
 
 export type MemoryUpdatePhase = "user" | "assistant"
@@ -279,6 +288,7 @@ export type DecisionInput = {
   correction?: string
   userText: string
   assistantText: string
+  failureHint?: string
 }
 
 export type DecisionEvaluator = (input: DecisionInput) => Effect.Effect<unknown, unknown>
@@ -286,11 +296,12 @@ export type DecisionEvaluator = (input: DecisionInput) => Effect.Effect<unknown,
 export type TurnText = {
   userText?: string
   assistantText?: string
+  failureHint?: string
 }
 
 export type AutomaticUpdateResult =
   | { status: "skipped"; reason: "subagent" | "no_user" | "no_assistant" }
-  | { status: "updated"; taskUpdated: boolean; userUpdated: number }
+  | { status: "updated"; taskUpdated: boolean; userUpdated: number; experienceCandidates: ExperienceCandidate[] }
 
 export const MemoryDecisionJsonSchema = {
   type: "object",
@@ -301,6 +312,7 @@ export const MemoryDecisionJsonSchema = {
     reason: { type: "string", minLength: 1 },
     task: { $ref: "#/$defs/candidate" },
     user: { type: "array", items: { $ref: "#/$defs/candidate" } },
+    experiences: { type: "array", items: { $ref: "#/$defs/experience" }, default: [] },
   },
   $defs: {
     candidate: {
@@ -311,6 +323,19 @@ export const MemoryDecisionJsonSchema = {
         importance: { type: "integer", minimum: 1, maximum: 10 },
         keywords: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", minLength: 2, maxLength: 4 } },
         content: { type: "string", minLength: 1 },
+      },
+    },
+    experience: {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "importance", "keywords", "content", "evidence", "confidence"],
+      properties: {
+        kind: { enum: ["success", "failure", "lesson"] },
+        importance: { type: "integer", minimum: 1, maximum: 10 },
+        keywords: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", minLength: 2, maxLength: 4 } },
+        content: { type: "string", minLength: 1, maxLength: 200 },
+        evidence: { type: "string", minLength: 1, maxLength: 160 },
+        confidence: { enum: ["low", "medium", "high"] },
       },
     },
   },
@@ -986,7 +1011,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
             continue
           }
           try {
-            const decision = parseDecision(evaluated.value)
+            const decision = parseDecision(evaluated.value, input)
             const content = validateTaskContentForPhase(decision.task.content, input.phase)
             return { ...decision, task: { ...decision.task, content } }
           } catch (error) {
@@ -1029,6 +1054,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           previousTaskContent: yield* currentTaskContent(sessionID),
           userText,
           assistantText,
+          failureHint: turn?.failureHint,
         })
         const taskResult = yield* upsertTaskMemory({ sessionID, ...decision.task })
         if (taskResult.status === "capacity_rejected") {
@@ -1045,7 +1071,12 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           userStatuses: userResults.map((result) => result.status),
           reason: decision.reason,
         })
-        return { status: "updated" as const, taskUpdated: true, userUpdated: userResults.length }
+        return {
+          status: "updated" as const,
+          taskUpdated: true,
+          userUpdated: userResults.length,
+          experienceCandidates: decision.experiences,
+        }
       })
 
       const updateStepBegin = Effect.fn("Memory.updateStepBegin")(function* (
@@ -1077,6 +1108,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           previousTaskContent: yield* currentTaskContent(sessionID),
           userText,
           assistantText: "",
+          failureHint: suppliedTurn?.failureHint,
         })
         const taskResult = yield* upsertTaskMemory({ sessionID, ...decision.task })
         if (taskResult.status === "capacity_rejected") {
@@ -1093,7 +1125,12 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           userStatuses: userResults.map((result) => result.status),
           reason: decision.reason,
         })
-        return { status: "updated" as const, taskUpdated: true, userUpdated: userResults.length }
+        return {
+          status: "updated" as const,
+          taskUpdated: true,
+          userUpdated: userResults.length,
+          experienceCandidates: decision.experiences,
+        }
       })
 
       const appendAudit = Effect.fn("Memory.appendAudit")(function* (
@@ -1486,9 +1523,13 @@ function asError(error: unknown) {
   return error instanceof Error ? error : new Error(String(error))
 }
 
-function parseDecision(value: unknown): MemoryDecision {
+function parseDecision(value: unknown, input?: DecisionInput): MemoryDecision {
   const decision = expectRecord(value, "memory decision")
-  assertExactFields(decision, ["shouldUpdate", "reason", "task", "user"], "memory decision")
+  assertExactFields(
+    decision,
+    ["shouldUpdate", "reason", "task", "user", ...(decision.experiences === undefined ? [] : ["experiences"])],
+    "memory decision",
+  )
   if (decision.shouldUpdate !== true) {
     throw new Error("Invalid memory decision shouldUpdate: mandatory semantic updates must be true")
   }
@@ -1519,7 +1560,53 @@ function parseDecision(value: unknown): MemoryDecision {
       content: merged.content,
     }
   }
-  return { shouldUpdate: true, reason, task, user }
+  const experiences: ExperienceCandidate[] = []
+  if (decision.experiences !== undefined) {
+    if (!Array.isArray(decision.experiences)) throw new Error("Invalid memory decision experiences")
+    for (const [index, value] of decision.experiences.entries()) {
+      experiences.push(parseExperienceCandidate(value, `experiences ${index}`))
+    }
+  }
+  if (input?.failureHint && !experiences.some((entry) => entry.kind === "failure")) {
+    throw new Error("failureHint present: experiences must include a kind=failure entry with [sessionID#turn] evidence")
+  }
+  return { shouldUpdate: true, reason, task, user, experiences }
+}
+
+function parseExperienceCandidate(value: unknown, label: string): ExperienceCandidate {
+  const candidate = expectRecord(value, `memory decision ${label}`)
+  assertExactFields(
+    candidate,
+    ["kind", "importance", "keywords", "content", "evidence", "confidence"],
+    `memory decision ${label}`,
+  )
+  const kind = expectString(candidate.kind, `memory decision ${label} kind`) as ExperienceKind
+  if (!(EXPERIENCE_KINDS as readonly string[]).includes(kind)) {
+    throw new Error(`Invalid memory decision ${label}: kind must be success, failure, or lesson`)
+  }
+  const confidence = expectString(candidate.confidence, `memory decision ${label} confidence`) as ExperienceConfidence
+  if (!(EXPERIENCE_CONFIDENCES as readonly string[]).includes(confidence)) {
+    throw new Error(`Invalid memory decision ${label}: confidence must be low, medium, or high`)
+  }
+  const content = parseContent(expectString(candidate.content, `memory decision ${label} content`))
+  if ([...content].length > EXPERIENCE_CONTENT_CHAR_LIMIT) {
+    throw new Error(`Invalid memory decision ${label}: content exceeds ${EXPERIENCE_CONTENT_CHAR_LIMIT} characters`)
+  }
+  const evidence = parseContent(expectString(candidate.evidence, `memory decision ${label} evidence`))
+  if ([...evidence].length > EXPERIENCE_EVIDENCE_CHAR_LIMIT) {
+    throw new Error(`Invalid memory decision ${label}: evidence exceeds ${EXPERIENCE_EVIDENCE_CHAR_LIMIT} characters`)
+  }
+  if (!EXPERIENCE_EVIDENCE_ANCHOR.test(evidence)) {
+    throw new Error(`Invalid memory decision ${label}: evidence must start with [sessionID#turn]`)
+  }
+  return {
+    kind,
+    importance: parseImportance(candidate.importance),
+    keywords: validateKeywords(expectStringArray(candidate.keywords, `memory decision ${label} keywords`)),
+    content,
+    evidence,
+    confidence,
+  }
 }
 
 function parseCandidate(value: unknown, label: string): MemoryCandidate {
