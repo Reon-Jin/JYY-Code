@@ -201,7 +201,10 @@ export const layer = Layer.effect(
         .filter((entry) =>
           !query
             ? true
-            : `${entry.keywords.join(" ")} ${entry.content}`.normalize("NFKC").toLowerCase().includes(query),
+            : `${entry.keywords.join(" ")} ${entry.content} ${entry.scope === "experience" ? entry.evidence : ""}`
+                .normalize("NFKC")
+                .toLowerCase()
+                .includes(query),
         )
         .map((entry, index) => ({ entry, index }))
         .sort(

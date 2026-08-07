@@ -110,10 +110,10 @@ notifications are emitted only while the window is not focused and use generic t
 not exposed in the system notification center.
 
 Context-compression thresholds are validated before they are saved and apply to newly created Sessions. Memory
-management opens dedicated User and Task memory pages instead of expanding records in Settings. Both pages support
-search, editing, deletion, compression, and export; Task memories are listed across Sessions and do not require users
-to know a Session ID. Exported memory files can contain sensitive conversation-derived information and should be
-handled accordingly.
+management opens dedicated User, Task, and Experience memory pages instead of expanding records in Settings. All pages
+support search, editing, deletion, compression, and export. Task memory is shared by every Session in the same
+project, while Experience memory is shared across all projects. Exported memory files can contain sensitive
+conversation-derived information and should be handled accordingly.
 
 On Windows and Apple Silicon macOS, automatic updating uses Tauri's signed updater with the rolling `desktop-latest`
 GitHub Release manifest. Settings offers three policies: automatically install and restart, check and notify, or turn

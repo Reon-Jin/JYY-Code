@@ -44,7 +44,10 @@ async function fixture(input?: { legacy?: boolean }) {
   const layer = MemoryManagement.layer.pipe(Layer.provide(memoryLayer), Layer.provide(experienceLayer))
   const run = <A, E>(
     effect: Effect.Effect<A, E, MemoryManagement.Service | Memory.Service | ExperienceMemory.Service>,
-  ) => Effect.runPromise(effect.pipe(Effect.provide(Layer.merge(layer, memoryLayer, experienceLayer))))
+  ) =>
+    Effect.runPromise(
+      effect.pipe(Effect.provide(Layer.merge(Layer.merge(layer, memoryLayer), experienceLayer))),
+    )
   return { directory, legacyDirectory, child, run }
 }
 
@@ -344,6 +347,54 @@ describe("audited memory management storage", () => {
     )
     expect(scoped.entries).toHaveLength(1)
     expect(scoped.entries[0]?.content).toContain("第二步")
+  })
+
+  test("updates and deletes a project task entry by opaque id", async () => {
+    const ctx = await fixture()
+    await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.upsertTaskMemory({
+          sessionID: SessionID.make("ses_p1_a"),
+          importance: 5,
+          keywords: ["共享任务"],
+          content: "当前任务：共享任务；进展：第一步",
+        }),
+      ),
+    )
+
+    const page = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "task" })))
+    const entry = page.entries[0]
+    if (entry.scope !== "task") throw new Error("Expected task entry")
+
+    const updated = await ctx.run(
+      MemoryManagement.Service.use((management) =>
+        management.update({
+          scope: "task",
+          id: entry.id,
+          sessionID: SessionID.make("ses_p1_b"),
+          importance: 8,
+          keywords: ["共享任务"],
+          content: "当前任务：共享任务；进展：已完成编辑",
+        }),
+      ),
+    )
+    expect(updated).toMatchObject({ scope: "task", content: "当前任务：共享任务；进展：已完成编辑" })
+
+    const scoped = await ctx.run(
+      MemoryManagement.Service.use((management) =>
+        management.list({ scope: "task", sessionID: SessionID.make("ses_p1_a") }),
+      ),
+    )
+    expect(scoped.entries).toHaveLength(1)
+    expect(scoped.entries[0]?.content).toContain("已完成编辑")
+
+    await ctx.run(
+      MemoryManagement.Service.use((management) =>
+        management.remove({ scope: "task", id: updated.id, sessionID: SessionID.make("ses_p1_a") }),
+      ),
+    )
+    const afterRemove = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "task" })))
+    expect(afterRemove.entries).toHaveLength(0)
   })
 
   test("lists, updates, removes and exports experience memory", async () => {

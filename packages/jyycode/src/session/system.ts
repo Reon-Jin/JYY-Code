@@ -15,7 +15,7 @@ export function provider() {
 }
 
 const MEMORY_RULES = [
-  `Persistent memory JSON files live in ${Memory.DIRECTORY}: MEMORY.json (one per-session task-state entry), USER.json (stable user facts), and EXPERIENCE.json (cross-session success/failure/lesson rules).`,
+  `Persistent memory JSON files live in ${Memory.DIRECTORY}: MEMORY.json (one shared task-state entry per project), USER.json (stable user facts), and EXPERIENCE.json (success/failure/lesson rules shared across all projects).`,
   "Task memory is updated automatically by the runtime twice per turn — never call the memory tool for these routine updates; use it only when the user explicitly asks to manage memories.",
   "To inspect what is remembered, call the memory tool with action=read (target=memory or target=user); for past lessons call context_read with action=experience. Do not read the JSON files directly with file tools.",
   "Task state uses the format 当前任务：<goal>；进展：<progress>；[经验：<lesson>] with limits goal ≤120, progress ≤160, 经验 ≤160 Unicode chars. Write 经验 only when this turn produced a durable success or failure lesson; never write 下一步.",

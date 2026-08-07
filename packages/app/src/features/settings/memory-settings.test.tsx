@@ -27,11 +27,32 @@ const taskEntry = {
   sessionID: "ses_settings",
 }
 
+const experienceEntry = {
+  id: "exp_pptx",
+  scope: "experience" as const,
+  kind: "success" as const,
+  importance: 7,
+  date: "20260807",
+  updatedAt: "20260807",
+  keywords: ["PPT", "QA"],
+  content: "制作PPT后使用LibreOffice渲染QA可发现溢出问题",
+  evidence: "[ses_pptx#1] LibreOffice 渲染 QA",
+  confidence: "high" as const,
+  uses: 3,
+  status: "active" as const,
+  sessionID: "ses_pptx",
+}
+
 function management(entries?: (typeof userEntry)[]) {
   const memory = {
-    list: vi.fn(async ({ scope }: { scope: "user" | "task" }) => ({
+    list: vi.fn(async ({ scope }: { scope: "user" | "task" | "experience" }) => ({
       data: {
-        entries: scope === "user" ? (entries ?? [userEntry]) : [taskEntry],
+        entries:
+          scope === "user"
+            ? (entries ?? [userEntry])
+            : scope === "task"
+              ? [taskEntry]
+              : [experienceEntry],
         total: scope === "user" ? (entries?.length ?? 1) : 1,
       },
     })),
@@ -50,7 +71,7 @@ function management(entries?: (typeof userEntry)[]) {
   return { value, memory }
 }
 
-function renderMemory(scope: "user" | "task" = "user", entries?: (typeof userEntry)[]) {
+function renderMemory(scope: "user" | "task" | "experience" = "user", entries?: (typeof userEntry)[]) {
   const desktop = createFakeDesktop()
   const { value, memory } = management(entries)
   const history = createMemoryHistory()
@@ -112,6 +133,10 @@ describe("MemorySettings", () => {
       "href",
       "/settings/memory/task?returnTo=%2Fworkspace",
     )
+    expect(screen.getByRole("link", { name: /经验记忆/ })).toHaveAttribute(
+      "href",
+      "/settings/memory/experience?returnTo=%2Fworkspace",
+    )
     expect(screen.queryByText("用户偏好简体中文。")).not.toBeInTheDocument()
   })
 
@@ -128,6 +153,57 @@ describe("MemorySettings", () => {
       expect(memory.list).toHaveBeenCalledWith(expect.objectContaining({ scope: "task", query: "设置" }), {
         throwOnError: true,
       }),
+    )
+  })
+
+  it("lists experience entries with kind and confidence", async () => {
+    const { memory } = renderMemory("experience")
+    expect(await screen.findByText(experienceEntry.content)).toBeVisible()
+    expect(screen.getByText("成功")).toBeVisible()
+    expect(screen.getByText("高")).toBeVisible()
+    expect(memory.list).toHaveBeenCalledWith(expect.objectContaining({ scope: "experience" }), {
+      throwOnError: true,
+    })
+  })
+
+  it("edits experience kind, confidence, and content", async () => {
+    const { memory } = renderMemory("experience")
+    const user = userEvent.setup()
+    await screen.findByText(experienceEntry.content)
+    await user.click(screen.getByRole("button", { name: "编辑记忆" }))
+    const dialog = screen.getByRole("dialog", { name: "编辑记忆" })
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "类型" }), "lesson")
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "置信度" }), "medium")
+    const content = within(dialog).getByRole("textbox", { name: "内容" })
+    await user.clear(content)
+    await user.type(content, "渲染 QA 应作为 PPT 交付前的强制步骤")
+    await user.click(within(dialog).getByRole("button", { name: "保存" }))
+    await waitFor(() =>
+      expect(memory.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: "experience",
+          id: "exp_pptx",
+          kind: "lesson",
+          confidence: "medium",
+          content: "渲染 QA 应作为 PPT 交付前的强制步骤",
+        }),
+        { throwOnError: true },
+      ),
+    )
+  })
+
+  it("deletes experience memory after confirmation", async () => {
+    const { memory } = renderMemory("experience")
+    const user = userEvent.setup()
+    await screen.findByText(experienceEntry.content)
+    await user.click(screen.getByRole("button", { name: "删除记忆" }))
+    const dialog = screen.getByRole("dialog", { name: "删除记忆" })
+    await user.click(within(dialog).getByRole("button", { name: "确认删除" }))
+    await waitFor(() =>
+      expect(memory.remove).toHaveBeenCalledWith(
+        expect.objectContaining({ scope: "experience", id: "exp_pptx" }),
+        { throwOnError: true },
+      ),
     )
   })
 

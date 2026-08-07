@@ -645,7 +645,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": ["user", "task"]
+              "enum": ["user", "task", "experience"]
             },
             "required": true
           },
@@ -802,27 +802,62 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "importance": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 10
-                  },
-                  "keywords": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "importance": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10
+                      },
+                      "keywords": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1,
+                        "maxItems": 3
+                      },
+                      "content": {
+                        "type": "string"
+                      }
                     },
-                    "minItems": 1,
-                    "maxItems": 3
+                    "required": ["importance", "keywords", "content"],
+                    "additionalProperties": false
                   },
-                  "content": {
-                    "type": "string"
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": ["success", "failure", "lesson"]
+                      },
+                      "importance": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10
+                      },
+                      "keywords": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1,
+                        "maxItems": 3
+                      },
+                      "content": {
+                        "type": "string"
+                      },
+                      "confidence": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"]
+                      }
+                    },
+                    "required": ["kind", "importance", "keywords", "content", "confidence"],
+                    "additionalProperties": false
                   }
-                },
-                "required": ["importance", "keywords", "content"],
-                "additionalProperties": false
+                ]
               }
             }
           }
@@ -845,7 +880,7 @@
             "in": "path",
             "schema": {
               "type": "string",
-              "enum": ["user", "task"]
+              "enum": ["user", "task", "experience"]
             },
             "required": true
           },
@@ -963,7 +998,7 @@
             "in": "path",
             "schema": {
               "type": "string",
-              "enum": ["user", "task"]
+              "enum": ["user", "task", "experience"]
             },
             "required": true
           },
@@ -1054,7 +1089,7 @@
             "in": "path",
             "schema": {
               "type": "string",
-              "enum": ["user", "task"]
+              "enum": ["user", "task", "experience"]
             },
             "required": true
           },
@@ -1211,7 +1246,7 @@
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": ["user", "task"]
+              "enum": ["user", "task", "experience"]
             },
             "required": true
           },
@@ -1255,7 +1290,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GlobalMemoryExport"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/GlobalMemoryExport"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GlobalExperienceMemoryExport"
+                    }
+                  ]
                 }
               }
             }
@@ -19410,12 +19452,90 @@
               "content": {
                 "type": "string"
               },
+              "projectID": {
+                "type": "string"
+              },
               "sessionID": {
                 "type": "string",
                 "pattern": "^ses"
               }
             },
             "required": ["id", "scope", "importance", "date", "keywords", "content", "sessionID"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string",
+                "enum": ["experience"]
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["success", "failure", "lesson"]
+              },
+              "importance": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10
+              },
+              "date": {
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": "string"
+              },
+              "keywords": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "maxItems": 3
+              },
+              "content": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "string"
+              },
+              "confidence": {
+                "type": "string",
+                "enum": ["low", "medium", "high"]
+              },
+              "uses": {
+                "type": "integer"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["active", "superseded", "retracted"]
+              },
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses"
+              },
+              "supersededReason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "scope",
+              "kind",
+              "importance",
+              "date",
+              "updatedAt",
+              "keywords",
+              "content",
+              "evidence",
+              "confidence",
+              "uses",
+              "status",
+              "sessionID"
+            ],
             "additionalProperties": false
           }
         ]
@@ -19592,6 +19712,89 @@
           }
         },
         "required": ["schemaVersion", "lastCompactedAt", "entries"],
+        "additionalProperties": false
+      },
+      "GlobalExperienceMemoryExport": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "enum": [1]
+          },
+          "lastMaintainedAt": {
+            "type": ["string", "null"]
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": ["success", "failure", "lesson"]
+                },
+                "importance": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "date": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                },
+                "keywords": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "maxItems": 3
+                },
+                "content": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": ["low", "medium", "high"]
+                },
+                "uses": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["active", "superseded", "retracted"]
+                },
+                "sessionID": {
+                  "type": "string",
+                  "pattern": "^ses"
+                },
+                "supersededReason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "importance",
+                "date",
+                "updatedAt",
+                "keywords",
+                "content",
+                "evidence",
+                "confidence",
+                "uses",
+                "status",
+                "sessionID"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["schemaVersion", "lastMaintainedAt", "entries"],
         "additionalProperties": false
       },
       "Model": {
