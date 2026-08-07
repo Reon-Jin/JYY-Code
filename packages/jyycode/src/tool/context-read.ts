@@ -8,8 +8,9 @@ const Action = Schema.Literals(["digest", "turn", "search"])
 type Metadata = { action?: string; turn?: number; matches?: number }
 
 export const Parameters = Schema.Struct({
-  action: Action.annotate({
-    description: "digest: latest compressed history. turn: full record of one turn. search: keyword search over past turns.",
+  action: Schema.optional(Action).annotate({
+    description:
+      "What to read (defaults to digest). digest: latest compressed history. turn: full record of one turn. search: keyword search over past turns.",
   }),
   turn: Schema.optional(Schema.Int).annotate({
     description: "Turn number for action=turn (1-based).",
@@ -42,7 +43,8 @@ export const ContextReadTool = Tool.define(
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           const root = instance.directory
-          if (params.action === "digest") {
+          const action = params.action ?? "digest"
+          if (action === "digest") {
             const digest = yield* episodic.readLatestDigest({
               sessionID: ctx.sessionID,
               workspaceRoot: root,
@@ -56,7 +58,7 @@ export const ContextReadTool = Tool.define(
               output: EpisodicMemory.formatEpisodicDigest(digest.value),
             }
           }
-          if (params.action === "turn") {
+          if (action === "turn") {
             if (params.turn === undefined) {
               return yield* Effect.fail(new Error("turn is required for action=turn"))
             }

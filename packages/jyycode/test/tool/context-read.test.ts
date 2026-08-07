@@ -73,3 +73,38 @@ it.live("context_read returns the latest digest", () =>
     expect(result.output).toContain("修复登录")
   }),
 )
+
+it.live("context_read without action defaults to the latest digest", () =>
+  Effect.gen(function* () {
+    const root = yield* tmpdirScoped()
+    const memory = yield* EpisodicMemory.Service
+    yield* memory.recordTurn({
+      sessionID: ctx.sessionID,
+      workspaceRoot: root,
+      turn: {
+        version: 1,
+        sessionID: ctx.sessionID,
+        turn: 1,
+        time: "2026-08-07T00:00:00Z",
+        userText: "修复登录",
+        files: [],
+        toolCalls: [],
+        assistantText: "已修复",
+      },
+    })
+    yield* memory.compactIfDue({
+      sessionID: ctx.sessionID,
+      workspaceRoot: root,
+      reason: "threshold",
+      totalTurns: 3,
+      generate: () => Effect.succeed("## 已完成\n- 修复登录"),
+    })
+
+    const info = yield* ContextReadTool
+    const tool = yield* info.init()
+    const result = yield* provideInstance(root)(
+      tool.execute({}, ctx),
+    )
+    expect(result.output).toContain("修复登录")
+  }),
+)
