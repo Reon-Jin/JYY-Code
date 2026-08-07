@@ -72,6 +72,32 @@ describe("model-facing plan tool names", () => {
     expect(isPlanToolVisible("Plan.read", { parentID: "ses_parent" as never, multiAgent: undefined })).toBe(false)
     expect(isPlanToolVisible("Blackboard", { parentID: undefined, multiAgent: false })).toBe(false)
     expect(isPlanToolVisible("Blackboard", { parentID: undefined, multiAgent: true })).toBe(true)
+    expect(isPlanToolVisible("Candidate.declare", { parentID: undefined, multiAgent: false })).toBe(false)
+    expect(isPlanToolVisible("Dispatch.roles", { parentID: undefined, multiAgent: false })).toBe(false)
+    expect(isPlanToolVisible("Candidate.declare", { parentID: undefined, multiAgent: true })).toBe(true)
+    expect(isPlanToolVisible("Dispatch.roles", { parentID: undefined, multiAgent: true })).toBe(true)
+  })
+
+  it("keeps dispatch and candidate tools out of the single-agent recovery surface", () => {
+    const readTools: Record<string, never> = {
+      Plan_read: {} as never,
+      Plan_update: {} as never,
+      Dispatch_dispatch: {} as never,
+      Dispatch_roles: {} as never,
+      Blackboard: {} as never,
+    }
+    retainRequiredPlanTools(readTools, "Plan_read", false)
+    expect(Object.keys(readTools)).toEqual(["Plan_read"])
+
+    const updateTools: Record<string, never> = {
+      Plan_read: {} as never,
+      Plan_update: {} as never,
+      Dispatch_dispatch: {} as never,
+      Dispatch_roles: {} as never,
+      Blackboard: {} as never,
+    }
+    retainRequiredPlanTools(updateTools, "Plan_update", false)
+    expect(Object.keys(updateTools).sort()).toEqual(["Plan_read", "Plan_update"])
   })
 
   it("derives candidate child tools from the dispatched task and persisted phase", () => {

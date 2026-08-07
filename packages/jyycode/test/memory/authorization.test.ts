@@ -173,18 +173,16 @@ describe("memory write authorization", () => {
     expect(mtimes.get(userPath)).toBe(beforeUserMtime)
   })
 
-  test("keeps reads and searches available to child sessions", async () => {
+  test("keeps reads available to child sessions", async () => {
     const { run } = fixture()
     const result = await run(
       Memory.Service.use((memory) =>
         Effect.all([
           memory.read({ sessionID: childID, scope: "memory" }),
-          memory.search({ sessionID: childID, scope: "all", query: "existing project" }),
         ]),
       ),
     )
 
     expect(result[0]).toContain("existing project fact")
-    expect(result[1]).toHaveLength(2)
   })
 })

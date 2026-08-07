@@ -160,39 +160,6 @@ const lsp = Layer.succeed(
   }),
 )
 
-const memorySearchLayer = Layer.succeed(
-  Memory.Service,
-  Memory.Service.of({
-    dir: () => Effect.succeed(Memory.DIRECTORY),
-    ensure: () => Effect.void,
-    read: () => Effect.succeed(""),
-    search: (input) =>
-      Effect.succeed(
-        input.query.includes("用户")
-          ? [
-              {
-                file: path.join(Memory.DIRECTORY, "USER.json"),
-                section: "user",
-                line: 18,
-                score: 3,
-                text: "content: 用户是金毅阳。",
-              },
-            ]
-          : [],
-      ),
-    upsertTaskMemory: () => Effect.die("unexpected task memory upsert in retrieval middleware test"),
-    upsertUserMemory: () => Effect.die("unexpected user memory upsert in retrieval middleware test"),
-    write: () => Effect.die("unexpected memory write in retrieval middleware test"),
-    replaceBySubstring: () => Effect.die("unexpected memory replace in retrieval middleware test"),
-    removeBySubstring: () => Effect.die("unexpected memory remove in retrieval middleware test"),
-    compact: () => Effect.die("unexpected memory compact in retrieval middleware test"),
-    usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
-    formatWithHeader: () => Effect.succeed(""),
-    updateAfterTurn: () => Effect.succeed({ status: "updated", taskUpdated: true, userUpdated: 0 }),
-    updateStepBegin: () => Effect.succeed({ status: "updated", taskUpdated: true, userUpdated: 0 }),
-  }),
-)
-
 const memoryLifecycleUpdates: Array<{ sessionID: SessionID; phase: "received" | "before_final" }> = []
 let memoryStepBeginGate: Deferred.Deferred<void> | undefined
 const memoryLifecycleLayer = Layer.succeed(
@@ -201,7 +168,6 @@ const memoryLifecycleLayer = Layer.succeed(
     dir: () => Effect.succeed(Memory.DIRECTORY),
     ensure: () => Effect.void,
     read: () => Effect.succeed(""),
-    search: () => Effect.succeed([]),
     upsertTaskMemory: () => Effect.die("unexpected direct task memory upsert"),
     upsertUserMemory: () => Effect.die("unexpected direct user memory upsert"),
     write: () => Effect.die("unexpected direct memory write"),
@@ -230,7 +196,6 @@ const memoryFailureLayer = Layer.succeed(
     dir: () => Effect.succeed(Memory.DIRECTORY),
     ensure: () => Effect.void,
     read: () => Effect.succeed(""),
-    search: () => Effect.succeed([]),
     upsertTaskMemory: () => Effect.die("unexpected direct task memory upsert"),
     upsertUserMemory: () => Effect.die("unexpected direct user memory upsert"),
     write: () => Effect.die("unexpected memory write"),
@@ -337,7 +302,7 @@ function makeHttpNoLLMServer(input?: { processor?: "blocking"; memory?: Layer.La
 }
 
 const it = testEffect(makeHttp())
-const withMemory = testEffect(makeHttp({ memory: memorySearchLayer }))
+const withMemory = testEffect(makeHttp({ memory: memoryLifecycleLayer }))
 const withMemoryLifecycle = testEffect(makeHttp({ memory: memoryLifecycleLayer }))
 const withMemoryFailure = testEffect(makeHttp({ memory: memoryFailureLayer }))
 const noLLMServer = testEffect(makeHttpNoLLMServer())
@@ -1151,33 +1116,6 @@ it.instance("goal mode resumes the main agent after a child report arrives", () 
     expect(inputs).toHaveLength(2)
     const current = yield* sessions.get(chat.id)
     expect(current.goal?.status).toBe("failed")
-  }),
-)
-
-withMemory.instance("loop injects automatic memory retrieval results into model messages", () =>
-  Effect.gen(function* () {
-    const { llm } = yield* useServerConfig(providerCfg)
-    const prompt = yield* SessionPrompt.Service
-    const sessions = yield* Session.Service
-    const chat = yield* sessions.create({
-      title: "Pinned",
-      permission: [{ permission: "*", pattern: "*", action: "allow" }],
-    })
-    yield* prompt.prompt({
-      sessionID: chat.id,
-      agent: "build",
-      noReply: true,
-      parts: [{ type: "text", text: "我叫什么？" }],
-    })
-    yield* llm.text("你是金毅阳。")
-
-    yield* prompt.loop({ sessionID: chat.id })
-
-    const inputs = yield* llm.inputs
-    const payload = JSON.stringify(inputs.at(-1)?.messages)
-    expect(payload).toContain("Relevant persistent memory was automatically retrieved from D:/jyycode/memory")
-    expect(payload).toContain("content: 用户是金毅阳。")
-    expect(payload).not.toContain("score=3")
   }),
 )
 

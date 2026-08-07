@@ -225,6 +225,7 @@ for (const item of targets) {
     define: {
       JYYCODE_VERSION: `'${Script.version}'`,
       JYYCODE_MODELS_DEV: generated.modelsData,
+      JYYCODE_DEV_TRACE: `'${process.env.JYYCODE_DEV_TRACE === "1" ? "true" : "false"}'`,
       OTUI_TREE_SITTER_WORKER_PATH: bunfsRoot + workerRelativePath,
       JYYCODE_WORKER_PATH: workerPath,
       JYYCODE_CHANNEL: `'${Script.channel}'`,

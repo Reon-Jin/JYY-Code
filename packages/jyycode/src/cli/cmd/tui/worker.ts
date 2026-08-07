@@ -13,6 +13,7 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { ensureProcessMetadata } from "@jyycode-ai/core/util/jyycode-process"
 import { Effect } from "effect"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
+import { LLMTrace } from "@/dev/llm-trace"
 
 ensureProcessMetadata("worker")
 
@@ -24,6 +25,8 @@ await Log.init({
     return "INFO"
   })(),
 })
+
+LLMTrace.init()
 
 Heap.start()
 

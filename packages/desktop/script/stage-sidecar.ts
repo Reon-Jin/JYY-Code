@@ -54,11 +54,12 @@ export function sourceBinary(platform: string, architecture: string) {
   return resolve(jyycodeRoot, "dist", target.distribution, "bin", target.executable)
 }
 
-async function runBuild() {
+async function runBuild(dev: boolean) {
   const child = Bun.spawn(
     [Bun.which("bun") ?? process.execPath, "run", "build", "--single", "--skip-install", "--skip-embed-web-ui"],
     {
       cwd: jyycodeRoot,
+      env: dev ? { ...process.env, JYYCODE_DEV_TRACE: "1" } : undefined,
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",
@@ -78,10 +79,10 @@ async function verifyBinary(path: string) {
   }
 }
 
-export async function stageSidecar(options: { skipBuild?: boolean } = {}) {
+export async function stageSidecar(options: { skipBuild?: boolean; dev?: boolean } = {}) {
   const target = sidecarTarget(process.platform, process.arch)
 
-  if (!options.skipBuild) await runBuild()
+  if (!options.skipBuild) await runBuild(options.dev === true)
   const source = sourceBinary(target.platform, target.architecture)
   await verifyBinary(source)
   await mkdir(binariesRoot, { recursive: true })
@@ -93,6 +94,9 @@ export async function stageSidecar(options: { skipBuild?: boolean } = {}) {
 }
 
 if (import.meta.main) {
-  const destination = await stageSidecar({ skipBuild: Bun.argv.includes("--skip-build") })
+  const destination = await stageSidecar({
+    skipBuild: Bun.argv.includes("--skip-build"),
+    dev: Bun.argv.includes("--dev"),
+  })
   console.log(`Staged JYYCode sidecar: ${destination}`)
 }

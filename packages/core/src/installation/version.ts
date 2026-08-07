@@ -1,6 +1,7 @@
 declare global {
   const JYYCODE_VERSION: string
   const JYYCODE_CHANNEL: string
+  const JYYCODE_DEV_TRACE: string
 }
 
 export const InstallationVersion = typeof JYYCODE_VERSION === "string" ? JYYCODE_VERSION : "local"

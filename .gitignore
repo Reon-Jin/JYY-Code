@@ -42,6 +42,7 @@ tsconfig.tsbuildinfo
 **/.jyycode/agent-cluster/
 **/.jyycode/plans/
 **/.jyycode/references/
+**/.jyycode/context/
 **/.jyycode/*.local.jsonc
 
 /apple

@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run stage:sidecar && bun run --bun tauri dev",
+    "dev": "bun run stage:sidecar --dev && bun run --bun tauri dev",
     "build": "bun run stage:sidecar && bun script/build-desktop.ts",
     "stage:sidecar": "bun script/stage-sidecar.ts",
     "smoke:macos": "bash script/smoke-macos.sh",

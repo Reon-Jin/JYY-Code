@@ -25,7 +25,7 @@ const COMPACTION_ENTRY_TARGET = 45
 const SNAPSHOT_ENTRY_LIMIT = 10
 // A task entry is the durable summary for an entire session, not a caption for
 // its latest turn. Keep enough room for the original goal, important decisions,
-// and the final state while remaining compact enough for memory retrieval.
+// and the final state while remaining compact enough for the session snapshot.
 const TASK_REQUEST_CHAR_LIMIT = 100
 const TASK_METHOD_CHAR_LIMIT = 180
 const TASK_LEARNED_CHAR_LIMIT = 100
@@ -332,15 +332,6 @@ export type CompactionResult = MutationResult & {
   after: UsageInfo & { entries: number }
 }
 
-export const SearchResult = Schema.Struct({
-  file: Schema.String,
-  section: Schema.String,
-  line: Schema.Number,
-  score: Schema.Number,
-  text: Schema.String,
-})
-export type SearchResult = Schema.Schema.Type<typeof SearchResult>
-
 export type UsageInfo = {
   percentage: number
   used: number
@@ -352,12 +343,6 @@ export interface Interface {
   readonly dir: (sessionID: SessionID) => Effect.Effect<string>
   readonly ensure: (sessionID: SessionID) => Effect.Effect<void, Error>
   readonly read: (input: { sessionID: SessionID; scope: Scope; section?: string }) => Effect.Effect<string, Error>
-  readonly search: (input: {
-    sessionID: SessionID
-    query: string
-    scope?: Scope | "all"
-    limit?: number
-  }) => Effect.Effect<SearchResult[], Error>
   readonly upsertTaskMemory: (input: TaskMemoryUpsertInput) => Effect.Effect<MutationResult, Error>
   readonly upsertUserMemory: (input: UserMemoryUpsertInput) => Effect.Effect<MutationResult, Error>
   readonly write: (input: MemoryWriteInput) => Effect.Effect<MutationResult, Error>
@@ -517,40 +502,6 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       }) {
         const store = yield* readStore(input.sessionID, input.scope)
         return serializeStore(input.scope, store.entries, store.lastCompactedAt)
-      })
-
-      const search = Effect.fn("Memory.search")(function* (input: {
-        sessionID: SessionID
-        query: string
-        scope?: Scope | "all"
-        limit?: number
-      }) {
-        yield* ensure(input.sessionID)
-        const query = input.query.trim()
-        if (!query) return []
-        const scopes: Scope[] = input.scope && input.scope !== "all" ? [input.scope] : ["memory", "user"]
-        const tokens = tokenize(query)
-        const results: SearchResult[] = []
-
-        for (const scope of scopes) {
-          const sourceFile = yield* filePath(input.sessionID, scope)
-          const store = yield* readStore(input.sessionID, scope)
-          for (let i = 0; i < store.entries.length; i++) {
-            const entry = store.entries[i]!
-            const body = formatEntry(entry)
-            const score = scoreEntry(tokens, entry)
-            if (score <= 0) continue
-            results.push({
-              file: sourceFile,
-              section: scope,
-              line: i + 1,
-              score,
-              text: body,
-            })
-          }
-        }
-
-        return results.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file)).slice(0, input.limit ?? 8)
       })
 
       const audit = Effect.fn("Memory.audit")(function* (sessionID: SessionID, entry: Record<string, unknown>) {
@@ -1164,7 +1115,6 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         dir,
         ensure,
         read,
-        search,
         upsertTaskMemory,
         upsertUserMemory,
         write,
@@ -1449,24 +1399,6 @@ function formatMemoryHeader(scope: Scope, text: string) {
   const padLeft = Math.max(2, Math.floor((totalWidth - left.length) / 2))
   const line = "═".repeat(padLeft) + " " + left + " " + "═".repeat(Math.max(0, totalWidth - padLeft - left.length - 1))
   return `\n${line}\n`
-}
-
-function tokenize(input: string) {
-  const ascii = input
-    .toLowerCase()
-    .split(/[^a-z0-9_./:-]+/)
-    .filter((item) => item.length >= 2)
-  const cjk = Array.from(input.matchAll(/[\p{Script=Han}]{2,}/gu)).map((match) => match[0])
-  return [...new Set([...ascii, ...cjk])]
-}
-
-function scoreEntry(tokens: string[], entry: MemoryEntry) {
-  const lower = `${entry.keywords.join(" ")} ${entry.content}`.toLowerCase()
-  let score = 0
-  for (const token of tokens) {
-    if (lower.includes(token.toLowerCase())) score += token.length > 3 ? 2 : 1
-  }
-  return score + Math.max(0, entry.importance - 5) / 10
 }
 
 function formatEntry(entry: MemoryEntry) {

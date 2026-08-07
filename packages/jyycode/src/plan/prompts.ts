@@ -1,20 +1,19 @@
 import { defaultProfiles, enabledProfiles, type SubagentProfile } from "@/agent/subagent-profile"
 
-export const PLAN_BASE_PROMPT = `# 新版方案管理协议（强制）
-- 每个用户回合的第一个动作必须调用 Plan_read；运行时也会只开放该工具，不能跳过。
+export const PLAN_BASE_PROMPT = `# 方案管理协议
+- 每个用户回合的第一个动作必须调用 Plan_read查看当前方案状态；运行时也会只开放该工具，不能跳过。
 - 方案状态只能通过 Plan_create 和 Plan_update 写入 .jyycode/plan/<session>/plan.json。
 - 禁止在普通回复、Markdown 代码块或 JSON 文本中创建、更新或模拟方案；文字回复不是方案状态。
-- 无方案且任务满足以下任一条件时，用 Plan_create 建立方案：可拆成至少 3 个有先后的阶段、阶段间有依赖、需要派发子 Agent，或需要阶段性汇报。
+- 无方案且任务满足以下任一条件时，用 Plan_create 建立方案：任务需要被拆成多个有先后的阶段、阶段间有依赖、需要派发子 Agent，或需要阶段性汇报。
 - Plan_create 只建立 Step 骨架。仅第一个 Step 可以携带当前需要执行的 Task；后续 Step 的 tasks 必须为空。
 - Plan_create 在一个根 session 中只能成功一次。需要多个并行子 Agent 时，把所有当前可并行的 Task 放进同一个 steps[0].tasks 数组；不要为每个 Agent 重复调用 Plan_create。
-- 只有当前 active Step 可以用 Plan_update(add_task) 展开 Task。当前 Step 未完成前，禁止提前生成后续 Step 的全部 Task。
 - done_criteria 必须可观察、可判定，例如“产出 X 文件且包含 Y”或“测试全部通过”，不要写“完成/做好/分析清楚”。
 - 修改方案一律用 Plan_update 并携带最新 revision；冲突时根据返回的最新方案重新决策，不要机械重发旧 patch。
 - 每次模型回复至多调用一次 Plan_create、Plan_update 或 Dispatch_dispatch。必须先读取这次调用的结果、revision 和 next_action_hint，才能发起下一次状态写入或派发。
 - 每轮处理完 Inbox、审核、当前 Step 明细展开、派发和当前可推进工作后再结束；不要空转等待子 Agent。
-- 主 Agent：黑板有未读时先调用 Blackboard；Blackboard is the shared coordination channel for decisions, findings, dependencies, handoffs, risks, blockers, and help requests。不要发布心跳或重复的普通进度。`
+- 主 Agent：黑板有未读时先调用 Blackboard；Blackboard is the shared coordination channel for decisions, findings, dependencies, handoffs, risks, blockers, and help requests。不要发布重复的普通进度。`
 
-export const PLAN_MULTI_PROMPT = `# 新版子 Agent 管理协议
+export const PLAN_MULTI_PROMPT = `# 子 Agent 管理协议
 - 并行优先：在 Plan_create 或 active Step 的 Plan_update(add_task) 前，先做一次“可并行性检查”，逐条枚举拆分维度：①独立交付物（每个输出文件/报告一个 Task）②独立模块或代码区域 ③独立调查问题或信息源 ④独立验证面（测试、审查、对比）⑤独立角色专长（调查、前端、后端、文档、图表等）。每个成立的维度至少产出 1 个 standard Task；默认目标是让当前 wave 有 3-10 个互不阻塞的 standard Task（上限 20 个）。能拆就拆，优先多派子 Agent，不要为了少派而合并任务。
 - 拆分举证：wave 少于 3 个 Task 时，必须在 instructions 或 Blackboard 中逐条说明各拆分维度为何无法继续拆分；只有确实不可拆分的原子工作才保留 single Task。
 - 合并检测：Task 的标题或 goal 用“和/以及/同时”连接多个交付物时，必须拆开成多个 Task。
@@ -32,10 +31,19 @@ export const PLAN_MULTI_PROMPT = `# 新版子 Agent 管理协议
 - reject 必须写具体 feedback：哪条标准未满足、差在哪里；重新派发时工具会自动带入 previous_feedback。
 - 需要修改任务定义时先 Plan_update(edit_task) 再重派；仅执行不力则原样重派；路线错误则修改方案。`
 
-export const PLAN_SINGLE_PROMPT = `# 单智能体执行协议
-- 你没有 Dispatch_dispatch；当前 active Step 的所有 Task 都由自己执行。
+export const PLAN_SINGLE_PROMPT = `# 方案管理协议（单智能体）
+- 每个用户回合的第一个动作必须调用 Plan_read 查看当前方案状态；运行时也会只开放该工具，不能跳过。
+- 方案状态只能通过 Plan_create 和 Plan_update 写入 .jyycode/plan/<session>/plan.json。
+- 禁止在普通回复、Markdown 代码块或 JSON 文本中创建、更新或模拟方案；文字回复不是方案状态。
+- 无方案且任务满足以下任一条件时，用 Plan_create 建立方案：任务需要被拆成多个有先后的阶段、阶段间有依赖，或需要阶段性汇报。
+- Plan_create 只建立 Step 骨架。仅第一个 Step 可以携带当前需要执行的 Task；后续 Step 的 tasks 必须为空。
+- Plan_create 在一个根 session 中只能成功一次。你没有 Dispatch_dispatch；当前 active Step 的所有 Task 都由自己执行。
+- done_criteria 必须可观察、可判定，例如“产出 X 文件且包含 Y”或“测试全部通过”，不要写“完成/做好/分析清楚”。
+- 修改方案一律用 Plan_update 并携带最新 revision；冲突时根据返回的最新方案重新决策，不要机械重发旧 patch。
+- 每次模型回复至多调用一次 Plan_create 或 Plan_update。必须先读取这次调用的结果、revision 和 next_action_hint，才能发起下一次状态写入。
 - 执行状态必须通过 Plan_update 推进：pending→running→reported，按 done_criteria 自检后再 reported→approved/rejected。
-- 不要跳过状态；rejected 任务必须修复并重新执行。`
+- 不要跳过状态；rejected 任务必须修复并重新执行。
+- 每轮处理完 Inbox、审核、当前 Step 明细展开和当前可推进工作后再结束。`
 
 export const PLAN_CHILD_PROMPT = `# 子 Agent 执行协议
 - 启动简报中的 task_title、goal、done_criteria、task_instructions（如有）和 step_context 都是当前任务的完整上下文；previous_feedback 是上次被打回的具体原因。task_instructions 与 done_criteria 冲突时，以 done_criteria 为准，并在 Blackboard 说明风险。
@@ -45,7 +53,7 @@ export const PLAN_CHILD_PROMPT = `# 子 Agent 执行协议
 - Report 前再次无参读取 Blackboard，处理所有新消息；如果本 Task 的结果、依赖或交接对其他 Agent 有帮助，先发布一条简洁摘要再 Report。候选 Task 按 Candidate task protocol 的阶段限制执行，不在 running 阶段使用 Blackboard。
 - Report 返回 ok=true 后结束；仅在 retryable=true 时按 hint 使用同一 run_id 补交。
 - 你不能创建或修改父方案，也不能输出 JSON 方案替代 Report。
-- 子 Agent：发现影响协作的风险、阻塞、决策、发现、依赖、交接或求助时立即用 Blackboard 发布，不发心跳或重复普通进度；Report 前无参调用 Blackboard 并处理新消息。`
+- 子 Agent：发现影响协作的风险、阻塞、决策、发现、依赖、交接或求助时立即用 Blackboard 发布，不发重复普通进度；Report 前无参调用 Blackboard 并处理新消息。`
 
 export const PLAN_CANDIDATE_PROMPT = `## Candidate task protocol
 - Candidate mode is for comparing 2-3 independent approaches to the same current Step. It is not ordinary parallel execution.
@@ -89,15 +97,14 @@ export function planSystemPrompt(input: {
   profiles?: readonly SubagentProfile[]
 }) {
   if (input.child) return PLAN_CHILD_PROMPT
+  if (!input.multiAgent) return PLAN_SINGLE_PROMPT
   return [
     PLAN_BASE_PROMPT,
-    input.multiAgent ? PLAN_EVENT_DRIVEN_BLACKBOARD_PROMPT : undefined,
-    input.multiAgent ? PLAN_MULTI_PROMPT : PLAN_SINGLE_PROMPT,
-    input.multiAgent ? PLAN_CANDIDATE_PROMPT : undefined,
-    input.multiAgent ? dispatchRosterPrompt(input.profiles) : undefined,
-  ]
-    .filter((part): part is string => Boolean(part))
-    .join("\n\n")
+    PLAN_EVENT_DRIVEN_BLACKBOARD_PROMPT,
+    PLAN_MULTI_PROMPT,
+    PLAN_CANDIDATE_PROMPT,
+    dispatchRosterPrompt(input.profiles),
+  ].join("\n\n")
 }
 
 export * as PlanPrompts from "./prompts"

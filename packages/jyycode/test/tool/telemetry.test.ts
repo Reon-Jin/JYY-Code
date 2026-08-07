@@ -58,13 +58,12 @@ function registryLayer(tools: Tool.Def[]) {
   )
 }
 
-const mcpLayer = Layer.succeed(
-  MCP.Service,
-  MCP.Service.of({
+function mcpService(toolDefs: Tool.Def[] = []) {
+  return MCP.Service.of({
     status: () => Effect.succeed({}),
     clients: () => Effect.succeed({}),
     tools: () => Effect.succeed({}),
-    toolDefs: () => Effect.succeed([]),
+    toolDefs: () => Effect.succeed(toolDefs),
     prompts: () => Effect.succeed({}),
     resources: () => Effect.succeed({}),
     add: () => Effect.succeed({ status: {} }),
@@ -79,8 +78,10 @@ const mcpLayer = Layer.succeed(
     supportsOAuth: () => Effect.succeed(false),
     hasStoredTokens: () => Effect.succeed(false),
     getAuthStatus: () => Effect.succeed({ type: "none" } as any),
-  }),
-)
+  })
+}
+
+const mcpLayer = Layer.succeed(MCP.Service, mcpService())
 
 const pluginLayer = Layer.succeed(
   Plugin.Service,
@@ -147,6 +148,44 @@ describe("ToolTelemetry", () => {
       expect(catalog.properties.toolIDs).toEqual(["lookup"])
       expect(catalog.properties.toolCount).toBe(1)
       expect(catalog.properties.schemaBytes).toBeGreaterThan(0)
+    }),
+  )
+
+  it.instance("lazy-loads advanced registry and MCP tools while keeping skill visible", () =>
+    Effect.gen(function* () {
+      const advanced = {
+        ...def("my_advanced", () => Effect.succeed({ title: "Advanced", output: "ok", metadata: {} })),
+        catalog: { category: "other" as const, mutability: "read" as const, risk: "low" as const, detail: "advanced" as const },
+      }
+      const mcpTool = {
+        ...def("mcp_parse", () => Effect.succeed({ title: "Parse", output: "ok", metadata: {} })),
+        catalog: { category: "mcp" as const, mutability: "external" as const, risk: "medium" as const },
+      }
+      const tools = yield* SessionTools.resolve({
+        agent,
+        model: provider.model,
+        session,
+        processor: processor(),
+        bypassAgentCheck: false,
+        messages: [],
+        promptOps: {} as any,
+      }).pipe(
+        Effect.provide(
+          registryLayer([
+            def("tool_search", () => Effect.die("replaced")),
+            def("skill", () => Effect.succeed({ title: "Skill", output: "ok", metadata: {} })),
+            advanced,
+            def("my_standard", () => Effect.succeed({ title: "Standard", output: "ok", metadata: {} })),
+          ]),
+        ),
+        Effect.provideService(MCP.Service, mcpService([mcpTool])),
+      )
+
+      expect(tools["my_advanced"]?.description).toContain("完整定义和用法说明已隐藏")
+      expect(tools["mcp_parse"]?.description).toContain("完整定义和用法说明已隐藏")
+      expect(tools["skill"]?.description).not.toContain("完整定义和用法说明已隐藏")
+      expect(tools["my_standard"]?.description).not.toContain("完整定义和用法说明已隐藏")
+      expect(tools["tool_search"]).toBeDefined()
     }),
   )
 

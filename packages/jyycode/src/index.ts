@@ -39,6 +39,7 @@ import { Database } from "@/storage/db"
 import { errorMessage } from "./util/error"
 import { PluginCommand } from "./cli/cmd/plug"
 import { Heap } from "./cli/heap"
+import { LLMTrace } from "@/dev/llm-trace"
 import { drizzle } from "drizzle-orm/bun-sqlite"
 import { ensureProcessMetadata } from "@jyycode-ai/core/util/jyycode-process"
 import { isRecord } from "@/util/record"
@@ -116,6 +117,8 @@ const cli = yargs(args)
         return "INFO"
       })(),
     })
+
+    LLMTrace.init()
 
     Heap.start()
 

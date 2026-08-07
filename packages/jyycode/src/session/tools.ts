@@ -10,6 +10,7 @@ import { ModelID } from "@/provider/schema"
 import { Plugin } from "@/plugin"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions } from "ai"
 import { Effect } from "effect"
+import type { JSONSchema7 } from "@ai-sdk/provider"
 import { MessageV2 } from "./message-v2"
 import * as Session from "./session"
 import { SessionProcessor } from "./processor"
@@ -19,6 +20,7 @@ import * as Log from "@jyycode-ai/core/util/log"
 import { EffectBridge } from "@/effect/bridge"
 import { Bus } from "@/bus"
 import { ToolTelemetry } from "@/tool/telemetry"
+import { CatalogSearch } from "@/tool/catalog-search"
 import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
 import { Skill } from "@/skill"
 import { planFilePath, readPlanFileSync, type CandidateDiscussionPhase } from "@/plan/schema"
@@ -53,6 +55,18 @@ const PROTOCOL_MUTATION_TOOL_IDS = new Set([
   "Candidate.submit",
   "Report",
 ])
+
+function lazyToolDescription(item: Tool.Def) {
+  const firstLine = item.description.split("\n")[0]?.trim() ?? ""
+  const summary = firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine
+  return `${summary}\n\n完整定义和用法说明已隐藏。调用 tool_search 搜索 "${item.id}" 获取完整 schema 后再调用本工具。`
+}
+
+function shouldLazyLoadTool(item: Tool.Def) {
+  if (item.id === "tool_search" || item.id === "skill" || item.id === "Goal_done") return false
+  if (PLAN_TOOL_IDS.has(item.id)) return false
+  return item.catalog?.detail === "advanced" || item.catalog?.category === "mcp"
+}
 
 function skippedAfterProtocolMutation(toolID: string) {
   return {
@@ -104,10 +118,15 @@ function gatedPlanWriteStub(name: string, requiredTool: string): AITool {
   })
 }
 
-function pruneOrStubTools(tools: Record<string, AITool>, allowed: ReadonlySet<string>, requiredTool: string) {
+function pruneOrStubTools(
+  tools: Record<string, AITool>,
+  allowed: ReadonlySet<string>,
+  requiredTool: string,
+  stubGated = true,
+) {
   for (const name of Object.keys(tools)) {
     if (allowed.has(name)) continue
-    if (GATED_PLAN_WRITE_TOOL_NAMES.has(name)) {
+    if (stubGated && GATED_PLAN_WRITE_TOOL_NAMES.has(name)) {
       tools[name] = gatedPlanWriteStub(name, requiredTool)
       continue
     }
@@ -121,7 +140,8 @@ function pruneOrStubTools(tools: Record<string, AITool>, allowed: ReadonlySet<st
  * prompt layer still sends an exact tool choice, so these helpers cannot turn
  * a cancel/recovery action into an endless alternative-tool loop.
  */
-export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredTool: string) {
+export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredTool: string, multiAgent = true) {
+  const multiAgentOnly = (items: readonly string[]) => (multiAgent ? [...items] : [])
   if (requiredTool === "Plan_read") {
     const required = tools.Plan_read
     if (!required) throw new Error("Required tool is unavailable: Plan_read")
@@ -130,13 +150,9 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
     // hiding it turns that valid request into an unknown-tool failure.
     const allowed = new Set([
       "Plan_read",
-      "Dispatch_cancel",
-      "Dispatch_dispatch",
-      "Blackboard",
-      "Blackboard_Reply",
-      "Dispatch_roles",
+      ...multiAgentOnly(["Dispatch_cancel", "Dispatch_dispatch", "Blackboard", "Blackboard_Reply", "Dispatch_roles"]),
     ])
-    pruneOrStubTools(tools, allowed, requiredTool)
+    pruneOrStubTools(tools, allowed, requiredTool, multiAgent)
     return
   }
   if (requiredTool === "Plan_create") {
@@ -149,14 +165,10 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
     const allowed = new Set([
       "Plan_create",
       "Plan_read",
-      "Dispatch_roles",
-      "Dispatch_cancel",
       "Plan_update",
-      "Dispatch_dispatch",
-      "Blackboard",
-      "Blackboard_Reply",
+      ...multiAgentOnly(["Dispatch_roles", "Dispatch_cancel", "Dispatch_dispatch", "Blackboard", "Blackboard_Reply"]),
     ])
-    pruneOrStubTools(tools, allowed, requiredTool)
+    pruneOrStubTools(tools, allowed, requiredTool, multiAgent)
     return
   }
   if (requiredTool === "Plan_update" || requiredTool === "Dispatch_dispatch") {
@@ -167,12 +179,9 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
     const allowed = new Set([
       requiredTool,
       "Plan_read",
-      "Blackboard",
-      "Blackboard_Reply",
-      "Dispatch_roles",
-      "Dispatch_cancel",
+      ...multiAgentOnly(["Blackboard", "Blackboard_Reply", "Dispatch_roles", "Dispatch_cancel"]),
     ])
-    pruneOrStubTools(tools, allowed, requiredTool)
+    pruneOrStubTools(tools, allowed, requiredTool, multiAgent)
     return
   }
   if (requiredTool === "Blackboard") {
@@ -236,7 +245,11 @@ export function isPlanToolVisible(itemID: string, session: Pick<Session.Info, "p
     return itemID === "Report" || itemID === "Blackboard" || itemID === "Blackboard.reply"
   if (session.multiAgent === true) return true
   return (
-    !itemID.startsWith("Dispatch.") && itemID !== "Report" && itemID !== "Blackboard" && itemID !== "Blackboard.reply"
+    !itemID.startsWith("Dispatch.") &&
+    !itemID.startsWith("Candidate.") &&
+    itemID !== "Report" &&
+    itemID !== "Blackboard" &&
+    itemID !== "Blackboard.reply"
   )
 }
 
@@ -479,12 +492,14 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   // chance to invalidate the stale calls queued behind it.
   let protocolMutationTail: Promise<unknown> = Promise.resolve()
 
-  const addToolDef = (item: Tool.Def) => {
+  const addToolDef = (item: Tool.Def, options: { lazy?: boolean } = {}) => {
     const modelToolName = toolNameForModel(item.id)
-    const schema = ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
+    const schema = options.lazy
+      ? ({ type: "object", additionalProperties: true } as const)
+      : ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
     schemaBytes += ToolTelemetry.approximateSchemaBytes(schema)
     tools[modelToolName] = tool({
-      description: item.description,
+      description: options.lazy ? lazyToolDescription(item) : item.description,
       inputSchema: jsonSchema(schema),
       execute(args, options) {
         const executeTool = () =>
@@ -568,6 +583,86 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     })
   }
 
+  const addToolSearchDef = (searchable: Tool.Def[]) => {
+    const schema: JSONSchema7 = {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search terms for finding relevant available tools" },
+        limit: { type: "number", description: "Maximum number of tool matches to return (default: 8)" },
+        detail: {
+          type: "string",
+          enum: ["summary", "schema", "full"],
+          description: "How much information to return for each match (default: summary)",
+        },
+        category: {
+          type: "string",
+          enum: [
+            "filesystem",
+            "code-search",
+            "execution",
+            "web",
+            "mcp",
+            "subagent",
+            "communication",
+            "memory",
+            "other",
+          ],
+          description: "Optional catalog category filter.",
+        },
+      },
+      required: ["query"],
+    }
+    schemaBytes += ToolTelemetry.approximateSchemaBytes(schema)
+    tools["tool_search"] = tool({
+      description:
+        "Search the currently available tool catalog by ranked metadata and keyword matches. Use this when you are unsure which tool is best for a task or need the full definition of a tool whose usage instructions are hidden.",
+      inputSchema: jsonSchema(schema),
+      execute: async (
+        searchParams: {
+          query?: string
+          limit?: number
+          detail?: "summary" | "schema" | "full"
+          category?: string
+        },
+        options,
+      ) => {
+        return run.promise(
+          Effect.gen(function* () {
+            const detail: "summary" | "schema" | "full" = searchParams.detail ?? "summary"
+            const scored = CatalogSearch.search({
+              tools: searchable,
+              query: searchParams.query ?? "",
+              limit: searchParams.limit,
+              detail,
+              category: searchParams.category,
+            })
+            const output = CatalogSearch.formatResults(scored, { detail })
+            const resultIDs = scored.map((item) => item.tool.id)
+            yield* ToolTelemetry.searchExecuted(bus, {
+              sessionID: input.session.id,
+              messageID: input.processor.message.id,
+              callID: options.toolCallId,
+              query: searchParams.query ?? "",
+              detail,
+              category: searchParams.category,
+              resultIDs,
+            })
+            return {
+              title: `Tool search: ${searchParams.query ?? ""}`,
+              metadata: {
+                matches: scored.length,
+                resultIDs,
+                detail,
+                truncated: false,
+              },
+              output,
+            }
+          }),
+        )
+      },
+    })
+  }
+
   const candidateGate = candidateToolGateState(input.session)
   const roleToolIDs = subagentRoleToolIDs(input.agent, input.session, candidateGate)
   const allowedToolIDs = intersectToolIDs(roleToolIDs, candidatePhaseToolIDs(candidateGate, roleToolIDs))
@@ -591,9 +686,19 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const visibleMcpDefs = filterToolIDs(mcpDefs, allowedToolIDs).filter(
     (item) => input.agent.mode !== "subagent" || isSubagentToolVisible(item.id, allowedToolIDs, candidateGate),
   )
-  for (const item of [...visibleRegistryDefs, ...visibleMcpDefs]) {
-    addToolDef(item)
+  const hasToolSearch = visibleRegistryDefs.some((item) => item.id === "tool_search")
+  const searchableDefs = [
+    ...visibleRegistryDefs.filter((item) => item.id !== "tool_search"),
+    ...visibleMcpDefs,
+  ]
+  for (const item of visibleRegistryDefs) {
+    if (item.id === "tool_search") continue
+    addToolDef(item, { lazy: shouldLazyLoadTool(item) })
   }
+  for (const item of visibleMcpDefs) {
+    addToolDef(item, { lazy: true })
+  }
+  if (hasToolSearch) addToolSearchDef(searchableDefs)
 
   yield* ToolTelemetry.catalogResolved(bus, {
     sessionID: input.session.id,

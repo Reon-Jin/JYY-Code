@@ -61,6 +61,7 @@ import { SessionTable } from "./session.sql"
 import { referencePromptMetadata, referenceTextPart } from "./prompt/reference"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
+import { SessionState } from "./state"
 import { LLMEvent } from "@jyycode-ai/llm"
 import { planSystemPrompt } from "@/plan/prompts"
 import { defaultPlanProtocol } from "@/plan/protocol"
@@ -84,10 +85,6 @@ IMPORTANT:
 - This tool provides your final JSON answer - no further actions are taken after calling it`
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured JSON output. You MUST use the StructuredOutput tool to provide your final response as a JSON object. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the JSON schema.`
-const MEMORY_RETRIEVAL_LIMIT = 5
-const MEMORY_RETRIEVAL_QUERY_MAX = 240
-const MEMORY_RETRIEVAL_TEXT_MAX = 1800
-const MEMORY_RETRIEVAL_KIND = "memory-retrieval"
 
 export async function retryMemoryJsonOutput(
   generate: (prompt: string) => Promise<unknown>,
@@ -389,56 +386,6 @@ export const layer = Layer.effect(
         { concurrency: "unbounded", discard: true },
       )
       return parts
-    })
-
-    const applyMemoryRetrieval = Effect.fn("SessionPrompt.applyMemoryRetrieval")(function* (input: {
-      sessionID: SessionID
-      messages: MessageV2.WithParts[]
-      lastUser: MessageV2.User
-      enabled: boolean
-    }) {
-      if (!memory || !input.enabled) return input.messages
-      const source = latestRealUserText(input.messages)
-      const query = memoryRetrievalQuery(source)
-      if (!query) return input.messages
-      const results = yield* memory
-        .search({
-          sessionID: input.sessionID,
-          query,
-          scope: "all",
-          limit: MEMORY_RETRIEVAL_LIMIT,
-        })
-        .pipe(
-          Effect.catchCause((cause) =>
-            elog.error("failed to retrieve persistent memory", { cause }).pipe(Effect.as([] as Memory.SearchResult[])),
-          ),
-        )
-      if (results.length === 0) return input.messages
-      const text = formatMemoryRetrieval(query, results)
-      const messageID = MessageID.ascending()
-      const reminder: MessageV2.WithParts = {
-        info: {
-          ...input.lastUser,
-          id: messageID,
-          time: { created: Date.now() },
-        },
-        parts: [
-          {
-            id: PartID.ascending(),
-            sessionID: input.sessionID,
-            messageID,
-            type: "text",
-            synthetic: true,
-            text,
-            metadata: {
-              kind: MEMORY_RETRIEVAL_KIND,
-              query,
-              matches: results.length,
-            },
-          } satisfies MessageV2.TextPart,
-        ],
-      }
-      return [...input.messages, reminder]
     })
 
     const title = Effect.fn("SessionPrompt.ensureTitle")(function* (input: {
@@ -1716,7 +1663,7 @@ export const layer = Layer.effect(
               plan: planState?.ok ? (planState.plan ?? undefined) : undefined,
             })
             if (requiredPlanTool) {
-              SessionTools.retainRequiredPlanTools(tools, requiredPlanTool)
+              SessionTools.retainRequiredPlanTools(tools, requiredPlanTool, session.multiAgent === true)
             } else if (lastUser.format?.type === "json_schema") {
               tools["StructuredOutput"] = createStructuredOutputTool({
                 schema: lastUser.format.schema,
@@ -1749,13 +1696,6 @@ export const layer = Layer.effect(
             }
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-            msgs = yield* applyMemoryRetrieval({
-              sessionID,
-              messages: msgs,
-              lastUser,
-              enabled: canUsePersistentMemory,
-            })
-
             // Environment and the persistent-memory snapshot are session-static
             // context: inject them only during the session's first turn instead
             // of paying their token cost on every request. The root skill
@@ -1775,6 +1715,9 @@ export const layer = Layer.effect(
                     Effect.catchCause(() => Effect.succeed(undefined)),
                   )
                 : undefined
+            const sessionState = yield* SessionState.readSessionState(fsys, session.directory, sessionID).pipe(
+              Effect.catch(() => Effect.succeed(Option.none())),
+            )
 
             const [env, instructions, modelMsgs] = yield* Effect.all([
               firstSessionTurn
@@ -1784,6 +1727,9 @@ export const layer = Layer.effect(
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [...(memorySnapshot ? [memorySnapshot] : []), ...env, ...instructions]
+            if (Option.isSome(sessionState)) {
+              system.push(SessionState.formatSessionState(sessionState.value))
+            }
             // Profiles live in the global config; mirror Agent.state's
             // resolution order so the roster in the system prompt matches the
             // materialized subagents.
@@ -1896,6 +1842,43 @@ export const layer = Layer.effect(
                 yield* sessions.updateMessage(handle.message)
                 return "break" as const
               }
+
+              const parts = yield* MessageV2.partsAsync(handle.message.id)
+              const assistantText = parts
+                .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic)
+                .map((part) => part.text.trim())
+                .filter(Boolean)
+                .join("\n\n")
+              const toolNames = [
+                ...new Set(
+                  parts
+                    .filter((part): part is MessageV2.ToolPart => part.type === "tool")
+                    .map((part) => part.tool),
+                ),
+              ]
+              const compactionPart = msgs
+                .flatMap((message) => message.parts)
+                .findLast((part): part is MessageV2.CompactionPart => part.type === "compaction")
+              const summaryMessage = msgs.findLast(
+                (message) => message.info.role === "assistant" && message.info.summary,
+              )
+              const summary =
+                summaryMessage && summaryMessage.info.role === "assistant"
+                  ? summaryMessage.parts
+                      .filter((part): part is MessageV2.TextPart => part.type === "text")
+                      .map((part) => part.text.trim())
+                      .filter(Boolean)
+                      .join("\n\n") || undefined
+                  : undefined
+              yield* SessionState.writeSessionState(fsys, session.directory, sessionID, {
+                version: 1,
+                updatedAt: new Date().toISOString(),
+                lastUser: latestRealUserText(msgs) || undefined,
+                lastAssistant: assistantText || undefined,
+                lastToolNames: toolNames.length > 0 ? toolNames : undefined,
+                tailStartID: compactionPart?.tail_start_id,
+                summary,
+              }).pipe(Effect.ignore)
             }
 
             if (result === "stop") return "break" as const
@@ -2221,40 +2204,6 @@ function latestRealAssistantText(message: MessageV2.WithParts) {
   } catch {
     return String(message.info.structured)
   }
-}
-
-function memoryRetrievalQuery(input: string) {
-  const text = input.replace(/\s+/g, " ").trim()
-  if (!text) return ""
-  const hints: string[] = []
-  if (/(我.*(叫|名字|姓名|称呼|是谁)|名字|姓名|称呼)/.test(text)) {
-    hints.push("用户 个人 身份 名字 姓名 称呼")
-  }
-  if (/(偏好|喜欢|习惯|风格|怎么回答|中文|英文|不要|别|必须)/.test(text)) {
-    hints.push("偏好 喜欢 习惯 风格 沟通 回答 Communication Style Engineering Preferences")
-  }
-  if (/(项目|约定|工作流|经验|教训|环境|路径|目录|记忆库|memory)/i.test(text)) {
-    hints.push("项目 约定 工作流 经验 教训 环境 路径 目录 Project Facts Engineering Conventions")
-  }
-  return [text, ...hints].join(" ").replace(/\s+/g, " ").trim().slice(0, MEMORY_RETRIEVAL_QUERY_MAX)
-}
-
-function formatMemoryRetrieval(query: string, results: Memory.SearchResult[]) {
-  const body = results
-    .map((item, index) => [`${index + 1}. ${item.file}:${item.line} [${item.section}]`, item.text].join("\n"))
-    .join("\n\n")
-  const text = [
-    "<system-reminder>",
-    "Relevant persistent memory was automatically retrieved from D:/jyycode/memory for this turn.",
-    `Retrieval query: ${query}`,
-    "",
-    body,
-    "",
-    "Use these memories when relevant. Do not mention this retrieval unless the user asks how memory was used.",
-    "</system-reminder>",
-  ].join("\n")
-  if (text.length <= MEMORY_RETRIEVAL_TEXT_MAX) return text
-  return text.slice(0, MEMORY_RETRIEVAL_TEXT_MAX) + "\n[retrieved memory truncated]\n</system-reminder>"
 }
 
 const ModelRef = Schema.Struct({

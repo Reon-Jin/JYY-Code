@@ -28,6 +28,7 @@ import { LLMNativeRuntime } from "./llm/native-runtime"
 import { LLMRequestPrep } from "./llm/request"
 import { isTruncatedToolCall } from "./llm/tool-call"
 import type { ToolChoice } from "./llm/tool-choice"
+import { LLMTrace } from "@/dev/llm-trace"
 
 export type { ToolChoice } from "./llm/tool-choice"
 
@@ -250,6 +251,22 @@ const live: Layer.Layer<
           return {
             type: "native" as const,
             stream: native.stream,
+            trace: LLMTrace.start({
+              sessionID: input.sessionID,
+              parentSessionID: input.parentSessionID,
+              model: {
+                providerID: input.model.providerID,
+                id: input.model.id,
+              },
+              agent: {
+                name: input.agent.name,
+                mode: input.agent.mode,
+              },
+              user: {
+                id: input.user.id,
+              },
+              prepared,
+            }),
           }
         }
         yield* Effect.logInfo("llm runtime selected").pipe(
@@ -262,6 +279,32 @@ const live: Layer.Layer<
         )
         l.info("native runtime unavailable; falling back to ai-sdk", { reason: native.reason })
       }
+
+      const traceMessages = (() => {
+        if (!LLMTrace.isEnabled()) return prepared.messages
+        try {
+          return ProviderTransform.message(structuredClone(prepared.messages), input.model, prepared.messageTransformOptions)
+        } catch {
+          return prepared.messages
+        }
+      })()
+      const trace = LLMTrace.start({
+        sessionID: input.sessionID,
+        parentSessionID: input.parentSessionID,
+        model: {
+          providerID: input.model.providerID,
+          id: input.model.id,
+        },
+        agent: {
+          name: input.agent.name,
+          mode: input.agent.mode,
+        },
+        user: {
+          id: input.user.id,
+        },
+        messages: traceMessages,
+        prepared,
+      })
 
       yield* Effect.logInfo("llm runtime selected").pipe(
         Effect.annotateLogs({
@@ -360,6 +403,7 @@ const live: Layer.Layer<
             },
           },
         }),
+        trace,
       }
     })
 
@@ -374,16 +418,19 @@ const live: Layer.Layer<
 
             const result = yield* run({ ...input, abort: ctrl.signal })
 
-            if (result.type === "native") return result.stream
+            if (result.type === "native") return LLMTrace.wrap(result.stream, result.trace)
 
             // Adapter seam: both runtimes expose the same LLMEvent stream. Native
             // already returns one; AI SDK streams are converted here.
             const state = LLMAISDK.adapterState()
-            return Stream.fromAsyncIterable(result.result.fullStream, (e) =>
-              e instanceof Error ? e : new Error(String(e)),
-            ).pipe(
-              Stream.mapEffect((event) => LLMAISDK.toLLMEvents(state, event)),
-              Stream.flatMap((events) => Stream.fromIterable(events)),
+            return LLMTrace.wrap(
+              Stream.fromAsyncIterable(result.result.fullStream, (e) =>
+                e instanceof Error ? e : new Error(String(e)),
+              ).pipe(
+                Stream.mapEffect((event) => LLMAISDK.toLLMEvents(state, event)),
+                Stream.flatMap((events) => Stream.fromIterable(events)),
+              ),
+              result.trace,
             )
           }),
         ),

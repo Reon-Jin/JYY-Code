@@ -3,10 +3,12 @@ import { TuiThreadCommand } from "./cli/cmd/tui/thread"
 import { InstallationVersion } from "@jyycode-ai/core/installation/version"
 import { hideBin } from "yargs/helpers"
 import { Log } from "./node"
+import { LLMTrace } from "@/dev/llm-trace"
 
 Log.init({
   print: false,
 })
+LLMTrace.init()
 
 const cli = yargs(hideBin(process.argv))
   .parserConfiguration({ "populate--": true })
