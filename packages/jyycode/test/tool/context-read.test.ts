@@ -5,6 +5,7 @@ import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { EpisodicMemory } from "@/memory/episodic"
+import { ExperienceMemory } from "@/memory/experience"
 import { SessionID, MessageID } from "@/session/schema"
 import { ContextReadTool } from "@/tool/context-read"
 import { Tool } from "@/tool/tool"
@@ -106,5 +107,45 @@ it.live("context_read without action defaults to the latest digest", () =>
       tool.execute({}, ctx),
     )
     expect(result.output).toContain("修复登录")
+  }),
+)
+
+it.live("context_read action=experience returns matching lessons", () =>
+  Effect.gen(function* () {
+    const root = yield* tmpdirScoped()
+    const sessionID = SessionID.make("ses_experience_tool")
+    const layer = ExperienceMemory.layerWithDirectory(root).pipe(Layer.provide(AppFileSystem.defaultLayer))
+    yield* Effect.gen(function* () {
+      const experience = yield* ExperienceMemory.Service
+      yield* experience.upsert(sessionID, {
+        kind: "failure",
+        importance: 8,
+        keywords: ["部署"],
+        content: "部署脚本报错时先看日志再重试",
+        evidence: "[ses_experience_tool#1] deploy.sh",
+        confidence: "high",
+      })
+    }).pipe(Effect.provide(layer))
+
+    const info = yield* ContextReadTool
+    const tool = yield* info.init()
+    const result = yield* provideInstance(root)(
+      tool.execute({ action: "experience", query: "部署" }, ctx).pipe(Effect.provide(layer)),
+    )
+    expect(result.output).toContain("部署脚本报错时先看日志再重试")
+    expect(result.output).toContain("Evidence:")
+  }),
+)
+
+it.live("context_read action=experience reports no matches", () =>
+  Effect.gen(function* () {
+    const root = yield* tmpdirScoped()
+    const info = yield* ContextReadTool
+    const tool = yield* info.init()
+    const layer = ExperienceMemory.layerWithDirectory(root).pipe(Layer.provide(AppFileSystem.defaultLayer))
+    const result = yield* provideInstance(root)(
+      tool.execute({ action: "experience", query: "不存在" }, ctx).pipe(Effect.provide(layer)),
+    )
+    expect(result.output).toContain("No experience matches")
   }),
 )
