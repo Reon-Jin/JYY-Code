@@ -221,11 +221,13 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       }
       const input =
         ctx.params.scope === "task"
-          ? { scope: "task" as const, id: ctx.params.id, sessionID: ctx.query.sessionID!, ...ctx.payload }
+          ? {
+              scope: "task" as const,
+              id: ctx.params.id,
+              ...(ctx.query.sessionID ? { sessionID: ctx.query.sessionID } : {}),
+              ...ctx.payload,
+            }
           : { scope: "user" as const, id: ctx.params.id, ...ctx.payload }
-      if (ctx.params.scope === "task" && !ctx.query.sessionID) {
-        return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
-      }
       return yield* mapMemoryError(memory.update(input))
     })
 
@@ -237,11 +239,12 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
         yield* mapMemoryError(memory.remove({ scope: "experience", id: ctx.params.id }))
         return { removed: true }
       }
-      if (ctx.params.scope === "task" && !ctx.query.sessionID) {
-        return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
-      }
       yield* mapMemoryError(
-        memory.remove({ scope: ctx.params.scope, id: ctx.params.id, sessionID: ctx.query.sessionID }),
+        memory.remove({
+          scope: ctx.params.scope,
+          id: ctx.params.id,
+          ...(ctx.query.sessionID ? { sessionID: ctx.query.sessionID } : {}),
+        }),
       )
       return { removed: true }
     })

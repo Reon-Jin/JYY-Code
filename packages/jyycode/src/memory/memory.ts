@@ -34,9 +34,10 @@ const COMPACTION_ENTRY_TARGET = 45
 const SNAPSHOT_ENTRY_LIMIT = 10
 const MEMORY_SNAPSHOT_MAX_CHARS = 400
 const USER_SNAPSHOT_MAX_CHARS = 1_200
-// A task entry is the durable summary for an entire session, not a caption for
-// its latest turn. Keep enough room for the original goal, important decisions,
-// and the final state while remaining compact enough for the session snapshot.
+// A task entry is the durable summary for an entire project, shared by every
+// session in that project, not a caption for its latest turn. Keep enough room
+// for the original goal, important decisions, and the final state while
+// remaining compact enough for the session snapshot.
 const TASK_GOAL_CHAR_LIMIT = 120
 const TASK_PROGRESS_CHAR_LIMIT = 160
 const TASK_LESSON_CHAR_LIMIT = 160
@@ -1576,7 +1577,7 @@ function computeUsage(text: string, scope: Scope): UsageInfo {
 
 function formatMemoryHeader(scope: Scope, text: string) {
   const { percentage, used, limit } = computeUsage(text, scope)
-  const label = scope === "user" ? "USER PROFILE (your preferences)" : "TASK MEMORY (current session state)"
+  const label = scope === "user" ? "USER PROFILE (your preferences)" : "TASK MEMORY (shared project state)"
   const left = `${label} [${percentage}% — ${used}/${limit} chars]`
   const totalWidth = 64
   const padLeft = Math.max(2, Math.floor((totalWidth - left.length) / 2))

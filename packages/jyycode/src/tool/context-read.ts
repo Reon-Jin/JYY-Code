@@ -18,7 +18,7 @@ export const Parameters = Schema.Struct({
     description: "Turn number for action=turn (1-based).",
   }),
   query: Schema.optional(Schema.String).annotate({
-    description: "Keyword for action=search or action=experience.",
+    description: "Keyword for action=search; optional for action=experience (omit to list recent active rules).",
   }),
   kind: Schema.optional(Kind).annotate({
     description: "Optional kind filter for action=experience.",

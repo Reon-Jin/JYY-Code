@@ -81,7 +81,7 @@ export interface Interface {
   readonly update: (
     input:
       | ({ scope: "user"; id: string } & EntryInput)
-      | ({ scope: "task"; id: string | null; sessionID: SessionID } & EntryInput)
+      | ({ scope: "task"; id: string | null; sessionID?: SessionID } & EntryInput)
       | ({ scope: "experience"; id: string } & ExperienceInput),
   ) => Effect.Effect<Entry, Error>
   readonly remove: (input: { scope: Scope; id: string; sessionID?: SessionID }) => Effect.Effect<void, Error>
@@ -240,7 +240,7 @@ export const layer = Layer.effect(
     const update = Effect.fn("MemoryManagement.update")(function* (
       input:
         | ({ scope: "user"; id: string } & EntryInput)
-        | ({ scope: "task"; id: string | null; sessionID: SessionID } & EntryInput)
+        | ({ scope: "task"; id: string | null; sessionID?: SessionID } & EntryInput)
         | ({ scope: "experience"; id: string } & ExperienceInput),
     ) {
       if (input.scope === "experience") {
@@ -259,6 +259,7 @@ export const layer = Layer.effect(
         return managed(yield* experience.managementUpdate({ expected, replacement }))
       }
       if (input.scope === "task" && input.id === null) {
+        if (!input.sessionID) return yield* Effect.fail(new Error("Task memory creation requires a sessionID"))
         const projectID = yield* memory.resolveProjectID(input.sessionID)
         const entry = yield* storage.create({
           sessionID: input.sessionID,
@@ -275,7 +276,7 @@ export const layer = Layer.effect(
         return managed(entry)
       }
       if (input.id === null) return yield* Effect.fail(new Error("Memory id is required"))
-      const sessionID = input.scope === "task" ? input.sessionID : managementSessionID
+      const sessionID = input.scope === "task" ? (input.sessionID ?? managementSessionID) : managementSessionID
       const expected = (yield* findExact(input.scope, input.id)) as Memory.MemoryEntry
       const replacement: Memory.MemoryEntry =
         expected.scope === "memory"

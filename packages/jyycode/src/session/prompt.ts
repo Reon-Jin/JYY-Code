@@ -208,8 +208,8 @@ export const layer = Layer.effect(
         }
         const turnNumber = countRealUserTurns(history)
         const prompt = [
-          "You are a semantic memory curator. Rewrite this session's single task-memory entry and output one JSON object.",
-          "The task entry is working memory for THIS session only: a compact executive state, never a completion log.",
+          "You are a semantic memory curator. Rewrite this project's single task-memory entry and output one JSON object.",
+          "The task entry is working memory shared by every session in THIS project: a compact executive state, never a completion log.",
           'task.content must have exactly the form "当前任务：<goal>；进展：<progress>；[经验：<lesson>]" (经验 optional).',
           "Limits excluding prefixes: goal ≤120, progress ≤160, 经验 ≤160 Unicode chars. Rephrase semantically to fit; never truncate, never use ellipses, and never write 我用了/最终学会了/下一步.",
           "A task entry is mandatory on every phase, including greetings: always set shouldUpdate to true and always return task.",
