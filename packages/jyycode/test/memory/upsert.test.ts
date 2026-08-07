@@ -64,19 +64,19 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["赛车游戏"],
-            content: "当前任务：赛车游戏；进展：完成基础建模；下一步：实现碰撞结构",
+            content: "当前任务：赛车游戏；进展：完成基础建模",
           })
           const updated = yield* memory.upsertTaskMemory({
             sessionID: firstSession,
             importance: 8,
             keywords: ["赛车游戏", "地图"],
-            content: "当前任务：赛车地图；进展：完成模块拆分与绘制；下一步：组织地图资源",
+            content: "当前任务：赛车地图；进展：完成模块拆分与绘制",
           })
           const second = yield* memory.upsertTaskMemory({
             sessionID: secondSession,
             importance: 4,
             keywords: ["文档"],
-            content: "当前任务：部署文档；进展：完成结构化整理；下一步：校验交付规范",
+            content: "当前任务：部署文档；进展：完成结构化整理",
           })
           return { created, updated, second }
         }),
@@ -92,7 +92,7 @@ describe("structured memory upserts", () => {
     expect(stored.find((entry) => entry.sessionID === firstSession)).toMatchObject({
       importance: 8,
       keywords: ["赛车游戏", "地图"],
-      content: "当前任务：赛车地图；进展：完成模块拆分与绘制；下一步：组织地图资源",
+      content: "当前任务：赛车地图；进展：完成模块拆分与绘制",
     })
     expect(stored[0]!.date).toMatch(/^\d{8}$/u)
   })
@@ -315,7 +315,20 @@ describe("structured memory upserts", () => {
           }),
         ),
       ),
-    ).rejects.toThrow('expected "当前任务：<goal>；进展：<progress>；下一步：<next>"')
+    ).rejects.toThrow('expected "当前任务：<goal>；进展：<progress>；[经验：<lesson>]"')
+
+    await expect(
+      run(
+        Memory.Service.use((memory) =>
+          memory.upsertTaskMemory({
+            sessionID: firstSession,
+            importance: 5,
+            keywords: ["格式"],
+            content: "当前任务：旧格式；进展：完成；下一步：验证",
+          }),
+        ),
+      ),
+    ).rejects.toThrow('expected "当前任务：<goal>；进展：<progress>；[经验：<lesson>]"')
   })
 
   test("keeps enough room for a session-wide summary while bounding each section", async () => {
@@ -324,8 +337,8 @@ describe("structured memory upserts", () => {
     const goalTooLong = "甲".repeat(121)
     const progress = "乙".repeat(160)
     const progressTooLong = "乙".repeat(161)
-    const next = "丙".repeat(80)
-    const nextTooLong = "丙".repeat(81)
+    const lesson = "丙".repeat(160)
+    const lessonTooLong = "丙".repeat(161)
 
     const accepted = await run(
       Memory.Service.use((memory) =>
@@ -334,13 +347,13 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["边界"],
-            content: `当前任务：${goal}；进展：${progress}；下一步：${next}`,
+            content: `当前任务：${goal}；进展：${progress}`,
           }),
           memory.upsertTaskMemory({
             sessionID: secondSession,
             importance: 5,
             keywords: ["边界"],
-            content: `当前任务：${goal}；进展：${progress}；下一步：${next}`,
+            content: `当前任务：${goal}；进展：${progress}；经验：${lesson}`,
           }),
         ]),
       ),
@@ -354,7 +367,7 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["边界"],
-            content: `当前任务：${goalTooLong}；进展：${progress}；下一步：${next}`,
+            content: `当前任务：${goalTooLong}；进展：${progress}`,
           }),
         ),
       ),
@@ -367,7 +380,7 @@ describe("structured memory upserts", () => {
             sessionID: secondSession,
             importance: 5,
             keywords: ["边界"],
-            content: `当前任务：${goal}；进展：${progressTooLong}；下一步：${next}`,
+            content: `当前任务：${goal}；进展：${progressTooLong}`,
           }),
         ),
       ),
@@ -380,11 +393,11 @@ describe("structured memory upserts", () => {
             sessionID: secondSession,
             importance: 5,
             keywords: ["边界"],
-            content: `当前任务：${goal}；进展：${progress}；下一步：${nextTooLong}`,
+            content: `当前任务：${goal}；进展：${progress}；经验：${lessonTooLong}`,
           }),
         ),
       ),
-    ).rejects.toThrow("下一步 must not exceed 80 characters")
+    ).rejects.toThrow("经验 must not exceed 160 characters")
   })
 
   test("merges location paraphrases like 苏州人 and 苏州本地人", async () => {

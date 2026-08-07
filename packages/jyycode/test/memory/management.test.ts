@@ -65,7 +65,7 @@ describe("audited memory management storage", () => {
             sessionID: SessionID.make("ses_task"),
             importance: 6,
             keywords: ["任务"],
-            content: "当前任务：完成设置；进展：完成分步配置；下一步：校验设置",
+            content: "当前任务：完成设置；进展：完成分步配置",
           })
         }),
       ),
@@ -131,7 +131,7 @@ describe("audited memory management storage", () => {
             sessionID: SessionID.make("ses_first"),
             importance: 6,
             keywords: ["设置"],
-            content: "当前任务：完成设置；进展：完成分步配置；下一步：校验设置",
+            content: "当前任务：完成设置；进展：完成分步配置",
           })
           yield* management.update({
             scope: "task",
@@ -139,7 +139,7 @@ describe("audited memory management storage", () => {
             sessionID: SessionID.make("ses_second"),
             importance: 7,
             keywords: ["附件"],
-            content: "当前任务：支持附件；进展：完成分块上传；下一步：校验文件",
+            content: "当前任务：支持附件；进展：完成分块上传",
           })
         }),
       ),
@@ -210,13 +210,13 @@ describe("audited memory management storage", () => {
           sessionID: SessionID.make("ses_task"),
           importance: 5,
           keywords: ["任务"],
-          content: "当前任务：实现任务；进展：完成步骤拆解；下一步：规划任务",
+          content: "当前任务：实现任务；进展：完成步骤拆解",
         }),
       ),
     )
     await ctx.run(
       management.use((service) =>
-        service.update({ ...task, content: "当前任务：更新任务；进展：完成回归检查；下一步：验证变更" }),
+        service.update({ ...task, content: "当前任务：更新任务；进展：完成回归检查" }),
       ),
     )
     if (task.scope !== "task") throw new Error("Expected task memory")

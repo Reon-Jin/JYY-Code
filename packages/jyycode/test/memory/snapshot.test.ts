@@ -27,7 +27,7 @@ describe("session snapshots", () => {
         importance: (index < 10 ? 10 : 1) as Memory.Importance,
         date: `202607${String((index % 6) + 1).padStart(2, "0")}`,
         keywords: [`条目${index}`],
-        content: `当前任务：任务${index}；进展：完成；下一步：验证`,
+        content: `当前任务：任务${index}；进展：完成`,
       }),
     )
     await fs.writeFile(path.join(directory, "MEMORY.json"), Memory.serializeStore("memory", entries))

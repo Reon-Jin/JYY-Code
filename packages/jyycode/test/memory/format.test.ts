@@ -182,10 +182,28 @@ describe("memory v3 JSON format", () => {
       importance: 5,
       date: "20260807",
       keywords: ["修复"],
-      content: "当前任务：修复；进展：完成；下一步：验证",
+      content: "当前任务：修复；进展：完成",
     }
     const store = Memory.parseStore("memory", Memory.serializeStore("memory", [entry]))
     const selected = Memory.selectSnapshotEntries(store.entries, "memory", sessionID)
     expect(selected[0]?.keywords).toEqual(["修复"])
+  })
+
+  test("drops the legacy 下一步 segment when parsing task entries", () => {
+    const text = JSON.stringify({
+      schemaVersion: 3,
+      lastCompactedAt: null,
+      entries: [
+        {
+          sessionID,
+          importance: 5,
+          date: "20260807",
+          keywords: ["旧格式"],
+          content: "当前任务：旧任务；进展：完成；下一步：等待用户新指令",
+        },
+      ],
+    })
+    const store = Memory.parseStore("memory", text)
+    expect(store.entries[0]?.content).toBe("当前任务：旧任务；进展：完成")
   })
 })

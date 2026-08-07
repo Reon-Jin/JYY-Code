@@ -39,7 +39,7 @@ const USER_SNAPSHOT_MAX_CHARS = 1_200
 // and the final state while remaining compact enough for the session snapshot.
 const TASK_GOAL_CHAR_LIMIT = 120
 const TASK_PROGRESS_CHAR_LIMIT = 160
-const TASK_NEXT_CHAR_LIMIT = 80
+const TASK_LESSON_CHAR_LIMIT = 160
 
 export type Scope = "memory" | "user"
 type Confidence = "low" | "medium" | "high"
@@ -159,7 +159,7 @@ function parseEntryObject(scope: Scope, value: unknown, index: number): MemoryEn
       importance: parseImportance(entry.importance),
       date: expectString(entry.date, "memory entry date"),
       keywords: expectStringArray(entry.keywords, "memory entry keywords"),
-      content: expectString(entry.content, "memory entry content"),
+      content: migrateLegacyTaskContent(expectString(entry.content, "memory entry content")),
     })
   }
   assertExactFields(
@@ -188,6 +188,11 @@ function normalizeEntry(entry: MemoryEntry): MemoryEntry {
   }
   if (entry.date !== undefined && !isCalendarDate(entry.date)) throw new Error(`Invalid user entry date: ${entry.date}`)
   return { scope: "user", importance, ...(entry.date ? { date: entry.date } : {}), keywords, content }
+}
+
+/** Drop the legacy "；下一步：..." segment so old task entries load cleanly. */
+function migrateLegacyTaskContent(content: string): string {
+  return content.replace(/；下一步：[^；]*$/u, "")
 }
 
 function expectRecord(value: unknown, label: string): Record<string, unknown> {
@@ -1672,39 +1677,36 @@ function parseCandidate(value: unknown, label: string): MemoryCandidate {
   return normalized
 }
 
-const TASK_FORMAT = "当前任务：<goal>；进展：<progress>；下一步：<next>"
+const TASK_FORMAT = "当前任务：<goal>；进展：<progress>；[经验：<lesson>]"
 
 function validateTaskContent(input: string) {
   const content = parseContent(input)
   const formatError = `Invalid task memory content: expected "${TASK_FORMAT}"`
-  if (/我用了|最终学会了|我完成了/u.test(content)) throw new Error(formatError)
+  if (/下一步|我用了|最终学会了|我完成了/u.test(content)) throw new Error(formatError)
   const segments = content.split("；")
-  if (segments.length !== 3) throw new Error(formatError)
+  if (segments.length < 2 || segments.length > 3) throw new Error(formatError)
   const goal = segments[0]!
   const progress = segments[1]!
-  const next = segments[2]!
+  const lesson = segments[2]
   const goalPrefix = "当前任务："
   const progressPrefix = "进展："
-  const nextPrefix = "下一步："
-  if (
-    !goal.startsWith(goalPrefix) ||
-    !progress.startsWith(progressPrefix) ||
-    !next.startsWith(nextPrefix)
-  ) {
+  const lessonPrefix = "经验："
+  if (!goal.startsWith(goalPrefix) || !progress.startsWith(progressPrefix)) {
     throw new Error(formatError)
   }
+  if (lesson !== undefined && !lesson.startsWith(lessonPrefix)) throw new Error(formatError)
   const goalBody = goal.slice(goalPrefix.length)
   const progressBody = progress.slice(progressPrefix.length)
-  const nextBody = next.slice(nextPrefix.length)
-  if (!goalBody || !progressBody || !nextBody) throw new Error(formatError)
+  const lessonBody = lesson === undefined ? "" : lesson.slice(lessonPrefix.length)
+  if (!goalBody || !progressBody || (lesson !== undefined && !lessonBody)) throw new Error(formatError)
   if ([...goalBody].length > TASK_GOAL_CHAR_LIMIT) {
     throw new Error(`Task memory 当前任务 must not exceed ${TASK_GOAL_CHAR_LIMIT} characters`)
   }
   if ([...progressBody].length > TASK_PROGRESS_CHAR_LIMIT) {
     throw new Error(`Task memory 进展 must not exceed ${TASK_PROGRESS_CHAR_LIMIT} characters`)
   }
-  if ([...nextBody].length > TASK_NEXT_CHAR_LIMIT) {
-    throw new Error(`Task memory 下一步 must not exceed ${TASK_NEXT_CHAR_LIMIT} characters`)
+  if (lesson !== undefined && [...lessonBody].length > TASK_LESSON_CHAR_LIMIT) {
+    throw new Error(`Task memory 经验 must not exceed ${TASK_LESSON_CHAR_LIMIT} characters`)
   }
   return content
 }
