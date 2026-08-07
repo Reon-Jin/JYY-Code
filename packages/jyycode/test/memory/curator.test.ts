@@ -105,7 +105,7 @@ describe("two-phase semantic memory curator", () => {
       Memory.Service.use((memory) =>
         memory.updateStepBegin(sessionID, (input) => {
           received = input
-          return Effect.succeed(decision("用户要求完成赛车游戏的碰撞系统"))
+          return Effect.succeed(decision("当前任务：完成赛车游戏的碰撞系统；进展：尚未开始；下一步：实现碰撞系统"))
         }),
       ),
     )
@@ -119,7 +119,7 @@ describe("two-phase semantic memory curator", () => {
     })
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries as Memory.TaskMemoryEntry[]
     expect(entries).toHaveLength(1)
-    expect(entries[0]).toMatchObject({ sessionID, content: "用户要求完成赛车游戏的碰撞系统" })
+    expect(entries[0]).toMatchObject({ sessionID, content: "当前任务：完成赛车游戏的碰撞系统；进展：尚未开始；下一步：实现碰撞系统" })
     expect(entries[0]?.content).not.toContain("...")
   })
 
@@ -134,11 +134,11 @@ describe("two-phase semantic memory curator", () => {
           corrections.push(input.correction)
           if (corrections.length === 1) {
             return Effect.succeed({
-              ...decision("用户要求创建三步子Agent任务"),
-              task: { importance: 7, keywords: ["子agent"], content: "用户要求创建三步子Agent任务" },
+              ...decision("当前任务：创建三步子Agent任务；进展：准备中；下一步：创建任务"),
+              task: { importance: 7, keywords: ["子agent"], content: "当前任务：创建三步子Agent任务；进展：准备中；下一步：创建任务" },
             })
           }
-          return Effect.succeed(decision("用户要求创建三步子Agent任务"))
+          return Effect.succeed(decision("当前任务：创建三步子Agent任务；进展：准备中；下一步：创建任务"))
         }),
       ),
     )
@@ -148,7 +148,7 @@ describe("two-phase semantic memory curator", () => {
     expect(corrections[0]).toBeUndefined()
     expect(corrections[1]).toContain('keyword "子agent"')
     const [entry] = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
-    expect(entry?.content).toBe("用户要求创建三步子Agent任务")
+    expect(entry?.content).toBe("当前任务：创建三步子Agent任务；进展：准备中；下一步：创建任务")
   })
 
   test("adds the semantic completion before returning the final answer and keeps one session entry", async () => {
@@ -156,7 +156,7 @@ describe("two-phase semantic memory curator", () => {
     ctx.setMessages(messages("请完成赛车游戏", "已完成赛车游戏基础建模。"))
     await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求完成赛车游戏"))),
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("当前任务：完成赛车游戏；进展：准备中；下一步：开始实现"))),
       ),
     )
     let received: Memory.DecisionInput | undefined
@@ -164,7 +164,7 @@ describe("two-phase semantic memory curator", () => {
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(sessionID, (input) => {
           received = input
-          return Effect.succeed(decision("用户要求赛车碰撞，我用了分层调试与测试，最终学会了状态隔离"))
+          return Effect.succeed(decision("当前任务：赛车碰撞；进展：完成分层调试与测试；下一步：验证状态隔离"))
         }),
       ),
     )
@@ -172,13 +172,13 @@ describe("two-phase semantic memory curator", () => {
     expect(result).toMatchObject({ status: "updated", taskUpdated: true })
     expect(received).toMatchObject({
       phase: "assistant",
-      previousTaskContent: "用户要求完成赛车游戏",
+      previousTaskContent: "当前任务：完成赛车游戏；进展：准备中；下一步：开始实现",
       userText: "请完成赛车游戏",
       assistantText: "已完成赛车游戏基础建模。",
     })
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries as Memory.TaskMemoryEntry[]
     expect(entries).toHaveLength(1)
-    expect(entries[0]?.content).toBe("用户要求赛车碰撞，我用了分层调试与测试，最终学会了状态隔离")
+    expect(entries[0]?.content).toBe("当前任务：赛车碰撞；进展：完成分层调试与测试；下一步：验证状态隔离")
   })
 
   test("cumulatively recompresses prompt1 and prompt2 into the same entry", async () => {
@@ -186,13 +186,13 @@ describe("two-phase semantic memory curator", () => {
     ctx.setMessages(messages("请完成赛车游戏", "已完成基础建模。", "1"))
     await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求完成赛车游戏"))),
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("当前任务：完成赛车游戏；进展：准备中；下一步：开始实现"))),
       ),
     )
     await ctx.run(
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(sessionID, () =>
-          Effect.succeed(decision("用户要求赛车碰撞，我用了分层调试，最终学会了状态隔离")),
+          Effect.succeed(decision("当前任务：赛车碰撞；进展：完成分层调试；下一步：验证状态隔离")),
         ),
       ),
     )
@@ -203,13 +203,13 @@ describe("two-phase semantic memory curator", () => {
       Memory.Service.use((memory) =>
         memory.updateStepBegin(sessionID, (input) => {
           secondPromptInput = input
-          return Effect.succeed(decision("用户要求完成赛车游戏并继续优化碰撞性能"))
+          return Effect.succeed(decision("当前任务：完成赛车游戏并优化碰撞性能；进展：基础碰撞完成；下一步：优化性能"))
         }),
       ),
     )
     expect(secondPromptInput).toMatchObject({
       phase: "user",
-      previousTaskContent: "用户要求赛车碰撞，我用了分层调试，最终学会了状态隔离",
+      previousTaskContent: "当前任务：赛车碰撞；进展：完成分层调试；下一步：验证状态隔离",
       userText: "继续优化碰撞性能",
     })
     let secondAnswerInput: Memory.DecisionInput | undefined
@@ -217,20 +217,20 @@ describe("two-phase semantic memory curator", () => {
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(sessionID, (input) => {
           secondAnswerInput = input
-          return Effect.succeed(decision("用户要求赛车碰撞与性能，我用了瓶颈分析与基准测试，最终学会了性能优化"))
+          return Effect.succeed(decision("当前任务：赛车碰撞与性能；进展：完成瓶颈分析与基准测试；下一步：验证性能优化"))
         }),
       ),
     )
 
     expect(secondAnswerInput).toMatchObject({
       phase: "assistant",
-      previousTaskContent: "用户要求完成赛车游戏并继续优化碰撞性能",
+      previousTaskContent: "当前任务：完成赛车游戏并优化碰撞性能；进展：基础碰撞完成；下一步：优化性能",
       userText: "继续优化碰撞性能",
       assistantText: "已完成碰撞性能优化。",
     })
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
     expect(entries).toHaveLength(1)
-    expect(entries[0]?.content).toBe("用户要求赛车碰撞与性能，我用了瓶颈分析与基准测试，最终学会了性能优化")
+    expect(entries[0]?.content).toBe("当前任务：赛车碰撞与性能；进展：完成瓶颈分析与基准测试；下一步：验证性能优化")
   })
 
   test("uses supplied turn text before message projections are available", async () => {
@@ -239,7 +239,7 @@ describe("two-phase semantic memory curator", () => {
 
     await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求修复记忆写入")), {
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("当前任务：修复记忆写入；进展：准备中；下一步：修复写入")), {
           userText: "修复记忆写入",
         }),
       ),
@@ -248,7 +248,7 @@ describe("two-phase semantic memory curator", () => {
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(
           sessionID,
-          () => Effect.succeed(decision("用户要求修复记忆，我用了回归测试，最终学会了边界校验")),
+          () => Effect.succeed(decision("当前任务：修复记忆；进展：完成回归测试；下一步：验证边界校验")),
           { userText: "修复记忆写入", assistantText: "已修复并通过测试。" },
         ),
       ),
@@ -256,7 +256,7 @@ describe("two-phase semantic memory curator", () => {
 
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
     expect(entries).toHaveLength(1)
-    expect(entries[0]?.content).toBe("用户要求修复记忆，我用了回归测试，最终学会了边界校验")
+    expect(entries[0]?.content).toBe("当前任务：修复记忆；进展：完成回归测试；下一步：验证边界校验")
   })
 
   test("fails mandatory writes when the evaluator fails or returns invalid content", async () => {
@@ -274,18 +274,20 @@ describe("two-phase semantic memory curator", () => {
 
     await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求生成部署报告"))),
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("当前任务：生成部署报告；进展：准备中；下一步：生成报告"))),
       ),
     )
     await expect(
       ctx.run(
         Memory.Service.use((memory) =>
-          memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("用户要求生成部署报告"))),
+          memory.updateAfterTurn(sessionID, () =>
+            Effect.succeed(decision("用户要求生成部署报告，我用了模板，最终学会了校验")),
+          ),
         ),
       ),
-    ).rejects.toThrow('expected "用户要求...，我用了...，最终学会了..."')
+    ).rejects.toThrow('expected "当前任务：<goal>；进展：<progress>；下一步：<next>"')
     const [entry] = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
-    expect(entry?.content).toBe("用户要求生成部署报告")
+    expect(entry?.content).toBe("当前任务：生成部署报告；进展：准备中；下一步：生成报告")
   })
 
   test("stores stable user facts without omitting the required task entry", async () => {
@@ -295,13 +297,13 @@ describe("two-phase semantic memory curator", () => {
 
     await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求记住其姓名为金毅阳", [userFact]))),
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("当前任务：记住用户姓名；进展：已记录姓名；下一步：确认偏好", [userFact]))),
       ),
     )
     await ctx.run(
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(sessionID, () =>
-          Effect.succeed(decision("用户要求记住姓名，我用了事实抽取，最终学会了偏好识别", [userFact])),
+          Effect.succeed(decision("当前任务：记住姓名；进展：完成事实抽取；下一步：确认偏好", [userFact])),
         ),
       ),
     )
@@ -321,7 +323,7 @@ describe("two-phase semantic memory curator", () => {
       Memory.Service.use((memory) =>
         memory.updateStepBegin(sessionID, () =>
           Effect.succeed(
-            decision("用户要求记住其姓名为金毅阳", [
+            decision("当前任务：记住用户姓名；进展：已记录姓名；下一步：确认偏好", [
               { importance: 8, keywords: ["称呼"], content: "用户名为金毅阳" },
               { importance: 10, keywords: ["姓名"], content: "User name is 金毅阳" },
             ]),
@@ -343,7 +345,7 @@ describe("two-phase semantic memory curator", () => {
     let calls = 0
     const evaluator: Memory.DecisionEvaluator = () => {
       calls++
-      return Effect.succeed(decision("用户要求不应写入，我用了错误路径，最终学会了不应写入"))
+      return Effect.succeed(decision("当前任务：不应写入；进展：已拦截；下一步：不写入"))
     }
     const before = { memory: ctx.files.get(ctx.memoryPath), user: ctx.files.get(ctx.userPath) }
 
@@ -363,13 +365,13 @@ describe("two-phase semantic memory curator", () => {
 
     const received = await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("用户要求修复记忆系统"))),
+        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("当前任务：修复记忆系统；进展：准备中；下一步：修复"))),
       ),
     )
     const completed = await ctx.run(
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(sessionID, () =>
-          Effect.succeed(decision("用户要求修复记忆系统，我用了回归测试，最终学会了生命周期校验")),
+          Effect.succeed(decision("当前任务：修复记忆系统；进展：完成回归测试；下一步：验证生命周期校验")),
         ),
       ),
     )
@@ -378,6 +380,6 @@ describe("two-phase semantic memory curator", () => {
     expect(completed).toMatchObject({ status: "updated", taskUpdated: true })
     const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
     expect(entries).toHaveLength(1)
-    expect(entries[0]?.content).toBe("用户要求修复记忆系统，我用了回归测试，最终学会了生命周期校验")
+    expect(entries[0]?.content).toBe("当前任务：修复记忆系统；进展：完成回归测试；下一步：验证生命周期校验")
   })
 })
