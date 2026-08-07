@@ -130,6 +130,37 @@ describe("memory v3 JSON format", () => {
     ).toBe("ts代码风格")
   })
 
+  test("snapshot selection keeps only the current session task memory", () => {
+    const mine: Memory.TaskMemoryEntry = {
+      scope: "memory" as const,
+      sessionID,
+      importance: 3 as Memory.Importance,
+      date: "20260705",
+      keywords: ["任务"],
+      content: "mine",
+    }
+    const other: Memory.TaskMemoryEntry = {
+      scope: "memory" as const,
+      sessionID: "ses_other" as SessionID,
+      importance: 10 as Memory.Importance,
+      date: "20260706",
+      keywords: ["其他"],
+      content: "other",
+    }
+    expect(Memory.selectSnapshotEntries([other, mine], "memory", sessionID).map((entry) => entry.content)).toEqual([
+      "mine",
+    ])
+    const userEntry: Memory.UserMemoryEntry = {
+      scope: "user" as const,
+      importance: 9 as Memory.Importance,
+      keywords: ["中文"],
+      content: "偏好中文",
+    }
+    expect(Memory.selectSnapshotEntries([userEntry], "user", sessionID).map((entry) => entry.content)).toEqual([
+      "偏好中文",
+    ])
+  })
+
   test("accepts only keywords containing 2 to 4 characters", () => {
     for (const keyword of ["编程", "代码风格", "ts"]) {
       expect(() =>

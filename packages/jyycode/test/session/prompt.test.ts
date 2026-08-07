@@ -210,6 +210,25 @@ const memoryFailureLayer = Layer.succeed(
   }),
 )
 
+const snapshotMemoryLayer = Layer.succeed(
+  Memory.Service,
+  Memory.Service.of({
+    dir: () => Effect.succeed(Memory.DIRECTORY),
+    ensure: () => Effect.void,
+    read: () => Effect.succeed(""),
+    upsertTaskMemory: () => Effect.die("unexpected direct task memory upsert"),
+    upsertUserMemory: () => Effect.die("unexpected direct user memory upsert"),
+    write: () => Effect.die("unexpected direct memory write"),
+    replaceBySubstring: () => Effect.die("unexpected direct memory replace"),
+    removeBySubstring: () => Effect.die("unexpected direct memory remove"),
+    compact: () => Effect.die("unexpected direct memory compact"),
+    usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
+    formatWithHeader: () => Effect.succeed("PERSISTENT MEMORY SNAPSHOT"),
+    updateStepBegin: () => Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0 }),
+    updateAfterTurn: () => Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0 }),
+  }),
+)
+
 const status = SessionStatus.layer.pipe(Layer.provideMerge(Bus.layer))
 const run = SessionRunState.layer.pipe(Layer.provide(status))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
@@ -1213,6 +1232,33 @@ withMemory.instance("does not inject persistent memory into child sessions", () 
     expect(payload).not.toContain("Persistent memory is stored")
     expect(payload).not.toContain("# Memory")
     expect(JSON.stringify(request?.tools)).not.toContain('"name":"memory"')
+  }),
+)
+
+const withSnapshotMemory = testEffect(makeHttp({ memory: snapshotMemoryLayer }))
+withSnapshotMemory.instance("injects the persistent memory snapshot on the first and every later turn", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Snapshot" })
+
+    yield* llm.text("first")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "one" }],
+    })
+    yield* llm.text("second")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "two" }],
+    })
+
+    const inputs = yield* llm.inputs
+    expect(JSON.stringify(inputs[0])).toContain("PERSISTENT MEMORY SNAPSHOT")
+    expect(JSON.stringify(inputs[1])).toContain("PERSISTENT MEMORY SNAPSHOT")
   }),
 )
 

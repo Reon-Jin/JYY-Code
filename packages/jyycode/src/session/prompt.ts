@@ -1789,8 +1789,11 @@ export const layer = Layer.effect(
             // toolchain that would otherwise bypass the role's skills.
             const firstSessionTurn = !msgs.some((message) => message.info.role === "assistant")
 
+            // The persistent-memory snapshot refreshes at the start of every
+            // user turn so the agent always sees its own task memory and the
+            // current user profile.
             const memorySnapshot =
-              firstSessionTurn && step === 1 && canUsePersistentMemory && memory
+              step === 1 && canUsePersistentMemory && memory
                 ? yield* memory.formatWithHeader(sessionID, "memory").pipe(
                     Effect.andThen((mem) =>
                       memory!.formatWithHeader(sessionID, "user").pipe(Effect.map((user) => [mem, user].join("\n"))),

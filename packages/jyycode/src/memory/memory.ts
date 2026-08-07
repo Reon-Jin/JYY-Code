@@ -954,7 +954,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       const formatWithHeader = Effect.fn("Memory.formatWithHeader")(function* (sessionID: SessionID, scope: Scope) {
         yield* ensure(sessionID)
         const store = yield* readStore(sessionID, scope)
-        const text = formatEntries(store.entries.slice().sort(compareSnapshotEntries).slice(0, SNAPSHOT_ENTRY_LIMIT))
+        const text = formatEntries(selectSnapshotEntries(store.entries, scope, sessionID))
         const serialized = serializeStore(scope, store.entries, store.lastCompactedAt)
         return formatMemoryHeader(scope, serialized) + text
       })
@@ -1419,6 +1419,14 @@ function compareSnapshotEntries(left: MemoryEntry, right: MemoryEntry) {
     return right.date.localeCompare(left.date)
   }
   return entryKey(left).localeCompare(entryKey(right))
+}
+
+export function selectSnapshotEntries(entries: readonly MemoryEntry[], scope: Scope, sessionID: SessionID) {
+  const candidates =
+    scope === "memory"
+      ? entries.filter((entry) => entry.scope === "memory" && entry.sessionID === sessionID)
+      : entries
+  return candidates.slice().sort(compareSnapshotEntries).slice(0, SNAPSHOT_ENTRY_LIMIT)
 }
 
 function textContent(message: MessageV2.WithParts, options: { synthetic: boolean }) {
