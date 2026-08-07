@@ -43,4 +43,38 @@ describe("SessionState", () => {
       expect(Option.isNone(read)).toBe(true)
     }),
   )
+
+  it.live("tracks turnCount and omits details on request", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const fsys = yield* AppFileSystem.Service
+      const state = {
+        version: 2 as const,
+        updatedAt: "2026-08-07T00:00:00.000Z",
+        lastUser: "fix the auth bug",
+        lastAssistant: "updated refresh token handling",
+        lastToolNames: ["edit", "grep"],
+        tailStartID: "msg_tail_1",
+        summary: "Auth refresh token support implemented.",
+        turnCount: 7,
+      }
+
+      yield* SessionState.writeSessionState(fsys, dir, "ses_state_v2", state)
+      const read = yield* SessionState.readSessionState(fsys, dir, "ses_state_v2")
+      expect(Option.isSome(read)).toBe(true)
+      if (Option.isSome(read)) {
+        expect(read.value.turnCount).toBe(7)
+        const full = SessionState.formatSessionState(read.value)
+        expect(full).toContain("fix the auth bug")
+        expect(full).toContain("## Rolling summary")
+        const lean = SessionState.formatSessionState(read.value, {
+          omitTurnDetails: true,
+          omitRollingSummary: true,
+        })
+        expect(lean).not.toContain("fix the auth bug")
+        expect(lean).not.toContain("## Rolling summary")
+        expect(lean).toContain("compacted before")
+      }
+    }),
+  )
 })
