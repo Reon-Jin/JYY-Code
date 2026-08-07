@@ -96,7 +96,7 @@ describe("memory write authorization", () => {
             sessionID,
             scope: "memory",
             section: "General",
-            content: `用户要求根会话写入，我用了权限校验，最终学会了写入边界`,
+            content: `当前任务：根会话写入；进展：完成权限校验；下一步：验证写入边界`,
             reason: "authorization test",
           }),
         ),

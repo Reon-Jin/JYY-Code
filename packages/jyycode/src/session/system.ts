@@ -7,6 +7,7 @@ import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
+import { Memory } from "@/memory/memory"
 
 // Single unified base prompt for every model — no per-vendor variants.
 export function provider() {
@@ -14,8 +15,9 @@ export function provider() {
 }
 
 const MEMORY_RULES = [
-  "Persistent memory has three stores in the memory directory: MEMORY.json (one per-session task-state entry), USER.json (stable user facts), and EXPERIENCE.json (cross-session success/failure/lesson rules).",
+  `Persistent memory JSON files live in ${Memory.DIRECTORY}: MEMORY.json (one per-session task-state entry), USER.json (stable user facts), and EXPERIENCE.json (cross-session success/failure/lesson rules).`,
   "Task memory is updated automatically by the runtime twice per turn — never call the memory tool for these routine updates; use it only when the user explicitly asks to manage memories.",
+  "To inspect what is remembered, call the memory tool with action=read (target=memory or target=user); for past lessons call context_read with action=experience. Do not read the JSON files directly with file tools.",
   "Task state uses the format 当前任务：<goal>；进展：<progress>；下一步：<next> with limits goal ≤120, progress ≤160, next ≤80 Unicode chars.",
   "Before retrying a failed step or starting a similar task, use context_read with action=experience to check past lessons.",
   "Never store secrets or credentials, and never create .md files in the memory directory. Snapshot budgets: task ≤400 chars, user ≤1200 chars, at most 3 matching experiences ≤1200 chars. Subagents are read-only.",

@@ -130,7 +130,9 @@ describe("bounded deterministic memory compaction", () => {
 
   test("rejects a low-value candidate when protected entries leave no capacity", async () => {
     const { run, seed, read } = await fixture()
-    const protectedEntries = Array.from({ length: 10 }, (_, i) => user(i, 10, `用户关键身份事实 ${i}。`))
+    const protectedEntries = Array.from({ length: 10 }, (_, i) =>
+      user(i, 10, `关键事实${i}：${["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"][i]}色偏好。`),
+    )
     await seed("user", protectedEntries)
     const before = await read("user")
 

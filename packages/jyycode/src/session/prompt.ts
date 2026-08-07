@@ -1362,7 +1362,10 @@ export const layer = Layer.effect(
           const latestUserMsg = msgs.find((message) => message.info.id === lastUser.id)
           const latestUserIsSynthetic =
             latestUserMsg?.parts.some((part) => part.type === "text" && part.synthetic) ?? false
-          if (lastUser.id !== lastUserID && !latestUserIsSynthetic) resetTurnGuards()
+          if (lastUser.id !== lastUserID && !latestUserIsSynthetic) {
+            step = 0
+            resetTurnGuards()
+          }
           lastUserID = lastUser.id
           if (
             step === 0 &&

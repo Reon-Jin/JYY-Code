@@ -22,8 +22,8 @@ function entry(overrides: Partial<ExperienceMemory.ExperienceEntry> = {}): Exper
   }
 }
 
-function rawEntry(overrides: Partial<ExperienceMemory.ExperienceEntry> = {}): Omit<ExperienceMemory.ExperienceEntry, "scope"> {
-  const { scope: _scope, ...rest } = entry(overrides)
+function rawEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const { scope: _scope, ...rest } = { ...entry(), ...overrides }
   return rest
 }
 

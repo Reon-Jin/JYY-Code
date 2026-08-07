@@ -26,7 +26,7 @@ function candidate(overrides: Partial<ExperienceMemory.ExperienceCandidate> = {}
   }
 }
 
-async function withStore<T>(run: (service: ExperienceMemory.Service) => Promise<T>): Promise<T> {
+async function withStore<T>(run: (service: ExperienceMemory.ExperienceInterface) => Promise<T>): Promise<T> {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "experience-"))
   cleanup.push(directory)
   const layer = ExperienceMemory.layerWithDirectory(directory).pipe(Layer.provide(AppFileSystem.defaultLayer))
@@ -117,7 +117,7 @@ describe("experience maintenance", () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "experience-maint-"))
     cleanup.push(directory)
     const layer = ExperienceMemory.layerWithDirectory(directory).pipe(Layer.provide(AppFileSystem.defaultLayer))
-    const run = (effect: Effect.Effect<unknown, unknown, ExperienceMemory.Service>) =>
+    const run = <A>(effect: Effect.Effect<A, unknown, ExperienceMemory.Service>) =>
       Effect.runPromise(Effect.provide(effect, layer))
     await seedStore(directory, [
       {
@@ -161,7 +161,7 @@ describe("experience maintenance", () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "experience-decay-"))
     cleanup.push(directory)
     const layer = ExperienceMemory.layerWithDirectory(directory).pipe(Layer.provide(AppFileSystem.defaultLayer))
-    const run = (effect: Effect.Effect<unknown, unknown, ExperienceMemory.Service>) =>
+    const run = <A>(effect: Effect.Effect<A, unknown, ExperienceMemory.Service>) =>
       Effect.runPromise(Effect.provide(effect, layer))
     await seedStore(directory, [
       {
@@ -205,7 +205,7 @@ describe("experience maintenance", () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "experience-cap-"))
     cleanup.push(directory)
     const layer = ExperienceMemory.layerWithDirectory(directory).pipe(Layer.provide(AppFileSystem.defaultLayer))
-    const run = (effect: Effect.Effect<unknown, unknown, ExperienceMemory.Service>) =>
+    const run = <A>(effect: Effect.Effect<A, unknown, ExperienceMemory.Service>) =>
       Effect.runPromise(Effect.provide(effect, layer))
     const entries: ExperienceMemory.ExperienceEntry[] = Array.from({ length: 100 }, (_, index) => ({
       scope: "experience" as const,

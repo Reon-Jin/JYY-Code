@@ -1,15 +1,17 @@
 import { Effect, Schema } from "effect"
+import path from "path"
 import * as Tool from "./tool"
 import DESCRIPTION from "./memory.txt"
 import { Memory } from "@/memory/memory"
 
-const Action = Schema.Literals(["add", "replace", "remove", "compact"])
+const Action = Schema.Literals(["add", "replace", "remove", "compact", "read"])
 const Target = Schema.Literals(["memory", "user"])
+type Metadata = { file: string | undefined; status: string; truncated: boolean }
 
 export const Parameters = Schema.Struct({
   action: Action.annotate({
     description:
-      "add: write a new entry. replace: find by old_text and replace. remove: find by old_text and delete. compact: organize the selected store.",
+      "read: show the selected store's current entries. add: write a new entry. replace: find by old_text and replace. remove: find by old_text and delete. compact: organize the selected store.",
   }),
   target: Target.annotate({
     description: "memory for project facts/conventions, user for personal preferences.",
@@ -46,8 +48,22 @@ export const MemoryTool = Tool.define(
         risk: "medium",
         detail: "standard",
       },
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
+      execute: (
+        params: Schema.Schema.Type<typeof Parameters>,
+        ctx: Tool.Context,
+      ): Effect.Effect<Tool.ExecuteResult<Metadata>> =>
         Effect.gen(function* () {
+          if (params.action === "read") {
+            const directory = yield* memory.dir(ctx.sessionID)
+            const text = yield* memory.formatWithHeader(ctx.sessionID, params.target)
+            const file = path.join(directory, params.target === "memory" ? "MEMORY.json" : "USER.json")
+            return {
+              title: `Memory read (${params.target})`,
+              metadata: { file, status: "read", truncated: false },
+              output: text,
+            }
+          }
+
           yield* ctx.ask({
             permission: "memory",
             patterns: [params.action, params.target],

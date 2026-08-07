@@ -22,6 +22,12 @@ import type {
   ExperienceKind,
   ExperienceStatus,
 } from "./experience-schema"
+export type {
+  ExperienceCandidate,
+  ExperienceConfidence,
+  ExperienceKind,
+  ExperienceStatus,
+} from "./experience-schema"
 
 const log = Log.create({ service: "memory.experience" })
 

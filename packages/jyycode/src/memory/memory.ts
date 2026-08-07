@@ -18,6 +18,7 @@ import {
   EXPERIENCE_KINDS,
 } from "./experience-schema"
 import type { ExperienceCandidate, ExperienceConfidence, ExperienceKind } from "./experience-schema"
+export type { ExperienceCandidate } from "./experience-schema"
 const log = Log.create({ service: "memory" })
 
 const MEMORY_FILE = "MEMORY.json"
@@ -389,7 +390,7 @@ export interface Interface {
   readonly compact: (input: { sessionID: SessionID; scope: Scope }) => Effect.Effect<CompactionResult, Error>
   readonly usage: (sessionID: SessionID, scope: Scope) => Effect.Effect<UsageInfo, Error>
   readonly formatWithHeader: (sessionID: SessionID, scope: Scope) => Effect.Effect<string, Error>
-  readonly currentTaskKeywords: (sessionID: SessionID) => Effect.Effect<string[]>
+  readonly currentTaskKeywords: (sessionID: SessionID) => Effect.Effect<string[], Error>
   readonly updateAfterTurn: (
     sessionID: SessionID,
     evaluator?: DecisionEvaluator,
