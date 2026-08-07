@@ -441,6 +441,9 @@ function recomputeProgress(plan: PlanFile, workspaceRoot: string) {
 
 function createTask(input: CreateTaskInput, id: string, workspaceRoot?: string, rootSessionID?: string): PlanTask {
   const taskMode = input.mode ?? "standard"
+  if (taskMode !== "candidate" && input.output_path && workspaceRoot) {
+    resolveWorkspacePath(workspaceRoot, asString(input.output_path), "task.output_path")
+  }
   return {
     id,
     title: requiredText(input.title, "task.title"),
@@ -611,7 +614,11 @@ function applyOp(
       if (op.fields.done_criteria !== undefined)
         task.done_criteria = requiredText(op.fields.done_criteria, "done_criteria")
       if (op.fields.instructions !== undefined) task.instructions = requiredText(op.fields.instructions, "instructions")
-      if (op.fields.output_path !== undefined) task.output_path = requiredText(op.fields.output_path, "output_path")
+      if (op.fields.output_path !== undefined) {
+        const value = requiredText(op.fields.output_path, "output_path")
+        if (workspaceRoot) resolveWorkspacePath(workspaceRoot, value, `任务 ${op.taskId} 的 output_path`)
+        task.output_path = value
+      }
       return
     }
     case "remove_task": {

@@ -11,6 +11,7 @@ import { Plugin } from "@/plugin"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions } from "ai"
 import { Effect } from "effect"
 import type { JSONSchema7 } from "@ai-sdk/provider"
+import path from "node:path"
 import { MessageV2 } from "./message-v2"
 import * as Session from "./session"
 import { SessionProcessor } from "./processor"
@@ -155,6 +156,7 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
     const allowed = new Set([
       "Plan_read",
       ...PLAN_GATE_MEMORY_TOOL_NAMES,
+      "Goal_done",
       ...multiAgentOnly(["Dispatch_cancel", "Dispatch_dispatch", "Blackboard", "Blackboard_Reply", "Dispatch_roles"]),
     ])
     pruneOrStubTools(tools, allowed, requiredTool, multiAgent)
@@ -172,6 +174,7 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
       "Plan_read",
       "Plan_update",
       ...PLAN_GATE_MEMORY_TOOL_NAMES,
+      "Goal_done",
       ...multiAgentOnly(["Dispatch_roles", "Dispatch_cancel", "Dispatch_dispatch", "Blackboard", "Blackboard_Reply"]),
     ])
     pruneOrStubTools(tools, allowed, requiredTool, multiAgent)
@@ -186,6 +189,7 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
       requiredTool,
       "Plan_read",
       ...PLAN_GATE_MEMORY_TOOL_NAMES,
+      "Goal_done",
       ...multiAgentOnly(["Blackboard", "Blackboard_Reply", "Dispatch_roles", "Dispatch_cancel"]),
     ])
     pruneOrStubTools(tools, allowed, requiredTool, multiAgent)
@@ -217,6 +221,26 @@ function pendingDispatchTasks(plan: PlanToolGateState | undefined) {
   if (!plan?.current_step) return []
   const currentStep = plan.steps.find((step) => step.id === plan.current_step)
   return currentStep?.tasks.filter((task) => task.status === "pending" || task.status === "rejected") ?? []
+}
+
+/**
+ * A pending task is only dispatch-ready when its output_path is a non-empty
+ * path that actually resolves inside the workspace. Models sometimes write a
+ * plausible-looking but invalid path (e.g. `c:/D:\repo\out`); treating it as
+ * ready deadlocks the plan because Dispatch_dispatch rejects it while the
+ * protocol gate hides Plan_update.
+ */
+function isOutputPathDispatchReady(outputPath: string | null | undefined, workspaceRoot?: string) {
+  if (!outputPath?.trim()) return false
+  if (!workspaceRoot) return true
+  try {
+    const root = path.resolve(workspaceRoot)
+    const absolute = path.isAbsolute(outputPath) ? path.resolve(outputPath) : path.resolve(root, outputPath)
+    const relative = path.relative(root, absolute)
+    return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+  } catch {
+    return false
+  }
 }
 
 /** A root turn must yield after dispatching work; child reports wake it when action is needed. */
@@ -402,6 +426,7 @@ export function requiredPlanTool(input: {
   blackboardUnread?: number
   planExists?: boolean
   plan?: PlanToolGateState
+  workspaceRoot?: string
 }) {
   if (!input.root) return undefined
   if ((input.blackboardUnread ?? 0) > 0) return "Blackboard"
@@ -414,7 +439,9 @@ export function requiredPlanTool(input: {
     if (currentStep && currentStep.tasks.length === 0) return "Plan_update"
     const pending = pendingDispatchTasks(input.plan)
     if (pending.length > 0)
-      return pending.every((task) => task.done_criteria.trim() && task.output_path?.trim())
+      return pending.every(
+        (task) => task.done_criteria.trim() && isOutputPathDispatchReady(task.output_path, input.workspaceRoot),
+      )
         ? "Dispatch_dispatch"
         : "Plan_update"
   }

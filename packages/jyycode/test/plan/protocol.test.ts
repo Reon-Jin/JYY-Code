@@ -275,7 +275,7 @@ describe("file-backed plan protocol", () => {
     expect(captured?.brief.output_path).toBe(path.resolve(root, "notes", "notes.md"))
   })
 
-  it("rejects a dispatched output_path escaping the workspace", async () => {
+  it("rejects an output_path escaping the workspace at create time", async () => {
     const root = workspace()
     let created = false
     const protocol = new PlanProtocol({
@@ -290,10 +290,68 @@ describe("file-backed plan protocol", () => {
         async terminate() {},
       },
     })
-    await protocol.create(context(root), createInput(path.join("..", "escape.md")))
+    const createdPlan = await protocol.create(context(root), createInput(path.join("..", "escape.md")))
+    expect(createdPlan).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
+    expect(created).toBe(false)
+    expect(fs.existsSync(planFilePath(root, "ses_main"))).toBe(false)
+  })
+
+  it("rejects an output_path with a stray drive prefix at create time", async () => {
+    const root = workspace()
+    const protocol = new PlanProtocol({ store: new PlanStore() })
+    const result = await protocol.create(
+      context(root),
+      createInput(`c:/${root.replace(/\\/g, "/")}/notes.md`),
+    )
+    expect(result).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
+  })
+
+  it("still rejects a persisted output_path escaping the workspace at dispatch time", async () => {
+    const root = workspace()
+    let created = false
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      profiles: async () => [defaultGeneralProfile],
+      children: {
+        async create(input) {
+          created = true
+          return input.childSessionId
+        },
+        async start() {},
+        async terminate() {},
+      },
+    })
+    await protocol.create(context(root), createInput("notes.md"))
+    const file = planFilePath(root, "ses_main")
+    const raw = fs.readFileSync(file, "utf8")
+    fs.writeFileSync(file, raw.replace('"output_path": "notes.md"', '"output_path": "../escape.md"'))
     const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
     expect(dispatched).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
     expect(created).toBe(false)
+  })
+
+  it("rejects out-of-workspace output_path in Plan_update add_task and edit_task", async () => {
+    const root = workspace()
+    const protocol = new PlanProtocol({ store: new PlanStore() })
+    await protocol.create(context(root), createInput())
+
+    const add = await protocol.update(context(root), {
+      revision: 1,
+      ops: [
+        {
+          op: "add_task",
+          stepId: "s1",
+          task: { title: "bad", goal: "bad", done_criteria: "bad", output_path: "../escape.md" },
+        },
+      ],
+    })
+    expect(add).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
+
+    const edit = await protocol.update(context(root), {
+      revision: 1,
+      ops: [{ op: "edit_task", stepId: "s1", taskId: "s1_t1", fields: { output_path: "../escape.md" } }],
+    })
+    expect(edit).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
   })
 
   it("creates, reads, and returns progress using the specified schema", async () => {

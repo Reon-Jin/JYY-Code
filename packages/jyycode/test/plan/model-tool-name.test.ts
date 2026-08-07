@@ -487,6 +487,52 @@ describe("model-facing plan tool names", () => {
     expect(requiredPlanTool({ root: false, multiAgent: true, step: 1, planExists: false })).toBeUndefined()
   })
 
+  it("opens Plan_update when a pending output_path is outside the workspace", () => {
+    const outside = path.join("..", "escape.md")
+    const pendingOutside = {
+      current_step: "s1",
+      steps: [{ id: "s1", tasks: [{ id: "s1_t1", status: "pending", done_criteria: "x", output_path: outside }] }],
+    }
+    expect(
+      requiredPlanTool({
+        root: true,
+        multiAgent: true,
+        step: 3,
+        planExists: true,
+        plan: pendingOutside,
+        workspaceRoot: path.resolve("workspace"),
+      }),
+    ).toBe("Plan_update")
+
+    const pendingInside = {
+      current_step: "s1",
+      steps: [{ id: "s1", tasks: [{ id: "s1_t1", status: "pending", done_criteria: "x", output_path: "out.md" }] }],
+    }
+    expect(
+      requiredPlanTool({
+        root: true,
+        multiAgent: true,
+        step: 3,
+        planExists: true,
+        plan: pendingInside,
+        workspaceRoot: path.resolve("workspace"),
+      }),
+    ).toBe("Dispatch_dispatch")
+  })
+
+  it("keeps Goal_done available under plan gates so a stuck goal can terminate", () => {
+    const tools = {
+      Plan_read: {} as never,
+      Plan_update: {} as never,
+      Dispatch_dispatch: {} as never,
+      Goal_done: {} as never,
+      bash: {} as never,
+    }
+    retainRequiredPlanTools(tools, "Dispatch_dispatch")
+    expect(tools.Goal_done).toBeDefined()
+    expect("bash" in tools).toBe(false)
+  })
+
   it("yields the root turn while dispatched work is running", () => {
     expect(
       hasInFlightPlanTasks({

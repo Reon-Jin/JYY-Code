@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Beam Test</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #efede7; }
+      body { display: flex; align-items: center; justify-content: center; gap: 24px; }
+      .composer-stack { display: grid; width: 520px; gap: 8px; margin: 0 auto; }
+      .composer-stack .composer__beam { overflow: visible; }
+      .composer {
+        position: relative;
+        z-index: 2;
+        display: grid;
+        width: 100%;
+        gap: 8px;
+        margin: 0 0 16px;
+        border: 1px solid #d8d6cf;
+        border-radius: 12px;
+        padding: 8px;
+        background: #fbfaf7;
+        box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+      }
+      .multi-agent-task .multi-agent-task__beam {
+        display: block;
+        border: 1px solid #d8d6cf;
+        border-radius: 8px;
+        background: #fbfaf7;
+        animation: ui-rise-in 0.3s ease-out both;
+        overflow: visible;
+      }
+      .multi-agent-task { width: 460px; }
+      @keyframes ui-rise-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/beam-test.tsx"></script>
+  </body>
+</html>

@@ -1800,6 +1800,7 @@ export const layer = Layer.effect(
               blackboardUnread,
               planExists: planState?.ok ? planState.plan !== null : undefined,
               plan: planState?.ok ? (planState.plan ?? undefined) : undefined,
+              workspaceRoot: session.directory,
             })
             if (requiredPlanTool) {
               SessionTools.retainRequiredPlanTools(tools, requiredPlanTool, session.multiAgent === true)
