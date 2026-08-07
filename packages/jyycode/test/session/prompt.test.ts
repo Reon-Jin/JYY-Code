@@ -593,6 +593,20 @@ it.instance("records episodes and sends last two turns plus digest after five tu
     expect(raw).not.toContain("request 2")
     expect(raw).not.toContain("request 3")
     expect(raw).not.toContain("request 4")
+
+    const child = yield* sessions.create({ parentID: chat.id, title: "Child" })
+    yield* llm.text("child answer")
+    yield* prompt.prompt({
+      sessionID: child.id,
+      agent: "build",
+      parts: [{ type: "text", text: "child request" }],
+    })
+    const childEpisodesFile = path.join(dir, ".jyycode", "memory", "episodes", `${child.id}.jsonl`)
+    const childEpisodes = (yield* fsys.readFileStringSafe(childEpisodesFile).pipe(Effect.orDie)) ?? ""
+    expect(childEpisodes).toBe("")
+    const childDigestFile = path.join(dir, ".jyycode", "memory", "digest", `${child.id}`, "0001.md")
+    const childDigest = (yield* fsys.readFileStringSafe(childDigestFile).pipe(Effect.orDie)) ?? ""
+    expect(childDigest).toBe("")
   }),
 )
 
