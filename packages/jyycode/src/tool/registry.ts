@@ -11,6 +11,7 @@ import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
 import { MemoryTool } from "./memory"
+import { ContextReadTool } from "./context-read"
 import * as Tool from "./tool"
 import { Config } from "@/config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@jyycode-ai/plugin"
@@ -50,6 +51,7 @@ import { BackgroundProcess } from "@/process/job"
 import { SessionStatus } from "@/session/status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Memory } from "@/memory/memory"
+import { EpisodicMemory } from "@/memory/episodic"
 import { CatalogSearch } from "./catalog-search"
 import { ToolTelemetry } from "./telemetry"
 import { PlanProtocolTools } from "@/plan/tools"
@@ -164,6 +166,10 @@ export const layer: Layer.Layer<
     const goal = yield* GoalTool
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
     const memtool = memory ? yield* MemoryTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
+    const episodic = Option.getOrUndefined(yield* Effect.serviceOption(EpisodicMemory.Service))
+    const contextRead = episodic
+      ? yield* ContextReadTool.pipe(Effect.provideService(EpisodicMemory.Service, episodic))
+      : undefined
     const agent = yield* Agent.Service
     const planProtocolInfos = yield* Effect.all(PlanProtocolTools, { concurrency: "unbounded" })
     const planProtocolTools = yield* Effect.all(
@@ -279,6 +285,7 @@ export const layer: Layer.Layer<
           skill: Tool.init(skilltool),
           question: Tool.init(question),
           memory: memtool ? Tool.init(memtool) : Effect.succeed(undefined),
+          contextRead: contextRead ? Tool.init(contextRead) : Effect.succeed(undefined),
           goal: Tool.init(goal),
         })
 
@@ -299,6 +306,7 @@ export const layer: Layer.Layer<
             tool.skill,
             tool.goal,
             ...(tool.memory ? [tool.memory] : []),
+            ...(tool.contextRead ? [tool.contextRead] : []),
             ...planProtocolTools,
           ],
           read: tool.read,
@@ -340,7 +348,9 @@ export const layer: Layer.Layer<
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
       const s = yield* InstanceState.get(state)
       const available = [
-        ...s.builtin.filter((tool) => input.includeMemory !== false || tool.id !== MemoryTool.id),
+        ...s.builtin.filter(
+          (tool) => input.includeMemory !== false || (tool.id !== MemoryTool.id && tool.id !== ContextReadTool.id),
+        ),
         ...s.custom,
       ].filter((tool) => !input.toolIDs || input.toolIDs.has(tool.id))
       const resolved = yield* Effect.forEach(
@@ -412,7 +422,7 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Format.defaultLayer),
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
-      Layer.provide(Layer.mergeAll(Truncate.defaultLayer, Memory.defaultLayer)),
+      Layer.provide(Layer.mergeAll(Truncate.defaultLayer, Memory.defaultLayer, EpisodicMemory.defaultLayer)),
     )
     .pipe(Layer.provide(RuntimeFlags.defaultLayer)),
 )

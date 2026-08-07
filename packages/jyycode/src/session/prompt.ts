@@ -1569,7 +1569,7 @@ export const layer = Layer.effect(
           const episodicDigest =
             canUsePersistentMemory && episodic
               ? yield* episodic
-                  .readLatestDigest({ sessionID, workspaceRoot: ctx.worktree })
+                  .readLatestDigest({ sessionID, workspaceRoot: ctx.directory })
                   .pipe(Effect.catch(() => Effect.succeed(Option.none())))
               : Option.none<string>()
           const historyForModel = Option.isSome(episodicDigest) ? sliceLastTurns(msgs, 2) : msgs
@@ -1578,7 +1578,7 @@ export const layer = Layer.effect(
               yield* episodic
                 .compactIfDue({
                   sessionID,
-                  workspaceRoot: ctx.worktree,
+                  workspaceRoot: ctx.directory,
                   reason: "threshold",
                   totalTurns: Math.max(0, countRealUserTurns(msgs) - 1),
                   previousSummary: undefined,
@@ -1936,14 +1936,14 @@ export const layer = Layer.effect(
                 yield* episodic
                   .recordTurn({
                     sessionID,
-                    workspaceRoot: ctx.worktree,
+                    workspaceRoot: ctx.directory,
                     turn: episodeFromMessages(episodeMessages),
                   })
                   .pipe(Effect.ignore)
                 yield* episodic
                   .compactIfDue({
                     sessionID,
-                    workspaceRoot: ctx.worktree,
+                    workspaceRoot: ctx.directory,
                     reason: "interval",
                     totalTurns: countRealUserTurns(msgs),
                     backfillText: undefined,

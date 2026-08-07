@@ -1,0 +1,1 @@
+Read past session records when you need exact details older than the last two turns: a specific tool call and its full output, an exact command, or an earlier decision. Returns the latest compressed digest, one full episode turn, or keyword-matching turns. Read-only; never called automatically.
