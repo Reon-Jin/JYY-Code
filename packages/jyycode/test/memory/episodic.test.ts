@@ -3,8 +3,10 @@ import { Effect, Layer, Option } from "effect"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
-import { EpisodicMemory } from "@/memory/episodic"
-import { SessionID } from "@/session/schema"
+import { EpisodicMemory, episodeFromMessages, sliceLastTurns } from "@/memory/episodic"
+import { MessageV2 } from "@/session/message-v2"
+import { MessageID, PartID, SessionID } from "@/session/schema"
+import { ModelID, ProviderID } from "@/provider/schema"
 import { tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
@@ -18,6 +20,53 @@ const it = testEffect(
 )
 
 const sessionID = SessionID.make("ses_episodic_test")
+const testSessionID = SessionID.make("ses_test")
+const testModel = { providerID: ProviderID.make("openai"), modelID: ModelID.make("gpt-4.1") }
+
+function userMessage(id: string, text: string, synthetic = false): MessageV2.WithParts {
+  const messageID = MessageID.make(`msg_${id}`)
+  return {
+    info: {
+      id: messageID,
+      sessionID: testSessionID,
+      role: "user",
+      time: { created: 1 },
+      agent: "build",
+      model: testModel,
+    },
+    parts: [
+      {
+        id: PartID.make(`prt_${id}_text`),
+        messageID,
+        sessionID: testSessionID,
+        type: "text",
+        text,
+        synthetic,
+      },
+    ],
+  }
+}
+
+function assistantMessage(id: string, parts: MessageV2.Part[], parent = "u1"): MessageV2.WithParts {
+  const messageID = MessageID.make(`msg_${id}`)
+  return {
+    info: {
+      id: messageID,
+      parentID: MessageID.make(`msg_${parent}`),
+      sessionID: testSessionID,
+      role: "assistant",
+      time: { created: 1 },
+      agent: "build",
+      mode: "build",
+      path: { cwd: "/tmp", root: "/tmp" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      modelID: testModel.modelID,
+      providerID: testModel.providerID,
+    },
+    parts,
+  }
+}
 
 function episode(turn: number): EpisodicMemory.EpisodeTurn {
   return {
@@ -97,6 +146,46 @@ describe("EpisodicMemory", () => {
       const hits = yield* memory.searchEpisodes({ sessionID, workspaceRoot: root, query: "request 2" })
       expect(hits.length).toBe(1)
       expect(hits[0]?.turn).toBe(2)
+    }),
+  )
+
+  it.live("episodeFromMessages aggregates tool calls and assistant text", () =>
+    Effect.gen(function* () {
+      const messages: MessageV2.WithParts[] = [
+        userMessage("u1", "第一轮"),
+        assistantMessage("a1", []),
+        userMessage("u2", "第二轮"),
+        assistantMessage("a2", [
+          {
+            id: PartID.make("prt_a2_tool"),
+            messageID: MessageID.make("msg_a2"),
+            sessionID: testSessionID,
+            type: "tool",
+            callID: "call_1",
+            tool: "bash",
+            state: {
+              status: "completed",
+              input: { command: "ls" },
+              output: "src\n",
+              title: "x",
+              metadata: {},
+              time: { start: 1, end: 2 },
+            },
+          },
+          {
+            id: PartID.make("prt_a2_text"),
+            messageID: MessageID.make("msg_a2"),
+            sessionID: testSessionID,
+            type: "text",
+            text: "完成",
+          },
+        ], "u2"),
+      ]
+      const episode = episodeFromMessages(messages)
+      expect(episode.turn).toBe(2)
+      expect(episode.toolCalls[0]?.tool).toBe("bash")
+      expect(episode.assistantText).toBe("完成")
+      expect(sliceLastTurns(messages, 2).length).toBe(messages.length)
     }),
   )
 })

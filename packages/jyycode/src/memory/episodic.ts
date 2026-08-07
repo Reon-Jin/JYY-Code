@@ -5,6 +5,7 @@ import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { SessionID } from "@/session/schema"
 import * as Log from "@jyycode-ai/core/util/log"
 import { buildDigestPrompt } from "./episodic-digest"
+import type { MessageV2 } from "@/session/message-v2"
 
 const log = Log.create({ service: "memory.episodic" })
 
@@ -123,6 +124,78 @@ export function formatEpisodicDigest(text: string) {
 export function truncate(text: string, maxChars: number) {
   if (text.length <= maxChars) return text
   return `${text.slice(0, maxChars)}\n…(truncated ${text.length - maxChars} chars)`
+}
+
+export function realUserTurnIndexes(messages: MessageV2.WithParts[]) {
+  const indexes: number[] = []
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i]!
+    if (message.info.role !== "user") continue
+    const isRealUserTurn = message.parts.some(
+      (part) =>
+        (part.type === "text" && !part.synthetic) ||
+        part.type === "file" ||
+        part.type === "agent" ||
+        part.type === "subtask",
+    )
+    if (isRealUserTurn) indexes.push(i)
+  }
+  return indexes
+}
+
+export function sliceLastTurns(messages: MessageV2.WithParts[], keepTurns = 2) {
+  const indexes = realUserTurnIndexes(messages)
+  if (indexes.length <= keepTurns) return messages
+  return messages.slice(indexes[indexes.length - keepTurns]!)
+}
+
+export function episodeFromMessages(messages: MessageV2.WithParts[]): EpisodeTurn {
+  const indexes = realUserTurnIndexes(messages)
+  const start = indexes.at(-1) ?? 0
+  const user = messages[start]
+  const userText =
+    user?.info.role === "user"
+      ? user.parts
+          .filter(
+            (part): part is Extract<MessageV2.Part, { type: "text" }> =>
+              part.type === "text" && !part.synthetic && !part.ignored,
+          )
+          .map((part) => part.text.trim())
+          .filter(Boolean)
+          .join("\n")
+      : ""
+  const files =
+    user?.info.role === "user"
+      ? user.parts
+          .filter((part): part is Extract<MessageV2.Part, { type: "file" }> => part.type === "file")
+          .map((part) => part.filename ?? part.url)
+      : []
+  const toolCalls: EpisodeToolCall[] = []
+  let assistantText: string | undefined
+  for (const message of messages.slice(start)) {
+    if (message.info.role !== "assistant") continue
+    for (const part of message.parts) {
+      if (part.type === "tool") {
+        const input = "input" in part.state ? JSON.stringify(part.state.input) : undefined
+        const call: EpisodeToolCall = { tool: part.tool, input: truncate(input ?? "", EPISODE_INPUT_MAX_CHARS) }
+        if (part.state.status === "completed") call.output = truncate(part.state.output, EPISODE_OUTPUT_MAX_CHARS)
+        else if (part.state.status === "error") call.error = truncate(part.state.error, EPISODE_OUTPUT_MAX_CHARS)
+        toolCalls.push(call)
+      } else if (part.type === "text" && !part.synthetic && !part.ignored && part.text.trim()) {
+        assistantText = [assistantText, part.text.trim()].filter(Boolean).join("\n\n")
+      }
+    }
+  }
+  return {
+    version: 1,
+    sessionID: messages[0]?.info.sessionID ?? "",
+    turn: indexes.length,
+    time: new Date().toISOString(),
+    ...(userText ? { userText } : {}),
+    files,
+    ...(assistantText ? { assistantText } : {}),
+    toolCalls,
+  }
 }
 
 function parseIndex(text: string): DigestIndex | undefined {

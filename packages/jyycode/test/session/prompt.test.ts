@@ -41,6 +41,7 @@ import { SessionV2 } from "../../src/v2/session"
 import { Skill } from "../../src/skill"
 import { SystemPrompt } from "../../src/session/system"
 import { Memory } from "@/memory/memory"
+import { EpisodicMemory } from "@/memory/episodic"
 import { Shell } from "../../src/shell/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
@@ -274,6 +275,7 @@ function makePrompt(input?: { processor?: "blocking"; memory?: Layer.Layer<Memor
     Layer.provideMerge(deps),
   )
   const promptLayer = SessionPrompt.layer.pipe(
+    Layer.provide(EpisodicMemory.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(Skill.defaultLayer),
     Layer.provide(Image.defaultLayer),

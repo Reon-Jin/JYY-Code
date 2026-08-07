@@ -62,6 +62,8 @@ import { referencePromptMetadata, referenceTextPart } from "./prompt/reference"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { SessionState } from "./state"
+import { countRealUserTurns } from "./state"
+import { EpisodicMemory, episodeFromMessages, sliceLastTurns } from "@/memory/episodic"
 import { LLMEvent } from "@jyycode-ai/llm"
 import { planSystemPrompt } from "@/plan/prompts"
 import { defaultPlanProtocol } from "@/plan/protocol"
@@ -155,6 +157,7 @@ export const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
     const blackboard = Option.getOrUndefined(yield* Effect.serviceOption(Blackboard.Service))
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
+    const episodic = Option.getOrUndefined(yield* Effect.serviceOption(EpisodicMemory.Service))
     const skill = Option.getOrUndefined(yield* Effect.serviceOption(Skill.Service))
     const evaluateMemoryDecision: Memory.DecisionEvaluator = (input) =>
       Effect.gen(function* () {
@@ -242,6 +245,26 @@ export const layer = Layer.effect(
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         })
       })
+    const generateDigest = Effect.fn("SessionPrompt.generateDigest")(function* (prompt: string, model: Provider.Model) {
+      const agent = yield* agents.get("compaction")
+      const digestModel = agent.model
+        ? yield* provider.getModel(agent.model.providerID, agent.model.modelID).pipe(Effect.orDie)
+        : model
+      const language = yield* provider.getLanguage(digestModel)
+      return yield* Effect.tryPromise({
+        try: async () =>
+          (
+            await generateText({
+              model: language,
+              prompt,
+              maxOutputTokens: 4096,
+              temperature: 0,
+              maxRetries: 1,
+            })
+          ).text,
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      })
+    })
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -1871,14 +1894,41 @@ export const layer = Layer.effect(
                       .join("\n\n") || undefined
                   : undefined
               yield* SessionState.writeSessionState(fsys, session.directory, sessionID, {
-                version: 1,
+                version: 2,
                 updatedAt: new Date().toISOString(),
                 lastUser: latestRealUserText(msgs) || undefined,
                 lastAssistant: assistantText || undefined,
                 lastToolNames: toolNames.length > 0 ? toolNames : undefined,
                 tailStartID: compactionPart?.tail_start_id,
                 summary,
+                turnCount: countRealUserTurns(msgs),
               }).pipe(Effect.ignore)
+
+              if (canUsePersistentMemory && episodic) {
+                const episodeMessages = [...msgs, { info: handle.message, parts }] satisfies MessageV2.WithParts[]
+                yield* episodic
+                  .recordTurn({
+                    sessionID,
+                    workspaceRoot: ctx.worktree,
+                    turn: episodeFromMessages(episodeMessages),
+                  })
+                  .pipe(Effect.ignore)
+                yield* episodic
+                  .compactIfDue({
+                    sessionID,
+                    workspaceRoot: ctx.worktree,
+                    reason: "interval",
+                    totalTurns: countRealUserTurns(msgs),
+                    backfillText: undefined,
+                    previousSummary: summary,
+                    generate: (prompt) => generateDigest(prompt, model).pipe(Effect.orDie),
+                  })
+                  .pipe(
+                    Effect.catchCause((cause) =>
+                      slog.warn("episodic digest failed; will retry on next trigger", { cause: Cause.pretty(cause) }),
+                    ),
+                  )
+              }
             }
 
             if (result === "stop") return "break" as const
@@ -2126,7 +2176,9 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
-    Layer.provide(Layer.mergeAll(Image.defaultLayer, Memory.defaultLayer, Skill.defaultLayer)),
+    Layer.provide(
+      Layer.mergeAll(Image.defaultLayer, Memory.defaultLayer, Skill.defaultLayer, EpisodicMemory.defaultLayer),
+    ),
     Layer.provide(
       Layer.mergeAll(
         EventV2Bridge.defaultLayer,
