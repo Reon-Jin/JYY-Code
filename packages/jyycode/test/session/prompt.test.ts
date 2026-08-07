@@ -546,6 +546,56 @@ it.instance("loop calls LLM and returns assistant message", () =>
   }),
 )
 
+it.instance("records episodes and sends last two turns plus digest after five turns", () =>
+  Effect.gen(function* () {
+    const { llm, dir } = yield* useServerConfig(providerCfg)
+    const fsys = yield* AppFileSystem.Service
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Episodic",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+
+    for (let turn = 1; turn <= 5; turn++) {
+      yield* llm.text(`answer ${turn}`)
+      if (turn === 5) yield* llm.text("episodic digest summary")
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        parts: [{ type: "text", text: `request ${turn}` }],
+      })
+    }
+
+    const episodesFile = path.join(dir, ".jyycode", "memory", "episodes", `${chat.id}.jsonl`)
+    const episodesText = (yield* fsys.readFileStringSafe(episodesFile).pipe(Effect.orDie)) ?? ""
+    expect(episodesText.trim().split("\n")).toHaveLength(5)
+
+    const digestFile = path.join(dir, ".jyycode", "memory", "digest", `${chat.id}`, "0001.md")
+    const digestText = (yield* fsys.readFileStringSafe(digestFile).pipe(Effect.orDie)) ?? ""
+    expect(digestText.length).toBeGreaterThan(0)
+    expect(digestText.length).toBeLessThanOrEqual(3000)
+
+    yield* llm.text("answer 6")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "request 6" }],
+    })
+
+    const inputs = yield* llm.inputs
+    const last = inputs.at(-1)!
+    const raw = JSON.stringify(last)
+    expect(raw).toContain("episodic digest summary")
+    expect(raw).toContain("request 5")
+    expect(raw).toContain("request 6")
+    expect(raw).not.toContain("request 1")
+    expect(raw).not.toContain("request 2")
+    expect(raw).not.toContain("request 3")
+    expect(raw).not.toContain("request 4")
+  }),
+)
+
 it.instance("continues once when the assistant output is truncated by length", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)

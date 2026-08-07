@@ -675,6 +675,7 @@ export class TestLLMServer extends Context.Service<TestLLMServer, TestLLMServer.
       const handle = Effect.fn("TestLLMServer.handle")(function* (mode: "chat" | "responses") {
         const req = yield* HttpServerRequest.HttpServerRequest
         const body = yield* req.json.pipe(Effect.orElseSucceed(() => ({})))
+        const bodyRecord = (body ?? {}) as Record<string, unknown>
         const current = hit(req.originalUrl, body)
         if (isTitleRequest(body)) {
           hits = [...hits, current]
@@ -694,6 +695,28 @@ export class TestLLMServer extends Context.Service<TestLLMServer, TestLLMServer.
         hits = [...hits, current]
         yield* notify()
         if (next.type !== "sse") return fail(next)
+        if (mode === "chat" && (bodyRecord.stream === false || bodyRecord.stream === undefined)) {
+          const text = flow(next)
+            .filter((part): part is Extract<Flow, { type: "text" }> => part.type === "text")
+            .map((part) => part.text)
+            .join("")
+          return HttpServerResponse.text(
+            JSON.stringify({
+              id: "chatcmpl-test",
+              object: "chat.completion",
+              model: modelFrom(body),
+              choices: [
+                {
+                  index: 0,
+                  message: { role: "assistant", content: text },
+                  finish_reason: "stop",
+                },
+              ],
+              usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+            }),
+            { contentType: "application/json" },
+          )
+        }
         if (mode === "responses") return send(responses(next, modelFrom(body)))
         if (next.reset) {
           yield* reset(next)
