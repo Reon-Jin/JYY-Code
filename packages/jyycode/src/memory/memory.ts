@@ -209,7 +209,7 @@ export function entryKey(entry: MemoryEntry): string {
   return [...validateKeywords(entry.keywords)].sort().join("\u001f")
 }
 
-function parseImportance(value: unknown): Importance {
+export function parseImportance(value: unknown): Importance {
   const importance = Number(value)
   if (!Number.isInteger(importance) || importance < 1 || importance > 10) {
     throw new Error(`Invalid memory entry importance: ${value}`)
@@ -217,7 +217,7 @@ function parseImportance(value: unknown): Importance {
   return importance as Importance
 }
 
-function validateKeywords(value: readonly string[]): string[] {
+export function validateKeywords(value: readonly string[]): string[] {
   const keywords = normalizeKeywords(value)
   if (keywords.length === 0 || keywords.length > 3) {
     throw new Error("Invalid memory entry keywords: expected 1 to 3 non-empty keywords")
