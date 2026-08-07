@@ -4,6 +4,7 @@ import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { SessionID } from "@/session/schema"
 import * as Log from "@jyycode-ai/core/util/log"
+import { buildDigestPrompt } from "./episodic-digest"
 
 const log = Log.create({ service: "memory.episodic" })
 
@@ -132,26 +133,6 @@ function parseIndex(text: string): DigestIndex | undefined {
   } catch {
     return undefined
   }
-}
-
-// Temporary placeholder; replaced by `episodic-digest.ts` in Task 3.
-export function buildDigestPrompt(input: {
-  previousDigest?: string
-  backfillText?: string
-  episodes: EpisodeTurn[]
-}) {
-  const sections = [
-    ...(input.previousDigest ? ["<previous-digest>", input.previousDigest, "</previous-digest>"] : []),
-    ...(input.backfillText ? ["<older-history>", input.backfillText, "</older-history>"] : []),
-  ]
-  if (input.episodes.length > 0) {
-    sections.push(
-      "<new-episodes>",
-      input.episodes.map((episode) => `Turn ${episode.turn}: ${episode.userText ?? ""}`).join("\n"),
-      "</new-episodes>",
-    )
-  }
-  return sections.join("\n")
 }
 
 export const layer = Layer.effect(
