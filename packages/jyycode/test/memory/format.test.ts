@@ -174,4 +174,18 @@ describe("memory v3 JSON format", () => {
       ).toThrow(/must be (?:at least 2|at most 4) characters/u)
     }
   })
+
+  test("selectSnapshotEntries returns the current session entry keywords", () => {
+    const entry: Memory.TaskMemoryEntry = {
+      scope: "memory",
+      sessionID,
+      importance: 5,
+      date: "20260807",
+      keywords: ["修复"],
+      content: "当前任务：修复；进展：完成；下一步：验证",
+    }
+    const store = Memory.parseStore("memory", Memory.serializeStore("memory", [entry]))
+    const selected = Memory.selectSnapshotEntries(store.entries, "memory", sessionID)
+    expect(selected[0]?.keywords).toEqual(["修复"])
+  })
 })

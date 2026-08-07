@@ -64,6 +64,7 @@ import { SessionTools } from "./tools"
 import { SessionState } from "./state"
 import { countRealUserTurns } from "./state"
 import { EpisodicMemory, episodeFromMessages, sliceLastTurns } from "@/memory/episodic"
+import { ExperienceMemory } from "@/memory/experience"
 import { LLMEvent } from "@jyycode-ai/llm"
 import { planSystemPrompt } from "@/plan/prompts"
 import { defaultPlanProtocol } from "@/plan/protocol"
@@ -157,6 +158,7 @@ export const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
     const blackboard = Option.getOrUndefined(yield* Effect.serviceOption(Blackboard.Service))
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
+    const experienceMemory = Option.getOrUndefined(yield* Effect.serviceOption(ExperienceMemory.Service))
     const episodic = Option.getOrUndefined(yield* Effect.serviceOption(EpisodicMemory.Service))
     const skill = Option.getOrUndefined(yield* Effect.serviceOption(Skill.Service))
     const evaluateMemoryDecision: Memory.DecisionEvaluator = (input) =>
@@ -1368,6 +1370,9 @@ export const layer = Layer.effect(
                 ),
               )
             if (updated) yield* slog.info("persistent memory updated after user message", { ...updated })
+            if (updated?.status === "updated" && experienceMemory) {
+              yield* experienceMemory.upsertMany(sessionID, updated.experienceCandidates).pipe(Effect.ignore)
+            }
           }
 
           const lastAssistantMsg = msgs.findLast(
@@ -1826,6 +1831,18 @@ export const layer = Layer.effect(
                     Effect.catchCause(() => Effect.succeed(undefined)),
                   )
                 : undefined
+            const experienceSnapshot =
+              memorySnapshot && experienceMemory
+                ? yield* memory!
+                    .currentTaskKeywords(sessionID)
+                    .pipe(
+                      Effect.andThen((keywords) => experienceMemory!.formatExperienceSnapshot(sessionID, keywords)),
+                      Effect.catchCause(() => Effect.succeed("")),
+                    )
+                : ""
+            const snapshotText = memorySnapshot
+              ? [memorySnapshot, experienceSnapshot].filter(Boolean).join("\n")
+              : undefined
             const sessionState = yield* SessionState.readSessionState(fsys, session.directory, sessionID).pipe(
               Effect.catch(() => Effect.succeed(Option.none())),
             )
@@ -1837,7 +1854,7 @@ export const layer = Layer.effect(
               instruction.system().pipe(Effect.orDie),
               MessageV2.toModelMessagesEffect(historyForModel, model),
             ])
-            const system = [...(memorySnapshot ? [memorySnapshot] : []), ...env, ...instructions]
+            const system = [...(snapshotText ? [snapshotText] : []), ...env, ...instructions]
             if (Option.isSome(episodicDigest)) {
               system.push(EpisodicMemory.formatEpisodicDigest(episodicDigest.value))
             }
@@ -2138,6 +2155,15 @@ export const layer = Layer.effect(
                   .pipe(Effect.as(undefined)),
               ),
             )
+          if (curated?.status === "updated" && experienceMemory) {
+            yield* experienceMemory
+              .upsertMany(sessionID, curated.experienceCandidates)
+              .pipe(Effect.ignore)
+            const turnCount = countRealUserTurns(freshMessages)
+            if (turnCount > 0 && turnCount % ExperienceMemory.EXPERIENCE_MAINTENANCE_INTERVAL_TURNS === 0) {
+              yield* experienceMemory.maintain(sessionID).pipe(Effect.ignore)
+            }
+          }
           if (curated) yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
         }
         return result
@@ -2307,7 +2333,13 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
     Layer.provide(
-      Layer.mergeAll(Image.defaultLayer, Memory.defaultLayer, Skill.defaultLayer, EpisodicMemory.defaultLayer),
+      Layer.mergeAll(
+        Image.defaultLayer,
+        Memory.defaultLayer,
+        Skill.defaultLayer,
+        EpisodicMemory.defaultLayer,
+        ExperienceMemory.defaultLayer,
+      ),
     ),
     Layer.provide(
       Layer.mergeAll(

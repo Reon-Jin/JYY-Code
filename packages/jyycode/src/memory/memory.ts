@@ -31,6 +31,8 @@ const CAPACITY_WARN_THRESHOLD = 0.8
 const COMPACTION_TARGET = 0.7
 const COMPACTION_ENTRY_TARGET = 45
 const SNAPSHOT_ENTRY_LIMIT = 10
+const MEMORY_SNAPSHOT_MAX_CHARS = 400
+const USER_SNAPSHOT_MAX_CHARS = 1_200
 // A task entry is the durable summary for an entire session, not a caption for
 // its latest turn. Keep enough room for the original goal, important decisions,
 // and the final state while remaining compact enough for the session snapshot.
@@ -387,6 +389,7 @@ export interface Interface {
   readonly compact: (input: { sessionID: SessionID; scope: Scope }) => Effect.Effect<CompactionResult, Error>
   readonly usage: (sessionID: SessionID, scope: Scope) => Effect.Effect<UsageInfo, Error>
   readonly formatWithHeader: (sessionID: SessionID, scope: Scope) => Effect.Effect<string, Error>
+  readonly currentTaskKeywords: (sessionID: SessionID) => Effect.Effect<string[]>
   readonly updateAfterTurn: (
     sessionID: SessionID,
     evaluator?: DecisionEvaluator,
@@ -979,9 +982,20 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       const formatWithHeader = Effect.fn("Memory.formatWithHeader")(function* (sessionID: SessionID, scope: Scope) {
         yield* ensure(sessionID)
         const store = yield* readStore(sessionID, scope)
-        const text = formatEntries(selectSnapshotEntries(store.entries, scope, sessionID))
         const serialized = serializeStore(scope, store.entries, store.lastCompactedAt)
+        let text = formatEntries(selectSnapshotEntries(store.entries, scope, sessionID))
+        const limit = scope === "user" ? USER_SNAPSHOT_MAX_CHARS : MEMORY_SNAPSHOT_MAX_CHARS
+        if (text.length > limit) text = `${text.slice(0, limit - 1)}…\n`
         return formatMemoryHeader(scope, serialized) + text
+      })
+
+      const currentTaskKeywords = Effect.fn("Memory.currentTaskKeywords")(function* (sessionID: SessionID) {
+        const store = yield* readStore(sessionID, "memory")
+        const entry = store.entries.find(
+          (candidate): candidate is TaskMemoryEntry =>
+            candidate.scope === "memory" && candidate.sessionID === sessionID,
+        )
+        return entry?.keywords ?? []
       })
 
       const currentTaskContent = Effect.fn("Memory.currentTaskContent")(function* (sessionID: SessionID) {
@@ -1160,6 +1174,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         compact,
         usage,
         formatWithHeader,
+        currentTaskKeywords,
         updateAfterTurn,
         updateStepBegin,
         managementRead,
@@ -1430,7 +1445,7 @@ function computeUsage(text: string, scope: Scope): UsageInfo {
 
 function formatMemoryHeader(scope: Scope, text: string) {
   const { percentage, used, limit } = computeUsage(text, scope)
-  const label = scope === "user" ? "USER PROFILE (your preferences)" : "MEMORY (your personal notes)"
+  const label = scope === "user" ? "USER PROFILE (your preferences)" : "TASK MEMORY (current session state)"
   const left = `${label} [${percentage}% — ${used}/${limit} chars]`
   const totalWidth = 64
   const padLeft = Math.max(2, Math.floor((totalWidth - left.length) / 2))

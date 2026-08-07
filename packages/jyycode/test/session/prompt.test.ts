@@ -39,10 +39,11 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionV2 } from "../../src/v2/session"
 import { Skill } from "../../src/skill"
-import { SystemPrompt } from "../../src/session/system"
-import { Memory } from "@/memory/memory"
-import { EpisodicMemory } from "@/memory/episodic"
-import { Shell } from "../../src/shell/shell"
+import { SystemPrompt } from "../../src/session/system"                          
+import { Memory } from "@/memory/memory"                                         
+import { EpisodicMemory } from "@/memory/episodic"                               
+import { ExperienceMemory } from "@/memory/experience"                           
+import { Shell } from "../../src/shell/shell"                                    
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
@@ -177,6 +178,7 @@ const memoryLifecycleLayer = Layer.succeed(
     compact: () => Effect.die("unexpected direct memory compact"),
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
+    currentTaskKeywords: () => Effect.succeed([]),
     updateStepBegin: (sessionID) =>
       Effect.gen(function* () {
         memoryLifecycleUpdates.push({ sessionID, phase: "received" })
@@ -205,6 +207,7 @@ const memoryFailureLayer = Layer.succeed(
     compact: () => Effect.die("unexpected memory compact"),
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
+    currentTaskKeywords: () => Effect.succeed([]),
     updateStepBegin: () => Effect.fail(new Error("Task memory 当前任务 must not exceed 120 characters")),
     updateAfterTurn: () => Effect.fail(new Error("memory completion update failed")),
   }),
@@ -224,6 +227,7 @@ const snapshotMemoryLayer = Layer.succeed(
     compact: () => Effect.die("unexpected direct memory compact"),
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed("PERSISTENT MEMORY SNAPSHOT"),
+    currentTaskKeywords: () => Effect.succeed([]),
     updateStepBegin: () =>
       Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }),
     updateAfterTurn: () =>
@@ -243,7 +247,11 @@ const blockingProcessor = Layer.succeed(
   }),
 )
 
-function makePrompt(input?: { processor?: "blocking"; memory?: Layer.Layer<Memory.Service> }) {
+function makePrompt(input?: {
+  processor?: "blocking"
+  memory?: Layer.Layer<Memory.Service>
+  experience?: Layer.Layer<ExperienceMemory.Service>
+}) {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -313,14 +321,25 @@ function makePrompt(input?: { processor?: "blocking"; memory?: Layer.Layer<Memor
     Layer.provideMerge(deps),
     Layer.provide(summary),
   )
-  return input?.memory ? promptLayer.pipe(Layer.provide(input.memory)) : promptLayer
+  let result = promptLayer
+  if (input?.experience) result = result.pipe(Layer.provide(input.experience))
+  if (input?.memory) result = result.pipe(Layer.provide(input.memory))
+  return result
 }
 
-function makeHttp(input?: { processor?: "blocking"; memory?: Layer.Layer<Memory.Service> }) {
+function makeHttp(input?: {
+  processor?: "blocking"
+  memory?: Layer.Layer<Memory.Service>
+  experience?: Layer.Layer<ExperienceMemory.Service>
+}) {
   return Layer.mergeAll(TestLLMServer.layer, makePrompt(input))
 }
 
-function makeHttpNoLLMServer(input?: { processor?: "blocking"; memory?: Layer.Layer<Memory.Service> }) {
+function makeHttpNoLLMServer(input?: {
+  processor?: "blocking"
+  memory?: Layer.Layer<Memory.Service>
+  experience?: Layer.Layer<ExperienceMemory.Service>
+}) {
   return makePrompt(input)
 }
 
@@ -3130,5 +3149,78 @@ it.instance("profile subagent child session gets role skills in the skill tool a
       expect(payload).toContain("你的专属技能")
       expect(payload).toContain("docx 文档处理技能")
     }).pipe(Effect.ensuring(Effect.promise(() => fs.rm(roleRoot, { recursive: true, force: true }))))
+  }),
+)
+
+const experienceCandidatesWritten: Array<{ sessionID: SessionID; candidates: Memory.ExperienceCandidate[] }> = []
+const experienceMemoryLayer = Layer.succeed(
+  ExperienceMemory.Service,
+  ExperienceMemory.Service.of({
+    ensure: () => Effect.void,
+    readStore: () => Effect.die("unexpected readStore"),
+    upsert: () => Effect.die("unexpected upsert"),
+    upsertMany: (sessionID, candidates) =>
+      Effect.sync(() => {
+        experienceCandidatesWritten.push({ sessionID, candidates: [...candidates] })
+        return candidates.length
+      }),
+    search: () => Effect.die("unexpected search"),
+    formatExperienceSnapshot: () => Effect.succeed(""),
+    maintain: () => Effect.die("unexpected maintain"),
+  }),
+)
+
+const experienceCandidate: Memory.ExperienceCandidate = {
+  kind: "failure",
+  importance: 8,
+  keywords: ["部署"],
+  content: "部署脚本报错时先看日志再重试",
+  evidence: "[ses_x#1] deploy.sh",
+  confidence: "high",
+}
+
+const experienceWiringMemoryLayer = Layer.succeed(
+  Memory.Service,
+  Memory.Service.of({
+    dir: () => Effect.succeed(Memory.DIRECTORY),
+    ensure: () => Effect.void,
+    read: () => Effect.succeed(""),
+    upsertTaskMemory: () => Effect.die("unexpected"),
+    upsertUserMemory: () => Effect.die("unexpected"),
+    write: () => Effect.die("unexpected"),
+    replaceBySubstring: () => Effect.die("unexpected"),
+    removeBySubstring: () => Effect.die("unexpected"),
+    compact: () => Effect.die("unexpected"),
+    usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
+    formatWithHeader: () => Effect.succeed(""),
+    currentTaskKeywords: () => Effect.succeed([]),
+    updateStepBegin: () =>
+      Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }),
+    updateAfterTurn: () =>
+      Effect.succeed({
+        status: "updated" as const,
+        taskUpdated: true,
+        userUpdated: 0,
+        experienceCandidates: [experienceCandidate],
+      }),
+  }),
+)
+
+const withExperienceWiring = testEffect(makeHttp({ memory: experienceWiringMemoryLayer, experience: experienceMemoryLayer }))
+
+withExperienceWiring.instance("writes experience candidates after the assistant turn", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Experience wiring" })
+    experienceCandidatesWritten.splice(0)
+    yield* llm.text("done")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "fix deploy" }],
+    })
+    expect(experienceCandidatesWritten.map((entry) => entry.candidates)).toEqual([[], [experienceCandidate]])
   }),
 )
