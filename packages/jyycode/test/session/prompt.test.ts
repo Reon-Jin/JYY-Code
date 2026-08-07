@@ -576,6 +576,8 @@ it.instance("records episodes and sends last two turns plus digest after five tu
     expect(digestText.length).toBeGreaterThan(0)
     expect(digestText.length).toBeLessThanOrEqual(3000)
 
+    const beforeTurn6 = (yield* llm.inputs).at(-2)!
+    const beforeTurn6Raw = JSON.stringify(beforeTurn6)
     yield* llm.text("answer 6")
     yield* prompt.prompt({
       sessionID: chat.id,
@@ -586,6 +588,7 @@ it.instance("records episodes and sends last two turns plus digest after five tu
     const inputs = yield* llm.inputs
     const last = inputs.at(-1)!
     const raw = JSON.stringify(last)
+    expect(raw.length).toBeLessThan(beforeTurn6Raw.length)
     expect(raw).toContain("episodic digest summary")
     expect(raw).toContain("request 5")
     expect(raw).toContain("request 6")
