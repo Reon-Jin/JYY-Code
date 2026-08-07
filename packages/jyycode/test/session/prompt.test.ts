@@ -834,15 +834,16 @@ it.instance("multi-agent roots tolerate preflight calls before creating a missin
     expect(inputs).toHaveLength(5)
     expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_read")
     // Gated plan write tools stay visible as inert stubs: providers that
-    // ignore the forced tool choice then get a recoverable gated result
-    // instead of a hard unknown-tool failure.
+    // ignore the required tool choice then get a recoverable gated result
+    // instead of a hard unknown-tool failure. Memory tools are also available
+    // under the gate so the model can read persistent memory on the first turn.
     expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_create")
     expect(JSON.stringify(inputs[0]?.tools)).toContain("暂时禁用")
-    expect(inputs[0]?.tool_choice).toMatchObject({ type: "function", function: { name: "Plan_read" } })
+    expect(inputs[0]?.tool_choice).toBe("required")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_create")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_read")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Dispatch_roles")
-    expect(inputs[1]?.tool_choice).toMatchObject({ type: "function", function: { name: "Plan_create" } })
+    expect(inputs[1]?.tool_choice).toBe("required")
 
     const messages = yield* sessions.messages({ sessionID: chat.id })
     const failedTools = messages
@@ -910,7 +911,7 @@ it.instance("cancelling a dispatched task forces the next turn to redispatch", (
 
     const inputs = yield* llm.inputs
     expect(inputs).toHaveLength(3)
-    expect(inputs[2]?.tool_choice).toMatchObject({ type: "function", function: { name: "Dispatch_dispatch" } })
+    expect(inputs[2]?.tool_choice).toBe("required")
     const messages = yield* sessions.messages({ sessionID: chat.id })
     const failedTools = messages
       .flatMap((message) => message.parts)

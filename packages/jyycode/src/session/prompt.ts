@@ -1923,11 +1923,18 @@ export const layer = Layer.effect(
             }
             const format = lastUser.format ?? { type: "text" as const }
             if (!requiredPlanTool && format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
-            const toolChoice = requiredPlanTool
-              ? { type: "tool" as const, toolName: requiredPlanTool }
-              : format.type === "json_schema"
-                ? ("required" as const)
-                : undefined
+            const planGateWithMemory =
+              requiredPlanTool === "Plan_read" ||
+              requiredPlanTool === "Plan_create" ||
+              requiredPlanTool === "Plan_update" ||
+              requiredPlanTool === "Dispatch_dispatch"
+            const toolChoice = planGateWithMemory
+              ? ("required" as const)
+              : requiredPlanTool
+                ? { type: "tool" as const, toolName: requiredPlanTool }
+                : format.type === "json_schema"
+                  ? ("required" as const)
+                  : undefined
             const result = yield* handle.process({
               user: lastUser,
               agent,

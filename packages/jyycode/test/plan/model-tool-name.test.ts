@@ -386,6 +386,44 @@ describe("model-facing plan tool names", () => {
     expect(createResult.metadata).toMatchObject({ gated: true, tool: "Plan_create", requiredTool: "Plan_read" })
   })
 
+  it("keeps read-only memory tools available under every plan gate", () => {
+    const readTools = {
+      Plan_read: {} as never,
+      memory: {} as never,
+      context_read: {} as never,
+      bash: {} as never,
+    }
+    retainRequiredPlanTools(readTools, "Plan_read", false)
+    expect(Object.keys(readTools).sort()).toEqual(["Plan_read", "context_read", "memory"])
+
+    const createTools = {
+      Plan_read: {} as never,
+      Plan_create: {} as never,
+      Plan_update: {} as never,
+      memory: {} as never,
+      context_read: {} as never,
+      bash: {} as never,
+    }
+    retainRequiredPlanTools(createTools, "Plan_create", false)
+    expect(Object.keys(createTools).sort()).toEqual([
+      "Plan_create",
+      "Plan_read",
+      "Plan_update",
+      "context_read",
+      "memory",
+    ])
+
+    const updateTools = {
+      Plan_read: {} as never,
+      Plan_update: {} as never,
+      memory: {} as never,
+      context_read: {} as never,
+      bash: {} as never,
+    }
+    retainRequiredPlanTools(updateTools, "Plan_update", false)
+    expect(Object.keys(updateTools).sort()).toEqual(["Plan_read", "Plan_update", "context_read", "memory"])
+  })
+
   it("forces multi-agent roots to create, prepare, and dispatch active work instead of doing it themselves", () => {
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 1 })).toBe("Plan_read")
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 1, blackboardUnread: 2, planExists: false })).toBe(
