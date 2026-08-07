@@ -386,4 +386,60 @@ describe("structured memory upserts", () => {
       ),
     ).rejects.toThrow("下一步 must not exceed 80 characters")
   })
+
+  test("merges location paraphrases like 苏州人 and 苏州本地人", async () => {
+    const { run, entries } = fixture()
+    await run(
+      Memory.Service.use((memory) =>
+        memory.upsertUserMemory({
+          sessionID: firstSession,
+          importance: 8,
+          keywords: ["苏州"],
+          content: "用户是苏州人",
+        }),
+      ),
+    )
+    const updated = await run(
+      Memory.Service.use((memory) =>
+        memory.upsertUserMemory({
+          sessionID: firstSession,
+          importance: 9,
+          keywords: ["苏州"],
+          content: "用户是苏州本地人",
+        }),
+      ),
+    )
+    expect(updated.status).toBe("replaced")
+    const stored = entries("user") as Memory.UserMemoryEntry[]
+    expect(stored).toHaveLength(1)
+    expect(stored[0]?.content).toBe("用户是苏州本地人")
+  })
+
+  test("merges paraphrase-style preference duplicates by bigram similarity", async () => {
+    const { run, entries } = fixture()
+    await run(
+      Memory.Service.use((memory) =>
+        memory.upsertUserMemory({
+          sessionID: firstSession,
+          importance: 7,
+          keywords: ["偏好", "设计"],
+          content: "用户偏好深色科技风、品牌蓝主色、无圆角卡片、无位图、无外部依赖，强调手写SVG与动效",
+        }),
+      ),
+    )
+    const updated = await run(
+      Memory.Service.use((memory) =>
+        memory.upsertUserMemory({
+          sessionID: firstSession,
+          importance: 8,
+          keywords: ["偏好", "svg"],
+          content: "用户偏好纯SVG、无位图、无圆角卡片、深色科技风、品牌蓝为主色",
+        }),
+      ),
+    )
+    expect(updated.status).toBe("replaced")
+    const stored = entries("user") as Memory.UserMemoryEntry[]
+    expect(stored).toHaveLength(1)
+    expect(stored[0]?.content).toBe("用户偏好纯SVG、无位图、无圆角卡片、深色科技风、品牌蓝为主色")
+  })
 })

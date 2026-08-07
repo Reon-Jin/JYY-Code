@@ -1286,8 +1286,23 @@ function entriesAreSimilar(left: MemoryEntry, right: MemoryEntry): boolean {
 }
 
 type UserProfileFact = {
-  slot: "name" | "birthday"
+  slot: "name" | "birthday" | "location"
   value: string
+}
+
+function userLocationFact(content: string): UserProfileFact | null {
+  const normalized = content.normalize("NFKC").trim()
+  const patterns = [
+    /(?:是|为|算)([^，。；;.!?！？]{1,12}?)(?:本地人|人)/u,
+    /来自([^，。；;.!?！？]{1,12}?)(?:人|市|省|地区)/u,
+    /(?:籍贯|家乡|常住地|所在地)[是为：:]?([^，。；;.!?！？]{1,12}?)(?:人|市|省|地区)?/u,
+  ]
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern)
+    const value = canonicalProfileValue(match?.[1] ?? "")
+    if (value) return { slot: "location", value }
+  }
+  return null
 }
 
 function userProfileFact(content: string): UserProfileFact | null {
@@ -1304,9 +1319,9 @@ function userProfileFact(content: string): UserProfileFact | null {
   const birthday = normalized.match(
     /(?:用户(?:的)?)?(?:生日|出生日期)|\buser(?:'s)?\s+(?:birthday|date\s+of\s+birth)\b/iu,
   )
-  if (!birthday) return null
+  if (!birthday) return userLocationFact(normalized)
   const date = normalized.match(/(\d{4})\s*(?:年|[-/.])\s*(\d{1,2})\s*(?:月|[-/.])\s*(\d{1,2})\s*日?/u)
-  if (!date) return null
+  if (!date) return userLocationFact(normalized)
   return { slot: "birthday", value: `${date[1]}-${date[2]!.padStart(2, "0")}-${date[3]!.padStart(2, "0")}` }
 }
 
@@ -1330,7 +1345,27 @@ function equivalentUserFacts(left: UserMemoryEntry, right: UserMemoryEntry) {
   if (leftProfile && rightProfile) {
     return leftProfile.slot === rightProfile.slot && leftProfile.value === rightProfile.value
   }
-  return canonicalUserContent(left.content) === canonicalUserContent(right.content)
+  if (canonicalUserContent(left.content) === canonicalUserContent(right.content)) return true
+  return bigramSimilarity(left.content, right.content) >= 0.5
+}
+
+function contentBigrams(content: string): Set<string> {
+  const compact = content
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s"'“”‘’.,，。:：;；!?！？_-]+/gu, "")
+  const bigrams = new Set<string>()
+  for (let index = 0; index < compact.length - 1; index++) bigrams.add(compact.slice(index, index + 2))
+  return bigrams
+}
+
+function bigramSimilarity(left: string, right: string) {
+  const a = contentBigrams(left)
+  const b = contentBigrams(right)
+  if (a.size === 0 || b.size === 0) return 0
+  let intersection = 0
+  for (const gram of a) if (b.has(gram)) intersection++
+  return intersection / (a.size + b.size - intersection)
 }
 
 function sameUserProfileSlot(left: UserMemoryEntry, right: UserMemoryEntry) {

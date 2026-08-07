@@ -189,6 +189,18 @@ export const layer = Layer.effect(
         ].join("\n")
         const isUserPhase = input.phase === "user"
         let existingUserHint = ""
+        if (isUserPhase && memory) {
+          existingUserHint = yield* memory
+            .read({ sessionID: input.sessionID, scope: "user" })
+            .pipe(
+              Effect.map((text) => {
+                const store = Memory.parseStore("user", text)
+                const top = Memory.selectSnapshotEntries(store.entries, "user", input.sessionID).slice(0, 5)
+                return formatExistingUserHint(top as Memory.UserMemoryEntry[])
+              }),
+              Effect.catch(() => Effect.succeed("Existing user profile: (unavailable)")),
+            )
+        }
         const turnNumber = countRealUserTurns(history)
         const prompt = [
           "You are a semantic memory curator. Rewrite this session's single task-memory entry and output one JSON object.",
@@ -2376,6 +2388,14 @@ function latestRealUserText(messages: MessageV2.WithParts[]) {
     .map((part) => part.text.trim())
     .filter(Boolean)
     .join("\n")
+}
+
+export function formatExistingUserHint(entries: readonly Memory.UserMemoryEntry[]) {
+  if (entries.length === 0) return "Existing user profile: (none)"
+  return (
+    "Existing user profile (reuse the exact keywords to update a fact; skip facts already covered):\n" +
+    entries.map((entry) => `- keywords=[${entry.keywords.join(", ")}] content=${entry.content}`).join("\n")
+  )
 }
 
 function memoryUserText(messages: MessageV2.WithParts[]) {

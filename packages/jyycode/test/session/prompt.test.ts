@@ -3224,3 +3224,12 @@ withExperienceWiring.instance("writes experience candidates after the assistant 
     expect(experienceCandidatesWritten.map((entry) => entry.candidates)).toEqual([[], [experienceCandidate]])
   }),
 )
+
+test("formats the existing user profile hint for curator dedup", () => {
+  const hint = SessionPrompt.formatExistingUserHint([
+    { scope: "user", importance: 9, keywords: ["中文"], content: "用户偏好中文回答" },
+  ])
+  expect(hint).toContain("Existing user profile")
+  expect(hint).toContain("keywords=[中文]")
+  expect(hint).toContain("reuse the exact keywords to update a fact")
+})
