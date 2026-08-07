@@ -176,7 +176,12 @@ export const layer = Layer.effect(
               .readLatestDigest({ sessionID: input.sessionID, workspaceRoot: sessionInfo.directory })
               .pipe(Effect.catch(() => Effect.succeed(Option.none())))
           : Option.none<string>()
-        const historyBase = Option.isSome(digest) ? sliceLastTurns(history, 2) : history
+        // Keep as many verbatim turns as the digest interval. A smaller
+        // window leaves a gap between digest coverage and the verbatim tail
+        // before the next digest is generated.
+        const historyBase = Option.isSome(digest)
+          ? sliceLastTurns(history, EpisodicMemory.DIGEST_INTERVAL_TURNS)
+          : history
         const historyText = [
           ...(Option.isSome(digest) ? ["<episodic-digest>", digest.value, "</episodic-digest>"] : []),
           ...historyBase
@@ -1628,7 +1633,12 @@ export const layer = Layer.effect(
                   .readLatestDigest({ sessionID, workspaceRoot: ctx.directory })
                   .pipe(Effect.catch(() => Effect.succeed(Option.none())))
               : Option.none<string>()
-          const historyForModel = Option.isSome(episodicDigest) ? sliceLastTurns(msgs, 2) : msgs
+          // Keep as many verbatim turns as the digest interval. A smaller
+          // window leaves a gap between digest coverage and the verbatim tail
+          // before the next digest is generated.
+          const historyForModel = Option.isSome(episodicDigest)
+            ? sliceLastTurns(msgs, EpisodicMemory.DIGEST_INTERVAL_TURNS)
+            : msgs
           if (yield* compaction.shouldCompact({ messages: historyForModel, model })) {
             if (canUsePersistentMemory && episodic) {
               const digestDue = yield* episodic

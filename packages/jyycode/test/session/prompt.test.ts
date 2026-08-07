@@ -586,7 +586,7 @@ it.instance("loop calls LLM and returns assistant message", () =>
   }),
 )
 
-it.instance("records episodes and sends last two turns plus digest after five turns", () =>
+it.instance("keeps the verbatim window contiguous with the episodic digest", () =>
   Effect.gen(function* () {
     const { llm, dir } = yield* useServerConfig(providerCfg)
     const fsys = yield* AppFileSystem.Service
@@ -630,12 +630,36 @@ it.instance("records episodes and sends last two turns plus digest after five tu
     const raw = JSON.stringify(last)
     expect(raw.length).toBeLessThan(beforeTurn6Raw.length)
     expect(raw).toContain("episodic digest summary")
+    expect(raw).toContain("request 2")
+    expect(raw).toContain("request 3")
+    expect(raw).toContain("request 4")
     expect(raw).toContain("request 5")
     expect(raw).toContain("request 6")
     expect(raw).not.toContain("request 1")
-    expect(raw).not.toContain("request 2")
-    expect(raw).not.toContain("request 3")
-    expect(raw).not.toContain("request 4")
+
+    yield* llm.text("answer 7")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "request 7" }],
+    })
+    const inputsBeforeTurn8 = (yield* llm.inputs).length
+    yield* llm.text("answer 8")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "request 8" }],
+    })
+    const turn8Raw = JSON.stringify((yield* llm.inputs)[inputsBeforeTurn8]!)
+    expect(turn8Raw).toContain("episodic digest summary")
+    expect(turn8Raw).toContain("request 4")
+    expect(turn8Raw).toContain("request 5")
+    expect(turn8Raw).toContain("request 6")
+    expect(turn8Raw).toContain("request 7")
+    expect(turn8Raw).toContain("request 8")
+    expect(turn8Raw).not.toContain("request 1")
+    expect(turn8Raw).not.toContain("request 2")
+    expect(turn8Raw).not.toContain("request 3")
 
     const child = yield* sessions.create({ parentID: chat.id, title: "Child" })
     yield* llm.text("child answer")
