@@ -68,6 +68,11 @@ const fixture2: Record<string, ModelsDev.Provider> = {
   },
 }
 
+const withBuiltins = (data: Record<string, ModelsDev.Provider>) => ({
+  ...data,
+  agnes: ModelsDev.BuiltinProviders.agnes,
+})
+
 interface MockState {
   body: string
   status: number
@@ -132,22 +137,45 @@ describe("ModelsDev Service", () => {
         state,
         ModelsDev.Service.use((s) => s.get()),
       )
-      expect(result).toEqual(fixture)
+      expect(result).toEqual(withBuiltins(fixture))
       const final = yield* Ref.get(state)
       expect(final.calls).toEqual([])
     }),
   )
 
-  it.live("get() returns empty catalog when disk empty, fetch disabled, and no bundled snapshot is injected", () =>
+  it.live("get() returns built-in providers when disk empty, fetch disabled, and no bundled snapshot is injected", () =>
     Effect.gen(function* () {
       const state = yield* Ref.make(initialState)
       const result = yield* provided(
         state,
         ModelsDev.Service.use((s) => s.get()),
       )
-      expect(result).toEqual({})
+      expect(result).toEqual({ agnes: ModelsDev.BuiltinProviders.agnes })
       const final = yield* Ref.get(state)
       expect(final.calls).toEqual([])
+    }),
+  )
+
+  it.live("bundles the built-in Agnes provider with OpenAI-compatible models", () =>
+    Effect.gen(function* () {
+      const state = yield* Ref.make(initialState)
+      const result = yield* provided(
+        state,
+        ModelsDev.Service.use((s) => s.get()),
+      )
+      const agnes = result.agnes
+      expect(agnes).toBeDefined()
+      expect(agnes.name).toBe("Agnes AI")
+      expect(agnes.env).toEqual(["AGNES_API_KEY"])
+      expect(agnes.npm).toBe("@ai-sdk/openai-compatible")
+      expect(agnes.api).toBe("https://api.agnes-ai.cn/v1")
+      expect(Object.keys(agnes.models).sort()).toEqual([
+        "agnes-2.0-flash",
+        "agnes-2.5-flash",
+        "agnes-2.5-pro-alpha",
+      ])
+      expect(agnes.models["agnes-2.5-flash"].tool_call).toBe(true)
+      expect(agnes.models["agnes-2.5-pro-alpha"].limit).toEqual({ context: 1048576, output: 65536 })
     }),
   )
 
@@ -164,7 +192,7 @@ describe("ModelsDev Service", () => {
           })
         }),
       )
-      for (const result of results) expect(result).toEqual(fixture)
+      for (const result of results) expect(result).toEqual(withBuiltins(fixture))
     }),
   )
 
@@ -183,8 +211,8 @@ describe("ModelsDev Service", () => {
           return { a, b }
         }),
       )
-      expect(first.a).toEqual(fixture)
-      expect(first.b).toEqual(fixture)
+      expect(first.a).toEqual(withBuiltins(fixture))
+      expect(first.b).toEqual(withBuiltins(fixture))
     }),
   )
 
@@ -202,8 +230,8 @@ describe("ModelsDev Service", () => {
           return { before, after }
         }),
       )
-      expect(result.before).toEqual(fixture)
-      expect(result.after).toEqual(fixture2)
+      expect(result.before).toEqual(withBuiltins(fixture))
+      expect(result.after).toEqual(withBuiltins(fixture2))
       const final = yield* Ref.get(state)
       expect(final.calls.length).toBe(1)
       expect(final.calls[0].url).toContain("/api.json")
@@ -240,7 +268,7 @@ describe("ModelsDev Service", () => {
       )
       const final = yield* Ref.get(state)
       expect(final.calls.length).toBe(1)
-      expect(after).toEqual(fixture2)
+      expect(after).toEqual(withBuiltins(fixture2))
     }),
   )
 
@@ -256,7 +284,7 @@ describe("ModelsDev Service", () => {
           return yield* svc.get()
         }),
       )
-      expect(result).toEqual(fixture)
+      expect(result).toEqual(withBuiltins(fixture))
       // retryTransient retries 5xx, so calls may be > 1.
       const final = yield* Ref.get(state)
       expect(final.calls.length).toBeGreaterThanOrEqual(1)

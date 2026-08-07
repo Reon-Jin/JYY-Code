@@ -9,6 +9,8 @@ export type MemoryEditorValue = {
   importance: number
   keywords: string[]
   content: string
+  kind?: "success" | "failure" | "lesson"
+  confidence?: "low" | "medium" | "high"
 }
 
 export function MemoryEditor(props: {
@@ -20,6 +22,8 @@ export function MemoryEditor(props: {
   const [importance, setImportance] = createSignal("5")
   const [keywords, setKeywords] = createSignal("")
   const [content, setContent] = createSignal("")
+  const [kind, setKind] = createSignal<"success" | "failure" | "lesson">("lesson")
+  const [confidence, setConfidence] = createSignal<"low" | "medium" | "high">("medium")
   const [saving, setSaving] = createSignal(false)
   const [failure, setFailure] = createSignal<string>()
 
@@ -28,6 +32,8 @@ export function MemoryEditor(props: {
     setImportance(String(props.entry?.importance ?? 5))
     setKeywords(props.entry?.keywords.join(", ") ?? "")
     setContent(props.entry?.content ?? "")
+    setKind(props.entry?.scope === "experience" ? props.entry.kind : "lesson")
+    setConfidence(props.entry?.scope === "experience" ? props.entry.confidence : "medium")
     setFailure(undefined)
   })
 
@@ -43,6 +49,17 @@ export function MemoryEditor(props: {
     }
     const body = content().trim()
     if (!body || /[\r\n]/u.test(body)) return { error: tr("settings.memory-content-error") }
+    if (props.entry?.scope === "experience") {
+      return {
+        value: {
+          importance: value,
+          keywords: list,
+          content: body,
+          kind: kind(),
+          confidence: confidence(),
+        },
+      }
+    }
     return { value: { importance: value, keywords: list, content: body } }
   })
 
@@ -113,6 +130,36 @@ export function MemoryEditor(props: {
             onInput={(event) => setContent(event.currentTarget.value)}
           />
         </label>
+        <Show when={props.entry?.scope === "experience"}>
+          <label>
+            <span>{tr("settings.experience-kind")}</span>
+            <select
+              aria-label={tr("settings.experience-kind")}
+              value={kind()}
+              onInput={(event) => setKind(event.currentTarget.value as "success" | "failure" | "lesson")}
+            >
+              <option value="success">{tr("settings.experience-kind-success")}</option>
+              <option value="failure">{tr("settings.experience-kind-failure")}</option>
+              <option value="lesson">{tr("settings.experience-kind-lesson")}</option>
+            </select>
+          </label>
+          <label>
+            <span>{tr("settings.experience-confidence")}</span>
+            <select
+              aria-label={tr("settings.experience-confidence")}
+              value={confidence()}
+              onInput={(event) => setConfidence(event.currentTarget.value as "low" | "medium" | "high")}
+            >
+              <option value="low">{tr("settings.experience-confidence-low")}</option>
+              <option value="medium">{tr("settings.experience-confidence-medium")}</option>
+              <option value="high">{tr("settings.experience-confidence-high")}</option>
+            </select>
+          </label>
+          <label>
+            <span>{tr("settings.experience-evidence")}</span>
+            <input aria-label={tr("settings.experience-evidence")} value={props.entry?.scope === "experience" ? props.entry.evidence : ""} readOnly />
+          </label>
+        </Show>
       </div>
       <Show when={parsed().error}>{(message) => <p class="compaction-settings__validation">{message()}</p>}</Show>
       <Show when={failure()}>{(message) => <InlineError message={message()} />}</Show>

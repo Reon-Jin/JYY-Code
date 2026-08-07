@@ -20,6 +20,8 @@ import {
   GlobalMemoryBadRequestError,
   GlobalMemoryConflictError,
   GlobalMemoryEntryInput,
+  GlobalMemoryUpdateInput,
+  GlobalExperienceMemoryExport,
   GlobalMemoryExport,
   GlobalMemoryListQuery,
   GlobalMemoryNotFoundError,
@@ -201,8 +203,22 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
     const memoryUpdate = Effect.fn("GlobalHttpApi.memoryUpdate")(function* (ctx: {
       params: { scope: typeof GlobalMemoryParams.scope.Type; id: string }
       query: typeof GlobalMemoryOperationQuery.Type
-      payload: typeof GlobalMemoryEntryInput.Type
+      payload: typeof GlobalMemoryUpdateInput.Type
     }) {
+      if (ctx.params.scope === "experience") {
+        const payload = ctx.payload as Extract<typeof ctx.payload, { kind: string; confidence: string }>
+        return yield* mapMemoryError(
+          memory.update({
+            scope: "experience",
+            id: ctx.params.id,
+            kind: payload.kind as "success" | "failure" | "lesson",
+            importance: payload.importance,
+            keywords: payload.keywords,
+            content: payload.content,
+            confidence: payload.confidence as "low" | "medium" | "high",
+          }),
+        )
+      }
       const input =
         ctx.params.scope === "task"
           ? { scope: "task" as const, id: ctx.params.id, sessionID: ctx.query.sessionID!, ...ctx.payload }
@@ -217,6 +233,10 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       params: { scope: typeof GlobalMemoryParams.scope.Type; id: string }
       query: typeof GlobalMemoryOperationQuery.Type
     }) {
+      if (ctx.params.scope === "experience") {
+        yield* mapMemoryError(memory.remove({ scope: "experience", id: ctx.params.id }))
+        return { removed: true }
+      }
       if (ctx.params.scope === "task" && !ctx.query.sessionID) {
         return yield* new GlobalMemoryBadRequestError({ message: "Task memory requires a sessionID" })
       }
@@ -243,6 +263,10 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
     const memoryExport = Effect.fn("GlobalHttpApi.memoryExport")(function* (ctx: {
       query: typeof GlobalMemoryListQuery.Type
     }) {
+      if (ctx.query.scope === "experience") {
+        const text = yield* mapMemoryError(memory.exportStore({ scope: "experience" }))
+        return yield* Schema.decodeUnknownEffect(GlobalExperienceMemoryExport)(JSON.parse(text)).pipe(Effect.orDie)
+      }
       const text = yield* mapMemoryError(memory.exportStore({ scope: ctx.query.scope, sessionID: ctx.query.sessionID }))
       return yield* Schema.decodeUnknownEffect(GlobalMemoryExport)(JSON.parse(text)).pipe(Effect.orDie)
     })

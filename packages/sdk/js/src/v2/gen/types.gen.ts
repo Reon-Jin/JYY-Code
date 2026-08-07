@@ -1384,7 +1384,24 @@ export type GlobalMemoryEntry =
       date: string
       keywords: Array<string>
       content: string
+      projectID?: string
       sessionID: string
+    }
+  | {
+      id: string
+      scope: "experience"
+      kind: "success" | "failure" | "lesson"
+      importance: number
+      date: string
+      updatedAt: string
+      keywords: Array<string>
+      content: string
+      evidence: string
+      confidence: "low" | "medium" | "high"
+      uses: number
+      status: "active" | "superseded" | "retracted"
+      sessionID: string
+      supersededReason?: string
     }
 
 export type GlobalMemoryPage = {
@@ -1438,8 +1455,28 @@ export type GlobalMemoryExport = {
         date: string
         keywords: Array<string>
         content: string
+        projectID?: string
       }
   >
+}
+
+export type GlobalExperienceMemoryExport = {
+  schemaVersion: 1
+  lastMaintainedAt: string
+  entries: Array<{
+    kind: "success" | "failure" | "lesson"
+    importance: number
+    date: string
+    updatedAt: string
+    keywords: Array<string>
+    content: string
+    evidence: string
+    confidence: "low" | "medium" | "high"
+    uses: number
+    status: "active" | "superseded" | "retracted"
+    sessionID: string
+    supersededReason?: string
+  }>
 }
 
 export type Model = {
@@ -4683,7 +4720,7 @@ export type GlobalMemoryListData = {
   body?: never
   path?: never
   query: {
-    scope: "user" | "task"
+    scope: "user" | "task" | "experience"
     sessionID?: string
     query?: string
     cursor?: string
@@ -4758,7 +4795,7 @@ export type GlobalMemoryUserCreateResponse = GlobalMemoryUserCreateResponses[key
 export type GlobalMemoryRemoveData = {
   body?: never
   path: {
-    scope: "user" | "task"
+    scope: "user" | "task" | "experience"
     id: string
   }
   query?: {
@@ -4794,13 +4831,21 @@ export type GlobalMemoryRemoveResponses = {
 export type GlobalMemoryRemoveResponse = GlobalMemoryRemoveResponses[keyof GlobalMemoryRemoveResponses]
 
 export type GlobalMemoryUpdateData = {
-  body?: {
-    importance: number
-    keywords: Array<string>
-    content: string
-  }
+  body?:
+    | {
+        importance: number
+        keywords: Array<string>
+        content: string
+      }
+    | {
+        kind: "success" | "failure" | "lesson"
+        importance: number
+        keywords: Array<string>
+        content: string
+        confidence: "low" | "medium" | "high"
+      }
   path: {
-    scope: "user" | "task"
+    scope: "user" | "task" | "experience"
     id: string
   }
   query?: {
@@ -4838,7 +4883,7 @@ export type GlobalMemoryUpdateResponse = GlobalMemoryUpdateResponses[keyof Globa
 export type GlobalMemoryCompactData = {
   body?: never
   path: {
-    scope: "user" | "task"
+    scope: "user" | "task" | "experience"
   }
   query?: {
     sessionID?: string
@@ -4911,7 +4956,7 @@ export type GlobalMemoryExportData = {
   body?: never
   path?: never
   query: {
-    scope: "user" | "task"
+    scope: "user" | "task" | "experience"
     sessionID?: string
     query?: string
     cursor?: string
@@ -4941,7 +4986,7 @@ export type GlobalMemoryExportResponses = {
   /**
    * Exported memory store
    */
-  200: GlobalMemoryExport
+  200: GlobalMemoryExport | GlobalExperienceMemoryExport
 }
 
 export type GlobalMemoryExportResponse = GlobalMemoryExportResponses[keyof GlobalMemoryExportResponses]

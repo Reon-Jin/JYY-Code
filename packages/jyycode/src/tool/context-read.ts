@@ -32,6 +32,7 @@ export const ContextReadTool = Tool.define(
   "context_read",
   Effect.gen(function* () {
     const episodic = yield* EpisodicMemory.Service
+    const capturedExperience = Option.getOrUndefined(yield* Effect.serviceOption(ExperienceMemory.Service))
     return {
       description: DESCRIPTION,
       parameters: Parameters,
@@ -82,23 +83,33 @@ export const ContextReadTool = Tool.define(
             }
           }
           if (action === "experience") {
-            const experienceMemory = yield* Effect.serviceOption(ExperienceMemory.Service)
-            if (Option.isNone(experienceMemory)) {
+            const experienceMemory =
+              capturedExperience ?? Option.getOrUndefined(yield* Effect.serviceOption(ExperienceMemory.Service))
+            if (!experienceMemory) {
               return yield* Effect.fail(new Error("Experience memory is unavailable in this runtime"))
             }
             const query = params.query?.trim()
-            if (!query) return yield* Effect.fail(new Error("query is required for action=experience"))
-            const hits = yield* experienceMemory.value.search({
-              sessionID: ctx.sessionID,
-              query,
-              kind: params.kind,
-              limit: params.limit,
-            })
+            const limit = Math.min(10, Math.max(1, params.limit ?? 5))
+            const hits = query
+              ? yield* experienceMemory.search({
+                  sessionID: ctx.sessionID,
+                  query,
+                  kind: params.kind,
+                  limit,
+                })
+              : (yield* experienceMemory.readStore(ctx.sessionID)).entries
+                  .filter((entry) => entry.status === "active" && (!params.kind || entry.kind === params.kind))
+                  .sort((left, right) => right.importance - left.importance || right.updatedAt.localeCompare(left.updatedAt))
+                  .slice(0, limit)
             if (hits.length === 0) {
-              return { title: "Experience search", metadata: {}, output: `No experience matches "${query}".` }
+              return {
+                title: query ? `Experience search: ${query}` : "Experience list",
+                metadata: {},
+                output: query ? `No experience matches "${query}".` : "No experience entries yet.",
+              }
             }
             return {
-              title: `Experience search: ${query}`,
+              title: query ? `Experience search: ${query}` : "Experience list",
               metadata: { action: "experience", matches: hits.length },
               output: hits
                 .map(

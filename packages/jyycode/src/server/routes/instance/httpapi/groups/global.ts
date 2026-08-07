@@ -52,13 +52,22 @@ export const GlobalCompaction = Schema.Struct({
   reactiveCompact: Schema.Boolean,
 }).annotate({ identifier: "GlobalCompaction" })
 
-export const GlobalMemoryScope = Schema.Literals(["user", "task"])
+export const GlobalMemoryScope = Schema.Literals(["user", "task", "experience"])
 const MemoryImportance = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10 }))
 const MemoryKeywords = Schema.Array(Schema.String).check(Schema.isMinLength(1), Schema.isMaxLength(3))
+const ExperienceKind = Schema.Literals(["success", "failure", "lesson"])
+const ExperienceConfidence = Schema.Literals(["low", "medium", "high"])
 const MemoryEntryInput = Schema.Struct({
   importance: MemoryImportance,
   keywords: MemoryKeywords,
   content: Schema.String,
+})
+const ExperienceMemoryInput = Schema.Struct({
+  kind: ExperienceKind,
+  importance: MemoryImportance,
+  keywords: MemoryKeywords,
+  content: Schema.String,
+  confidence: ExperienceConfidence,
 })
 const GlobalUserMemoryEntry = Schema.Struct({
   id: Schema.String,
@@ -75,9 +84,30 @@ const GlobalTaskMemoryEntry = Schema.Struct({
   date: Schema.String,
   keywords: MemoryKeywords,
   content: Schema.String,
+  projectID: Schema.optional(Schema.String),
   sessionID: SessionID,
 })
-export const GlobalMemoryEntry = Schema.Union([GlobalUserMemoryEntry, GlobalTaskMemoryEntry]).annotate({
+const GlobalExperienceMemoryEntry = Schema.Struct({
+  id: Schema.String,
+  scope: Schema.Literal("experience"),
+  kind: ExperienceKind,
+  importance: MemoryImportance,
+  date: Schema.String,
+  updatedAt: Schema.String,
+  keywords: MemoryKeywords,
+  content: Schema.String,
+  evidence: Schema.String,
+  confidence: ExperienceConfidence,
+  uses: Schema.Int,
+  status: Schema.Literals(["active", "superseded", "retracted"]),
+  sessionID: SessionID,
+  supersededReason: Schema.optional(Schema.String),
+})
+export const GlobalMemoryEntry = Schema.Union([
+  GlobalUserMemoryEntry,
+  GlobalTaskMemoryEntry,
+  GlobalExperienceMemoryEntry,
+]).annotate({
   identifier: "GlobalMemoryEntry",
 })
 export const GlobalMemoryPage = Schema.Struct({
@@ -98,6 +128,7 @@ export const GlobalMemoryOperationQuery = Schema.Struct({ sessionID: Schema.opti
 export const GlobalMemoryParams = { scope: GlobalMemoryScope, id: Schema.String }
 export const GlobalMemoryScopeParams = { scope: GlobalMemoryScope }
 export const GlobalMemoryEntryInput = MemoryEntryInput
+export const GlobalMemoryUpdateInput = Schema.Union([MemoryEntryInput, ExperienceMemoryInput])
 const StoredUserMemoryEntry = Schema.Struct({
   importance: MemoryImportance,
   date: Schema.optional(Schema.String),
@@ -110,12 +141,32 @@ const StoredTaskMemoryEntry = Schema.Struct({
   date: Schema.String,
   keywords: MemoryKeywords,
   content: Schema.String,
+  projectID: Schema.optional(Schema.String),
+})
+const StoredExperienceMemoryEntry = Schema.Struct({
+  kind: ExperienceKind,
+  importance: MemoryImportance,
+  date: Schema.String,
+  updatedAt: Schema.String,
+  keywords: MemoryKeywords,
+  content: Schema.String,
+  evidence: Schema.String,
+  confidence: ExperienceConfidence,
+  uses: Schema.Int,
+  status: Schema.Literals(["active", "superseded", "retracted"]),
+  sessionID: SessionID,
+  supersededReason: Schema.optional(Schema.String),
 })
 export const GlobalMemoryExport = Schema.Struct({
   schemaVersion: Schema.Literal(3),
   lastCompactedAt: Schema.NullOr(Schema.String),
   entries: Schema.Array(Schema.Union([StoredUserMemoryEntry, StoredTaskMemoryEntry])),
 }).annotate({ identifier: "GlobalMemoryExport" })
+export const GlobalExperienceMemoryExport = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  lastMaintainedAt: Schema.NullOr(Schema.String),
+  entries: Schema.Array(StoredExperienceMemoryEntry),
+}).annotate({ identifier: "GlobalExperienceMemoryExport" })
 export const GlobalMemoryCompactResult = Schema.Struct({
   removed: Schema.Int,
   merged: Schema.Int,
@@ -285,7 +336,7 @@ export const GlobalApi = HttpApi.make("global").add(
       HttpApiEndpoint.put("memoryUpdate", GlobalPaths.memoryEntry, {
         params: GlobalMemoryParams,
         query: GlobalMemoryOperationQuery,
-        payload: GlobalMemoryEntryInput,
+        payload: GlobalMemoryUpdateInput,
         success: described(GlobalMemoryEntry, "Updated memory"),
         error: GlobalMemoryErrors,
       }).annotateMerge(
@@ -333,7 +384,10 @@ export const GlobalApi = HttpApi.make("global").add(
       ),
       HttpApiEndpoint.get("memoryExport", GlobalPaths.memoryExport, {
         query: GlobalMemoryListQuery,
-        success: described(GlobalMemoryExport, "Exported memory store"),
+        success: described(
+          Schema.Union([GlobalMemoryExport, GlobalExperienceMemoryExport]),
+          "Exported memory store",
+        ),
         error: GlobalMemoryErrors,
       }).annotateMerge(
         OpenApi.annotations({

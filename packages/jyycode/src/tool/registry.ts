@@ -52,6 +52,7 @@ import { SessionStatus } from "@/session/status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Memory } from "@/memory/memory"
 import { EpisodicMemory } from "@/memory/episodic"
+import { ExperienceMemory } from "@/memory/experience"
 import { CatalogSearch } from "./catalog-search"
 import { ToolTelemetry } from "./telemetry"
 import { PlanProtocolTools } from "@/plan/tools"
@@ -167,9 +168,16 @@ export const layer: Layer.Layer<
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
     const memtool = memory ? yield* MemoryTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
     const episodic = Option.getOrUndefined(yield* Effect.serviceOption(EpisodicMemory.Service))
-    const contextRead = episodic
-      ? yield* ContextReadTool.pipe(Effect.provideService(EpisodicMemory.Service, episodic))
-      : undefined
+    const experience = Option.getOrUndefined(yield* Effect.serviceOption(ExperienceMemory.Service))
+    const contextRead =
+      episodic && experience
+        ? yield* ContextReadTool.pipe(
+            Effect.provideService(EpisodicMemory.Service, episodic),
+            Effect.provideService(ExperienceMemory.Service, experience),
+          )
+        : episodic
+          ? yield* ContextReadTool.pipe(Effect.provideService(EpisodicMemory.Service, episodic))
+          : undefined
     const agent = yield* Agent.Service
     const planProtocolInfos = yield* Effect.all(PlanProtocolTools, { concurrency: "unbounded" })
     const planProtocolTools = yield* Effect.all(
@@ -422,7 +430,9 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Format.defaultLayer),
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
-      Layer.provide(Layer.mergeAll(Truncate.defaultLayer, Memory.defaultLayer, EpisodicMemory.defaultLayer)),
+      Layer.provide(
+        Layer.mergeAll(Truncate.defaultLayer, Memory.defaultLayer, EpisodicMemory.defaultLayer, ExperienceMemory.defaultLayer),
+      ),
     )
     .pipe(Layer.provide(RuntimeFlags.defaultLayer)),
 )

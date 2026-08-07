@@ -6,6 +6,7 @@ import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { Effect, Exit, Layer } from "effect"
 import { Memory } from "@/memory/memory"
 import { MemoryManagement } from "@/memory/management"
+import { ExperienceMemory } from "@/memory/experience"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 
@@ -25,15 +26,25 @@ async function fixture(input?: { legacy?: boolean }) {
   const child = SessionID.make("ses_child")
   const sessionLayer = Layer.mock(Session.Service)({
     get: (sessionID) =>
-      Effect.succeed({ id: sessionID, parentID: sessionID === child ? "ses_parent" : undefined } as Session.Info),
+      Effect.succeed({
+        id: sessionID,
+        parentID: sessionID === child ? "ses_parent" : undefined,
+        projectID: (sessionID.startsWith("ses_p1")
+          ? "proj_one"
+          : sessionID.startsWith("ses_p2")
+            ? "proj_two"
+            : `proj_${sessionID}`) as Session.Info["projectID"],
+      } as Session.Info),
     messages: () => Effect.succeed([]),
   })
   const memoryLayer = Memory.layerWithDirectory(directory, { legacyDirectory }).pipe(
     Layer.provide(Layer.merge(AppFileSystem.defaultLayer, sessionLayer)),
   )
-  const layer = MemoryManagement.layer.pipe(Layer.provide(memoryLayer))
-  const run = <A, E>(effect: Effect.Effect<A, E, MemoryManagement.Service | Memory.Service>) =>
-    Effect.runPromise(effect.pipe(Effect.provide(Layer.merge(layer, memoryLayer))))
+  const experienceLayer = ExperienceMemory.layerWithDirectory(directory).pipe(Layer.provide(AppFileSystem.defaultLayer))
+  const layer = MemoryManagement.layer.pipe(Layer.provide(memoryLayer), Layer.provide(experienceLayer))
+  const run = <A, E>(
+    effect: Effect.Effect<A, E, MemoryManagement.Service | Memory.Service | ExperienceMemory.Service>,
+  ) => Effect.runPromise(effect.pipe(Effect.provide(Layer.merge(layer, memoryLayer, experienceLayer))))
   return { directory, legacyDirectory, child, run }
 }
 
@@ -299,5 +310,94 @@ describe("audited memory management storage", () => {
     const page = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
     expect(page.entries).toHaveLength(1)
     expect(page.entries[0]).toMatchObject({ content: "用户直接编辑了本地 JSON 文件。" })
+  })
+
+  test("shares one task memory entry across sessions in the same project", async () => {
+    const ctx = await fixture()
+    await ctx.run(
+      Memory.Service.use((memory) =>
+        Effect.gen(function* () {
+          yield* memory.upsertTaskMemory({
+            sessionID: SessionID.make("ses_p1_a"),
+            importance: 5,
+            keywords: ["共享任务"],
+            content: "当前任务：共享任务；进展：第一步",
+          })
+          yield* memory.upsertTaskMemory({
+            sessionID: SessionID.make("ses_p1_b"),
+            importance: 7,
+            keywords: ["共享任务"],
+            content: "当前任务：共享任务；进展：第二步",
+          })
+        }),
+      ),
+    )
+
+    const page = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "task" })))
+    expect(page.entries).toHaveLength(1)
+    expect(page.entries[0]).toMatchObject({ scope: "task", projectID: "proj_one" })
+
+    const scoped = await ctx.run(
+      MemoryManagement.Service.use((management) =>
+        management.list({ scope: "task", sessionID: SessionID.make("ses_p1_a") }),
+      ),
+    )
+    expect(scoped.entries).toHaveLength(1)
+    expect(scoped.entries[0]?.content).toContain("第二步")
+  })
+
+  test("lists, updates, removes and exports experience memory", async () => {
+    const ctx = await fixture()
+    const seeded: ExperienceMemory.ExperienceEntry = {
+      scope: "experience",
+      kind: "failure",
+      importance: 6,
+      date: "20260807",
+      updatedAt: "20260807",
+      keywords: ["部署"],
+      content: "部署脚本报错时先看日志再重试",
+      evidence: "[ses_exp#1] deploy.sh",
+      confidence: "high",
+      uses: 0,
+      status: "active",
+      sessionID: SessionID.make("ses_exp"),
+    }
+    await fs.writeFile(
+      path.join(ctx.directory, "EXPERIENCE.json"),
+      ExperienceMemory.serializeExperienceStore([seeded]),
+      "utf8",
+    )
+
+    const page = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "experience" })))
+    expect(page.entries).toHaveLength(1)
+    const entry = page.entries[0]
+    if (entry.scope !== "experience") throw new Error("Expected experience entry")
+    expect(entry.id).toMatch(/^exp_[A-Za-z0-9_-]+$/)
+
+    const exported = await ctx.run(
+      MemoryManagement.Service.use((management) => management.exportStore({ scope: "experience" })),
+    )
+    expect(ExperienceMemory.parseExperienceStore(exported).entries).toHaveLength(1)
+
+    const updated = await ctx.run(
+      MemoryManagement.Service.use((management) =>
+        management.update({
+          scope: "experience",
+          id: entry.id,
+          kind: "lesson",
+          importance: 8,
+          keywords: ["经验"],
+          content: "修改经验前先检查证据锚点",
+          confidence: "medium",
+        }),
+      ),
+    )
+    expect(updated).toMatchObject({ scope: "experience", kind: "lesson", content: "修改经验前先检查证据锚点" })
+
+    await ctx.run(MemoryManagement.Service.use((management) => management.remove({ scope: "experience", id: updated.id })))
+    const afterRemove = await ctx.run(
+      MemoryManagement.Service.use((management) => management.list({ scope: "experience" })),
+    )
+    expect(afterRemove.entries).toHaveLength(0)
   })
 })

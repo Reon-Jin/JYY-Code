@@ -168,6 +168,7 @@ const memoryLifecycleLayer = Layer.succeed(
   Memory.Service,
   Memory.Service.of({
     dir: () => Effect.succeed(Memory.DIRECTORY),
+    resolveProjectID: (sessionID) => Effect.succeed(String(sessionID)),
     ensure: () => Effect.void,
     read: () => Effect.succeed(""),
     upsertTaskMemory: () => Effect.die("unexpected direct task memory upsert"),
@@ -197,6 +198,7 @@ const memoryFailureLayer = Layer.succeed(
   Memory.Service,
   Memory.Service.of({
     dir: () => Effect.succeed(Memory.DIRECTORY),
+    resolveProjectID: (sessionID) => Effect.succeed(String(sessionID)),
     ensure: () => Effect.void,
     read: () => Effect.succeed(""),
     upsertTaskMemory: () => Effect.die("unexpected direct task memory upsert"),
@@ -217,6 +219,7 @@ const snapshotMemoryLayer = Layer.succeed(
   Memory.Service,
   Memory.Service.of({
     dir: () => Effect.succeed(Memory.DIRECTORY),
+    resolveProjectID: (sessionID) => Effect.succeed(String(sessionID)),
     ensure: () => Effect.void,
     read: () => Effect.succeed(""),
     upsertTaskMemory: () => Effect.die("unexpected direct task memory upsert"),
@@ -3192,6 +3195,10 @@ const experienceMemoryLayer = Layer.succeed(
     search: () => Effect.die("unexpected search"),
     formatExperienceSnapshot: () => Effect.succeed(""),
     maintain: () => Effect.die("unexpected maintain"),
+    managementRead: () => Effect.die("unexpected managementRead"),
+    managementUpdate: () => Effect.die("unexpected managementUpdate"),
+    managementRemove: () => Effect.die("unexpected managementRemove"),
+    managementCompact: () => Effect.die("unexpected managementCompact"),
   }),
 )
 
@@ -3208,6 +3215,7 @@ const experienceWiringMemoryLayer = Layer.succeed(
   Memory.Service,
   Memory.Service.of({
     dir: () => Effect.succeed(Memory.DIRECTORY),
+    resolveProjectID: (sessionID) => Effect.succeed(String(sessionID)),
     ensure: () => Effect.void,
     read: () => Effect.succeed(""),
     upsertTaskMemory: () => Effect.die("unexpected"),

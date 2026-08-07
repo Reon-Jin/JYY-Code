@@ -106,6 +106,70 @@ export const Provider = Schema.Struct({
 
 export type Provider = Schema.Schema.Type<typeof Provider>
 
+// Providers bundled with JYYCode that are not (yet) present in the models.dev
+// catalog. They are merged into every catalog read so the CLI provider service,
+// `/connect`, and the v2 catalog all see them. Once models.dev publishes an
+// entry with the same id, that entry wins and this snapshot is ignored.
+export const BuiltinProviders: Record<string, Provider> = {
+  agnes: {
+    id: "agnes",
+    name: "Agnes AI",
+    env: ["AGNES_API_KEY"],
+    npm: "@ai-sdk/openai-compatible",
+    // China service node; international keys should use https://apihub.agnes-ai.com/v1
+    api: "https://api.agnes-ai.cn/v1",
+    models: {
+      "agnes-2.5-flash": {
+        id: "agnes-2.5-flash",
+        name: "Agnes 2.5 Flash",
+        family: "agnes",
+        release_date: "2026-07-10",
+        attachment: true,
+        reasoning: true,
+        temperature: true,
+        tool_call: true,
+        limit: { context: 524288, output: 65536 },
+        modalities: { input: ["text", "image"], output: ["text"] },
+        cost: { input: 0, output: 0 },
+      },
+      "agnes-2.0-flash": {
+        id: "agnes-2.0-flash",
+        name: "Agnes 2.0 Flash",
+        family: "agnes",
+        release_date: "2026-05-26",
+        attachment: true,
+        reasoning: true,
+        temperature: true,
+        tool_call: true,
+        limit: { context: 524288, output: 65536 },
+        modalities: { input: ["text", "image"], output: ["text"] },
+        cost: { input: 0, output: 0 },
+      },
+      "agnes-2.5-pro-alpha": {
+        id: "agnes-2.5-pro-alpha",
+        name: "Agnes 2.5 Pro Alpha",
+        family: "agnes",
+        release_date: "2026-07-24",
+        attachment: true,
+        reasoning: true,
+        temperature: true,
+        tool_call: true,
+        limit: { context: 1048576, output: 65536 },
+        modalities: { input: ["text", "image"], output: ["text"] },
+        cost: { input: 0.45, output: 0.9, cache_read: 0.0038 },
+      },
+    },
+  },
+}
+
+function withBuiltins(data: Record<string, Provider>): Record<string, Provider> {
+  const result = { ...data }
+  for (const [id, provider] of Object.entries(BuiltinProviders)) {
+    if (!result[id]) result[id] = provider
+  }
+  return result
+}
+
 export const Event = {
   Refreshed: EventV2.define({
     type: "models-dev.refreshed",
@@ -176,10 +240,10 @@ export const layer = Layer.effect(
 
     const populate = Effect.gen(function* () {
       const fromDisk = yield* loadFromDisk
-      if (fromDisk) return fromDisk
+      if (fromDisk) return withBuiltins(fromDisk)
       const snapshot = yield* loadSnapshot
-      if (snapshot) return snapshot
-      if (Flag.JYYCODE_DISABLE_MODELS_FETCH) return {}
+      if (snapshot) return withBuiltins(snapshot)
+      if (Flag.JYYCODE_DISABLE_MODELS_FETCH) return withBuiltins({})
       // Flock is cross-process: concurrent jyycode CLIs can race on this cache file.
       const text = yield* Effect.scoped(
         Effect.gen(function* () {
@@ -187,7 +251,7 @@ export const layer = Layer.effect(
           return yield* fetchAndWrite()
         }),
       )
-      return JSON.parse(text) as Record<string, Provider>
+      return withBuiltins(JSON.parse(text) as Record<string, Provider>)
     }).pipe(Effect.withSpan("ModelsDev.populate"), Effect.orDie)
 
     const [cachedGet, invalidate] = yield* Effect.cachedInvalidateWithTTL(populate, Duration.infinity)

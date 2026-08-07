@@ -3,9 +3,10 @@ export * as MemoryManagement from "./management"
 import { createHash } from "crypto"
 import { Context, Effect, Layer } from "effect"
 import { Memory } from "./memory"
+import { ExperienceMemory } from "./experience"
 import { SessionID } from "@/session/schema"
 
-export type Scope = "user" | "task"
+export type Scope = "user" | "task" | "experience"
 
 export type UserEntry = {
   id: string
@@ -23,15 +24,41 @@ export type TaskEntry = {
   date: string
   keywords: string[]
   content: string
+  projectID?: string
   sessionID: SessionID
 }
 
-export type Entry = UserEntry | TaskEntry
+export type ExperienceEntry = {
+  id: string
+  scope: "experience"
+  kind: ExperienceMemory.ExperienceKind
+  importance: Memory.Importance
+  date: string
+  updatedAt: string
+  keywords: string[]
+  content: string
+  evidence: string
+  confidence: ExperienceMemory.ExperienceConfidence
+  uses: number
+  status: ExperienceMemory.ExperienceStatus
+  sessionID: SessionID
+  supersededReason?: string
+}
+
+export type Entry = UserEntry | TaskEntry | ExperienceEntry
 
 export type EntryInput = {
   importance: number
   keywords: readonly string[]
   content: string
+}
+
+export type ExperienceInput = {
+  kind: ExperienceMemory.ExperienceKind
+  importance: number
+  keywords: readonly string[]
+  content: string
+  confidence: ExperienceMemory.ExperienceConfidence
 }
 
 export type Page = {
@@ -54,7 +81,8 @@ export interface Interface {
   readonly update: (
     input:
       | ({ scope: "user"; id: string } & EntryInput)
-      | ({ scope: "task"; id: string | null; sessionID: SessionID } & EntryInput),
+      | ({ scope: "task"; id: string | null; sessionID: SessionID } & EntryInput)
+      | ({ scope: "experience"; id: string } & ExperienceInput),
   ) => Effect.Effect<Entry, Error>
   readonly remove: (input: { scope: Scope; id: string; sessionID?: SessionID }) => Effect.Effect<void, Error>
   readonly clearTask: (input: { sessionID?: SessionID }) => Effect.Effect<number, Error>
@@ -78,7 +106,12 @@ function taskID(entry: Memory.TaskMemoryEntry) {
   return `tsk_${digest(JSON.stringify(entry))}`
 }
 
-function managed(entry: Memory.MemoryEntry): Entry {
+function experienceID(entry: ExperienceMemory.ExperienceEntry) {
+  return `exp_${digest(`${entry.sessionID}\u001f${ExperienceMemory.experienceKey(entry)}`)}`
+}
+
+function managed(entry: Memory.MemoryEntry | ExperienceMemory.ExperienceEntry): Entry {
+  if (entry.scope === "experience") return { ...entry, id: experienceID(entry), scope: "experience" }
   if (entry.scope === "user") return { ...entry, id: userID(entry) }
   return { ...entry, scope: "task", id: taskID(entry) }
 }
@@ -93,7 +126,7 @@ function requireSession(scope: Scope, sessionID?: SessionID) {
 }
 
 function assertIDScope(scope: Scope, id: string) {
-  const prefix = scope === "user" ? "usr_" : "tsk_"
+  const prefix = scope === "user" ? "usr_" : scope === "task" ? "tsk_" : "exp_"
   if (!id.startsWith(prefix)) throw new Error("Memory id does not belong to the requested scope")
 }
 
@@ -101,6 +134,7 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const memory = yield* Memory.Service
+    const experience = yield* ExperienceMemory.Service
     if (
       !memory.managementRead ||
       !memory.managementCreate ||
@@ -110,6 +144,14 @@ export const layer = Layer.effect(
       !memory.managementCompact
     ) {
       return yield* Effect.die("Memory management storage primitives are unavailable")
+    }
+    if (
+      !experience.managementRead ||
+      !experience.managementUpdate ||
+      !experience.managementRemove ||
+      !experience.managementCompact
+    ) {
+      return yield* Effect.die("Experience management storage primitives are unavailable")
     }
     const storage = {
       read: memory.managementRead,
@@ -121,15 +163,17 @@ export const layer = Layer.effect(
     }
 
     const entriesFor = Effect.fn("MemoryManagement.entriesFor")(function* (scope: Scope, sessionID?: SessionID) {
+      if (scope === "experience") return (yield* experience.managementRead()).entries
       const writer =
         scope === "task" && !sessionID
           ? managementSessionID
           : yield* Effect.try({ try: () => requireSession(scope, sessionID), catch: asError })
+      const projectID = scope === "task" && sessionID ? yield* memory.resolveProjectID(sessionID) : undefined
       const store = yield* storage.read({ sessionID: writer, scope: storageScope(scope) })
       return store.entries.filter((entry) =>
         scope === "user"
           ? entry.scope === "user"
-          : entry.scope === "memory" && (!sessionID || entry.sessionID === sessionID),
+          : entry.scope === "memory" && (!sessionID || (entry.projectID ?? entry.sessionID) === projectID),
       )
     })
 
@@ -193,14 +237,32 @@ export const layer = Layer.effect(
     const update = Effect.fn("MemoryManagement.update")(function* (
       input:
         | ({ scope: "user"; id: string } & EntryInput)
-        | ({ scope: "task"; id: string | null; sessionID: SessionID } & EntryInput),
+        | ({ scope: "task"; id: string | null; sessionID: SessionID } & EntryInput)
+        | ({ scope: "experience"; id: string } & ExperienceInput),
     ) {
+      if (input.scope === "experience") {
+        const raw = yield* findExact("experience", input.id)
+        if (raw.scope !== "experience") return yield* Effect.fail(new Error("Unexpected experience scope"))
+        const expected = raw
+        const replacement: ExperienceMemory.ExperienceEntry = {
+          ...expected,
+          kind: input.kind,
+          importance: input.importance as Memory.Importance,
+          keywords: [...input.keywords],
+          content: input.content,
+          confidence: input.confidence,
+          updatedAt: localDate(new Date()),
+        }
+        return managed(yield* experience.managementUpdate({ expected, replacement }))
+      }
       if (input.scope === "task" && input.id === null) {
+        const projectID = yield* memory.resolveProjectID(input.sessionID)
         const entry = yield* storage.create({
           sessionID: input.sessionID,
           entry: {
             scope: "memory",
             sessionID: input.sessionID,
+            projectID,
             date: localDate(new Date()),
             importance: input.importance as Memory.Importance,
             keywords: [...input.keywords],
@@ -211,7 +273,7 @@ export const layer = Layer.effect(
       }
       if (input.id === null) return yield* Effect.fail(new Error("Memory id is required"))
       const sessionID = input.scope === "task" ? input.sessionID : managementSessionID
-      const expected = yield* findExact(input.scope, input.id, input.scope === "task" ? input.sessionID : undefined)
+      const expected = (yield* findExact(input.scope, input.id)) as Memory.MemoryEntry
       const replacement: Memory.MemoryEntry =
         expected.scope === "memory"
           ? {
@@ -235,28 +297,42 @@ export const layer = Layer.effect(
       id: string
       sessionID?: SessionID
     }) {
-      const sessionID = yield* Effect.try({ try: () => requireSession(input.scope, input.sessionID), catch: asError })
-      const expected = yield* findExact(input.scope, input.id, input.sessionID)
+      if (input.scope === "experience") {
+        const raw = yield* findExact("experience", input.id)
+        if (raw.scope !== "experience") return yield* Effect.fail(new Error("Unexpected experience scope"))
+        const expected = raw
+        yield* experience.managementRemove({ expected })
+        return
+      }
+      const sessionID = input.sessionID ?? managementSessionID
+      const expected = (yield* findExact(input.scope, input.id)) as Memory.MemoryEntry
       yield* storage.remove({ sessionID, expected })
     })
 
     const clearTask = Effect.fn("MemoryManagement.clearTask")(function* (input: { sessionID?: SessionID }) {
       if (input.sessionID) return yield* storage.clearTask({ sessionID: input.sessionID })
-      const sessions = [
-        ...new Set((yield* entriesFor("task")).flatMap((entry) => (entry.scope === "memory" ? [entry.sessionID] : []))),
-      ]
-      const removed = yield* Effect.forEach(sessions, (sessionID) => storage.clearTask({ sessionID }))
+      const byProject = new Map<string, SessionID>()
+      for (const entry of yield* entriesFor("task")) {
+        if (entry.scope !== "memory") continue
+        const key = entry.projectID ?? entry.sessionID
+        if (!byProject.has(key)) byProject.set(key, entry.sessionID)
+      }
+      const removed = yield* Effect.forEach([...byProject.values()], (sessionID) => storage.clearTask({ sessionID }))
       return removed.reduce((total, count) => total + count, 0)
     })
 
     const compact = Effect.fn("MemoryManagement.compact")(function* (input: { scope: Scope; sessionID?: SessionID }) {
+      if (input.scope === "experience") return yield* experience.managementCompact()
       if (input.scope === "task" && !input.sessionID) {
-        const sessions = [
-          ...new Set(
-            (yield* entriesFor("task")).flatMap((entry) => (entry.scope === "memory" ? [entry.sessionID] : [])),
-          ),
-        ]
-        const results = yield* Effect.forEach(sessions, (sessionID) => storage.compact({ sessionID, scope: "memory" }))
+        const byProject = new Map<string, SessionID>()
+        for (const entry of yield* entriesFor("task")) {
+          if (entry.scope !== "memory") continue
+          const key = entry.projectID ?? entry.sessionID
+          if (!byProject.has(key)) byProject.set(key, entry.sessionID)
+        }
+        const results = yield* Effect.forEach([...byProject.values()], (sessionID) =>
+          storage.compact({ sessionID, scope: "memory" }),
+        )
         return results.reduce(
           (total, result) => ({
             removed: total.removed + result.removed,
@@ -275,15 +351,23 @@ export const layer = Layer.effect(
       scope: Scope
       sessionID?: SessionID
     }) {
-      const entries = yield* entriesFor(input.scope, input.sessionID)
-      return Memory.serializeStore(storageScope(input.scope), entries)
+      if (input.scope === "experience") {
+        const store = yield* experience.managementRead()
+        return ExperienceMemory.serializeExperienceStore(store.entries, store.lastMaintainedAt)
+      }
+      const scope = input.scope as Exclude<Scope, "experience">
+      const entries = (yield* entriesFor(scope, input.sessionID)) as Memory.MemoryEntry[]
+      return Memory.serializeStore(storageScope(scope), entries)
     })
 
     return Service.of({ list, createUser, update, remove, clearTask, compact, exportStore })
   }),
 )
 
-export const defaultLayer = layer.pipe(Layer.provide(Memory.defaultLayer))
+export const defaultLayer = layer.pipe(
+  Layer.provide(Memory.defaultLayer),
+  Layer.provide(ExperienceMemory.defaultLayer),
+)
 
 function asError(error: unknown) {
   return error instanceof Error ? error : new Error(String(error))

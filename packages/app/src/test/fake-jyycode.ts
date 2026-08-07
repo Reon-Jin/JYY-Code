@@ -138,6 +138,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   let globalCompaction = defaultGlobalCompaction()
   let globalUserMemory: Array<Record<string, unknown>> = []
   let globalTaskMemory: Array<Record<string, unknown>> = []
+  let globalExperienceMemory: Array<Record<string, unknown>> = []
   const pullRequests: GitHubPullRequestSummary[] = [
     {
       number: 1,
@@ -309,11 +310,24 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       return json(globalCompaction)
     }
     if (url.pathname === "/global/memory" && request.method === "GET") {
-      const entries = url.searchParams.get("scope") === "task" ? globalTaskMemory : globalUserMemory
+      const entries =
+        url.searchParams.get("scope") === "task"
+          ? globalTaskMemory
+          : url.searchParams.get("scope") === "experience"
+            ? globalExperienceMemory
+            : globalUserMemory
       return json({ entries, total: entries.length })
     }
     if (url.pathname === "/global/memory/export" && request.method === "GET") {
-      const entries = url.searchParams.get("scope") === "task" ? globalTaskMemory : globalUserMemory
+      const scope = url.searchParams.get("scope")
+      if (scope === "experience") {
+        return json({
+          schemaVersion: 1,
+          lastMaintainedAt: null,
+          entries: globalExperienceMemory.map(({ id: _id, scope: _scope, ...entry }) => entry),
+        })
+      }
+      const entries = scope === "task" ? globalTaskMemory : globalUserMemory
       return json({ schemaVersion: 3, lastCompactedAt: null, entries: entries.map(({ id, scope, ...entry }) => entry) })
     }
     if (url.pathname === "/global/memory/user" && request.method === "POST") {
@@ -326,22 +340,33 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       globalTaskMemory = []
       return json({ removed })
     }
-    const memoryEntry = /^\/global\/memory\/(user|task)\/([^/]+)$/u.exec(url.pathname)
+    const memoryEntry = /^\/global\/memory\/(user|task|experience)\/([^/]+)$/u.exec(url.pathname)
     if (memoryEntry && request.method === "PUT") {
-      const collection = memoryEntry[1] === "task" ? globalTaskMemory : globalUserMemory
+      const collection =
+        memoryEntry[1] === "task"
+          ? globalTaskMemory
+          : memoryEntry[1] === "experience"
+            ? globalExperienceMemory
+            : globalUserMemory
       const index = collection.findIndex((entry) => entry.id === memoryEntry[2])
       if (index === -1) return json({ message: "Memory entry not found" }, 404)
-      const entry = { ...collection[index], ...value }
+      const entry = { ...collection[index]!, ...value }
       collection[index] = entry
       return json(entry)
     }
     if (memoryEntry && request.method === "DELETE") {
       if (memoryEntry[1] === "task") globalTaskMemory = globalTaskMemory.filter((entry) => entry.id !== memoryEntry[2])
+      else if (memoryEntry[1] === "experience")
+        globalExperienceMemory = globalExperienceMemory.filter((entry) => entry.id !== memoryEntry[2])
       else globalUserMemory = globalUserMemory.filter((entry) => entry.id !== memoryEntry[2])
       return json({ removed: true })
     }
-    if (/^\/global\/memory\/(user|task)\/compact$/u.test(url.pathname) && request.method === "POST") {
-      const retained = url.pathname.includes("/task/") ? globalTaskMemory.length : globalUserMemory.length
+    if (/^\/global\/memory\/(user|task|experience)\/compact$/u.test(url.pathname) && request.method === "POST") {
+      const retained = url.pathname.includes("/task/")
+        ? globalTaskMemory.length
+        : url.pathname.includes("/experience/")
+          ? globalExperienceMemory.length
+          : globalUserMemory.length
       return json({ removed: 0, merged: 0, retained })
     }
     if (url.pathname === "/global/default-permission" && request.method === "GET") {

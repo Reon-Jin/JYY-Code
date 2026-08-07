@@ -38,6 +38,7 @@ export const EXPERIENCE_CAPACITY_WARN = 0.8
 export const EXPERIENCE_SNAPSHOT_TOP_K = 3
 export const EXPERIENCE_SNAPSHOT_MAX_CHARS = 1_200
 export const EXPERIENCE_MAINTENANCE_INTERVAL_TURNS = 20
+const managementSessionID = SessionID.make("ses_desktop_management")
 
 export type ExperienceEntry = {
   scope: "experience"
@@ -95,6 +96,13 @@ export interface ExperienceInterface {
     taskKeywords: readonly string[],
   ) => Effect.Effect<string, Error>
   readonly maintain: (sessionID: SessionID) => Effect.Effect<ExperienceMaintenanceResult, Error>
+  readonly managementRead: () => Effect.Effect<ExperienceStore, Error>
+  readonly managementUpdate: (input: {
+    expected: ExperienceEntry
+    replacement: ExperienceEntry
+  }) => Effect.Effect<ExperienceEntry, Error>
+  readonly managementRemove: (input: { expected: ExperienceEntry }) => Effect.Effect<void, Error>
+  readonly managementCompact: () => Effect.Effect<ExperienceMaintenanceResult, Error>
 }
 
 export class Service extends Context.Service<Service, ExperienceInterface>()("@jyycode/ExperienceMemory") {}
@@ -511,6 +519,95 @@ export const layerWithDirectory = (directory: string) =>
         )
       })
 
+      const managementRead = Effect.fn("ExperienceMemory.managementRead")(function* () {
+        return yield* readStore(managementSessionID)
+      })
+
+      const managementUpdate = Effect.fn("ExperienceMemory.managementUpdate")(function* (input: {
+        expected: ExperienceEntry
+        replacement: ExperienceEntry
+      }) {
+        if (input.expected.scope !== "experience" || input.replacement.scope !== "experience") {
+          return yield* Effect.fail(new Error("Experience scope mismatch"))
+        }
+        const replacement = yield* Effect.try({
+          try: () => normalizeExperience(input.replacement),
+          catch: (error) => asError(error),
+        })
+        const target = yield* filePath(managementSessionID)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(managementSessionID)
+            const index = store.entries.findIndex((entry) => sameExperienceEntry(entry, input.expected))
+            if (index === -1) return yield* Effect.fail(new Error("Experience entry is missing or stale"))
+            const duplicate = store.entries.findIndex(
+              (entry, candidateIndex) =>
+                candidateIndex !== index &&
+                entry.sessionID === replacement.sessionID &&
+                experienceKey(entry) === experienceKey(replacement),
+            )
+            if (duplicate !== -1) {
+              return yield* Effect.fail(new Error("Experience entry conflicts with an existing entry"))
+            }
+            const entries = [...store.entries]
+            entries[index] = replacement
+            yield* writeStore(managementSessionID, { ...store, entries })
+            yield* appendAudit(managementSessionID, {
+              action: "memory.experience.management_update",
+              key: experienceKey(replacement),
+              content: replacement.content,
+            })
+            return replacement
+          }),
+          target,
+        )
+      })
+
+      const managementRemove = Effect.fn("ExperienceMemory.managementRemove")(function* (input: {
+        expected: ExperienceEntry
+      }) {
+        const target = yield* filePath(managementSessionID)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(managementSessionID)
+            const index = store.entries.findIndex((entry) => sameExperienceEntry(entry, input.expected))
+            if (index === -1) return yield* Effect.fail(new Error("Experience entry is missing or stale"))
+            const entries = store.entries.filter((_, candidateIndex) => candidateIndex !== index)
+            yield* writeStore(managementSessionID, { ...store, entries })
+            yield* appendAudit(managementSessionID, {
+              action: "memory.experience.management_remove",
+              key: experienceKey(input.expected),
+              content: input.expected.content,
+            })
+          }),
+          target,
+        )
+      })
+
+      const managementCompact = Effect.fn("ExperienceMemory.managementCompact")(function* () {
+        const target = yield* filePath(managementSessionID)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(managementSessionID)
+            const outcome = maintainStore(store)
+            const next: ExperienceStore = {
+              schemaVersion: 1,
+              lastMaintainedAt: localDate(),
+              entries: outcome.entries,
+            }
+            yield* writeStore(managementSessionID, next)
+            yield* appendAudit(managementSessionID, {
+              action: "memory.experience.management_compact",
+              removed: outcome.removed,
+              merged: outcome.merged,
+              retained: outcome.entries.length,
+            })
+            return { removed: outcome.removed, merged: outcome.merged, retained: outcome.entries.length }
+          }),
+          target,
+        )
+      })
+
       return Service.of({
         ensure,
         readStore,
@@ -519,6 +616,10 @@ export const layerWithDirectory = (directory: string) =>
         search,
         formatExperienceSnapshot,
         maintain,
+        managementRead,
+        managementUpdate,
+        managementRemove,
+        managementCompact,
       })
     }),
   ).pipe(Layer.provide(EffectFlock.defaultLayer))
@@ -623,6 +724,10 @@ function normalizeExperience(entry: ExperienceEntry): ExperienceEntry {
     sessionID: SessionID.make(sessionID),
     ...(supersededReason ? { supersededReason } : {}),
   }
+}
+
+function sameExperienceEntry(left: ExperienceEntry, right: ExperienceEntry): boolean {
+  return JSON.stringify(normalizeExperience(left)) === JSON.stringify(normalizeExperience(right))
 }
 
 function canonicalExperienceContent(content: string) {

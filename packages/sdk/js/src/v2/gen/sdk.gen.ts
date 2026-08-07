@@ -813,7 +813,7 @@ export class Memory extends HeyApiClient {
    */
   public list<ThrowOnError extends boolean = false>(
     parameters: {
-      scope: "user" | "task"
+      scope: "user" | "task" | "experience"
       sessionID?: string
       query?: string
       cursor?: string
@@ -849,7 +849,7 @@ export class Memory extends HeyApiClient {
    */
   public remove<ThrowOnError extends boolean = false>(
     parameters: {
-      scope: "user" | "task"
+      scope: "user" | "task" | "experience"
       id: string
       sessionID?: string
     },
@@ -883,12 +883,14 @@ export class Memory extends HeyApiClient {
    */
   public update<ThrowOnError extends boolean = false>(
     parameters: {
-      scope: "user" | "task"
+      scope: "user" | "task" | "experience"
       id: string
       sessionID?: string
       importance?: number
       keywords?: Array<string>
       content?: string
+      kind?: "success" | "failure" | "lesson"
+      confidence?: "low" | "medium" | "high"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -903,6 +905,8 @@ export class Memory extends HeyApiClient {
             { in: "body", key: "importance" },
             { in: "body", key: "keywords" },
             { in: "body", key: "content" },
+            { in: "body", key: "kind" },
+            { in: "body", key: "confidence" },
           ],
         },
       ],
@@ -926,7 +930,7 @@ export class Memory extends HeyApiClient {
    */
   public compact<ThrowOnError extends boolean = false>(
     parameters: {
-      scope: "user" | "task"
+      scope: "user" | "task" | "experience"
       sessionID?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -958,7 +962,7 @@ export class Memory extends HeyApiClient {
    */
   public export<ThrowOnError extends boolean = false>(
     parameters: {
-      scope: "user" | "task"
+      scope: "user" | "task" | "experience"
       sessionID?: string
       query?: string
       cursor?: string

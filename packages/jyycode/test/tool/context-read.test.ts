@@ -149,3 +149,38 @@ it.live("context_read action=experience reports no matches", () =>
     expect(result.output).toContain("No experience matches")
   }),
 )
+
+it.live("context_read action=experience lists active entries when query is omitted", () =>
+  Effect.gen(function* () {
+    const root = yield* tmpdirScoped()
+    const sessionID = SessionID.make("ses_experience_tool")
+    const layer = ExperienceMemory.layerWithDirectory(root).pipe(Layer.provide(AppFileSystem.defaultLayer))
+    yield* Effect.gen(function* () {
+      const experience = yield* ExperienceMemory.Service
+      yield* experience.upsert(sessionID, {
+        kind: "failure",
+        importance: 7,
+        keywords: ["部署"],
+        content: "部署脚本报错时先看日志再重试",
+        evidence: "[ses_experience_tool#1] deploy.sh",
+        confidence: "high",
+      })
+      yield* experience.upsert(sessionID, {
+        kind: "success",
+        importance: 5,
+        keywords: ["测试"],
+        content: "修改认证中间件前先运行权限回归",
+        evidence: "[ses_experience_tool#2] npm test",
+        confidence: "medium",
+      })
+    }).pipe(Effect.provide(layer))
+
+    const info = yield* ContextReadTool
+    const tool = yield* info.init()
+    const result = yield* provideInstance(root)(
+      tool.execute({ action: "experience" }, ctx).pipe(Effect.provide(layer)),
+    )
+    expect(result.output).toContain("部署脚本报错时先看日志再重试")
+    expect(result.output).toContain("修改认证中间件前先运行权限回归")
+  }),
+)

@@ -1,7 +1,7 @@
 import type { GlobalMemoryEntry } from "@jyycode-ai/sdk/v2/client"
 import { A, useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
-import { ArrowLeft, ChevronRight, ClipboardList, Pencil, Trash2, UserRound } from "lucide-solid"
+import { ArrowLeft, ChevronRight, ClipboardList, Lightbulb, Pencil, Trash2, UserRound } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { Button, IconButton } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
@@ -15,7 +15,7 @@ import { MemoryEditor, type MemoryEditorValue } from "./memory-editor"
 import { memorySettingsHref, sanitizeSettingsReturnTo, settingsHref } from "./settings-navigation"
 import "./settings.css"
 
-type Scope = "user" | "task"
+type Scope = "user" | "task" | "experience"
 type Confirmation = { kind: "delete"; entry: GlobalMemoryEntry } | { kind: "compact" } | { kind: "clear" }
 
 export function MemorySettings() {
@@ -43,6 +43,14 @@ export function MemorySettings() {
           </span>
           <ChevronRight aria-hidden="true" />
         </A>
+        <A href={memorySettingsHref("experience", returnTo())}>
+          <Lightbulb aria-hidden="true" />
+          <span>
+            <strong>{tr("settings.experience-memory")}</strong>
+            <small>{tr("settings.experience-memory-description")}</small>
+          </span>
+          <ChevronRight aria-hidden="true" />
+        </A>
       </div>
     </section>
   )
@@ -52,7 +60,8 @@ export function MemoryManagementPage(props: { management?: ManagementContextValu
   const params = useParams<{ scope?: string }>()
   const [search] = useSearchParams<{ returnTo?: string }>()
   const navigate = useNavigate()
-  const scope = (): Scope => props.scope ?? (params.scope === "task" ? "task" : "user")
+  const scope = (): Scope =>
+    props.scope ?? (params.scope === "task" ? "task" : params.scope === "experience" ? "experience" : "user")
   const returnTo = () => sanitizeSettingsReturnTo(search.returnTo)
 
   return (
@@ -62,7 +71,13 @@ export function MemoryManagementPage(props: { management?: ManagementContextValu
           <ArrowLeft aria-hidden="true" />
           {tr("settings.return")}
         </Button>
-        <h1>{scope() === "user" ? tr("settings.user-memory") : tr("settings.task-memory")}</h1>
+        <h1>
+          {scope() === "user"
+            ? tr("settings.user-memory")
+            : scope() === "task"
+              ? tr("settings.task-memory")
+              : tr("settings.experience-memory")}
+        </h1>
       </header>
       <section class="settings-content memory-page__body">
         <div class="settings-sections">
@@ -125,13 +140,18 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
     if (!entry) {
       await management.client.global.memory.user.create(value, { throwOnError: true })
     } else {
+      const base = {
+        scope: entry.scope,
+        id: entry.id,
+        ...(entry.scope === "task" ? { sessionID: entry.sessionID } : {}),
+        importance: value.importance,
+        keywords: value.keywords,
+        content: value.content,
+      }
       await management.client.global.memory.update(
-        {
-          scope: entry.scope,
-          id: entry.id,
-          ...(entry.scope === "task" ? { sessionID: entry.sessionID } : {}),
-          ...value,
-        },
+        entry.scope === "experience"
+          ? { ...base, kind: value.kind!, confidence: value.confidence! }
+          : base,
         { throwOnError: true },
       )
     }
@@ -205,7 +225,11 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
         <div>
           <h3 id="memory-manager-title">{tr("settings.manage-memory")}</h3>
           <p class="settings-description">
-            {props.scope === "user" ? tr("settings.user-memory-description") : tr("settings.task-memory-description")}
+            {props.scope === "user"
+              ? tr("settings.user-memory-description")
+              : props.scope === "task"
+                ? tr("settings.task-memory-description")
+                : tr("settings.experience-memory-description")}
           </p>
         </div>
         <span>{tr("settings.memory-entry-count", { count: query.data?.total ?? 0 })}</span>
@@ -267,6 +291,17 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
                       {(date) => <time dateTime={date()}>{formatMemoryDate(date())}</time>}
                     </Show>
                   </span>
+                  <Show when={entry.scope === "task"}>
+                    <span>{entry.scope === "task" ? entry.projectID : undefined}</span>
+                  </Show>
+                  <Show when={entry.scope === "experience"}>
+                    <span>
+                      {entry.scope === "experience" ? tr(`settings.experience-kind-${entry.kind}`) : ""}
+                    </span>
+                    <span>
+                      {entry.scope === "experience" ? tr(`settings.experience-confidence-${entry.confidence}`) : ""}
+                    </span>
+                  </Show>
                   <span>{tr("settings.memory-importance-value", { value: entry.importance })}</span>
                   <div class="memory-settings__entry-actions">
                     <IconButton

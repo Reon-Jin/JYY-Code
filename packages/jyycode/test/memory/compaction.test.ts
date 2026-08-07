@@ -45,6 +45,7 @@ function task(input: {
   date?: string
   keywords?: string[]
   content?: string
+  projectID?: string
 }): Memory.TaskMemoryEntry {
   return {
     scope: "memory",
@@ -52,6 +53,7 @@ function task(input: {
     date: input.date ?? "20260705",
     keywords: input.keywords ?? ["项目"],
     content: input.content ?? `完成项目 ${input.id}。`,
+    projectID: input.projectID ?? "proj_compaction",
     sessionID: SessionID.make(input.id),
   }
 }
@@ -65,25 +67,32 @@ function user(
 }
 
 describe("bounded deterministic memory compaction", () => {
-  test("merges entries with similar keywords", async () => {
+  test("keeps task entries from different projects separate during compaction", async () => {
     const { run, seed, read } = await fixture()
     const entries = [
-      task({ id: "ses_racing_a", date: "20260701", content: "完成赛车游戏基础建模。", keywords: ["赛车", "地图"] }),
-      task({ id: "ses_racing_b", date: "20260705", content: "完成赛车游戏地图优化。", keywords: ["赛车", "地图"] }),
-      task({ id: "ses_similar_a", content: "完成代码质量检查。", keywords: ["ts", "代码"] }),
-      task({ id: "ses_similar_b", content: "完成代码性能优化。", keywords: ["ts", "代码", "优化"] }),
-      task({ id: "ses_document", content: "完成独立文档。", keywords: ["文档"] }),
+      task({
+        id: "ses_racing_a",
+        projectID: "proj_a",
+        date: "20260701",
+        content: "完成赛车游戏基础建模。",
+        keywords: ["赛车", "地图"],
+      }),
+      task({
+        id: "ses_racing_b",
+        projectID: "proj_b",
+        date: "20260705",
+        content: "完成赛车游戏地图优化。",
+        keywords: ["赛车", "地图"],
+      }),
     ]
     await seed("memory", entries)
 
     const result = await run(Memory.Service.use((memory) => memory.compact({ sessionID: writer, scope: "memory" })))
     const stored = await read("memory")
 
-    expect(result.merged).toBeGreaterThanOrEqual(2)
+    expect(result.merged).toBe(0)
     expect(result.retained).toBe(stored.entries.length)
-    expect(
-      (stored.entries as Memory.TaskMemoryEntry[]).filter((entry) => entry.keywords.includes("赛车")),
-    ).toHaveLength(1)
+    expect(stored.entries).toHaveLength(2)
   })
 
   test("consolidates low-value entries, protects high-value user facts, and returns below 70 percent", async () => {
@@ -108,7 +117,7 @@ describe("bounded deterministic memory compaction", () => {
     const { run, seed, read } = await fixture()
     await seed(
       "memory",
-      Array.from({ length: 50 }, (_, i) => task({ id: `ses_${i}`, importance: 3 })),
+      Array.from({ length: 50 }, (_, i) => task({ id: `ses_${i}`, importance: 3, projectID: `proj_${i}` })),
     )
 
     await run(

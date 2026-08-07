@@ -395,6 +395,7 @@ export const ProvidersLoginCommand = effectCmd({
           hint: {
             jyycode: "recommended",
             openai: "ChatGPT Plus/Pro or API key",
+            agnes: "free API",
           }[x.id],
         })),
       ),
@@ -466,6 +467,10 @@ export const ProvidersLoginCommand = effectCmd({
 
     if (provider === "vercel") {
       yield* Prompt.log.info("You can create an api key at https://vercel.link/ai-gateway-token")
+    }
+
+    if (provider === "agnes") {
+      yield* Prompt.log.info("Create an API key at https://platform.agnes-ai.com")
     }
 
     if (["cloudflare", "cloudflare-ai-gateway"].includes(provider)) {
