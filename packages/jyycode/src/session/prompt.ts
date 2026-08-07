@@ -1585,6 +1585,24 @@ export const layer = Layer.effect(
           const historyForModel = Option.isSome(episodicDigest) ? sliceLastTurns(msgs, 2) : msgs
           if (yield* compaction.shouldCompact({ messages: historyForModel, model })) {
             if (canUsePersistentMemory && episodic) {
+              const digestDue = yield* episodic
+                .isDigestDue({
+                  sessionID,
+                  workspaceRoot: ctx.directory,
+                  reason: "threshold",
+                  totalTurns: Math.max(0, countRealUserTurns(msgs) - 1),
+                  previousSummary: undefined,
+                })
+                .pipe(Effect.catch(() => Effect.succeed(false)))
+              if (digestDue && flags.experimentalEventSystem) {
+                yield* events
+                  .publish(SessionEvent.Compaction.Started, {
+                    sessionID,
+                    timestamp: DateTime.makeUnsafe(Date.now()),
+                    reason: "auto",
+                  })
+                  .pipe(Effect.ignore)
+              }
               yield* episodic
                 .compactIfDue({
                   sessionID,
@@ -1594,7 +1612,20 @@ export const layer = Layer.effect(
                   previousSummary: undefined,
                   generate: (prompt) => generateDigest(prompt, model).pipe(Effect.orDie),
                 })
-                .pipe(Effect.ignore)
+                .pipe(
+                  Effect.ignore,
+                  Effect.ensuring(
+                    digestDue && flags.experimentalEventSystem
+                      ? events
+                          .publish(SessionEvent.Compaction.Ended, {
+                            sessionID,
+                            timestamp: DateTime.makeUnsafe(Date.now()),
+                            text: "episodic digest",
+                          })
+                          .pipe(Effect.ignore)
+                      : Effect.void,
+                  ),
+                )
             }
             const created = yield* compaction.create({
               sessionID,
@@ -1950,6 +1981,25 @@ export const layer = Layer.effect(
                     turn: episodeFromMessages(episodeMessages),
                   })
                   .pipe(Effect.ignore)
+                const digestDue = yield* episodic
+                  .isDigestDue({
+                    sessionID,
+                    workspaceRoot: ctx.directory,
+                    reason: "interval",
+                    totalTurns: countRealUserTurns(msgs),
+                    backfillText: undefined,
+                    previousSummary: summary,
+                  })
+                  .pipe(Effect.catch(() => Effect.succeed(false)))
+                if (digestDue && flags.experimentalEventSystem) {
+                  yield* events
+                    .publish(SessionEvent.Compaction.Started, {
+                      sessionID,
+                      timestamp: DateTime.makeUnsafe(Date.now()),
+                      reason: "auto",
+                    })
+                    .pipe(Effect.ignore)
+                }
                 yield* episodic
                   .compactIfDue({
                     sessionID,
@@ -1963,6 +2013,17 @@ export const layer = Layer.effect(
                   .pipe(
                     Effect.catchCause((cause) =>
                       slog.warn("episodic digest failed; will retry on next trigger", { cause: Cause.pretty(cause) }),
+                    ),
+                    Effect.ensuring(
+                      digestDue && flags.experimentalEventSystem
+                        ? events
+                            .publish(SessionEvent.Compaction.Ended, {
+                              sessionID,
+                              timestamp: DateTime.makeUnsafe(Date.now()),
+                              text: "episodic digest",
+                            })
+                            .pipe(Effect.ignore)
+                        : Effect.void,
                     ),
                   )
               }

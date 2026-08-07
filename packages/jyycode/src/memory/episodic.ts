@@ -88,6 +88,14 @@ export interface Interface {
     query: string
     limit?: number
   }) => Effect.Effect<EpisodeTurn[], Error>
+  readonly isDigestDue: (input: {
+    sessionID: SessionID
+    workspaceRoot: string
+    reason: "interval" | "threshold"
+    totalTurns: number
+    backfillText?: string
+    previousSummary?: string
+  }) => Effect.Effect<boolean, Error>
   readonly compactIfDue: (input: CompactInput) => Effect.Effect<DigestResult, Error>
 }
 
@@ -323,6 +331,26 @@ export const layer = Layer.effect(
         .slice(-limit)
     })
 
+    const isDigestDue = Effect.fn("EpisodicMemory.isDigestDue")(function* (input: {
+      sessionID: SessionID
+      workspaceRoot: string
+      reason: "interval" | "threshold"
+      totalTurns: number
+      backfillText?: string
+      previousSummary?: string
+    }) {
+      const index = yield* readIndex(input.workspaceRoot, input.sessionID)
+      const episodes = yield* readEpisodes(input.workspaceRoot, input.sessionID)
+      const covered = Option.isSome(index) ? index.value.coveredTurns : 0
+      const keepFrom = Math.max(0, input.totalTurns - 2)
+      const digestable = episodes.filter((episode) => episode.turn > covered && episode.turn <= keepFrom)
+      const hasSeed = Option.isSome(index) || Boolean(input.previousSummary) || Boolean(input.backfillText)
+      if (input.reason === "interval" && input.totalTurns - covered < DIGEST_INTERVAL_TURNS) return false
+      if (input.reason === "threshold" && digestable.length === 0 && Option.isSome(index)) return false
+      if (digestable.length === 0 && !hasSeed) return false
+      return true
+    })
+
     const compactIfDue = Effect.fn("EpisodicMemory.compactIfDue")(function* (input: CompactInput) {
       const index = yield* readIndex(input.workspaceRoot, input.sessionID)
       const episodes = yield* readEpisodes(input.workspaceRoot, input.sessionID)
@@ -376,7 +404,7 @@ export const layer = Layer.effect(
       return { status: "generated" as const, reason: input.reason, seq }
     })
 
-    return Service.of({ recordTurn, readLatestDigest, readEpisode, searchEpisodes, compactIfDue })
+    return Service.of({ recordTurn, readLatestDigest, readEpisode, searchEpisodes, isDigestDue, compactIfDue })
   }),
 )
 

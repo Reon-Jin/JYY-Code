@@ -137,6 +137,22 @@ describe("EpisodicMemory", () => {
     }),
   )
 
+  it.live("isDigestDue reports due only at the interval boundary", () =>
+    Effect.gen(function* () {
+      const root = yield* tmpdirScoped()
+      const memory = yield* EpisodicMemory.Service
+      for (let turn = 1; turn <= 5; turn++) {
+        yield* memory.recordTurn({ sessionID, workspaceRoot: root, turn: episode(turn) })
+      }
+      expect(
+        yield* memory.isDigestDue({ sessionID, workspaceRoot: root, reason: "interval", totalTurns: 4 }),
+      ).toBe(false)
+      expect(
+        yield* memory.isDigestDue({ sessionID, workspaceRoot: root, reason: "interval", totalTurns: 5 }),
+      ).toBe(true)
+    }),
+  )
+
   it.live("searchEpisodes finds keyword matches", () =>
     Effect.gen(function* () {
       const root = yield* tmpdirScoped()
