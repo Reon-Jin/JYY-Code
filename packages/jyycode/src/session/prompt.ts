@@ -1824,14 +1824,14 @@ export const layer = Layer.effect(
             }
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-            // Environment and the persistent-memory snapshot are session-static
-            // context: inject them only during the session's first turn instead
-            // of paying their token cost on every request. The root skill
-            // catalog is not injected here — the skill tool description already
-            // lists it on every request. Profile-backed child sessions
-            // additionally get their role skill catalog injected below on the
-            // first turn, because the dispatch brief often prescribes a
-            // toolchain that would otherwise bypass the role's skills.
+            // Environment is session-static context: inject it only during the
+            // session's first turn instead of paying its token cost on every
+            // request. The root skill catalog is not injected here — the skill
+            // tool description already lists it on every request.
+            // Profile-backed child sessions additionally get their role skill
+            // catalog injected below on the first turn, because the dispatch
+            // brief often prescribes a toolchain that would otherwise bypass
+            // the role's skills.
             const firstSessionTurn = !msgs.some((message) => message.info.role === "assistant")
 
             // The persistent-memory snapshot refreshes at the start of every
