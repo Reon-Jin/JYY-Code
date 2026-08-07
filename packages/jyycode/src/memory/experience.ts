@@ -176,6 +176,64 @@ export function oppositeExperienceKind(
   return (left.kind === "success" && right.kind === "failure") || (left.kind === "failure" && right.kind === "success")
 }
 
+export function maintainStore(store: ExperienceStore): { entries: ExperienceEntry[]; removed: number; merged: number } {
+  let entries = [...store.entries]
+  let removed = 0
+  let merged = 0
+  for (let left = 0; left < entries.length; left++) {
+    for (let right = entries.length - 1; right > left; right--) {
+      const a = entries[left]!
+      const b = entries[right]!
+      if (a.status !== "active" || b.status !== "active") continue
+      if (experienceKey(a) === experienceKey(b)) {
+        entries[left] = mergeExperienceEntries(a, b)
+        entries.splice(right, 1)
+        merged++
+      }
+    }
+  }
+  const cutoff = dateNDaysAgo(30)
+  const afterExpiry: ExperienceEntry[] = []
+  for (const entry of entries) {
+    if (entry.status === "active" || entry.updatedAt >= cutoff) {
+      afterExpiry.push(entry)
+      continue
+    }
+    removed++
+  }
+  entries = afterExpiry
+  const afterDecay: ExperienceEntry[] = []
+  for (const entry of entries) {
+    if (entry.status === "active" && entry.confidence === "low" && entry.uses === 0 && entry.updatedAt < cutoff) {
+      removed++
+      continue
+    }
+    afterDecay.push(entry)
+  }
+  entries = afterDecay
+  const retention = (entry: ExperienceEntry, index: number) =>
+    entry.importance * 100 + entry.uses * 10 + (entry.status === "active" ? 5 : 0) + index / 1_000
+  while (entries.length > EXPERIENCE_ENTRY_LIMIT) {
+    let min = 0
+    for (let index = 1; index < entries.length; index++) {
+      if (retention(entries[index]!, index) < retention(entries[min]!, min)) min = index
+    }
+    entries.splice(min, 1)
+    removed++
+  }
+  let text = serializeExperienceStore(entries, store.lastMaintainedAt)
+  while (text.length > EXPERIENCE_CHAR_LIMIT) {
+    let min = 0
+    for (let index = 1; index < entries.length; index++) {
+      if (retention(entries[index]!, index) < retention(entries[min]!, min)) min = index
+    }
+    entries.splice(min, 1)
+    removed++
+    text = serializeExperienceStore(entries, store.lastMaintainedAt)
+  }
+  return { entries, removed, merged }
+}
+
 export function localDate(date: Date = new Date()): string {
   const year = String(date.getFullYear()).padStart(4, "0")
   const month = String(date.getMonth() + 1).padStart(2, "0")
@@ -320,10 +378,22 @@ export const layerWithDirectory = (directory: string) =>
             entries.push(entry)
             const projected = serializeExperienceStore(entries, store.lastMaintainedAt)
             if (projected.length > EXPERIENCE_CHAR_LIMIT || entries.length > EXPERIENCE_ENTRY_LIMIT) {
-              yield* appendAudit(sessionID, { action: "memory.experience.capacity_rejected", key, content: entry.content })
-              return { status: "capacity_rejected" as const, key, message: "Experience rejected at capacity; run maintenance." }
+              const outcome = maintainStore({ ...store, entries })
+              const retained = outcome.entries.some((existing) => experienceKey(existing) === key)
+              if (!retained || outcome.entries.length > EXPERIENCE_ENTRY_LIMIT) {
+                yield* appendAudit(sessionID, { action: "memory.experience.capacity_rejected", key, content: entry.content })
+                return { status: "capacity_rejected" as const, key, message: "Experience rejected at capacity." }
+              }
+              const next: ExperienceStore = { schemaVersion: 1, lastMaintainedAt: localDate(), entries: outcome.entries }
+              yield* writeStore(sessionID, next)
+              yield* appendAudit(sessionID, {
+                action: "memory.experience.maintain_on_write",
+                removed: outcome.removed,
+                merged: outcome.merged,
+              })
+            } else {
+              yield* writeStore(sessionID, { ...store, entries })
             }
-            yield* writeStore(sessionID, { ...store, entries })
             yield* appendAudit(sessionID, {
               action: "memory.experience.written",
               key,
@@ -416,8 +486,23 @@ export const layerWithDirectory = (directory: string) =>
 
       const maintain = Effect.fn("ExperienceMemory.maintain")(function* (sessionID: SessionID) {
         yield* ensure(sessionID)
-        const store = yield* readStore(sessionID)
-        return { removed: 0, merged: 0, retained: store.entries.length }
+        const target = yield* filePath(sessionID)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(sessionID)
+            const outcome = maintainStore(store)
+            const next: ExperienceStore = { schemaVersion: 1, lastMaintainedAt: localDate(), entries: outcome.entries }
+            yield* writeStore(sessionID, next)
+            yield* appendAudit(sessionID, {
+              action: "memory.experience.maintain",
+              removed: outcome.removed,
+              merged: outcome.merged,
+              retained: outcome.entries.length,
+            })
+            return { removed: outcome.removed, merged: outcome.merged, retained: outcome.entries.length }
+          }),
+          target,
+        )
       })
 
       return Service.of({

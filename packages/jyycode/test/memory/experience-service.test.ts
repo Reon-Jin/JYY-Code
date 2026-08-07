@@ -104,3 +104,141 @@ describe("experience service", () => {
     })
   })
 })
+
+describe("experience maintenance", () => {
+  async function seedStore(directory: string, entries: ExperienceMemory.ExperienceEntry[]) {
+    await fs.writeFile(
+      path.join(directory, "EXPERIENCE.json"),
+      ExperienceMemory.serializeExperienceStore(entries, ExperienceMemory.localDate()),
+    )
+  }
+
+  test("drops superseded entries older than 30 days but keeps recent ones", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "experience-maint-"))
+    cleanup.push(directory)
+    const layer = ExperienceMemory.layerWithDirectory(directory).pipe(Layer.provide(AppFileSystem.defaultLayer))
+    const run = (effect: Effect.Effect<unknown, unknown, ExperienceMemory.Service>) =>
+      Effect.runPromise(Effect.provide(effect, layer))
+    await seedStore(directory, [
+      {
+        scope: "experience",
+        kind: "success",
+        importance: 8,
+        date: ExperienceMemory.dateNDaysAgo(31),
+        updatedAt: ExperienceMemory.dateNDaysAgo(31),
+        keywords: ["旧经验"],
+        content: "旧的成功经验",
+        evidence: "[ses_experience#1] old",
+        confidence: "high",
+        uses: 0,
+        status: "superseded",
+        sessionID,
+      },
+      {
+        scope: "experience",
+        kind: "lesson",
+        importance: 7,
+        date: ExperienceMemory.dateNDaysAgo(1),
+        updatedAt: ExperienceMemory.dateNDaysAgo(1),
+        keywords: ["部署"],
+        content: "部署前先跑测试",
+        evidence: "[ses_experience#2] deploy",
+        confidence: "medium",
+        uses: 1,
+        status: "superseded",
+        sessionID,
+      },
+    ])
+    const result = await run(
+      ExperienceMemory.Service.use((service) => service.maintain(sessionID)),
+    )
+    expect(result).toMatchObject({ removed: 1, merged: 0, retained: 1 })
+    const store = await run(ExperienceMemory.Service.use((service) => service.readStore(sessionID)))
+    expect(store.entries.map((entry) => entry.content)).toEqual(["部署前先跑测试"])
+  })
+
+  test("removes low-confidence unused experiences older than 30 days", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "experience-decay-"))
+    cleanup.push(directory)
+    const layer = ExperienceMemory.layerWithDirectory(directory).pipe(Layer.provide(AppFileSystem.defaultLayer))
+    const run = (effect: Effect.Effect<unknown, unknown, ExperienceMemory.Service>) =>
+      Effect.runPromise(Effect.provide(effect, layer))
+    await seedStore(directory, [
+      {
+        scope: "experience",
+        kind: "lesson",
+        importance: 4,
+        date: ExperienceMemory.dateNDaysAgo(31),
+        updatedAt: ExperienceMemory.dateNDaysAgo(31),
+        keywords: ["猜测"],
+        content: "低置信且从未用过的经验",
+        evidence: "[ses_experience#1] guess",
+        confidence: "low",
+        uses: 0,
+        status: "active",
+        sessionID,
+      },
+      {
+        scope: "experience",
+        kind: "lesson",
+        importance: 6,
+        date: ExperienceMemory.dateNDaysAgo(31),
+        updatedAt: ExperienceMemory.dateNDaysAgo(31),
+        keywords: ["使用"],
+        content: "低置信但被复用过的经验",
+        evidence: "[ses_experience#2] used",
+        confidence: "low",
+        uses: 3,
+        status: "active",
+        sessionID,
+      },
+    ])
+    const result = await run(
+      ExperienceMemory.Service.use((service) => service.maintain(sessionID)),
+    )
+    expect(result).toMatchObject({ removed: 1 })
+    const store = await run(ExperienceMemory.Service.use((service) => service.readStore(sessionID)))
+    expect(store.entries.map((entry) => entry.content)).toEqual(["低置信但被复用过的经验"])
+  })
+
+  test("evicts low-value entries at capacity and keeps the new candidate", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "experience-cap-"))
+    cleanup.push(directory)
+    const layer = ExperienceMemory.layerWithDirectory(directory).pipe(Layer.provide(AppFileSystem.defaultLayer))
+    const run = (effect: Effect.Effect<unknown, unknown, ExperienceMemory.Service>) =>
+      Effect.runPromise(Effect.provide(effect, layer))
+    const entries: ExperienceMemory.ExperienceEntry[] = Array.from({ length: 100 }, (_, index) => ({
+      scope: "experience" as const,
+      kind: "lesson" as const,
+      importance: (index === 0 ? 10 : 2) as ExperienceMemory.ExperienceEntry["importance"],
+      date: "20260807",
+      updatedAt: "20260807",
+      keywords: [`旧${index}`],
+      content: `旧的低价值经验 ${index}`,
+      evidence: `[ses_experience#${index + 1}] seed`,
+      confidence: "low" as const,
+      uses: 0,
+      status: "active" as const,
+      sessionID,
+    }))
+    await seedStore(directory, entries)
+    const result = await run(
+      ExperienceMemory.Service.use((service) =>
+        service.upsert(sessionID, {
+          kind: "failure",
+          importance: 9,
+          keywords: ["关键"],
+          content: "关键的新失败经验",
+          evidence: "[ses_experience#101] critical",
+          confidence: "high",
+        }),
+      ),
+    )
+    expect(result.status).toBe("written")
+    const store = await run(ExperienceMemory.Service.use((service) => service.readStore(sessionID)))
+    expect(store.entries.length).toBeLessThanOrEqual(100)
+    expect(store.entries.some((entry) => entry.content === "关键的新失败经验")).toBe(true)
+    expect(store.entries.some((entry) => entry.content === "旧的低价值经验 0")).toBe(true)
+    expect(store.entries.filter((entry) => entry.content === "旧的低价值经验 1")).toHaveLength(0)
+  })
+})
