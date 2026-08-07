@@ -1,12 +1,11 @@
-Manage persistent structured memory with add, replace, remove, or compact actions — only when the user explicitly requests memory management. Routine per-turn task memory is updated automatically; never duplicate it with this tool. Only MEMORY.json / USER.json; never create .md files in the memory directory.
+Manage persistent structured memory with read, add, replace, remove, or compact actions — only when the user explicitly requests memory management. Routine per-turn task memory is updated automatically; never duplicate it with this tool. Never create .md files in the memory directory.
 
-MEMORY.json (target="memory"): durable project outcomes, conventions, environment facts, and lessons. One cumulative entry per session, 20,000-char store limit.
-USER.json (target="user"): explicit, stable user identity facts and preferences, upserted by normalized keywords, 2,000-char store limit.
+MEMORY.json (target="memory"): one compact per-session task-state entry in the form 当前任务：<goal>；进展：<progress>；[经验：<lesson>] with limits goal ≤120, progress ≤160, 经验 ≤160 Unicode chars. 经验 is optional: write it only for a durable success or failure lesson; never write 下一步. USER.json (target="user"): explicit, stable user identity facts and preferences, upserted by normalized keywords. EXPERIENCE.json holds cross-session lessons and is read with context_read action=experience, not with this tool.
 
 Actions:
+- read: show the selected store's current entries. Use this when you need to see what is already remembered before adding or replacing a fact.
 - add: upsert an entry with importance (1-10), one to three keywords (2-4 chars each), and concise content. The session ID is injected automatically — do not place it in content.
 - replace / remove: target the entry found by old_text substring match (case-insensitive, must match exactly one entry; on multiple matches the tool lists them — use a more specific substring).
-- For MEMORY content use `用户要求A` during the user-input phase or `用户要求A，我用了B，最终学会了C` during the assistant-completion phase. Limits excluding prefixes and punctuation: A ≤100, B ≤180, C ≤100 Unicode chars. Rephrase semantically to fit; never slice text or use ellipses.
 - compact: deterministically organize the selected store to free capacity.
 
 Only primary sessions may mutate either store (the Planner in Multi-Agent mode). Subagent sessions are read-only; mutation attempts are rejected.

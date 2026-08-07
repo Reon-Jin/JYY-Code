@@ -7,7 +7,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show, t
 import { Button, IconButton } from "../components/ui/button"
 import { InlineError } from "../components/ui/inline-error"
 import { useData } from "../data/context"
-import type { ConnectionState } from "../data/event-bridge"
+import type { CompactionStatus, ConnectionState } from "../data/event-bridge"
 import { keys, normalizeDirectory } from "../data/query-keys"
 import { directoryName } from "../platform/desktop-path"
 import { errorMessage } from "../features/projects/project-controller"
@@ -66,6 +66,7 @@ export type WorkspaceLayoutViewProps = {
   archivedSessions: readonly Session[]
   statuses: Record<string, SessionStatus>
   conversation?: ConversationSnapshot
+  compaction?: CompactionStatus
   activeSession?: Session
   activeSessionID?: string
   selectedRootSessionID?: string
@@ -340,6 +341,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
             <MessageTimeline
               messages={props.conversation?.messages ?? []}
               goal={selected()?.goal}
+              compaction={props.compaction}
               loading={props.conversationLoading}
               error={props.conversationError}
               onRetry={props.onRetryConversation}
@@ -412,6 +414,18 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         queryClient: data.queryClient(),
       }),
       enabled: Boolean(props.activeSessionID),
+    }),
+    data.queryClient,
+  )
+  const compactionQuery = createQuery<CompactionStatus | undefined, Error, CompactionStatus | undefined>(
+    () => ({
+      queryKey: keys.compaction(data.directory(), props.activeSessionID ?? ""),
+      queryFn: () => undefined,
+      enabled: Boolean(props.activeSessionID),
+      staleTime: Number.POSITIVE_INFINITY,
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
     }),
     data.queryClient,
   )
@@ -696,6 +710,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       archivedSessions={archivedQuery.data ?? []}
       statuses={statusQuery.data ?? {}}
       conversation={conversationQuery.data}
+      compaction={compactionQuery.data}
       activeSession={activeSession()}
       activeSessionID={props.activeSessionID}
       selectedRootSessionID={rootSessionID()}
@@ -812,16 +827,14 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     minimal={isChildSession()}
                     usage={composerUsage()}
                     permissionControl={
-                      <Show when={activeSession()} keyed>
-                        {(session) => (
-                          <AgentPermissionControl
-                            client={data.client()}
-                            queryClient={data.queryClient()}
-                            directory={data.directory()}
-                            session={session}
-                            disabled={data.connection() !== "connected"}
-                          />
-                        )}
+                      <Show when={activeSession()}>
+                        <AgentPermissionControl
+                          client={data.client()}
+                          queryClient={data.queryClient()}
+                          directory={data.directory()}
+                          session={activeSession()!}
+                          disabled={data.connection() !== "connected"}
+                        />
                       </Show>
                     }
                     branchControl={<BranchControl directory={data.directory()} />}

@@ -64,19 +64,19 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["赛车游戏"],
-            content: "用户要求赛车游戏，我用了基础建模，最终学会了碰撞结构",
+            content: "当前任务：赛车游戏；进展：完成基础建模",
           })
           const updated = yield* memory.upsertTaskMemory({
             sessionID: firstSession,
             importance: 8,
             keywords: ["赛车游戏", "地图"],
-            content: "用户要求赛车地图，我用了模块拆分与绘制，最终学会了地图组织",
+            content: "当前任务：赛车地图；进展：完成模块拆分与绘制",
           })
           const second = yield* memory.upsertTaskMemory({
             sessionID: secondSession,
             importance: 4,
             keywords: ["文档"],
-            content: "用户要求部署文档，我用了结构化整理，最终学会了交付规范",
+            content: "当前任务：部署文档；进展：完成结构化整理",
           })
           return { created, updated, second }
         }),
@@ -92,7 +92,7 @@ describe("structured memory upserts", () => {
     expect(stored.find((entry) => entry.sessionID === firstSession)).toMatchObject({
       importance: 8,
       keywords: ["赛车游戏", "地图"],
-      content: "用户要求赛车地图，我用了模块拆分与绘制，最终学会了地图组织",
+      content: "当前任务：赛车地图；进展：完成模块拆分与绘制",
     })
     expect(stored[0]!.date).toMatch(/^\d{8}$/u)
   })
@@ -311,19 +311,34 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["格式"],
-            content: "用户要求旧格式，我完成了旧结果",
+            content: "旧格式内容",
           }),
         ),
       ),
-    ).rejects.toThrow('expected "用户要求..." or "用户要求...，我用了...，最终学会了..."')
+    ).rejects.toThrow('expected "当前任务：<goal>；进展：<progress>；[经验：<lesson>]"')
+
+    await expect(
+      run(
+        Memory.Service.use((memory) =>
+          memory.upsertTaskMemory({
+            sessionID: firstSession,
+            importance: 5,
+            keywords: ["格式"],
+            content: "当前任务：旧格式；进展：完成；下一步：验证",
+          }),
+        ),
+      ),
+    ).rejects.toThrow('expected "当前任务：<goal>；进展：<progress>；[经验：<lesson>]"')
   })
 
   test("keeps enough room for a session-wide summary while bounding each section", async () => {
     const { run } = fixture()
-    const request = "甲".repeat(100)
-    const requestTooLong = "甲".repeat(101)
-    const method = "甲".repeat(180)
-    const methodTooLong = "甲".repeat(181)
+    const goal = "甲".repeat(120)
+    const goalTooLong = "甲".repeat(121)
+    const progress = "乙".repeat(160)
+    const progressTooLong = "乙".repeat(161)
+    const lesson = "丙".repeat(160)
+    const lessonTooLong = "丙".repeat(161)
 
     const accepted = await run(
       Memory.Service.use((memory) =>
@@ -332,13 +347,13 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${request}`,
+            content: `当前任务：${goal}；进展：${progress}`,
           }),
           memory.upsertTaskMemory({
             sessionID: secondSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${request}，我用了${method}，最终学会了${request}`,
+            content: `当前任务：${goal}；进展：${progress}；经验：${lesson}`,
           }),
         ]),
       ),
@@ -352,11 +367,11 @@ describe("structured memory upserts", () => {
             sessionID: firstSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${requestTooLong}`,
+            content: `当前任务：${goalTooLong}；进展：${progress}`,
           }),
         ),
       ),
-    ).rejects.toThrow("用户要求 must not exceed 100 characters")
+    ).rejects.toThrow("当前任务 must not exceed 120 characters")
 
     await expect(
       run(
@@ -365,11 +380,11 @@ describe("structured memory upserts", () => {
             sessionID: secondSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${request}，我用了${methodTooLong}，最终学会了${request}`,
+            content: `当前任务：${goal}；进展：${progressTooLong}`,
           }),
         ),
       ),
-    ).rejects.toThrow("我用了 must not exceed 180 characters")
+    ).rejects.toThrow("进展 must not exceed 160 characters")
 
     await expect(
       run(
@@ -378,10 +393,66 @@ describe("structured memory upserts", () => {
             sessionID: secondSession,
             importance: 5,
             keywords: ["边界"],
-            content: `用户要求${request}，我用了${method}，最终学会了${requestTooLong}`,
+            content: `当前任务：${goal}；进展：${progress}；经验：${lessonTooLong}`,
           }),
         ),
       ),
-    ).rejects.toThrow("最终学会了 must not exceed 100 characters")
+    ).rejects.toThrow("经验 must not exceed 160 characters")
+  })
+
+  test("merges location paraphrases like 苏州人 and 苏州本地人", async () => {
+    const { run, entries } = fixture()
+    await run(
+      Memory.Service.use((memory) =>
+        memory.upsertUserMemory({
+          sessionID: firstSession,
+          importance: 8,
+          keywords: ["苏州"],
+          content: "用户是苏州人",
+        }),
+      ),
+    )
+    const updated = await run(
+      Memory.Service.use((memory) =>
+        memory.upsertUserMemory({
+          sessionID: firstSession,
+          importance: 9,
+          keywords: ["苏州"],
+          content: "用户是苏州本地人",
+        }),
+      ),
+    )
+    expect(updated.status).toBe("replaced")
+    const stored = entries("user") as Memory.UserMemoryEntry[]
+    expect(stored).toHaveLength(1)
+    expect(stored[0]?.content).toBe("用户是苏州本地人")
+  })
+
+  test("merges paraphrase-style preference duplicates by bigram similarity", async () => {
+    const { run, entries } = fixture()
+    await run(
+      Memory.Service.use((memory) =>
+        memory.upsertUserMemory({
+          sessionID: firstSession,
+          importance: 7,
+          keywords: ["偏好", "设计"],
+          content: "用户偏好深色科技风、品牌蓝主色、无圆角卡片、无位图、无外部依赖，强调手写SVG与动效",
+        }),
+      ),
+    )
+    const updated = await run(
+      Memory.Service.use((memory) =>
+        memory.upsertUserMemory({
+          sessionID: firstSession,
+          importance: 8,
+          keywords: ["偏好", "svg"],
+          content: "用户偏好纯SVG、无位图、无圆角卡片、深色科技风、品牌蓝为主色",
+        }),
+      ),
+    )
+    expect(updated.status).toBe("replaced")
+    const stored = entries("user") as Memory.UserMemoryEntry[]
+    expect(stored).toHaveLength(1)
+    expect(stored[0]?.content).toBe("用户偏好纯SVG、无位图、无圆角卡片、深色科技风、品牌蓝为主色")
   })
 })

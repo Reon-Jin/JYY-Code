@@ -10,6 +10,15 @@ import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { MessageV2 } from "@/session/message-v2"
 import * as Log from "@jyycode-ai/core/util/log"
+import {
+  EXPERIENCE_CONFIDENCES,
+  EXPERIENCE_CONTENT_CHAR_LIMIT,
+  EXPERIENCE_EVIDENCE_ANCHOR,
+  EXPERIENCE_EVIDENCE_CHAR_LIMIT,
+  EXPERIENCE_KINDS,
+} from "./experience-schema"
+import type { ExperienceCandidate, ExperienceConfidence, ExperienceKind } from "./experience-schema"
+export type { ExperienceCandidate } from "./experience-schema"
 const log = Log.create({ service: "memory" })
 
 const MEMORY_FILE = "MEMORY.json"
@@ -23,12 +32,14 @@ const CAPACITY_WARN_THRESHOLD = 0.8
 const COMPACTION_TARGET = 0.7
 const COMPACTION_ENTRY_TARGET = 45
 const SNAPSHOT_ENTRY_LIMIT = 10
+const MEMORY_SNAPSHOT_MAX_CHARS = 400
+const USER_SNAPSHOT_MAX_CHARS = 1_200
 // A task entry is the durable summary for an entire session, not a caption for
 // its latest turn. Keep enough room for the original goal, important decisions,
 // and the final state while remaining compact enough for the session snapshot.
-const TASK_REQUEST_CHAR_LIMIT = 100
-const TASK_METHOD_CHAR_LIMIT = 180
-const TASK_LEARNED_CHAR_LIMIT = 100
+const TASK_GOAL_CHAR_LIMIT = 120
+const TASK_PROGRESS_CHAR_LIMIT = 160
+const TASK_LESSON_CHAR_LIMIT = 160
 
 export type Scope = "memory" | "user"
 type Confidence = "low" | "medium" | "high"
@@ -148,7 +159,7 @@ function parseEntryObject(scope: Scope, value: unknown, index: number): MemoryEn
       importance: parseImportance(entry.importance),
       date: expectString(entry.date, "memory entry date"),
       keywords: expectStringArray(entry.keywords, "memory entry keywords"),
-      content: expectString(entry.content, "memory entry content"),
+      content: migrateLegacyTaskContent(expectString(entry.content, "memory entry content")),
     })
   }
   assertExactFields(
@@ -177,6 +188,11 @@ function normalizeEntry(entry: MemoryEntry): MemoryEntry {
   }
   if (entry.date !== undefined && !isCalendarDate(entry.date)) throw new Error(`Invalid user entry date: ${entry.date}`)
   return { scope: "user", importance, ...(entry.date ? { date: entry.date } : {}), keywords, content }
+}
+
+/** Drop the legacy "；下一步：..." segment so old task entries load cleanly. */
+function migrateLegacyTaskContent(content: string): string {
+  return content.replace(/；下一步：[^；]*$/u, "")
 }
 
 function expectRecord(value: unknown, label: string): Record<string, unknown> {
@@ -209,7 +225,7 @@ export function entryKey(entry: MemoryEntry): string {
   return [...validateKeywords(entry.keywords)].sort().join("\u001f")
 }
 
-function parseImportance(value: unknown): Importance {
+export function parseImportance(value: unknown): Importance {
   const importance = Number(value)
   if (!Number.isInteger(importance) || importance < 1 || importance > 10) {
     throw new Error(`Invalid memory entry importance: ${value}`)
@@ -217,7 +233,7 @@ function parseImportance(value: unknown): Importance {
   return importance as Importance
 }
 
-function validateKeywords(value: readonly string[]): string[] {
+export function validateKeywords(value: readonly string[]): string[] {
   const keywords = normalizeKeywords(value)
   if (keywords.length === 0 || keywords.length > 3) {
     throw new Error("Invalid memory entry keywords: expected 1 to 3 non-empty keywords")
@@ -268,6 +284,7 @@ export type MemoryDecision = {
   reason: string
   task: MemoryCandidate
   user: MemoryCandidate[]
+  experiences: ExperienceCandidate[]
 }
 
 export type MemoryUpdatePhase = "user" | "assistant"
@@ -279,6 +296,7 @@ export type DecisionInput = {
   correction?: string
   userText: string
   assistantText: string
+  failureHint?: string
 }
 
 export type DecisionEvaluator = (input: DecisionInput) => Effect.Effect<unknown, unknown>
@@ -286,11 +304,12 @@ export type DecisionEvaluator = (input: DecisionInput) => Effect.Effect<unknown,
 export type TurnText = {
   userText?: string
   assistantText?: string
+  failureHint?: string
 }
 
 export type AutomaticUpdateResult =
   | { status: "skipped"; reason: "subagent" | "no_user" | "no_assistant" }
-  | { status: "updated"; taskUpdated: boolean; userUpdated: number }
+  | { status: "updated"; taskUpdated: boolean; userUpdated: number; experienceCandidates: ExperienceCandidate[] }
 
 export const MemoryDecisionJsonSchema = {
   type: "object",
@@ -301,6 +320,7 @@ export const MemoryDecisionJsonSchema = {
     reason: { type: "string", minLength: 1 },
     task: { $ref: "#/$defs/candidate" },
     user: { type: "array", items: { $ref: "#/$defs/candidate" } },
+    experiences: { type: "array", items: { $ref: "#/$defs/experience" }, default: [] },
   },
   $defs: {
     candidate: {
@@ -311,6 +331,19 @@ export const MemoryDecisionJsonSchema = {
         importance: { type: "integer", minimum: 1, maximum: 10 },
         keywords: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", minLength: 2, maxLength: 4 } },
         content: { type: "string", minLength: 1 },
+      },
+    },
+    experience: {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "importance", "keywords", "content", "evidence", "confidence"],
+      properties: {
+        kind: { enum: ["success", "failure", "lesson"] },
+        importance: { type: "integer", minimum: 1, maximum: 10 },
+        keywords: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", minLength: 2, maxLength: 4 } },
+        content: { type: "string", minLength: 1, maxLength: 200 },
+        evidence: { type: "string", minLength: 1, maxLength: 160 },
+        confidence: { enum: ["low", "medium", "high"] },
       },
     },
   },
@@ -362,6 +395,7 @@ export interface Interface {
   readonly compact: (input: { sessionID: SessionID; scope: Scope }) => Effect.Effect<CompactionResult, Error>
   readonly usage: (sessionID: SessionID, scope: Scope) => Effect.Effect<UsageInfo, Error>
   readonly formatWithHeader: (sessionID: SessionID, scope: Scope) => Effect.Effect<string, Error>
+  readonly currentTaskKeywords: (sessionID: SessionID) => Effect.Effect<string[], Error>
   readonly updateAfterTurn: (
     sessionID: SessionID,
     evaluator?: DecisionEvaluator,
@@ -954,9 +988,20 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       const formatWithHeader = Effect.fn("Memory.formatWithHeader")(function* (sessionID: SessionID, scope: Scope) {
         yield* ensure(sessionID)
         const store = yield* readStore(sessionID, scope)
-        const text = formatEntries(store.entries.slice().sort(compareSnapshotEntries).slice(0, SNAPSHOT_ENTRY_LIMIT))
         const serialized = serializeStore(scope, store.entries, store.lastCompactedAt)
+        let text = formatEntries(selectSnapshotEntries(store.entries, scope, sessionID))
+        const limit = scope === "user" ? USER_SNAPSHOT_MAX_CHARS : MEMORY_SNAPSHOT_MAX_CHARS
+        if (text.length > limit) text = `${text.slice(0, limit - 1)}…\n`
         return formatMemoryHeader(scope, serialized) + text
+      })
+
+      const currentTaskKeywords = Effect.fn("Memory.currentTaskKeywords")(function* (sessionID: SessionID) {
+        const store = yield* readStore(sessionID, "memory")
+        const entry = store.entries.find(
+          (candidate): candidate is TaskMemoryEntry =>
+            candidate.scope === "memory" && candidate.sessionID === sessionID,
+        )
+        return entry?.keywords ?? []
       })
 
       const currentTaskContent = Effect.fn("Memory.currentTaskContent")(function* (sessionID: SessionID) {
@@ -986,7 +1031,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
             continue
           }
           try {
-            const decision = parseDecision(evaluated.value)
+            const decision = parseDecision(evaluated.value, input)
             const content = validateTaskContentForPhase(decision.task.content, input.phase)
             return { ...decision, task: { ...decision.task, content } }
           } catch (error) {
@@ -1029,6 +1074,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           previousTaskContent: yield* currentTaskContent(sessionID),
           userText,
           assistantText,
+          failureHint: turn?.failureHint,
         })
         const taskResult = yield* upsertTaskMemory({ sessionID, ...decision.task })
         if (taskResult.status === "capacity_rejected") {
@@ -1045,7 +1091,12 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           userStatuses: userResults.map((result) => result.status),
           reason: decision.reason,
         })
-        return { status: "updated" as const, taskUpdated: true, userUpdated: userResults.length }
+        return {
+          status: "updated" as const,
+          taskUpdated: true,
+          userUpdated: userResults.length,
+          experienceCandidates: decision.experiences,
+        }
       })
 
       const updateStepBegin = Effect.fn("Memory.updateStepBegin")(function* (
@@ -1077,6 +1128,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           previousTaskContent: yield* currentTaskContent(sessionID),
           userText,
           assistantText: "",
+          failureHint: suppliedTurn?.failureHint,
         })
         const taskResult = yield* upsertTaskMemory({ sessionID, ...decision.task })
         if (taskResult.status === "capacity_rejected") {
@@ -1093,7 +1145,12 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           userStatuses: userResults.map((result) => result.status),
           reason: decision.reason,
         })
-        return { status: "updated" as const, taskUpdated: true, userUpdated: userResults.length }
+        return {
+          status: "updated" as const,
+          taskUpdated: true,
+          userUpdated: userResults.length,
+          experienceCandidates: decision.experiences,
+        }
       })
 
       const appendAudit = Effect.fn("Memory.appendAudit")(function* (
@@ -1123,6 +1180,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         compact,
         usage,
         formatWithHeader,
+        currentTaskKeywords,
         updateAfterTurn,
         updateStepBegin,
         managementRead,
@@ -1234,8 +1292,23 @@ function entriesAreSimilar(left: MemoryEntry, right: MemoryEntry): boolean {
 }
 
 type UserProfileFact = {
-  slot: "name" | "birthday"
+  slot: "name" | "birthday" | "location"
   value: string
+}
+
+function userLocationFact(content: string): UserProfileFact | null {
+  const normalized = content.normalize("NFKC").trim()
+  const patterns = [
+    /(?:是|为|算)([^，。；;.!?！？]{1,12}?)(?:本地人|人)/u,
+    /来自([^，。；;.!?！？]{1,12}?)(?:人|市|省|地区)/u,
+    /(?:籍贯|家乡|常住地|所在地)[是为：:]?([^，。；;.!?！？]{1,12}?)(?:人|市|省|地区)?/u,
+  ]
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern)
+    const value = canonicalProfileValue(match?.[1] ?? "")
+    if (value) return { slot: "location", value }
+  }
+  return null
 }
 
 function userProfileFact(content: string): UserProfileFact | null {
@@ -1252,9 +1325,9 @@ function userProfileFact(content: string): UserProfileFact | null {
   const birthday = normalized.match(
     /(?:用户(?:的)?)?(?:生日|出生日期)|\buser(?:'s)?\s+(?:birthday|date\s+of\s+birth)\b/iu,
   )
-  if (!birthday) return null
+  if (!birthday) return userLocationFact(normalized)
   const date = normalized.match(/(\d{4})\s*(?:年|[-/.])\s*(\d{1,2})\s*(?:月|[-/.])\s*(\d{1,2})\s*日?/u)
-  if (!date) return null
+  if (!date) return userLocationFact(normalized)
   return { slot: "birthday", value: `${date[1]}-${date[2]!.padStart(2, "0")}-${date[3]!.padStart(2, "0")}` }
 }
 
@@ -1278,7 +1351,27 @@ function equivalentUserFacts(left: UserMemoryEntry, right: UserMemoryEntry) {
   if (leftProfile && rightProfile) {
     return leftProfile.slot === rightProfile.slot && leftProfile.value === rightProfile.value
   }
-  return canonicalUserContent(left.content) === canonicalUserContent(right.content)
+  if (canonicalUserContent(left.content) === canonicalUserContent(right.content)) return true
+  return bigramSimilarity(left.content, right.content) >= 0.5
+}
+
+function contentBigrams(content: string): Set<string> {
+  const compact = content
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s"'“”‘’.,，。:：;；!?！？_-]+/gu, "")
+  const bigrams = new Set<string>()
+  for (let index = 0; index < compact.length - 1; index++) bigrams.add(compact.slice(index, index + 2))
+  return bigrams
+}
+
+function bigramSimilarity(left: string, right: string) {
+  const a = contentBigrams(left)
+  const b = contentBigrams(right)
+  if (a.size === 0 || b.size === 0) return 0
+  let intersection = 0
+  for (const gram of a) if (b.has(gram)) intersection++
+  return intersection / (a.size + b.size - intersection)
 }
 
 function sameUserProfileSlot(left: UserMemoryEntry, right: UserMemoryEntry) {
@@ -1393,7 +1486,7 @@ function computeUsage(text: string, scope: Scope): UsageInfo {
 
 function formatMemoryHeader(scope: Scope, text: string) {
   const { percentage, used, limit } = computeUsage(text, scope)
-  const label = scope === "user" ? "USER PROFILE (your preferences)" : "MEMORY (your personal notes)"
+  const label = scope === "user" ? "USER PROFILE (your preferences)" : "TASK MEMORY (current session state)"
   const left = `${label} [${percentage}% — ${used}/${limit} chars]`
   const totalWidth = 64
   const padLeft = Math.max(2, Math.floor((totalWidth - left.length) / 2))
@@ -1419,6 +1512,14 @@ function compareSnapshotEntries(left: MemoryEntry, right: MemoryEntry) {
     return right.date.localeCompare(left.date)
   }
   return entryKey(left).localeCompare(entryKey(right))
+}
+
+export function selectSnapshotEntries(entries: readonly MemoryEntry[], scope: Scope, sessionID: SessionID) {
+  const candidates =
+    scope === "memory"
+      ? entries.filter((entry) => entry.scope === "memory" && entry.sessionID === sessionID)
+      : entries
+  return candidates.slice().sort(compareSnapshotEntries).slice(0, SNAPSHOT_ENTRY_LIMIT)
 }
 
 function textContent(message: MessageV2.WithParts, options: { synthetic: boolean }) {
@@ -1478,9 +1579,13 @@ function asError(error: unknown) {
   return error instanceof Error ? error : new Error(String(error))
 }
 
-function parseDecision(value: unknown): MemoryDecision {
+function parseDecision(value: unknown, input?: DecisionInput): MemoryDecision {
   const decision = expectRecord(value, "memory decision")
-  assertExactFields(decision, ["shouldUpdate", "reason", "task", "user"], "memory decision")
+  assertExactFields(
+    decision,
+    ["shouldUpdate", "reason", "task", "user", ...(decision.experiences === undefined ? [] : ["experiences"])],
+    "memory decision",
+  )
   if (decision.shouldUpdate !== true) {
     throw new Error("Invalid memory decision shouldUpdate: mandatory semantic updates must be true")
   }
@@ -1511,7 +1616,53 @@ function parseDecision(value: unknown): MemoryDecision {
       content: merged.content,
     }
   }
-  return { shouldUpdate: true, reason, task, user }
+  const experiences: ExperienceCandidate[] = []
+  if (decision.experiences !== undefined) {
+    if (!Array.isArray(decision.experiences)) throw new Error("Invalid memory decision experiences")
+    for (const [index, value] of decision.experiences.entries()) {
+      experiences.push(parseExperienceCandidate(value, `experiences ${index}`))
+    }
+  }
+  if (input?.failureHint && !experiences.some((entry) => entry.kind === "failure")) {
+    throw new Error("failureHint present: experiences must include a kind=failure entry with [sessionID#turn] evidence")
+  }
+  return { shouldUpdate: true, reason, task, user, experiences }
+}
+
+function parseExperienceCandidate(value: unknown, label: string): ExperienceCandidate {
+  const candidate = expectRecord(value, `memory decision ${label}`)
+  assertExactFields(
+    candidate,
+    ["kind", "importance", "keywords", "content", "evidence", "confidence"],
+    `memory decision ${label}`,
+  )
+  const kind = expectString(candidate.kind, `memory decision ${label} kind`) as ExperienceKind
+  if (!(EXPERIENCE_KINDS as readonly string[]).includes(kind)) {
+    throw new Error(`Invalid memory decision ${label}: kind must be success, failure, or lesson`)
+  }
+  const confidence = expectString(candidate.confidence, `memory decision ${label} confidence`) as ExperienceConfidence
+  if (!(EXPERIENCE_CONFIDENCES as readonly string[]).includes(confidence)) {
+    throw new Error(`Invalid memory decision ${label}: confidence must be low, medium, or high`)
+  }
+  const content = parseContent(expectString(candidate.content, `memory decision ${label} content`))
+  if ([...content].length > EXPERIENCE_CONTENT_CHAR_LIMIT) {
+    throw new Error(`Invalid memory decision ${label}: content exceeds ${EXPERIENCE_CONTENT_CHAR_LIMIT} characters`)
+  }
+  const evidence = parseContent(expectString(candidate.evidence, `memory decision ${label} evidence`))
+  if ([...evidence].length > EXPERIENCE_EVIDENCE_CHAR_LIMIT) {
+    throw new Error(`Invalid memory decision ${label}: evidence exceeds ${EXPERIENCE_EVIDENCE_CHAR_LIMIT} characters`)
+  }
+  if (!EXPERIENCE_EVIDENCE_ANCHOR.test(evidence)) {
+    throw new Error(`Invalid memory decision ${label}: evidence must start with [sessionID#turn]`)
+  }
+  return {
+    kind,
+    importance: parseImportance(candidate.importance),
+    keywords: validateKeywords(expectStringArray(candidate.keywords, `memory decision ${label} keywords`)),
+    content,
+    evidence,
+    confidence,
+  }
 }
 
 function parseCandidate(value: unknown, label: string): MemoryCandidate {
@@ -1526,56 +1677,42 @@ function parseCandidate(value: unknown, label: string): MemoryCandidate {
   return normalized
 }
 
+const TASK_FORMAT = "当前任务：<goal>；进展：<progress>；[经验：<lesson>]"
+
 function validateTaskContent(input: string) {
   const content = parseContent(input)
-  const prefix = "用户要求"
-  const methodMarker = "，我用了"
-  const learnedMarker = "，最终学会了"
-  const formatError = 'Invalid task memory content: expected "用户要求..." or "用户要求...，我用了...，最终学会了..."'
-  if (!content.startsWith(prefix)) {
+  const formatError = `Invalid task memory content: expected "${TASK_FORMAT}"`
+  if (/下一步|我用了|最终学会了|我完成了/u.test(content)) throw new Error(formatError)
+  const segments = content.split("；")
+  if (segments.length < 2 || segments.length > 3) throw new Error(formatError)
+  const goal = segments[0]!
+  const progress = segments[1]!
+  const lesson = segments[2]
+  const goalPrefix = "当前任务："
+  const progressPrefix = "进展："
+  const lessonPrefix = "经验："
+  if (!goal.startsWith(goalPrefix) || !progress.startsWith(progressPrefix)) {
     throw new Error(formatError)
   }
-  const body = content.slice(prefix.length)
-  const methodIndex = body.indexOf(methodMarker)
-  const learnedIndex = body.indexOf(learnedMarker)
-  const hasMethod = methodIndex !== -1
-  const hasLearned = learnedIndex !== -1
-  if (
-    body.includes("我完成了") ||
-    hasMethod !== hasLearned ||
-    (hasMethod && learnedIndex < methodIndex) ||
-    (hasMethod && body.indexOf(methodMarker, methodIndex + methodMarker.length) !== -1) ||
-    (hasLearned && body.indexOf(learnedMarker, learnedIndex + learnedMarker.length) !== -1)
-  ) {
-    throw new Error(formatError)
+  if (lesson !== undefined && !lesson.startsWith(lessonPrefix)) throw new Error(formatError)
+  const goalBody = goal.slice(goalPrefix.length)
+  const progressBody = progress.slice(progressPrefix.length)
+  const lessonBody = lesson === undefined ? "" : lesson.slice(lessonPrefix.length)
+  if (!goalBody || !progressBody || (lesson !== undefined && !lessonBody)) throw new Error(formatError)
+  if ([...goalBody].length > TASK_GOAL_CHAR_LIMIT) {
+    throw new Error(`Task memory 当前任务 must not exceed ${TASK_GOAL_CHAR_LIMIT} characters`)
   }
-  const request = hasMethod ? body.slice(0, methodIndex) : body
-  const method = hasMethod ? body.slice(methodIndex + methodMarker.length, learnedIndex) : undefined
-  const learned = hasLearned ? body.slice(learnedIndex + learnedMarker.length) : undefined
-  if (!request || (hasMethod && (!method || !learned))) {
-    throw new Error(formatError)
+  if ([...progressBody].length > TASK_PROGRESS_CHAR_LIMIT) {
+    throw new Error(`Task memory 进展 must not exceed ${TASK_PROGRESS_CHAR_LIMIT} characters`)
   }
-  if ([...request].length > TASK_REQUEST_CHAR_LIMIT) {
-    throw new Error(`Task memory 用户要求 must not exceed ${TASK_REQUEST_CHAR_LIMIT} characters`)
-  }
-  if (method !== undefined && [...method].length > TASK_METHOD_CHAR_LIMIT) {
-    throw new Error(`Task memory 我用了 must not exceed ${TASK_METHOD_CHAR_LIMIT} characters`)
-  }
-  if (learned !== undefined && [...learned].length > TASK_LEARNED_CHAR_LIMIT) {
-    throw new Error(`Task memory 最终学会了 must not exceed ${TASK_LEARNED_CHAR_LIMIT} characters`)
+  if (lesson !== undefined && [...lessonBody].length > TASK_LESSON_CHAR_LIMIT) {
+    throw new Error(`Task memory 经验 must not exceed ${TASK_LESSON_CHAR_LIMIT} characters`)
   }
   return content
 }
 
-function validateTaskContentForPhase(input: string, phase: MemoryUpdatePhase) {
-  const content = validateTaskContent(input)
-  if (phase === "user" && /，我用了/u.test(content)) {
-    throw new Error('Invalid user-phase task memory content: expected "用户要求..." without a completion')
-  }
-  if (phase === "assistant" && !/^用户要求.+，我用了.+，最终学会了.+$/u.test(content)) {
-    throw new Error('Invalid assistant-phase task memory content: expected "用户要求...，我用了...，最终学会了..."')
-  }
-  return content
+function validateTaskContentForPhase(input: string, _phase: MemoryUpdatePhase) {
+  return validateTaskContent(input)
 }
 
 function looksSensitive(input: string) {

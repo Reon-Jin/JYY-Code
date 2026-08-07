@@ -255,7 +255,8 @@ impl BackendSupervisor {
             }
             .args(["serve", "--json", "--hostname", "127.0.0.1", "--port", "0"])
             .env("JYYCODE_SERVER_USERNAME", BACKEND_USERNAME)
-            .env("JYYCODE_SERVER_PASSWORD", &password);
+            .env("JYYCODE_SERVER_PASSWORD", &password)
+            .env("JYYCODE_EXPERIMENTAL_EVENT_SYSTEM", "1");
 
             let (events, child) = match command.spawn() {
                 Ok(process) => process,

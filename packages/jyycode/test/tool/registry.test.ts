@@ -33,6 +33,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { Reference } from "@/reference/reference"
 import { RepositoryCache } from "@/reference/repository-cache"
 import { ProviderID, ModelID } from "@/provider/schema"
+import { EpisodicMemory } from "@/memory/episodic"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { MessageID, SessionID } from "@/session/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -100,6 +101,9 @@ const brokenPluginLayer = Layer.succeed(
 )
 
 const it = testEffect(Layer.mergeAll(registryLayer(), node, Agent.defaultLayer))
+const itWithEpisodic = testEffect(
+  Layer.mergeAll(registryLayer().pipe(Layer.provide(EpisodicMemory.defaultLayer)), node, Agent.defaultLayer),
+)
 const withBrokenPlugin = testEffect(
   Layer.mergeAll(registryLayer({ plugin: brokenPluginLayer }), node, Agent.defaultLayer),
 )
@@ -109,6 +113,32 @@ afterEach(async () => {
 })
 
 describe("tool.registry", () => {
+  itWithEpisodic.instance("context_read is exposed for roots and hidden when includeMemory is false", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agents = yield* Agent.Service
+      const agent = yield* agents.defaultInfo()
+      const withMemory = yield* registry.tools({
+        providerID: ProviderID.jyycode,
+        modelID: ModelID.make("test"),
+        agent,
+        includeMemory: true,
+      })
+      const withIDs = withMemory.map((tool) => tool.id)
+      expect(withIDs).toContain("context_read")
+
+      const withoutMemory = yield* registry.tools({
+        providerID: ProviderID.jyycode,
+        modelID: ModelID.make("test"),
+        agent,
+        includeMemory: false,
+      })
+      const withoutIDs = withoutMemory.map((tool) => tool.id)
+      expect(withoutIDs).not.toContain("context_read")
+      expect(withoutIDs).not.toContain("memory")
+    }),
+  )
+
   it.instance("exposes filesystem and process helper tools", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service

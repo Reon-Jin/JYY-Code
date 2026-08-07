@@ -39,9 +39,11 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionV2 } from "../../src/v2/session"
 import { Skill } from "../../src/skill"
-import { SystemPrompt } from "../../src/session/system"
-import { Memory } from "@/memory/memory"
-import { Shell } from "../../src/shell/shell"
+import { SystemPrompt } from "../../src/session/system"                          
+import { Memory } from "@/memory/memory"                                         
+import { EpisodicMemory } from "@/memory/episodic"                               
+import { ExperienceMemory } from "@/memory/experience"                           
+import { Shell } from "../../src/shell/shell"                                    
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
@@ -176,16 +178,17 @@ const memoryLifecycleLayer = Layer.succeed(
     compact: () => Effect.die("unexpected direct memory compact"),
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
+    currentTaskKeywords: () => Effect.succeed([]),
     updateStepBegin: (sessionID) =>
       Effect.gen(function* () {
         memoryLifecycleUpdates.push({ sessionID, phase: "received" })
         if (memoryStepBeginGate) yield* Deferred.await(memoryStepBeginGate)
-        return { status: "updated" as const, taskUpdated: true, userUpdated: 0 }
+        return { status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }
       }),
     updateAfterTurn: (sessionID) =>
       Effect.sync(() => {
         memoryLifecycleUpdates.push({ sessionID, phase: "before_final" })
-        return { status: "updated" as const, taskUpdated: true, userUpdated: 0 }
+        return { status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }
       }),
   }),
 )
@@ -204,8 +207,31 @@ const memoryFailureLayer = Layer.succeed(
     compact: () => Effect.die("unexpected memory compact"),
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
-    updateStepBegin: () => Effect.fail(new Error("Task memory 用户要求 must not exceed 20 characters")),
+    currentTaskKeywords: () => Effect.succeed([]),
+    updateStepBegin: () => Effect.fail(new Error("Task memory 当前任务 must not exceed 120 characters")),
     updateAfterTurn: () => Effect.fail(new Error("memory completion update failed")),
+  }),
+)
+
+const snapshotMemoryLayer = Layer.succeed(
+  Memory.Service,
+  Memory.Service.of({
+    dir: () => Effect.succeed(Memory.DIRECTORY),
+    ensure: () => Effect.void,
+    read: () => Effect.succeed(""),
+    upsertTaskMemory: () => Effect.die("unexpected direct task memory upsert"),
+    upsertUserMemory: () => Effect.die("unexpected direct user memory upsert"),
+    write: () => Effect.die("unexpected direct memory write"),
+    replaceBySubstring: () => Effect.die("unexpected direct memory replace"),
+    removeBySubstring: () => Effect.die("unexpected direct memory remove"),
+    compact: () => Effect.die("unexpected direct memory compact"),
+    usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
+    formatWithHeader: () => Effect.succeed("PERSISTENT MEMORY SNAPSHOT"),
+    currentTaskKeywords: () => Effect.succeed([]),
+    updateStepBegin: () =>
+      Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }),
+    updateAfterTurn: () =>
+      Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }),
   }),
 )
 
@@ -221,7 +247,11 @@ const blockingProcessor = Layer.succeed(
   }),
 )
 
-function makePrompt(input?: { processor?: "blocking"; memory?: Layer.Layer<Memory.Service> }) {
+function makePrompt(input?: {
+  processor?: "blocking"
+  memory?: Layer.Layer<Memory.Service>
+  experience?: Layer.Layer<ExperienceMemory.Service>
+}) {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -274,6 +304,7 @@ function makePrompt(input?: { processor?: "blocking"; memory?: Layer.Layer<Memor
     Layer.provideMerge(deps),
   )
   const promptLayer = SessionPrompt.layer.pipe(
+    Layer.provide(EpisodicMemory.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(Skill.defaultLayer),
     Layer.provide(Image.defaultLayer),
@@ -290,14 +321,25 @@ function makePrompt(input?: { processor?: "blocking"; memory?: Layer.Layer<Memor
     Layer.provideMerge(deps),
     Layer.provide(summary),
   )
-  return input?.memory ? promptLayer.pipe(Layer.provide(input.memory)) : promptLayer
+  let result = promptLayer
+  if (input?.experience) result = result.pipe(Layer.provide(input.experience))
+  if (input?.memory) result = result.pipe(Layer.provide(input.memory))
+  return result
 }
 
-function makeHttp(input?: { processor?: "blocking"; memory?: Layer.Layer<Memory.Service> }) {
+function makeHttp(input?: {
+  processor?: "blocking"
+  memory?: Layer.Layer<Memory.Service>
+  experience?: Layer.Layer<ExperienceMemory.Service>
+}) {
   return Layer.mergeAll(TestLLMServer.layer, makePrompt(input))
 }
 
-function makeHttpNoLLMServer(input?: { processor?: "blocking"; memory?: Layer.Layer<Memory.Service> }) {
+function makeHttpNoLLMServer(input?: {
+  processor?: "blocking"
+  memory?: Layer.Layer<Memory.Service>
+  experience?: Layer.Layer<ExperienceMemory.Service>
+}) {
   return makePrompt(input)
 }
 
@@ -544,6 +586,73 @@ it.instance("loop calls LLM and returns assistant message", () =>
   }),
 )
 
+it.instance("records episodes and sends last two turns plus digest after five turns", () =>
+  Effect.gen(function* () {
+    const { llm, dir } = yield* useServerConfig(providerCfg)
+    const fsys = yield* AppFileSystem.Service
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Episodic",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+
+    for (let turn = 1; turn <= 5; turn++) {
+      yield* llm.text(`answer ${turn}`)
+      if (turn === 5) yield* llm.text("episodic digest summary")
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        parts: [{ type: "text", text: `request ${turn}` }],
+      })
+    }
+
+    const episodesFile = path.join(dir, ".jyycode", "memory", "episodes", `${chat.id}.jsonl`)
+    const episodesText = (yield* fsys.readFileStringSafe(episodesFile).pipe(Effect.orDie)) ?? ""
+    expect(episodesText.trim().split("\n")).toHaveLength(5)
+
+    const digestFile = path.join(dir, ".jyycode", "memory", "digest", `${chat.id}`, "0001.md")
+    const digestText = (yield* fsys.readFileStringSafe(digestFile).pipe(Effect.orDie)) ?? ""
+    expect(digestText.length).toBeGreaterThan(0)
+    expect(digestText.length).toBeLessThanOrEqual(3000)
+
+    const beforeTurn6 = (yield* llm.inputs).at(-2)!
+    const beforeTurn6Raw = JSON.stringify(beforeTurn6)
+    yield* llm.text("answer 6")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "request 6" }],
+    })
+
+    const inputs = yield* llm.inputs
+    const last = inputs.at(-1)!
+    const raw = JSON.stringify(last)
+    expect(raw.length).toBeLessThan(beforeTurn6Raw.length)
+    expect(raw).toContain("episodic digest summary")
+    expect(raw).toContain("request 5")
+    expect(raw).toContain("request 6")
+    expect(raw).not.toContain("request 1")
+    expect(raw).not.toContain("request 2")
+    expect(raw).not.toContain("request 3")
+    expect(raw).not.toContain("request 4")
+
+    const child = yield* sessions.create({ parentID: chat.id, title: "Child" })
+    yield* llm.text("child answer")
+    yield* prompt.prompt({
+      sessionID: child.id,
+      agent: "build",
+      parts: [{ type: "text", text: "child request" }],
+    })
+    const childEpisodesFile = path.join(dir, ".jyycode", "memory", "episodes", `${child.id}.jsonl`)
+    const childEpisodes = (yield* fsys.readFileStringSafe(childEpisodesFile).pipe(Effect.orDie)) ?? ""
+    expect(childEpisodes).toBe("")
+    const childDigestFile = path.join(dir, ".jyycode", "memory", "digest", `${child.id}`, "0001.md")
+    const childDigest = (yield* fsys.readFileStringSafe(childDigestFile).pipe(Effect.orDie)) ?? ""
+    expect(childDigest).toBe("")
+  }),
+)
+
 it.instance("continues once when the assistant output is truncated by length", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
@@ -725,15 +834,16 @@ it.instance("multi-agent roots tolerate preflight calls before creating a missin
     expect(inputs).toHaveLength(5)
     expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_read")
     // Gated plan write tools stay visible as inert stubs: providers that
-    // ignore the forced tool choice then get a recoverable gated result
-    // instead of a hard unknown-tool failure.
+    // ignore the required tool choice then get a recoverable gated result
+    // instead of a hard unknown-tool failure. Memory tools are also available
+    // under the gate so the model can read persistent memory on the first turn.
     expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_create")
     expect(JSON.stringify(inputs[0]?.tools)).toContain("暂时禁用")
-    expect(inputs[0]?.tool_choice).toMatchObject({ type: "function", function: { name: "Plan_read" } })
+    expect(inputs[0]?.tool_choice).toBe("required")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_create")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_read")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Dispatch_roles")
-    expect(inputs[1]?.tool_choice).toMatchObject({ type: "function", function: { name: "Plan_create" } })
+    expect(inputs[1]?.tool_choice).toBe("required")
 
     const messages = yield* sessions.messages({ sessionID: chat.id })
     const failedTools = messages
@@ -801,7 +911,7 @@ it.instance("cancelling a dispatched task forces the next turn to redispatch", (
 
     const inputs = yield* llm.inputs
     expect(inputs).toHaveLength(3)
-    expect(inputs[2]?.tool_choice).toMatchObject({ type: "function", function: { name: "Dispatch_dispatch" } })
+    expect(inputs[2]?.tool_choice).toBe("required")
     const messages = yield* sessions.messages({ sessionID: chat.id })
     const failedTools = messages
       .flatMap((message) => message.parts)
@@ -1144,6 +1254,33 @@ withMemory.instance("does not inject persistent memory into child sessions", () 
     expect(payload).not.toContain("Persistent memory is stored")
     expect(payload).not.toContain("# Memory")
     expect(JSON.stringify(request?.tools)).not.toContain('"name":"memory"')
+  }),
+)
+
+const withSnapshotMemory = testEffect(makeHttp({ memory: snapshotMemoryLayer }))
+withSnapshotMemory.instance("injects the persistent memory snapshot on the first and every later turn", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Snapshot" })
+
+    yield* llm.text("first")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "one" }],
+    })
+    yield* llm.text("second")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "two" }],
+    })
+
+    const inputs = yield* llm.inputs
+    expect(JSON.stringify(inputs[0])).toContain("PERSISTENT MEMORY SNAPSHOT")
+    expect(JSON.stringify(inputs[1])).toContain("PERSISTENT MEMORY SNAPSHOT")
   }),
 )
 
@@ -3015,3 +3152,85 @@ it.instance("profile subagent child session gets role skills in the skill tool a
     }).pipe(Effect.ensuring(Effect.promise(() => fs.rm(roleRoot, { recursive: true, force: true }))))
   }),
 )
+
+const experienceCandidatesWritten: Array<{ sessionID: SessionID; candidates: Memory.ExperienceCandidate[] }> = []
+const experienceMemoryLayer = Layer.succeed(
+  ExperienceMemory.Service,
+  ExperienceMemory.Service.of({
+    ensure: () => Effect.void,
+    readStore: () => Effect.die("unexpected readStore"),
+    upsert: () => Effect.die("unexpected upsert"),
+    upsertMany: (sessionID, candidates) =>
+      Effect.sync(() => {
+        experienceCandidatesWritten.push({ sessionID, candidates: [...candidates] })
+        return candidates.length
+      }),
+    search: () => Effect.die("unexpected search"),
+    formatExperienceSnapshot: () => Effect.succeed(""),
+    maintain: () => Effect.die("unexpected maintain"),
+  }),
+)
+
+const experienceCandidate: Memory.ExperienceCandidate = {
+  kind: "failure",
+  importance: 8,
+  keywords: ["部署"],
+  content: "部署脚本报错时先看日志再重试",
+  evidence: "[ses_x#1] deploy.sh",
+  confidence: "high",
+}
+
+const experienceWiringMemoryLayer = Layer.succeed(
+  Memory.Service,
+  Memory.Service.of({
+    dir: () => Effect.succeed(Memory.DIRECTORY),
+    ensure: () => Effect.void,
+    read: () => Effect.succeed(""),
+    upsertTaskMemory: () => Effect.die("unexpected"),
+    upsertUserMemory: () => Effect.die("unexpected"),
+    write: () => Effect.die("unexpected"),
+    replaceBySubstring: () => Effect.die("unexpected"),
+    removeBySubstring: () => Effect.die("unexpected"),
+    compact: () => Effect.die("unexpected"),
+    usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
+    formatWithHeader: () => Effect.succeed(""),
+    currentTaskKeywords: () => Effect.succeed([]),
+    updateStepBegin: () =>
+      Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }),
+    updateAfterTurn: () =>
+      Effect.succeed({
+        status: "updated" as const,
+        taskUpdated: true,
+        userUpdated: 0,
+        experienceCandidates: [experienceCandidate],
+      }),
+  }),
+)
+
+const withExperienceWiring = testEffect(makeHttp({ memory: experienceWiringMemoryLayer, experience: experienceMemoryLayer }))
+
+withExperienceWiring.instance("writes experience candidates after the assistant turn", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Experience wiring" })
+    experienceCandidatesWritten.splice(0)
+    yield* llm.text("done")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "fix deploy" }],
+    })
+    expect(experienceCandidatesWritten.map((entry) => entry.candidates)).toEqual([[], [experienceCandidate]])
+  }),
+)
+
+test("formats the existing user profile hint for curator dedup", () => {
+  const hint = SessionPrompt.formatExistingUserHint([
+    { scope: "user", importance: 9, keywords: ["中文"], content: "用户偏好中文回答" },
+  ])
+  expect(hint).toContain("Existing user profile")
+  expect(hint).toContain("keywords=[中文]")
+  expect(hint).toContain("reuse the exact keywords to update a fact")
+})

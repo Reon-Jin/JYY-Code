@@ -406,3 +406,33 @@
 .goal-timeline-marker[data-marker="end"] {
   color: color-mix(in srgb, var(--color-accent) 80%, var(--color-text));
 }
+
+.compaction-indicator {
+  position: sticky;
+  top: var(--space-2);
+  z-index: 3;
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 auto var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 4px var(--space-3);
+  background: color-mix(in srgb, var(--color-panel) 88%, transparent);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+  font-size: 0.68rem;
+  font-weight: 620;
+  backdrop-filter: blur(6px);
+}
+
+.compaction-indicator > svg {
+  width: 14px;
+  height: 14px;
+  color: var(--color-success);
+}
+
+.compaction-indicator[data-status="compacting"] {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+}

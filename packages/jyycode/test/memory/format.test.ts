@@ -130,6 +130,37 @@ describe("memory v3 JSON format", () => {
     ).toBe("ts代码风格")
   })
 
+  test("snapshot selection keeps only the current session task memory", () => {
+    const mine: Memory.TaskMemoryEntry = {
+      scope: "memory" as const,
+      sessionID,
+      importance: 3 as Memory.Importance,
+      date: "20260705",
+      keywords: ["任务"],
+      content: "mine",
+    }
+    const other: Memory.TaskMemoryEntry = {
+      scope: "memory" as const,
+      sessionID: "ses_other" as SessionID,
+      importance: 10 as Memory.Importance,
+      date: "20260706",
+      keywords: ["其他"],
+      content: "other",
+    }
+    expect(Memory.selectSnapshotEntries([other, mine], "memory", sessionID).map((entry) => entry.content)).toEqual([
+      "mine",
+    ])
+    const userEntry: Memory.UserMemoryEntry = {
+      scope: "user" as const,
+      importance: 9 as Memory.Importance,
+      keywords: ["中文"],
+      content: "偏好中文",
+    }
+    expect(Memory.selectSnapshotEntries([userEntry], "user", sessionID).map((entry) => entry.content)).toEqual([
+      "偏好中文",
+    ])
+  })
+
   test("accepts only keywords containing 2 to 4 characters", () => {
     for (const keyword of ["编程", "代码风格", "ts"]) {
       expect(() =>
@@ -142,5 +173,37 @@ describe("memory v3 JSON format", () => {
         Memory.serializeStore("user", [{ scope: "user", importance: 5, keywords: [keyword], content: "用户偏好。" }]),
       ).toThrow(/must be (?:at least 2|at most 4) characters/u)
     }
+  })
+
+  test("selectSnapshotEntries returns the current session entry keywords", () => {
+    const entry: Memory.TaskMemoryEntry = {
+      scope: "memory",
+      sessionID,
+      importance: 5,
+      date: "20260807",
+      keywords: ["修复"],
+      content: "当前任务：修复；进展：完成",
+    }
+    const store = Memory.parseStore("memory", Memory.serializeStore("memory", [entry]))
+    const selected = Memory.selectSnapshotEntries(store.entries, "memory", sessionID)
+    expect(selected[0]?.keywords).toEqual(["修复"])
+  })
+
+  test("drops the legacy 下一步 segment when parsing task entries", () => {
+    const text = JSON.stringify({
+      schemaVersion: 3,
+      lastCompactedAt: null,
+      entries: [
+        {
+          sessionID,
+          importance: 5,
+          date: "20260807",
+          keywords: ["旧格式"],
+          content: "当前任务：旧任务；进展：完成；下一步：等待用户新指令",
+        },
+      ],
+    })
+    const store = Memory.parseStore("memory", text)
+    expect(store.entries[0]?.content).toBe("当前任务：旧任务；进展：完成")
   })
 })

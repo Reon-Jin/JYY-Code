@@ -117,7 +117,7 @@ describe("bounded deterministic memory compaction", () => {
           sessionID: SessionID.make("ses_50"),
           importance: 8,
           keywords: ["最新项目"],
-          content: "用户要求交付项目，我用了容量压缩，最终学会了保留高价值条目",
+          content: "当前任务：交付项目；进展：完成容量压缩",
         }),
       ),
     )
@@ -130,7 +130,9 @@ describe("bounded deterministic memory compaction", () => {
 
   test("rejects a low-value candidate when protected entries leave no capacity", async () => {
     const { run, seed, read } = await fixture()
-    const protectedEntries = Array.from({ length: 10 }, (_, i) => user(i, 10, `用户关键身份事实 ${i}。`))
+    const protectedEntries = Array.from({ length: 10 }, (_, i) =>
+      user(i, 10, `关键事实${i}：${["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"][i]}色偏好。`),
+    )
     await seed("user", protectedEntries)
     const before = await read("user")
 

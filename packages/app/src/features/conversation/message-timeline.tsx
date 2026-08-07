@@ -1,11 +1,12 @@
 import { tr } from "../../i18n/i18n-context"
 import type { Goal } from "@jyycode-ai/sdk/v2/client"
-import { ArrowDown, MessageCircle } from "lucide-solid"
+import { ArrowDown, Check, MessageCircle } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
 import { ThinkingOrb } from "../../components/ui/thinking-orb"
+import type { CompactionStatus } from "../../data/event-bridge"
 import type { ConversationMessage } from "./conversation-state"
 import { ActivityGroup } from "./activity-group"
 import { MessagePartView } from "./message-part"
@@ -19,6 +20,7 @@ import "./conversation.css"
 export type MessageTimelineProps = {
   messages: readonly ConversationMessage[]
   goal?: Goal
+  compaction?: CompactionStatus
   loading?: boolean
   error?: string
   onRetry?: () => void
@@ -51,6 +53,35 @@ function GoalTimelineMarker(props: { marker: "start" | "end"; showOrb?: boolean 
       </span>
       <span class="goal-timeline-marker__line" />
     </div>
+  )
+}
+
+function CompactionIndicator(props: { status?: CompactionStatus }) {
+  const [visible, setVisible] = createSignal(true)
+  createEffect(() => {
+    if (props.status?.status !== "done") {
+      setVisible(true)
+      return
+    }
+    const timer = window.setTimeout(() => setVisible(false), 3000)
+    onCleanup(() => window.clearTimeout(timer))
+  })
+  const status = createMemo(() => (visible() ? props.status : undefined))
+  return (
+    <Show when={status()}>
+      {(current) => (
+        <div class="compaction-indicator" data-status={current().status} role="status">
+          <Show when={current().status === "compacting"} fallback={<Check aria-hidden="true" />}>
+            <ThinkingOrb state="compacting" size={20} theme="light" aria-label={tr("conversation.compacting")} />
+          </Show>
+          <span>
+            {current().status === "compacting"
+              ? tr("conversation.compacting")
+              : tr("conversation.compaction-complete")}
+          </span>
+        </div>
+      )}
+    </Show>
   )
 }
 
@@ -141,6 +172,12 @@ export function MessageTimeline(props: MessageTimelineProps) {
       }`,
   )
   const presentedMessages = createMemo(() => presentConversationMessages(props.messages))
+  const goalEndIndex = createMemo(() => {
+    const completedAt = goalCompletedAt()
+    if (completedAt === undefined) return undefined
+    const index = presentedMessages().findIndex((message) => message.info.time.created > completedAt)
+    return index === -1 ? undefined : index
+  })
   const messageIDs = createMemo(() => presentedMessages().map((message) => message.info.id))
   const messagesByID = createMemo(() => new Map(presentedMessages().map((message) => [message.info.id, message])))
   const pendingActivityKeys = createMemo(() => {
@@ -248,18 +285,24 @@ export function MessageTimeline(props: MessageTimelineProps) {
               }
             >
               <div class="message-timeline__content">
+                <CompactionIndicator status={props.compaction} />
                 <Show when={goalStartedAt() !== undefined}>
                   <GoalTimelineMarker marker="start" showOrb={goalStatus() === "running"} />
                 </Show>
                 <For each={messageIDs()}>
-                  {(messageID) => (
-                    <PresentedMessageView
-                      message={messagesByID().get(messageID)!}
-                      pendingActivityKeys={pendingActivityKeys()}
-                    />
+                  {(messageID, index) => (
+                    <>
+                      <Show when={goalEndIndex() !== undefined && index() === goalEndIndex()}>
+                        <GoalTimelineMarker marker="end" />
+                      </Show>
+                      <PresentedMessageView
+                        message={messagesByID().get(messageID)!}
+                        pendingActivityKeys={pendingActivityKeys()}
+                      />
+                    </>
                   )}
                 </For>
-                <Show when={goalCompletedAt() !== undefined}>
+                <Show when={goalCompletedAt() !== undefined && goalEndIndex() === undefined}>
                   <GoalTimelineMarker marker="end" />
                 </Show>
               </div>

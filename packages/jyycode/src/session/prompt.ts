@@ -62,6 +62,9 @@ import { referencePromptMetadata, referenceTextPart } from "./prompt/reference"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { SessionState } from "./state"
+import { countRealUserTurns } from "./state"
+import { EpisodicMemory, episodeFromMessages, sliceLastTurns } from "@/memory/episodic"
+import { ExperienceMemory } from "@/memory/experience"
 import { LLMEvent } from "@jyycode-ai/llm"
 import { planSystemPrompt } from "@/plan/prompts"
 import { defaultPlanProtocol } from "@/plan/protocol"
@@ -155,6 +158,8 @@ export const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
     const blackboard = Option.getOrUndefined(yield* Effect.serviceOption(Blackboard.Service))
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
+    const experienceMemory = Option.getOrUndefined(yield* Effect.serviceOption(ExperienceMemory.Service))
+    const episodic = Option.getOrUndefined(yield* Effect.serviceOption(EpisodicMemory.Service))
     const skill = Option.getOrUndefined(yield* Effect.serviceOption(Skill.Service))
     const evaluateMemoryDecision: Memory.DecisionEvaluator = (input) =>
       Effect.gen(function* () {
@@ -165,44 +170,92 @@ export const layer = Layer.effect(
         }
         const model = yield* provider.getModel(latestUser.info.model.providerID, latestUser.info.model.modelID)
         const language = yield* provider.getLanguage(model)
-        const historyText = history
-          .flatMap((message) => {
-            if (message.info.role !== "user" && message.info.role !== "assistant") return []
-            const text = memoryMessageText(message)
-            return text ? [`${message.info.role === "user" ? "User" : "Assistant"}: ${text}`] : []
-          })
-          .join("\n")
+        const sessionInfo = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+        const digest = episodic
+          ? yield* episodic
+              .readLatestDigest({ sessionID: input.sessionID, workspaceRoot: sessionInfo.directory })
+              .pipe(Effect.catch(() => Effect.succeed(Option.none())))
+          : Option.none<string>()
+        const historyBase = Option.isSome(digest) ? sliceLastTurns(history, 2) : history
+        const historyText = [
+          ...(Option.isSome(digest) ? ["<episodic-digest>", digest.value, "</episodic-digest>"] : []),
+          ...historyBase
+            .flatMap((message) => {
+              if (message.info.role !== "user" && message.info.role !== "assistant") return []
+              const text = memoryMessageText(message)
+              return text ? [`${message.info.role === "user" ? "User" : "Assistant"}: ${text}`] : []
+            })
+            .join("\n"),
+        ].join("\n")
         const isUserPhase = input.phase === "user"
+        let existingUserHint = ""
+        if (isUserPhase && memory) {
+          existingUserHint = yield* memory
+            .read({ sessionID: input.sessionID, scope: "user" })
+            .pipe(
+              Effect.map((text) => {
+                const store = Memory.parseStore("user", text)
+                const top = Memory.selectSnapshotEntries(store.entries, "user", input.sessionID).slice(0, 5)
+                return formatExistingUserHint(top as Memory.UserMemoryEntry[])
+              }),
+              Effect.catch(() => Effect.succeed("Existing user profile: (unavailable)")),
+            )
+        }
+        const turnNumber = countRealUserTurns(history)
         const prompt = [
-          "You are a semantic memory compressor. Rewrite this session's single task-memory entry and output one JSON object.",
-          "Merge the previous task memory, the full conversation history, and the current turn into a session-wide executive summary: a complete replacement, not a delta, and never a summary of only the latest exchange. Preserve intent, constraints, decisions, milestones, and the current state; discard superseded details. Never shorten by slicing text or using ellipses.",
-          isUserPhase
-            ? 'This update runs immediately after a user prompt. task.content must have exactly the form "用户要求<A>" — no method or learned knowledge yet.'
-            : 'This update runs immediately before the assistant answer is returned. task.content must have exactly the form "用户要求<A>，我用了<B>，最终学会了<C>".',
-          "Limits excluding prefixes and punctuation: A ≤100, B ≤180, C ≤100 Unicode chars. Rephrase semantically to fit; never truncate.",
-          "A task entry is mandatory on every phase, including greetings: always set shouldUpdate to true and always return task. Put explicit stable user identity facts or long-term preferences in user as well; that never replaces the task entry.",
-          "Every keyword must contain 2 to 4 characters; one to three keywords per candidate. The service supplies sessionID and date — do not include them.",
+          "You are a semantic memory curator. Rewrite this session's single task-memory entry and output one JSON object.",
+          "The task entry is working memory for THIS session only: a compact executive state, never a completion log.",
+          'task.content must have exactly the form "当前任务：<goal>；进展：<progress>；[经验：<lesson>]" (经验 optional).',
+          "Limits excluding prefixes: goal ≤120, progress ≤160, 经验 ≤160 Unicode chars. Rephrase semantically to fit; never truncate, never use ellipses, and never write 我用了/最终学会了/下一步.",
+          "A task entry is mandatory on every phase, including greetings: always set shouldUpdate to true and always return task.",
+          "Write 经验：<lesson> only when this turn produced a durable success or failure lesson (what worked or failed and why); otherwise omit it. Task progress is current state, never a completion log or a next-step plan.",
+          "user: return ONLY stable, non-obvious user identity facts or long-term preferences that are NEW or CHANGED. Never put task results, progress, or one-off requests here.",
+          ...(isUserPhase && existingUserHint ? [existingUserHint] : []),
+          "experiences: return reusable cross-session rules ONLY when this turn produced a durable success, failure, or correction. kind ∈ success | failure | lesson; content is a reusable rule (what worked or failed and why), one line, ≤200 chars; evidence starts with [sessionID#turn] and may add path/command/error, ≤160 chars; confidence ∈ low | medium | high. Never emit session completion logs or facts that belong in user.",
+          ...(input.failureHint
+            ? [
+                "",
+                "FAILURE HINT (from this turn's tool errors):",
+                input.failureHint,
+                "You MUST return exactly one experiences entry with kind=failure and a [sessionID#turn] evidence anchor.",
+                "",
+              ]
+            : []),
+          "Every keyword must contain 2 to 4 characters; one to three keywords per candidate. The service supplies sessionID, date, and turn number — do not invent them.",
           "",
           "EXPECTED JSON OUTPUT FORMAT (output a valid JSON object matching this shape):",
           "{",
           '  "shouldUpdate": true,',
-          '  "reason": "brief justification for the decision",',
+          '  "reason": "brief justification",',
           '  "task": {',
           '    "importance": 7,',
-          '    "keywords": ["编程"],',
-          `    "content": "${isUserPhase ? "用户要求修复认证缺陷" : "用户要求修复认证缺陷，我用了中间件测试，最终学会了边界隔离"}"`,
+          '    "keywords": ["修复"],',
+          '    "content": "当前任务：修复认证缺陷；进展：已定位中间件边界；经验：改动认证中间件前先运行权限回归"',
           "  },",
           '  "user": [',
           "    {",
-          '      "importance": 5,',
-          '      "keywords": ["偏好"],',
-          '      "content": "User prefers concise answers in Chinese"',
+          '      "importance": 8,',
+          '      "keywords": ["中文"],',
+          '      "content": "用户偏好始终使用中文交流"',
+          "    }",
+          "  ],",
+          '  "experiences": [',
+          "    {",
+          '      "kind": "failure",',
+          '      "importance": 7,',
+          '      "keywords": ["认证"],',
+          '      "content": "改动认证中间件前先运行权限回归，否则用例会静默失败",',
+          '      "evidence": "[ses_xxx#3] src/auth/middleware.ts npm test",',
+          '      "confidence": "high"',
           "    }",
           "  ]",
           "}",
           "",
           "Previous task memory:",
           input.previousTaskContent ?? "(none)",
+          "",
+          "Turn number for evidence anchors:",
+          String(turnNumber),
           "",
           "Conversation history:",
           historyText || "(none)",
@@ -242,6 +295,26 @@ export const layer = Layer.effect(
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         })
       })
+    const generateDigest = Effect.fn("SessionPrompt.generateDigest")(function* (prompt: string, model: Provider.Model) {
+      const agent = yield* agents.get("compaction")
+      const digestModel = agent.model
+        ? yield* provider.getModel(agent.model.providerID, agent.model.modelID).pipe(Effect.orDie)
+        : model
+      const language = yield* provider.getLanguage(digestModel)
+      return yield* Effect.tryPromise({
+        try: async () =>
+          (
+            await generateText({
+              model: language,
+              prompt,
+              maxOutputTokens: 4096,
+              temperature: 0,
+              maxRetries: 1,
+            })
+          ).text,
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      })
+    })
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -1290,7 +1363,10 @@ export const layer = Layer.effect(
           const latestUserMsg = msgs.find((message) => message.info.id === lastUser.id)
           const latestUserIsSynthetic =
             latestUserMsg?.parts.some((part) => part.type === "text" && part.synthetic) ?? false
-          if (lastUser.id !== lastUserID && !latestUserIsSynthetic) resetTurnGuards()
+          if (lastUser.id !== lastUserID && !latestUserIsSynthetic) {
+            step = 0
+            resetTurnGuards()
+          }
           lastUserID = lastUser.id
           if (
             step === 0 &&
@@ -1310,6 +1386,9 @@ export const layer = Layer.effect(
                 ),
               )
             if (updated) yield* slog.info("persistent memory updated after user message", { ...updated })
+            if (updated?.status === "updated" && experienceMemory) {
+              yield* experienceMemory.upsertMany(sessionID, updated.experienceCandidates).pipe(Effect.ignore)
+            }
           }
 
           const lastAssistantMsg = msgs.findLast(
@@ -1543,7 +1622,57 @@ export const layer = Layer.effect(
             Effect.provideService(AppFileSystem.Service, fsys),
             Effect.provideService(Session.Service, sessions),
           )
-          if (yield* compaction.shouldCompact({ messages: msgs, model })) {
+          const episodicDigest =
+            canUsePersistentMemory && episodic
+              ? yield* episodic
+                  .readLatestDigest({ sessionID, workspaceRoot: ctx.directory })
+                  .pipe(Effect.catch(() => Effect.succeed(Option.none())))
+              : Option.none<string>()
+          const historyForModel = Option.isSome(episodicDigest) ? sliceLastTurns(msgs, 2) : msgs
+          if (yield* compaction.shouldCompact({ messages: historyForModel, model })) {
+            if (canUsePersistentMemory && episodic) {
+              const digestDue = yield* episodic
+                .isDigestDue({
+                  sessionID,
+                  workspaceRoot: ctx.directory,
+                  reason: "threshold",
+                  totalTurns: Math.max(0, countRealUserTurns(msgs) - 1),
+                  previousSummary: undefined,
+                })
+                .pipe(Effect.catch(() => Effect.succeed(false)))
+              if (digestDue && flags.experimentalEventSystem) {
+                yield* events
+                  .publish(SessionEvent.Compaction.Started, {
+                    sessionID,
+                    timestamp: DateTime.makeUnsafe(Date.now()),
+                    reason: "auto",
+                  })
+                  .pipe(Effect.ignore)
+              }
+              yield* episodic
+                .compactIfDue({
+                  sessionID,
+                  workspaceRoot: ctx.directory,
+                  reason: "threshold",
+                  totalTurns: Math.max(0, countRealUserTurns(msgs) - 1),
+                  previousSummary: undefined,
+                  generate: (prompt) => generateDigest(prompt, model).pipe(Effect.orDie),
+                })
+                .pipe(
+                  Effect.ignore,
+                  Effect.ensuring(
+                    digestDue && flags.experimentalEventSystem
+                      ? events
+                          .publish(SessionEvent.Compaction.Ended, {
+                            sessionID,
+                            timestamp: DateTime.makeUnsafe(Date.now()),
+                            text: "episodic digest",
+                          })
+                          .pipe(Effect.ignore)
+                      : Effect.void,
+                  ),
+                )
+            }
             const created = yield* compaction.create({
               sessionID,
               agent: lastUser.agent,
@@ -1696,18 +1825,21 @@ export const layer = Layer.effect(
             }
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-            // Environment and the persistent-memory snapshot are session-static
-            // context: inject them only during the session's first turn instead
-            // of paying their token cost on every request. The root skill
-            // catalog is not injected here — the skill tool description already
-            // lists it on every request. Profile-backed child sessions
-            // additionally get their role skill catalog injected below on the
-            // first turn, because the dispatch brief often prescribes a
-            // toolchain that would otherwise bypass the role's skills.
+            // Environment is session-static context: inject it only during the
+            // session's first turn instead of paying its token cost on every
+            // request. The root skill catalog is not injected here — the skill
+            // tool description already lists it on every request.
+            // Profile-backed child sessions additionally get their role skill
+            // catalog injected below on the first turn, because the dispatch
+            // brief often prescribes a toolchain that would otherwise bypass
+            // the role's skills.
             const firstSessionTurn = !msgs.some((message) => message.info.role === "assistant")
 
+            // The persistent-memory snapshot refreshes at the start of every
+            // user turn so the agent always sees its own task memory and the
+            // current user profile.
             const memorySnapshot =
-              firstSessionTurn && step === 1 && canUsePersistentMemory && memory
+              step === 1 && canUsePersistentMemory && memory
                 ? yield* memory.formatWithHeader(sessionID, "memory").pipe(
                     Effect.andThen((mem) =>
                       memory!.formatWithHeader(sessionID, "user").pipe(Effect.map((user) => [mem, user].join("\n"))),
@@ -1715,6 +1847,18 @@ export const layer = Layer.effect(
                     Effect.catchCause(() => Effect.succeed(undefined)),
                   )
                 : undefined
+            const experienceSnapshot =
+              memorySnapshot && experienceMemory
+                ? yield* memory!
+                    .currentTaskKeywords(sessionID)
+                    .pipe(
+                      Effect.andThen((keywords) => experienceMemory!.formatExperienceSnapshot(sessionID, keywords)),
+                      Effect.catchCause(() => Effect.succeed("")),
+                    )
+                : ""
+            const snapshotText = memorySnapshot
+              ? [memorySnapshot, experienceSnapshot].filter(Boolean).join("\n")
+              : undefined
             const sessionState = yield* SessionState.readSessionState(fsys, session.directory, sessionID).pipe(
               Effect.catch(() => Effect.succeed(Option.none())),
             )
@@ -1724,11 +1868,19 @@ export const layer = Layer.effect(
                 ? sys.environment(model, { includeMemory: canUsePersistentMemory })
                 : Effect.succeed([] as string[]),
               instruction.system().pipe(Effect.orDie),
-              MessageV2.toModelMessagesEffect(msgs, model),
+              MessageV2.toModelMessagesEffect(historyForModel, model),
             ])
-            const system = [...(memorySnapshot ? [memorySnapshot] : []), ...env, ...instructions]
+            const system = [...(snapshotText ? [snapshotText] : []), ...env, ...instructions]
+            if (Option.isSome(episodicDigest)) {
+              system.push(EpisodicMemory.formatEpisodicDigest(episodicDigest.value))
+            }
             if (Option.isSome(sessionState)) {
-              system.push(SessionState.formatSessionState(sessionState.value))
+              system.push(
+                SessionState.formatSessionState(sessionState.value, {
+                  omitTurnDetails: Option.isSome(episodicDigest),
+                  omitRollingSummary: Option.isSome(episodicDigest),
+                }),
+              )
             }
             // Profiles live in the global config; mirror Agent.state's
             // resolution order so the roster in the system prompt matches the
@@ -1772,11 +1924,18 @@ export const layer = Layer.effect(
             }
             const format = lastUser.format ?? { type: "text" as const }
             if (!requiredPlanTool && format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
-            const toolChoice = requiredPlanTool
-              ? { type: "tool" as const, toolName: requiredPlanTool }
-              : format.type === "json_schema"
-                ? ("required" as const)
-                : undefined
+            const planGateWithMemory =
+              requiredPlanTool === "Plan_read" ||
+              requiredPlanTool === "Plan_create" ||
+              requiredPlanTool === "Plan_update" ||
+              requiredPlanTool === "Dispatch_dispatch"
+            const toolChoice = planGateWithMemory
+              ? ("required" as const)
+              : requiredPlanTool
+                ? { type: "tool" as const, toolName: requiredPlanTool }
+                : format.type === "json_schema"
+                  ? ("required" as const)
+                  : undefined
             const result = yield* handle.process({
               user: lastUser,
               agent,
@@ -1871,14 +2030,71 @@ export const layer = Layer.effect(
                       .join("\n\n") || undefined
                   : undefined
               yield* SessionState.writeSessionState(fsys, session.directory, sessionID, {
-                version: 1,
+                version: 2,
                 updatedAt: new Date().toISOString(),
                 lastUser: latestRealUserText(msgs) || undefined,
                 lastAssistant: assistantText || undefined,
                 lastToolNames: toolNames.length > 0 ? toolNames : undefined,
                 tailStartID: compactionPart?.tail_start_id,
                 summary,
+                turnCount: countRealUserTurns(msgs),
               }).pipe(Effect.ignore)
+
+              if (canUsePersistentMemory && episodic) {
+                const episodeMessages = [...msgs, { info: handle.message, parts }] satisfies MessageV2.WithParts[]
+                yield* episodic
+                  .recordTurn({
+                    sessionID,
+                    workspaceRoot: ctx.directory,
+                    turn: episodeFromMessages(episodeMessages),
+                  })
+                  .pipe(Effect.ignore)
+                const digestDue = yield* episodic
+                  .isDigestDue({
+                    sessionID,
+                    workspaceRoot: ctx.directory,
+                    reason: "interval",
+                    totalTurns: countRealUserTurns(msgs),
+                    backfillText: undefined,
+                    previousSummary: summary,
+                  })
+                  .pipe(Effect.catch(() => Effect.succeed(false)))
+                if (digestDue && flags.experimentalEventSystem) {
+                  yield* events
+                    .publish(SessionEvent.Compaction.Started, {
+                      sessionID,
+                      timestamp: DateTime.makeUnsafe(Date.now()),
+                      reason: "auto",
+                    })
+                    .pipe(Effect.ignore)
+                }
+                yield* episodic
+                  .compactIfDue({
+                    sessionID,
+                    workspaceRoot: ctx.directory,
+                    reason: "interval",
+                    totalTurns: countRealUserTurns(msgs),
+                    backfillText: undefined,
+                    previousSummary: summary,
+                    generate: (prompt) => generateDigest(prompt, model).pipe(Effect.orDie),
+                  })
+                  .pipe(
+                    Effect.catchCause((cause) =>
+                      slog.warn("episodic digest failed; will retry on next trigger", { cause: Cause.pretty(cause) }),
+                    ),
+                    Effect.ensuring(
+                      digestDue && flags.experimentalEventSystem
+                        ? events
+                            .publish(SessionEvent.Compaction.Ended, {
+                              sessionID,
+                              timestamp: DateTime.makeUnsafe(Date.now()),
+                              text: "episodic digest",
+                            })
+                            .pipe(Effect.ignore)
+                        : Effect.void,
+                    ),
+                  )
+              }
             }
 
             if (result === "stop") return "break" as const
@@ -1944,10 +2160,14 @@ export const layer = Layer.effect(
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
         const result = yield* lastAssistant(sessionID)
         if (canUsePersistentMemory && memory) {
+          const freshMessages = yield* sessions
+            .messages({ sessionID })
+            .pipe(Effect.catch(() => Effect.succeed([] as MessageV2.WithParts[])))
           const curated = yield* memory
             .updateAfterTurn(sessionID, evaluateMemoryDecision, {
               userText: latestMemoryUserText,
               assistantText: latestRealAssistantText(result),
+              failureHint: lastToolFailureHint(freshMessages),
             })
             .pipe(
               Effect.catchCause((cause) =>
@@ -1958,6 +2178,15 @@ export const layer = Layer.effect(
                   .pipe(Effect.as(undefined)),
               ),
             )
+          if (curated?.status === "updated" && experienceMemory) {
+            yield* experienceMemory
+              .upsertMany(sessionID, curated.experienceCandidates)
+              .pipe(Effect.ignore)
+            const turnCount = countRealUserTurns(freshMessages)
+            if (turnCount > 0 && turnCount % ExperienceMemory.EXPERIENCE_MAINTENANCE_INTERVAL_TURNS === 0) {
+              yield* experienceMemory.maintain(sessionID).pipe(Effect.ignore)
+            }
+          }
           if (curated) yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
         }
         return result
@@ -2126,7 +2355,15 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
-    Layer.provide(Layer.mergeAll(Image.defaultLayer, Memory.defaultLayer, Skill.defaultLayer)),
+    Layer.provide(
+      Layer.mergeAll(
+        Image.defaultLayer,
+        Memory.defaultLayer,
+        Skill.defaultLayer,
+        EpisodicMemory.defaultLayer,
+        ExperienceMemory.defaultLayer,
+      ),
+    ),
     Layer.provide(
       Layer.mergeAll(
         EventV2Bridge.defaultLayer,
@@ -2162,6 +2399,14 @@ function latestRealUserText(messages: MessageV2.WithParts[]) {
     .map((part) => part.text.trim())
     .filter(Boolean)
     .join("\n")
+}
+
+export function formatExistingUserHint(entries: readonly Memory.UserMemoryEntry[]) {
+  if (entries.length === 0) return "Existing user profile: (none)"
+  return (
+    "Existing user profile (reuse the exact keywords to update a fact; skip facts already covered):\n" +
+    entries.map((entry) => `- keywords=[${entry.keywords.join(", ")}] content=${entry.content}`).join("\n")
+  )
 }
 
 function memoryUserText(messages: MessageV2.WithParts[]) {
@@ -2204,6 +2449,20 @@ function latestRealAssistantText(message: MessageV2.WithParts) {
   } catch {
     return String(message.info.structured)
   }
+}
+
+function lastToolFailureHint(messages: MessageV2.WithParts[]): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!
+    if (message.info.role !== "assistant") continue
+    const errors = message.parts.flatMap((part) => {
+      if (part.type !== "tool" || part.state.status !== "error") return []
+      const text = typeof part.state.error === "string" ? part.state.error : JSON.stringify(part.state.error)
+      return [`Tool ${part.tool}: ${text.trim()}`]
+    })
+    if (errors.length > 0) return errors.join("\n").slice(0, 400)
+  }
+  return undefined
 }
 
 const ModelRef = Schema.Struct({
