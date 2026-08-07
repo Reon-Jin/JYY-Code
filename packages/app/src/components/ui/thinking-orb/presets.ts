@@ -27,7 +27,8 @@ export const STATE_TO_MODE: Record<OrbState, ModeKey> = {
   weaving: 'braid',
   composing: 'ribbon',
   breathing: 'ring',
-  shaping: 'morph'
+  shaping: 'morph',
+  compacting: 'ring'
 };
 
 interface Preset {

@@ -434,6 +434,52 @@ describe("MessageTimeline", () => {
     expect(screen.queryByRole("img", { name: "目标进行中" })).not.toBeInTheDocument()
   })
 
+  it("keeps the goal end marker at the completion position when later messages arrive", () => {
+    const duringGoal = conversation(
+      [{ id: "part_during", sessionID, messageID: "msg_during", type: "text", text: "during goal" }],
+      { ...info, id: "msg_during", time: { created: 50 } },
+    )
+    const afterGoal = conversation(
+      [{ id: "part_after", sessionID, messageID: "msg_after", type: "text", text: "after goal" }],
+      { ...info, id: "msg_after", time: { created: 200 } },
+    )
+    const { container } = render(() => (
+      <MessageTimeline
+        messages={[duringGoal, afterGoal]}
+        goal={{
+          condition: "finish",
+          status: "done",
+          startedAt: 10,
+          updatedAt: 100,
+          completedAt: 100,
+          maxTurns: 30,
+        }}
+      />
+    ))
+
+    const markers = [...container.querySelectorAll<HTMLElement>(".goal-timeline-marker")]
+    const articles = [...container.querySelectorAll<HTMLElement>(".conversation-message")]
+    expect(markers.map((marker) => marker.dataset.marker)).toEqual(["start", "end"])
+    const endMarker = markers[1]!
+    const afterArticle = articles[1]!
+    expect(endMarker.compareDocumentPosition(afterArticle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("shows compaction progress and completion indicators", () => {
+    const message = conversation([
+      { id: "part_compaction", sessionID, messageID: info.id, type: "text", text: "hi" },
+    ])
+    const { unmount } = render(() => (
+      <MessageTimeline messages={[message]} compaction={{ status: "compacting", startedAt: 1, reason: "auto" }} />
+    ))
+    expect(screen.getByText("压缩中…")).toBeVisible()
+    expect(screen.getByRole("img", { name: "压缩中…" })).toBeVisible()
+    unmount()
+
+    render(() => <MessageTimeline messages={[message]} compaction={{ status: "done", endedAt: 2 }} />)
+    expect(screen.getByText("压缩完成")).toBeVisible()
+  })
+
   it("shows the working orb only while the goal is running", () => {
     render(() => (
       <MessageTimeline

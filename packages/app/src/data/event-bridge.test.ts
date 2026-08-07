@@ -352,6 +352,31 @@ describe("event routing", () => {
     ).toEqual([{ kind: "question.remove", eventID: "evt_question_rejected", requestID: question.id }])
   })
 
+  it("routes compaction started and ended events", () => {
+    expect(
+      routeEvent("C:\\a", {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_compaction_started",
+          type: "session.next.compaction.started",
+          properties: { timestamp: 1, sessionID: session.id, reason: "auto" },
+        },
+      } as GlobalEvent),
+    ).toEqual([
+      { kind: "compaction.started", eventID: "evt_compaction_started", sessionID: session.id, reason: "auto" },
+    ])
+    expect(
+      routeEvent("C:\\a", {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_compaction_ended",
+          type: "session.next.compaction.ended",
+          properties: { timestamp: 2, sessionID: session.id, text: "summary" },
+        },
+      } as GlobalEvent),
+    ).toEqual([{ kind: "compaction.ended", eventID: "evt_compaction_ended", sessionID: session.id }])
+  })
+
   it("batches a frame and patches exact session and status caches", async () => {
     const queryClient = createDesktopQueryClient()
     queryClient.setQueryData(keys.sessions("C:\\a"), [session])
@@ -405,6 +430,58 @@ describe("event routing", () => {
     expect(queryClient.getQueryData<Session[]>(keys.sessions("C:\\a"))?.[0]?.title).toBe("Updated")
     expect(queryClient.getQueryData<Session[]>(keys.sessionsAll("C:\\a"))?.[0]?.title).toBe("Updated")
     expect(queryClient.getQueryData(keys.status("C:\\a"))).toEqual({ ses_1: { type: "busy" } })
+
+    bridge.abort()
+    releaseStream()
+  })
+
+  it("patches compaction status caches from started and ended events", async () => {
+    const queryClient = createDesktopQueryClient()
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    const stream = (async function* () {
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_compaction_started",
+          type: "session.next.compaction.started",
+          properties: { timestamp: 1, sessionID: session.id, reason: "manual" },
+        },
+      } as GlobalEvent
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_compaction_ended",
+          type: "session.next.compaction.ended",
+          properties: { timestamp: 2, sessionID: session.id, text: "summary" },
+        },
+      } as GlobalEvent
+      await streamWait
+    })()
+
+    let scheduled: FrameRequestCallback | undefined
+    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
+      scheduled = callback
+      return 1
+    })
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame,
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(requestFrame).toHaveBeenCalledTimes(1))
+    scheduled?.(0)
+    await Promise.resolve()
+
+    const status = queryClient.getQueryData(keys.compaction("C:\\a", session.id))
+    expect(status).toMatchObject({ status: "done" })
+    expect(status?.endedAt).toBeTypeOf("number")
 
     bridge.abort()
     releaseStream()

@@ -575,8 +575,8 @@ export function Composer(props: ComposerProps) {
             </div>
           </div>
 
-        <Show when={props.usage} keyed>
-          {(usage) => <ComposerUsage metrics={usage} permissionControl={props.permissionControl} />}
+        <Show when={props.usage}>
+          <ComposerUsage metrics={props.usage!} permissionControl={props.permissionControl} />
         </Show>
 
         <Show when={!props.minimal ? controller.failure() : undefined} keyed>

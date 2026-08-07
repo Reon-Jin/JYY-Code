@@ -23,6 +23,10 @@ import { publishSoundEffectEvent } from "../features/sound-effects/sound-effects
 
 export type ConnectionState = "connecting" | "connected" | "disconnected"
 
+export type CompactionStatus =
+  | { status: "compacting"; startedAt: number; reason: "auto" | "manual" }
+  | { status: "done"; endedAt: number }
+
 export type ConversationAction =
   | { kind: "message.upsert"; eventID: string; sessionID: string; info: Message }
   | { kind: "message.remove"; eventID: string; sessionID: string; messageID: string }
@@ -48,6 +52,8 @@ export type CacheAction =
   | { kind: "question.upsert"; eventID: string; request: QuestionRequest }
   | { kind: "question.remove"; eventID: string; requestID: string }
   | { kind: "todos.set"; eventID: string; directory: string; sessionID: string; todos: Todo[] }
+  | { kind: "compaction.started"; eventID: string; sessionID: string; reason: "auto" | "manual" }
+  | { kind: "compaction.ended"; eventID: string; sessionID: string }
   | { kind: "vcs.invalidate"; eventID: string; directory: string }
   | { kind: "vcs.branch.set"; eventID: string; directory: string; branch?: string }
   | {
@@ -93,6 +99,23 @@ export function routeEvent(directory: string, event: GlobalEvent): CacheAction[]
           eventID: payload.id,
           sessionID: payload.properties.sessionID,
           status: { type: "idle" },
+        },
+      ]
+    case "session.next.compaction.started":
+      return [
+        {
+          kind: "compaction.started",
+          eventID: payload.id,
+          sessionID: payload.properties.sessionID,
+          reason: payload.properties.reason,
+        },
+      ]
+    case "session.next.compaction.ended":
+      return [
+        {
+          kind: "compaction.ended",
+          eventID: payload.id,
+          sessionID: payload.properties.sessionID,
         },
       ]
     case "message.updated":
@@ -570,6 +593,20 @@ export class EventBridge {
       case "todos.set":
         this.#options.queryClient.setQueryData(keys.todos(action.directory, action.sessionID), action.todos)
         break
+      case "compaction.started": {
+        const status: CompactionStatus = {
+          status: "compacting",
+          startedAt: Date.now(),
+          reason: action.reason,
+        }
+        this.#options.queryClient.setQueryData(keys.compaction(directory, action.sessionID), status)
+        break
+      }
+      case "compaction.ended": {
+        const status: CompactionStatus = { status: "done", endedAt: Date.now() }
+        this.#options.queryClient.setQueryData(keys.compaction(directory, action.sessionID), status)
+        break
+      }
       case "vcs.branch.set": {
         const queryKey = keys.vcsInfo(action.directory)
         const info = this.#options.queryClient.getQueryData<VcsInfo>(queryKey)

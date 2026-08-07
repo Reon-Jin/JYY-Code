@@ -1,7 +1,7 @@
 import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
-import { createSignal, type JSX } from "solid-js"
+import { createSignal, onMount, type JSX } from "solid-js"
 import { createDesktopQueryClient } from "../../data/query-client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { attachmentFromPath, Composer, type ComposerProps } from "./composer"
@@ -631,5 +631,52 @@ describe("Composer", () => {
     expect(client.session.promptAsync).not.toHaveBeenCalled()
     expect(screen.getByRole("button", { name: "发送" })).toBeDisabled()
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
+  })
+
+  it("keeps the permission control mounted while usage updates during streaming", () => {
+    let mounts = 0
+    function PermissionProbe() {
+      onMount(() => mounts++)
+      return <span>permission probe</span>
+    }
+    const client = {
+      app: {
+        skills: vi.fn(async () => ({
+          data: [
+            { name: "documents", description: "Create and edit documents", location: "skills/documents", content: "" },
+          ],
+        })),
+      },
+      session: {
+        promptAsync: vi.fn(async () => ({ data: undefined })),
+        command: vi.fn(async () => ({ data: undefined })),
+        abort: vi.fn(async () => ({ data: true })),
+        interruptPrompt: vi.fn(async () => ({ data: undefined })),
+        terminate: vi.fn(async () => ({ data: undefined })),
+      },
+    }
+    const [usage, setUsage] = createSignal<ComposerProps["usage"]>({ contextUsed: 1 })
+    render(() => (
+      <Composer
+        client={client as never}
+        queryClient={createDesktopQueryClient()}
+        directory={directory}
+        sessionID={sessionID}
+        agents={agents}
+        models={models}
+        selectedAgent="build"
+        selectedModel={{ providerID: "openai", modelID: "gpt-5" }}
+        status={{ type: "idle" }}
+        usage={usage()}
+        permissionControl={<PermissionProbe />}
+        onAgentChange={vi.fn()}
+        onModelChange={vi.fn()}
+        onProviderConnected={vi.fn()}
+        queueStore={createComposerQueueStore()}
+      />
+    ))
+    expect(mounts).toBe(1)
+    setUsage({ contextUsed: 2 })
+    expect(mounts).toBe(1)
   })
 })

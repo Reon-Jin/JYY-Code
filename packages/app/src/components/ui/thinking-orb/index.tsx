@@ -13,6 +13,7 @@ const LABELS: Record<string, string> = {
   composing: "Composing…",
   breathing: "Thinking…",
   shaping: "Shaping…",
+  compacting: "Compacting…",
 }
 
 function ancestorTheme(el: Element | null): boolean | null {

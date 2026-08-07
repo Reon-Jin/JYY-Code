@@ -13,6 +13,7 @@ export type OrbState =
   | "composing"
   | "breathing"
   | "shaping"
+  | "compacting"
 
 /**
  * Rendered size in CSS pixels. Exactly two tuned presets ship:
