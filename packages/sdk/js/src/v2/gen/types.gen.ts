@@ -5687,7 +5687,10 @@ export type FileReadResponse = FileReadResponses[keyof FileReadResponses]
 export type FileWriteData = {
   body?: FileContentWrite
   path?: never
-  query?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
   url: "/file/content"
 }
 

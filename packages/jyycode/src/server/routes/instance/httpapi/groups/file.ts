@@ -54,7 +54,9 @@ export class FileUnsafePathError extends Schema.ErrorClass<FileUnsafePathError>(
   { httpApiStatus: 400 },
 ) {}
 
-export class FileUnsupportedWriteError extends Schema.ErrorClass<FileUnsupportedWriteError>("FileUnsupportedWriteError")(
+export class FileUnsupportedWriteError extends Schema.ErrorClass<FileUnsupportedWriteError>(
+  "FileUnsupportedWriteError",
+)(
   {
     name: Schema.Literal("FileUnsupportedWriteError"),
     data: Schema.Struct({ message: Schema.String }),
@@ -139,6 +141,7 @@ export const FileApi = HttpApi.make("file")
           }),
         ),
         HttpApiEndpoint.put("write", FilePaths.content, {
+          query: WorkspaceRoutingQuery,
           payload: File.WriteInput,
           success: described(File.WriteResult, "File content written"),
           error: FileWriteErrors,

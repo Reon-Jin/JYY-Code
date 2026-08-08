@@ -203,7 +203,7 @@ describe("event routing", () => {
           properties: { file: "src/app.tsx", event: "change" },
         },
       } as GlobalEvent),
-    ).toEqual([{ kind: "vcs.invalidate", eventID: "evt_file", directory: "C:\\a" }])
+    ).toEqual([{ kind: "vcs.invalidate", eventID: "evt_file", directory: "C:\\a", relativePath: "src/app.tsx" }])
     expect(
       routeEvent("C:\\a", {
         directory: "C:\\a",

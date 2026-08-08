@@ -1,5 +1,7 @@
 import type {
   AppSkillsResponse,
+  FileContent,
+  FileNode,
   GitHubAvailability,
   GitHubPullRequestDetail,
   GitHubPullRequestSummary,
@@ -108,6 +110,29 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   const changes: VcsFileDiff[] = [
     { file: "src/app.tsx", status: "modified", additions: 4, deletions: 1, patch: "@@ -1 +1 @@" },
   ]
+  const sessionChanges: VcsFileDiff[] = [
+    { file: "src/app.tsx", status: "modified", additions: 2, deletions: 1, patch: "@@ -1 +1 @@" },
+  ]
+  const fileNodes: Record<string, FileNode[]> = {
+    "": [
+      { name: "src", path: "src", absolute: `${directory}\\src`, type: "directory", ignored: false },
+      { name: "README.md", path: "README.md", absolute: `${directory}\\README.md`, type: "file", ignored: false },
+      { name: ".gitignore", path: ".gitignore", absolute: `${directory}\\.gitignore`, type: "file", ignored: false },
+      { name: "dist", path: "dist", absolute: `${directory}\\dist`, type: "directory", ignored: true },
+    ],
+    src: [
+      {
+        name: "app.tsx",
+        path: "src/app.tsx",
+        absolute: `${directory}\\src\\app.tsx`,
+        type: "file",
+        ignored: false,
+      },
+    ],
+  }
+  const fileContents = new Map<string, FileContent>([
+    ["src/app.tsx", { type: "text", content: "export const app = true", revision: "file-revision-1" }],
+  ])
   const branches: VcsBranches = {
     current: "main",
     branches: [
@@ -450,6 +475,38 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
       return json(["edit", "read", "shell", "skill", "write"])
     }
 
+    if (url.pathname === "/file" && request.method === "GET") {
+      const filePath = url.searchParams.get("path") ?? ""
+      return json(fileNodes[filePath] ?? [])
+    }
+    if (url.pathname === "/file/content" && request.method === "GET") {
+      const filePath = url.searchParams.get("path") ?? ""
+      const content = fileContents.get(filePath)
+      if (!content) return json({ name: "FileNotFoundError", message: "File not found" }, 404)
+      return json(content)
+    }
+    if (url.pathname === "/file/content" && request.method === "PUT") {
+      const filePath = String(value.path ?? "")
+      const current = fileContents.get(filePath)
+      if (current && value.revision !== current.revision) {
+        return json(
+          {
+            name: "FileConflictError",
+            data: {
+              message: "File revision is stale",
+              currentRevision: current.revision,
+              expectedRevision: value.revision,
+            },
+          },
+          409,
+        )
+      }
+      const revisionNumber = Number(current?.revision?.split("-").at(-1) ?? "0") + 1
+      const nextRevision = `file-revision-${revisionNumber}`
+      fileContents.set(filePath, { type: "text", content: String(value.content ?? ""), revision: nextRevision })
+      return json({ revision: nextRevision })
+    }
+
     if (url.pathname === "/subagents" && request.method === "GET") return json(subagentProfiles)
     if (url.pathname === "/subagents" && request.method === "PUT") {
       const profiles = Array.isArray(value.profiles) ? value.profiles : []
@@ -677,6 +734,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     if (sessionID && url.pathname.endsWith("/todo") && request.method === "GET") {
       return json(todos.get(sessionID) ?? [])
     }
+    if (sessionID && url.pathname.endsWith("/diff") && request.method === "GET") return json(sessionChanges)
     if (
       sessionID &&
       (url.pathname.endsWith("/prompt_async") || url.pathname.endsWith("/interrupt-prompt")) &&
@@ -950,6 +1008,9 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     githubStatus,
     pullRequests,
     pullRequestDetails,
+    sessionChanges,
+    fileNodes,
+    fileContents,
     requests,
     emit,
     setTodos,

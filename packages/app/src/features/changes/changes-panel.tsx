@@ -99,6 +99,15 @@ export function ChangesPanelView(props: ChangesPanelViewProps) {
   )
 }
 
+function displayableChanges(
+  changes:
+    | readonly VcsFileDiff[]
+    | readonly { file?: string; additions: number; deletions: number; patch?: string; status?: VcsFileDiff["status"] }[]
+    | undefined,
+) {
+  return (changes ?? []).flatMap((change) => (change.file === undefined ? [] : [{ ...change, file: change.file }]))
+}
+
 function errorMessage(cause: unknown) {
   return cause instanceof Error && cause.message ? cause.message : tr("changes.unable-to-load-workspace-changes")
 }
@@ -106,14 +115,14 @@ function errorMessage(cause: unknown) {
 export function ChangesPanel(props: { directory: string }) {
   const data = useData()
   const query = createQuery(
-    () => changesQueryOptions({ client: data.client(), directory: props.directory }),
+    () => changesQueryOptions({ client: data.client(), directory: props.directory, mode: "git" }),
     data.queryClient,
   )
 
   return (
     <ChangesPanelView
       directory={props.directory}
-      changes={query.data}
+      changes={displayableChanges(query.data)}
       loading={query.isPending}
       error={query.error ? errorMessage(query.error) : undefined}
       onRetry={() => void query.refetch()}

@@ -30,7 +30,7 @@ describe("workspace inspector queries", () => {
     )
 
     expect(await loadTodos({ client, directory, sessionID: "ses_1" })).toEqual(todos)
-    expect(await loadChanges({ client, directory })).toEqual(backend.changes)
+    expect(await loadChanges({ client, directory, mode: "git" })).toEqual(backend.changes)
     expect(await loadVcsInfo({ client, directory })).toMatchObject({ branch: "main" })
     expect(await loadVcsBranches({ client, directory })).toEqual(backend.branches)
     expect(await loadGitHubStatus({ client, directory })).toEqual(backend.githubStatus)

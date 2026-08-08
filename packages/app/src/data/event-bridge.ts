@@ -54,8 +54,15 @@ export type CacheAction =
   | { kind: "todos.set"; eventID: string; directory: string; sessionID: string; todos: Todo[] }
   | { kind: "compaction.started"; eventID: string; sessionID: string; reason: "auto" | "manual" }
   | { kind: "compaction.ended"; eventID: string; sessionID: string }
-  | { kind: "vcs.invalidate"; eventID: string; directory: string }
+  | { kind: "vcs.invalidate"; eventID: string; directory: string; relativePath?: string }
   | { kind: "vcs.branch.set"; eventID: string; directory: string; branch?: string }
+  | {
+      kind: "session.diff"
+      eventID: string
+      directory: string
+      sessionID: string
+      diff: Extract<GlobalEvent["payload"], { type: "session.diff" }>["properties"]["diff"]
+    }
   | {
       kind: "plan.event"
       eventID: string
@@ -199,7 +206,17 @@ export function routeEvent(directory: string, event: GlobalEvent): CacheAction[]
         },
       ]
     case "file.watcher.updated":
-      return [{ kind: "vcs.invalidate", eventID: payload.id, directory }]
+      return [{ kind: "vcs.invalidate", eventID: payload.id, directory, relativePath: payload.properties.file }]
+    case "session.diff":
+      return [
+        {
+          kind: "session.diff",
+          eventID: payload.id,
+          directory,
+          sessionID: payload.properties.sessionID,
+          diff: payload.properties.diff,
+        },
+      ]
     case "vcs.branch.updated":
       return [
         { kind: "vcs.branch.set", eventID: payload.id, directory, branch: payload.properties.branch },
@@ -249,6 +266,7 @@ export type EventBridgeOptions = {
   client: Pick<DesktopClient, "global">
   directory: string
   queryClient: QueryClient
+  workspaceID?: () => string | undefined
   activeSessionID?: () => string | undefined
   onConnectionChange?: (state: ConnectionState) => void
   requestFrame?: FrameScheduler
@@ -607,20 +625,33 @@ export class EventBridge {
         this.#options.queryClient.setQueryData(keys.compaction(directory, action.sessionID), status)
         break
       }
+      case "session.diff": {
+        const workspaceID = this.#options.workspaceID?.()
+        this.#options.queryClient.setQueryData(keys.sessionDiff(directory, workspaceID, action.sessionID), action.diff)
+        break
+      }
       case "vcs.branch.set": {
         const queryKey = keys.vcsInfo(action.directory)
         const info = this.#options.queryClient.getQueryData<VcsInfo>(queryKey)
         this.#options.queryClient.setQueryData(queryKey, { ...info, branch: action.branch })
         break
       }
-      case "vcs.invalidate":
+      case "vcs.invalidate": {
+        const workspaceID = this.#options.workspaceID?.()
+        const sessionID = this.#options.activeSessionID?.()
         this.#invalidate(keys.vcsBranches(action.directory))
-        this.#invalidate(keys.vcsDiff(action.directory))
+        this.#invalidate(keys.vcsDiff(action.directory, workspaceID))
+        this.#invalidate(keys.sessionDiff(action.directory, workspaceID, sessionID))
+        this.#invalidate(keys.fileList(action.directory, workspaceID, sessionID))
+        if (action.relativePath) {
+          this.#invalidate(keys.fileContent(action.directory, workspaceID, sessionID, action.relativePath))
+        }
         void this.#options.queryClient.invalidateQueries({
           queryKey: keys.pullRequestsScope(action.directory),
           exact: false,
         })
         break
+      }
     }
   }
 
