@@ -56,6 +56,31 @@ describe("file HttpApi", () => {
     expect(await status.json()).toContainEqual({ path: "hello.txt", added: 1, removed: 0, status: "added" })
   })
 
+  test("serves media through bounded range responses", async () => {
+    await using tmp = await tmpdir({ git: false })
+    const bytes = Uint8Array.from({ length: 10 }, (_, index) => index)
+    await Bun.write(path.join(tmp.path, "clip.mp4"), bytes)
+
+    const response = await request("/file/raw", tmp.path, { path: "clip.mp4" }, { headers: { range: "bytes=2-6" } })
+
+    expect(response.status).toBe(206)
+    expect(response.headers.get("accept-ranges")).toBe("bytes")
+    expect(response.headers.get("content-range")).toBe("bytes 2-6/10")
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(Uint8Array.from([2, 3, 4, 5, 6]))
+  })
+
+  test("returns small PPTX files as previewable binary content", async () => {
+    await using tmp = await tmpdir({ git: false })
+    await Bun.write(path.join(tmp.path, "slides.pptx"), new Uint8Array(77 * 1024))
+
+    const response = await request(FilePaths.content, tmp.path, { path: "slides.pptx" })
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toMatchObject({ type: "text", encoding: "base64" })
+    expect(body.content.length).toBeGreaterThan(0)
+  })
+
   test("serves search endpoints", async () => {
     await using tmp = await tmpdir({ git: true })
     await Bun.write(path.join(tmp.path, "hello.txt"), "needle")

@@ -314,9 +314,10 @@ const isTextByName = (file: string) => textName.has(name(file))
 const isBinaryByExtension = (file: string) => binary.has(ext(file))
 const isImage = (mimeType: string) => mimeType.startsWith("image/")
 const getImageMimeType = (file: string) => mime[ext(file)] || "image/" + ext(file)
-const previewBinary = new Set(["pdf", "docx", "mp4", "avi", "mov", "wmv", "flv", "webm", "mkv", "mp3", "wav", "ogg", "oga", "flac", "aac", "m4a", "wma", "weba"])
+const previewBinary = new Set(["pdf", "docx", "pptx", "mp4", "avi", "mov", "wmv", "flv", "webm", "mkv", "mp3", "wav", "ogg", "oga", "flac", "aac", "m4a", "wma", "weba"])
 const maxTextBytes = 2 * 1024 * 1024
 const maxPreviewBytes = 25 * 1024 * 1024
+const maxDocumentPreviewBytes = 256 * 1024 * 1024
 
 const hashBytes = (bytes: Uint8Array | undefined) =>
   createHash("sha256").update(bytes ? Buffer.from(bytes) : Buffer.alloc(0)).digest("hex")
@@ -604,7 +605,16 @@ export const layer = Layer.effect(
             return undefined
           }
         })
-        if ((metadata?.size ?? 0) > maxPreviewBytes) {
+        if (mimeType.startsWith("video/")) {
+          return {
+            type: "binary" as const,
+            content: "",
+            mimeType,
+            revision: makeRevision(file, metadata, undefined),
+          }
+        }
+        const previewLimit = ext(file) === "pdf" || ext(file) === "docx" || ext(file) === "pptx" ? maxDocumentPreviewBytes : maxPreviewBytes
+        if ((metadata?.size ?? 0) > previewLimit) {
           return {
             type: "binary" as const,
             content: "",

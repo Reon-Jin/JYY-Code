@@ -3,6 +3,7 @@ import type { FileContent, VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
 import { ArrowLeft, Eye, File as FileIcon, Pencil, RefreshCw, X } from "lucide-solid"
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url"
+import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist/types/src/display/api"
 import { createEffect, createMemo, createSignal, onCleanup, Show, type JSX } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
@@ -17,6 +18,9 @@ import { renderMarkdown } from "../conversation/markdown"
 import "./file-preview.css"
 
 export const MAX_PREVIEW_BYTES = 25 * 1024 * 1024
+export const MAX_DOCUMENT_PREVIEW_BYTES = 256 * 1024 * 1024
+export const PREVIEW_ZOOM_MIN = 0.5
+export const PREVIEW_ZOOM_MAX = 4
 
 export type FilePreviewProps = {
   directory: string
@@ -56,6 +60,53 @@ export function contentDataUrl(content: FileContent | undefined) {
   return `data:${content.mimeType};base64,${content.content}`
 }
 
+export function contentText(content: FileContent | undefined) {
+  if (!content?.content) return undefined
+  if (content.encoding !== "base64") return content.content
+  const bytes = contentBytes(content)
+  return bytes ? new TextDecoder().decode(bytes) : undefined
+}
+
+export function pdfCanvasMetrics(viewport: { width: number; height: number }, outputScale: number) {
+  const scale = Number.isFinite(outputScale) && outputScale > 0 ? outputScale : 1
+  return {
+    width: Math.ceil(viewport.width * scale),
+    height: Math.ceil(viewport.height * scale),
+    cssWidth: Math.ceil(viewport.width),
+    cssHeight: Math.ceil(viewport.height),
+    outputScale: scale,
+  }
+}
+
+export function nextPreviewZoom(current: number, deltaY: number) {
+  const value = Number.isFinite(current) ? current : 1
+  const factor = deltaY < 0 ? 1.1 : 1 / 1.1
+  return Math.min(PREVIEW_ZOOM_MAX, Math.max(PREVIEW_ZOOM_MIN, value * factor))
+}
+
+function pdfAssetUrl(directory: "cmaps" | "standard_fonts") {
+  if (typeof document === "undefined") return `pdfjs/${directory}/`
+  return new URL(`${import.meta.env.BASE_URL}pdfjs/${directory}/`, document.baseURI).toString()
+}
+
+function ZoomSurface(props: { class?: string; children: JSX.Element }) {
+  const [zoom, setZoom] = createSignal(1)
+
+  const onWheel = (event: WheelEvent) => {
+    if (!event.ctrlKey) return
+    event.preventDefault()
+    setZoom((current) => nextPreviewZoom(current, event.deltaY))
+  }
+
+  return (
+    <div class={`file-preview__zoom-viewport${props.class ? ` ${props.class}` : ""}`} onWheel={onWheel}>
+      <div class="file-preview__zoom-surface" style={{ transform: `scale(${zoom()})` }}>
+        {props.children}
+      </div>
+    </div>
+  )
+}
+
 function PreviewHeader(props: { path: string; onClose?: () => void; toolbar?: JSX.Element; readOnly?: boolean }) {
   return (
     <header class="file-preview__header">
@@ -86,7 +137,94 @@ function PreviewHeader(props: { path: string; onClose?: () => void; toolbar?: JS
   )
 }
 
-function BinaryDocumentPreview(props: { kind: PreviewKind; content: FileContent }) {
+function PdfPreview(props: { content: FileContent }) {
+  let host: HTMLDivElement | undefined
+  const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
+  const [message, setMessage] = createSignal<string>()
+
+  createEffect(() => {
+    const data = contentBytes(props.content)
+    if (!host) return
+    let cancelled = false
+    let loadingTask: PDFDocumentLoadingTask | undefined
+    let documentProxy: PDFDocumentProxy | undefined
+    host.replaceChildren()
+    setState("loading")
+    setMessage(undefined)
+
+    const render = async () => {
+      if (!data?.byteLength || data.byteLength > MAX_DOCUMENT_PREVIEW_BYTES) {
+        throw new Error(tr("files.binary-too-large"))
+      }
+      const pdfjs = await import("pdfjs-dist")
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc
+      loadingTask = pdfjs.getDocument({
+        data,
+        cMapUrl: pdfAssetUrl("cmaps"),
+        cMapPacked: true,
+        standardFontDataUrl: pdfAssetUrl("standard_fonts"),
+      })
+      documentProxy = await loadingTask.promise
+      for (let pageNumber = 1; pageNumber <= documentProxy.numPages; pageNumber += 1) {
+        if (cancelled) return
+        const page = await documentProxy.getPage(pageNumber)
+        const viewport = page.getViewport({ scale: 1.35 })
+        const outputScale = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1
+        const metrics = pdfCanvasMetrics(viewport, outputScale)
+        const canvas = window.document.createElement("canvas")
+        canvas.width = metrics.width
+        canvas.height = metrics.height
+        canvas.style.width = `${metrics.cssWidth}px`
+        canvas.style.height = `${metrics.cssHeight}px`
+        canvas.className = "file-preview__pdf-page"
+        const context = canvas.getContext("2d")
+        if (!context) throw new Error(tr("files.render-failed"))
+        host.append(canvas)
+        await page.render({
+          canvasContext: context,
+          viewport,
+          transform:
+            metrics.outputScale === 1
+              ? undefined
+              : [metrics.outputScale, 0, 0, metrics.outputScale, 0, 0],
+        }).promise
+      }
+      if (!cancelled) setState("ready")
+    }
+
+    void render().catch((cause) => {
+      if (cancelled) return
+      setMessage(errorText(cause))
+      setState("error")
+    })
+    onCleanup(() => {
+      cancelled = true
+      host?.replaceChildren()
+      void loadingTask?.destroy()
+      void documentProxy?.destroy()
+    })
+  })
+
+  return (
+    <div class="file-preview__document file-preview__document--pdf" data-kind="pdf">
+      <Show when={state() === "loading"}>
+        <p class="file-preview__state" role="status">
+          <Spinner /> {tr("files.loading-preview")}
+        </p>
+      </Show>
+      <Show when={state() === "error"}>
+        <div class="file-preview__state">
+          <InlineError message={message() ?? tr("files.render-failed")} />
+        </div>
+      </Show>
+      <ZoomSurface class="file-preview__document-viewport">
+        <div ref={host} class="file-preview__document-host" />
+      </ZoomSurface>
+    </div>
+  )
+}
+
+function DocxPreview(props: { content: FileContent }) {
   let host: HTMLDivElement | undefined
   const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
   const [message, setMessage] = createSignal<string>()
@@ -94,9 +232,8 @@ function BinaryDocumentPreview(props: { kind: PreviewKind; content: FileContent 
   const bytes = () => contentBytes(props.content)
 
   createEffect(() => {
-    const kind = props.kind
     const data = bytes()
-    if (!host || (kind !== "pdf" && kind !== "docx")) return
+    if (!host) return
     let cancelled = false
     host.replaceChildren()
     setState("loading")
@@ -104,41 +241,21 @@ function BinaryDocumentPreview(props: { kind: PreviewKind; content: FileContent 
     setHtml(undefined)
 
     const render = async () => {
-      if (!data?.byteLength || data.byteLength > MAX_PREVIEW_BYTES) throw new Error(tr("files.binary-too-large"))
-      if (kind === "docx") {
-        const mammoth = await import("mammoth")
-        const converter = mammoth.default ?? mammoth
-        const result = await converter.convertToHtml({
-          arrayBuffer: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer,
-        })
-        if (cancelled) return
-        setHtml(
-          DOMPurify.sanitize(result.value, {
-            USE_PROFILES: { html: true },
-            FORBID_TAGS: ["style", "script", "iframe", "object", "embed", "form"],
-            FORBID_ATTR: ["srcset"],
-          }),
-        )
-        setState("ready")
-        return
-      }
-
-      const pdfjs = await import("pdfjs-dist")
-      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc
-      const documentTask = pdfjs.getDocument({ data })
-      const document = await documentTask.promise
-      const page = await document.getPage(1)
-      const viewport = page.getViewport({ scale: 1.35 })
-      const canvas = window.document.createElement("canvas")
-      canvas.width = Math.ceil(viewport.width)
-      canvas.height = Math.ceil(viewport.height)
-      canvas.className = "file-preview__pdf-page"
-      const context = canvas.getContext("2d")
-      if (!context) throw new Error(tr("files.render-failed"))
+      if (!data?.byteLength || data.byteLength > MAX_DOCUMENT_PREVIEW_BYTES) throw new Error(tr("files.binary-too-large"))
+      const mammoth = await import("mammoth")
+      const converter = mammoth.default ?? mammoth
+      const result = await converter.convertToHtml({
+        arrayBuffer: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer,
+      })
       if (cancelled) return
-      host.append(canvas)
-      await page.render({ canvasContext: context, viewport }).promise
-      if (!cancelled) setState("ready")
+      setHtml(
+        DOMPurify.sanitize(result.value, {
+          USE_PROFILES: { html: true },
+          FORBID_TAGS: ["style", "script", "iframe", "object", "embed", "form"],
+          FORBID_ATTR: ["srcset"],
+        }),
+      )
+      setState("ready")
     }
 
     void render().catch((cause) => {
@@ -153,7 +270,7 @@ function BinaryDocumentPreview(props: { kind: PreviewKind; content: FileContent 
   })
 
   return (
-    <div class="file-preview__document" data-kind={props.kind}>
+    <div class="file-preview__document" data-kind="docx">
       <Show when={state() === "loading"}>
         <p class="file-preview__state" role="status">
           <Spinner /> {tr("files.loading-preview")}
@@ -172,11 +289,96 @@ function BinaryDocumentPreview(props: { kind: PreviewKind; content: FileContent 
   )
 }
 
-function MediaPreview(props: { content: FileContent; kind: PreviewKind }) {
-  const [source, setSource] = createSignal<string>()
-  const tooLarge = () => (contentBytes(props.content)?.byteLength ?? 0) > MAX_PREVIEW_BYTES
+function BinaryDocumentPreview(props: { kind: PreviewKind; content: FileContent }) {
+  return props.kind === "pdf" ? <PdfPreview content={props.content} /> : <DocxPreview content={props.content} />
+}
+
+function HtmlPreview(props: { content: FileContent; path: string }) {
+  const html = () =>
+    DOMPurify.sanitize(contentText(props.content) ?? "", {
+      USE_PROFILES: { html: true },
+      FORBID_TAGS: ["base", "embed", "form", "iframe", "meta", "object", "script"],
+      FORBID_ATTR: ["srcset"],
+    })
+
+  return <iframe class="file-preview__html" title={props.path} sandbox="" referrerPolicy="no-referrer" srcdoc={html()} />
+}
+
+function PptxPreview(props: { content: FileContent }) {
+  let host: HTMLDivElement | undefined
+  const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
+  const [message, setMessage] = createSignal<string>()
 
   createEffect(() => {
+    const data = contentBytes(props.content)
+    if (!host) return
+    let cancelled = false
+    let viewer: { destroy: () => void } | undefined
+    host.replaceChildren()
+    setState("loading")
+    setMessage(undefined)
+
+    const render = async () => {
+      if (!data?.byteLength || data.byteLength > MAX_DOCUMENT_PREVIEW_BYTES) {
+        throw new Error(tr("files.binary-too-large"))
+      }
+      const { PptxViewer, RECOMMENDED_ZIP_LIMITS } = await import("@aiden0z/pptx-renderer")
+      viewer = await PptxViewer.open(
+        data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer,
+        host,
+        {
+          fitMode: "contain",
+          listOptions: { windowed: true, initialSlides: 4, batchSize: 4 },
+          pdfjs: false,
+          renderMode: "list",
+          zipLimits: RECOMMENDED_ZIP_LIMITS,
+        },
+      )
+      if (cancelled) {
+        viewer.destroy()
+        return
+      }
+      setState("ready")
+    }
+
+    void render().catch((cause) => {
+      if (cancelled) return
+      setMessage(errorText(cause))
+      setState("error")
+    })
+    onCleanup(() => {
+      cancelled = true
+      viewer?.destroy()
+      host?.replaceChildren()
+    })
+  })
+
+  return (
+    <div class="file-preview__pptx" data-kind="pptx">
+      <Show when={state() === "loading"}>
+        <p class="file-preview__state" role="status">
+          <Spinner /> {tr("files.loading-preview")}
+        </p>
+      </Show>
+      <Show when={state() === "error"}>
+        <div class="file-preview__state">
+          <InlineError message={message() ?? tr("files.render-failed")} />
+        </div>
+      </Show>
+      <div ref={host} class="file-preview__pptx-host" />
+    </div>
+  )
+}
+
+function MediaPreview(props: { content: FileContent; kind: PreviewKind; streamUrl?: string }) {
+  const [source, setSource] = createSignal<string>()
+  const tooLarge = () => props.kind !== "video" && (contentBytes(props.content)?.byteLength ?? 0) > MAX_PREVIEW_BYTES
+
+  createEffect(() => {
+    if (props.kind === "video" && props.streamUrl) {
+      setSource(props.streamUrl)
+      return
+    }
     const bytes = contentBytes(props.content)
     if (!bytes || tooLarge()) {
       setSource(undefined)
@@ -202,11 +404,13 @@ function MediaPreview(props: { content: FileContent; kind: PreviewKind }) {
             when={props.kind === "image"}
             fallback={
               <Show when={props.kind === "video"} fallback={<audio controls src={url()} />}>
-                <video controls src={url()} />
+                <video controls preload="metadata" src={props.streamUrl ?? url()} />
               </Show>
             }
           >
-            <img src={url()} alt={props.content.mimeType ?? ""} />
+            <ZoomSurface class="file-preview__image-viewport">
+              <img src={url()} alt={props.content.mimeType ?? ""} />
+            </ZoomSurface>
           </Show>
         )}
       </Show>
@@ -396,7 +600,9 @@ export function FilePreview(props: FilePreviewProps) {
                       kind() !== "video" &&
                       kind() !== "audio" &&
                       kind() !== "pdf" &&
-                      kind() !== "docx"
+                      kind() !== "docx" &&
+                      kind() !== "pptx" &&
+                      kind() !== "html"
                     }
                   >
                     <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
@@ -406,11 +612,25 @@ export function FilePreview(props: FilePreviewProps) {
                   </Show>
                   <Show when={kind() === "image" || kind() === "video" || kind() === "audio"}>
                     <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
-                    <MediaPreview content={content()} kind={kind()} />
+                    <MediaPreview
+                      content={content()}
+                      kind={kind()}
+                      streamUrl={kind() === "video" ? data.fileMediaUrl(props.path, props.workspaceID) : undefined}
+                    />
                   </Show>
                   <Show when={kind() === "pdf" || kind() === "docx"}>
                     <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
                     <BinaryDocumentPreview content={content()} kind={kind()} />
+                  </Show>
+                  <Show when={kind() === "html"}>
+                    <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
+                    <div class="file-preview__html-viewport">
+                      <HtmlPreview content={content()} path={props.path} />
+                    </div>
+                  </Show>
+                  <Show when={kind() === "pptx"}>
+                    <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
+                    <PptxPreview content={content()} />
                   </Show>
                 </>
               )

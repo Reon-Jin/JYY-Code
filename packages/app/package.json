@@ -12,8 +12,7 @@
     "test:watch": "bun run --bun vitest"
   },
   "dependencies": {
-    "@fontsource-variable/inter": "catalog:",
-    "@fontsource-variable/jetbrains-mono": "catalog:",
+    "@aiden0z/pptx-renderer": "catalog:",
     "@codemirror/autocomplete": "catalog:",
     "@codemirror/commands": "catalog:",
     "@codemirror/lang-css": "catalog:",
@@ -29,6 +28,8 @@
     "@codemirror/state": "catalog:",
     "@codemirror/theme-one-dark": "catalog:",
     "@codemirror/view": "catalog:",
+    "@fontsource-variable/inter": "catalog:",
+    "@fontsource-variable/jetbrains-mono": "catalog:",
     "@jyycode-ai/sdk": "workspace:*",
     "@solidjs/router": "catalog:",
     "@tanstack/solid-query": "catalog:",
@@ -44,8 +45,8 @@
     "mammoth": "catalog:",
     "marked": "catalog:",
     "marked-katex-extension": "catalog:",
-    "solid-js": "catalog:",
-    "pdfjs-dist": "catalog:"
+    "pdfjs-dist": "catalog:",
+    "solid-js": "catalog:"
   },
   "devDependencies": {
     "@solidjs/testing-library": "catalog:",

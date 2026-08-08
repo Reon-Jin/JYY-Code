@@ -10,6 +10,8 @@ describe("file preview types", () => {
     ["LICENSE", "text"],
     ["docs/manual.pdf", "pdf"],
     ["docs/manual.docx", "docx"],
+    ["docs/slides.pptx", "pptx"],
+    ["docs/page.html", "html"],
     ["assets/logo.png", "image"],
     ["assets/demo.mp4", "video"],
     ["assets/voice.m4a", "audio"],

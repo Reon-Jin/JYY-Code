@@ -72,6 +72,7 @@
       "@opentui/keymap": "0.2.15",
       "@opentui/solid": "0.2.15",
       "ulid": "3.0.1",
+      "@aiden0z/pptx-renderer": "1.2.4",
       "@types/node": "24.12.2",
       "@types/semver": "7.7.1",
       "@tsconfig/node22": "22.0.2",

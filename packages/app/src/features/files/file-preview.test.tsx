@@ -7,7 +7,18 @@ import { defaultDesktopSettings } from "../settings/settings-preferences"
 import { DesktopBridgeProvider } from "../../platform/context"
 import { createFakeDesktop } from "../../test/fake-desktop"
 import { createFakeJyycode } from "../../test/fake-jyycode"
-import { contentDataUrl, contentBytes, FilePreview, isFilePreviewEditable, MAX_PREVIEW_BYTES } from "./file-preview"
+import {
+  contentDataUrl,
+  contentBytes,
+  contentText,
+  FilePreview,
+  isFilePreviewEditable,
+  MAX_PREVIEW_BYTES,
+  nextPreviewZoom,
+  pdfCanvasMetrics,
+  PREVIEW_ZOOM_MAX,
+  PREVIEW_ZOOM_MIN,
+} from "./file-preview"
 
 const directory = "C:\\work\\demo"
 
@@ -143,6 +154,30 @@ describe("FilePreview", () => {
     expect(screen.getByText("只读")).toBeVisible()
     expect(screen.queryByRole("button", { name: "Save file" })).not.toBeInTheDocument()
   })
+
+  it("renders sanitized HTML files as a preview", async () => {
+    const backend = createFakeJyycode(directory)
+    backend.fileContents.set("index.html", {
+      type: "text",
+      content: '<h1>Hello</h1><script>alert("unsafe")</script>',
+      revision: "revision-1",
+    })
+    vi.spyOn(globalThis, "fetch").mockImplementation(backend.fetch)
+    render(() => (
+      <DataProvider
+        bootstrap={{ baseUrl: "http://desktop.test", username: "jyycode", password: "secret" }}
+        generation={0}
+        directory={directory}
+      >
+        <FilePreview directory={directory} path="index.html" />
+      </DataProvider>
+    ))
+
+    const frame = await screen.findByTitle("index.html")
+    expect(frame).toHaveAttribute("sandbox", "")
+    expect(frame.getAttribute("srcdoc")).toContain("<h1>Hello</h1>")
+    expect(frame.getAttribute("srcdoc")).not.toContain("<script>")
+  })
 })
 
 describe("file preview helpers", () => {
@@ -156,8 +191,25 @@ describe("file preview helpers", () => {
     }
     expect(contentBytes(image)).toEqual(new Uint8Array([104, 101, 108, 108, 111]))
     expect(contentDataUrl(image)).toBe("data:image/png;base64,aGVsbG8=")
+    expect(contentText({ type: "text", content: "<h1>Hello</h1>", revision: "1" })).toBe("<h1>Hello</h1>")
     expect(MAX_PREVIEW_BYTES).toBe(25 * 1024 * 1024)
     expect(isFilePreviewEditable("src/app.tsx", textContent())).toBe(true)
     expect(isFilePreviewEditable("image.png", image)).toBe(false)
+  })
+
+  it("keeps the logical PDF size while scaling its backing store for HiDPI displays", () => {
+    expect(pdfCanvasMetrics({ width: 816, height: 1056 }, 2)).toEqual({
+      width: 1632,
+      height: 2112,
+      cssWidth: 816,
+      cssHeight: 1056,
+      outputScale: 2,
+    })
+  })
+
+  it("clamps Ctrl-wheel preview zoom to a usable range", () => {
+    expect(nextPreviewZoom(1, -1)).toBeCloseTo(1.1)
+    expect(nextPreviewZoom(PREVIEW_ZOOM_MAX, -1)).toBe(PREVIEW_ZOOM_MAX)
+    expect(nextPreviewZoom(PREVIEW_ZOOM_MIN, 1)).toBe(PREVIEW_ZOOM_MIN)
   })
 })

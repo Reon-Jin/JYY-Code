@@ -1,4 +1,15 @@
-export type PreviewKind = "code" | "markdown" | "text" | "pdf" | "docx" | "image" | "video" | "audio" | "unsupported"
+export type PreviewKind =
+  | "code"
+  | "markdown"
+  | "text"
+  | "pdf"
+  | "docx"
+  | "pptx"
+  | "html"
+  | "image"
+  | "video"
+  | "audio"
+  | "unsupported"
 
 const codeExtensions = new Set([
   "c",
@@ -8,7 +19,6 @@ const codeExtensions = new Set([
   "go",
   "h",
   "hpp",
-  "html",
   "java",
   "js",
   "jsx",
@@ -51,6 +61,7 @@ const binaryExtensions = new Set([
   "otf",
   "pdf",
   "ppt",
+  "pptx",
   "rar",
   "so",
   "sqlite",
@@ -76,10 +87,12 @@ export function previewKind(file: string): PreviewKind {
   const ext = extension(file)
 
   if (ext === "md" || markdownExtensions.has(ext)) return "markdown"
+  if (ext === "html" || ext === "htm") return "html"
   if (codeExtensions.has(ext)) return "code"
   if (textExtensions.has(ext) || !ext) return "text"
   if (ext === "pdf") return "pdf"
   if (ext === "docx") return "docx"
+  if (ext === "pptx") return "pptx"
   if (imageExtensions.has(ext)) return "image"
   if (videoExtensions.has(ext)) return "video"
   if (audioExtensions.has(ext)) return "audio"

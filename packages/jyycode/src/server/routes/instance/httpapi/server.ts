@@ -71,6 +71,7 @@ import { configHandlers } from "./handlers/config"
 import { controlHandlers } from "./handlers/control"
 import { experimentalHandlers } from "./handlers/experimental"
 import { fileHandlers } from "./handlers/file"
+import { fileMediaRoute } from "./handlers/file-media"
 import { globalHandlers } from "./handlers/global"
 import { MemoryManagement } from "@/memory/management"
 import { githubHandlers } from "./handlers/github"
@@ -149,7 +150,7 @@ const instanceApiRoutes = HttpApiBuilder.layer(InstanceHttpApi).pipe(
   ]),
 )
 
-const rawInstanceRoutes = Layer.mergeAll(ptyConnectRoute).pipe(Layer.provide(instanceRouterLayer))
+const rawInstanceRoutes = Layer.mergeAll(ptyConnectRoute, fileMediaRoute).pipe(Layer.provide(instanceRouterLayer))
 const instanceRoutes = Layer.mergeAll(rawInstanceRoutes, instanceApiRoutes).pipe(
   Layer.provide([
     httpApiAuthLayer,
