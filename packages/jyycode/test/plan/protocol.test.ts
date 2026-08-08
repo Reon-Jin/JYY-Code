@@ -545,7 +545,7 @@ describe("file-backed plan protocol", () => {
     const root = workspace()
     const missingArtifact = path.join(root, "not-created.md")
     const rootContext = context(root)
-    const creator = new PlanProtocol()
+    const creator = new PlanProtocol({ children: createHardeningChildren().controller })
     await creator.create(rootContext, createInput(missingArtifact))
     const dispatched = await creator.dispatch(rootContext, { taskIds: ["s1_t1"], role: "general" })
     expect(dispatched.ok).toBe(true)
@@ -553,7 +553,7 @@ describe("file-backed plan protocol", () => {
     const runId = dispatched.dispatched[0]!.run_id
     const childContext = { ...context(root, "single", "child_retry"), runId }
 
-    const first = await new PlanProtocol().report(childContext, {
+    const first = await creator.report(childContext, {
       run_id: runId,
       status: "done",
       summary: "文件尚未生成",
@@ -563,7 +563,7 @@ describe("file-backed plan protocol", () => {
     expect(first.ok).toBe(false)
     if (!first.ok) expect(first.error.retryable).toBe(true)
 
-    const second = await new PlanProtocol().report(childContext, {
+    const second = await creator.report(childContext, {
       run_id: runId,
       status: "done",
       summary: "文件仍未生成",
@@ -653,6 +653,7 @@ describe("file-backed plan protocol", () => {
 
       const plan = readHardeningPlan(fixture.root)
       plan.steps[0]!.tasks[0]!.status = "approved"
+      plan.steps[0]!.tasks[0]!.dispatch!.run_id = "run__ses_main__replacement__s1_t1"
       fs.writeFileSync(planFilePath(fixture.root, "ses_main"), JSON.stringify(plan))
 
       const stale = await protocol.report(child, {
@@ -714,7 +715,9 @@ describe("file-backed plan protocol", () => {
     fs.writeFileSync(artifact, "ready")
     let blackboardReady = false
     let gateCalls = 0
+    const children = createHardeningChildren()
     const protocol = new PlanProtocol({
+      children: children.controller,
       beforeReport: async () => {
         gateCalls++
         if (!blackboardReady)
@@ -743,7 +746,7 @@ describe("file-backed plan protocol", () => {
     const unchanged = await protocol.read(context(root))
     if (!unchanged.ok || !unchanged.plan) return
     expect(unchanged.plan.revision).toBe(2)
-    expect(unchanged.plan.steps[0]?.tasks[0]?.status).toBe("dispatched")
+    expect(unchanged.plan.steps[0]?.tasks[0]?.status).toBe("running")
 
     blackboardReady = true
     const accepted = await protocol.report(childContext, {
@@ -763,7 +766,9 @@ describe("file-backed plan protocol", () => {
     fs.writeFileSync(artifact, "ready")
     let blackboardClear = false
     let gateCalls = 0
+    const children = createHardeningChildren()
     const protocol = new PlanProtocol({
+      children: children.controller,
       beforeStepAdvance: async () => {
         gateCalls++
         if (!blackboardClear)

@@ -38,7 +38,7 @@
         "goal": { "type": "string", "minLength": 1 },
         "done_criteria": { "type": "string", "minLength": 1 },
         "output_path": { "type": ["string", "null"] },
-        "status": { "enum": ["pending", "dispatched", "running", "reported", "approved", "rejected"] },
+        "status": { "enum": ["pending", "dispatched", "running", "reported", "approved", "rejected", "dismissed"] },
         "dispatch": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/dispatch" }] },
         "report": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/report" }] }
       }

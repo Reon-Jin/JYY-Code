@@ -1742,7 +1742,12 @@ export class PlanProtocol {
   async report(
     ctx: PlanExecutionContext,
     input: unknown,
-  ): Promise<ProtocolResponse<{ review: "pending_review" | "rejected_precheck"; message: string }>> {
+  ): Promise<
+    ProtocolResponse<{
+      review: "pending_review" | "rejected_precheck" | "already_reported"
+      message: string
+    }>
+  > {
     try {
       if (!ctx.runId)
         throw new PlanProtocolError({
@@ -1811,7 +1816,10 @@ export class PlanProtocol {
       )
       const missing = canonicalArtifacts.filter((artifact) => !fs.existsSync(artifact))
       const shouldRejectPrecheck = missing.length > 0 && attempt >= REPORT_RETRY_MAX
-      const result = await this.store.enqueueWrite(planPath, {
+      const result = await this.store.enqueueWrite<{
+        review: "pending_review" | "rejected_precheck" | "already_reported"
+        message: string
+      }>(planPath, {
         priority: "normal",
         holder: ctx.sessionId,
         retryableOnTimeout: true,
@@ -1834,6 +1842,20 @@ export class PlanProtocol {
               code: ERROR_CODES.RUN_STALE,
               message: "该任务当前的 run_id 与你携带的不一致",
               hint: "你的 run 已被取消或替换，停止一切操作，不要重复汇报",
+            })
+          if (task.status === "reported" || task.status === "approved")
+            return {
+              mutate() {},
+              result: {
+                review: "already_reported" as const,
+                message: "该 run_id 的报告已经受理，原报告保持不变。",
+              },
+            }
+          if (task.status !== "running")
+            throw new PlanProtocolError({
+              code: ERROR_CODES.RUN_STALE,
+              message: `任务当前为 ${task.status}，不能继续汇报`,
+              hint: "停止使用已结束的 run_id；需要重做时重新派发任务",
             })
           if (missing.length && !shouldRejectPrecheck) {
             throw new PlanProtocolError({
@@ -1873,6 +1895,7 @@ export class PlanProtocol {
       this.reportAttempts.delete(runId)
       const persisted = this.store.read(planPath)
       if (!persisted) throw new Error("Report 写入后无法读取父 plan")
+      if (result.review === "already_reported") return { ok: true, ...result }
       if (result.review === "pending_review") {
         const reportStep = persisted.steps.find((step) => step.tasks.some((task) => task.id === parsed.taskId))
         const snapshot = projectPlanSnapshot(persisted, {
