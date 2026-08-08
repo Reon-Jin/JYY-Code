@@ -1978,6 +1978,12 @@ export const layer = Layer.effect(
                 profiles: promptProfiles,
               }),
             )
+            if (firstSessionTurn && session.parentID === undefined && skill) {
+              const rootSkills = yield* sys.skills(agent, Skill.rootScope).pipe(
+                Effect.catchCause(() => Effect.succeed(undefined)),
+              )
+              if (rootSkills) system.push(rootSkills)
+            }
             if (session.goal?.status === "running" && session.parentID === undefined) {
               system.push(
                 [
