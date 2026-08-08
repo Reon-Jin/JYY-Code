@@ -51,6 +51,15 @@ describe("ChangesPanel", () => {
     expect(screen.getByText("工作区没有未提交变更")).toBeVisible()
   })
 
+  it("opens the selected file in the shared preview workspace", async () => {
+    const user = userEvent.setup()
+    const onOpenFile = vi.fn()
+    render(() => <ChangesPanelView directory={directory} changes={changes} onOpenFile={onOpenFile} />)
+
+    await user.click(screen.getByRole("button", { name: "Open file src/app.ts" }))
+    expect(onOpenFile).toHaveBeenCalledWith({ path: "src/app.ts", source: "changes", change: changes[0] })
+  })
+
   it("refreshes on file events and keeps the selected file when it still exists", async () => {
     const backend = createFakeJyycode(directory)
     vi.spyOn(globalThis, "fetch").mockImplementation(backend.fetch)

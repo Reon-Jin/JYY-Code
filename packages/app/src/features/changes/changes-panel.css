@@ -57,6 +57,12 @@
   animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
 }
 
+.change-file__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px;
+  align-items: center;
+}
+
 .change-file__toggle {
   width: 100%;
   min-height: 38px;
@@ -69,6 +75,17 @@
   background: transparent;
   color: var(--color-text);
   text-align: left;
+}
+
+.change-file__open {
+  width: 28px;
+  height: 28px;
+  margin-right: var(--space-1);
+}
+
+.change-file__open svg {
+  width: 14px;
+  height: 14px;
 }
 
 .change-file__toggle:hover,

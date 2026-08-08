@@ -7,16 +7,21 @@ import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
 import { useData } from "../../data/context"
+import type { FileOpenEvent } from "../files/file-tree"
 import { ChangeFile } from "./change-file"
 import { changesQueryOptions } from "./changes-query"
 import "./changes-panel.css"
 
 export type ChangesPanelViewProps = {
   directory: string
+  workspaceID?: string
+  sessionID?: string
+  mode?: "git" | "session"
   changes?: readonly VcsFileDiff[]
   loading?: boolean
   error?: string
   onRetry?: () => void
+  onOpenFile?: (event: FileOpenEvent) => void
 }
 
 export function ChangesPanelView(props: ChangesPanelViewProps) {
@@ -87,6 +92,11 @@ export function ChangesPanelView(props: ChangesPanelViewProps) {
                       change={change}
                       expanded={selected() === change.file}
                       onToggle={() => setSelected((current) => (current === change.file ? undefined : change.file))}
+                      onOpenFile={
+                        props.onOpenFile
+                          ? (next) => props.onOpenFile?.({ path: next.file, source: "changes", change: next })
+                          : undefined
+                      }
                     />
                   )}
                 </For>
@@ -112,20 +122,39 @@ function errorMessage(cause: unknown) {
   return cause instanceof Error && cause.message ? cause.message : tr("changes.unable-to-load-workspace-changes")
 }
 
-export function ChangesPanel(props: { directory: string }) {
+export function ChangesPanel(props: {
+  directory: string
+  workspaceID?: string
+  sessionID?: string
+  mode?: "git" | "session"
+  onOpenFile?: (event: FileOpenEvent) => void
+}) {
   const data = useData()
   const query = createQuery(
-    () => changesQueryOptions({ client: data.client(), directory: props.directory, mode: "git" }),
+    () => ({
+      ...changesQueryOptions({
+        client: data.client(),
+        directory: props.directory,
+        workspaceID: props.workspaceID,
+        sessionID: props.sessionID,
+        mode: props.mode ?? "git",
+      }),
+      enabled: (props.mode ?? "git") === "git" || Boolean(props.sessionID),
+    }),
     data.queryClient,
   )
 
   return (
     <ChangesPanelView
       directory={props.directory}
+      workspaceID={props.workspaceID}
+      sessionID={props.sessionID}
+      mode={props.mode}
       changes={displayableChanges(query.data)}
       loading={query.isPending}
       error={query.error ? errorMessage(query.error) : undefined}
       onRetry={() => void query.refetch()}
+      onOpenFile={props.onOpenFile}
     />
   )
 }

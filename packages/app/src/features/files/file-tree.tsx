@@ -1,4 +1,4 @@
-import type { FileNode } from "@jyycode-ai/sdk/v2/client"
+import type { FileNode, VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, RefreshCw } from "lucide-solid"
 import { For, Show, createSignal, type JSX } from "solid-js"
@@ -11,7 +11,11 @@ import { isHiddenFileNode } from "./file-types"
 import { fileListQueryOptions } from "./file-query"
 import "./file-tree.css"
 
-export type FileOpenEvent = { path: string; source: "files" }
+export type FileOpenEvent = {
+  path: string
+  source: "files" | "changes"
+  change?: VcsFileDiff
+}
 
 export type FileTreeProps = {
   directory: string

@@ -14,6 +14,22 @@ export type UnifiedDiffHunk = {
 
 export type UnifiedDiff = { hunks: UnifiedDiffHunk[] }
 
+export function firstChangedLine(diff: UnifiedDiff) {
+  for (const hunk of diff.hunks) {
+    for (const line of hunk.lines) {
+      if (line.kind === "add" || line.kind === "delete") return line.newNumber ?? line.oldNumber
+    }
+  }
+  return undefined
+}
+
+export function oldContentFromUnifiedDiff(patch: string | undefined) {
+  const diff = parseUnifiedDiff(patch)
+  if (diff.hunks.length === 0) return undefined
+  const lines = diff.hunks.flatMap((hunk) => hunk.lines.flatMap((line) => (line.kind === "add" ? [] : [line.content])))
+  return lines.join("\n")
+}
+
 function hunkHeader(oldStart: number, oldLines: number, newStart: number, newLines: number) {
   return `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`
 }

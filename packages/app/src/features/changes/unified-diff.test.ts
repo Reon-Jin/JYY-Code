@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseUnifiedDiff } from "./unified-diff"
+import { firstChangedLine, oldContentFromUnifiedDiff, parseUnifiedDiff } from "./unified-diff"
 
 describe("parseUnifiedDiff", () => {
   it("models context, additions, deletions, and multiple hunks with line numbers", () => {
@@ -29,6 +29,7 @@ describe("parseUnifiedDiff", () => {
       { kind: "add", newNumber: 10, content: "added" },
       { kind: "add", newNumber: 11, content: "second" },
     ])
+    expect(firstChangedLine(result)).toBe(2)
   })
 
   it("handles added, deleted, renamed, binary, and missing patches", () => {
@@ -43,5 +44,7 @@ describe("parseUnifiedDiff", () => {
     expect(parseUnifiedDiff("similarity index 100%\nrename from old.ts\nrename to new.ts\n").hunks).toEqual([])
     expect(parseUnifiedDiff("Binary files a/image.png and b/image.png differ\n").hunks).toEqual([])
     expect(parseUnifiedDiff(undefined).hunks).toEqual([])
+    expect(oldContentFromUnifiedDiff("@@ -1,2 +0,0 @@\n-one\n-two\n")).toBe("one\ntwo")
+    expect(firstChangedLine(parseUnifiedDiff("context only\n"))).toBeUndefined()
   })
 })
