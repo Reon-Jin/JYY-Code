@@ -1,6 +1,6 @@
 import { tr } from "../i18n/i18n-context"
-import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
-import { A, useNavigate } from "@solidjs/router"
+import type { Session, SessionStatus, VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
+import { A, useBeforeLeave, useNavigate } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { ArrowLeft, House, PanelLeftClose, PanelLeftOpen, Plus, Radio, Settings } from "lucide-solid"
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
@@ -46,6 +46,8 @@ import {
 } from "../features/workspace-inspector/inspector-preferences"
 import { WorkspaceInspector } from "../features/workspace-inspector/workspace-inspector"
 import { SubagentProfilesPanel } from "../features/subagents/subagent-profiles-panel"
+import { FilePreview } from "../features/files/file-preview"
+import { type FileOpenEvent } from "../features/files/file-tree"
 import { permissionQueryOptions, questionQueryOptions, selectActiveRequest } from "../features/requests/request-query"
 import { createSessionApi, sessionQueryOptions } from "../features/sessions/session-api"
 import { SessionEmpty } from "../features/sessions/session-empty"
@@ -81,6 +83,8 @@ export type WorkspaceLayoutViewProps = {
   requestArea?: JSX.Element
   composer?: JSX.Element
   inspector?: JSX.Element
+  filePreview?: JSX.Element
+  filePreviewOpen?: boolean
   inspectorOpen?: boolean
   inspectorWidth?: number
   multiAgentEnabled?: boolean
@@ -308,49 +312,60 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
       >
         <Show when={props.operationError}>{(message) => <InlineError message={message()} />}</Show>
         <Show
-          when={props.activeSessionID}
+          when={props.filePreviewOpen}
           fallback={
-            <SessionEmpty disabled={props.busy || props.activeLoading} onCreate={() => void props.onCreate()} />
+            <Show
+              when={props.activeSessionID}
+              fallback={
+                <SessionEmpty disabled={props.busy || props.activeLoading} onCreate={() => void props.onCreate()} />
+              }
+            >
+              <section class="workspace-conversation" aria-labelledby="workspace-session-title">
+                <header class="workspace-conversation__header">
+                  <Show
+                    when={selected()?.parentID}
+                    fallback={
+                      <span class="workspace-conversation__context">
+                        {props.multiAgentEnabled ? tr("layout.multi-agent-model") : tr("layout.single-agent-mode")}
+                      </span>
+                    }
+                  >
+                    <div class="workspace-conversation__child-context">
+                      <button
+                        type="button"
+                        onClick={props.onReturnToRoot}
+                        aria-label={tr("layout.return-to-main-session")}
+                      >
+                        <ArrowLeft aria-hidden="true" />
+                        {tr("layout.return-to-main-session")}
+                      </button>
+                      <span>
+                        {tr("layout.subagent")} {capitalize(childRole())}
+                      </span>
+                    </div>
+                  </Show>
+                  <h1 id="workspace-session-title">{selected()?.title ?? "Session"}</h1>
+                </header>
+                <Show when={props.connection === "connected" ? undefined : props.connection} keyed>
+                  {(state) => <ReconnectBanner state={state} />}
+                </Show>
+                <MessageTimeline
+                  messages={props.conversation?.messages ?? []}
+                  goal={selected()?.goal}
+                  compaction={props.compaction}
+                  loading={props.conversationLoading}
+                  error={props.conversationError}
+                  onRetry={props.onRetryConversation}
+                />
+                <div class="workspace-conversation__footer">
+                  {props.requestArea}
+                  {props.composer}
+                </div>
+              </section>
+            </Show>
           }
         >
-          <section class="workspace-conversation" aria-labelledby="workspace-session-title">
-            <header class="workspace-conversation__header">
-              <Show
-                when={selected()?.parentID}
-                fallback={
-                  <span class="workspace-conversation__context">
-                    {props.multiAgentEnabled ? tr("layout.multi-agent-model") : tr("layout.single-agent-mode")}
-                  </span>
-                }
-              >
-                <div class="workspace-conversation__child-context">
-                  <button type="button" onClick={props.onReturnToRoot} aria-label={tr("layout.return-to-main-session")}>
-                    <ArrowLeft aria-hidden="true" />
-                    {tr("layout.return-to-main-session")}
-                  </button>
-                  <span>
-                    {tr("layout.subagent")} {capitalize(childRole())}
-                  </span>
-                </div>
-              </Show>
-              <h1 id="workspace-session-title">{selected()?.title ?? "Session"}</h1>
-            </header>
-            <Show when={props.connection === "connected" ? undefined : props.connection} keyed>
-              {(state) => <ReconnectBanner state={state} />}
-            </Show>
-            <MessageTimeline
-              messages={props.conversation?.messages ?? []}
-              goal={selected()?.goal}
-              compaction={props.compaction}
-              loading={props.conversationLoading}
-              error={props.conversationError}
-              onRetry={props.onRetryConversation}
-            />
-            <div class="workspace-conversation__footer">
-              {props.requestArea}
-              {props.composer}
-            </div>
-          </section>
+          <section class="workspace-file-preview">{props.filePreview}</section>
         </Show>
       </main>
       {props.inspector}
@@ -367,6 +382,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const [busy, setBusy] = createSignal(false)
   const [selectedAgent, setSelectedAgent] = createSignal<string>()
   const [selectedModel, setSelectedModel] = createSignal<ModelSelection>()
+  const [activeFilePath, setActiveFilePath] = createSignal<string>()
+  const [activeFileChange, setActiveFileChange] = createSignal<VcsFileDiff>()
+  const [fileDirty, setFileDirty] = createSignal(false)
   const [inspectorPreferences, setInspectorPreferences] = createSignal<InspectorPreferences>(
     loadInspectorPreferences(data.directory()),
   )
@@ -465,6 +483,24 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return [...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])].find((session) => session.id === rootID)
   })
   const isChildSession = createMemo(() => Boolean(parentSessionID()))
+  const activeFileDirectory = createMemo(() => activeSession()?.directory ?? data.directory())
+  const rootDiffDirectory = createMemo(() => rootSession()?.directory ?? data.directory())
+  const diffMode = createMemo<"git" | "session">(() =>
+    projects.activeProject()?.info.vcs === "git" ? "git" : "session",
+  )
+
+  createEffect(() => data.setWorkspaceID(activeSession()?.workspaceID))
+
+  createEffect(
+    on(
+      () => [data.directory(), props.activeSessionID] as const,
+      () => {
+        setActiveFilePath(undefined)
+        setActiveFileChange(undefined)
+        setFileDirty(false)
+      },
+    ),
+  )
   const planQuery = createQuery(
     () => ({
       ...planQueryOptions({
@@ -664,6 +700,37 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     saveComposerPreference({ agent: selectedAgent(), model })
   }
 
+  function canLeaveFile() {
+    return !fileDirty() || typeof window === "undefined" || window.confirm(tr("files.unsaved"))
+  }
+
+  function openFile(event: FileOpenEvent) {
+    if (activeFilePath() === event.path && activeFileChange() === event.change) {
+      return
+    }
+    if (!canLeaveFile()) return
+    if (activeFilePath() === event.path) {
+      setActiveFileChange(event.change)
+      return
+    }
+    setActiveFilePath(event.path)
+    setActiveFileChange(event.change)
+    setFileDirty(false)
+  }
+
+  function closeFile() {
+    if (!canLeaveFile()) return
+    setActiveFilePath(undefined)
+    setActiveFileChange(undefined)
+    setFileDirty(false)
+  }
+
+  useBeforeLeave((event) => {
+    if (fileDirty() && typeof window !== "undefined" && !window.confirm(tr("files.unsaved"))) {
+      event.preventDefault()
+    }
+  })
+
   async function refreshAfterSubagentsChange() {
     await Promise.all([catalogQuery.refetch(), planQuery.refetch()])
   }
@@ -731,6 +798,22 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           : undefined
       }
       operationError={operationError()}
+      filePreviewOpen={Boolean(activeFilePath())}
+      filePreview={
+        <Show when={activeFilePath()} keyed>
+          {(path) => (
+            <FilePreview
+              directory={activeFileDirectory()}
+              workspaceID={activeSession()?.workspaceID}
+              sessionID={activeSession()?.id}
+              path={path}
+              change={activeFileChange()}
+              onClose={closeFile}
+              onDirtyChange={setFileDirty}
+            />
+          )}
+        </Show>
+      }
       projectTabs={
         <ProjectTabs
           projects={projects.openProjects()}
@@ -888,8 +971,17 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         <WorkspaceInspector
           directory={data.directory()}
           sessionID={props.activeSessionID}
+          workspaceID={activeSession()?.workspaceID}
+          diffDirectory={rootDiffDirectory()}
+          diffWorkspaceID={rootSession()?.workspaceID}
+          diffSessionID={rootSessionID()}
+          diffMode={diffMode()}
+          fileDirectory={activeFileDirectory()}
+          fileWorkspaceID={activeSession()?.workspaceID}
+          fileSessionID={activeSession()?.id}
           preferences={inspectorPreferences()}
           onPreferencesChange={updateInspectorPreferences}
+          onOpenFile={openFile}
           plan={
             <PlanPanel
               directory={data.directory()}

@@ -49,6 +49,38 @@ describe("WorkspaceLayoutView settings entry", () => {
     )
   })
 
+  it("replaces the conversation with the shared file preview workspace", () => {
+    render(() => (
+      <MemoryRouter>
+        <Route
+          path="/*all"
+          component={() => (
+            <WorkspaceLayoutView
+              projectName="demo"
+              projectDirectory={session.directory}
+              connection="connected"
+              activeSessions={[session]}
+              archivedSessions={[]}
+              statuses={{}}
+              activeSession={session}
+              activeSessionID={session.id}
+              filePreviewOpen
+              filePreview={<div>file preview content</div>}
+              onReturnHome={vi.fn(async () => undefined)}
+              onCreate={vi.fn(async () => undefined)}
+              onRename={vi.fn(async () => undefined)}
+              onArchive={vi.fn(async () => undefined)}
+              onDelete={vi.fn(async () => undefined)}
+            />
+          )}
+        />
+      </MemoryRouter>
+    ))
+
+    expect(screen.getByText("file preview content")).toBeVisible()
+    expect(screen.queryByRole("heading", { name: "Active Session" })).not.toBeInTheDocument()
+  })
+
   it("switches projects with Tab on the conversation canvas and Ctrl+1-9 globally", () => {
     const switchProject = vi.fn(async () => undefined)
     render(() => (

@@ -1,0 +1,124 @@
+.file-preview {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  background: var(--color-panel);
+}
+
+.file-preview__header {
+  min-height: 44px;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--space-3);
+}
+
+.file-preview__header > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+}
+
+.file-preview__back svg,
+.file-preview__close svg,
+.file-preview__header .ui-button svg,
+.file-preview__conflict .ui-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.file-preview__path {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preview__readonly {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.file-preview__state {
+  min-height: 120px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.file-preview__state .ui-inline-error {
+  max-width: min(560px, 90%);
+}
+
+.file-preview__media,
+.file-preview__document {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-6);
+}
+
+.file-preview__media {
+  display: grid;
+  place-items: center;
+}
+
+.file-preview__media img,
+.file-preview__media video {
+  max-width: 100%;
+  max-height: calc(100vh - 180px);
+  object-fit: contain;
+}
+
+.file-preview__media audio {
+  width: min(520px, 100%);
+}
+
+.file-preview__document-host {
+  display: grid;
+  justify-content: center;
+}
+
+.file-preview__pdf-page {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+}
+
+.file-preview__docx,
+.file-preview__markdown {
+  min-width: 0;
+  max-width: min(900px, 100%);
+  overflow: auto;
+  margin: 0 auto;
+  padding: var(--space-8) clamp(20px, 5vw, 48px);
+}
+
+.file-preview__docx {
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+.file-preview__conflict {
+  display: grid;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-warning);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-accent-muted);
+}
+
+.file-preview__conflict > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

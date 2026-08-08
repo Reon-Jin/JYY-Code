@@ -1,0 +1,61 @@
+.file-editor {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  background: var(--color-panel);
+}
+
+.file-editor__header {
+  min-height: 44px;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--space-3);
+}
+
+.file-editor__back.ui-button {
+  flex: 0 0 auto;
+}
+
+.file-editor__back svg,
+.file-editor__save svg {
+  width: 14px;
+  height: 14px;
+}
+
+.file-editor__path {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--color-text);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-editor__dirty {
+  color: var(--color-warning);
+  font-size: 0.7rem;
+}
+
+.file-editor__readonly {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.file-editor__surface {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.file-editor__surface .cm-editor {
+  height: 100%;
+}
+
+.file-editor > .ui-inline-error {
+  margin: var(--space-2) var(--space-3) 0;
+}
