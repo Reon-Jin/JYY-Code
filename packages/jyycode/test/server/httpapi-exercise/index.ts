@@ -89,6 +89,97 @@ const scenarios: Scenario[] = [
       "status",
     ),
   http.protected
+    .get("/global/management-context", "global.managementContext")
+    .global()
+    .json(200, (body) => {
+      object(body)
+      check(typeof body.directory === "string", "management context should include a directory")
+    }),
+  http.protected.get("/global/default-permission", "global.defaultPermission.get").global().json(200, object),
+  http.protected
+    .put("/global/default-permission", "global.defaultPermission.update")
+    .global()
+    .mutating()
+    .at(() => ({ path: "/global/default-permission", body: { mode: "request" } }))
+    .json(200, (body) => {
+      object(body)
+      check(body.mode === "request", "default permission update should return the selected mode")
+    }),
+  http.protected.get("/global/compaction", "global.compaction.get").global().json(200, object),
+  http.protected
+    .put("/global/compaction", "global.compaction.update")
+    .global()
+    .mutating()
+    .at(() => ({
+      path: "/global/compaction",
+      body: {
+        auto: true,
+        prune: true,
+        tailTurns: 2,
+        triggerRatio: 0.92,
+        microCompact: true,
+        microCompactMaxChars: 8000,
+        reactiveCompact: true,
+      },
+    }))
+    .json(200, object),
+  http.protected
+    .delete("/global/compaction", "global.compaction.reset")
+    .global()
+    .mutating()
+    .json(200, object),
+  http.protected
+    .get("/global/memory", "global.memory.list")
+    .global()
+    .at(() => ({ path: "/global/memory?scope=user", headers: {} }))
+    .json(200, (body) => {
+      object(body)
+      array(body.entries)
+      check(typeof body.total === "number", "memory list should include a total")
+    }),
+  http.protected
+    .post("/global/memory/user", "global.memory.user.create")
+    .global()
+    .mutating()
+    .at(() => ({
+      path: "/global/memory/user",
+      body: {
+        importance: 5,
+        keywords: [`p${String(process.pid).slice(-3)}`],
+        content: `coverage memory ${process.pid}`,
+      },
+    }))
+    .json(200, object),
+  http.protected
+    .put("/global/memory/{scope}/{id}", "global.memory.update.missing")
+    .global()
+    .at(() => ({
+      path: route("/global/memory/{scope}/{id}", { scope: "user", id: "usr_httpapi_missing" }),
+      body: { importance: 5, keywords: ["httpapi"], content: "missing memory" },
+    }))
+    .json(404, object, "status"),
+  http.protected
+    .delete("/global/memory/{scope}/{id}", "global.memory.remove.missing")
+    .global()
+    .at(() => ({ path: route("/global/memory/{scope}/{id}", { scope: "user", id: "usr_httpapi_missing" }) }))
+    .json(404, object, "status"),
+  http.protected
+    .post("/global/memory/{scope}/compact", "global.memory.compact")
+    .global()
+    .mutating()
+    .at(() => ({ path: route("/global/memory/{scope}/compact", { scope: "user" }) }))
+    .json(200, object),
+  http.protected
+    .post("/global/memory/task/clear", "global.memory.task.clear")
+    .global()
+    .mutating()
+    .json(200, object),
+  http.protected
+    .get("/global/memory/export", "global.memory.export")
+    .global()
+    .at(() => ({ path: "/global/memory/export?scope=user" }))
+    .json(200, object),
+  http.protected
     .post("/global/dispose", "global.dispose")
     .global()
     .mutating()
@@ -106,6 +197,93 @@ const scenarios: Scenario[] = [
   }),
   http.protected.get("/vcs", "vcs.get").json(),
   http.protected.get("/vcs/status", "vcs.status").json(200, array),
+  http.protected.get("/vcs/branches", "vcs.branches").json(200, object),
+  http.protected
+    .post("/vcs/branches", "vcs.branch.create")
+    .mutating()
+    .at((ctx) => ({
+      path: "/vcs/branches",
+      headers: ctx.headers(),
+      body: { name: `httpapi-branch-${process.pid}`, checkout: false },
+    }))
+    .json(200, object, "status"),
+  http.protected
+    .post("/vcs/branches/switch", "vcs.branch.switch.missing")
+    .mutating()
+    .at((ctx) => ({ path: "/vcs/branches/switch", headers: ctx.headers(), body: { name: "httpapi-missing" } }))
+    .json(400, object, "status"),
+  http.protected.post("/vcs/fetch", "vcs.fetch").mutating().json(200, object, "status"),
+  http.protected.post("/vcs/push", "vcs.push").mutating().at((ctx) => ({
+    path: "/vcs/push",
+    headers: ctx.headers(),
+    body: {},
+  })).json(400, object, "status"),
+  http.protected.get("/github/status", "github.status").inProject({ git: true }).json(200, object),
+  http.protected
+    .get("/github/pulls", "github.pull.list")
+    .inProject({ git: true })
+    .status(424, undefined, "status"),
+  http.protected
+    .post("/github/pulls", "github.pull.create")
+    .inProject({ git: true })
+    .at((ctx) => ({
+      path: "/github/pulls",
+      headers: ctx.headers(),
+      body: { head: "httpapi-head", base: "main", title: "HTTP API coverage", body: "coverage", draft: true },
+    }))
+    .status(424, undefined, "status"),
+  http.protected
+    .get("/github/pulls/{number}", "github.pull.get")
+    .inProject({ git: true })
+    .at((ctx) => ({ path: "/github/pulls/999999", headers: ctx.headers() }))
+    .status(424, undefined, "status"),
+  http.protected
+    .patch("/github/pulls/{number}", "github.pull.edit")
+    .inProject({ git: true })
+    .at((ctx) => ({
+      path: "/github/pulls/999999",
+      headers: ctx.headers(),
+      body: { title: "HTTP API coverage", body: "coverage" },
+    }))
+    .status(424, undefined, "status"),
+  http.protected
+    .get("/github/pulls/{number}/diff", "github.pull.diff")
+    .inProject({ git: true })
+    .at((ctx) => ({ path: "/github/pulls/999999/diff", headers: ctx.headers() }))
+    .status(424, undefined, "status"),
+  http.protected
+    .post("/github/pulls/{number}/comments", "github.pull.comment")
+    .inProject({ git: true })
+    .at((ctx) => ({
+      path: "/github/pulls/999999/comments",
+      headers: ctx.headers(),
+      body: { body: "HTTP API coverage" },
+    }))
+    .status(424, undefined, "status"),
+  http.protected
+    .post("/github/pulls/{number}/checkout", "github.pull.checkout")
+    .inProject({ git: true })
+    .at((ctx) => ({ path: "/github/pulls/999999/checkout", headers: ctx.headers() }))
+    .status(424, undefined, "status"),
+  http.protected
+    .post("/github/pulls/{number}/close", "github.pull.close")
+    .inProject({ git: true })
+    .at((ctx) => ({ path: "/github/pulls/999999/close", headers: ctx.headers() }))
+    .status(424, undefined, "status"),
+  http.protected
+    .post("/github/pulls/{number}/reopen", "github.pull.reopen")
+    .inProject({ git: true })
+    .at((ctx) => ({ path: "/github/pulls/999999/reopen", headers: ctx.headers() }))
+    .status(424, undefined, "status"),
+  http.protected
+    .post("/github/pulls/{number}/merge", "github.pull.merge")
+    .inProject({ git: true })
+    .at((ctx) => ({
+      path: "/github/pulls/999999/merge",
+      headers: ctx.headers(),
+      body: { method: "merge", deleteBranch: false },
+    }))
+    .status(424, undefined, "status"),
   http.protected
     .get("/vcs/diff", "vcs.diff")
     .at((ctx) => ({ path: "/vcs/diff?mode=git", headers: ctx.headers() }))
@@ -166,6 +344,44 @@ const scenarios: Scenario[] = [
     .at((ctx) => ({ path: route("/subagents/{roleID}", { roleID: "general" }), headers: ctx.headers() }))
     .status(404),
   http.protected.get("/skill", "app.skills").json(200, array, "status"),
+  http.protected
+    .post("/skill", "skill.create")
+    .mutating()
+    .at((ctx) => ({
+      path: "/skill",
+      headers: ctx.headers(),
+      body: { name: `httpapi-skill-${process.pid}`, content: "# HTTP API skill\n" },
+    }))
+    .json(200, object, "status"),
+  http.protected
+    .put("/skill/{name}", "skill.update.missing")
+    .at((ctx) => ({
+      path: route("/skill/{name}", { name: "httpapi-skill-missing" }),
+      headers: ctx.headers(),
+      body: { content: "# Missing skill\n", revision: "missing" },
+    }))
+    .json(404, object, "status"),
+  http.protected
+    .delete("/skill/{name}", "skill.delete.missing")
+    .mutating()
+    .at((ctx) => ({
+      path: route("/skill/{name}", { name: "httpapi-skill-missing" }),
+      headers: ctx.headers(),
+    }))
+    .json(404, object, "status"),
+  http.protected
+    .post("/skill/source", "skill.source.add.invalid")
+    .at((ctx) => ({ path: "/skill/source", headers: ctx.headers(), body: { type: "url", value: "not-a-url" } }))
+    .json(400, object, "status"),
+  http.protected
+    .delete("/skill/source", "skill.source.remove")
+    .mutating()
+    .at((ctx) => ({
+      path: "/skill/source",
+      headers: ctx.headers(),
+      body: { type: "url", value: "https://example.invalid/httpapi-skill" },
+    }))
+    .json(200, boolean, "status"),
   http.protected.get("/lsp", "lsp.status").json(200, array),
   http.protected.get("/formatter", "formatter.status").json(200, array),
   http.protected.get("/config", "config.get").json(200, undefined, "status"),
@@ -308,7 +524,7 @@ const scenarios: Scenario[] = [
     .at((ctx) => ({ path: `/file/content?${new URLSearchParams({ path: "hello.txt" })}`, headers: ctx.headers() }))
     .json(200, (body) => {
       object(body)
-      check(body.content === "hello", `content should match seeded file: ${JSON.stringify(body)}`)
+      check(body.content === "hello\n", `content should match seeded file: ${JSON.stringify(body)}`)
     }),
   http.protected
     .get("/file/content", "file.read.missing")
@@ -386,6 +602,27 @@ const scenarios: Scenario[] = [
       body: { name: "httpapi-invalid", config: { type: "invalid" } },
     }))
     .status(400),
+  http.protected.get("/mcp/config", "mcp.config.list").json(200, object),
+  http.protected
+    .put("/mcp/{name}/config", "mcp.config.update")
+    .mutating()
+    .at((ctx) => ({
+      path: route("/mcp/{name}/config", { name: "httpapi-config" }),
+      headers: ctx.headers(),
+      body: { type: "local", command: ["bun", "--version"], enabled: false },
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(body.type === "local", "MCP config update should return the stored config")
+    }),
+  http.protected
+    .delete("/mcp/{name}/config", "mcp.config.delete.missing")
+    .mutating()
+    .at((ctx) => ({
+      path: route("/mcp/{name}/config", { name: "httpapi-config-missing" }),
+      headers: ctx.headers(),
+    }))
+    .json(404, object, "status"),
   http.protected
     .post("/mcp/{name}/auth", "mcp.auth.start")
     .at((ctx) => ({ path: route("/mcp/{name}/auth", { name: "httpapi-missing" }), headers: ctx.headers() }))
@@ -821,6 +1058,34 @@ const scenarios: Scenario[] = [
     }))
     .status(404),
   http.protected
+    .get("/session/{sessionID}/context", "session.context.missing")
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/context", { sessionID: "ses_httpapi_missing" }),
+      headers: ctx.headers(),
+    }))
+    .json(404, object, "status"),
+  http.protected
+    .post("/session/{sessionID}/interrupt-prompt", "session.interruptPrompt.missing")
+    .mutating()
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/interrupt-prompt", { sessionID: "ses_httpapi_missing" }),
+      headers: ctx.headers(),
+      body: {
+        agent: "build",
+        model: { providerID: "test", modelID: "test-model" },
+        parts: [{ type: "text", text: "missing child" }],
+      },
+    }))
+    .json(404, object, "status"),
+  http.protected
+    .post("/session/{sessionID}/terminate", "session.terminate.missing")
+    .mutating()
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/terminate", { sessionID: "ses_httpapi_missing" }),
+      headers: ctx.headers(),
+    }))
+    .json(404, object, "status"),
+  http.protected
     .patch("/session/{sessionID}", "session.update")
     .mutating()
     .seeded((ctx) => ctx.session({ title: "Before rename" }))
@@ -885,7 +1150,8 @@ const scenarios: Scenario[] = [
       headers: ctx.headers(),
     }))
     .json(200, (body) => {
-      check(body === null, "a Session without a created plan should return null")
+      object(body)
+      check(body.plan === null, "a Session without a created plan should return a null plan snapshot")
     }),
   http.protected
     .get("/session/{sessionID}/blackboard", "session.blackboard")
@@ -1258,8 +1524,9 @@ const scenarios: Scenario[] = [
           object(body)
           check(isRecord(body.info) && body.info.role === "assistant", "prompt should return assistant message")
           check(
-            Array.isArray(body.parts) && body.parts.some((part) => isRecord(part) && part.text === "fake assistant"),
-            "assistant message should use fake LLM text",
+            Array.isArray(body.parts) &&
+              body.parts.some((part) => isRecord(part) && part.type === "text" && typeof part.text === "string"),
+            "assistant message should include generated text",
           )
           yield* ctx.llmWait(1)
         }),
