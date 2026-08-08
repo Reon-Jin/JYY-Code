@@ -2,7 +2,13 @@ import type { PlanFile } from "./schema"
 import { defaultPlanEventStore, type PlanEventInput, type PlanEventStore } from "./event-store"
 import { defaultPlanInboxStore, type PlanInboxStore, type InboxEntryInput } from "./inbox-store"
 
-export type PlanEventType = "plan.updated" | "child.activity" | "report_arrived" | "check_point" | "user_message"
+export type PlanEventType =
+  | "plan.updated"
+  | "child.activity"
+  | "report_arrived"
+  | "check_point"
+  | "user_message"
+  | "runtime.metric"
 
 export type PlanEvent = {
   seq: number
@@ -22,7 +28,11 @@ export function validatePlanEvent(value: unknown): string[] {
   for (const field of ["seq", "type", "session_id", "at", "payload"])
     if (!(field in event)) errors.push(`event.${field}: is required`)
   if (!Number.isInteger(event.seq) || Number(event.seq) < 0) errors.push("event.seq: must be an integer >= 0")
-  if (!["plan.updated", "child.activity", "report_arrived", "check_point", "user_message"].includes(String(event.type)))
+  if (
+    !["plan.updated", "child.activity", "report_arrived", "check_point", "user_message", "runtime.metric"].includes(
+      String(event.type),
+    )
+  )
     errors.push("event.type: invalid event type")
   if (typeof event.session_id !== "string" || event.session_id.length === 0)
     errors.push("event.session_id: must be non-empty")

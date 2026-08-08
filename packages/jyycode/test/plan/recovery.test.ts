@@ -5,6 +5,8 @@ import { describe, expect, it } from "bun:test"
 import { ChildWorkspace } from "../../src/plan/child-workspace"
 import { PlanProtocol } from "../../src/plan/protocol"
 import { PlanRecovery } from "../../src/plan/recovery"
+import { reconcilePlanOnce } from "../../src/plan/recovery"
+import { PlanStore } from "../../src/plan/store"
 import { PlanInbox } from "../../src/plan/events"
 import { readHardeningPlan, hardeningContext, hardeningPlanInput } from "./hardening-fixtures"
 
@@ -73,6 +75,32 @@ describe("PlanRecovery", () => {
         status: "running",
         dispatch: { lifecycle: "running", child_session_id: "recovered-reserved" },
       })
+    } finally {
+      value.cleanup()
+    }
+  })
+
+  it("runs startup reconciliation once and does not duplicate Inbox recovery", async () => {
+    const value = fixture()
+    try {
+      const protocol = new PlanProtocol({ inbox: new PlanInbox() })
+      const root = hardeningContext(value.root)
+      await protocol.create(root, hardeningPlanInput("out/result.md"))
+      await protocol.dispatch(root, { taskIds: ["s1_t1"], role: "general" })
+      const planPath = path.join(value.root, ".jyycode", "plan", "ses_main", "plan.json")
+      const stored = JSON.parse(fs.readFileSync(planPath, "utf8"))
+      stored.steps[0].tasks[0].status = "dispatched"
+      stored.steps[0].tasks[0].dispatch.lifecycle = "reserved"
+      fs.writeFileSync(planPath, JSON.stringify(stored, null, 2))
+
+      const inbox = new PlanInbox()
+      const options = { workspaceRoot: value.root, store: new PlanStore(), inbox }
+      const first = reconcilePlanOnce("ses_main", options)
+      const second = reconcilePlanOnce("ses_main", options)
+      expect(second).toBe(first)
+      await expect(first).resolves.toMatchObject({ rejected: ["s1_t1"] })
+      await expect(second).resolves.toMatchObject({ rejected: ["s1_t1"] })
+      expect(inbox.pending("ses_main")).toHaveLength(1)
     } finally {
       value.cleanup()
     }

@@ -21,6 +21,13 @@ export type RecoveryResult = {
   errors: string[]
 }
 
+export type RecoveryObservation = {
+  sessionId: string
+  taskId?: string
+  phase: "reconcile" | "resume" | "reject" | "settle"
+  outcome: "continued" | "rejected" | "settled" | "error"
+}
+
 export type RecoveryResumeInput = {
   sessionId: string
   task: PlanTask
@@ -38,6 +45,7 @@ export type RecoveryOptions = {
   startingTimeoutMs?: number
   isChildActive?: (sessionId: string) => Promise<boolean>
   resume?: (input: RecoveryResumeInput) => Promise<{ childSessionId?: string; started: boolean }>
+  observe?: (observation: RecoveryObservation) => void
 }
 
 function nowIso(now: () => number) {
@@ -62,6 +70,7 @@ export class PlanRecovery {
   private readonly startingTimeoutMs: number
   private readonly isChildActive: (sessionId: string) => Promise<boolean>
   private readonly resume?: RecoveryOptions["resume"]
+  private readonly observe?: RecoveryOptions["observe"]
 
   constructor(options: RecoveryOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot)
@@ -73,6 +82,11 @@ export class PlanRecovery {
     this.startingTimeoutMs = options.startingTimeoutMs ?? 30_000
     this.isChildActive = options.isChildActive ?? (async () => false)
     this.resume = options.resume
+    this.observe = options.observe
+  }
+
+  private record(observation: Omit<RecoveryObservation, "sessionId"> & { sessionId?: string }) {
+    this.observe?.({ ...observation, sessionId: observation.sessionId ?? "" })
   }
 
   private async update(
@@ -123,8 +137,10 @@ export class PlanRecovery {
         if (current.dispatch) current.dispatch.lifecycle = "settled"
       })
       result.rejected.push(task.id)
+      this.record({ sessionId, taskId: task.id, phase: "reject", outcome: "rejected" })
     } catch (error) {
       result.errors.push(`${task.id}: ${error instanceof Error ? error.message : String(error)}`)
+      this.record({ sessionId, taskId: task.id, phase: "reject", outcome: "error" })
     }
     this.inbox.add({
       session_id: sessionId,
@@ -153,24 +169,30 @@ export class PlanRecovery {
       const lifecycle = dispatchLifecycle(dispatch)
       if (task.status === "reported" || task.status === "approved" || task.status === "dismissed") {
         result.settled.push(task.id)
+        this.record({ sessionId: rootSessionId, taskId: task.id, phase: "settle", outcome: "settled" })
         continue
       }
       if (!lifecycle || lifecycle === "settled") {
-        if (task.status !== "running" && task.status !== "dispatched") result.settled.push(task.id)
+        if (task.status !== "running" && task.status !== "dispatched") {
+          result.settled.push(task.id)
+          this.record({ sessionId: rootSessionId, taskId: task.id, phase: "settle", outcome: "settled" })
+        }
         else await this.reject(rootSessionId, task, "dispatch has no recoverable lifecycle", result)
         continue
       }
       if (lifecycle === "running") {
         if (await this.isChildActive(dispatch.child_session_id)) {
           result.continued.push(task.id)
+          this.record({ sessionId: rootSessionId, taskId: task.id, phase: "reconcile", outcome: "continued" })
         } else {
           await this.reject(rootSessionId, task, "child is no longer active and has not reported", result)
         }
         continue
       }
-      const age = Date.now() - new Date(dispatch.dispatched_at).getTime()
+      const age = this.now() - new Date(dispatch.dispatched_at).getTime()
       if (lifecycle === "starting" && age < this.startingTimeoutMs) {
         result.continued.push(task.id)
+        this.record({ sessionId: rootSessionId, taskId: task.id, phase: "reconcile", outcome: "continued" })
         continue
       }
       if (this.resume) {
@@ -184,6 +206,7 @@ export class PlanRecovery {
               current.status = "running"
             })
             result.continued.push(task.id)
+            this.record({ sessionId: rootSessionId, taskId: task.id, phase: "resume", outcome: "continued" })
             continue
           }
         } catch (error) {
@@ -194,6 +217,30 @@ export class PlanRecovery {
     }
     return result
   }
+}
+
+const startupReconciles = new Map<string, Promise<RecoveryResult>>()
+const activePlanSessions = new Set<string>()
+
+function planSessionKey(workspaceRoot: string, sessionId: string) {
+  return `${path.resolve(workspaceRoot)}\0${sessionId}`
+}
+
+export function markPlanSessionActive(workspaceRoot: string, sessionId: string) {
+  activePlanSessions.add(planSessionKey(workspaceRoot, sessionId))
+}
+
+export function hasPlanSessionActivity(workspaceRoot: string, sessionId: string) {
+  return activePlanSessions.has(planSessionKey(workspaceRoot, sessionId))
+}
+
+export function reconcilePlanOnce(rootSessionId: string, options: RecoveryOptions) {
+  const key = planSessionKey(options.workspaceRoot, rootSessionId)
+  const existing = startupReconciles.get(key)
+  if (existing) return existing
+  const pending = new PlanRecovery(options).reconcilePlan(rootSessionId)
+  startupReconciles.set(key, pending)
+  return pending
 }
 
 export function reconcilePlan(rootSessionId: string, options: RecoveryOptions) {

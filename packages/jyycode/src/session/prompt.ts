@@ -68,6 +68,9 @@ import { ExperienceMemory } from "@/memory/experience"
 import { LLMEvent } from "@jyycode-ai/llm"
 import { planSystemPrompt } from "@/plan/prompts"
 import { defaultPlanProtocol } from "@/plan/protocol"
+import { hasPlanSessionActivity, reconcilePlanOnce } from "@/plan/recovery"
+import type { RecoveryObservation } from "@/plan/recovery"
+import { RuntimeEvent, runtimeMetricPayload } from "@/plan/runtime-event"
 import { enabledProfiles, resolveProfiles } from "@/agent/subagent-profile"
 import { Memory } from "@/memory/memory"
 import { Blackboard } from "@/plan/blackboard"
@@ -1294,6 +1297,67 @@ export const layer = Layer.effect(
         let step = 0
         let session = yield* sessions.get(sessionID).pipe(Effect.orDie)
         const canUsePersistentMemory = session.parentID === undefined
+        if (
+          session.parentID === undefined &&
+          session.multiAgent === true &&
+          !hasPlanSessionActivity(session.directory, session.id)
+        ) {
+          const recoveryObservations: RecoveryObservation[] = []
+          const recovery = yield* Effect.promise(() =>
+            reconcilePlanOnce(session.id, {
+              workspaceRoot: session.directory,
+              store: defaultPlanProtocol.store,
+              inbox: defaultPlanProtocol.inbox,
+              isChildActive: async (childSessionID) => {
+                try {
+                  const child = await Effect.runPromise(sessions.get(childSessionID as SessionID))
+                  return child.time.archived === undefined
+                } catch {
+                  return false
+                }
+              },
+              observe: (observation) => recoveryObservations.push(observation),
+            }),
+          ).pipe(
+            Effect.catchCause((cause) =>
+              slog.warn("multi-agent plan recovery failed; continuing prompt", { cause: Cause.pretty(cause) }).pipe(
+                Effect.as(undefined),
+              ),
+            ),
+          )
+          if (recovery) {
+            for (const observation of recoveryObservations) {
+              const event = defaultPlanProtocol.events.publish({
+                type: "runtime.metric",
+                session_id: session.id,
+                payload: runtimeMetricPayload({
+                  metric: "plan.recovery",
+                  phase: observation.phase,
+                  outcome: observation.outcome,
+                  count: 1,
+                }),
+              })
+              yield* bus.publish(RuntimeEvent, event).pipe(Effect.ignore)
+            }
+            const event = defaultPlanProtocol.events.publish({
+              type: "runtime.metric",
+              session_id: session.id,
+              payload: runtimeMetricPayload({
+                metric: "plan.recovery",
+                phase: "startup",
+                outcome: recovery.errors.length > 0 ? "error" : "reconciled",
+                count: recovery.continued.length + recovery.rejected.length + recovery.settled.length,
+              }),
+            })
+            yield* bus.publish(RuntimeEvent, event).pipe(Effect.ignore)
+            yield* slog.info("multi-agent plan recovery completed", {
+              continued: recovery.continued.length,
+              rejected: recovery.rejected.length,
+              settled: recovery.settled.length,
+              errors: recovery.errors.length,
+            })
+          }
+        }
         let previousToolTurnSignature: string | undefined
         let repeatedToolTurnCount = 0
         const stuckLoopReminderKind = "stuck_loop_warning"

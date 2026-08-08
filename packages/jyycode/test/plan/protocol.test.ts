@@ -619,6 +619,12 @@ describe("file-backed plan protocol", () => {
     expect((brief as { previous_feedback?: { review_feedback: string } }).previous_feedback?.review_feedback).toContain(
       "tests/",
     )
+    const metrics = events
+      .readAfter("ses_main", -1)
+      .filter((event) => event.type === "runtime.metric")
+      .map((event) => event.payload)
+    expect(metrics.some((payload) => payload.metric === "dispatch" && payload.phase === "start")).toBe(true)
+    expect(metrics.some((payload) => payload.metric === "report" && payload.phase === "submit")).toBe(true)
   })
 
   it("keeps report retry state and Inbox entries across protocol calls", async () => {

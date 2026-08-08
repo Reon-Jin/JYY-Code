@@ -45,6 +45,8 @@ import { projectPlanSnapshot, type ActivityState, type PlanSnapshot } from "./sn
 import { PlanStore, REPORT_RETRY_MAX, defaultPlanStore, type WriteOutcome } from "./store"
 import { assertInside, assertOutputArtifact, resolveInside } from "./path-guard"
 import { ChildWorkspace, type WorkspaceHandle, type WorkspaceReservation } from "./child-workspace"
+import { markPlanSessionActive } from "./recovery"
+import { runtimeMetricPayload, type RuntimeMetricInput } from "./runtime-event"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -856,6 +858,14 @@ export class PlanProtocol {
     return result
   }
 
+  private metric(sessionId: string, input: RuntimeMetricInput) {
+    return this.publish({
+      type: "runtime.metric",
+      session_id: sessionId,
+      payload: runtimeMetricPayload(input),
+    })
+  }
+
   private path(ctx: PlanExecutionContext, sessionId = ctx.sessionId) {
     return planFilePath((ctx.runId && planRootForRunId(ctx.runId)) ?? ctx.workspaceRoot, sessionId)
   }
@@ -923,6 +933,7 @@ export class PlanProtocol {
     ctx: PlanExecutionContext,
     apply: (latest: PlanFile | null) => WriteOutcome<T>,
   ): Promise<WriteResult<T>> {
+    markPlanSessionActive(ctx.workspaceRoot, ctx.sessionId)
     const planPath = this.path(ctx)
     const result = await this.store.enqueueWrite(planPath, {
       priority: ctx.runId ? "normal" : "high",
@@ -1005,6 +1016,12 @@ export class PlanProtocol {
         cleanupErrors.push(`workspace cleanup: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
+    this.metric(ctx.sessionId, {
+      metric: "dispatch",
+      phase: "cleanup",
+      outcome: cleanupErrors.length > 0 ? "failed" : "completed",
+      count: cleanupErrors.length,
+    })
     this.inbox.add({
       session_id: ctx.sessionId,
       task_id: input.taskId,
@@ -1362,6 +1379,12 @@ export class PlanProtocol {
         }
         const launch = launchSnapshot(role)
         const reservation = this.childWorkspace?.reserve(ctx.sessionId, task.id)
+        this.metric(ctx.sessionId, {
+          metric: "dispatch",
+          phase: "reservation",
+          outcome: reservation ? "reserved" : "prepared",
+          count: 1,
+        })
         prepared.set(task.id, {
           dispatch: {
             run_id: runId,
@@ -1414,6 +1437,12 @@ export class PlanProtocol {
           try {
             if (item.reservation && this.childWorkspace) {
               workspaceHandle = await this.childWorkspace.create(item.reservation)
+              this.metric(ctx.sessionId, {
+                metric: "dispatch",
+                phase: "workspace",
+                outcome: "created",
+                duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
+              })
               await this.updateDispatchLifecycle(ctx, taskId, {
                 workspace: dispatchWorkspaceMetadata(workspaceHandle),
               })
@@ -1441,6 +1470,12 @@ export class PlanProtocol {
                   : item.dispatch.workspace,
               }
               actualChild = await this.children.create(childInput)
+              this.metric(ctx.sessionId, {
+                metric: "dispatch",
+                phase: "create",
+                outcome: "created",
+                duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
+              })
               registerChildRun(actualChild, item.dispatch.run_id, ctx.workspaceRoot)
               await this.updateDispatchLifecycle(ctx, taskId, {
                 child_session_id: actualChild,
@@ -1450,6 +1485,19 @@ export class PlanProtocol {
               await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "starting" })
               await this.children.start(childInput)
               await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
+              this.metric(ctx.sessionId, {
+                metric: "dispatch",
+                phase: "start",
+                outcome: "started",
+                duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
+              })
+            } else if (!this.childWorkspace) {
+              // The convenience/default protocol may not have a runtime child
+              // controller (for example, an embedded caller supplies the
+              // child runner separately). Keep the durable task state
+              // reportable instead of leaving it permanently dispatched.
+              await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
+              this.metric(ctx.sessionId, { metric: "dispatch", phase: "start", outcome: "delegated", count: 1 })
             }
             dispatched.push({
               taskId,
@@ -1458,6 +1506,7 @@ export class PlanProtocol {
               idempotent: false,
             })
           } catch (error) {
+            this.metric(ctx.sessionId, { metric: "dispatch", phase: "start", outcome: "failed" })
             await this.failDispatch(ctx, {
               taskId,
               childSessionId: this.children ? actualChild : undefined,
@@ -1934,6 +1983,7 @@ export class PlanProtocol {
       message: string
     }>
   > {
+    const startedAt = this.now()
     try {
       if (!ctx.runId)
         throw new PlanProtocolError({
@@ -2079,6 +2129,12 @@ export class PlanProtocol {
         },
       })
       this.reportAttempts.delete(runId)
+      this.metric(parsed.parentSessionId, {
+        metric: "report",
+        phase: "submit",
+        outcome: result.review === "already_reported" ? "idempotent" : result.review,
+        duration_ms: Math.max(0, this.now() - startedAt),
+      })
       const persisted = this.store.read(planPath)
       if (!persisted) throw new Error("Report 写入后无法读取父 plan")
       if (result.review === "already_reported") return { ok: true, ...result }
@@ -2122,6 +2178,15 @@ export class PlanProtocol {
       }
       return { ok: true, ...result }
     } catch (error) {
+      if (error instanceof PlanProtocolError) {
+        this.metric(ctx.sessionId, {
+          metric: "report",
+          phase: "validation",
+          outcome:
+            error.code === ERROR_CODES.RUN_STALE || error.code === ERROR_CODES.RUN_NOT_FOUND ? "stale" : "rejected",
+          duration_ms: Math.max(0, this.now() - startedAt),
+        })
+      }
       if (error instanceof PlanProtocolError && error.retryable && error.code !== ERROR_CODES.BLACKBOARD_UNREAD) {
         const runId =
           input && typeof input === "object" && typeof (input as Record<string, unknown>).run_id === "string"
