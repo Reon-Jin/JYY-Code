@@ -1850,6 +1850,8 @@ export const layer = Layer.effect(
             // every user turn so the agent always sees its own task memory,
             // the current user profile, and matching experiences — even in
             // later tool-loop steps where the step-1 system prompt is gone.
+            // Task memory and user profile stay root-only; experiences are
+            // also open to subagents (read-only) so they can reuse lessons.
             const memorySnapshot =
               canUsePersistentMemory && memory
                 ? yield* memory.formatWithHeader(sessionID, "memory").pipe(
@@ -1860,7 +1862,7 @@ export const layer = Layer.effect(
                   )
                 : undefined
             const experienceSnapshot =
-              memorySnapshot && experienceMemory
+              experienceMemory && memory
                 ? yield* memory!
                     .currentTaskKeywords(sessionID)
                     .pipe(
@@ -1868,9 +1870,8 @@ export const layer = Layer.effect(
                       Effect.catchCause(() => Effect.succeed("")),
                     )
                 : ""
-            const snapshotText = memorySnapshot
-              ? [memorySnapshot, experienceSnapshot].filter(Boolean).join("\n")
-              : undefined
+            const snapshotText =
+              [memorySnapshot, experienceSnapshot].filter(Boolean).join("\n") || undefined
             const sessionState = yield* SessionState.readSessionState(fsys, session.directory, sessionID).pipe(
               Effect.catch(() => Effect.succeed(Option.none())),
             )

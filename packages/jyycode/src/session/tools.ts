@@ -706,6 +706,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     agent: input.agent,
     skillScope: Skill.scopeForSession(input.session, input.agent),
     includeMemory: input.session.parentID === undefined,
+    // Experiences (context_read) are read-only and open to subagents; the
+    // memory tool itself stays root-only via includeMemory and the subagent
+    // forbidden-tool policy.
+    includeContextRead: true,
     ...(allowedToolIDs ? { toolIDs: allowedToolIDs } : {}),
   })
   const mcpDefs = candidateGate && candidateGate.phase !== "running" ? [] : yield* mcp.toolDefs()
@@ -727,7 +731,11 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   ]
   for (const item of visibleRegistryDefs) {
     if (item.id === "tool_search") continue
-    addToolDef(item, { lazy: shouldLazyLoadTool(item) })
+    // Subagents cannot call tool_search to expand a lazy tool, so expose the
+    // full context_read schema/description to them directly.
+    const lazy =
+      shouldLazyLoadTool(item) && !(item.id === "context_read" && input.session.parentID !== undefined)
+    addToolDef(item, { lazy })
   }
   for (const item of visibleMcpDefs) {
     addToolDef(item, { lazy: true })

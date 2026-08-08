@@ -108,6 +108,8 @@ export interface Interface {
     skillScope?: Skill.SkillAccessScope
     /** Persistent memory is only available to root sessions. */
     includeMemory?: boolean
+    /** Read-only context memory (context_read) availability; defaults to includeMemory. */
+    includeContextRead?: boolean
     /** Optional allowlist used by protocol phases with a deliberately narrow tool surface. */
     toolIDs?: ReadonlySet<string>
   }) => Effect.Effect<Tool.Def[]>
@@ -355,9 +357,12 @@ export const layer: Layer.Layer<
 
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
       const s = yield* InstanceState.get(state)
+      const includeContextRead = input.includeContextRead ?? input.includeMemory
       const available = [
         ...s.builtin.filter(
-          (tool) => input.includeMemory !== false || (tool.id !== MemoryTool.id && tool.id !== ContextReadTool.id),
+          (tool) =>
+            (input.includeMemory !== false || tool.id !== MemoryTool.id) &&
+            (includeContextRead !== false || tool.id !== ContextReadTool.id),
         ),
         ...s.custom,
       ].filter((tool) => !input.toolIDs || input.toolIDs.has(tool.id))
