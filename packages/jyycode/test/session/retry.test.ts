@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { NamedError } from "@jyycode-ai/core/util/error"
 import { APICallError } from "ai"
 import { setTimeout as sleep } from "node:timers/promises"
-import { Effect, Layer, Schedule, Schema } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, Schedule, Schema } from "effect"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { SessionRetry } from "../../src/session/retry"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -115,6 +115,38 @@ describe("session.retry.delay", () => {
       }),
     ),
   )
+
+  test("retry backoff can be interrupted after publishing status", async () => {
+    const error = apiError({ "retry-after-ms": "10000" })
+    const parse = Schema.decodeUnknownSync(MessageV2.APIError.Schema)
+    const exit = await Effect.runPromise(
+      Effect.gen(function* () {
+        const ready = yield* Deferred.make<void>()
+        const fiber = yield* Effect.fail(error).pipe(
+          Effect.retry(
+            SessionRetry.policy({
+              provider: retryProvider,
+              parse,
+              set: () => Effect.sync(() => Deferred.doneUnsafe(ready, Effect.void)),
+            }),
+          ),
+          Effect.forkChild,
+        )
+
+        yield* Deferred.await(ready).pipe(Effect.timeout("1 second"))
+        const started = Date.now()
+        yield* Fiber.interrupt(fiber)
+        const result = yield* Fiber.await(fiber).pipe(Effect.timeout("250 millis"))
+
+        expect(Exit.isFailure(result)).toBe(true)
+        if (Exit.isFailure(result)) expect(Cause.hasInterrupts(result.cause)).toBe(true)
+        expect(Date.now() - started).toBeLessThan(250)
+        return result
+      }),
+    )
+
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
 
   test("policy stops retrying after RETRY_MAX_ATTEMPTS", async () => {
     const error = apiError({ "retry-after-ms": "0" })

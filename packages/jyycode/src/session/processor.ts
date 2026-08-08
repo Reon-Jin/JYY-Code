@@ -127,6 +127,7 @@ export const layer = Layer.effect(
         reasoningMap: {},
       }
       let aborted = false
+      let waitingForRetry = false
       const slog = log.clone().tag("session.id", input.sessionID).tag("messageID", input.assistantMessage.id)
 
       const parse = (e: unknown) =>
@@ -776,6 +777,17 @@ export const layer = Layer.effect(
         yield* session.updateMessage(ctx.assistantMessage)
       })
 
+      // Retry interruption must not wait for a best-effort persistence sweep.
+      // The provider and retry schedule are interruptible; keep the finalizer
+      // interruptible and bounded as well so a cancelled turn can settle
+      // promptly while still attempting to close visible parts.
+      const boundedCleanup = Effect.suspend(() => {
+        if (aborted || waitingForRetry) {
+          return cleanup().pipe(Effect.ignore, Effect.forkDetach, Effect.asVoid)
+        }
+        return cleanup().pipe(Effect.interruptible, Effect.timeout("25 millis"), Effect.ignore)
+      })
+
       const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         const error = parse(e)
@@ -815,6 +827,7 @@ export const layer = Layer.effect(
             ctx.currentText = undefined
             ctx.reasoningMap = {}
             yield* status.set(ctx.sessionID, { type: "busy" })
+            waitingForRetry = false
             const stream = llm.stream(streamInput)
 
             yield* stream.pipe(
@@ -833,7 +846,17 @@ export const layer = Layer.effect(
               Effect.gen(function* () {
                 aborted = true
                 if (!ctx.assistantMessage.error) {
-                  yield* halt(new DOMException("Aborted", "AbortError"))
+                  // Do not make the interrupt acknowledgement wait on the
+                  // status/error persistence path. The forked cleanup still
+                  // records the abort, while the retry fiber can terminate
+                  // immediately.
+                  yield* halt(new DOMException("Aborted", "AbortError")).pipe(
+                    Effect.interruptible,
+                    Effect.timeout("25 millis"),
+                    Effect.ignore,
+                    Effect.forkDetach,
+                    Effect.asVoid,
+                  )
                 }
               }),
             ),
@@ -846,6 +869,7 @@ export const layer = Layer.effect(
                 provider: input.model.providerID,
                 parse,
                 set: (info) => {
+                  waitingForRetry = true
                   // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
                   const event = flags.experimentalEventSystem
                     ? events.publish(SessionEvent.Retried, {
@@ -873,7 +897,10 @@ export const layer = Layer.effect(
               }),
             ),
             Effect.catch(halt),
-            Effect.ensuring(cleanup()),
+            Effect.ensuring(boundedCleanup),
+            Effect.onInterrupt(() => Effect.sync(() => {
+              aborted = true
+            })),
           )
 
           if (ctx.needsCompaction) return "compact"
