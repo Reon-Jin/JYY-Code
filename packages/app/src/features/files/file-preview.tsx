@@ -2,6 +2,7 @@ import DOMPurify from "dompurify"
 import type { FileContent, VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
 import { ArrowLeft, Eye, File as FileIcon, Pencil, RefreshCw, X } from "lucide-solid"
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import { createEffect, createMemo, createSignal, onCleanup, Show, type JSX } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
@@ -123,6 +124,7 @@ function BinaryDocumentPreview(props: { kind: PreviewKind; content: FileContent 
       }
 
       const pdfjs = await import("pdfjs-dist")
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc
       const documentTask = pdfjs.getDocument({ data })
       const document = await documentTask.promise
       const page = await document.getPage(1)
