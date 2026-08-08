@@ -16,17 +16,22 @@
 
 .workspace-shell[data-inspector-resizing="true"] {
   transition: none;
+  cursor: col-resize;
   user-select: none;
 }
 
+.workspace-shell[data-inspector-resizing="true"] * {
+  cursor: col-resize !important;
+}
+
 .workspace-shell[data-inspector-open="true"] {
-  grid-template-columns: 280px minmax(0, 1fr) clamp(280px, var(--workspace-inspector-width, 420px), 33.333vw) 44px;
+  grid-template-columns: 280px minmax(0, 1fr) clamp(280px, var(--workspace-inspector-width, 420px), 50vw) 44px;
 }
 .workspace-shell[data-rail-open="false"] {
   grid-template-columns: 0 minmax(0, 1fr) 0 44px;
 }
 .workspace-shell[data-rail-open="false"][data-inspector-open="true"] {
-  grid-template-columns: 0 minmax(0, 1fr) clamp(280px, var(--workspace-inspector-width, 420px), 33.333vw) 44px;
+  grid-template-columns: 0 minmax(0, 1fr) clamp(280px, var(--workspace-inspector-width, 420px), 50vw) 44px;
 }
 
 .workspace-rail {

@@ -32,15 +32,15 @@
 .workspace-drawer__width-handle {
   position: absolute;
   z-index: 5;
-  inset: 0 auto 0 -4px;
-  width: 8px;
+  inset: 0 auto 0 0;
+  width: 12px;
   cursor: col-resize;
   touch-action: none;
 }
 
 .workspace-drawer__width-handle::after {
   position: absolute;
-  inset: 0 auto 0 3px;
+  inset: 0 auto 0 0;
   width: 1px;
   background: var(--color-border);
   content: "";

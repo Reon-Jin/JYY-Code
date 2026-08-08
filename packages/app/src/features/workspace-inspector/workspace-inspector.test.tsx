@@ -188,6 +188,7 @@ describe("WorkspaceInspectorView", () => {
 
     const widthHandle = screen.getByRole("separator", { name: "调整工作栏宽度" })
     expect(widthHandle).toHaveAttribute("aria-valuenow", "420")
+    expect(widthHandle).toHaveAttribute("aria-valuemax", "960")
     fireEvent.keyDown(widthHandle, { key: "ArrowLeft" })
     expect(widthHandle).toHaveAttribute("aria-valuenow", "440")
 
@@ -222,5 +223,34 @@ describe("WorkspaceInspectorView", () => {
     expect(onPreferencesChange).toHaveBeenCalledOnce()
     expect(onPreferencesChange).toHaveBeenCalledWith({ panes: ["plan"], ratios: [1], width: 480 })
     expect(shell).not.toHaveAttribute("data-inspector-resizing")
+  })
+
+  it("keeps pointer width drags active through pointer capture and clamps to the CSS maximum", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1920 })
+    const onPreferencesChange = vi.fn()
+    const { container } = render(() => (
+      <div class="workspace-shell">
+        <WorkspaceInspectorView
+          preferences={{ panes: ["plan"], ratios: [1], width: 420 }}
+          onPreferencesChange={onPreferencesChange}
+          plan={<div>plan content</div>}
+          changes={<div>changes content</div>}
+        />
+      </div>
+    ))
+    const handle = container.querySelector<HTMLElement>(".workspace-drawer__width-handle")!
+    const capture = vi.fn()
+    const release = vi.fn()
+    Object.defineProperty(handle, "setPointerCapture", { configurable: true, value: capture })
+    Object.defineProperty(handle, "releasePointerCapture", { configurable: true, value: release })
+
+    fireEvent.pointerDown(handle, { button: 0, clientX: 600, pointerId: 7, isPrimary: true })
+    fireEvent.pointerMove(window, { clientX: -1_000, pointerId: 7 })
+    fireEvent.pointerUp(window, { clientX: -1_000, pointerId: 7 })
+
+    expect(capture).toHaveBeenCalledWith(7)
+    expect(release).toHaveBeenCalledWith(7)
+    expect(onPreferencesChange).toHaveBeenCalledWith({ panes: ["plan"], ratios: [1], width: 960 })
+    expect(container.querySelector(".workspace-shell")).not.toHaveAttribute("data-inspector-resizing")
   })
 })

@@ -19,7 +19,8 @@
 }
 
 .file-preview__header {
-  min-height: 44px;
+  height: var(--workspace-header-height, 69px);
+  min-height: var(--workspace-header-height, 69px);
   display: flex;
   min-width: 0;
   align-items: center;

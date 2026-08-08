@@ -25,9 +25,16 @@ function isNarrow() {
   return typeof window !== "undefined" && window.matchMedia?.("(max-width: 960px)").matches === true
 }
 
-function clampWidth(width: number) {
+const INSPECTOR_MIN_WIDTH = 280
+const INSPECTOR_MAX_WIDTH_RATIO = 0.5
+
+function inspectorMaxWidth() {
   const viewport = typeof window === "undefined" ? 1_260 : window.innerWidth
-  return Math.min(Math.max(280, width), Math.max(280, viewport / 2))
+  return Math.max(INSPECTOR_MIN_WIDTH, viewport * INSPECTOR_MAX_WIDTH_RATIO)
+}
+
+function clampWidth(width: number) {
+  return Math.min(Math.max(INSPECTOR_MIN_WIDTH, width), inspectorMaxWidth())
 }
 
 export type WorkspaceInspectorViewProps = {
@@ -97,31 +104,46 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
   }
 
   function startWidthResize(event: PointerEvent) {
+    if (event.button > 0) return
     event.preventDefault()
+    const handle = event.currentTarget as HTMLElement
+    handle.setPointerCapture?.(event.pointerId)
     const startX = event.clientX
     const startWidth = clampWidth(props.preferences.width)
-    const shell = (event.currentTarget as HTMLElement).closest<HTMLElement>(".workspace-shell")
+    const shell = handle.closest<HTMLElement>(".workspace-shell")
     let width = startWidth
     let frame = 0
+    let stopped = false
     shell?.setAttribute("data-inspector-resizing", "true")
     const renderPreview = () => {
       frame = 0
       shell?.style.setProperty("--workspace-inspector-width", `${width}px`)
     }
+    renderPreview()
     const move = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== event.pointerId) return
       width = clampWidth(startWidth + startX - moveEvent.clientX)
       if (!frame) frame = window.requestAnimationFrame(renderPreview)
     }
-    const stop = () => {
+    const stop = (stopEvent?: PointerEvent) => {
+      if (stopEvent && stopEvent.pointerId !== event.pointerId) return
+      if (stopped) return
+      stopped = true
       if (frame) window.cancelAnimationFrame(frame)
       renderPreview()
       window.removeEventListener("pointermove", move)
       window.removeEventListener("pointerup", stop)
-      update({ width })
+      window.removeEventListener("pointercancel", stop)
+      window.removeEventListener("blur", handleBlur)
+      handle.releasePointerCapture?.(event.pointerId)
+      update({ width: clampWidth(width) })
       shell?.removeAttribute("data-inspector-resizing")
     }
+    const handleBlur = () => stop()
     window.addEventListener("pointermove", move)
-    window.addEventListener("pointerup", stop, { once: true })
+    window.addEventListener("pointerup", stop)
+    window.addEventListener("pointercancel", stop)
+    window.addEventListener("blur", handleBlur)
   }
 
   function keydown(event: KeyboardEvent) {
@@ -180,8 +202,8 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
             role="separator"
             aria-label={tr("workspace-inspector.adjust-taskbar-width")}
             aria-orientation="vertical"
-            aria-valuemin="280"
-            aria-valuemax={Math.round(Math.max(280, window.innerWidth / 2))}
+            aria-valuemin={INSPECTOR_MIN_WIDTH}
+            aria-valuemax={Math.round(inspectorMaxWidth())}
             aria-valuenow={Math.round(clampWidth(props.preferences.width))}
             tabIndex={0}
             onPointerDown={startWidthResize}

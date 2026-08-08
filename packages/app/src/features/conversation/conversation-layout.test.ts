@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest"
 const composerCSS = readFileSync("src/features/composer/composer.css", "utf8")
 const sessionsCSS = readFileSync("src/features/sessions/sessions.css", "utf8")
 const conversationCSS = readFileSync("src/features/conversation/conversation.css", "utf8")
+const fileEditorCSS = readFileSync("src/features/files/file-editor.css", "utf8")
+const filePreviewCSS = readFileSync("src/features/files/file-preview.css", "utf8")
 const multiAgentCSS = readFileSync("src/features/multi-agent/multi-agent.css", "utf8")
 
 describe("conversation layout CSS", () => {
@@ -27,6 +29,15 @@ describe("conversation layout CSS", () => {
     expect(composerCSS).toMatch(/\.composer-stack\s*\{[^}]*width:\s*var\(--conversation-content-width\);/s)
     expect(composerCSS).toMatch(/\.provider-empty\s*\{[^}]*width:\s*var\(--conversation-content-width\);/s)
     expect(`${conversationCSS}\n${composerCSS}`).not.toContain("820px")
+  })
+
+  it("aligns file editor and preview headers with the conversation header", () => {
+    expect(fileEditorCSS).toMatch(
+      /\.file-editor__header\s*\{[^}]*height:\s*var\(--workspace-header-height,\s*69px\);[^}]*min-height:\s*var\(--workspace-header-height,\s*69px\);/s,
+    )
+    expect(filePreviewCSS).toMatch(
+      /\.file-preview__header\s*\{[^}]*height:\s*var\(--workspace-header-height,\s*69px\);[^}]*min-height:\s*var\(--workspace-header-height,\s*69px\);/s,
+    )
   })
 
   it("points activity chevrons down while expanded and up while collapsed", () => {
