@@ -20,6 +20,7 @@ export type ChangesPanelViewProps = {
   changes?: readonly VcsFileDiff[]
   loading?: boolean
   error?: string
+  sharedCompat?: boolean
   onRetry?: () => void
   onOpenFile?: (event: FileOpenEvent) => void
 }
@@ -59,6 +60,11 @@ export function ChangesPanelView(props: ChangesPanelViewProps) {
       </header>
 
       <div class="changes-panel__body">
+        <Show when={props.sharedCompat}>
+          <p class="changes-panel__shared-warning" role="note">
+            {tr("changes.shared-workspace-warning")}
+          </p>
+        </Show>
         <Show
           when={!props.loading}
           fallback={
@@ -127,6 +133,7 @@ export function ChangesPanel(props: {
   workspaceID?: string
   sessionID?: string
   mode?: "git" | "session"
+  sharedCompat?: boolean
   onOpenFile?: (event: FileOpenEvent) => void
 }) {
   const data = useData()
@@ -153,6 +160,7 @@ export function ChangesPanel(props: {
       changes={displayableChanges(query.data)}
       loading={query.isPending}
       error={query.error ? errorMessage(query.error) : undefined}
+      sharedCompat={props.sharedCompat}
       onRetry={() => void query.refetch()}
       onOpenFile={props.onOpenFile}
     />

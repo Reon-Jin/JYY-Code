@@ -51,6 +51,12 @@ describe("ChangesPanel", () => {
     expect(screen.getByText("工作区没有未提交变更")).toBeVisible()
   })
 
+  it("shows the shared workspace compatibility warning without blocking the panel", () => {
+    render(() => <ChangesPanelView directory={directory} changes={[]} sharedCompat />)
+    expect(screen.getByRole("note")).toHaveTextContent("此子工作区与项目目录共享根目录")
+    expect(screen.getByText("工作区没有未提交变更")).toBeVisible()
+  })
+
   it("opens the selected file in the shared preview workspace", async () => {
     const user = userEvent.setup()
     const onOpenFile = vi.fn()

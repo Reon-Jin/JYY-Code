@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DataProvider } from "../../data/context"
 import { createFakeJyycode } from "../../test/fake-jyycode"
-import { contentDataUrl, contentBytes, FilePreview, isFilePreviewEditable } from "./file-preview"
+import { contentDataUrl, contentBytes, FilePreview, isFilePreviewEditable, MAX_PREVIEW_BYTES } from "./file-preview"
 
 const directory = "C:\\work\\demo"
 
@@ -119,6 +119,7 @@ describe("file preview helpers", () => {
     }
     expect(contentBytes(image)).toEqual(new Uint8Array([104, 101, 108, 108, 111]))
     expect(contentDataUrl(image)).toBe("data:image/png;base64,aGVsbG8=")
+    expect(MAX_PREVIEW_BYTES).toBe(25 * 1024 * 1024)
     expect(isFilePreviewEditable("src/app.tsx", textContent())).toBe(true)
     expect(isFilePreviewEditable("image.png", image)).toBe(false)
   })

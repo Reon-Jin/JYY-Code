@@ -238,6 +238,7 @@ export function WorkspaceInspector(props: {
   diffWorkspaceID?: string
   diffSessionID?: string
   diffMode?: "git" | "session"
+  diffSharedCompat?: boolean
   fileDirectory?: string
   fileWorkspaceID?: string
   fileSessionID?: string
@@ -272,6 +273,7 @@ export function WorkspaceInspector(props: {
           workspaceID={props.diffWorkspaceID ?? props.workspaceID}
           sessionID={props.diffSessionID ?? props.sessionID}
           mode={props.diffMode}
+          sharedCompat={props.diffSharedCompat}
           onOpenFile={props.onOpenFile}
         />
       }

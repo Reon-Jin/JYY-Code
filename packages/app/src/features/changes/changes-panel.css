@@ -45,6 +45,15 @@
   overflow: auto;
 }
 
+.changes-panel__shared-warning {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-accent-muted);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
 .changes-panel__files {
   margin: 0;
   padding: 0;

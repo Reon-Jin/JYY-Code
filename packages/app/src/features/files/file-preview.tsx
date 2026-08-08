@@ -15,6 +15,8 @@ import { oldContentFromUnifiedDiff } from "../changes/unified-diff"
 import { renderMarkdown } from "../conversation/markdown"
 import "./file-preview.css"
 
+export const MAX_PREVIEW_BYTES = 25 * 1024 * 1024
+
 export type FilePreviewProps = {
   directory: string
   workspaceID?: string
@@ -101,7 +103,7 @@ function BinaryDocumentPreview(props: { kind: PreviewKind; content: FileContent 
     setHtml(undefined)
 
     const render = async () => {
-      if (!data?.byteLength) throw new Error(tr("files.binary-too-large"))
+      if (!data?.byteLength || data.byteLength > MAX_PREVIEW_BYTES) throw new Error(tr("files.binary-too-large"))
       if (kind === "docx") {
         const mammoth = await import("mammoth")
         const converter = mammoth.default ?? mammoth
@@ -169,10 +171,30 @@ function BinaryDocumentPreview(props: { kind: PreviewKind; content: FileContent 
 }
 
 function MediaPreview(props: { content: FileContent; kind: PreviewKind }) {
-  const source = () => contentDataUrl(props.content)
+  const [source, setSource] = createSignal<string>()
+  const tooLarge = () => (contentBytes(props.content)?.byteLength ?? 0) > MAX_PREVIEW_BYTES
+
+  createEffect(() => {
+    const bytes = contentBytes(props.content)
+    if (!bytes || tooLarge()) {
+      setSource(undefined)
+      return
+    }
+
+    if (typeof URL.createObjectURL !== "function") {
+      setSource(contentDataUrl(props.content))
+      return
+    }
+
+    const mimeType = props.content.mimeType ?? "application/octet-stream"
+    const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }))
+    setSource(url)
+    onCleanup(() => URL.revokeObjectURL(url))
+  })
+
   return (
     <div class="file-preview__media" data-kind={props.kind}>
-      <Show when={source()} fallback={<InlineError message={tr("files.binary-too-large")} />}>
+      <Show when={!tooLarge() && source()} fallback={<InlineError message={tr("files.binary-too-large")} />}>
         {(url) => (
           <Show
             when={props.kind === "image"}

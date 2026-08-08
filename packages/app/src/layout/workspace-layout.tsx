@@ -485,6 +485,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const isChildSession = createMemo(() => Boolean(parentSessionID()))
   const activeFileDirectory = createMemo(() => activeSession()?.directory ?? data.directory())
   const rootDiffDirectory = createMemo(() => rootSession()?.directory ?? data.directory())
+  const diffSharedCompat = createMemo(() => {
+    if (!isChildSession()) return false
+    const activeDirectory = activeSession()?.directory
+    return activeDirectory !== undefined && normalizeDirectory(activeDirectory) === normalizeDirectory(rootDiffDirectory())
+  })
   const diffMode = createMemo<"git" | "session">(() =>
     projects.activeProject()?.info.vcs === "git" ? "git" : "session",
   )
@@ -976,6 +981,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           diffWorkspaceID={rootSession()?.workspaceID}
           diffSessionID={rootSessionID()}
           diffMode={diffMode()}
+          diffSharedCompat={diffSharedCompat()}
           fileDirectory={activeFileDirectory()}
           fileWorkspaceID={activeSession()?.workspaceID}
           fileSessionID={activeSession()?.id}
