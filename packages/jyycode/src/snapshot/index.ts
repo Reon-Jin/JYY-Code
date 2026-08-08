@@ -1,6 +1,7 @@
 import { Cause, Duration, Effect, Layer, Schedule, Schema, Semaphore, Context } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { formatPatch, structuredPatch } from "diff"
+import createIgnore from "ignore"
 import path from "path"
 import { AppProcess } from "@jyycode-ai/core/process"
 import { InstanceState } from "@/effect/instance-state"
@@ -75,10 +76,21 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("Snapshot.state")(function* (ctx) {
+          const workspaceID = yield* InstanceState.workspaceID
+          const directory = path.resolve(ctx.directory)
+          const worktree = ctx.project.vcs === "git" ? path.resolve(ctx.worktree) : directory
+          const scope = Hash.fast(
+            JSON.stringify({
+              directory,
+              project: ctx.project.id,
+              worktree: ctx.worktree.replaceAll("\\", "/"),
+              workspace: workspaceID,
+            }),
+          )
           const state = {
-            directory: ctx.directory,
-            worktree: ctx.worktree,
-            gitdir: path.join(Global.Path.data, "snapshot", ctx.project.id, Hash.fast(ctx.worktree)),
+            directory,
+            worktree,
+            gitdir: path.join(Global.Path.data, "snapshot", ctx.project.id, scope),
             vcs: ctx.project.vcs,
           }
 
@@ -109,25 +121,33 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
 
           const ignore = Effect.fnUntraced(function* (files: string[]) {
             if (!files.length) return new Set<string>()
-            const check = yield* git(
-              [
-                ...quote,
-                "--git-dir",
-                path.join(state.worktree, ".git"),
-                "--work-tree",
-                state.worktree,
-                "check-ignore",
-                "--no-index",
-                "--stdin",
-                "-z",
-              ],
-              {
-                cwd: state.directory,
-                stdin: feed(files),
-              },
-            )
-            if (check.code !== 0 && check.code !== 1) return new Set<string>()
-            return new Set(check.text.split("\0").filter(Boolean))
+            if (state.vcs === "git") {
+              const check = yield* git(
+                [
+                  ...quote,
+                  "--git-dir",
+                  path.join(state.worktree, ".git"),
+                  "--work-tree",
+                  state.worktree,
+                  "check-ignore",
+                  "--no-index",
+                  "--stdin",
+                  "-z",
+                ],
+                {
+                  cwd: state.directory,
+                  stdin: feed(files),
+                },
+              )
+              if (check.code === 0 || check.code === 1) return new Set(check.text.split("\0").filter(Boolean))
+            }
+
+            const matcher = createIgnore()
+            for (const name of [".gitignore", ".ignore"]) {
+              const text = yield* read(path.join(state.worktree, name))
+              if (text) matcher.add(text)
+            }
+            return new Set(files.filter((file) => matcher.ignores(file.replaceAll("\\", "/"))))
           })
 
           const drop = Effect.fnUntraced(function* (files: string[]) {
@@ -166,7 +186,6 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | AppProce
           const locked = <A, E, R>(fx: Effect.Effect<A, E, R>) => lock(state.gitdir).withPermits(1)(fx)
 
           const enabled = Effect.fnUntraced(function* () {
-            if (state.vcs !== "git") return false
             return (yield* config.get()).snapshot !== false
           })
 

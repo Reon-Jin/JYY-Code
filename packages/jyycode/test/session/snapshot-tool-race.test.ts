@@ -277,3 +277,28 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
     { git: true, config: providerCfg },
   ),
 )
+
+it.live("computes session diffs for non-git instances", () =>
+  provideTmpdirServer(
+    ({ dir }) =>
+      Effect.gen(function* () {
+        const snapshot = yield* Snapshot.Service
+        const summary = yield* SessionSummary.Service
+        yield* Effect.promise(() => fs.writeFile(path.join(dir, "before.txt"), "before"))
+        const before = yield* snapshot.track()
+        expect(before).toBeTruthy()
+        yield* Effect.promise(() => fs.writeFile(path.join(dir, "after.txt"), "after"))
+        const after = yield* snapshot.track()
+        expect(after).toBeTruthy()
+
+        const diffs = yield* summary.computeDiff({
+          messages: [
+            { info: {} as MessageV2.Info, parts: [{ type: "step-start", snapshot: before } as MessageV2.Part] },
+            { info: {} as MessageV2.Info, parts: [{ type: "step-finish", snapshot: after } as MessageV2.Part] },
+          ],
+        })
+        expect(diffs.map((item) => item.file)).toContain("after.txt")
+      }),
+    { git: false },
+  ),
+)

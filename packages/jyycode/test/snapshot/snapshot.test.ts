@@ -5,6 +5,8 @@ import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import fs from "fs/promises"
 import path from "path"
 import { Effect, Fiber, Layer } from "effect"
+import { InstanceRef } from "../../src/effect/instance-ref"
+import { Global } from "@jyycode-ai/core/global"
 import { Snapshot } from "../../src/snapshot"
 import { disposeAllInstances, provideInstance, TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
@@ -443,6 +445,71 @@ it.live(
 )
 
 it.instance(
+  "tracks non-git file changes",
+  Effect.gen(function* () {
+    const tmp = yield* bootstrap()
+    const snapshot = yield* Snapshot.Service
+    yield* write(`${tmp.path}/deleted.txt`, "deleted content")
+    const before = yield* snapshot.track()
+    expect(before).toBeTruthy()
+
+    yield* write(`${tmp.path}/a.txt`, "modified content")
+    yield* write(`${tmp.path}/new.txt`, "new content")
+    yield* rm(`${tmp.path}/deleted.txt`)
+    const after = yield* snapshot.track()
+    expect(after).toBeTruthy()
+
+    const diffs = yield* snapshot.diffFull(before!, after!)
+    expect(diffs.map((item) => [item.file, item.status])).toEqual(
+      expect.arrayContaining([
+        ["a.txt", "modified"],
+        ["new.txt", "added"],
+        ["deleted.txt", "deleted"],
+      ]),
+    )
+  }),
+  { git: false },
+)
+
+it.instance(
+  "respects ignore files for non-git snapshots",
+  Effect.gen(function* () {
+    const tmp = yield* bootstrap()
+    const snapshot = yield* Snapshot.Service
+    yield* write(`${tmp.path}/.gitignore`, "gitignored.txt\nignored-dir/\n")
+    yield* write(`${tmp.path}/.ignore`, "ignored-by-ignore.txt\n")
+    yield* write(`${tmp.path}/tracked.txt`, "tracked content")
+    yield* write(`${tmp.path}/gitignored.txt`, "ignored content")
+    yield* write(`${tmp.path}/ignored-by-ignore.txt`, "ignored content")
+    yield* write(`${tmp.path}/ignored-dir/file.txt`, "ignored content")
+    const before = yield* snapshot.track()
+    expect(before).toBeTruthy()
+
+    yield* write(`${tmp.path}/tracked.txt`, "modified content")
+    yield* write(`${tmp.path}/gitignored.txt`, "modified ignored content")
+    yield* write(`${tmp.path}/ignored-by-ignore.txt`, "modified ignored content")
+    const after = yield* snapshot.track()
+    expect(after).toBeTruthy()
+
+    const diffs = yield* snapshot.diffFull(before!, after!)
+    expect(diffs.map((item) => item.file)).toEqual(expect.arrayContaining(["tracked.txt"]))
+    expect(diffs.map((item) => item.file)).not.toEqual(
+      expect.arrayContaining(["gitignored.txt", "ignored-by-ignore.txt", "ignored-dir/file.txt"]),
+    )
+  }),
+  { git: false },
+)
+
+it.instance(
+  "honors the global snapshot switch for non-git projects",
+  Effect.gen(function* () {
+    const snapshot = yield* Snapshot.Service
+    expect(yield* snapshot.track()).toBeUndefined()
+  }),
+  { git: false, config: { snapshot: false } },
+)
+
+it.instance(
   "gitignore changes",
   withTrackedSnapshot(({ tmp, snapshot, before }) =>
     Effect.gen(function* () {
@@ -583,6 +650,63 @@ it.live(
       expect(patch2.files).not.toContain(fwd(tmp1.path, "project1.txt"))
     }).pipe(provideInstance(tmp2.path))
   }),
+)
+
+it.live(
+  "snapshot state isolation between non-git parent and child directories",
+  Effect.gen(function* () {
+    const container = yield* tmpdirScoped({ git: false })
+    const root = fwd(container, "main")
+    const child = fwd(container, "child")
+    let rootBefore: string | undefined
+    let childBefore: string | undefined
+    let projectID: string | undefined
+    const snapshotRoot = path.join(Global.Path.data, "snapshot")
+    yield* mkdirp(child)
+    yield* mkdirp(root)
+    yield* write(`${root}/same.txt`, "root baseline")
+    yield* write(`${child}/same.txt`, "child baseline")
+
+    yield* Effect.gen(function* () {
+      const snapshot = yield* Snapshot.Service
+      rootBefore = yield* snapshot.track()
+      expect(rootBefore).toBeTruthy()
+      projectID = (yield* InstanceRef)!.project.id
+    }).pipe(provideInstance(root))
+    yield* Effect.gen(function* () {
+      const snapshot = yield* Snapshot.Service
+      childBefore = yield* snapshot.track()
+      expect(childBefore).toBeTruthy()
+    }).pipe(provideInstance(child))
+
+    yield* write(`${root}/same.txt`, "root changed")
+    yield* write(`${child}/same.txt`, "child changed")
+    yield* write(`${root}/shared_compat.txt`, "shared change")
+
+    yield* Effect.gen(function* () {
+      const snapshot = yield* Snapshot.Service
+      const after = yield* snapshot.track()
+      expect(after).toBeTruthy()
+      const diffs = yield* snapshot.diffFull(childBefore!, after!)
+      expect(diffs.map((item) => item.file)).toEqual(expect.arrayContaining(["same.txt"]))
+      expect(diffs.map((item) => item.file)).not.toContain("shared_compat.txt")
+    }).pipe(provideInstance(child))
+
+    yield* Effect.gen(function* () {
+      const snapshot = yield* Snapshot.Service
+      const after = yield* snapshot.track()
+      expect(after).toBeTruthy()
+      const diffs = yield* snapshot.diffFull(rootBefore!, after!)
+      expect(diffs.map((item) => item.file)).toEqual(expect.arrayContaining(["same.txt", "shared_compat.txt"]))
+      expect(diffs.map((item) => item.file)).not.toContain("child/same.txt")
+    }).pipe(provideInstance(root))
+
+    const repositories = yield* Effect.promise(async () => {
+      const entries = await fs.readdir(path.join(snapshotRoot, projectID!), { withFileTypes: true })
+      return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+    })
+    expect(new Set(repositories).size).toBeGreaterThanOrEqual(2)
+  }).pipe(Effect.provide(CrossSpawnSpawner.defaultLayer)),
 )
 
 it.live(
