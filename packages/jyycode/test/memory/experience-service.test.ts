@@ -149,6 +149,17 @@ describe("experience service", () => {
     })
   })
 
+  test("search finds content-only hits and keeps uses increments", async () => {
+    await withStore(async (service) => {
+      await Effect.runPromise(
+        service.upsert(sessionID, candidate({ keywords: ["部署"], content: "部署前先跑测试" })),
+      )
+      const hits = await Effect.runPromise(service.search({ sessionID, query: "测试" }))
+      expect(hits).toHaveLength(1)
+      expect(hits[0]?.uses).toBe(1)
+    })
+  })
+
   test("rejects evidence without a [sessionID#turn] anchor", async () => {
     await withStore(async (service) => {
       await expect(

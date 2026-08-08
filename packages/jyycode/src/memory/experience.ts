@@ -6,7 +6,7 @@ import { Global } from "@jyycode-ai/core/global"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import * as Log from "@jyycode-ai/core/util/log"
 import { SessionID } from "@/session/schema"
-import { bigramSimilarity, normalizeKeywords, parseImportance, validateKeywords } from "./memory"
+import { normalizeKeywords, parseImportance, validateKeywords } from "./memory"
 import { buildCorpusStats, buildQueryTerms, scoreExperience } from "./experience-score"
 import type { Importance } from "./memory"
 import {
@@ -31,23 +31,6 @@ export type {
 } from "./experience-schema"
 
 const log = Log.create({ service: "memory.experience" })
-
-/**
- * Deterministic Chinese-aware keyword similarity (0 = no match).
- * Exact > bidirectional containment > bigram Jaccard ≥ 0.5 > character Jaccard ≥ 0.5.
- * Keywords are short (2–4 chars), so this stays precise without an external model.
- */
-function keywordMatchScore(left: string, right: string): number {
-  if (left === right) return 1
-  if (left.includes(right) || right.includes(left)) return 0.8
-  if (bigramSimilarity(left, right) >= 0.5) return 0.6
-  const leftChars = new Set([...left])
-  const rightChars = new Set([...right])
-  let intersection = 0
-  for (const char of leftChars) if (rightChars.has(char)) intersection++
-  const union = leftChars.size + rightChars.size - intersection
-  return union > 0 && intersection / union >= 0.5 ? 0.4 : 0
-}
 
 export const EXPERIENCE_FILE = "EXPERIENCE.json"
 export const EXPERIENCE_CHAR_LIMIT = 10_000
@@ -459,37 +442,25 @@ export const layerWithDirectory = (directory: string) =>
         const query = input.query.normalize("NFKC").trim().toLowerCase()
         const limit = Math.min(10, Math.max(1, input.limit ?? 5))
         const store = yield* readStore(input.sessionID)
-        const scored = store.entries
-          .filter((entry) => entry.status === "active" && (!input.kind || entry.kind === input.kind))
-          .map((entry) => {
-            const haystack = `${entry.keywords.join(" ")} ${entry.content} ${entry.evidence}`
-              .normalize("NFKC")
-              .toLowerCase()
-            const keywordScores = entry.keywords
-              .map((keyword) => keywordMatchScore(query, keyword))
-              .filter((score) => score > 0)
-            const keywordHits = keywordScores.length
-            const keywordSimilarity = keywordScores.reduce((sum, score) => sum + score, 0)
-            const substringHit = haystack.includes(query) ? 1 : 0
-            return { entry, keywordHits, keywordSimilarity, substringHit }
-          })
-          .filter(({ keywordHits, substringHit }) => keywordHits > 0 || substringHit > 0)
-          .sort((a, b) => {
-            const scoreA =
-              a.entry.importance * 100 +
-              a.substringHit * 50 +
-              a.keywordHits * 10 +
-              a.keywordSimilarity * 5 +
-              a.entry.uses
-            const scoreB =
-              b.entry.importance * 100 +
-              b.substringHit * 50 +
-              b.keywordHits * 10 +
-              b.keywordSimilarity * 5 +
-              b.entry.uses
-            return scoreB - scoreA
-          })
-          .slice(0, limit)
+        const candidates = store.entries.filter(
+          (entry) => entry.status === "active" && (!input.kind || entry.kind === input.kind),
+        )
+        const queryTerms = buildQueryTerms([], query, 1)
+        let scored: Array<{ entry: ExperienceEntry; score: number }> = []
+        if (queryTerms.size > 0 && candidates.length > 0) {
+          const stats = buildCorpusStats(candidates)
+          scored = candidates
+            .map((entry) => ({ entry, score: scoreExperience(entry, queryTerms, [], stats) }))
+            .filter(({ score }) => score > 0)
+            .sort(
+              (a, b) =>
+                b.score - a.score ||
+                b.entry.importance - a.entry.importance ||
+                b.entry.uses - a.entry.uses ||
+                b.entry.date.localeCompare(a.entry.date),
+            )
+            .slice(0, limit)
+        }
         const byKey = new Map(store.entries.map((entry) => [experienceKey(entry), entry]))
         if (scored.length > 0) {
           for (const { entry } of scored) byKey.set(experienceKey(entry), { ...entry, uses: entry.uses + 1 })
