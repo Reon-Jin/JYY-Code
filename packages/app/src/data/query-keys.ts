@@ -3,6 +3,34 @@ export { normalizeDirectory } from "../platform/desktop-path"
 
 const project = (directory: string) => ["project", normalizeDirectory(directory)] as const
 
+export type WorkspaceQueryScope = {
+  directory: string
+  workspaceID?: string
+  sessionID?: string
+  relativePath?: string
+}
+
+export const normalizeRelativePath = (relativePath = "") => {
+  const normalized = relativePath.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, "")
+  return normalized === "." ? "" : normalized
+}
+
+const workspaceScope = (scope: WorkspaceQueryScope) => [
+  ...project(scope.directory),
+  "workspace",
+  scope.workspaceID ?? "",
+  "session",
+  scope.sessionID ?? "",
+  "path",
+  normalizeRelativePath(scope.relativePath),
+] as const
+
+const scopedKey = (kind: string, scope: WorkspaceQueryScope, ...parts: readonly unknown[]) => [
+  ...workspaceScope(scope),
+  kind,
+  ...parts,
+] as const
+
 export const keys = {
   management: ["management"] as const,
   managementSkills: ["management", "skills"] as const,
@@ -26,7 +54,16 @@ export const keys = {
   questions: (directory: string) => [...project(directory), "questions"] as const,
   vcsInfo: (directory: string) => [...project(directory), "vcs", "info"] as const,
   vcsBranches: (directory: string) => [...project(directory), "vcs", "branches"] as const,
-  vcsDiff: (directory: string) => [...project(directory), "vcs", "diff"] as const,
+  vcsDiff: (directory: string, workspaceID?: string, sessionID?: string, relativePath?: string) =>
+    workspaceID || sessionID || relativePath
+      ? scopedKey("vcs-diff", { directory, workspaceID, sessionID, relativePath })
+      : ([...project(directory), "vcs", "diff"] as const),
+  sessionDiff: (directory: string, workspaceID = "", sessionID = "", relativePath = "") =>
+    scopedKey("session-diff", { directory, workspaceID, sessionID, relativePath }),
+  fileList: (directory: string, workspaceID = "", sessionID = "", relativePath = "") =>
+    scopedKey("files", { directory, workspaceID, sessionID, relativePath }, "list"),
+  fileContent: (directory: string, workspaceID = "", sessionID = "", relativePath = "") =>
+    scopedKey("files", { directory, workspaceID, sessionID, relativePath }, "content"),
   githubStatus: (directory: string) => [...project(directory), "github", "status"] as const,
   pullRequestsScope: (directory: string) => [...project(directory), "github", "pulls"] as const,
   pullRequests: (directory: string, state: "open" | "closed" | "merged" | "all") =>
