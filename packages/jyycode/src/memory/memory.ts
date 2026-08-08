@@ -117,6 +117,12 @@ export function parseStore(scope: Scope, text: string): MemoryStore {
   return { schemaVersion: 3, lastCompactedAt: root.lastCompactedAt as string | null, entries }
 }
 
+/** Extract the goal body from the canonical task content, or "" when it does not match. */
+export function parseTaskGoal(content: string): string {
+  const match = /^当前任务：([^；]+)/u.exec(content.trim())
+  return match?.[1]?.trim() ?? ""
+}
+
 export function serializeStore(
   scope: Scope,
   entries: readonly MemoryEntry[],
@@ -421,6 +427,7 @@ export interface Interface {
   readonly usage: (sessionID: SessionID, scope: Scope) => Effect.Effect<UsageInfo, Error>
   readonly formatWithHeader: (sessionID: SessionID, scope: Scope) => Effect.Effect<string, Error>
   readonly currentTaskKeywords: (sessionID: SessionID) => Effect.Effect<string[], Error>
+  readonly currentTaskContent: (sessionID: SessionID) => Effect.Effect<string | undefined, Error>
   readonly updateAfterTurn: (
     sessionID: SessionID,
     evaluator?: DecisionEvaluator,
@@ -1288,6 +1295,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         usage,
         formatWithHeader,
         currentTaskKeywords,
+        currentTaskContent,
         updateAfterTurn,
         updateStepBegin,
         managementRead,

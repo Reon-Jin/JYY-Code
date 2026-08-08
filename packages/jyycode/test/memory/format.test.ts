@@ -206,4 +206,10 @@ describe("memory v3 JSON format", () => {
     const store = Memory.parseStore("memory", text)
     expect(store.entries[0]?.content).toBe("当前任务：旧任务；进展：完成")
   })
+
+  test("parseTaskGoal extracts the goal body from task content", () => {
+    expect(Memory.parseTaskGoal("当前任务：修复认证缺陷；进展：已定位")).toBe("修复认证缺陷")
+    expect(Memory.parseTaskGoal("当前任务：赛车；进展：完成；经验：先跑回归")).toBe("赛车")
+    expect(Memory.parseTaskGoal("任意文本")).toBe("")
+  })
 })
