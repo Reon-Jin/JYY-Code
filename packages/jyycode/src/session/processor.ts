@@ -749,11 +749,16 @@ export const layer = Layer.effect(
         }
         ctx.reasoningMap = {}
 
-        yield* Effect.forEach(
-          Object.values(ctx.toolcalls),
-          (call) => Deferred.await(call.done).pipe(Effect.timeout("250 millis"), Effect.ignore),
-          { concurrency: "unbounded" },
-        )
+        // On interruption the tool fiber may never settle its deferred. Do
+        // not spend the cleanup budget waiting for it; the state sweep below
+        // is the authoritative abort path for pending and running calls.
+        if (!aborted) {
+          yield* Effect.forEach(
+            Object.values(ctx.toolcalls),
+            (call) => Deferred.await(call.done).pipe(Effect.timeout("250 millis"), Effect.ignore),
+            { concurrency: "unbounded" },
+          )
+        }
 
         for (const toolCallID of Object.keys(ctx.toolcalls)) {
           const match = yield* readToolCall(toolCallID)
@@ -782,9 +787,10 @@ export const layer = Layer.effect(
       // interruptible and bounded as well so a cancelled turn can settle
       // promptly while still attempting to close visible parts.
       const boundedCleanup = Effect.suspend(() => {
-        if (aborted || waitingForRetry) {
+        if (waitingForRetry) {
           return cleanup().pipe(Effect.ignore, Effect.forkDetach, Effect.asVoid)
         }
+        if (aborted) return cleanup().pipe(Effect.timeout("25 millis"), Effect.ignore)
         return cleanup().pipe(Effect.interruptible, Effect.timeout("25 millis"), Effect.ignore)
       })
 
@@ -846,16 +852,11 @@ export const layer = Layer.effect(
               Effect.gen(function* () {
                 aborted = true
                 if (!ctx.assistantMessage.error) {
-                  // Do not make the interrupt acknowledgement wait on the
-                  // status/error persistence path. The forked cleanup still
-                  // records the abort, while the retry fiber can terminate
-                  // immediately.
+                  // Keep the interrupt acknowledgement bounded; the
+                  // finalizer performs the visible tool-state sweep.
                   yield* halt(new DOMException("Aborted", "AbortError")).pipe(
-                    Effect.interruptible,
                     Effect.timeout("25 millis"),
                     Effect.ignore,
-                    Effect.forkDetach,
-                    Effect.asVoid,
                   )
                 }
               }),
