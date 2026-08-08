@@ -15,6 +15,7 @@ import {
   BlackboardReadCursorTable,
   type BlackboardAttachment,
 } from "./blackboard.sql"
+import { resolveInside, PathGuardError } from "./path-guard"
 
 export type BlackboardKind = "info" | "risk" | "blocker" | "decision" | "help"
 export type BlackboardAuthorKind = "user" | "main_agent" | "sub_agent"
@@ -245,11 +246,6 @@ function parseMentions(body: string, step: PlanStep) {
   return { mentions, mentionedTaskIDs }
 }
 
-function isWithin(root: string, target: string) {
-  const relative = path.relative(path.resolve(root), path.resolve(target))
-  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
-}
-
 function normalizeAttachments(
   values: readonly string[] | undefined,
   workspaceRoot: string,
@@ -268,9 +264,15 @@ function normalizeAttachments(
         throw new BlackboardError("INVALID_ATTACHMENT", `Agent 不允许使用本地 file:// 附件：${value}`)
       return { type: "path" as const, value: url.toString() }
     }
-    const resolved = path.resolve(workspaceRoot, value)
+    let resolved: string
+    try {
+      resolved = resolveInside(workspaceRoot, value, "attachment")
+    } catch (error) {
+      if (error instanceof PathGuardError)
+        throw new BlackboardError("INVALID_ATTACHMENT", `附件超出工作区：${value}`)
+      throw error
+    }
     if (!fs.existsSync(resolved)) throw new BlackboardError("INVALID_ATTACHMENT", `附件不存在：${value}`)
-    if (!isWithin(workspaceRoot, resolved)) throw new BlackboardError("INVALID_ATTACHMENT", `附件超出工作区：${value}`)
     return { type: fs.statSync(resolved).isDirectory() ? ("directory" as const) : ("path" as const), value: resolved }
   })
 }

@@ -43,6 +43,7 @@ import {
 } from "./events"
 import { projectPlanSnapshot, type ActivityState, type PlanSnapshot } from "./snapshot"
 import { PlanStore, REPORT_RETRY_MAX, defaultPlanStore, type WriteOutcome } from "./store"
+import { assertInside, assertOutputArtifact, resolveInside } from "./path-guard"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -231,12 +232,7 @@ function requiredText(value: unknown, field: string) {
  * child agent and its parent always resolve the same absolute location.
  */
 function resolveWorkspacePath(workspaceRoot: string, value: string, field: string) {
-  const root = path.resolve(workspaceRoot)
-  const absolute = path.isAbsolute(value) ? path.resolve(value) : path.resolve(root, value)
-  const relative = path.relative(root, absolute)
-  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-    inputError(`${field} 必须位于工作区内`, "使用工作区相对路径或工作区内的绝对路径")
-  return absolute
+  return resolveInside(workspaceRoot, value, field)
 }
 
 export type DispatchInput = { taskIds: string[]; role: string }
@@ -1671,15 +1667,21 @@ export class PlanProtocol {
           message: "candidate 缺少隔离提案路径",
           hint: "重新创建 candidate task",
         })
-      const absolutePath = path.resolve(ctx.workspaceRoot, proposalPath)
-      const expectedRoot = path.resolve(
-        planDirectory(ctx.workspaceRoot, state.parsed.parentSessionId),
-        "candidates",
-        state.step.id,
-        state.task.id,
+      const absolutePath = resolveInside(ctx.workspaceRoot, proposalPath, "candidate proposal")
+      const expectedRoot = resolveInside(
+        ctx.workspaceRoot,
+        path.join(
+          ".jyycode",
+          "plan",
+          state.parsed.parentSessionId,
+          "candidates",
+          state.step.id,
+          state.task.id,
+        ),
+        "candidate output root",
       )
-      const relative = path.relative(expectedRoot, absolutePath)
-      if (relative !== "proposal.md" || !path.isAbsolute(absolutePath))
+      assertInside(expectedRoot, absolutePath, "candidate proposal")
+      if (path.basename(absolutePath) !== "proposal.md")
         throw new PlanProtocolError({
           code: ERROR_CODES.FORBIDDEN_CHILD_SESSION,
           message: "candidate 只能写入自己的隔离提案",
@@ -1795,9 +1797,19 @@ export class PlanProtocol {
       const reportPathCtx: PlanExecutionContext = { ...ctx, sessionId: parsed.parentSessionId, runId }
       const planPath = this.path(reportPathCtx)
       const attempt = (this.reportAttempts.get(runId) ?? 0) + 1
-      const missing = artifacts.filter(
-        (artifact) => !fs.existsSync(path.isAbsolute(artifact) ? artifact : path.resolve(ctx.workspaceRoot, artifact)),
+      const outputRoot = candidateTask?.output_path
+        ? resolveInside(ctx.workspaceRoot, candidateTask.output_path, `任务 ${parsed.taskId} 的 output_path`)
+        : undefined
+      if (!outputRoot)
+        throw new PlanProtocolError({
+          code: ERROR_CODES.RUN_NOT_FOUND,
+          message: "任务缺少 output_path",
+          hint: "重新派发带有 output_path 的任务",
+        })
+      const canonicalArtifacts = artifacts.map((artifact) =>
+        assertOutputArtifact({ workspaceRoot: ctx.workspaceRoot, outputRoot, artifact }),
       )
+      const missing = canonicalArtifacts.filter((artifact) => !fs.existsSync(artifact))
       const shouldRejectPrecheck = missing.length > 0 && attempt >= REPORT_RETRY_MAX
       const result = await this.store.enqueueWrite(planPath, {
         priority: "normal",
@@ -1836,7 +1848,7 @@ export class PlanProtocol {
           const report: ReportRecord = {
             status: status as ReportStatus,
             summary,
-            artifacts,
+            artifacts: canonicalArtifacts,
             issues,
             reported_at: nowIso(this.now),
             review_feedback: target.report?.review_feedback ?? null,
