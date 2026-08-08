@@ -1487,7 +1487,7 @@ function contentBigrams(content: string): Set<string> {
   return bigrams
 }
 
-export function bigramSimilarity(left: string, right: string) {
+function bigramSimilarity(left: string, right: string) {
   const a = contentBigrams(left)
   const b = contentBigrams(right)
   if (a.size === 0 || b.size === 0) return 0
