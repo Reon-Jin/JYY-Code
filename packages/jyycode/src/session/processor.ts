@@ -783,14 +783,14 @@ export const layer = Layer.effect(
       })
 
       // Retry interruption must not wait for a best-effort persistence sweep.
-      // The provider and retry schedule are interruptible; keep the finalizer
-      // interruptible and bounded as well so a cancelled turn can settle
-      // promptly while still attempting to close visible parts.
+      // The provider and retry schedule are interruptible. A user interruption
+      // must still finish its visible error/tool-state writes before the
+      // cancelled turn settles.
       const boundedCleanup = Effect.suspend(() => {
         if (waitingForRetry) {
           return cleanup().pipe(Effect.ignore, Effect.forkDetach, Effect.asVoid)
         }
-        if (aborted) return cleanup().pipe(Effect.timeout("25 millis"), Effect.ignore)
+        if (aborted) return Effect.uninterruptible(cleanup()).pipe(Effect.ignore)
         return cleanup().pipe(Effect.interruptible, Effect.timeout("25 millis"), Effect.ignore)
       })
 
@@ -854,10 +854,7 @@ export const layer = Layer.effect(
                 if (!ctx.assistantMessage.error) {
                   // Keep the interrupt acknowledgement bounded; the
                   // finalizer performs the visible tool-state sweep.
-                  yield* halt(new DOMException("Aborted", "AbortError")).pipe(
-                    Effect.timeout("25 millis"),
-                    Effect.ignore,
-                  )
+                  yield* Effect.uninterruptible(halt(new DOMException("Aborted", "AbortError"))).pipe(Effect.ignore)
                 }
               }),
             ),
