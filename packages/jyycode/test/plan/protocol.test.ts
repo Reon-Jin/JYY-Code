@@ -9,6 +9,14 @@ import { planFilePath, PlanProtocolError, validatePlanFile } from "../../src/pla
 import { projectPlanSnapshot, validatePlanSnapshot } from "../../src/plan/snapshot"
 import { planSystemPrompt } from "../../src/plan/prompts"
 import { defaultGeneralProfile } from "../../src/agent/subagent-profile"
+import {
+  createFakeArtifact,
+  createHardeningChildren,
+  createHardeningWorkspace,
+  hardeningContext,
+  hardeningPlanInput,
+  readHardeningPlan,
+} from "./hardening-fixtures"
 
 function workspace() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "jyycode-plan-"))
@@ -575,6 +583,129 @@ describe("file-backed plan protocol", () => {
     expect(inbox.items[0]?.kind).toBe("report_precheck_failed")
     const handled = await new PlanProtocol().readInbox(rootContext, { mark_handled: [inbox.items[0]!.id] })
     expect(handled).toEqual({ ok: true, items: [] })
+  })
+
+  it("only accepts the first Report from a running task and keeps duplicate reports idempotent", async () => {
+    const fixture = createHardeningWorkspace()
+    try {
+      const outputPath = path.join(fixture.root, "output")
+      const artifact = createFakeArtifact(path.join(outputPath, "report.md"))
+      expect(artifact.write()).toBe(true)
+      const children = createHardeningChildren()
+      const protocol = new PlanProtocol({ store: new PlanStore(), children: children.controller })
+      const root = hardeningContext(fixture.root)
+      await protocol.create(root, hardeningPlanInput(outputPath))
+      const dispatched = await protocol.dispatch(root, { taskIds: ["s1_t1"], role: "general" })
+      expect(dispatched.ok).toBe(true)
+      if (!dispatched.ok) return
+      const runId = dispatched.dispatched[0]!.run_id
+      const child = { ...hardeningContext(fixture.root, "child_s1_t1", "single"), runId }
+
+      const first = await protocol.report(child, {
+        run_id: runId,
+        status: "done",
+        summary: "第一次报告",
+        artifacts: [artifact.pathname],
+        issues: [],
+      })
+      expect(first).toMatchObject({ ok: true, review: "pending_review" })
+      const beforeDuplicate = readHardeningPlan(fixture.root)
+
+      const duplicate = await protocol.report(child, {
+        run_id: runId,
+        status: "done",
+        summary: "不应覆盖的报告",
+        artifacts: [artifact.pathname],
+        issues: ["duplicate"],
+      })
+      expect(duplicate).toMatchObject({ ok: true, review: "already_reported" })
+      const afterDuplicate = readHardeningPlan(fixture.root)
+      expect(afterDuplicate.revision).toBe(beforeDuplicate.revision)
+      expect(afterDuplicate.steps[0]?.tasks[0]?.report?.summary).toBe("第一次报告")
+      expect(children.calls.create).toBe(1)
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it("rejects Reports for terminal tasks instead of accepting a stale run", async () => {
+    const fixture = createHardeningWorkspace()
+    try {
+      const outputPath = path.join(fixture.root, "output")
+      const artifact = createFakeArtifact(path.join(outputPath, "report.md"))
+      artifact.write()
+      const protocol = new PlanProtocol({ store: new PlanStore(), children: createHardeningChildren().controller })
+      const root = hardeningContext(fixture.root)
+      await protocol.create(root, hardeningPlanInput(outputPath))
+      const dispatched = await protocol.dispatch(root, { taskIds: ["s1_t1"], role: "general" })
+      if (!dispatched.ok) return
+      const runId = dispatched.dispatched[0]!.run_id
+      const child = { ...hardeningContext(fixture.root, "child_s1_t1", "single"), runId }
+      expect(
+        await protocol.report(child, {
+          run_id: runId,
+          status: "done",
+          summary: "第一次报告",
+          artifacts: [artifact.pathname],
+          issues: [],
+        }),
+      ).toMatchObject({ ok: true })
+
+      const plan = readHardeningPlan(fixture.root)
+      plan.steps[0]!.tasks[0]!.status = "approved"
+      fs.writeFileSync(planFilePath(fixture.root, "ses_main"), JSON.stringify(plan))
+
+      const stale = await protocol.report(child, {
+        run_id: runId,
+        status: "done",
+        summary: "过期报告",
+        artifacts: [artifact.pathname],
+        issues: [],
+      })
+      expect(stale).toMatchObject({ ok: false, error: { code: "RUN_STALE" } })
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it("keeps a task running when a Report artifact is outside its output subtree", async () => {
+    const fixture = createHardeningWorkspace()
+    try {
+      const outputPath = path.join(fixture.root, "output")
+      const outsideArtifact = path.join(fixture.root, "outside.md")
+      fs.writeFileSync(outsideArtifact, "outside")
+      const protocol = new PlanProtocol({ store: new PlanStore(), children: createHardeningChildren().controller })
+      const root = hardeningContext(fixture.root)
+      await protocol.create(root, hardeningPlanInput(outputPath))
+      const dispatched = await protocol.dispatch(root, { taskIds: ["s1_t1"], role: "general" })
+      if (!dispatched.ok) return
+      const runId = dispatched.dispatched[0]!.run_id
+      const report = await protocol.report(
+        { ...hardeningContext(fixture.root, "child_s1_t1", "single"), runId },
+        { run_id: runId, status: "done", summary: "越界产物", artifacts: [outsideArtifact], issues: [] },
+      )
+      expect(report).toMatchObject({ ok: false })
+      expect(readHardeningPlan(fixture.root).steps[0]?.tasks[0]?.status).toBe("running")
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it("does not leave a task running when child start fails", async () => {
+    const fixture = createHardeningWorkspace()
+    try {
+      const children = createHardeningChildren({ startFailures: 1 })
+      const protocol = new PlanProtocol({ store: new PlanStore(), children: children.controller })
+      const root = hardeningContext(fixture.root)
+      await protocol.create(root, hardeningPlanInput(path.join(fixture.root, "output")))
+      const dispatched = await protocol.dispatch(root, { taskIds: ["s1_t1"], role: "general" })
+      expect(dispatched).toMatchObject({ ok: false })
+      expect(readHardeningPlan(fixture.root).steps[0]?.tasks[0]?.status).not.toBe("running")
+      expect(children.calls.create).toBe(1)
+      expect(children.calls.start).toBe(1)
+    } finally {
+      fixture.cleanup()
+    }
   })
 
   it("requires a fresh Blackboard read before Report without changing report retry state", async () => {
