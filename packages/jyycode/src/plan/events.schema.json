@@ -6,7 +6,7 @@
   "required": ["seq", "type", "session_id", "at", "payload"],
   "properties": {
     "seq": { "type": "integer", "minimum": 0 },
-    "type": { "enum": ["plan.updated", "child.activity", "report_arrived", "check_point", "user_message"] },
+    "type": { "enum": ["plan.updated", "child.activity", "report_arrived", "check_point", "user_message", "runtime.metric"] },
     "session_id": { "type": "string", "minLength": 1 },
     "revision": { "type": "integer", "minimum": 1 },
     "at": { "type": "string", "format": "date-time" },

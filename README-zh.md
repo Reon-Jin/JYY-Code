@@ -62,6 +62,8 @@ JYY-Code 把"能并行的一律并行"写进了协议，而不是交给模型自
 - **可并行性检查**：拆分中大型任务前，协议要求逐条枚举拆分维度——独立交付物、独立模块、独立调查问题、独立验证面、独立角色专长——默认让每一波有 4-8 个互不阻塞的 Task；拆不出 4 个时必须逐条举证。
 - **角色分波**：不同角色的 Task 分成不同波次批量派发，同一角色的多个 Task 合并进同一波，调度效率最大化。
 - **Worktree 隔离**：内置 Git worktree 管理，并行实验互不污染工作区。
+- **项目级 Agent 隔离**：Git 项目中的标准 Task 使用独立 Worktree；非 Git 项目使用可写快照工作区。共享主工作区只有显式启用 `shared_compat` 才会使用，并会保留更高的并发污染风险。
+- **可恢复的计划运行**：`Plan`、`Inbox`、事件序列和 Dispatch lifecycle 持久化；运行时订阅仍是进程内机制。进程重启时 root session 首次进入 Multi-Agent 流程会执行一次 reconcile，活动 child 继续、失联运行会安全转为 rejected 并写入 Inbox。
 - **事件驱动，零轮询**：派发后主 Agent 立即挂起，由 Report / Inbox / 黑板事件精确唤醒，不为等待浪费一个 token。
 
 ### 多方案候选
@@ -149,7 +151,7 @@ jyy
 ## 更多内置能力
 
 - **多层上下文工程**：全量压缩、反应式压缩与溢出恢复流水线，配合上下文用量估算，长任务不"失忆"。
-- **工具输出微压缩**：可配置地保留超长工具输出的头尾与结构边界，并用带原始/隐藏字符数的标记替换中间内容；完整输出仍保存在会话数据中。
+- **工具输出微压缩**：默认只压缩已完成且超过阈值的工具输出，保留头尾和结构边界；可用 `compaction.micro_compact=false` 关闭，或用 `compaction.micro_compact_max_chars` 调整阈值。模型上下文使用压缩视图，原始完整输出仍保存在会话数据中。
 - **Git 级快照与回退**：每一轮的文件改动自动进入影子 Git 快照，支持按消息粒度 revert / unrevert，附带逐文件 diff；会话可 fork 分支、可生成分享链接。
 - **人机协作提问**：执行中遇到歧义，Agent 通过结构化提问工具向你发起带选项的询问（支持推荐项与多选），决策不跑偏。
 - **权限系统**：按工具细粒度配置 allow / ask / deny 规则，子 Agent 另有独立的工具策略与固定工具集。
@@ -168,6 +170,8 @@ jyycode db status
 可以查看当前数据库、发布渠道、迁移状态和会话数量，不会修改其他数据库。更改渠道策略前，请先停止 JYY-Code，并同时备份数据库及其 `-wal`、`-shm` 文件。
 
 如果会话看起来"丢失"，先用 `jyycode db status` 确认当前数据库，再从同一项目或 worktree 打开 `/sessions`。
+
+Multi-Agent 的计划文件位于项目 `.jyycode/plan/<root-session-id>/plan.json`。Git Worktree、非 Git 快照和显式共享兼容模式的清理策略以及崩溃恢复步骤见：[计划恢复架构](docs/architecture/plan-recovery.md)、[Agent 隔离架构](docs/architecture/agent-isolation.md) 和 [恢复运行手册](docs/operations/recovery-runbook.md)。
 
 ## 从源码开发
 

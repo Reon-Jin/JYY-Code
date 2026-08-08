@@ -1,0 +1,44 @@
+# Plan Recovery Architecture
+
+JYY-Code treats the persisted plan as the source of truth for a multi-agent run. A plan is stored at:
+
+```text
+<workspace>/.jyycode/plan/<root-session-id>/plan.json
+```
+
+Every accepted mutation is serialized through `PlanStore`, checked against the latest revision, written to a same-directory temporary file, flushed, and then replaced atomically where the platform supports it.
+
+## Replacement and crash recovery
+
+`PlanStore` never unconditionally deletes the only target plan. On Windows-style replacement failure it moves the previous target to a unique `.bak.*` file and then attempts the temporary-to-target handoff. If that second rename fails, both the old backup and the complete `.tmp` remain available.
+
+Reads consider these candidates:
+
+1. `plan.json`
+2. `plan.json.tmp`
+3. `plan.json.bak` and `plan.json.bak.*`
+
+Malformed candidates are ignored when another complete candidate exists. The newest valid candidate is selected by revision, then `updated_at`, then file modification time. A later successful write removes recoverable backup copies after the new target is in place.
+
+The sidecar lock is `<plan-path>.lock`. Stale-lock reclamation requires both an expired acquisition timestamp and a dead owner PID; an old-looking lock owned by a live process is retained.
+
+## Dispatch lifecycle
+
+Dispatch metadata records the lifecycle independently of the task status:
+
+```text
+reserved -> child_created -> starting -> running -> settled
+```
+
+The lifecycle makes partial child creation visible. Recovery can therefore make one of four safe decisions:
+
+- continue a `running` child when its session is still active;
+- resume a recoverable early phase when a resume callback is available;
+- reject a dead or expired run and create an Inbox entry;
+- leave an already reported or terminal task settled and unchanged.
+
+The root session executes startup reconciliation once per process/workspace/session key. In-process plan activity is marked so a dispatch created by the current process is not mistaken for a pre-existing crash on the next turn. Runtime event subscriptions remain process-local; durable event and Inbox records are used for replay and inspection.
+
+## Observability
+
+Plan runtime metrics use scalar fields only: metric name, phase, outcome, duration, counts, savings, and retry counts. They intentionally exclude prompts, memory contents, secrets, provider errors, and complete tool output. Recovery actions and final counts are emitted separately so an operator can distinguish a continued child, a rejection, and an already-settled task.

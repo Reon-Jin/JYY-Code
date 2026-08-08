@@ -25,7 +25,9 @@
         "goal": { "type": "string", "minLength": 1 },
         "done_criteria": { "type": "string", "minLength": 1 },
         "status": { "enum": ["pending", "active", "done"] },
-        "tasks": { "type": "array", "items": { "$ref": "#/$defs/task" } }
+        "tasks": { "type": "array", "items": { "$ref": "#/$defs/task" } },
+        "candidate_discussion": { "$ref": "#/$defs/candidateDiscussion" },
+        "candidate_selection": { "$ref": "#/$defs/candidateSelection" }
       }
     },
     "task": {
@@ -37,6 +39,8 @@
         "title": { "type": "string", "minLength": 1 },
         "goal": { "type": "string", "minLength": 1 },
         "done_criteria": { "type": "string", "minLength": 1 },
+        "instructions": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["standard", "candidate"] },
         "output_path": { "type": ["string", "null"] },
         "status": { "enum": ["pending", "dispatched", "running", "reported", "approved", "rejected", "dismissed"] },
         "dispatch": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/dispatch" }] },
@@ -53,6 +57,8 @@
         "child_session_id": { "type": "string", "minLength": 1 },
         "dispatched_at": { "type": "string", "format": "date-time" },
         "cancelled_at": { "type": ["string", "null"], "format": "date-time" },
+        "role": { "$ref": "#/$defs/profileSnapshot" },
+        "launch": { "$ref": "#/$defs/launchSnapshot" },
         "workspace": { "$ref": "#/$defs/workspace" },
         "lifecycle": { "enum": ["reserved", "child_created", "starting", "running", "settled"] }
       }
@@ -67,6 +73,53 @@
         "directory": { "type": ["string", "null"] },
         "created_at": { "type": ["string", "null"], "format": "date-time" },
         "cleanup": { "enum": ["on_success", "on_cancel", "retain_on_failure"] }
+      }
+    },
+    "profileSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "avatar"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "avatar": { "enum": ["bot", "search", "code", "bug", "chart", "file", "image", "folder", "pen", "sparkles"] }
+      }
+    },
+    "launchSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "avatar", "prompt"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "avatar": { "enum": ["bot", "search", "code", "bug", "chart", "file", "image", "folder", "pen", "sparkles"] },
+        "prompt": { "type": "string" },
+        "model": { "type": "string" },
+        "variant": { "type": "string" },
+        "tools": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "candidateDiscussion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "ready_task_ids"],
+      "properties": {
+        "phase": { "enum": ["declaring", "cross_review", "awaiting_main", "running"] },
+        "ready_task_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "candidateSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selected_task_id", "contributing_task_ids", "synthesis_artifact", "rationale", "selected_at"],
+      "properties": {
+        "selected_task_id": { "type": "string", "minLength": 1 },
+        "contributing_task_ids": { "type": "array", "items": { "type": "string" } },
+        "synthesis_artifact": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string", "minLength": 1 },
+        "selected_at": { "type": "string", "format": "date-time" }
       }
     },
     "report": {
