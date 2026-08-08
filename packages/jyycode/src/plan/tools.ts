@@ -1,6 +1,8 @@
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { Config } from "@/config/config"
+import { Project } from "@/project/project"
+import { Worktree } from "@/worktree"
 import { enabledProfiles, profileAgentName, resolveProfiles, type SubagentProfile } from "@/agent/subagent-profile"
 import { Provider } from "@/provider/provider"
 import { Bus } from "@/bus"
@@ -8,7 +10,9 @@ import { Tool } from "@/tool/tool"
 import { EffectBridge, type Shape as EffectBridgeShape } from "@/effect/bridge"
 import type { TaskPromptOps } from "@/session/tools"
 import type { JSONSchema7 } from "@ai-sdk/provider"
-import { Cause, Effect, Schema } from "effect"
+import { Cause, Effect, Option, Schema } from "effect"
+import path from "node:path"
+import { Global } from "@jyycode-ai/core/global"
 import {
   PlanProtocol,
   parentSessionIdForRunId,
@@ -22,6 +26,7 @@ import type { LaunchSnapshot } from "@/agent/subagent-profile"
 import { PlanProtocolError, planFilePath, readPlanFileSync } from "./schema"
 import { RuntimeEvent } from "./runtime-event"
 import { Blackboard } from "./blackboard"
+import { ChildWorkspace, worktreeAdapter } from "./child-workspace"
 import * as Log from "@jyycode-ai/core/util/log"
 
 const log = Log.create({ service: "plan" })
@@ -579,6 +584,7 @@ function protocolFor(
     beforeStepAdvance?: (ctx: PlanExecutionContext) => Promise<void>
     profiles?: () => Promise<readonly SubagentProfile[]>
     candidateBoard?: Blackboard.Interface
+    childWorkspace?: ChildWorkspace
   },
 ) {
   let protocol: PlanProtocol
@@ -599,7 +605,11 @@ function protocolFor(
             model: await resolveChildModel(run, parent.model, input.role),
             permission: parent.permission,
             workspaceID: parent.workspaceID,
-            directory: parent.directory,
+            directory:
+              (input.workspace?.mode === "worktree" || input.workspace?.mode === "snapshot") &&
+              input.workspace.directory
+                ? input.workspace.directory
+                : parent.directory,
           }),
         )
         return child.id
@@ -708,6 +718,7 @@ function protocolFor(
             ),
         }
       : undefined,
+    childWorkspace: runtime.childWorkspace,
   })
   return protocol
 }
@@ -943,9 +954,31 @@ export const DispatchDispatchTool = Tool.define(
         Effect.gen(function* () {
           const bridge = yield* EffectBridge.make()
           const session = yield* getSession(sessions, ctx.sessionID)
+          const projectService = yield* Effect.serviceOption(Project.Service)
+          const worktreeService = yield* Effect.serviceOption(Worktree.Service)
+          const worktree = Option.getOrUndefined(worktreeService)
+          const projectInfo =
+            Option.isSome(projectService)
+              ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
+              : undefined
+          const childWorkspace = projectInfo && (projectInfo.vcs !== "git" || worktree)
+            ? new ChildWorkspace({
+                project: {
+                  root: projectInfo.worktree,
+                  vcs: projectInfo.vcs === "git" ? "git" : "none",
+                },
+                runtimeRoot: path.join(
+                  Global.Path.data,
+                  projectInfo.vcs === "git" ? "worktree" : "plan-workspaces",
+                  String(projectInfo.id),
+                ),
+                ...(projectInfo.vcs === "git" && worktree ? { worktree: worktreeAdapter({ service: worktree, run: bridge.promise }) } : {}),
+              })
+            : undefined
           const protocol = protocolFor(sessions, bus, {
             bridge,
             promptOps: promptOps(ctx),
+            childWorkspace,
             profiles: async () =>
               enabledProfiles(resolveProfiles((await bridge.promise(config.get())).subagents?.profiles)),
           })

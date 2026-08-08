@@ -2,13 +2,14 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
-import { PlanProtocol } from "../../src/plan/protocol"
+import { PlanProtocol, type ChildStartInput } from "../../src/plan/protocol"
 import { PlanEventHub, PlanInbox, WakeupQueue, validatePlanEvent } from "../../src/plan/events"
-import { AGING_MS, PlanStore, STALE_LOCK_MS } from "../../src/plan/store"
+import { AGING_MS, PlanStore, STALE_LOCK_MS, type WriteRequest } from "../../src/plan/store"
 import { planFilePath, PlanProtocolError, validatePlanFile } from "../../src/plan/schema"
 import { projectPlanSnapshot, validatePlanSnapshot } from "../../src/plan/snapshot"
 import { planSystemPrompt } from "../../src/plan/prompts"
 import { defaultGeneralProfile } from "../../src/agent/subagent-profile"
+import { ChildWorkspace } from "../../src/plan/child-workspace"
 import {
   createFakeArtifact,
   createHardeningChildren,
@@ -46,6 +47,15 @@ function createInput(outputPath?: string) {
       },
       { title: "实现验收", goal: "完成实现", done_criteria: "测试全部通过" },
     ],
+  }
+}
+
+class FailingPlanStore extends PlanStore {
+  failWrites = false
+
+  override enqueueWrite<T>(planPath: string, request: WriteRequest<T>): Promise<T> {
+    if (this.failWrites) return Promise.reject(new Error("reservation write failed"))
+    return super.enqueueWrite(planPath, request)
   }
 }
 
@@ -581,7 +591,9 @@ describe("file-backed plan protocol", () => {
     expect(dispatched.ok).toBe(true)
     if (!dispatched.ok) return
     expect(dispatched.dispatched[0]?.idempotent).toBe(false)
-    expect(statusAtStart).toBe("running")
+    // Dispatch remains visible as dispatched until the child has actually
+    // started; the lifecycle record advances independently of task status.
+    expect(statusAtStart).toBe("dispatched")
     const runId = dispatched.dispatched[0]!.run_id
     const report = await protocol.report(
       { ...context(root, "single", "child_ses_main_s1_t1"), runId },
@@ -777,6 +789,70 @@ describe("file-backed plan protocol", () => {
     }
   })
 
+  it("does not create a child when the reservation write fails", async () => {
+    const fixture = createHardeningWorkspace()
+    try {
+      const store = new FailingPlanStore()
+      const children = createHardeningChildren()
+      const protocol = new PlanProtocol({ store, children: children.controller })
+      const root = hardeningContext(fixture.root)
+      await protocol.create(root, hardeningPlanInput(path.join(fixture.root, "output")))
+      store.failWrites = true
+      const dispatched = await protocol.dispatch(root, { taskIds: ["s1_t1"], role: "general" })
+      expect(dispatched).toMatchObject({ ok: false })
+      expect(children.calls.create).toBe(0)
+      expect(readHardeningPlan(fixture.root).steps[0]?.tasks[0]?.status).toBe("pending")
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it("dispatches isolated children with child-relative brief paths and parent plan writes", async () => {
+    const fixture = createHardeningWorkspace()
+    const runtime = fs.mkdtempSync(path.join(os.tmpdir(), "jyycode-child-runtime-"))
+    try {
+      let createdInput: ChildStartInput | undefined
+      const protocol = new PlanProtocol({
+        childWorkspace: new ChildWorkspace({
+          project: { root: fixture.root, vcs: "none" },
+          runtimeRoot: runtime,
+        }),
+        children: {
+          async create(input) {
+            createdInput = input
+            return input.childSessionId
+          },
+          async start() {},
+          async terminate() {},
+        },
+      })
+      const root = hardeningContext(fixture.root)
+      await protocol.create(root, hardeningPlanInput("out/result.md"))
+      const dispatched = await protocol.dispatch(root, { taskIds: ["s1_t1"], role: "general" })
+      expect(dispatched.ok).toBe(true)
+      if (!dispatched.ok || !createdInput) return
+      const workspaceDirectory = createdInput.workspace?.directory
+      expect(createdInput.workspace?.mode).toBe("snapshot")
+      expect(workspaceDirectory).toBeTruthy()
+      if (!workspaceDirectory) return
+      expect(createdInput.brief.workspace_root).toBe(workspaceDirectory)
+      expect(createdInput.brief.output_path).toBe(path.join(workspaceDirectory, "out", "result.md"))
+
+      fs.mkdirSync(path.dirname(createdInput.brief.output_path), { recursive: true })
+      fs.writeFileSync(createdInput.brief.output_path, "child result")
+      const runId = dispatched.dispatched[0]!.run_id
+      const reported = await protocol.report(
+        { workspaceRoot: workspaceDirectory, sessionId: "child_s1_t1", mode: "single", runId },
+        { run_id: runId, status: "done", summary: "ready", artifacts: [createdInput.brief.output_path], issues: [] },
+      )
+      expect(reported.ok).toBe(true)
+      expect(readHardeningPlan(fixture.root).steps[0]?.tasks[0]?.status).toBe("reported")
+    } finally {
+      fs.rmSync(runtime, { recursive: true, force: true })
+      fixture.cleanup()
+    }
+  })
+
   it("requires a fresh Blackboard read before Report without changing report retry state", async () => {
     const root = workspace()
     const artifact = path.join(root, "report.md")
@@ -813,7 +889,8 @@ describe("file-backed plan protocol", () => {
     expect(rejected).toMatchObject({ ok: false, error: { code: "BLACKBOARD_UNREAD", retryable: true } })
     const unchanged = await protocol.read(context(root))
     if (!unchanged.ok || !unchanged.plan) return
-    expect(unchanged.plan.revision).toBe(2)
+    const revisionBeforeReport = unchanged.plan.revision
+    expect(revisionBeforeReport).toBeGreaterThan(2)
     expect(unchanged.plan.steps[0]?.tasks[0]?.status).toBe("running")
 
     blackboardReady = true
@@ -863,22 +940,25 @@ describe("file-backed plan protocol", () => {
       },
     )
     expect(reported.ok).toBe(true)
+    const beforeReview = await protocol.read(context(root))
+    if (!beforeReview.ok || !beforeReview.plan) return
+    const reviewRevision = beforeReview.plan.revision
     const blocked = await protocol.update(context(root), {
-      revision: 3,
+      revision: reviewRevision,
       ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
     })
     expect(blocked).toMatchObject({ ok: false, error: { code: "BLACKBOARD_UNREAD", retryable: true } })
     const unchanged = await protocol.read(context(root))
-    expect(unchanged).toMatchObject({ ok: true, plan: { revision: 3, current_step: "s1" } })
+    expect(unchanged).toMatchObject({ ok: true, plan: { revision: reviewRevision, current_step: "s1" } })
 
     blackboardClear = true
     const advanced = await protocol.update(context(root), {
-      revision: 3,
+      revision: reviewRevision,
       ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
     })
     expect(advanced.ok).toBe(true)
     const after = await protocol.read(context(root))
-    expect(after).toMatchObject({ ok: true, plan: { revision: 4, current_step: "s2" } })
+    expect(after).toMatchObject({ ok: true, plan: { revision: reviewRevision + 1, current_step: "s2" } })
     expect(gateCalls).toBe(2)
   })
 

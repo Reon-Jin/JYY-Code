@@ -44,6 +44,7 @@ import {
 import { projectPlanSnapshot, type ActivityState, type PlanSnapshot } from "./snapshot"
 import { PlanStore, REPORT_RETRY_MAX, defaultPlanStore, type WriteOutcome } from "./store"
 import { assertInside, assertOutputArtifact, resolveInside } from "./path-guard"
+import { ChildWorkspace, type WorkspaceHandle, type WorkspaceReservation } from "./child-workspace"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -61,6 +62,7 @@ export type ChildStartInput = {
   childSessionId: string
   brief: DispatchBrief
   role: LaunchSnapshot
+  workspace?: DispatchRecord["workspace"]
 }
 
 export type ChildController = {
@@ -123,16 +125,22 @@ export type DispatchBrief = {
 }
 
 const childRunRegistry = new Map<string, string>()
+const childPlanRoots = new Map<string, string>()
 const sharedReportAttempts = new Map<string, number>()
 const sharedActivities = new Map<string, Map<string, ActivityState>>()
 const sharedActivityEvents = new Map<string, number>()
 
-export function registerChildRun(childSessionId: string, runId: string) {
+export function registerChildRun(childSessionId: string, runId: string, planRoot?: string) {
   childRunRegistry.set(childSessionId, runId)
+  if (planRoot) childPlanRoots.set(runId, path.resolve(planRoot))
 }
 
 export function runIdForChildSession(childSessionId: string) {
   return childRunRegistry.get(childSessionId)
+}
+
+export function planRootForRunId(runId: string) {
+  return childPlanRoots.get(runId)
 }
 
 /**
@@ -181,6 +189,7 @@ type ProtocolOptions = {
   beforeStepAdvance?: (ctx: PlanExecutionContext) => Promise<void>
   profiles?: () => Promise<readonly SubagentProfile[]>
   candidateBoard?: CandidateBoardController
+  childWorkspace?: ChildWorkspace
 }
 
 type WriteResult<T extends object> = { result: T; plan: PlanFile }
@@ -191,6 +200,16 @@ function asString(value: unknown) {
 
 function nowIso(now: () => number) {
   return new Date(now()).toISOString()
+}
+
+function dispatchWorkspaceMetadata(workspace: WorkspaceReservation | WorkspaceHandle): NonNullable<DispatchRecord["workspace"]> {
+  return {
+    mode: workspace.mode,
+    root: workspace.root,
+    directory: workspace.directory,
+    created_at: workspace.created_at,
+    cleanup: workspace.cleanup,
+  }
 }
 
 function assertMain(ctx: PlanExecutionContext) {
@@ -806,6 +825,7 @@ export class PlanProtocol {
   readonly inbox: PlanInbox
   private readonly children?: ChildController
   private readonly candidateBoard?: CandidateBoardController
+  private readonly childWorkspace?: ChildWorkspace
   private readonly now: () => number
   private readonly eventSink?: (event: import("./events").PlanEvent) => void
   private readonly beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
@@ -822,6 +842,7 @@ export class PlanProtocol {
     this.inbox = options.inbox ?? defaultPlanInbox
     this.children = options.children
     this.candidateBoard = options.candidateBoard
+    this.childWorkspace = options.childWorkspace
     this.now = options.now ?? Date.now
     this.eventSink = options.eventSink
     this.beforeReport = options.beforeReport
@@ -836,7 +857,7 @@ export class PlanProtocol {
   }
 
   private path(ctx: PlanExecutionContext, sessionId = ctx.sessionId) {
-    return planFilePath(ctx.workspaceRoot, sessionId)
+    return planFilePath((ctx.runId && planRootForRunId(ctx.runId)) ?? ctx.workspaceRoot, sessionId)
   }
 
   private async resolveProfile(id: string) {
@@ -917,6 +938,80 @@ export class PlanProtocol {
     })
     this.publish({ type: "plan.updated", session_id: ctx.sessionId, revision: plan.revision, payload: snapshot })
     return { result, plan }
+  }
+
+  private async updateDispatchLifecycle(
+    ctx: PlanExecutionContext,
+    taskId: string,
+    input: { lifecycle?: DispatchRecord["lifecycle"]; status?: TaskStatus; child_session_id?: string; workspace?: DispatchRecord["workspace"] },
+  ) {
+    await this.write(ctx, (latest) => {
+      if (!latest)
+        throw new PlanProtocolError({
+          code: ERROR_CODES.RUN_NOT_FOUND,
+          message: "找不到父 plan",
+          hint: "重新读取 Plan 后恢复派发",
+        })
+      const next = clonePlan(latest)
+      const task = next.steps.flatMap((step) => step.tasks).find((item) => item.id === taskId)
+      if (!task?.dispatch)
+        throw new PlanProtocolError({
+          code: ERROR_CODES.RUN_NOT_FOUND,
+          message: `任务 ${taskId} 缺少 dispatch 记录`,
+          hint: "只能恢复包含 dispatch metadata 的任务",
+        })
+      if (input.lifecycle !== undefined) task.dispatch.lifecycle = input.lifecycle
+      if (input.child_session_id !== undefined) task.dispatch.child_session_id = input.child_session_id
+      if (input.workspace !== undefined) task.dispatch.workspace = input.workspace
+      if (input.status !== undefined) task.status = input.status
+      next.revision++
+      next.updated_at = nowIso(this.now)
+      return {
+        mutate(target) {
+          Object.assign(target, next)
+        },
+        result: { updated: true },
+      }
+    })
+  }
+
+  private async failDispatch(
+    ctx: PlanExecutionContext,
+    input: {
+      taskId: string
+      childSessionId?: string
+      workspaceDirectory?: string | null
+      error: unknown
+    },
+  ) {
+    const message = input.error instanceof Error ? input.error.message : String(input.error)
+    try {
+      await this.updateDispatchLifecycle(ctx, input.taskId, { lifecycle: "settled", status: "rejected" })
+    } catch {
+      // Keep the original failure visible in Inbox even if the recovery write races another writer.
+    }
+    const cleanupErrors: string[] = []
+    if (input.childSessionId && this.children) {
+      try {
+        await this.children.terminate(input.childSessionId)
+      } catch (error) {
+        cleanupErrors.push(`child cleanup: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    if (input.workspaceDirectory && this.childWorkspace) {
+      try {
+        await this.childWorkspace.remove(input.workspaceDirectory)
+      } catch (error) {
+        cleanupErrors.push(`workspace cleanup: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    this.inbox.add({
+      session_id: ctx.sessionId,
+      task_id: input.taskId,
+      kind: "runtime_error",
+      message: `Dispatch ${input.taskId} 失败：${[message, ...cleanupErrors].join("；")}`,
+      suggested_actions: ["读取 Inbox 查看失败阶段", "必要时用同一任务重新 Dispatch_dispatch"],
+    })
   }
 
   async read(
@@ -1195,7 +1290,15 @@ export class PlanProtocol {
           inputError("candidate Step 必须在一次 Dispatch_dispatch 中包含全部候选 Task")
       }
       const dispatched: Array<{ taskId: string; run_id: string; child_session_id: string; idempotent: boolean }> = []
-      const prepared = new Map<string, { dispatch: DispatchRecord; brief: DispatchBrief; role: LaunchSnapshot }>()
+      const prepared = new Map<
+        string,
+        {
+          dispatch: DispatchRecord
+          brief: DispatchBrief
+          role: LaunchSnapshot
+          reservation?: WorkspaceReservation
+        }
+      >()
       const needsRole = targets.some(({ task }) => task.status !== "dispatched" && task.status !== "running")
       const role = needsRole ? await this.resolveProfile(input.role) : undefined
       for (const { step, task } of targets) {
@@ -1258,20 +1361,22 @@ export class PlanProtocol {
             : {}),
         }
         const launch = launchSnapshot(role)
-        const childInput = { parentSessionId: ctx.sessionId, taskId: task.id, childSessionId, brief, role: launch }
-        const actualChild = this.children ? await this.children.create(childInput) : childSessionId
-        registerChildRun(actualChild, runId)
+        const reservation = this.childWorkspace?.reserve(ctx.sessionId, task.id)
         prepared.set(task.id, {
           dispatch: {
             run_id: runId,
-            child_session_id: actualChild,
+            child_session_id: childSessionId,
             dispatched_at: nowIso(this.now),
             cancelled_at: null,
             role: profileSnapshot(role),
             launch,
+            ...(reservation
+              ? { workspace: dispatchWorkspaceMetadata(reservation), lifecycle: "reserved" as const }
+              : {}),
           },
           brief,
           role: launch,
+          reservation,
         })
       }
       if (prepared.size) {
@@ -1292,7 +1397,7 @@ export class PlanProtocol {
                 hint: "重新读取最新 plan 后再决定是否派发",
               })
             target.dispatch = item.dispatch
-            target.status = this.children ? "running" : "dispatched"
+            target.status = "dispatched"
           }
           next.revision++
           next.updated_at = nowIso(this.now)
@@ -1303,24 +1408,65 @@ export class PlanProtocol {
             result: { next_action_hint: nextActionHint(next, this.inbox.pendingCount(ctx.sessionId)) },
           }
         })
-        if (this.children) {
-          for (const [taskId, item] of prepared) {
-            await this.children.start({
-              parentSessionId: ctx.sessionId,
+        for (const [taskId, item] of prepared) {
+          let actualChild = item.dispatch.child_session_id
+          let workspaceHandle: WorkspaceHandle | undefined
+          try {
+            if (item.reservation && this.childWorkspace) {
+              workspaceHandle = await this.childWorkspace.create(item.reservation)
+              await this.updateDispatchLifecycle(ctx, taskId, {
+                workspace: dispatchWorkspaceMetadata(workspaceHandle),
+              })
+            }
+            if (this.children) {
+              const childBrief = workspaceHandle
+                ? {
+                    ...item.brief,
+                    workspace_root: workspaceHandle.directory,
+                    output_path: resolveInside(
+                      workspaceHandle.directory,
+                      path.relative(ctx.workspaceRoot, item.brief.output_path),
+                      `浠诲姟 ${taskId} 鐨?child output_path`,
+                    ),
+                  }
+                : item.brief
+              const childInput: ChildStartInput = {
+                parentSessionId: ctx.sessionId,
+                taskId,
+                childSessionId: actualChild,
+                brief: childBrief,
+                role: item.role,
+                workspace: workspaceHandle
+                  ? dispatchWorkspaceMetadata(workspaceHandle)
+                  : item.dispatch.workspace,
+              }
+              actualChild = await this.children.create(childInput)
+              registerChildRun(actualChild, item.dispatch.run_id, ctx.workspaceRoot)
+              await this.updateDispatchLifecycle(ctx, taskId, {
+                child_session_id: actualChild,
+                lifecycle: "child_created",
+              })
+              childInput.childSessionId = actualChild
+              await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "starting" })
+              await this.children.start(childInput)
+              await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
+            }
+            dispatched.push({
               taskId,
-              childSessionId: item.dispatch.child_session_id,
-              brief: item.brief,
-              role: item.role,
+              run_id: item.dispatch.run_id,
+              child_session_id: actualChild,
+              idempotent: false,
             })
+          } catch (error) {
+            await this.failDispatch(ctx, {
+              taskId,
+              childSessionId: this.children ? actualChild : undefined,
+              workspaceDirectory: workspaceHandle?.directory ?? item.dispatch.workspace?.directory,
+              error,
+            })
+            throw error
           }
         }
-        for (const [taskId, item] of prepared)
-          dispatched.push({
-            taskId,
-            run_id: item.dispatch.run_id,
-            child_session_id: item.dispatch.child_session_id,
-            idempotent: false,
-          })
         return { ok: true, dispatched, next_action_hint: result.result.next_action_hint }
       }
       return { ok: true, dispatched, next_action_hint: nextActionHint(plan, this.inbox.pendingCount(ctx.sessionId)) }
@@ -1382,7 +1528,7 @@ export class PlanProtocol {
             hint: "先调用 Plan_create",
           })
         const next = clonePlan(latest)
-        const toTerminate: Array<{ taskId: string; child_session_id: string }> = []
+        const toTerminate: Array<{ taskId: string; child_session_id: string; workspace_directory?: string | null }> = []
         const cancelled = targets.map((source) => {
           const task = next.steps.flatMap((step) => step.tasks).find((item) => item.id === source.id)
           if (!task || !task.dispatch)
@@ -1398,7 +1544,11 @@ export class PlanProtocol {
               hint: "reported/approved/dismissed 任务请使用 Plan_update(reopen_task) 并说明原因",
             })
           if (task.dispatch.cancelled_at === null)
-            toTerminate.push({ taskId: task.id, child_session_id: task.dispatch.child_session_id })
+            toTerminate.push({
+              taskId: task.id,
+              child_session_id: task.dispatch.child_session_id,
+              workspace_directory: task.dispatch.workspace?.directory,
+            })
           task.status = "pending"
           task.dispatch.cancelled_at = nowIso(this.now)
           return {
@@ -1430,6 +1580,20 @@ export class PlanProtocol {
             termination_errors.push({
               ...target,
               message: error instanceof Error ? error.message : String(error),
+            })
+          }
+        }
+      }
+      if (this.childWorkspace) {
+        for (const target of result.result.toTerminate) {
+          if (!target.workspace_directory) continue
+          try {
+            await this.childWorkspace.remove(target.workspace_directory)
+          } catch (error) {
+            termination_errors.push({
+              taskId: target.taskId,
+              child_session_id: target.child_session_id,
+              message: `workspace cleanup: ${error instanceof Error ? error.message : String(error)}`,
             })
           }
         }

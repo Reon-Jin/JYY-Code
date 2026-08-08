@@ -234,9 +234,10 @@ export class ChildWorkspace {
 
   async remove(directory: string) {
     const canonical = this.canonical(directory)
-    const entry = [...this.reservations.values()].find(
-      (reservation) => reservation.directory !== null && this.canonical(reservation.directory) === canonical,
+    const match = [...this.reservations.entries()].find(
+      ([, reservation]) => reservation.directory !== null && this.canonical(reservation.directory) === canonical,
     )
+    const entry = match?.[1]
     if (!entry || entry.mode === "shared_compat")
       throw new ChildWorkspaceError("拒绝清理未经当前 Plan metadata 创建的 workspace", { directory, recoverable: false })
     try {
@@ -244,6 +245,7 @@ export class ChildWorkspace {
         if (!this.worktree) throw new ChildWorkspaceError("Git 项目缺少 Worktree service", { directory })
         await this.worktree.remove(canonical)
       } else if (fs.existsSync(canonical)) fs.rmSync(canonical, { recursive: true, force: true })
+      if (match) this.reservations.delete(match[0])
       return true
     } catch (error) {
       throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), { directory })
