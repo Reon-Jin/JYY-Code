@@ -52,7 +52,21 @@
         "run_id": { "type": "string", "pattern": "^run__[A-Za-z0-9_-]+__s[1-9]\\d*_t[1-9]\\d*$" },
         "child_session_id": { "type": "string", "minLength": 1 },
         "dispatched_at": { "type": "string", "format": "date-time" },
-        "cancelled_at": { "type": ["string", "null"], "format": "date-time" }
+        "cancelled_at": { "type": ["string", "null"], "format": "date-time" },
+        "workspace": { "$ref": "#/$defs/workspace" },
+        "lifecycle": { "enum": ["reserved", "child_created", "starting", "running", "settled"] }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "root", "directory", "created_at", "cleanup"],
+      "properties": {
+        "mode": { "enum": ["worktree", "snapshot", "shared_compat"] },
+        "root": { "type": "string", "minLength": 1 },
+        "directory": { "type": ["string", "null"] },
+        "created_at": { "type": ["string", "null"], "format": "date-time" },
+        "cleanup": { "enum": ["on_success", "on_cancel", "retain_on_failure"] }
       }
     },
     "report": {

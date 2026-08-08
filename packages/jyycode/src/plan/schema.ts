@@ -38,6 +38,16 @@ export type CandidateSelection = {
   selected_at: string
 }
 
+export type DispatchWorkspace = {
+  mode: "worktree" | "snapshot" | "shared_compat"
+  root: string
+  directory: string | null
+  created_at: string | null
+  cleanup: "on_success" | "on_cancel" | "retain_on_failure"
+}
+
+export type DispatchLifecycle = "reserved" | "child_created" | "starting" | "running" | "settled"
+
 export type DispatchRecord = {
   run_id: string
   child_session_id: string
@@ -45,6 +55,8 @@ export type DispatchRecord = {
   cancelled_at: string | null
   role?: ProfileSnapshot
   launch?: LaunchSnapshot
+  workspace?: DispatchWorkspace
+  lifecycle?: DispatchLifecycle
 }
 
 export type ReportRecord = {
@@ -419,13 +431,24 @@ function isValidDispatch(value: unknown): value is DispatchRecord {
       typeof launch.prompt === "string" &&
       (!("model" in launch) || typeof launch.model === "string") &&
       (!("variant" in launch) || typeof launch.variant === "string"))
+  const workspace = value.workspace
+  const validWorkspace =
+    workspace === undefined ||
+    (isRecord(workspace) &&
+      ["worktree", "snapshot", "shared_compat"].includes(String(workspace.mode)) &&
+      nonEmptyString(workspace.root) &&
+      (workspace.directory === null || nonEmptyString(workspace.directory)) &&
+      (workspace.created_at === null || validDateTime(workspace.created_at)) &&
+      ["on_success", "on_cancel", "retain_on_failure"].includes(String(workspace.cleanup)))
   return (
     /^run__[A-Za-z0-9_-]+__s[1-9]\d*_t[1-9]\d*$/.test(String(value.run_id)) &&
     nonEmptyString(value.child_session_id) &&
     validDateTime(value.dispatched_at) &&
     (value.cancelled_at === null || validDateTime(value.cancelled_at)) &&
     validRole &&
-    validLaunch
+    validLaunch &&
+    validWorkspace &&
+    (value.lifecycle === undefined || ["reserved", "child_created", "starting", "running", "settled"].includes(String(value.lifecycle)))
   )
 }
 
