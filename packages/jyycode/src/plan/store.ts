@@ -66,6 +66,48 @@ function lockPid(value: unknown) {
   return Number.isInteger(pid) && pid > 0 ? pid : undefined
 }
 
+type PlanCandidate = {
+  path: string
+  plan: PlanFile
+  mtimeMs: number
+}
+
+function recoveryPaths(planPath: string) {
+  const dir = path.dirname(planPath)
+  const base = path.basename(planPath)
+  let entries: string[] = []
+  try {
+    entries = fs.readdirSync(dir)
+  } catch {
+    return { tempPath: `${planPath}.tmp`, backups: [] as string[] }
+  }
+  return {
+    tempPath: `${planPath}.tmp`,
+    backups: entries
+      .filter((entry) => entry === `${base}.bak` || entry.startsWith(`${base}.bak.`))
+      .map((entry) => path.join(dir, entry)),
+  }
+}
+
+function readCandidate(candidatePath: string): PlanCandidate | null {
+  if (!fs.existsSync(candidatePath)) return null
+  try {
+    const plan = readPlanFileSync(candidatePath)
+    if (!plan) return null
+    return { path: candidatePath, plan, mtimeMs: fs.statSync(candidatePath).mtimeMs }
+  } catch {
+    return null
+  }
+}
+
+function compareCandidates(left: PlanCandidate, right: PlanCandidate) {
+  return (
+    left.plan.revision - right.plan.revision ||
+    Date.parse(left.plan.updated_at) - Date.parse(right.plan.updated_at) ||
+    left.mtimeMs - right.mtimeMs
+  )
+}
+
 export class PlanStore {
   private readonly queues = new Map<string, QueueState>()
   private readonly waitTimeoutMs: number
@@ -97,6 +139,11 @@ export class PlanStore {
   }
 
   read(planPath: string): PlanFile | null {
+    const recovery = recoveryPaths(planPath)
+    const candidates = [planPath, recovery.tempPath, ...recovery.backups]
+      .map(readCandidate)
+      .filter((candidate): candidate is PlanCandidate => candidate !== null)
+    if (candidates.length > 0) return candidates.sort(compareCandidates).at(-1)!.plan
     return readPlanFileSync(planPath)
   }
 
@@ -266,11 +313,38 @@ export class PlanStore {
       fs.renameSync(tempPath, planPath)
     } catch (error) {
       // Windows refuses to replace an existing file with rename(). Keep the
-      // normal atomic path where supported and use the narrow fallback there.
+      // normal atomic path where supported and use a recoverable handoff there.
       if ((error as NodeJS.ErrnoException).code !== "EEXIST" && (error as NodeJS.ErrnoException).code !== "EPERM")
         throw error
-      fs.unlinkSync(planPath)
-      fs.renameSync(tempPath, planPath)
+      const backupPath = this.nextBackupPath(planPath)
+      fs.renameSync(planPath, backupPath)
+      try {
+        fs.renameSync(tempPath, planPath)
+      } catch (handoffError) {
+        // Keep both complete files. PlanStore.read() will select the newest
+        // valid candidate on the next operation, so a failed second rename
+        // cannot turn the replacement into data loss.
+        throw handoffError
+      }
+    }
+    this.cleanupBackups(planPath)
+  }
+
+  private nextBackupPath(planPath: string) {
+    const stem = `${planPath}.bak.${this.pid}.${this.now()}`
+    let candidate = stem
+    let suffix = 0
+    while (fs.existsSync(candidate)) candidate = `${stem}.${++suffix}`
+    return candidate
+  }
+
+  private cleanupBackups(planPath: string) {
+    for (const backupPath of recoveryPaths(planPath).backups) {
+      try {
+        fs.unlinkSync(backupPath)
+      } catch {
+        // A leftover backup remains recoverable and can be cleaned up later.
+      }
     }
   }
 }
