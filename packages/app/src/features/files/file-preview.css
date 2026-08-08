@@ -6,6 +6,18 @@
   background: var(--color-panel);
 }
 
+.file-preview__viewport {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.file-preview__viewport > .file-editor {
+  grid-row: 1 / -1;
+}
+
 .file-preview__header {
   min-height: 44px;
   display: flex;
@@ -14,6 +26,7 @@
   gap: var(--space-2);
   border-bottom: 1px solid var(--color-border);
   padding: 0 var(--space-3);
+  padding-inline-start: 64px;
 }
 
 .file-preview__header > svg {
@@ -99,9 +112,20 @@
 .file-preview__markdown {
   min-width: 0;
   max-width: min(900px, 100%);
-  overflow: auto;
   margin: 0 auto;
   padding: var(--space-8) clamp(20px, 5vw, 48px);
+}
+
+.file-preview__markdown-viewport {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.file-preview__markdown {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .file-preview__docx {

@@ -2,6 +2,10 @@ import type { FileContent, VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DataProvider } from "../../data/context"
+import { I18nProvider } from "../../i18n/i18n-context"
+import { defaultDesktopSettings } from "../settings/settings-preferences"
+import { DesktopBridgeProvider } from "../../platform/context"
+import { createFakeDesktop } from "../../test/fake-desktop"
 import { createFakeJyycode } from "../../test/fake-jyycode"
 import { contentDataUrl, contentBytes, FilePreview, isFilePreviewEditable, MAX_PREVIEW_BYTES } from "./file-preview"
 
@@ -43,8 +47,41 @@ describe("FilePreview", () => {
       workspace: "wrk_child",
       path: "src/app.tsx",
     })
-    screen.getByRole("button", { name: "Back to session" }).click()
+    screen.getByRole("button", { name: "返回会话" }).click()
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { locale: "zh-CN" as const, back: "返回会话", preview: "预览 Markdown", edit: "编辑 Markdown" },
+    { locale: "en-US" as const, back: "Back to session", preview: "Preview Markdown", edit: "Edit Markdown" },
+  ])("follows the selected $locale locale for preview controls", async ({ locale, back, preview, edit }) => {
+    const backend = createFakeJyycode(directory)
+    backend.fileContents.set("README.md", {
+      type: "text",
+      content: "# Hello",
+      revision: "revision-1",
+    })
+    vi.spyOn(globalThis, "fetch").mockImplementation(backend.fetch)
+    const desktop = createFakeDesktop({ settings: { ...defaultDesktopSettings, locale } })
+
+    render(() => (
+      <DesktopBridgeProvider bridge={desktop.bridge}>
+        <I18nProvider>
+          <DataProvider
+            bootstrap={{ baseUrl: "http://desktop.test", username: "jyycode", password: "secret" }}
+            generation={0}
+            directory={directory}
+          >
+            <FilePreview directory={directory} path="README.md" onClose={vi.fn()} />
+          </DataProvider>
+        </I18nProvider>
+      </DesktopBridgeProvider>
+    ))
+
+    await screen.findByRole("textbox")
+    expect(screen.getByRole("button", { name: back })).toBeVisible()
+    await screen.getByRole("button", { name: preview }).click()
+    expect(await screen.findByRole("button", { name: edit })).toBeVisible()
   })
 
   it("switches Markdown between editor and sanitized preview", async () => {
@@ -73,10 +110,10 @@ describe("FilePreview", () => {
     ))
 
     await screen.findByRole("textbox")
-    await screen.getByRole("button", { name: "Preview Markdown" }).click()
+    await screen.getByRole("button", { name: "预览 Markdown" }).click()
     expect(await screen.findByRole("heading", { name: "Hello" })).toBeVisible()
     expect(screen.queryByText("alert(1)")).not.toBeInTheDocument()
-    await screen.getByRole("button", { name: "Edit Markdown" }).click()
+    await screen.getByRole("button", { name: "编辑 Markdown" }).click()
     await waitFor(() => expect(screen.getByRole("textbox")).toBeVisible())
   })
 
@@ -103,7 +140,7 @@ describe("FilePreview", () => {
 
     const editor = await screen.findByRole("textbox")
     expect(editor).toHaveTextContent("old value")
-    expect(screen.getByText("Read-only")).toBeVisible()
+    expect(screen.getByText("只读")).toBeVisible()
     expect(screen.queryByRole("button", { name: "Save file" })).not.toBeInTheDocument()
   })
 })

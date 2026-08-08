@@ -26,7 +26,7 @@ describe("FileEditor", () => {
     await user.keyboard("{Control>}a{/Control}")
     await user.keyboard("const safe = true")
 
-    expect(screen.getByRole("button", { name: "Save file" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "保存文件" })).toBeEnabled()
     expect(onDirtyChange).toHaveBeenLastCalledWith(true)
 
     fireEvent.keyDown(editor, { key: "s", code: "KeyS", ctrlKey: true })

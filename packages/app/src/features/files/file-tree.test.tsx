@@ -32,7 +32,7 @@ describe("FileTree", () => {
     const onOpenFile = renderTree(backend)
     const user = userEvent.setup()
 
-    expect(await screen.findByRole("tree", { name: "Project files" })).toBeVisible()
+    expect(await screen.findByRole("tree", { name: "项目文件" })).toBeVisible()
     expect(screen.getByRole("button", { name: "src" }).closest("[role=treeitem]")).toHaveAttribute(
       "aria-expanded",
       "false",
@@ -42,9 +42,11 @@ describe("FileTree", () => {
     expect(screen.queryByRole("treeitem", { name: "dist" })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "src" }))
-    expect(screen.getByRole("button", { name: "src" }).closest("[role=treeitem]")).toHaveAttribute(
-      "aria-expanded",
-      "true",
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "src" }).closest("[role=treeitem]")).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      ),
     )
     expect(await screen.findByRole("treeitem", { name: "app.tsx" })).toBeVisible()
 
@@ -75,8 +77,8 @@ describe("FileTree", () => {
   it("renders loading, empty, error, and retry states", async () => {
     const retry = vi.fn()
     render(() => <FileTreeView directory={directory} nodes={[]} loading onRetry={retry} onOpenFile={vi.fn()} />)
-    expect(screen.getByRole("status")).toHaveTextContent("Loading files")
-    await userEvent.setup().click(screen.getByRole("button", { name: "Refresh files" }))
+    expect(screen.getByRole("status")).toHaveTextContent("正在加载文件")
+    await userEvent.setup().click(screen.getByRole("button", { name: "刷新文件" }))
     expect(retry).toHaveBeenCalledOnce()
 
     cleanup()
@@ -93,6 +95,6 @@ describe("FileTree", () => {
 
     cleanup()
     render(() => <FileTreeView directory={directory} nodes={[]} onOpenFile={vi.fn()} />)
-    expect(screen.getByText("This folder is empty")).toBeVisible()
+    expect(screen.getByText("此文件夹为空")).toBeVisible()
   })
 })

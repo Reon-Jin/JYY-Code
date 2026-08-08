@@ -345,73 +345,77 @@ export function FilePreview(props: FilePreviewProps) {
 
   return (
     <section class="file-preview" aria-label={props.path}>
-      <Show
-        when={!query.isPending}
-        fallback={
-          <>
-            <PreviewHeader path={props.path} onClose={props.onClose} />
-            <p class="file-preview__state" role="status">
-              <Spinner /> {tr("files.loading")}
-            </p>
-          </>
-        }
-      >
+      <div class="file-preview__viewport">
         <Show
-          when={(!query.error || historicalContent()) && displayedContent()}
+          when={!query.isPending}
           fallback={
             <>
               <PreviewHeader path={props.path} onClose={props.onClose} />
-              <div class="file-preview__state">
-                <InlineError message={query.error ? errorText(query.error) : tr("files.unable-to-load")} />
-                <Show when={query.error}>
-                  <Button size="small" variant="secondary" onClick={() => void query.refetch()}>
-                    <RefreshCw aria-hidden="true" />
-                    {tr("files.retry")}
-                  </Button>
-                </Show>
-              </div>
+              <p class="file-preview__state" role="status">
+                <Spinner /> {tr("files.loading")}
+              </p>
             </>
           }
         >
-          {(content) => {
-            const editable = () =>
-              content().type === "text" && content().encoding !== "base64" && isEditableText(props.path)
-            const isMarkdown = () => kind() === "markdown" && editable()
-            return (
+          <Show
+            when={(!query.error || historicalContent()) && displayedContent()}
+            fallback={
               <>
-                <Show when={editable() && (!isMarkdown() || !markdownPreview())}>{editor(content())}</Show>
-                <Show when={isMarkdown() && markdownPreview()}>
-                  <PreviewHeader path={props.path} onClose={props.onClose} toolbar={markdownToolbar} readOnly />
-                  <article class="file-preview__markdown conversation-markdown" innerHTML={renderMarkdown(draft())} />
-                </Show>
-                <Show
-                  when={
-                    !editable() &&
-                    kind() !== "image" &&
-                    kind() !== "video" &&
-                    kind() !== "audio" &&
-                    kind() !== "pdf" &&
-                    kind() !== "docx"
-                  }
-                >
-                  <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
-                  <div class="file-preview__state">
-                    <InlineError message={tr("files.unsupported")} />
-                  </div>
-                </Show>
-                <Show when={kind() === "image" || kind() === "video" || kind() === "audio"}>
-                  <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
-                  <MediaPreview content={content()} kind={kind()} />
-                </Show>
-                <Show when={kind() === "pdf" || kind() === "docx"}>
-                  <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
-                  <BinaryDocumentPreview content={content()} kind={kind()} />
-                </Show>
+                <PreviewHeader path={props.path} onClose={props.onClose} />
+                <div class="file-preview__state">
+                  <InlineError message={query.error ? errorText(query.error) : tr("files.unable-to-load")} />
+                  <Show when={query.error}>
+                    <Button size="small" variant="secondary" onClick={() => void query.refetch()}>
+                      <RefreshCw aria-hidden="true" />
+                      {tr("files.retry")}
+                    </Button>
+                  </Show>
+                </div>
               </>
-            )
-          }}
+            }
+          >
+            {(content) => {
+              const editable = () =>
+                content().type === "text" && content().encoding !== "base64" && isEditableText(props.path)
+              const isMarkdown = () => kind() === "markdown" && editable()
+              return (
+                <>
+                  <Show when={editable() && (!isMarkdown() || !markdownPreview())}>{editor(content())}</Show>
+                  <Show when={isMarkdown() && markdownPreview()}>
+                    <PreviewHeader path={props.path} onClose={props.onClose} toolbar={markdownToolbar} readOnly />
+                    <div class="file-preview__markdown-viewport">
+                      <article class="file-preview__markdown conversation-markdown" innerHTML={renderMarkdown(draft())} />
+                    </div>
+                  </Show>
+                  <Show
+                    when={
+                      !editable() &&
+                      kind() !== "image" &&
+                      kind() !== "video" &&
+                      kind() !== "audio" &&
+                      kind() !== "pdf" &&
+                      kind() !== "docx"
+                    }
+                  >
+                    <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
+                    <div class="file-preview__state">
+                      <InlineError message={tr("files.unsupported")} />
+                    </div>
+                  </Show>
+                  <Show when={kind() === "image" || kind() === "video" || kind() === "audio"}>
+                    <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
+                    <MediaPreview content={content()} kind={kind()} />
+                  </Show>
+                  <Show when={kind() === "pdf" || kind() === "docx"}>
+                    <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
+                    <BinaryDocumentPreview content={content()} kind={kind()} />
+                  </Show>
+                </>
+              )
+            }}
+          </Show>
         </Show>
-      </Show>
+      </div>
       <Show when={conflict()}>
         <div class="file-preview__conflict" role="alert">
           <InlineError message={tr("files.conflict")} />
