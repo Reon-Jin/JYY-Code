@@ -317,6 +317,18 @@ const scenarios: Scenario[] = [
       object(body)
       check(body.type === "text" && body.content === "", "missing file content should return an empty text result")
     }),
+  http.protected
+    .put("/file/content", "file.write")
+    .inProject({ git: false })
+    .at((ctx) => ({
+      path: "/file/content",
+      headers: { ...ctx.headers(), "content-type": "application/json" },
+      body: { path: "created.txt", content: "created\n" },
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(typeof body.revision === "string", "file write should return a revision")
+    }),
   http.protected.get("/file/status", "file.status").json(200, array),
   http.protected
     .get("/find", "find.text")

@@ -29,6 +29,11 @@ const read = Effect.fn("FileTest.read")(function* (input: string) {
   return yield* file.read(input)
 })
 
+const write = Effect.fn("FileTest.write")(function* (input: { path: string; content: string; revision?: string }) {
+  const file = yield* File.Service
+  return yield* file.write(input)
+})
+
 const list = Effect.fn("FileTest.list")(function* (dir?: string) {
   const file = yield* File.Service
   return yield* file.list(dir)
@@ -88,7 +93,7 @@ describe("file/index Filesystem patterns", () => {
       }),
     )
 
-    it.instance("trims whitespace from text content", () =>
+    it.instance("preserves whitespace and final newlines in text content", () =>
       Effect.gen(function* () {
         const test = yield* TestInstance
         yield* Effect.promise(() =>
@@ -96,7 +101,7 @@ describe("file/index Filesystem patterns", () => {
         )
 
         const result = yield* read("test.txt")
-        expect(result.content).toBe("content with spaces")
+        expect(result.content).toBe("  content with spaces  \n\n")
       }),
     )
 
@@ -356,6 +361,60 @@ describe("file/index Filesystem patterns", () => {
         const result = yield* read("test.jpg")
         expect(result.encoding).toBe("base64")
         expect(result.mimeType).toBe("image/jpeg")
+      }),
+    )
+
+    it.instance("returns base64 encoding for PDF, DOCX, video, and audio previews", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const bytes = Buffer.from([0x00, 0x01, 0x02, 0x03])
+        for (const extension of ["pdf", "docx", "mp4", "mp3"] as const) {
+          const filepath = path.join(test.directory, `preview.${extension}`)
+          yield* Effect.promise(() => fs.writeFile(filepath, bytes))
+          const result = yield* read(`preview.${extension}`)
+          expect(result.type).toBe("text")
+          expect(result.encoding).toBe("base64")
+          expect(result.mimeType).toBeTruthy()
+          expect(result.content).toBe(bytes.toString("base64"))
+        }
+      }),
+    )
+
+    it.instance("returns a revision derived from metadata and content", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        yield* Effect.promise(() => fs.writeFile(path.join(test.directory, "revision.txt"), "one", "utf-8"))
+        const first = yield* read("revision.txt")
+        yield* Effect.promise(() => fs.writeFile(path.join(test.directory, "revision.txt"), "two", "utf-8"))
+        const second = yield* read("revision.txt")
+        expect(first.revision).toBeTruthy()
+        expect(second.revision).toBeTruthy()
+        expect(second.revision).not.toBe(first.revision)
+      }),
+    )
+
+    it.instance("writes UTF-8 text atomically when the revision matches", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        yield* Effect.promise(() => fs.writeFile(path.join(test.directory, "editable.txt"), "before", "utf-8"))
+        const current = yield* read("editable.txt")
+        const saved = yield* write({ path: "editable.txt", content: "after\n", revision: current.revision })
+        expect(saved.revision).toBeTruthy()
+        expect(saved.revision).not.toBe(current.revision)
+        expect(yield* Effect.promise(() => fs.readFile(path.join(test.directory, "editable.txt"), "utf-8"))).toBe(
+          "after\n",
+        )
+      }),
+    )
+
+    it.instance("rejects stale revisions and unsupported binary writes", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        yield* Effect.promise(() => fs.writeFile(path.join(test.directory, "editable.txt"), "before", "utf-8"))
+        expect(yield* failureMessage(write({ path: "editable.txt", content: "after", revision: "stale" }))).toContain(
+          "changed",
+        )
+        expect(yield* failureMessage(write({ path: "binary.bin", content: "not binary" }))).toContain("supported")
       }),
     )
   })
@@ -777,7 +836,7 @@ describe("file/index Filesystem patterns", () => {
 
           const result = yield* read("file.txt")
           expect(result.type).toBe("text")
-          expect(result.content).toBe("modified content")
+          expect(result.content).toBe("modified content\n")
           expect(result.diff).toBeDefined()
           expect(result.diff).toContain("original content")
           expect(result.diff).toContain("modified content")
@@ -818,7 +877,7 @@ describe("file/index Filesystem patterns", () => {
 
           const result = yield* read("clean.txt")
           expect(result.type).toBe("text")
-          expect(result.content).toBe("unchanged")
+          expect(result.content).toBe("unchanged\n")
           expect(result.diff).toBeUndefined()
           expect(result.patch).toBeUndefined()
         }),

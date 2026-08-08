@@ -410,11 +410,18 @@ describe("HttpApi SDK", () => {
     ({ sdk }) =>
       Effect.gen(function* () {
         const file = yield* call(() => sdk.file.read({ path: "hello.txt" }))
+        const saved = yield* call(() =>
+          sdk.file.write({
+            fileContentWrite: { path: "hello.txt", content: "hello from sdk\n", revision: file.data?.revision ?? "" },
+          }),
+        )
         const session = yield* call(() => sdk.session.create({ title: "sdk" }))
         const listed = yield* call(() => sdk.session.list({ roots: true, limit: 10 }))
 
         expect(file.response.status).toBe(200)
         expect(file.data).toMatchObject({ content: "hello" })
+        expect(saved.response.status).toBe(200)
+        expect(saved.data).toMatchObject({ revision: expect.any(String) })
         expect(session.response.status).toBe(200)
         expect(session.data).toMatchObject({ title: "sdk" })
         expect(listed.response.status).toBe(200)

@@ -12,6 +12,7 @@ import { testEffect } from "../lib/effect"
 const it = testEffect(File.defaultLayer)
 const read = (file: string) => File.use.read(file)
 const list = (dir?: string) => File.use.list(dir)
+const write = (input: { path: string; content: string; revision?: string }) => File.use.write(input)
 const expectAccessDenied = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const exit = yield* effect.pipe(Effect.exit)
@@ -101,6 +102,15 @@ describe("File.list path traversal protection", () => {
 
       const result = yield* list("subdir")
       expect(Array.isArray(result)).toBe(true)
+    }),
+  )
+})
+
+describe("File.write path traversal protection", () => {
+  it.instance("rejects relative traversal and absolute paths", () =>
+    Effect.gen(function* () {
+      yield* expectAccessDenied(write({ path: "../../../etc/passwd", content: "unsafe" }))
+      yield* expectAccessDenied(write({ path: path.join((yield* TestInstance).directory, "outside.txt"), content: "unsafe" }))
     }),
   )
 })

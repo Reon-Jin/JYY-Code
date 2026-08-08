@@ -4,6 +4,12 @@ import { Ripgrep } from "@/file/ripgrep"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
+import {
+  FileConflictError,
+  FileTooLargeError,
+  FileUnsupportedWriteError,
+  FileUnsafePathError,
+} from "../groups/file"
 
 export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handlers) =>
   Effect.gen(function* () {
@@ -39,6 +45,37 @@ export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handl
       return yield* svc.read(ctx.query.path)
     })
 
+    const write = Effect.fn("FileHttpApi.write")(function* (ctx: { payload: File.WriteInput }) {
+      return yield* svc.write(ctx.payload).pipe(
+        Effect.catchTag("FileUnsafePathError", (error) =>
+          Effect.fail(new FileUnsafePathError({ name: "FileUnsafePathError", data: { message: error.message } })),
+        ),
+        Effect.catchTag("FileUnsupportedWriteError", (error) =>
+          Effect.fail(
+            new FileUnsupportedWriteError({
+              name: "FileUnsupportedWriteError",
+              data: { message: error.message },
+            }),
+          ),
+        ),
+        Effect.catchTag("FileTooLargeError", (error) =>
+          Effect.fail(new FileTooLargeError({ name: "FileTooLargeError", data: { message: error.message } })),
+        ),
+        Effect.catchTag("FileRevisionConflictError", (error) =>
+          Effect.fail(
+            new FileConflictError({
+              name: "FileConflictError",
+              data: {
+                message: error.message,
+                currentRevision: error.currentRevision,
+                expectedRevision: error.expectedRevision,
+              },
+            }),
+          ),
+        ),
+      )
+    })
+
     const status = Effect.fn("FileHttpApi.status")(function* () {
       return yield* svc.status()
     })
@@ -49,6 +86,7 @@ export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handl
       .handle("findSymbol", findSymbol)
       .handle("list", list)
       .handle("content", content)
+      .handle("write", write)
       .handle("status", status)
   }),
 )

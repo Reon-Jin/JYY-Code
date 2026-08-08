@@ -11,14 +11,16 @@ void Log.init({ print: false })
 
 const context = Context.empty() as Context.Context<unknown>
 
-function request(route: string, directory: string, query?: Record<string, string>) {
+function request(route: string, directory: string, query?: Record<string, string>, init?: RequestInit) {
   const url = new URL(`http://localhost${route}`)
   for (const [key, value] of Object.entries(query ?? {})) {
     url.searchParams.set(key, value)
   }
   return HttpApiApp.webHandler().handler(
     new Request(url, {
+      ...init,
       headers: {
+        ...(init?.headers ?? {}),
         "x-jyycode-directory": directory,
       },
     }),
@@ -72,5 +74,29 @@ describe("file HttpApi", () => {
 
     expect(symbols.status).toBe(200)
     expect(await symbols.json()).toEqual([])
+  })
+
+  test("writes scoped UTF-8 content and reports revision conflicts", async () => {
+    await using tmp = await tmpdir({ git: false })
+    await Bun.write(path.join(tmp.path, "editable.txt"), "before")
+
+    const current = await request(FilePaths.content, tmp.path, { path: "editable.txt" })
+    const currentBody = await current.json()
+    const saved = await request(FilePaths.content, tmp.path, undefined, {
+      method: "PUT",
+      body: JSON.stringify({ path: "editable.txt", content: "after\n", revision: currentBody.revision }),
+      headers: { "content-type": "application/json" },
+    })
+
+    expect(saved.status).toBe(200)
+    expect((await saved.json()).revision).toBeTruthy()
+
+    const conflict = await request(FilePaths.content, tmp.path, undefined, {
+      method: "PUT",
+      body: JSON.stringify({ path: "editable.txt", content: "stale", revision: currentBody.revision }),
+      headers: { "content-type": "application/json" },
+    })
+    expect(conflict.status).toBe(409)
+    expect(await conflict.json()).toMatchObject({ name: "FileConflictError" })
   })
 })

@@ -16,6 +16,8 @@ import * as Log from "@jyycode-ai/core/util/log"
 import { Protected } from "./protected"
 import { Ripgrep } from "./ripgrep"
 import { NonNegativeInt, type DeepMutable } from "@jyycode-ai/core/schema"
+import { createHash, randomUUID } from "node:crypto"
+import { stat as statFile } from "node:fs/promises"
 
 export const Info = Schema.Struct({
   path: Schema.String,
@@ -58,8 +60,39 @@ export const Content = Schema.Struct({
   patch: Schema.optional(Patch),
   encoding: Schema.optional(Schema.Literal("base64")),
   mimeType: Schema.optional(Schema.String),
+  revision: Schema.String,
 }).annotate({ identifier: "FileContent" })
 export type Content = DeepMutable<Schema.Schema.Type<typeof Content>>
+
+export const WriteInput = Schema.Struct({
+  path: Schema.String,
+  content: Schema.String,
+  revision: Schema.optional(Schema.String),
+}).annotate({ identifier: "FileContentWrite" })
+export type WriteInput = DeepMutable<Schema.Schema.Type<typeof WriteInput>>
+
+export const WriteResult = Schema.Struct({ revision: Schema.String }).annotate({ identifier: "FileContentWriteResult" })
+export type WriteResult = DeepMutable<Schema.Schema.Type<typeof WriteResult>>
+
+export class UnsafePathError extends Schema.TaggedErrorClass<UnsafePathError>()("FileUnsafePathError", {
+  message: Schema.String,
+}) {}
+
+export class UnsupportedWriteError extends Schema.TaggedErrorClass<UnsupportedWriteError>()("FileUnsupportedWriteError", {
+  message: Schema.String,
+}) {}
+
+export class TooLargeError extends Schema.TaggedErrorClass<TooLargeError>()("FileTooLargeError", {
+  message: Schema.String,
+}) {}
+
+export class RevisionConflictError extends Schema.TaggedErrorClass<RevisionConflictError>()("FileRevisionConflictError", {
+  message: Schema.String,
+  expectedRevision: Schema.optional(Schema.String),
+  currentRevision: Schema.String,
+}) {}
+
+export type WriteError = UnsafePathError | UnsupportedWriteError | TooLargeError | RevisionConflictError
 
 export const Event = {
   Edited: BusEvent.define(
@@ -281,6 +314,29 @@ const isTextByName = (file: string) => textName.has(name(file))
 const isBinaryByExtension = (file: string) => binary.has(ext(file))
 const isImage = (mimeType: string) => mimeType.startsWith("image/")
 const getImageMimeType = (file: string) => mime[ext(file)] || "image/" + ext(file)
+const previewBinary = new Set(["pdf", "docx", "mp4", "avi", "mov", "wmv", "flv", "webm", "mkv", "mp3", "wav", "ogg", "oga", "flac", "aac", "m4a", "wma", "weba"])
+const maxTextBytes = 2 * 1024 * 1024
+const maxPreviewBytes = 25 * 1024 * 1024
+
+const hashBytes = (bytes: Uint8Array | undefined) =>
+  createHash("sha256").update(bytes ? Buffer.from(bytes) : Buffer.alloc(0)).digest("hex")
+
+const makeRevision = (
+  relativePath: string,
+  metadata: { size: number; mtimeMs: number; mode: number } | undefined,
+  bytes: Uint8Array | undefined,
+) =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        path: relativePath.replaceAll("\\", "/"),
+        size: metadata?.size ?? null,
+        mtimeMs: metadata?.mtimeMs ?? null,
+        mode: metadata?.mode ?? null,
+        content: hashBytes(bytes),
+      }),
+    )
+    .digest("hex")
 
 function shouldEncode(mimeType: string) {
   const type = mimeType.toLowerCase()
@@ -316,6 +372,7 @@ export interface Interface {
   readonly init: () => Effect.Effect<void>
   readonly status: () => Effect.Effect<Info[]>
   readonly read: (file: string) => Effect.Effect<Content>
+  readonly write: (input: WriteInput) => Effect.Effect<WriteResult, WriteError>
   readonly list: (dir?: string) => Effect.Effect<Node[]>
   readonly search: (input: {
     query: string
@@ -410,6 +467,22 @@ export const layer = Layer.effect(
       return (yield* git.run(args, { cwd: (yield* InstanceState.context).directory })).text()
     })
 
+    const revisionFor = Effect.fn("File.revision")(function* (
+      full: string,
+      relativePath: string,
+      bytes?: Uint8Array,
+    ) {
+      const metadata = yield* Effect.promise(async () => {
+        try {
+          const info = await statFile(full)
+          return { size: info.size, mtimeMs: info.mtimeMs, mode: info.mode }
+        } catch {
+          return undefined
+        }
+      })
+      return makeRevision(relativePath, metadata, bytes)
+    })
+
     const init = Effect.fn("File.init")(function* () {
       yield* ensure().pipe(Effect.forkIn(scope))
     })
@@ -501,37 +574,63 @@ export const layer = Layer.effect(
     const read: Interface["read"] = Effect.fn("File.read")(function* (file: string) {
       using _ = log.time("read", { file })
       const ctx = yield* InstanceState.context
-      const full = path.join(ctx.directory, file)
+      const full = path.resolve(ctx.directory, file)
 
       if (!containsPath(full, ctx)) {
         throw new Error("Access denied: path escapes project directory")
       }
 
-      if (isImageByExtension(file)) {
-        const exists = yield* appFs.existsSafe(full)
-        if (exists) {
-          const bytes = yield* appFs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
-          return {
-            type: "text" as const,
-            content: Buffer.from(bytes).toString("base64"),
-            mimeType: getImageMimeType(file),
-            encoding: "base64" as const,
-          }
-        }
-        return { type: "text" as const, content: "" }
+      const exists = yield* appFs.existsSafe(full)
+      if (!exists) {
+        return { type: "text" as const, content: "", revision: yield* revisionFor(full, file) }
       }
 
-      const knownText = isTextByExtension(file) || isTextByName(file)
-
-      if (isBinaryByExtension(file) && !knownText) return { type: "binary" as const, content: "" }
-
-      const exists = yield* appFs.existsSafe(full)
-      if (!exists) return { type: "text" as const, content: "" }
-
       const mimeType = AppFileSystem.mimeType(full)
+      const knownText = isTextByExtension(file) || isTextByName(file)
+      const media =
+        !knownText &&
+        (isImageByExtension(file) ||
+        previewBinary.has(ext(file)) ||
+        isImage(mimeType) ||
+        mimeType.startsWith("audio/") ||
+        mimeType.startsWith("video/"))
+
+      if (media) {
+        const metadata = yield* Effect.promise(async () => {
+          try {
+            const info = await statFile(full)
+            return { size: info.size, mtimeMs: info.mtimeMs, mode: info.mode }
+          } catch {
+            return undefined
+          }
+        })
+        if ((metadata?.size ?? 0) > maxPreviewBytes) {
+          return {
+            type: "binary" as const,
+            content: "",
+            mimeType: isImageByExtension(file) ? getImageMimeType(file) : mimeType,
+            revision: makeRevision(file, metadata, undefined),
+          }
+        }
+        const bytes = yield* appFs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
+        return {
+          type: "text" as const,
+          content: Buffer.from(bytes).toString("base64"),
+          mimeType: isImageByExtension(file) ? getImageMimeType(file) : mimeType,
+          encoding: "base64" as const,
+          revision: makeRevision(file, metadata, bytes),
+        }
+      }
+
+      if (isBinaryByExtension(file) && !knownText) {
+        return { type: "binary" as const, content: "", mimeType, revision: yield* revisionFor(full, file) }
+      }
+
       const encode = knownText ? false : shouldEncode(mimeType)
 
-      if (encode && !isImage(mimeType)) return { type: "binary" as const, content: "", mimeType }
+      if (encode && !isImage(mimeType)) {
+        return { type: "binary" as const, content: "", mimeType, revision: yield* revisionFor(full, file) }
+      }
 
       if (encode) {
         const bytes = yield* appFs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
@@ -540,13 +639,17 @@ export const layer = Layer.effect(
           content: Buffer.from(bytes).toString("base64"),
           mimeType,
           encoding: "base64" as const,
+          revision: yield* revisionFor(full, file, bytes),
         }
       }
 
-      const content = yield* appFs.readFileString(full).pipe(
-        Effect.map((s) => s.trim()),
-        Effect.catch(() => Effect.succeed("")),
-      )
+      const bytes = yield* appFs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
+      const revision = yield* revisionFor(full, file, bytes)
+      const content = Buffer.from(bytes).toString("utf8")
+
+      if (bytes.byteLength > maxTextBytes) {
+        return { type: "binary" as const, content: "", mimeType, revision }
+      }
 
       if (ctx.project.vcs === "git") {
         let diff = yield* gitText(["-c", "core.fsmonitor=false", "diff", "--", file])
@@ -559,12 +662,74 @@ export const layer = Layer.effect(
             context: Infinity,
             ignoreWhitespace: true,
           })
-          return { type: "text" as const, content, patch, diff: formatPatch(patch) }
+          return { type: "text" as const, content, patch, diff: formatPatch(patch), revision }
         }
-        return { type: "text" as const, content }
+        return { type: "text" as const, content, revision }
       }
 
-      return { type: "text" as const, content }
+      return { type: "text" as const, content, revision }
+    })
+
+    const write: Interface["write"] = Effect.fn("File.write")(function* (input) {
+      const ctx = yield* InstanceState.context
+      const absoluteInput = path.isAbsolute(input.path) || /^[A-Za-z]:[\\/]/.test(input.path)
+      const full = path.resolve(ctx.directory, input.path)
+      const root = AppFileSystem.resolve(ctx.directory)
+      const parent = AppFileSystem.resolve(path.dirname(full))
+      const target = AppFileSystem.resolve(full)
+
+      if (
+        absoluteInput ||
+        !AppFileSystem.contains(root, full) ||
+        !AppFileSystem.contains(root, parent) ||
+        !AppFileSystem.contains(root, target) ||
+        path.relative(root, full) === ""
+      ) {
+        return yield* new UnsafePathError({ message: "Access denied: path escapes project directory" })
+      }
+
+      const mimeType = AppFileSystem.mimeType(full)
+      const isMedia =
+        isBinaryByExtension(input.path) ||
+        previewBinary.has(ext(input.path)) ||
+        isImage(mimeType) ||
+        mimeType.startsWith("audio/") ||
+        mimeType.startsWith("video/")
+      if (isMedia || input.content.includes("\0")) {
+        return yield* new UnsupportedWriteError({ message: "Only UTF-8 text files are supported for editing" })
+      }
+
+      if (Buffer.byteLength(input.content, "utf8") > maxTextBytes) {
+        return yield* new TooLargeError({ message: "Text files larger than 2 MiB cannot be edited" })
+      }
+
+      const exists = yield* appFs.existsSafe(full)
+      const currentBytes = exists
+        ? yield* appFs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
+        : undefined
+      const currentRevision = yield* revisionFor(full, input.path, currentBytes)
+      if (input.revision !== undefined && input.revision !== currentRevision) {
+        return yield* new RevisionConflictError({
+          message: "File changed since it was read",
+          expectedRevision: input.revision,
+          currentRevision,
+        })
+      }
+      if (exists && input.revision === undefined) {
+        return yield* new RevisionConflictError({
+          message: "A revision is required when replacing an existing file",
+          currentRevision,
+        })
+      }
+
+      const temporary = `${full}.${randomUUID()}.tmp`
+      const bytes = new TextEncoder().encode(input.content)
+      yield* appFs.ensureDir(path.dirname(full)).pipe(Effect.orDie)
+      yield* appFs.writeFileString(temporary, input.content).pipe(Effect.orDie)
+      yield* appFs
+        .rename(temporary, full)
+        .pipe(Effect.orDie, Effect.ensuring(appFs.remove(temporary, { force: true }).pipe(Effect.ignore)))
+      return { revision: yield* revisionFor(full, input.path, bytes) }
     })
 
     const list = Effect.fn("File.list")(function* (dir?: string) {
@@ -641,7 +806,7 @@ export const layer = Layer.effect(
     })
 
     log.info("init")
-    return Service.of({ init, status, read, list, search })
+    return Service.of({ init, status, read, write, list, search })
   }),
 )
 

@@ -46,6 +46,44 @@ export const FilePaths = {
   status: "/file/status",
 } as const
 
+export class FileUnsafePathError extends Schema.ErrorClass<FileUnsafePathError>("FileUnsafePathError")(
+  {
+    name: Schema.Literal("FileUnsafePathError"),
+    data: Schema.Struct({ message: Schema.String }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+export class FileUnsupportedWriteError extends Schema.ErrorClass<FileUnsupportedWriteError>("FileUnsupportedWriteError")(
+  {
+    name: Schema.Literal("FileUnsupportedWriteError"),
+    data: Schema.Struct({ message: Schema.String }),
+  },
+  { httpApiStatus: 400 },
+) {}
+
+export class FileTooLargeError extends Schema.ErrorClass<FileTooLargeError>("FileTooLargeError")(
+  {
+    name: Schema.Literal("FileTooLargeError"),
+    data: Schema.Struct({ message: Schema.String }),
+  },
+  { httpApiStatus: 413 },
+) {}
+
+export class FileConflictError extends Schema.ErrorClass<FileConflictError>("FileConflictError")(
+  {
+    name: Schema.Literal("FileConflictError"),
+    data: Schema.Struct({
+      message: Schema.String,
+      currentRevision: Schema.String,
+      expectedRevision: Schema.optional(Schema.String),
+    }),
+  },
+  { httpApiStatus: 409 },
+) {}
+
+const FileWriteErrors = [FileUnsafePathError, FileUnsupportedWriteError, FileTooLargeError, FileConflictError] as const
+
 export const FileApi = HttpApi.make("file")
   .add(
     HttpApiGroup.make("file")
@@ -98,6 +136,17 @@ export const FileApi = HttpApi.make("file")
             identifier: "file.read",
             summary: "Read file",
             description: "Read the content of a specified file.",
+          }),
+        ),
+        HttpApiEndpoint.put("write", FilePaths.content, {
+          payload: File.WriteInput,
+          success: described(File.WriteResult, "File content written"),
+          error: FileWriteErrors,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "file.write",
+            summary: "Write file content",
+            description: "Write UTF-8 text content to a project file with optimistic revision checking.",
           }),
         ),
         HttpApiEndpoint.get("status", FilePaths.status, {
