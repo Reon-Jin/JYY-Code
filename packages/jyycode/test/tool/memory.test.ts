@@ -70,3 +70,25 @@ it.live("memory tool read returns the selected store without mutation", () =>
     expect(result.metadata?.file).toContain("USER.json")
   }),
 )
+
+it.live("memory tool returns input errors without defecting", () =>
+  Effect.gen(function* () {
+    const root = yield* tmpdirScoped()
+    cleanup.push(root)
+    const sessionLayer = Layer.mock(Session.Service)({
+      get: (id) => Effect.succeed({ id, parentID: undefined } as Session.Info),
+      messages: () => Effect.succeed([]),
+    })
+    const layer = Memory.layerWithDirectory(root).pipe(
+      Layer.provide(Layer.merge(AppFileSystem.defaultLayer, sessionLayer)),
+    )
+    const result = yield* Effect.gen(function* () {
+      const info = yield* MemoryTool
+      const tool = yield* info.init()
+      return yield* provideInstance(root)(tool.execute({ action: "add", target: "user" }, ctx))
+    }).pipe(Effect.provide(layer))
+
+    expect(result.metadata?.status).toBe("error")
+    expect(result.output).toContain("content is required")
+  }),
+)

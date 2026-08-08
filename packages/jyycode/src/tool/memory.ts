@@ -55,7 +55,8 @@ export const MemoryTool = Tool.define(
         Effect.gen(function* () {
           if (params.action === "read") {
             const directory = yield* memory.dir(ctx.sessionID)
-            const text = yield* memory.formatWithHeader(ctx.sessionID, params.target)
+            const scope = params.target satisfies "memory" | "user"
+            const text = yield* memory.read({ sessionID: ctx.sessionID, scope })
             const file = path.join(directory, params.target === "memory" ? "MEMORY.json" : "USER.json")
             return {
               title: `Memory read (${params.target})`,
@@ -139,7 +140,15 @@ export const MemoryTool = Tool.define(
           }
 
           return yield* Effect.fail(new Error(`Unknown action: ${params.action}`))
-        }).pipe(Effect.orDie),
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.succeed({
+              title: "Memory error",
+              metadata: { file: undefined, status: "error", truncated: false },
+              output: error instanceof Error ? error.message : String(error),
+            }),
+          ),
+        ),
     }
   }),
 )

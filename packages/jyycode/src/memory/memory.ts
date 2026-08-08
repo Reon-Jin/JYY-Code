@@ -592,8 +592,16 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         scope: Scope
         section?: string
       }) {
-        const store = yield* readStore(input.sessionID, input.scope)
-        return serializeStore(input.scope, store.entries, store.lastCompactedAt)
+        const scope =
+          input.section === undefined
+            ? input.scope
+            : input.section === "task"
+              ? "memory"
+              : input.section === "user"
+                ? "user"
+                : yield* Effect.fail(new Error(`Invalid memory section: ${input.section}`))
+        const store = yield* readStore(input.sessionID, scope)
+        return serializeStore(scope, store.entries, store.lastCompactedAt)
       })
 
       const audit = Effect.fn("Memory.audit")(function* (sessionID: SessionID, entry: Record<string, unknown>) {
