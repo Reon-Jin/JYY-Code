@@ -229,7 +229,10 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
       })
 
       // Use bash tool (always registered) to create a file
-      const command = `echo 'snapshot race test content' > ${path.join(dir, "race-test.txt")}`
+      const command = `echo 'snapshot race test content' > '${path.join(dir, "race-test.txt")}'`
+      // Root loops perform the mandatory Plan_read preflight before ordinary
+      // tools become available.
+      yield* llm.tool("Plan_read", {})
       yield* llm.toolMatch((hit) => JSON.stringify(hit.body).includes("create the file"), "bash", {
         command,
         description: "create test file",

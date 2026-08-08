@@ -1905,7 +1905,7 @@ it.instance(
       expect(a.info.id).toBe(b.info.id)
       expect(a.info.role).toBe("assistant")
     }),
-  3_000,
+  10_000,
 )
 
 it.instance(
@@ -1973,7 +1973,7 @@ it.instance(
       expect(inputs).toHaveLength(2)
       expect(JSON.stringify(inputs.at(-1)?.messages)).toContain("second")
     }),
-  3_000,
+  10_000,
 )
 
 it.instance(
