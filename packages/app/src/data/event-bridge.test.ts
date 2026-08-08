@@ -215,6 +215,51 @@ describe("event routing", () => {
     ])
   })
 
+  it("routes session diffs with their explicit session scope", () => {
+    const diff = [{ file: "src/app.tsx", status: "modified", additions: 1, deletions: 0, patch: "+next" }]
+    expect(
+      routeEvent("C:\\a", {
+        directory: "C:\\a",
+        payload: { id: "evt_diff", type: "session.diff", properties: { sessionID: "ses_child", diff } },
+      } as GlobalEvent),
+    ).toEqual([{ kind: "session.diff", eventID: "evt_diff", directory: "C:\\a", sessionID: "ses_child", diff }])
+  })
+
+  it("updates cached session diffs for the matching session across workspace scopes", async () => {
+    const queryClient = createDesktopQueryClient()
+    const rootKey = keys.sessionDiff("C:\\a", "wrk_root", "ses_root")
+    const childKey = keys.sessionDiff("C:\\a", "wrk_child", "ses_root")
+    queryClient.setQueryData(rootKey, [])
+    queryClient.setQueryData(childKey, [])
+    const diff = [{ file: "main.txt", status: "modified", additions: 1, deletions: 0, patch: "+next" }]
+    const event = vi.fn(async (options: { signal: AbortSignal }) => ({
+      stream: (async function* () {
+        yield {
+          directory: "C:\\a",
+          payload: { id: "connected", type: "server.connected", properties: {} },
+        } as GlobalEvent
+        yield {
+          directory: "C:\\a",
+          payload: { id: "evt_diff_scope", type: "session.diff", properties: { sessionID: "ses_root", diff } },
+        } as GlobalEvent
+        await new Promise<void>((resolve) => options.signal.addEventListener("abort", () => resolve(), { once: true }))
+      })(),
+    }))
+    const bridge = new EventBridge({
+      client: { global: { event } } as never,
+      directory: "C:\\a",
+      queryClient,
+      workspaceID: () => "wrk_child",
+    })
+
+    bridge.start()
+    await vi.waitFor(() => {
+      expect(queryClient.getQueryData(rootKey)).toEqual(diff)
+      expect(queryClient.getQueryData(childKey)).toEqual(diff)
+    })
+    bridge.abort()
+  })
+
   it("sets exact todos and coalesces workspace invalidations within one frame", async () => {
     const queryClient = createDesktopQueryClient()
     const invalidate = vi.spyOn(queryClient, "invalidateQueries")

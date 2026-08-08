@@ -28,12 +28,15 @@ export type DataContextValue = {
   directory: () => string
   generation: () => number
   connection: () => ConnectionState
+  workspaceID: () => string | undefined
+  setWorkspaceID: (workspaceID: string | undefined) => void
 }
 
 const DataContext = createContext<DataContextValue>()
 
 export function DataProvider(props: ParentProps<DataProviderInput>) {
   const [connection, setConnection] = createSignal<ConnectionState>("connecting")
+  const [workspaceID, setWorkspaceID] = createSignal<string>()
   const queryClient = createMemo(
     on(
       () => props.generation,
@@ -50,6 +53,7 @@ export function DataProvider(props: ParentProps<DataProviderInput>) {
       client: client(),
       directory: props.directory,
       queryClient: queryClient(),
+      workspaceID,
       activeSessionID: props.activeSessionID,
       onConnectionChange: setConnection,
     })
@@ -63,6 +67,8 @@ export function DataProvider(props: ParentProps<DataProviderInput>) {
     directory: () => props.directory,
     generation: () => props.generation,
     connection,
+    workspaceID,
+    setWorkspaceID,
   }
 
   return (

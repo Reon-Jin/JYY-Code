@@ -232,7 +232,15 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
 
 export function WorkspaceInspector(props: {
   directory: string
+  workspaceID?: string
   sessionID?: string
+  diffDirectory?: string
+  diffWorkspaceID?: string
+  diffSessionID?: string
+  diffMode?: "git" | "session"
+  fileDirectory?: string
+  fileWorkspaceID?: string
+  fileSessionID?: string
   preferences: InspectorPreferences
   onPreferencesChange: (preferences: InspectorPreferences) => void
   onOpenFile?: (event: FileOpenEvent) => void
@@ -258,8 +266,23 @@ export function WorkspaceInspector(props: {
       }
       blackboard={props.blackboard ?? <div />}
       subagents={props.subagents ?? <SubagentProfilesPanel directory={props.directory} />}
-      changes={<ChangesPanel directory={props.directory} />}
-      files={<FileTree directory={props.directory} sessionID={props.sessionID} onOpenFile={props.onOpenFile} />}
+      changes={
+        <ChangesPanel
+          directory={props.diffDirectory ?? props.directory}
+          workspaceID={props.diffWorkspaceID ?? props.workspaceID}
+          sessionID={props.diffSessionID ?? props.sessionID}
+          mode={props.diffMode}
+          onOpenFile={props.onOpenFile}
+        />
+      }
+      files={
+        <FileTree
+          directory={props.fileDirectory ?? props.directory}
+          workspaceID={props.fileWorkspaceID ?? props.workspaceID}
+          sessionID={props.fileSessionID ?? props.sessionID}
+          onOpenFile={props.onOpenFile}
+        />
+      }
       planBadge={props.planBadge}
       blackboardBadge={props.blackboardBadge}
     />

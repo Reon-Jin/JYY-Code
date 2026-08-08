@@ -17,7 +17,7 @@ import {
   isConversationSnapshot,
   type ConversationSnapshot,
 } from "../features/conversation/conversation-state"
-import { keys, normalizeDirectory } from "./query-keys"
+import { keys, normalizeDirectory, normalizeRelativePath } from "./query-keys"
 import { publishDesktopNotificationEvent } from "../features/notifications/desktop-notifications"
 import { publishSoundEffectEvent } from "../features/sound-effects/sound-effects"
 
@@ -626,8 +626,14 @@ export class EventBridge {
         break
       }
       case "session.diff": {
-        const workspaceID = this.#options.workspaceID?.()
-        this.#options.queryClient.setQueryData(keys.sessionDiff(directory, workspaceID, action.sessionID), action.diff)
+        const matching = this.#workspaceQueries(directory).filter(
+          (query) => query.queryKey[8] === "session-diff" && query.queryKey[5] === action.sessionID,
+        )
+        if (matching.length === 0) {
+          this.#options.queryClient.setQueryData(keys.sessionDiff(directory, undefined, action.sessionID), action.diff)
+        } else {
+          for (const query of matching) this.#options.queryClient.setQueryData(query.queryKey, action.diff)
+        }
         break
       }
       case "vcs.branch.set": {
@@ -646,6 +652,7 @@ export class EventBridge {
         if (action.relativePath) {
           this.#invalidate(keys.fileContent(action.directory, workspaceID, sessionID, action.relativePath))
         }
+        this.#invalidateScopedWorkspaceQueries(action.directory, undefined, undefined, action.relativePath)
         void this.#options.queryClient.invalidateQueries({
           queryKey: keys.pullRequestsScope(action.directory),
           exact: false,
@@ -706,6 +713,39 @@ export class EventBridge {
 
   #invalidate(queryKey: readonly unknown[]) {
     void this.#options.queryClient.invalidateQueries({ queryKey, exact: true })
+  }
+
+  #workspaceQueries(directory: string, workspaceID?: string) {
+    const normalized = normalizeDirectory(directory)
+    return this.#options.queryClient
+      .getQueryCache()
+      .getAll()
+      .filter((query) => {
+        const key = query.queryKey
+        return (
+          key[0] === "project" &&
+          key[1] === normalized &&
+          key[2] === "workspace" &&
+          (workspaceID === undefined || key[3] === workspaceID)
+        )
+      })
+  }
+
+  #invalidateScopedWorkspaceQueries(
+    directory: string,
+    workspaceID: string | undefined,
+    sessionID: string | undefined,
+    relativePath: string | undefined,
+  ) {
+    const path = relativePath ? normalizeRelativePath(relativePath) : undefined
+    for (const query of this.#workspaceQueries(directory, workspaceID)) {
+      const key = query.queryKey
+      const kind = key[8]
+      if (kind !== "vcs-diff" && kind !== "session-diff" && kind !== "files") continue
+      if (sessionID !== undefined && key[5] !== sessionID) continue
+      if (kind === "files" && relativePath && (key[9] !== "content" || key[7] !== path)) continue
+      this.#invalidate(key)
+    }
   }
 
   #setConnection(state: ConnectionState) {

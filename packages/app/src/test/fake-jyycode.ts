@@ -65,6 +65,7 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   const project: Project = {
     id: "project_desktop",
     worktree: directory,
+    vcs: "git",
     time: { created: 1, updated: 1 },
     sandboxes: [],
   }
