@@ -144,14 +144,27 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
         scope: entry.scope,
         id: entry.id,
         ...(entry.scope === "task" ? { sessionID: entry.sessionID } : {}),
-        importance: value.importance,
-        keywords: value.keywords,
-        content: value.content,
       }
       await management.client.global.memory.update(
         entry.scope === "experience"
-          ? { ...base, kind: value.kind!, confidence: value.confidence! }
-          : base,
+          ? {
+              ...base,
+              body: {
+                kind: value.kind!,
+                confidence: value.confidence!,
+                importance: value.importance,
+                keywords: value.keywords,
+                content: value.content,
+              },
+            }
+          : {
+              ...base,
+              body: {
+                importance: value.importance,
+                keywords: value.keywords,
+                content: value.content,
+              },
+            },
         { throwOnError: true },
       )
     }

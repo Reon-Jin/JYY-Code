@@ -1,5 +1,5 @@
 import { tr } from "../../i18n/i18n-context"
-import type { Goal } from "@jyycode-ai/sdk/v2/client"
+import type { Session } from "@jyycode-ai/sdk/v2/client"
 import { ArrowDown, Check, MessageCircle } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
@@ -16,6 +16,8 @@ import {
   type PresentedMessageGroup,
 } from "./message-presentation"
 import "./conversation.css"
+
+type Goal = NonNullable<Session["goal"]>
 
 export type MessageTimelineProps = {
   messages: readonly ConversationMessage[]

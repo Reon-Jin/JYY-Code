@@ -183,9 +183,13 @@ describe("MemorySettings", () => {
         expect.objectContaining({
           scope: "experience",
           id: "exp_pptx",
-          kind: "lesson",
-          confidence: "medium",
-          content: "渲染 QA 应作为 PPT 交付前的强制步骤",
+          body: {
+            kind: "lesson",
+            confidence: "medium",
+            importance: 7,
+            keywords: ["PPT", "QA"],
+            content: "渲染 QA 应作为 PPT 交付前的强制步骤",
+          },
         }),
         { throwOnError: true },
       ),
@@ -246,9 +250,11 @@ describe("MemorySettings", () => {
         expect.objectContaining({
           scope: "user",
           id: "usr_language",
-          importance: 8,
-          keywords: ["语言"],
-          content: "用户偏好 English。",
+          body: {
+            importance: 8,
+            keywords: ["语言"],
+            content: "用户偏好 English。",
+          },
         }),
         { throwOnError: true },
       ),

@@ -41,7 +41,7 @@ export function GoalModeControl(props: GoalModeControlProps) {
     setFailure(undefined)
     try {
       const result = await props.client.session.update(
-        { directory: props.directory, sessionID: props.session.id, goal },
+        { directory: props.directory, sessionID: props.session.id, goal: goal ?? undefined },
         { throwOnError: true },
       )
       const session = result.data ?? { ...props.session, goal: goal ?? undefined }
