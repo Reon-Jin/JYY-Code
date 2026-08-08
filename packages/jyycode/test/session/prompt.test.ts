@@ -180,6 +180,7 @@ const memoryLifecycleLayer = Layer.succeed(
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
     currentTaskKeywords: () => Effect.succeed([]),
+    currentTaskContent: () => Effect.succeed(undefined),
     updateStepBegin: (sessionID) =>
       Effect.gen(function* () {
         memoryLifecycleUpdates.push({ sessionID, phase: "received" })
@@ -210,6 +211,7 @@ const memoryFailureLayer = Layer.succeed(
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
     currentTaskKeywords: () => Effect.succeed([]),
+    currentTaskContent: () => Effect.succeed(undefined),
     updateStepBegin: () => Effect.fail(new Error("Task memory 当前任务 must not exceed 120 characters")),
     updateAfterTurn: () => Effect.fail(new Error("memory completion update failed")),
   }),
@@ -231,6 +233,7 @@ const snapshotMemoryLayer = Layer.succeed(
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed("PERSISTENT MEMORY SNAPSHOT"),
     currentTaskKeywords: () => Effect.succeed([]),
+    currentTaskContent: () => Effect.succeed(undefined),
     updateStepBegin: () =>
       Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }),
     updateAfterTurn: () =>
@@ -3181,6 +3184,7 @@ it.instance("profile subagent child session gets role skills in the skill tool a
 )
 
 const experienceCandidatesWritten: Array<{ sessionID: SessionID; candidates: Memory.ExperienceCandidate[] }> = []
+const experienceSnapshotCalls: Array<[SessionID, string[], string | undefined]> = []
 const experienceMemoryLayer = Layer.succeed(
   ExperienceMemory.Service,
   ExperienceMemory.Service.of({
@@ -3193,7 +3197,11 @@ const experienceMemoryLayer = Layer.succeed(
         return candidates.length
       }),
     search: () => Effect.die("unexpected search"),
-    formatExperienceSnapshot: () => Effect.succeed(""),
+    formatExperienceSnapshot: (sessionID, taskKeywords, taskGoal) =>
+      Effect.sync(() => {
+        experienceSnapshotCalls.push([sessionID, [...taskKeywords], taskGoal])
+        return ""
+      }),
     maintain: () => Effect.die("unexpected maintain"),
     managementRead: () => Effect.die("unexpected managementRead"),
     managementUpdate: () => Effect.die("unexpected managementUpdate"),
@@ -3227,6 +3235,7 @@ const experienceWiringMemoryLayer = Layer.succeed(
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
     currentTaskKeywords: () => Effect.succeed([]),
+    currentTaskContent: () => Effect.succeed("当前任务：修复认证缺陷；进展：进行中"),
     updateStepBegin: () =>
       Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }),
     updateAfterTurn: () =>
@@ -3255,6 +3264,25 @@ withExperienceWiring.instance("writes experience candidates after the assistant 
       parts: [{ type: "text", text: "fix deploy" }],
     })
     expect(experienceCandidatesWritten.map((entry) => entry.candidates)).toEqual([[], [experienceCandidate]])
+  }),
+)
+
+withExperienceWiring.instance("passes the task goal text into the experience snapshot query", () =>
+  Effect.gen(function* () {
+    experienceSnapshotCalls.length = 0
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Experience goal wiring" })
+    yield* llm.text("hello experience goal")
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      parts: [{ type: "text", text: "hello experience goal" }],
+    })
+    const last = experienceSnapshotCalls.at(-1)
+    expect(last?.[1]).toEqual([])
+    expect(last?.[2]).toBe("修复认证缺陷")
   }),
 )
 

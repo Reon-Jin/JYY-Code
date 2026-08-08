@@ -1867,12 +1867,15 @@ export const layer = Layer.effect(
                 : undefined
             const experienceSnapshot =
               experienceMemory && memory
-                ? yield* memory!
-                    .currentTaskKeywords(sessionID)
-                    .pipe(
-                      Effect.andThen((keywords) => experienceMemory!.formatExperienceSnapshot(sessionID, keywords)),
-                      Effect.catchCause(() => Effect.succeed("")),
-                    )
+                ? yield* Effect.all([
+                    memory.currentTaskKeywords(sessionID),
+                    memory.currentTaskContent(sessionID),
+                  ]).pipe(
+                    Effect.andThen(([keywords, content]) =>
+                      experienceMemory!.formatExperienceSnapshot(sessionID, keywords, Memory.parseTaskGoal(content ?? "")),
+                    ),
+                    Effect.catchCause(() => Effect.succeed("")),
+                  )
                 : ""
             const snapshotText =
               [memorySnapshot, experienceSnapshot].filter(Boolean).join("\n") || undefined
