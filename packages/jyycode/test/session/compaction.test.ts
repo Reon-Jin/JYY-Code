@@ -8,6 +8,7 @@ import { Image } from "@/image/image"
 import { Agent } from "../../src/agent/agent"
 import { LLM } from "../../src/session/llm"
 import { SessionCompaction } from "../../src/session/compaction"
+import { microCompactOutput } from "../../src/session/micro-compact"
 import { Token } from "@/util/token"
 import * as Log from "@jyycode-ai/core/util/log"
 import { Permission } from "../../src/permission"
@@ -657,6 +658,47 @@ describe("session.compaction.shouldCompact", () => {
 })
 
 describe("session.compaction.microCompact", () => {
+  itCompaction.instance(
+    "uses the configured character limit and preserves the source messages",
+    () =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const output = "header\n" + "x".repeat(500) + "\nfooter"
+        const messages = [
+          {
+            parts: [{ type: "tool", state: { status: "completed", output } }],
+          },
+        ] as unknown as MessageV2.WithParts[]
+
+        const expected = microCompactOutput(output, 80)?.content
+        const result = yield* compact.microCompact({ messages, maxChars: 10 })
+
+        expect(result[0]?.parts[0]).toMatchObject({ state: { output: expected } })
+        expect(messages[0]?.parts[0]).toMatchObject({ state: { output } })
+      }).pipe(withCompaction({ config: cfg({ micro_compact_max_chars: 80 }) })),
+    { git: true },
+  )
+
+  itCompaction.instance(
+    "does not modify messages when micro-compaction is disabled",
+    () =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const output = "x".repeat(500)
+        const messages = [
+          {
+            parts: [{ type: "tool", state: { status: "completed", output } }],
+          },
+        ] as unknown as MessageV2.WithParts[]
+
+        const result = yield* compact.microCompact({ messages, maxChars: 80 })
+
+        expect(result).toEqual(messages)
+        expect(result).not.toBe(messages)
+      }).pipe(withCompaction({ config: cfg({ micro_compact: false }) })),
+    { git: true },
+  )
+
   it.instance("ignores pending, running, and error tool states", () =>
     Effect.gen(function* () {
       const compact = yield* SessionCompaction.Service
@@ -733,7 +775,7 @@ describe("session.compaction.microCompact", () => {
         },
       ]
 
-      const result = yield* compact.microCompact({ messages })
+      const result = yield* compact.microCompact({ messages, maxChars: 8_000 })
 
       expect(result).toEqual(messages)
     }),

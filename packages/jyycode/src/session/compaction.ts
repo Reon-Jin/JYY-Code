@@ -25,7 +25,12 @@ import {
   calculateTokenWarningState,
   estimateMaxTurnGrowth,
 } from "./overflow"
-import { isCompactable, microCompactOutput, estimateMicroCompactSavings } from "./micro-compact"
+import {
+  DEFAULT_MICRO_COMPACT_MAX_CHARS,
+  isCompactable,
+  microCompactOutput,
+  estimateMicroCompactSavings,
+} from "./micro-compact"
 import {
   detectReactiveCompactTrigger,
   shouldAttemptReactiveCompact,
@@ -241,7 +246,10 @@ export interface Interface {
   readonly shouldCompact: (input: { messages: MessageV2.WithParts[]; model: Provider.Model }) => Effect.Effect<boolean>
   readonly prune: (input: { sessionID: SessionID }) => Effect.Effect<void>
   /** Micro-compact tool results within a message array without full compaction. */
-  readonly microCompact: (input: { messages: MessageV2.WithParts[] }) => Effect.Effect<MessageV2.WithParts[]>
+  readonly microCompact: (input: {
+    messages: MessageV2.WithParts[]
+    maxChars?: number
+  }) => Effect.Effect<MessageV2.WithParts[]>
   /** Detect if the conversation needs reactive (emergency) compaction. */
   readonly detectReactiveNeed: (input: {
     messages: MessageV2.WithParts[]
@@ -686,18 +694,26 @@ export const layer = Layer.effect(
 
     const microCompactFn = Effect.fn("SessionCompaction.microCompact")(function* (input: {
       messages: MessageV2.WithParts[]
+      maxChars?: number
     }) {
+      const cfg = yield* config.get()
       const result = structuredClone(input.messages)
+      if (cfg.compaction?.micro_compact === false) return result
+
+      const maxChars =
+        cfg.compaction?.micro_compact_max_chars ?? input.maxChars ?? DEFAULT_MICRO_COMPACT_MAX_CHARS
+      const savings = estimateMicroCompactSavings(result, maxChars)
       for (const msg of result) {
         for (const part of msg.parts) {
           if (!isCompletedToolPart(part)) continue
           if (!isCompactable(part)) continue
-          const compacted = microCompactOutput(part.state.output)
+          const compacted = microCompactOutput(part.state.output, maxChars)
           if (compacted) {
             part.state.output = compacted.content
           }
         }
       }
+      if (savings > 0) log.info("micro-compacted tool output", { savings })
       return result
     })
 
