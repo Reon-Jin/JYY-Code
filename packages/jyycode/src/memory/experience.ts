@@ -7,6 +7,7 @@ import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import * as Log from "@jyycode-ai/core/util/log"
 import { SessionID } from "@/session/schema"
 import { bigramSimilarity, normalizeKeywords, parseImportance, validateKeywords } from "./memory"
+import { buildCorpusStats, buildQueryTerms, scoreExperience } from "./experience-score"
 import type { Importance } from "./memory"
 import {
   EXPERIENCE_CONFIDENCES,
@@ -111,6 +112,7 @@ export interface ExperienceInterface {
   readonly formatExperienceSnapshot: (
     sessionID: SessionID,
     taskKeywords: readonly string[],
+    taskGoal?: string,
   ) => Effect.Effect<string, Error>
   readonly maintain: (sessionID: SessionID) => Effect.Effect<ExperienceMaintenanceResult, Error>
   readonly managementRead: () => Effect.Effect<ExperienceStore, Error>
@@ -500,38 +502,28 @@ export const layerWithDirectory = (directory: string) =>
       const formatExperienceSnapshot = Effect.fn("ExperienceMemory.formatExperienceSnapshot")(function* (
         sessionID: SessionID,
         taskKeywords: readonly string[],
+        taskGoal?: string,
       ) {
         yield* ensure(sessionID)
         const store = yield* readStore(sessionID)
-        const normalizedTask = normalizeKeywords(taskKeywords)
-        if (normalizedTask.length === 0) return ""
-        const matched = store.entries
-          .filter((entry) => entry.status === "active")
-          .map((entry) => {
-            const haystack = `${entry.keywords.join(" ")} ${entry.content} ${entry.evidence}`
-              .normalize("NFKC")
-              .toLowerCase()
-            let hits = 0
-            let similarity = 0
-            for (const taskKeyword of normalizedTask) {
-              const keywordScore = entry.keywords.reduce(
-                (best, keyword) => Math.max(best, keywordMatchScore(taskKeyword, keyword)),
-                0,
-              )
-              if (keywordScore > 0) {
-                hits++
-                similarity += keywordScore
-              } else if (haystack.includes(taskKeyword)) {
-                // Content/evidence substring hits count, but rank below keyword matches.
-                similarity += 0.3
-              }
-            }
-            return { entry, hits, similarity }
-          })
-          .filter(({ hits, similarity }) => hits > 0 || similarity > 0)
+        const active = store.entries.filter((entry) => entry.status === "active")
+        if (active.length === 0) return ""
+        const normalizedKeywords = normalizeKeywords(taskKeywords)
+        const queryTerms = buildQueryTerms(normalizedKeywords, taskGoal ?? "")
+        if (queryTerms.size === 0) return ""
+        const stats = buildCorpusStats(active)
+        const matched = active
+          .map((entry) => ({
+            entry,
+            score: scoreExperience(entry, queryTerms, normalizedKeywords, stats),
+          }))
+          .filter(({ score }) => score > 0)
           .sort(
             (a, b) =>
-              b.similarity - a.similarity || b.hits - a.hits || b.entry.importance - a.entry.importance,
+              b.score - a.score ||
+              b.entry.importance - a.entry.importance ||
+              b.entry.uses - a.entry.uses ||
+              b.entry.date.localeCompare(a.entry.date),
           )
           .slice(0, EXPERIENCE_SNAPSHOT_TOP_K)
         if (matched.length === 0) return ""
