@@ -36,13 +36,13 @@ export type Event =
   | EventToolSearchExecuted1
   | EventToolExecutionCompleted1
   | EventSessionCompacted
+  | EventWorktreeReady
+  | EventWorktreeFailed
   | EventBlackboardUpdated
   | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
   | EventWorkspaceStatus
-  | EventWorktreeReady
-  | EventWorktreeFailed
   | EventPtyCreated
   | EventPtyUpdated
   | EventPtyExited
@@ -746,17 +746,6 @@ export type PermissionRule = {
 
 export type PermissionRuleset = Array<PermissionRule>
 
-export type Goal = {
-  condition: string
-  status: "running" | "done" | "failed" | "cancelled"
-  startedAt?: number
-  updatedAt?: number
-  completedAt?: number
-  turns?: number
-  maxTurns?: number
-  result?: string
-}
-
 export type Session = {
   id: string
   slug: string
@@ -792,7 +781,16 @@ export type Session = {
     variant?: string
   }
   multiAgent?: boolean
-  goal?: Goal
+  goal?: {
+    condition: string
+    status: "running" | "done" | "failed" | "cancelled"
+    startedAt?: number
+    updatedAt?: number
+    completedAt?: number
+    turns?: number
+    maxTurns?: number
+    result?: string
+  }
   version: string
   time: {
     created: number
@@ -852,13 +850,13 @@ export type GlobalEvent = {
     | EventToolSearchExecuted
     | EventToolExecutionCompleted
     | EventSessionCompacted
+    | EventWorktreeReady
+    | EventWorktreeFailed
     | EventBlackboardUpdated
     | EventVcsBranchUpdated
     | EventWorkspaceReady
     | EventWorkspaceFailed
     | EventWorkspaceStatus
-    | EventWorktreeReady
-    | EventWorktreeFailed
     | EventPtyCreated
     | EventPtyUpdated
     | EventPtyExited
@@ -1679,6 +1677,16 @@ export type GlobalSession = {
     variant?: string
   }
   multiAgent?: boolean
+  goal?: {
+    condition: string
+    status: "running" | "done" | "failed" | "cancelled"
+    startedAt?: number
+    updatedAt?: number
+    completedAt?: number
+    turns?: number
+    maxTurns?: number
+    result?: string
+  }
   version: string
   time: {
     created: number
@@ -1741,6 +1749,47 @@ export type FileContent = {
   }
   encoding?: "base64"
   mimeType?: string
+  revision: string
+}
+
+export type FileContentWrite = {
+  path: string
+  content: string
+  revision?: string
+}
+
+export type FileContentWriteResult = {
+  revision: string
+}
+
+export type FileUnsafePathError = {
+  name: "FileUnsafePathError"
+  data: {
+    message: string
+  }
+}
+
+export type FileUnsupportedWriteError = {
+  name: "FileUnsupportedWriteError"
+  data: {
+    message: string
+  }
+}
+
+export type FileTooLargeError = {
+  name: "FileTooLargeError"
+  data: {
+    message: string
+  }
+}
+
+export type FileConflictError = {
+  name: "FileConflictError"
+  data: {
+    message: string
+    currentRevision: string
+    expectedRevision?: string
+  }
 }
 
 export type File = {
@@ -2523,7 +2572,16 @@ export type SyncEventSessionUpdated = {
         variant?: string
       } | null
       multiAgent?: boolean | null
-      goal?: Goal | null
+      goal?: {
+        condition: string
+        status: "running" | "done" | "failed" | "cancelled"
+        startedAt?: number
+        updatedAt?: number
+        completedAt?: number
+        turns?: number
+        maxTurns?: number
+        result?: string
+      } | null
       version?: string | null
       time?: {
         created?: number | null
@@ -2957,7 +3015,7 @@ export type EventPlanRuntimeEvent = {
   type: "plan.runtime.event"
   properties: {
     seq: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    type: "plan.updated" | "child.activity" | "report_arrived" | "check_point" | "user_message"
+    type: "plan.updated" | "child.activity" | "report_arrived" | "check_point" | "user_message" | "runtime.metric"
     session_id: string
     revision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     at: string
@@ -3210,6 +3268,23 @@ export type EventSessionCompacted = {
   }
 }
 
+export type EventWorktreeReady = {
+  id: string
+  type: "worktree.ready"
+  properties: {
+    name: string
+    branch?: string
+  }
+}
+
+export type EventWorktreeFailed = {
+  id: string
+  type: "worktree.failed"
+  properties: {
+    message: string
+  }
+}
+
 export type EventBlackboardUpdated = {
   id: string
   type: "blackboard.updated"
@@ -3250,23 +3325,6 @@ export type EventWorkspaceStatus = {
   properties: {
     workspaceID: string
     status: "connected" | "connecting" | "disconnected" | "error"
-  }
-}
-
-export type EventWorktreeReady = {
-  id: string
-  type: "worktree.ready"
-  properties: {
-    name: string
-    branch?: string
-  }
-}
-
-export type EventWorktreeFailed = {
-  id: string
-  type: "worktree.failed"
-  properties: {
-    message: string
   }
 }
 
@@ -3907,7 +3965,6 @@ export type SessionInfo = {
     archived?: number
   }
   title: string
-  goal?: Goal
 }
 
 export type SessionDelivery = "immediate" | "deferred"
@@ -4198,7 +4255,7 @@ export type EventPlanRuntimeEvent1 = {
   type: "plan.runtime.event"
   properties: {
     seq: number | "NaN" | "Infinity" | "-Infinity"
-    type: "plan.updated" | "child.activity" | "report_arrived" | "check_point" | "user_message"
+    type: "plan.updated" | "child.activity" | "report_arrived" | "check_point" | "user_message" | "runtime.metric"
     session_id: string
     revision?: number | "NaN" | "Infinity" | "-Infinity"
     at: string
@@ -5626,6 +5683,39 @@ export type FileReadResponses = {
 }
 
 export type FileReadResponse = FileReadResponses[keyof FileReadResponses]
+
+export type FileWriteData = {
+  body?: FileContentWrite
+  path?: never
+  query?: never
+  url: "/file/content"
+}
+
+export type FileWriteErrors = {
+  /**
+   * FileUnsafePathError | FileUnsupportedWriteError | InvalidRequestError
+   */
+  400: FileUnsafePathError | FileUnsupportedWriteError | InvalidRequestError
+  /**
+   * FileConflictError
+   */
+  409: FileConflictError
+  /**
+   * FileTooLargeError
+   */
+  413: FileTooLargeError
+}
+
+export type FileWriteError = FileWriteErrors[keyof FileWriteErrors]
+
+export type FileWriteResponses = {
+  /**
+   * File content written
+   */
+  200: FileContentWriteResult
+}
+
+export type FileWriteResponse = FileWriteResponses[keyof FileWriteResponses]
 
 export type FileStatusData = {
   body?: never
@@ -8104,7 +8194,16 @@ export type SessionCreateData = {
       variant?: string
     }
     multiAgent?: boolean
-    goal?: Goal
+    goal?: {
+      condition: string
+      status: "running" | "done" | "failed" | "cancelled"
+      startedAt?: number
+      updatedAt?: number
+      completedAt?: number
+      turns?: number
+      maxTurns?: number
+      result?: string
+    }
     permission?: PermissionRuleset
     workspaceID?: string
   }
@@ -8236,7 +8335,16 @@ export type SessionUpdateData = {
   body?: {
     title?: string
     multiAgent?: boolean
-    goal?: Goal | null
+    goal?: {
+      condition: string
+      status: "running" | "done" | "failed" | "cancelled"
+      startedAt?: number
+      updatedAt?: number
+      completedAt?: number
+      turns?: number
+      maxTurns?: number
+      result?: string
+    }
     permission?: PermissionRuleset
     time?: {
       archived?: number

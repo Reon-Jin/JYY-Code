@@ -49,11 +49,11 @@ import type {
   ExperimentalWorkspaceRemoveResponses,
   ExperimentalWorkspaceStatusErrors,
   ExperimentalWorkspaceStatusResponses,
-  Goal,
   ExperimentalWorkspaceSyncListErrors,
   ExperimentalWorkspaceSyncListResponses,
   ExperimentalWorkspaceWarpErrors,
   ExperimentalWorkspaceWarpResponses,
+  FileContentWrite,
   FileListErrors,
   FileListResponses,
   FilePartInput,
@@ -62,6 +62,8 @@ import type {
   FileReadResponses,
   FileStatusErrors,
   FileStatusResponses,
+  FileWriteErrors,
+  FileWriteResponses,
   FindFilesErrors,
   FindFilesResponses,
   FindSymbolsErrors,
@@ -886,11 +888,19 @@ export class Memory extends HeyApiClient {
       scope: "user" | "task" | "experience"
       id: string
       sessionID?: string
-      importance?: number
-      keywords?: Array<string>
-      content?: string
-      kind?: "success" | "failure" | "lesson"
-      confidence?: "low" | "medium" | "high"
+      body?:
+        | {
+            importance: number
+            keywords: Array<string>
+            content: string
+          }
+        | {
+            kind: "success" | "failure" | "lesson"
+            importance: number
+            keywords: Array<string>
+            content: string
+            confidence: "low" | "medium" | "high"
+          }
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -902,11 +912,7 @@ export class Memory extends HeyApiClient {
             { in: "path", key: "scope" },
             { in: "path", key: "id" },
             { in: "query", key: "sessionID" },
-            { in: "body", key: "importance" },
-            { in: "body", key: "keywords" },
-            { in: "body", key: "content" },
-            { in: "body", key: "kind" },
-            { in: "body", key: "confidence" },
+            { key: "body", map: "body" },
           ],
         },
       ],
@@ -2034,6 +2040,30 @@ export class File extends HeyApiClient {
       url: "/file/content",
       ...options,
       ...params,
+    })
+  }
+
+  /**
+   * Write file content
+   *
+   * Write UTF-8 text content to a project file with optimistic revision checking.
+   */
+  public write<ThrowOnError extends boolean = false>(
+    parameters?: {
+      fileContentWrite?: FileContentWrite
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ key: "fileContentWrite", map: "body" }] }])
+    return (options?.client ?? this.client).put<FileWriteResponses, FileWriteErrors, ThrowOnError>({
+      url: "/file/content",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
     })
   }
 
@@ -4669,7 +4699,16 @@ export class Session2 extends HeyApiClient {
         variant?: string
       }
       multiAgent?: boolean
-      goal?: Goal
+      goal?: {
+        condition: string
+        status: "running" | "done" | "failed" | "cancelled"
+        startedAt?: number
+        updatedAt?: number
+        completedAt?: number
+        turns?: number
+        maxTurns?: number
+        result?: string
+      }
       permission?: PermissionRuleset
       workspaceID?: string
     },
@@ -4812,7 +4851,16 @@ export class Session2 extends HeyApiClient {
       workspace?: string
       title?: string
       multiAgent?: boolean
-      goal?: Goal | null
+      goal?: {
+        condition: string
+        status: "running" | "done" | "failed" | "cancelled"
+        startedAt?: number
+        updatedAt?: number
+        completedAt?: number
+        turns?: number
+        maxTurns?: number
+        result?: string
+      }
       permission?: PermissionRuleset
       time?: {
         archived?: number
