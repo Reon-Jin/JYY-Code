@@ -129,7 +129,7 @@ export function parseExperienceStore(text: string): ExperienceStore {
   const entries = root.entries.map((entry, index) => normalizeExperience(parseExperienceObject(entry, index)))
   const keys = new Set<string>()
   for (const entry of entries) {
-    const key = `${entry.sessionID}\u001f${experienceKey(entry)}`
+    const key = storedExperienceKey(entry)
     if (keys.has(key)) throw new Error(`Invalid experience store: duplicate key ${key}`)
     keys.add(key)
   }
@@ -150,7 +150,7 @@ export function serializeExperienceStore(
   })
   const keys = new Set<string>()
   for (const entry of normalized) {
-    const key = `${entry.sessionID}\u001f${experienceKey(entry)}`
+    const key = storedExperienceKey(entry)
     if (keys.has(key)) throw new Error(`Invalid experience store: duplicate key ${key}`)
     keys.add(key)
   }
@@ -173,6 +173,10 @@ export function serializeExperienceStore(
 
 export function experienceKey(entry: Pick<ExperienceEntry, "content">): string {
   return createHash("sha256").update(canonicalExperienceContent(entry.content)).digest("base64url").slice(0, 22)
+}
+
+export function storedExperienceKey(entry: Pick<ExperienceEntry, "sessionID" | "content">): string {
+  return `${entry.sessionID}\0${experienceKey(entry)}`
 }
 
 export function experienceClusterMatch(
@@ -201,7 +205,7 @@ export function maintainStore(store: ExperienceStore): { entries: ExperienceEntr
       const a = entries[left]!
       const b = entries[right]!
       if (a.status !== "active" || b.status !== "active") continue
-      if (experienceKey(a) === experienceKey(b)) {
+      if (storedExperienceKey(a) === storedExperienceKey(b)) {
         entries[left] = mergeExperienceEntries(a, b)
         entries.splice(right, 1)
         merged++
@@ -346,9 +350,8 @@ export const layerWithDirectory = (directory: string) =>
             const store = yield* readStore(sessionID)
             const entries = [...store.entries]
             const key = experienceKey(entry)
-            const exact = entries.findIndex(
-              (existing) => existing.sessionID === sessionID && experienceKey(existing) === key,
-            )
+            const storedKey = storedExperienceKey(entry)
+            const exact = entries.findIndex((existing) => storedExperienceKey(existing) === storedKey)
             if (exact !== -1) {
               yield* appendAudit(sessionID, { action: "memory.experience.duplicate", key, content: entry.content })
               return { status: "duplicate" as const, key, message: "Duplicate experience already exists." }
@@ -395,7 +398,7 @@ export const layerWithDirectory = (directory: string) =>
             const projected = serializeExperienceStore(entries, store.lastMaintainedAt)
             if (projected.length > EXPERIENCE_CHAR_LIMIT || entries.length > EXPERIENCE_ENTRY_LIMIT) {
               const outcome = maintainStore({ ...store, entries })
-              const retained = outcome.entries.some((existing) => experienceKey(existing) === key)
+              const retained = outcome.entries.some((existing) => storedExperienceKey(existing) === storedKey)
               if (!retained || outcome.entries.length > EXPERIENCE_ENTRY_LIMIT) {
                 yield* appendAudit(sessionID, { action: "memory.experience.capacity_rejected", key, content: entry.content })
                 return { status: "capacity_rejected" as const, key, message: "Experience rejected at capacity." }
@@ -441,33 +444,43 @@ export const layerWithDirectory = (directory: string) =>
         yield* ensure(input.sessionID)
         const query = input.query.normalize("NFKC").trim().toLowerCase()
         const limit = Math.min(10, Math.max(1, input.limit ?? 5))
-        const store = yield* readStore(input.sessionID)
-        const candidates = store.entries.filter(
-          (entry) => entry.status === "active" && (!input.kind || entry.kind === input.kind),
-        )
-        const queryTerms = buildQueryTerms([], query, 1)
-        let scored: Array<{ entry: ExperienceEntry; score: number }> = []
-        if (queryTerms.size > 0 && candidates.length > 0) {
-          const stats = buildCorpusStats(candidates)
-          scored = candidates
-            .map((entry) => ({ entry, score: scoreExperience(entry, queryTerms, [], stats) }))
-            .filter(({ score }) => score > 0)
-            .sort(
-              (a, b) =>
-                b.score - a.score ||
-                b.entry.importance - a.entry.importance ||
-                b.entry.uses - a.entry.uses ||
-                b.entry.date.localeCompare(a.entry.date),
+        const target = yield* filePath(input.sessionID)
+        return yield* flock.withLock(
+          Effect.gen(function* () {
+            const store = yield* readStore(input.sessionID)
+            const candidates = store.entries.filter(
+              (entry) => entry.status === "active" && (!input.kind || entry.kind === input.kind),
             )
-            .slice(0, limit)
-        }
-        const byKey = new Map(store.entries.map((entry) => [experienceKey(entry), entry]))
-        if (scored.length > 0) {
-          for (const { entry } of scored) byKey.set(experienceKey(entry), { ...entry, uses: entry.uses + 1 })
-          yield* writeStore(input.sessionID, { ...store, entries: [...byKey.values()] })
-          yield* appendAudit(input.sessionID, { action: "memory.experience.search", query, hits: scored.length })
-        }
-        return scored.map(({ entry }) => byKey.get(experienceKey(entry)) ?? entry)
+            const queryTerms = buildQueryTerms([], query, 1)
+            let scored: Array<{ entry: ExperienceEntry; score: number }> = []
+            if (queryTerms.size > 0 && candidates.length > 0) {
+              const stats = buildCorpusStats(candidates)
+              scored = candidates
+                .map((entry) => ({ entry, score: scoreExperience(entry, queryTerms, [], stats) }))
+                .filter(({ score }) => score > 0)
+                .sort(
+                  (a, b) =>
+                    b.score - a.score ||
+                    b.entry.importance - a.entry.importance ||
+                    b.entry.uses - a.entry.uses ||
+                    b.entry.date.localeCompare(a.entry.date),
+                )
+                .slice(0, limit)
+            }
+            const byKey = new Map(store.entries.map((entry) => [storedExperienceKey(entry), entry]))
+            if (scored.length > 0) {
+              for (const { entry } of scored) {
+                const key = storedExperienceKey(entry)
+                const current = byKey.get(key) ?? entry
+                byKey.set(key, { ...current, uses: current.uses + 1 })
+              }
+              yield* writeStore(input.sessionID, { ...store, entries: [...byKey.values()] })
+              yield* appendAudit(input.sessionID, { action: "memory.experience.search", query, hits: scored.length })
+            }
+            return scored.map(({ entry }) => byKey.get(storedExperienceKey(entry)) ?? entry)
+          }),
+          target,
+        )
       })
 
       const formatExperienceSnapshot = Effect.fn("ExperienceMemory.formatExperienceSnapshot")(function* (
@@ -556,7 +569,7 @@ export const layerWithDirectory = (directory: string) =>
               (entry, candidateIndex) =>
                 candidateIndex !== index &&
                 entry.sessionID === replacement.sessionID &&
-                experienceKey(entry) === experienceKey(replacement),
+                storedExperienceKey(entry) === storedExperienceKey(replacement),
             )
             if (duplicate !== -1) {
               return yield* Effect.fail(new Error("Experience entry conflicts with an existing entry"))
