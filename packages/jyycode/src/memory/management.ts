@@ -173,7 +173,8 @@ export const layer = Layer.effect(
       return store.entries.filter((entry) =>
         scope === "user"
           ? entry.scope === "user"
-          : entry.scope === "memory" && (!sessionID || (entry.projectID ?? entry.sessionID) === projectID),
+          : entry.scope === "memory" &&
+            (!sessionID || entry.projectID === projectID || (!entry.projectID && entry.sessionID === sessionID)),
       )
     })
 

@@ -1,11 +1,11 @@
 Manage persistent structured memory with read, add, replace, remove, or compact actions — only when the user explicitly requests memory management. Routine per-turn task memory is updated automatically; never duplicate it with this tool. Never create .md files in the memory directory.
 
-MEMORY.json (target="memory"): one compact task-state entry shared by every session in the same project, in the form 当前任务：<goal>；进展：<progress>；[经验：<lesson>] with limits goal ≤120, progress ≤160, 经验 ≤160 Unicode chars. 经验 is optional: write it only for a durable success or failure lesson; never write 下一步. USER.json (target="user"): explicit, stable user identity facts and preferences, upserted by normalized keywords. EXPERIENCE.json holds lessons shared across all projects and is read with context_read action=experience, not with this tool.
+MEMORY.json (target="memory"): one compact task-state entry per session, in the form 当前任务：<goal>；进展：<progress>；[经验：<lesson>] with limits goal ≤120, progress ≤160, 经验 ≤160 Unicode chars. 经验 is optional: write it only for a durable success or failure lesson; never write 下一步. The snapshot and read output also show other sessions' task entries in the same project as read-only context — never treat them as this session's current task. USER.json (target="user"): explicit, stable user identity facts and preferences, upserted by normalized keywords. EXPERIENCE.json holds lessons shared across all projects and is read with context_read action=experience, not with this tool.
 
 Actions:
 - read: show the selected store's current entries. Use this when you need to see what is already remembered before adding or replacing a fact.
 - add: upsert an entry with importance (1-10), one to three keywords (2-4 chars each), and concise content. The session ID is injected automatically — do not place it in content.
-- replace / remove: target the entry found by old_text substring match (case-insensitive, must match exactly one entry; on multiple matches the tool lists them — use a more specific substring).
+- replace / remove: target this session's own entry found by old_text substring match (case-insensitive, must match exactly one entry; on multiple matches the tool lists them — use a more specific substring). Task replacement/removal never touches other sessions' entries.
 - compact: deterministically organize the selected store to free capacity.
 
 Only primary sessions may mutate either store (the Planner in Multi-Agent mode). Subagent sessions are read-only; mutation attempts are rejected.

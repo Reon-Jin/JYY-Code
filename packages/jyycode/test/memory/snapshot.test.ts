@@ -90,4 +90,62 @@ describe("session snapshots", () => {
     )
     expect(snapshot.length).toBeLessThanOrEqual(1_300)
   })
+
+  test("shows the current session task first and project peers as read-only context", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "memory-snapshot-peers-"))
+    cleanup.push(directory)
+    const entries: Memory.TaskMemoryEntry[] = [
+      {
+        scope: "memory",
+        sessionID: SessionID.make("ses_peer"),
+        projectID: "proj_x" as Session.Info["projectID"],
+        importance: 10,
+        date: "20260720",
+        keywords: ["其他"],
+        content: "当前任务：其他会话任务；进展：完成",
+      },
+      {
+        scope: "memory",
+        sessionID,
+        projectID: "proj_x" as Session.Info["projectID"],
+        importance: 5,
+        date: "20260701",
+        keywords: ["自己"],
+        content: "当前任务：本会话任务；进展：进行中",
+      },
+      {
+        scope: "memory",
+        sessionID: SessionID.make("ses_foreign"),
+        projectID: "proj_y" as Session.Info["projectID"],
+        importance: 10,
+        date: "20260720",
+        keywords: ["外部"],
+        content: "当前任务：别的项目任务；进展：完成",
+      },
+    ]
+    await fs.writeFile(path.join(directory, "MEMORY.json"), Memory.serializeStore("memory", entries))
+    const sessions = Layer.mock(Session.Service)({
+      get: (id) =>
+        Effect.succeed({
+          id,
+          parentID: undefined,
+          projectID: "proj_x" as Session.Info["projectID"],
+        } as Session.Info),
+      messages: () => Effect.succeed([]),
+    })
+    const layer = Memory.layerWithDirectory(directory).pipe(
+      Layer.provide(Layer.merge(AppFileSystem.defaultLayer, sessions)),
+    )
+    const snapshot = await Effect.runPromise(
+      Memory.Service.use((memory) => memory.formatWithHeader(sessionID, "memory")).pipe(Effect.provide(layer)),
+    )
+
+    expect(snapshot).toContain("owner=self")
+    expect(snapshot).toContain("owner=peer")
+    expect(snapshot).toContain("本会话任务")
+    expect(snapshot).toContain("其它会话任务：其他会话任务")
+    expect(snapshot).not.toContain("当前任务：其他会话任务")
+    expect(snapshot).not.toContain("别的项目任务")
+    expect(snapshot.indexOf("本会话任务")).toBeLessThan(snapshot.indexOf("其他会话任务"))
+  })
 })

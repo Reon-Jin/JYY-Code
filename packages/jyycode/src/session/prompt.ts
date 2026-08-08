@@ -208,8 +208,9 @@ export const layer = Layer.effect(
         }
         const turnNumber = countRealUserTurns(history)
         const prompt = [
-          "You are a semantic memory curator. Rewrite this project's single task-memory entry and output one JSON object.",
-          "The task entry is working memory shared by every session in THIS project: a compact executive state, never a completion log.",
+          "You are a semantic memory curator. Rewrite THIS session's task-memory entry and output one JSON object.",
+          "The task entry is this session's working memory, one entry per session: a compact executive state, never a completion log.",
+          "Task entries belonging to other sessions in the same project are read-only context below. Never adopt, merge, or rewrite them; your task.content must describe only THIS session's task.",
           'task.content must have exactly the form "当前任务：<goal>；进展：<progress>；[经验：<lesson>]" (经验 optional).',
           "Limits excluding prefixes: goal ≤120, progress ≤160, 经验 ≤160 Unicode chars. Rephrase semantically to fit; never truncate, never use ellipses, and never write 我用了/最终学会了/下一步.",
           "A task entry is mandatory on every phase, including greetings: always set shouldUpdate to true and always return task.",
@@ -258,6 +259,9 @@ export const layer = Layer.effect(
           "",
           "Previous task memory:",
           input.previousTaskContent ?? "(none)",
+          "",
+          "Other sessions' task memory in this project (read-only context, do not adopt):",
+          input.siblingTaskContent ?? "(none)",
           "",
           "Turn number for evidence anchors:",
           String(turnNumber),

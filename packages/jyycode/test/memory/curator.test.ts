@@ -44,7 +44,7 @@ function decision(content: string, user: Memory.MemoryDecision["user"] = []): Me
   }
 }
 
-function fixture(input?: { parentID?: SessionID; multiAgent?: boolean }) {
+function fixture(input?: { parentID?: SessionID; multiAgent?: boolean; projectID?: Session.Info["projectID"] }) {
   const memoryPath = path.join(Memory.DIRECTORY, "MEMORY.json")
   const userPath = path.join(Memory.DIRECTORY, "USER.json")
   const files = new Map<string, string>([
@@ -78,7 +78,13 @@ function fixture(input?: { parentID?: SessionID; multiAgent?: boolean }) {
     }),
   ).pipe(Layer.provide(AppFileSystem.defaultLayer))
   const sessionLayer = Layer.mock(Session.Service)({
-    get: (id) => Effect.succeed({ id, parentID: input?.parentID, multiAgent: input?.multiAgent } as Session.Info),
+    get: (id) =>
+      Effect.succeed({
+        id,
+        parentID: input?.parentID,
+        multiAgent: input?.multiAgent,
+        ...(input?.projectID ? { projectID: input.projectID } : {}),
+      } as Session.Info),
     messages: () => Effect.succeed(currentMessages),
   })
   const layer = Memory.layer.pipe(Layer.provide(Layer.merge(fsLayer, sessionLayer)))
@@ -150,6 +156,46 @@ describe("two-phase semantic memory curator", () => {
     expect(corrections[1]).toContain('keyword "子agent"')
     const [entry] = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
     expect(entry?.content).toBe("当前任务：创建三步子Agent任务；进展：准备中")
+  })
+
+  test("passes other sessions' task entries as read-only sibling context", async () => {
+    const sibling = SessionID.make("ses_curator_sibling")
+    const ctx = fixture({ projectID: "proj_curator" as Session.Info["projectID"] })
+    ctx.files.set(
+      ctx.memoryPath,
+      Memory.serializeStore("memory", [
+        {
+          scope: "memory",
+          sessionID: sibling,
+          projectID: "proj_curator" as Session.Info["projectID"],
+          importance: 6,
+          date: "20260807",
+          keywords: ["其他"],
+          content: "当前任务：其他会话任务；进展：进行中",
+        },
+      ]),
+    )
+    ctx.setMessages(messages("继续我的任务", ""))
+    let received: Memory.DecisionInput | undefined
+
+    const result = await ctx.run(
+      Memory.Service.use((memory) =>
+        memory.updateStepBegin(sessionID, (input) => {
+          received = input
+          return Effect.succeed(decision("当前任务：本会话任务；进展：开始"))
+        }),
+      ),
+    )
+
+    expect(result).toMatchObject({ status: "updated", taskUpdated: true })
+    expect(received?.previousTaskContent).toBeUndefined()
+    expect(received?.siblingTaskContent).toContain("ses_curator_sibling")
+    expect(received?.siblingTaskContent).toContain("其它会话任务：其他会话任务")
+    const entries = Memory.parseStore("memory", ctx.files.get(ctx.memoryPath)!).entries
+    expect(entries).toHaveLength(2)
+    const stored = entries as Memory.TaskMemoryEntry[]
+    expect(stored.find((entry) => entry.sessionID === sibling)?.content).toContain("其他会话任务")
+    expect(stored.find((entry) => entry.sessionID === sessionID)?.content).toContain("本会话任务")
   })
 
   test("adds the semantic completion before returning the final answer and keeps one session entry", async () => {

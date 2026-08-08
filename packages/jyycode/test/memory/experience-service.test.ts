@@ -87,12 +87,50 @@ describe("experience service", () => {
   test("snapshot includes only keyword-matched experiences within budget", async () => {
     await withStore(async (service) => {
       await Effect.runPromise(service.upsert(sessionID, candidate()))
-      await Effect.runPromise(service.upsert(sessionID, candidate({ kind: "lesson", keywords: ["部署"], content: "部署前先跑测试" })))
+      await Effect.runPromise(
+        service.upsert(
+          sessionID,
+          candidate({
+            kind: "lesson",
+            keywords: ["部署"],
+            content: "部署前先跑测试",
+            evidence: "[ses_experience#2] npm test",
+          }),
+        ),
+      )
       const matched = await Effect.runPromise(service.formatExperienceSnapshot(sessionID, ["ssh"]))
       expect(matched).toContain("SSH")
       expect(matched).not.toContain("部署前先跑测试")
       const unmatched = await Effect.runPromise(service.formatExperienceSnapshot(sessionID, ["无关"]))
       expect(unmatched).toBe("")
+    })
+  })
+
+  test("snapshot matches containment and content/evidence substrings beyond exact keywords", async () => {
+    await withStore(async (service) => {
+      await Effect.runPromise(
+        service.upsert(sessionID, candidate({ keywords: ["赛车"], content: "完成赛车游戏的碰撞系统" })),
+      )
+      await Effect.runPromise(
+        service.upsert(sessionID, candidate({ kind: "lesson", keywords: ["脚本"], content: "部署前先跑测试" })),
+      )
+      // 任务关键词包含条目关键词（"赛车游戏" ⊇ "赛车"）。
+      const contained = await Effect.runPromise(service.formatExperienceSnapshot(sessionID, ["赛车游戏"]))
+      expect(contained).toContain("完成赛车游戏的碰撞系统")
+      // 关键词不重合，但任务关键词出现在条目 content 中。
+      const substring = await Effect.runPromise(service.formatExperienceSnapshot(sessionID, ["部署"]))
+      expect(substring).toContain("部署前先跑测试")
+      expect(substring).not.toContain("完成赛车游戏的碰撞系统")
+      expect(await Effect.runPromise(service.formatExperienceSnapshot(sessionID, ["无关"]))).toBe("")
+    })
+  })
+
+  test("search matches keyword containment and increments uses", async () => {
+    await withStore(async (service) => {
+      await Effect.runPromise(service.upsert(sessionID, candidate({ keywords: ["赛车"], content: "完成赛车游戏" })))
+      const hits = await Effect.runPromise(service.search({ sessionID, query: "赛车游戏" }))
+      expect(hits).toHaveLength(1)
+      expect(hits[0]?.uses).toBe(1)
     })
   })
 

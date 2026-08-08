@@ -53,7 +53,7 @@ export type TaskMemoryEntry = {
   date: string
   keywords: string[]
   content: string
-  /** Project-scoped key. Sessions in the same project share one task entry. */
+  /** Project metadata used to surface sibling sessions' task entries; the unique entry key is sessionID. */
   projectID?: string
   sessionID: SessionID
 }
@@ -242,7 +242,7 @@ function expectStringArray(value: unknown, label: string): string[] {
 }
 
 export function entryKey(entry: MemoryEntry): string {
-  if (entry.scope === "memory") return entry.projectID ?? entry.sessionID
+  if (entry.scope === "memory") return entry.sessionID
   return [...validateKeywords(entry.keywords)].sort().join("\u001f")
 }
 
@@ -314,6 +314,8 @@ export type DecisionInput = {
   sessionID: SessionID
   phase: MemoryUpdatePhase
   previousTaskContent?: string
+  /** Other sessions' task entries in the same project, read-only context for the curator. */
+  siblingTaskContent?: string
   correction?: string
   userText: string
   assistantText: string
@@ -395,7 +397,7 @@ export type UsageInfo = {
 
 export interface Interface {
   readonly dir: (sessionID: SessionID) => Effect.Effect<string>
-  /** Resolve the project key that a session belongs to for shared task memory. */
+  /** Resolve the project key that a session belongs to for project-scoped task memory views. */
   readonly resolveProjectID: (sessionID: SessionID) => Effect.Effect<string>
   readonly ensure: (sessionID: SessionID) => Effect.Effect<void, Error>
   readonly read: (input: { sessionID: SessionID; scope: Scope; section?: string }) => Effect.Effect<string, Error>
@@ -527,6 +529,8 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         return (yield* fs.readFileStringSafe(yield* filePath(sessionID, scope)).pipe(Effect.orDie)) ?? templates[scope]
       })
 
+      // Backfill projectID metadata for entries whose session still resolves to a project.
+      // Entries stay keyed per session; sessions in the same project are only grouped for visibility.
       const migrateTaskProjectKeys = Effect.fn("Memory.migrateTaskProjectKeys")(function* (store: MemoryStore) {
         const migrated: MemoryEntry[] = []
         for (const entry of store.entries) {
@@ -766,14 +770,13 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           yield* Effect.try({ try: () => validateTaskContent(clean), catch: (error) => asError(error) })
         }
 
-        const projectID = input.scope === "memory" ? yield* resolveProjectID(input.sessionID) : undefined
         const targetFile = yield* filePath(input.sessionID, input.scope)
         return yield* flock.withLock(
           Effect.gen(function* () {
             const store = yield* readStore(input.sessionID, input.scope)
             const scoped = store.entries.flatMap((entry, index) =>
               input.scope === "memory"
-                ? entry.scope === "memory" && (entry.projectID ?? entry.sessionID) === projectID
+                ? entry.scope === "memory" && entry.sessionID === input.sessionID
                   ? [{ entry, index }]
                   : []
                 : [{ entry, index }],
@@ -814,14 +817,13 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       }) {
         yield* assertPrimaryWriter(input.sessionID)
         yield* ensure(input.sessionID)
-        const projectID = input.scope === "memory" ? yield* resolveProjectID(input.sessionID) : undefined
         const targetFile = yield* filePath(input.sessionID, input.scope)
         return yield* flock.withLock(
           Effect.gen(function* () {
             const store = yield* readStore(input.sessionID, input.scope)
             const scoped = store.entries.flatMap((entry, index) =>
               input.scope === "memory"
-                ? entry.scope === "memory" && (entry.projectID ?? entry.sessionID) === projectID
+                ? entry.scope === "memory" && entry.sessionID === input.sessionID
                   ? [{ entry, index }]
                   : []
                 : [{ entry, index }],
@@ -1011,7 +1013,9 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           Effect.gen(function* () {
             const store = yield* readStore(input.sessionID, "memory")
             const entries = store.entries.filter(
-              (entry) => entry.scope !== "memory" || (entry.projectID ?? entry.sessionID) !== projectID,
+              (entry) =>
+                entry.scope !== "memory" ||
+                (entry.sessionID !== input.sessionID && entry.projectID !== projectID),
             )
             const removed = store.entries.length - entries.length
             yield* writeManagedEntries(input.sessionID, "memory", store, entries, "memory.management.clear_task")
@@ -1034,7 +1038,9 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
             const source =
               input.scope === "memory"
                 ? store.entries.filter(
-                    (entry) => entry.scope === "memory" && (entry.projectID ?? entry.sessionID) === projectID,
+                    (entry) =>
+                      entry.scope === "memory" &&
+                      (entry.sessionID === input.sessionID || entry.projectID === projectID),
                   )
                 : store.entries
             const untouched = input.scope === "memory" ? store.entries.filter((entry) => !source.includes(entry)) : []
@@ -1067,7 +1073,10 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         const store = yield* readStore(sessionID, scope)
         const serialized = serializeStore(scope, store.entries, store.lastCompactedAt)
         const projectID = scope === "memory" ? yield* resolveProjectID(sessionID) : undefined
-        let text = formatEntries(selectSnapshotEntries(store.entries, scope, sessionID, projectID))
+        let text = formatEntries(
+          selectSnapshotEntries(store.entries, scope, sessionID, projectID),
+          scope === "memory" ? sessionID : undefined,
+        )
         const limit = scope === "user" ? USER_SNAPSHOT_MAX_CHARS : MEMORY_SNAPSHOT_MAX_CHARS
         if (text.length > limit) text = `${text.slice(0, limit - 1)}…\n`
         return formatMemoryHeader(scope, serialized) + text
@@ -1075,22 +1084,37 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
 
       const currentTaskKeywords = Effect.fn("Memory.currentTaskKeywords")(function* (sessionID: SessionID) {
         const store = yield* readStore(sessionID, "memory")
-        const projectID = yield* resolveProjectID(sessionID)
         const entry = store.entries.find(
           (candidate): candidate is TaskMemoryEntry =>
-            candidate.scope === "memory" && (candidate.projectID ?? candidate.sessionID) === projectID,
+            candidate.scope === "memory" && candidate.sessionID === sessionID,
         )
         return entry?.keywords ?? []
       })
 
       const currentTaskContent = Effect.fn("Memory.currentTaskContent")(function* (sessionID: SessionID) {
         const store = yield* readStore(sessionID, "memory")
-        const projectID = yield* resolveProjectID(sessionID)
         const entry = store.entries.find(
           (candidate): candidate is TaskMemoryEntry =>
-            candidate.scope === "memory" && (candidate.projectID ?? candidate.sessionID) === projectID,
+            candidate.scope === "memory" && candidate.sessionID === sessionID,
         )
         return entry?.content
+      })
+
+      const siblingTaskContent = Effect.fn("Memory.siblingTaskContent")(function* (sessionID: SessionID) {
+        const store = yield* readStore(sessionID, "memory")
+        const projectID = yield* resolveProjectID(sessionID)
+        const siblings = store.entries.filter(
+          (candidate): candidate is TaskMemoryEntry =>
+            candidate.scope === "memory" &&
+            candidate.sessionID !== sessionID &&
+            candidate.projectID === projectID,
+        )
+        if (siblings.length === 0) return ""
+        return siblings
+          .sort((left, right) => right.date.localeCompare(left.date))
+          .slice(0, SNAPSHOT_ENTRY_LIMIT)
+          .map((entry) => `${entry.sessionID} (${entry.date}): ${peerTaskContent(entry.content)}`)
+          .join("\n")
       })
 
       const evaluateSemanticUpdate = Effect.fn("Memory.evaluateSemanticUpdate")(function* (
@@ -1152,6 +1176,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           sessionID,
           phase: "assistant",
           previousTaskContent: yield* currentTaskContent(sessionID),
+          siblingTaskContent: yield* siblingTaskContent(sessionID),
           userText,
           assistantText,
           failureHint: turn?.failureHint,
@@ -1206,6 +1231,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           sessionID,
           phase: "user",
           previousTaskContent: yield* currentTaskContent(sessionID),
+          siblingTaskContent: yield* siblingTaskContent(sessionID),
           userText,
           assistantText: "",
           failureHint: suppliedTurn?.failureHint,
@@ -1453,7 +1479,7 @@ function contentBigrams(content: string): Set<string> {
   return bigrams
 }
 
-function bigramSimilarity(left: string, right: string) {
+export function bigramSimilarity(left: string, right: string) {
   const a = contentBigrams(left)
   const b = contentBigrams(right)
   if (a.size === 0 || b.size === 0) return 0
@@ -1577,7 +1603,7 @@ function computeUsage(text: string, scope: Scope): UsageInfo {
 
 function formatMemoryHeader(scope: Scope, text: string) {
   const { percentage, used, limit } = computeUsage(text, scope)
-  const label = scope === "user" ? "USER PROFILE (your preferences)" : "TASK MEMORY (shared project state)"
+  const label = scope === "user" ? "USER PROFILE (your preferences)" : "TASK MEMORY (per-session + project peers)"
   const left = `${label} [${percentage}% — ${used}/${limit} chars]`
   const totalWidth = 64
   const padLeft = Math.max(2, Math.floor((totalWidth - left.length) / 2))
@@ -1585,16 +1611,28 @@ function formatMemoryHeader(scope: Scope, text: string) {
   return `\n${line}\n`
 }
 
-function formatEntry(entry: MemoryEntry) {
-  const fields = [`importance=${entry.importance}`, `keywords=${entry.keywords.join(", ")}`, `content=${entry.content}`]
-  if (entry.scope === "memory") fields.splice(1, 0, `date=${entry.date}`, `sessionID=${entry.sessionID}`)
+/** Display-only rewrite so peer task entries are never read as this session's own task. */
+function peerTaskContent(content: string) {
+  return content.replace(/^当前任务：/u, "其它会话任务：")
+}
+
+function formatEntry(entry: MemoryEntry, ownSessionID?: SessionID) {
+  const displayContent =
+    entry.scope === "memory" && entry.sessionID !== ownSessionID
+      ? peerTaskContent(entry.content)
+      : entry.content
+  const fields = [`importance=${entry.importance}`, `keywords=${entry.keywords.join(", ")}`, `content=${displayContent}`]
+  if (entry.scope === "memory") {
+    const owner = entry.sessionID === ownSessionID ? "self" : "peer"
+    fields.splice(1, 0, `owner=${owner}`, `date=${entry.date}`, `sessionID=${entry.sessionID}`)
+  }
   else if (entry.date) fields.splice(1, 0, `date=${entry.date}`)
   return fields.join(" | ")
 }
 
-function formatEntries(entries: readonly MemoryEntry[]) {
+function formatEntries(entries: readonly MemoryEntry[], ownSessionID?: SessionID) {
   if (entries.length === 0) return "(no persistent memory entries)\n"
-  return entries.map((entry) => `- ${formatEntry(entry)}`).join("\n") + "\n"
+  return entries.map((entry) => `- ${formatEntry(entry, ownSessionID)}`).join("\n") + "\n"
 }
 
 function compareSnapshotEntries(left: MemoryEntry, right: MemoryEntry) {
@@ -1614,11 +1652,23 @@ export function selectSnapshotEntries(
   const candidates =
     scope === "memory"
       ? entries.filter(
-          (entry) =>
-            entry.scope === "memory" && (entry.projectID ?? entry.sessionID) === (projectID ?? sessionID),
+          (entry): entry is TaskMemoryEntry =>
+            entry.scope === "memory" &&
+            (entry.sessionID === sessionID ||
+              (projectID !== undefined && entry.projectID === projectID && entry.sessionID !== sessionID)),
         )
       : entries
-  return candidates.slice().sort(compareSnapshotEntries).slice(0, SNAPSHOT_ENTRY_LIMIT)
+  return candidates
+    .slice()
+    .sort((left, right) => {
+      if (left.scope === "memory" && right.scope === "memory") {
+        const leftOwn = left.sessionID === sessionID ? 0 : 1
+        const rightOwn = right.sessionID === sessionID ? 0 : 1
+        if (leftOwn !== rightOwn) return leftOwn - rightOwn
+      }
+      return compareSnapshotEntries(left, right)
+    })
+    .slice(0, SNAPSHOT_ENTRY_LIMIT)
 }
 
 function textContent(message: MessageV2.WithParts, options: { synthetic: boolean }) {

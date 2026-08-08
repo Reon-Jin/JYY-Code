@@ -42,7 +42,12 @@ function fixture(initialUserEntries: readonly Memory.UserMemoryEntry[] = []) {
     }),
   ).pipe(Layer.provide(AppFileSystem.defaultLayer))
   const sessionLayer = Layer.mock(Session.Service)({
-    get: (sessionID) => Effect.succeed({ id: sessionID, parentID: undefined } as Session.Info),
+    get: (sessionID) =>
+      Effect.succeed({
+        id: sessionID,
+        parentID: undefined,
+        projectID: "proj_upsert" as Session.Info["projectID"],
+      } as Session.Info),
     messages: () => Effect.succeed([]),
   })
   const layer = Memory.layer.pipe(Layer.provide(Layer.merge(fsLayer, sessionLayer)))
@@ -141,6 +146,49 @@ describe("structured memory upserts", () => {
       importance: 9,
       content: "用户长期偏好使用 TypeScript。",
     })
+  })
+
+  test("keeps separate task entries for sessions in the same project", async () => {
+    const { run, entries } = fixture()
+    await run(
+      Memory.Service.use((memory) =>
+        Effect.gen(function* () {
+          yield* memory.upsertTaskMemory({
+            sessionID: firstSession,
+            importance: 5,
+            keywords: ["赛车"],
+            content: "当前任务：赛车游戏；进展：基础建模",
+          })
+          yield* memory.upsertTaskMemory({
+            sessionID: secondSession,
+            importance: 6,
+            keywords: ["文档"],
+            content: "当前任务：部署文档；进展：结构化整理",
+          })
+        }),
+      ),
+    )
+
+    let stored = entries("memory") as Memory.TaskMemoryEntry[]
+    expect(stored).toHaveLength(2)
+    expect(stored.find((entry) => entry.sessionID === firstSession)?.content).toContain("赛车游戏")
+    expect(stored.find((entry) => entry.sessionID === secondSession)?.content).toContain("部署文档")
+    expect(stored.every((entry) => entry.projectID === "proj_upsert")).toBe(true)
+
+    await run(
+      Memory.Service.use((memory) =>
+        memory.upsertTaskMemory({
+          sessionID: firstSession,
+          importance: 8,
+          keywords: ["赛车", "地图"],
+          content: "当前任务：赛车地图；进展：模块拆分与绘制",
+        }),
+      ),
+    )
+    stored = entries("memory") as Memory.TaskMemoryEntry[]
+    expect(stored).toHaveLength(2)
+    expect(stored.find((entry) => entry.sessionID === firstSession)?.content).toContain("赛车地图")
+    expect(stored.find((entry) => entry.sessionID === secondSession)?.content).toContain("部署文档")
   })
 
   test("merges identical user facts even when their keywords differ", async () => {

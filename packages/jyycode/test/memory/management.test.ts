@@ -315,7 +315,7 @@ describe("audited memory management storage", () => {
     expect(page.entries[0]).toMatchObject({ content: "用户直接编辑了本地 JSON 文件。" })
   })
 
-  test("shares one task memory entry across sessions in the same project", async () => {
+  test("keeps one task entry per session and lists project siblings", async () => {
     const ctx = await fixture()
     await ctx.run(
       Memory.Service.use((memory) =>
@@ -337,34 +337,49 @@ describe("audited memory management storage", () => {
     )
 
     const page = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "task" })))
-    expect(page.entries).toHaveLength(1)
-    expect(page.entries[0]).toMatchObject({ scope: "task", projectID: "proj_one" })
+    expect(page.entries).toHaveLength(2)
+    expect(
+      page.entries.every((entry) => entry.scope === "task" && entry.projectID === "proj_one"),
+    ).toBe(true)
 
     const scoped = await ctx.run(
       MemoryManagement.Service.use((management) =>
         management.list({ scope: "task", sessionID: SessionID.make("ses_p1_a") }),
       ),
     )
-    expect(scoped.entries).toHaveLength(1)
-    expect(scoped.entries[0]?.content).toContain("第二步")
+    expect(scoped.entries).toHaveLength(2)
+    expect(
+      (scoped.entries as MemoryManagement.TaskEntry[]).map((entry) => String(entry.sessionID)).sort(),
+    ).toEqual(["ses_p1_a", "ses_p1_b"])
   })
 
-  test("updates and deletes a project task entry by opaque id", async () => {
+  test("updates and deletes one session's task entry by opaque id without touching siblings", async () => {
     const ctx = await fixture()
     await ctx.run(
       Memory.Service.use((memory) =>
-        memory.upsertTaskMemory({
-          sessionID: SessionID.make("ses_p1_a"),
-          importance: 5,
-          keywords: ["共享任务"],
-          content: "当前任务：共享任务；进展：第一步",
+        Effect.gen(function* () {
+          yield* memory.upsertTaskMemory({
+            sessionID: SessionID.make("ses_p1_a"),
+            importance: 5,
+            keywords: ["共享任务"],
+            content: "当前任务：共享任务；进展：第一步",
+          })
+          yield* memory.upsertTaskMemory({
+            sessionID: SessionID.make("ses_p1_b"),
+            importance: 6,
+            keywords: ["共享任务"],
+            content: "当前任务：共享任务；进展：第二步",
+          })
         }),
       ),
     )
 
     const page = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "task" })))
-    const entry = page.entries[0]
-    if (entry.scope !== "task") throw new Error("Expected task entry")
+    const entry = page.entries.find(
+      (candidate): candidate is MemoryManagement.TaskEntry =>
+        candidate.scope === "task" && candidate.sessionID === "ses_p1_a",
+    )
+    if (!entry) throw new Error("Expected task entry")
 
     const updated = await ctx.run(
       MemoryManagement.Service.use((management) =>
@@ -378,15 +393,30 @@ describe("audited memory management storage", () => {
         }),
       ),
     )
-    expect(updated).toMatchObject({ scope: "task", content: "当前任务：共享任务；进展：已完成编辑" })
+    expect(updated).toMatchObject({
+      scope: "task",
+      sessionID: "ses_p1_a",
+      content: "当前任务：共享任务；进展：已完成编辑",
+    })
 
     const scoped = await ctx.run(
       MemoryManagement.Service.use((management) =>
         management.list({ scope: "task", sessionID: SessionID.make("ses_p1_a") }),
       ),
     )
-    expect(scoped.entries).toHaveLength(1)
-    expect(scoped.entries[0]?.content).toContain("已完成编辑")
+    expect(scoped.entries).toHaveLength(2)
+    expect(
+      scoped.entries.find(
+        (candidate): candidate is MemoryManagement.TaskEntry =>
+          candidate.scope === "task" && candidate.sessionID === "ses_p1_a",
+      )?.content,
+    ).toContain("已完成编辑")
+    expect(
+      scoped.entries.find(
+        (candidate): candidate is MemoryManagement.TaskEntry =>
+          candidate.scope === "task" && candidate.sessionID === "ses_p1_b",
+      )?.content,
+    ).toContain("第二步")
 
     await ctx.run(
       MemoryManagement.Service.use((management) =>
@@ -394,7 +424,10 @@ describe("audited memory management storage", () => {
       ),
     )
     const afterRemove = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "task" })))
-    expect(afterRemove.entries).toHaveLength(0)
+    expect(afterRemove.entries).toHaveLength(1)
+    expect((afterRemove.entries[0] as MemoryManagement.TaskEntry | undefined)?.sessionID).toBe(
+      SessionID.make("ses_p1_b"),
+    )
   })
 
   test("lists, updates, removes and exports experience memory", async () => {
