@@ -1,5 +1,5 @@
 import path from "path"
-import { Context, Effect, Layer, Option, Schema } from "effect"
+import { Context, Effect, Layer, Option, Schema, Semaphore } from "effect"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { SessionID } from "@/session/schema"
@@ -221,6 +221,16 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
     const flock = yield* EffectFlock.Service
+    const compactLocks = new Map<string, Semaphore.Semaphore>()
+
+    const compactLock = (input: Pick<CompactInput, "workspaceRoot" | "sessionID">) => {
+      const key = `${input.workspaceRoot}\0${input.sessionID}`
+      const existing = compactLocks.get(key)
+      if (existing) return existing
+      const created = Semaphore.makeUnsafe(1)
+      compactLocks.set(key, created)
+      return created
+    }
 
     const readEpisodes = Effect.fn("EpisodicMemory.readEpisodes")(function* (
       workspaceRoot: string,
@@ -352,56 +362,73 @@ export const layer = Layer.effect(
     })
 
     const compactIfDue = Effect.fn("EpisodicMemory.compactIfDue")(function* (input: CompactInput) {
-      const index = yield* readIndex(input.workspaceRoot, input.sessionID)
-      const episodes = yield* readEpisodes(input.workspaceRoot, input.sessionID)
-      const covered = Option.isSome(index) ? index.value.coveredTurns : 0
-      const keepFrom = Math.max(0, input.totalTurns - 2)
-      const digestable = episodes.filter((episode) => episode.turn > covered && episode.turn <= keepFrom)
-      const hasSeed = Option.isSome(index) || Boolean(input.previousSummary) || Boolean(input.backfillText)
+      return yield* compactLock(input).withPermit(
+        Effect.gen(function* () {
+          const index = yield* readIndex(input.workspaceRoot, input.sessionID)
+          const episodes = yield* readEpisodes(input.workspaceRoot, input.sessionID)
+          const covered = Option.isSome(index) ? index.value.coveredTurns : 0
+          const keepFrom = Math.max(0, input.totalTurns - 2)
+          const digestable = episodes.filter((episode) => episode.turn > covered && episode.turn <= keepFrom)
+          const hasSeed = Option.isSome(index) || Boolean(input.previousSummary) || Boolean(input.backfillText)
 
-      if (input.reason === "interval" && input.totalTurns - covered < DIGEST_INTERVAL_TURNS) {
-        return { status: "skipped" as const, reason: "interval_not_due" }
-      }
-      if (input.reason === "threshold" && digestable.length === 0 && Option.isSome(index)) {
-        return { status: "skipped" as const, reason: "nothing_new" }
-      }
-      if (digestable.length === 0 && !hasSeed) {
-        return { status: "skipped" as const, reason: "nothing_to_digest" }
-      }
+          if (input.reason === "interval" && input.totalTurns - covered < DIGEST_INTERVAL_TURNS) {
+            return { status: "skipped" as const, reason: "interval_not_due" }
+          }
+          if (input.reason === "threshold" && digestable.length === 0 && Option.isSome(index)) {
+            return { status: "skipped" as const, reason: "nothing_new" }
+          }
+          if (digestable.length === 0 && !hasSeed) {
+            return { status: "skipped" as const, reason: "nothing_to_digest" }
+          }
 
-      const previousDigest = Option.isSome(index)
-        ? yield* readDigestFile(input.workspaceRoot, input.sessionID, index.value.latestSeq)
-        : input.previousSummary
-          ? Option.some(input.previousSummary)
-          : Option.none<string>()
-      const prompt = buildDigestPrompt({
-        previousDigest: Option.getOrUndefined(previousDigest),
-        backfillText: Option.isSome(index) ? undefined : input.backfillText,
-        episodes: digestable,
-      })
-      const text = (yield* input.generate(prompt)).trim()
-      if (!text) return { status: "skipped" as const, reason: "empty_generation" }
+          const previousDigest = Option.isSome(index)
+            ? yield* readDigestFile(input.workspaceRoot, input.sessionID, index.value.latestSeq)
+            : input.previousSummary
+              ? Option.some(input.previousSummary)
+              : Option.none<string>()
+          const prompt = buildDigestPrompt({
+            previousDigest: Option.getOrUndefined(previousDigest),
+            backfillText: Option.isSome(index) ? undefined : input.backfillText,
+            episodes: digestable,
+          })
+          const text = (yield* input.generate(prompt)).trim()
+          if (!text) return { status: "skipped" as const, reason: "empty_generation" }
 
-      const seq = (Option.isSome(index) ? index.value.latestSeq ?? 0 : 0) + 1
-      const newCovered = Math.max(covered, keepFrom)
-      const next: DigestIndex = {
-        version: 1,
-        latestSeq: seq,
-        entries: [
-          ...(Option.isSome(index) ? index.value.entries : []),
-          {
-            seq,
-            turnStart: covered + 1,
-            turnEnd: newCovered,
-            parentSeq: Option.isSome(index) ? index.value.latestSeq : null,
-            createdAt: new Date().toISOString(),
-          },
-        ],
-        coveredTurns: newCovered,
-      }
-      yield* writeFileAtomic(digestFilePath(input.workspaceRoot, input.sessionID, seq), text)
-      yield* writeFileAtomic(digestIndexPath(input.workspaceRoot, input.sessionID), JSON.stringify(next, null, 2))
-      return { status: "generated" as const, reason: input.reason, seq }
+          const indexTarget = digestIndexPath(input.workspaceRoot, input.sessionID)
+          return yield* flock.withLock(
+            Effect.gen(function* () {
+              const current = yield* readIndex(input.workspaceRoot, input.sessionID)
+              const currentCovered = Option.isSome(current) ? current.value.coveredTurns : 0
+              const newCovered = Math.max(currentCovered, keepFrom)
+              if (Option.isSome(current) && currentCovered >= newCovered) {
+                return { status: "skipped" as const, reason: "already_covered" }
+              }
+
+              const currentLatest = Option.isSome(current) ? current.value.latestSeq : null
+              const seq = (currentLatest ?? 0) + 1
+              const next: DigestIndex = {
+                version: 1,
+                latestSeq: seq,
+                entries: [
+                  ...(Option.isSome(current) ? current.value.entries : []),
+                  {
+                    seq,
+                    turnStart: currentCovered + 1,
+                    turnEnd: newCovered,
+                    parentSeq: currentLatest,
+                    createdAt: new Date().toISOString(),
+                  },
+                ],
+                coveredTurns: newCovered,
+              }
+              yield* writeFileAtomic(digestFilePath(input.workspaceRoot, input.sessionID, seq), text)
+              yield* writeFileAtomic(indexTarget, JSON.stringify(next, null, 2))
+              return { status: "generated" as const, reason: input.reason, seq }
+            }),
+            indexTarget,
+          )
+        }),
+      )
     })
 
     return Service.of({ recordTurn, readLatestDigest, readEpisode, searchEpisodes, isDigestDue, compactIfDue })
