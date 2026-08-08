@@ -1,8 +1,9 @@
 import { tr } from "../../i18n/i18n-context"
-import { FileDiff, ListTodo, MessageSquare, Users } from "lucide-solid"
+import { File, FileDiff, ListTodo, MessageSquare, Users } from "lucide-solid"
 import { For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { IconButton } from "../../components/ui/button"
 import { ChangesPanel } from "../changes/changes-panel"
+import { FileTree, type FileOpenEvent } from "../files/file-tree"
 import { PlanPanel } from "../plan/plan-panel"
 import { SubagentProfilesPanel } from "../subagents/subagent-profiles-panel"
 import { normalizeInspectorRatios, type InspectorPane, type InspectorPreferences } from "./inspector-preferences"
@@ -15,6 +16,7 @@ function paneLabel(pane: InspectorPane) {
     subagents: tr("subagents.title"),
     blackboard: tr("workspace-inspector.blackboard"),
     changes: tr("changes.workspace-changes"),
+    files: tr("workspace-inspector.files"),
   }
   return labels[pane]
 }
@@ -34,6 +36,7 @@ export type WorkspaceInspectorViewProps = {
   plan: JSX.Element
   blackboard?: JSX.Element
   changes: JSX.Element
+  files?: JSX.Element
   subagents?: JSX.Element
   planBadge?: JSX.Element
   blackboardBadge?: JSX.Element
@@ -62,6 +65,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
     if (pane === "plan") return props.plan
     if (pane === "blackboard") return props.blackboard
     if (pane === "subagents") return props.subagents ?? <div />
+    if (pane === "files") return props.files ?? <div />
     return props.changes
   }
 
@@ -220,6 +224,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
         <ActivityButton pane="subagents" icon={<Users aria-hidden="true" />} />
         <ActivityButton pane="blackboard" icon={<MessageSquare aria-hidden="true" />} badge={props.blackboardBadge} />
         <ActivityButton pane="changes" icon={<FileDiff aria-hidden="true" />} badge={props.changesBadge} />
+        <ActivityButton pane="files" icon={<File aria-hidden="true" />} />
       </nav>
     </>
   )
@@ -230,6 +235,7 @@ export function WorkspaceInspector(props: {
   sessionID?: string
   preferences: InspectorPreferences
   onPreferencesChange: (preferences: InspectorPreferences) => void
+  onOpenFile?: (event: FileOpenEvent) => void
   plan?: JSX.Element
   blackboard?: JSX.Element
   planBadge?: JSX.Element
@@ -253,6 +259,7 @@ export function WorkspaceInspector(props: {
       blackboard={props.blackboard ?? <div />}
       subagents={props.subagents ?? <SubagentProfilesPanel directory={props.directory} />}
       changes={<ChangesPanel directory={props.directory} />}
+      files={<FileTree directory={props.directory} sessionID={props.sessionID} onOpenFile={props.onOpenFile} />}
       planBadge={props.planBadge}
       blackboardBadge={props.blackboardBadge}
     />

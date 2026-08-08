@@ -1,0 +1,117 @@
+.file-tree {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--color-panel);
+}
+
+.file-tree__header {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--space-3);
+}
+
+.file-tree__header > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+}
+
+.file-tree__header h2 {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.file-tree__refresh.ui-button {
+  width: 28px;
+  height: 28px;
+}
+
+.file-tree__refresh svg {
+  width: 15px;
+  height: 15px;
+}
+
+.file-tree__nodes,
+.file-tree__children {
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-1) 0;
+  list-style: none;
+}
+
+.file-tree__children {
+  padding-block: 0;
+  padding-left: var(--space-4);
+}
+
+.file-tree__nodes {
+  overflow: auto;
+}
+
+.file-tree__node {
+  width: 100%;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: 16px 17px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-1);
+  border: 0;
+  padding: 0 var(--space-3);
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.file-tree__node:hover,
+.file-tree__node:focus-visible,
+.file-tree__node[data-selected="true"] {
+  background: var(--color-surface-hover);
+}
+
+.file-tree__node[data-selected="true"] {
+  box-shadow: inset 2px 0 var(--color-accent);
+  color: var(--color-accent);
+}
+
+.file-tree__node > svg,
+.file-tree__disclosure svg {
+  width: 15px;
+  height: 15px;
+  color: var(--color-text-muted);
+}
+
+.file-tree__disclosure {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+}
+
+.file-tree__name {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-code);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree__state {
+  min-height: 60px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-align: center;
+}

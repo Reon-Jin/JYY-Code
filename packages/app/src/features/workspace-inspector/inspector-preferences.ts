@@ -1,6 +1,6 @@
 import { normalizeDirectory } from "../../data/query-keys"
 
-export type InspectorPane = "plan" | "subagents" | "blackboard" | "changes"
+export type InspectorPane = "plan" | "subagents" | "blackboard" | "changes" | "files"
 export type InspectorPreferences = {
   panes: InspectorPane[]
   ratios: number[]
@@ -9,7 +9,7 @@ export type InspectorPreferences = {
 
 export const defaultInspectorPreferences: InspectorPreferences = { panes: [], ratios: [], width: 420 }
 
-const panes = new Set<InspectorPane>(["plan", "subagents", "blackboard", "changes"])
+const panes = new Set<InspectorPane>(["plan", "subagents", "blackboard", "changes", "files"])
 
 const legacyPanes: Record<string, InspectorPane> = {
   todo: "plan",

@@ -881,6 +881,7 @@ export const zhCN = {
   "workspace-inspector.plan": "方案",
   "workspace-inspector.taskbar-page": "工作栏页面",
   "workspace-inspector.to-do": "待办",
+  "workspace-inspector.files": "文件",
 } as const
 
 export type MessageKey = keyof typeof zhCN
@@ -1691,7 +1692,8 @@ export const enUS = {
   "settings.windows-notifications": "System notifications",
   "settings.sound-effects": "Sound effects",
   "settings.enable-sound-effects": "Enable sound effects",
-  "settings.sound-effects-description": "Play feedback sounds for buttons, agent status changes, blackboard messages and more.",
+  "settings.sound-effects-description":
+    "Play feedback sounds for buttons, agent status changes, blackboard messages and more.",
   "notifications.reply-completed": "The reply is ready. Return to the app to review it.",
   "notifications.permission-required": "A task needs your permission.",
   "notifications.question-required": "A task needs you to answer a question.",
@@ -1804,6 +1806,7 @@ export const enUS = {
   "workspace-inspector.plan": "Plan",
   "workspace-inspector.taskbar-page": "Taskbar page",
   "workspace-inspector.to-do": "To-do",
+  "workspace-inspector.files": "Files",
 } as const satisfies Record<MessageKey, string>
 
 export const messages = {

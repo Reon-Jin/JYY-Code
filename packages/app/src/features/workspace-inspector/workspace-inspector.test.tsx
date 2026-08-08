@@ -89,6 +89,7 @@ function InspectorHarness(props: { initial?: InspectorPane; badge?: string; blac
       blackboard={<div>blackboard content</div>}
       subagents={<div>subagents content</div>}
       changes={<div>changes content</div>}
+      files={<div>files content</div>}
       planBadge={props.badge}
       blackboardBadge={props.blackboardBadge}
     />
@@ -96,6 +97,17 @@ function InspectorHarness(props: { initial?: InspectorPane; badge?: string; blac
 }
 
 describe("WorkspaceInspectorView", () => {
+  it("opens the project files pane without changing legacy pane preferences", async () => {
+    const user = userEvent.setup()
+    render(() => <InspectorHarness />)
+
+    const files = screen.getByRole("button", { name: "文件" })
+    await user.click(files)
+
+    expect(files).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("group", { name: "文件" })).toHaveTextContent("files content")
+  })
+
   it("keeps the activity rail visible and stacks pages in click order", async () => {
     const user = userEvent.setup()
     render(() => <InspectorHarness />)
