@@ -2247,6 +2247,16 @@ export class PlanProtocol {
     return this.wakeups.drain(sessionId)
   }
 
+  replayWakeups(sessionId: string, afterSeq = -1) {
+    const events = this.events
+      .readAfter(sessionId, afterSeq)
+      .filter((event): event is WakeupEvent =>
+        event.type === "report_arrived" || event.type === "check_point" || event.type === "user_message",
+      )
+    for (const event of events) this.wakeups.push(event)
+    return events
+  }
+
   inboxEntries(ctx: PlanExecutionContext) {
     return this.inbox.list(ctx.sessionId)
   }

@@ -5,6 +5,7 @@ import * as Log from "@jyycode-ai/core/util/log"
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm"
 import { MessageTable, SessionTable } from "./session/session.sql"
 import type { SessionID } from "./session/schema"
+import { ensurePlanEventInboxSchema } from "./plan/event-store"
 
 export type Migration<R = never> = {
   name: string
@@ -21,6 +22,10 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const migrations: Migration[] = [
+      {
+        name: "plan_events_and_inbox",
+        run: Effect.sync(() => ensurePlanEventInboxSchema()),
+      },
       {
         name: "session_usage_from_messages",
         run: Effect.gen(function* () {

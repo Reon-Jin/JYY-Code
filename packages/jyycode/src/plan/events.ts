@@ -1,4 +1,6 @@
 import type { PlanFile } from "./schema"
+import { defaultPlanEventStore, type PlanEventInput, type PlanEventStore } from "./event-store"
+import { defaultPlanInboxStore, type PlanInboxStore, type InboxEntryInput } from "./inbox-store"
 
 export type PlanEventType = "plan.updated" | "child.activity" | "report_arrived" | "check_point" | "user_message"
 
@@ -35,11 +37,11 @@ export function validatePlanEvent(value: unknown): string[] {
 
 type Subscription = { sessionId: string; listener: PlanEventListener }
 
-export class PlanEventHub {
+export class MemoryPlanEventStore implements PlanEventStore {
   private readonly sequences = new Map<string, number>()
-  private readonly subscriptions = new Set<Subscription>()
+  private readonly events = new Map<string, PlanEvent[]>()
 
-  publish(input: Omit<PlanEvent, "seq" | "at"> & { at?: string }) {
+  append(input: PlanEventInput) {
     const seq = (this.sequences.get(input.session_id) ?? -1) + 1
     this.sequences.set(input.session_id, seq)
     const event: PlanEvent = {
@@ -47,6 +49,29 @@ export class PlanEventHub {
       seq,
       at: input.at ?? new Date().toISOString(),
     }
+    this.events.set(input.session_id, [...(this.events.get(input.session_id) ?? []), event])
+    return event
+  }
+
+  readAfter(sessionId: string, seq: number) {
+    return (this.events.get(sessionId) ?? []).filter((event) => event.seq > seq)
+  }
+
+  lastSequence(sessionId: string) {
+    return this.sequences.get(sessionId) ?? -1
+  }
+}
+
+export class PlanEventHub {
+  private readonly subscriptions = new Set<Subscription>()
+  private readonly store: PlanEventStore
+
+  constructor(store: PlanEventStore = new MemoryPlanEventStore()) {
+    this.store = store
+  }
+
+  publish(input: Omit<PlanEvent, "seq" | "at"> & { at?: string }) {
+    const event = this.store.append(input)
     for (const subscription of [...this.subscriptions]) {
       if (subscription.sessionId !== event.session_id) continue
       try {
@@ -65,7 +90,11 @@ export class PlanEventHub {
   }
 
   lastSequence(sessionId: string) {
-    return this.sequences.get(sessionId) ?? -1
+    return this.store.lastSequence(sessionId)
+  }
+
+  readAfter(sessionId: string, seq: number) {
+    return this.store.readAfter(sessionId, seq)
   }
 }
 
@@ -127,11 +156,11 @@ export type InboxEntry = {
   resolved_at: string | null
 }
 
-export class PlanInbox {
+export class MemoryPlanInboxStore implements PlanInboxStore {
   private readonly entries = new Map<string, InboxEntry[]>()
   private counter = 0
 
-  add(entry: Omit<InboxEntry, "id" | "created_at" | "resolved_at">) {
+  add(entry: InboxEntryInput) {
     const item: InboxEntry = {
       ...entry,
       id: `inbox_${++this.counter}`,
@@ -150,10 +179,6 @@ export class PlanInbox {
     return this.list(sessionId).filter((entry) => entry.resolved_at === null)
   }
 
-  pendingCount(sessionId: string) {
-    return this.pending(sessionId).length
-  }
-
   resolve(sessionId: string, id: string) {
     const entries = this.entries.get(sessionId) ?? []
     const target = entries.find((entry) => entry.id === id)
@@ -162,9 +187,37 @@ export class PlanInbox {
   }
 }
 
-export const defaultPlanEvents = new PlanEventHub()
+export class PlanInbox {
+  private readonly store: PlanInboxStore
+
+  constructor(store: PlanInboxStore = new MemoryPlanInboxStore()) {
+    this.store = store
+  }
+
+  add(entry: Omit<InboxEntry, "id" | "created_at" | "resolved_at">) {
+    return this.store.add(entry as InboxEntryInput)
+  }
+
+  list(sessionId: string) {
+    return this.store.list(sessionId)
+  }
+
+  pending(sessionId: string) {
+    return this.store.pending(sessionId)
+  }
+
+  pendingCount(sessionId: string) {
+    return this.pending(sessionId).length
+  }
+
+  resolve(sessionId: string, id: string) {
+    return this.store.resolve(sessionId, id)
+  }
+}
+
+export const defaultPlanEvents = new PlanEventHub(defaultPlanEventStore)
 export const defaultWakeupQueue = new WakeupQueue()
-export const defaultPlanInbox = new PlanInbox()
+export const defaultPlanInbox = new PlanInbox(defaultPlanInboxStore)
 
 export function emitPlanUpdated(
   hub: PlanEventHub,
