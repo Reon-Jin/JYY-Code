@@ -324,6 +324,8 @@ function validateUpdateInput(input: unknown): asserts input is PlanUpdateInput {
     const op = rawOp as Record<string, unknown>
     if (op.op === "review_task" && op.decision === "reject" && !asString(op.feedback))
       inputError(`ops[${index}] reject 必须提供 feedback`, "补充具体的验收缺口后重试")
+    if (op.op === "reopen_task" && !asString(op.reason))
+      inputError(`ops[${index}] reopen_task 必须提供 reason`, "说明为什么需要重新执行该终态任务")
   }
 }
 
@@ -627,6 +629,20 @@ function applyOp(
         })
       }
       step.tasks = step.tasks.filter((item) => item.id !== task.id)
+      return
+    }
+    case "reopen_task": {
+      const { task } = findTask(plan, op.stepId, op.taskId)
+      if (!(task.status === "reported" || task.status === "approved" || task.status === "rejected" || task.status === "dismissed"))
+        throw new PlanProtocolError({
+          code: ERROR_CODES.INVALID_STATE,
+          message: `任务 ${task.id} 当前为 ${task.status}，不可 reopen_task`,
+          hint: "只有已汇报或已审核的终态任务可以显式 reopen_task",
+        })
+      task.status = "pending"
+      task.dispatch = null
+      task.report = null
+      task.reopen_reason = requiredText(op.reason, "reason")
       return
     }
     case "set_task_status": {
@@ -1374,6 +1390,12 @@ export class PlanProtocol {
               code: ERROR_CODES.REVISION_CONFLICT,
               message: "任务在取消过程中发生变化",
               hint: "重新读取最新 plan 后重试",
+            })
+          if (task.dispatch.cancelled_at === null && task.status !== "dispatched" && task.status !== "running")
+            throw new PlanProtocolError({
+              code: ERROR_CODES.INVALID_STATE,
+              message: `任务 ${task.id} 当前为 ${task.status}，不可取消终态任务`,
+              hint: "reported/approved/dismissed 任务请使用 Plan_update(reopen_task) 并说明原因",
             })
           if (task.dispatch.cancelled_at === null)
             toTerminate.push({ taskId: task.id, child_session_id: task.dispatch.child_session_id })

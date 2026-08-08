@@ -48,6 +48,7 @@ Plan_create → Plan_update(add_task) → Dispatch_dispatch → Report → revie
 
 - **阶段化方案（Plan）**：任务被拆成若干 Step，每个 Step 有可观察、可判定的 `done_criteria`（如"产出 X 文件且包含 Y"），拒绝"完成/做好"这类模糊验收。只有当前 Step 验收通过，后续 Step 才会展开明细——计划随认知演进，而不是一次性拍死。
 - **状态机驱动的任务生命周期**：每个 Task 严格沿 `pending → dispatched → running → reported → approved / rejected / dismissed` 流转，非法迁移被协议直接拒绝。
+- **取消与重开分离**：`Dispatch_cancel` 只允许停止 `dispatched`/`running` Task 并回到 `pending`；已汇报或审核终态必须通过带原因的 `Plan_update(reopen_task)` 清除旧报告后重新派发，不能用取消绕过审核记录。
 - **审核即门禁**：主 Agent 逐项对照 `done_criteria` 并抽查产物后才裁决；`reject` 必须写清哪条标准未满足、差在哪里，重派时工具自动把 `previous_feedback` 注入子 Agent 简报——错误不会被默默吞掉。
 - **权限隔离**：子 Agent 会话只能 `Report`，无法触碰父方案；每个 Task 绑定独立 `output_path`，越出工作区的路径在派发时即被拒绝。
 - **异常收件箱（Inbox）**：汇报预检失败、子任务被取消、运行时错误都会进入 Inbox 并附带建议动作，主 Agent 处理完异常才能推进。

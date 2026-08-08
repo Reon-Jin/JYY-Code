@@ -588,7 +588,7 @@ describe("model-facing plan tool names", () => {
 
     const updateOps = PLAN_UPDATE_INPUT_SCHEMA.properties?.ops as { items?: { oneOf?: unknown[] } }
     const operations = updateOps.items?.oneOf ?? []
-    expect(operations).toHaveLength(10)
+    expect(operations).toHaveLength(11)
     expect(
       operations.map((operation) => (operation as { properties: { op: { const: string } } }).properties.op.const),
     ).toEqual([
@@ -599,6 +599,7 @@ describe("model-facing plan tool names", () => {
       "add_task",
       "edit_task",
       "remove_task",
+      "reopen_task",
       "set_task_status",
       "review_task",
       "select_candidate",

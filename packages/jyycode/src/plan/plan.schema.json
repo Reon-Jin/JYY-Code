@@ -40,7 +40,8 @@
         "output_path": { "type": ["string", "null"] },
         "status": { "enum": ["pending", "dispatched", "running", "reported", "approved", "rejected", "dismissed"] },
         "dispatch": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/dispatch" }] },
-        "report": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/report" }] }
+        "report": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/report" }] },
+        "reopen_reason": { "type": "string", "minLength": 1 }
       }
     },
     "dispatch": {

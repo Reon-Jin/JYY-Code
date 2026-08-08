@@ -69,6 +69,7 @@ export type PlanTask = {
   status: TaskStatus
   dispatch: DispatchRecord | null
   report: ReportRecord | null
+  reopen_reason?: string
 }
 
 export type PlanStep = {
@@ -128,6 +129,7 @@ export type PlanUpdateOp =
       fields: Partial<Pick<PlanTask, "title" | "goal" | "done_criteria" | "instructions" | "output_path">>
     }
   | { op: "remove_task"; stepId: string; taskId: string }
+  | { op: "reopen_task"; stepId: string; taskId: string; reason: string }
   | {
       op: "set_task_status"
       stepId: string
@@ -361,6 +363,7 @@ export function validatePlanFile(value: unknown): string[] {
           "status",
           "dispatch",
           "report",
+          "reopen_reason",
         ])
         for (const key of Object.keys(rawTask))
           if (!allowedTask.has(key)) errors.push(errorAt(`${taskPrefix}.${key}`, "unknown property"))
@@ -372,6 +375,8 @@ export function validatePlanFile(value: unknown): string[] {
           if (!nonEmptyString(rawTask[field])) errors.push(errorAt(`${taskPrefix}.${field}`, "must be non-empty"))
         if (rawTask.instructions !== undefined && !nonEmptyString(rawTask.instructions))
           errors.push(errorAt(`${taskPrefix}.instructions`, "must be a non-empty string when provided"))
+        if (rawTask.reopen_reason !== undefined && !nonEmptyString(rawTask.reopen_reason))
+          errors.push(errorAt(`${taskPrefix}.reopen_reason`, "must be a non-empty string when provided"))
         if (!("output_path" in rawTask) || (rawTask.output_path !== null && typeof rawTask.output_path !== "string"))
           errors.push(errorAt(`${taskPrefix}.output_path`, "must be string or null"))
         if (rawTask.mode !== undefined && !["standard", "candidate"].includes(String(rawTask.mode)))

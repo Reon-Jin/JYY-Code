@@ -124,7 +124,7 @@ describe("file-backed plan protocol", () => {
     expect(read.plan.steps[0]?.tasks[0]?.dispatch?.role?.id).toBe("reviewer")
   })
 
-  it("cancels approved and already-cancelled dispatches idempotently", async () => {
+  it("cancels running and already-cancelled dispatches idempotently", async () => {
     const root = workspace()
     let terminations = 0
     const protocol = new PlanProtocol({
@@ -142,12 +142,6 @@ describe("file-backed plan protocol", () => {
     await protocol.create(context(root), createInput(path.join(root, "notes.md")))
     await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
 
-    const stored = JSON.parse(fs.readFileSync(planFilePath(root, "ses_main"), "utf8")) as {
-      steps: Array<{ tasks: Array<{ status: string }> }>
-    }
-    stored.steps[0]!.tasks[0]!.status = "approved"
-    fs.writeFileSync(planFilePath(root, "ses_main"), JSON.stringify(stored))
-
     expect(await protocol.cancel(context(root), ["s1_t1"])).toMatchObject({
       ok: true,
       next_action_hint: expect.stringContaining("pending/rejected"),
@@ -159,6 +153,80 @@ describe("file-backed plan protocol", () => {
     if (!read.ok || !read.plan) return
     expect(read.plan.steps[0]?.tasks[0]?.status).toBe("pending")
     expect(read.plan.steps[0]?.tasks[0]?.dispatch?.cancelled_at).not.toBeNull()
+  })
+
+  it("rejects cancelling reported, approved, and dismissed tasks", async () => {
+    const root = workspace()
+    let terminations = 0
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      children: {
+        async create(input) {
+          return input.childSessionId
+        },
+        async start() {},
+        async terminate() {
+          terminations++
+        },
+      },
+    })
+    await protocol.create(context(root), createInput(path.join(root, "notes.md")))
+    await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+
+    for (const status of ["reported", "approved", "dismissed"] as const) {
+      const stored = JSON.parse(fs.readFileSync(planFilePath(root, "ses_main"), "utf8")) as {
+        steps: Array<{ tasks: Array<{ status: string; dispatch: { cancelled_at: string | null } }> }>
+      }
+      stored.steps[0]!.tasks[0]!.status = status
+      stored.steps[0]!.tasks[0]!.dispatch.cancelled_at = null
+      fs.writeFileSync(planFilePath(root, "ses_main"), JSON.stringify(stored))
+
+      expect(await protocol.cancel(context(root), ["s1_t1"])).toMatchObject({
+        ok: false,
+        error: { code: "INVALID_STATE", hint: expect.stringContaining("reopen_task") },
+      })
+      const after = JSON.parse(fs.readFileSync(planFilePath(root, "ses_main"), "utf8")) as {
+        steps: Array<{ tasks: Array<{ status: string }> }>
+      }
+      expect(after.steps[0]?.tasks[0]?.status).toBe(status)
+    }
+    expect(terminations).toBe(0)
+  })
+
+  it("reopens a terminal task only through an explicit reasoned operation", async () => {
+    const root = workspace()
+    const protocol = new PlanProtocol({ store: new PlanStore() })
+    await protocol.create(context(root), createInput(path.join(root, "notes.md")))
+    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+    expect(dispatched.ok).toBe(true)
+    const stored = JSON.parse(fs.readFileSync(planFilePath(root, "ses_main"), "utf8")) as {
+      revision: number
+      steps: Array<{ tasks: Array<{ status: string; dispatch: unknown; report: unknown }> }>
+    }
+    stored.steps[0]!.tasks[0]!.status = "approved"
+    stored.steps[0]!.tasks[0]!.report = {
+      status: "done",
+      summary: "old",
+      artifacts: [],
+      issues: [],
+      reported_at: new Date().toISOString(),
+      review_feedback: null,
+    }
+    fs.writeFileSync(planFilePath(root, "ses_main"), JSON.stringify(stored))
+
+    const reopened = await protocol.update(context(root), {
+      revision: stored.revision,
+      ops: [{ op: "reopen_task", stepId: "s1", taskId: "s1_t1", reason: "验收标准已更新，需要重新执行" }],
+    })
+    expect(reopened).toMatchObject({ ok: true })
+    const read = await protocol.read(context(root))
+    if (!read.ok || !read.plan) return
+    expect(read.plan.steps[0]?.tasks[0]).toMatchObject({
+      status: "pending",
+      dispatch: null,
+      report: null,
+      reopen_reason: "验收标准已更新，需要重新执行",
+    })
   })
 
   it("persists cancellation when child cleanup fails", async () => {
@@ -1226,8 +1294,11 @@ describe("file-backed plan protocol", () => {
     if (!read.ok || !read.plan) return
     expect(read.plan.steps[0]?.tasks[0]?.status).toBe("reported")
 
-    expect((await protocol.cancel(context(root), ["s1_t1"])).ok).toBe(true)
-    expect(await settle()).toEqual({ settled: false, reason: "cancelled" })
+    expect(await protocol.cancel(context(root), ["s1_t1"])).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_STATE" },
+    })
+    expect(await settle()).toEqual({ settled: false, reason: "already_settled" })
   })
 
   it("keeps candidate children waiting on discussion checkpoints running", async () => {

@@ -190,6 +190,17 @@ const updateOps: JSONSchema7[] = [
   {
     type: "object",
     additionalProperties: false,
+    required: ["op", "stepId", "taskId", "reason"],
+    properties: {
+      op: { const: "reopen_task" },
+      stepId: stepIdSchema,
+      taskId: taskIdSchema,
+      reason: nonEmptyStringSchema,
+    },
+  },
+  {
+    type: "object",
+    additionalProperties: false,
     required: ["op", "stepId", "taskId", "to"],
     properties: {
       op: { const: "set_task_status" },
