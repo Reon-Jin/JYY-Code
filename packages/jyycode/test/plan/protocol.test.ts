@@ -732,17 +732,88 @@ describe("file-backed plan protocol", () => {
     expect(review.ok).toBe(true)
     const afterReview = await protocol.read(context(root))
     if (!afterReview.ok || !afterReview.plan) return
-    const rejected = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
-    expect(rejected.ok).toBe(true)
+    expect(review).toMatchObject({
+      ok: true,
+      reviewed: [{ taskId: "s1_t1", result: "rejected" }],
+      dispatched: [{ taskId: "s1_t1", idempotent: false }],
+    })
     expect((brief as { previous_feedback?: { review_feedback: string } }).previous_feedback?.review_feedback).toContain(
       "tests/",
     )
+    const retried = await protocol.read(context(root))
+    if (!retried.ok || !retried.plan) return
+    expect(retried.plan.steps[0]?.tasks[0]?.status).toBe("running")
     const metrics = events
       .readAfter("ses_main", -1)
       .filter((event) => event.type === "runtime.metric")
       .map((event) => event.payload)
     expect(metrics.some((payload) => payload.metric === "dispatch" && payload.phase === "start")).toBe(true)
     expect(metrics.some((payload) => payload.metric === "report" && payload.phase === "submit")).toBe(true)
+  })
+
+  it("automatically retries every rejected task in the same dispatch wave", async () => {
+    const root = workspace()
+    const firstArtifact = path.join(root, "one.md")
+    const secondArtifact = path.join(root, "two.md")
+    const input = createInput(firstArtifact)
+    input.steps[0]!.tasks!.push({
+      title: "Validate the second output",
+      goal: "Create the second output",
+      done_criteria: "two.md exists",
+      output_path: secondArtifact,
+    })
+    const starts: ChildStartInput[] = []
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      inbox: new PlanInbox(),
+      children: {
+        async create(input) {
+          return input.childSessionId
+        },
+        async start(input) {
+          starts.push(input)
+        },
+        async terminate() {},
+      },
+    })
+    await protocol.create(context(root), input)
+    const initial = await protocol.dispatch(context(root), { taskIds: ["s1_t1", "s1_t2"], role: "general" })
+    expect(initial.ok).toBe(true)
+    if (!initial.ok) return
+
+    for (const [taskId, artifact] of [
+      ["s1_t1", firstArtifact],
+      ["s1_t2", secondArtifact],
+    ] as const) {
+      const runId = initial.dispatched.find((item) => item.taskId === taskId)!.run_id
+      const childSessionId = initial.dispatched.find((item) => item.taskId === taskId)!.child_session_id
+      fs.writeFileSync(artifact, "123")
+      const report = await protocol.report(
+        { ...context(root, "single", childSessionId), runId },
+        { run_id: runId, status: "done", summary: "created", artifacts: [artifact], issues: [] },
+      )
+      expect(report.ok).toBe(true)
+    }
+
+    const pendingReview = await protocol.read(context(root))
+    if (!pendingReview.ok || !pendingReview.plan) return
+    const retried = await protocol.update(context(root), {
+      revision: pendingReview.plan.revision,
+      ops: [
+        { op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "reject", feedback: "追加 abc" },
+        { op: "review_task", stepId: "s1", taskId: "s1_t2", decision: "reject", feedback: "追加 abc" },
+      ],
+    })
+
+    expect(retried).toMatchObject({
+      ok: true,
+      dispatched: [
+        { taskId: "s1_t1", idempotent: false },
+        { taskId: "s1_t2", idempotent: false },
+      ],
+    })
+    expect(starts).toHaveLength(4)
+    expect(starts.slice(-2).every((start) => start.brief.previous_feedback?.review_feedback === "追加 abc")).toBe(true)
   })
 
   it("keeps review approval separate from parent integration", async () => {
@@ -1636,6 +1707,8 @@ describe("file-backed plan protocol", () => {
     expect(multiAgentPrompt).toContain('mode: "candidate"')
     expect(multiAgentPrompt).toContain("candidate_discussion")
     expect(multiAgentPrompt).toContain("Dispatch_dispatch exactly once")
+    expect(multiAgentPrompt).toContain("automatically starts a new retry run")
+    expect(multiAgentPrompt).toContain("Do not call Dispatch_dispatch again")
     expect(multiAgentPrompt).toContain("Plan_update(add_task) cannot extend")
     expect(multiAgentPrompt).toContain("ordinary parallel")
     expect(multiAgentPrompt).toContain("candidate parallel")

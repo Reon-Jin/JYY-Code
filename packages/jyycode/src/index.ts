@@ -43,6 +43,11 @@ import { LLMTrace } from "@/dev/llm-trace"
 import { drizzle } from "drizzle-orm/bun-sqlite"
 import { ensureProcessMetadata } from "@jyycode-ai/core/util/jyycode-process"
 import { isRecord } from "@/util/record"
+import path from "node:path"
+import { eq } from "drizzle-orm"
+import { ProjectID } from "./project/schema"
+import { SessionTable } from "./session/session.sql"
+import { cleanupStartupPlanWorkspaces } from "./plan/startup-cleanup"
 
 const processMetadata = ensureProcessMetadata("main")
 
@@ -168,6 +173,31 @@ const cli = yargs(args)
         }
       }
       process.stderr.write("Database migration complete." + EOL)
+    }
+
+    try {
+      const workspaceRoots = Database.legacyClient()
+        .select({ directory: SessionTable.directory })
+        .from(SessionTable)
+        .where(eq(SessionTable.project_id, ProjectID.global))
+        .all()
+        .map((row) => row.directory)
+      const cleanup = cleanupStartupPlanWorkspaces({
+        runtimeRoot: path.join(Global.Path.data, "plan-workspaces", "global"),
+        workspaceRoots,
+      })
+      if (cleanup.removed.length || cleanup.failures.length) {
+        Log.Default.info("plan workspace startup cleanup", {
+          removed: cleanup.removed.length,
+          preserved: cleanup.preserved.length,
+          skipped_plans: cleanup.skippedPlans.length,
+          failures: cleanup.failures.length,
+        })
+      }
+    } catch (error) {
+      Log.Default.warn("plan workspace startup cleanup skipped", {
+        error: errorMessage(error),
+      })
     }
   })
   .usage("")

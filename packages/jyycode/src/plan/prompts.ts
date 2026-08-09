@@ -65,6 +65,14 @@ export const PLAN_CANDIDATE_PROMPT = `## Candidate task protocol
 - The root session starts the running phase with Candidate_begin. In running, candidates work independently and submit only through Candidate_submit; do not use Report, Blackboard, shell, edit, write, process, MCP, or plugin tools.
 - The root session must choose exactly one approved candidate with Plan_update(select_candidate), may record contributing candidates, and must provide a real workspace synthesis artifact before the Step can complete.`
 
+const PLAN_REVIEW_RETRY_PROMPT = `# Review retry protocol
+- For standard tasks, this rule overrides generic manual-redispatch guidance after a review rejection.
+- Rejecting a reported standard Task with Plan_update(review_task) automatically starts a new retry run using the role from the previous dispatch.
+- The Plan_update result contains dispatched retry records when this succeeds. Do not call Dispatch_dispatch again for those task IDs; wait for the new Report.
+- If auto_retry_skipped or auto_retry_failed is present, follow the returned hint and manually recover only the listed tasks.
+- The rejection feedback is the retry signal. The child must apply it immediately and must not wait for another rejection event.
+`
+
 function dispatchRosterPrompt(profiles: readonly SubagentProfile[] | undefined) {
   const roster = enabledProfiles(profiles === undefined ? defaultProfiles() : profiles)
   return [
@@ -102,6 +110,7 @@ export function planSystemPrompt(input: {
     PLAN_BASE_PROMPT,
     PLAN_EVENT_DRIVEN_BLACKBOARD_PROMPT,
     PLAN_MULTI_PROMPT,
+    PLAN_REVIEW_RETRY_PROMPT,
     PLAN_CANDIDATE_PROMPT,
     dispatchRosterPrompt(input.profiles),
   ].join("\n\n")

@@ -1344,6 +1344,9 @@ export class PlanProtocol {
     ProtocolResponse<{
       assigned_ids?: { steps?: string[]; tasks?: string[] }
       reviewed?: Array<{ taskId: string; result: "approved" | "rejected" }>
+      dispatched?: Array<{ taskId: string; run_id: string; child_session_id: string; idempotent: boolean }>
+      auto_retry_skipped?: string[]
+      auto_retry_failed?: Array<{ taskIds: string[]; role: string; message: string }>
       revision: number
       next_action_hint: string
     }>
@@ -1420,10 +1423,57 @@ export class PlanProtocol {
           },
         }
       })
+      const autoDispatched: Array<{
+        taskId: string
+        run_id: string
+        child_session_id: string
+        idempotent: boolean
+      }> = []
+      const autoRetrySkipped: string[] = []
+      const autoRetryFailed: Array<{ taskIds: string[]; role: string; message: string }> = []
+      const retryGroups = new Map<string, string[]>()
       for (const review of result.result.reviewed ?? []) {
-        if (review.result === "rejected") await this.cleanupTaskWorkspace(ctx, review.taskId)
+        if (review.result !== "rejected") continue
+        const cleanupErrors = await this.cleanupTaskWorkspace(ctx, review.taskId)
+        if (cleanupErrors.length) {
+          autoRetryFailed.push({
+            taskIds: [review.taskId],
+            role: "unknown",
+            message: `workspace cleanup failed: ${cleanupErrors.join("; ")}`,
+          })
+          continue
+        }
+        const latest = this.store.read(this.path(ctx))
+        const task = latest?.steps.flatMap((step) => step.tasks).find((item) => item.id === review.taskId)
+        const role = task?.dispatch?.role?.id
+        if (!role || task.mode === "candidate") {
+          autoRetrySkipped.push(review.taskId)
+          continue
+        }
+        const taskIds = retryGroups.get(role) ?? []
+        taskIds.push(review.taskId)
+        retryGroups.set(role, taskIds)
       }
-      return { ok: true, ...result.result }
+      for (const [role, taskIds] of retryGroups) {
+        const retry = await this.dispatch(ctx, { taskIds, role })
+        if (!retry.ok) {
+          autoRetryFailed.push({ taskIds, role, message: retry.error.message })
+          continue
+        }
+        autoDispatched.push(...retry.dispatched)
+      }
+      const finalPlan = this.store.read(this.path(ctx))
+      return {
+        ok: true,
+        ...result.result,
+        ...(autoDispatched.length ? { dispatched: autoDispatched } : {}),
+        ...(autoRetrySkipped.length ? { auto_retry_skipped: autoRetrySkipped } : {}),
+        ...(autoRetryFailed.length ? { auto_retry_failed: autoRetryFailed } : {}),
+        revision: finalPlan?.revision ?? result.result.revision,
+        next_action_hint: finalPlan
+          ? nextActionHint(finalPlan, this.inbox.pendingCount(ctx.sessionId))
+          : result.result.next_action_hint,
+      }
     } catch (error) {
       return responseFromError(error)
     }

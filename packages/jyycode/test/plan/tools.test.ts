@@ -7,9 +7,12 @@ import {
   childWorkspaceFor,
   childLaunchParts,
   childTaskBrief,
+  DISPATCH_INPUT_SCHEMA,
   MERGE_APPLY_DESCRIPTION,
   MERGE_APPLY_INPUT_SCHEMA,
+  PLAN_CREATE_INPUT_SCHEMA,
   PLAN_TOOL_IDS,
+  PLAN_UPDATE_INPUT_SCHEMA,
 } from "../../src/plan/tools"
 import { modelFacingPlanToolName } from "../../src/plan/tools"
 import { RuntimeEvent } from "../../src/plan/runtime-event"
@@ -45,6 +48,18 @@ describe("plan runtime event bridge", () => {
       ).toBeDefined()
 
       fs.rmSync(root, { recursive: true, force: true })
+    }),
+  )
+
+  it.effect("keeps ChildWorkspace metadata runtime-owned", () =>
+    Effect.sync(() => {
+      for (const schema of [
+        PLAN_CREATE_INPUT_SCHEMA,
+        PLAN_UPDATE_INPUT_SCHEMA,
+        DISPATCH_INPUT_SCHEMA,
+        MERGE_APPLY_INPUT_SCHEMA,
+      ])
+        expect(JSON.stringify(schema)).not.toMatch(/"workspace"\s*:/u)
     }),
   )
 
