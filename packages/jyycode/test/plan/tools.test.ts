@@ -3,7 +3,14 @@ import { Deferred, Effect, Layer } from "effect"
 import { afterEach, describe, expect } from "bun:test"
 import { Bus } from "../../src/bus"
 import { EffectBridge } from "../../src/effect/bridge"
-import { childLaunchParts, childTaskBrief } from "../../src/plan/tools"
+import {
+  childLaunchParts,
+  childTaskBrief,
+  MERGE_APPLY_DESCRIPTION,
+  MERGE_APPLY_INPUT_SCHEMA,
+  PLAN_TOOL_IDS,
+} from "../../src/plan/tools"
+import { modelFacingPlanToolName } from "../../src/plan/tools"
 import { RuntimeEvent } from "../../src/plan/runtime-event"
 import { disposeAllInstances } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
@@ -15,6 +22,27 @@ afterEach(async () => {
 })
 
 describe("plan runtime event bridge", () => {
+  it.effect("defines the compact main-agent Merge.apply contract", () =>
+    Effect.sync(() => {
+      expect(PLAN_TOOL_IDS.has("Merge.apply")).toBe(true)
+      expect(modelFacingPlanToolName("Merge.apply")).toBe("Merge_apply")
+      expect(MERGE_APPLY_DESCRIPTION).toContain("task_id")
+      expect(MERGE_APPLY_DESCRIPTION).toContain("resolutions")
+      expect(MERGE_APPLY_INPUT_SCHEMA).toEqual(
+        expect.objectContaining({
+          type: "object",
+          additionalProperties: false,
+          required: ["task_id"],
+          properties: expect.objectContaining({
+            task_id: expect.objectContaining({ pattern: "^s[1-9]\\d*_t[1-9]\\d*$" }),
+            paths: expect.objectContaining({ type: "array" }),
+            resolutions: expect.objectContaining({ type: "array" }),
+          }),
+        }),
+      )
+    }),
+  )
+
   it.effect("shows only Instructions and the current Task goal in the child launch message", () =>
     Effect.sync(() => {
       const brief = childTaskBrief({

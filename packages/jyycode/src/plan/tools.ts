@@ -299,6 +299,40 @@ const reportSchema: JSONSchema7 = {
   then: { required: ["artifacts"] },
 }
 
+export const MERGE_APPLY_INPUT_SCHEMA: JSONSchema7 = {
+  type: "object",
+  additionalProperties: false,
+  required: ["task_id"],
+  properties: {
+    task_id: taskIdSchema,
+    paths: {
+      type: "array",
+      maxItems: 200,
+      uniqueItems: true,
+      items: { type: "string", minLength: 1 },
+      description: "Optional workspace-relative narrowing scope; omit it to merge all baseline-relative child changes.",
+    },
+    resolutions: {
+      type: "array",
+      maxItems: 200,
+      uniqueItems: true,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "use"],
+        properties: {
+          path: { type: "string", minLength: 1 },
+          use: { enum: ["main", "child"] },
+        },
+      },
+      description: "Retry only after inspecting a conflict: use main for the edited parent file or child for an explicit replacement.",
+    },
+  },
+}
+
+export const MERGE_APPLY_DESCRIPTION =
+  "主 Agent 在 review_task(approve) 后调用 Merge.apply({task_id}) 集成隔离 Task；正常调用只需 task_id。若返回 conflict，先检查 main_path 并编辑父 workspace，再用 resolutions:[{path,use:'main'|'child'}] 重试。工具只合并安全的非重叠变更，不附带文件内容或 secrets。"
+
 const inboxSchema: JSONSchema7 = {
   type: "object",
   additionalProperties: false,
@@ -1232,6 +1266,59 @@ export const ReportTool = Tool.define(
   }),
 )
 
+export const MergeApplyTool = Tool.define(
+  "Merge.apply",
+  Effect.gen(function* () {
+    const sessions = yield* Session.Service
+    const bus = yield* Bus.Service
+    return {
+      description:
+        MERGE_APPLY_DESCRIPTION,
+      parameters: AnyObject,
+      jsonSchema: MERGE_APPLY_INPUT_SCHEMA,
+      catalog: {
+        category: "subagent" as const,
+        mutability: "write" as const,
+        risk: "high" as const,
+        detail: "advanced" as const,
+      },
+      execute: (input: unknown, ctx: Tool.Context) =>
+        Effect.gen(function* () {
+          const bridge = yield* EffectBridge.make()
+          const session = yield* getSession(sessions, ctx.sessionID)
+          const projectService = yield* Effect.serviceOption(Project.Service)
+          const worktreeService = yield* Effect.serviceOption(Worktree.Service)
+          const worktree = Option.getOrUndefined(worktreeService)
+          const projectInfo =
+            Option.isSome(projectService)
+              ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
+              : undefined
+          const childWorkspace =
+            projectInfo && (projectInfo.vcs !== "git" || worktree)
+              ? new ChildWorkspace({
+                  project: {
+                    root: projectInfo.worktree,
+                    vcs: projectInfo.vcs === "git" ? "git" : "none",
+                  },
+                  runtimeRoot: path.join(
+                    Global.Path.data,
+                    projectInfo.vcs === "git" ? "worktree" : "plan-workspaces",
+                    String(projectInfo.id),
+                  ),
+                  ...(projectInfo.vcs === "git" && worktree
+                    ? { worktree: worktreeAdapter({ service: worktree, run: bridge.promise }) }
+                    : {}),
+                })
+              : undefined
+          const protocol = protocolFor(sessions, bus, { bridge, childWorkspace })
+          const result = yield* Effect.promise(() => protocol.merge(protocolContext(session, ctx), input))
+          if (result.ok) requestToolCatalogRefresh(ctx)
+          return jsonResult("Merge.apply", result)
+        }),
+    }
+  }),
+)
+
 export const PlanProtocolTools = [
   PlanReadTool,
   InboxTool,
@@ -1247,6 +1334,7 @@ export const PlanProtocolTools = [
   CandidateBeginTool,
   CandidateSubmitTool,
   ReportTool,
+  MergeApplyTool,
 ] as const
 
 export const PLAN_TOOL_IDS = new Set<string>(PlanProtocolTools.map((tool) => tool.id))
