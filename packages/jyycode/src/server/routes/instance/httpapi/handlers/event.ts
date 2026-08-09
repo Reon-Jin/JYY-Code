@@ -47,6 +47,7 @@ function eventResponse(bus: Bus.Interface) {
           "Cache-Control": "no-cache, no-transform",
           "X-Accel-Buffering": "no",
           "X-Content-Type-Options": "nosniff",
+          "X-Event-Protocol": "2",
         },
       },
     )

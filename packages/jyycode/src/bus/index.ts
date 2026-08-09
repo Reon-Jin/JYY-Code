@@ -215,3 +215,5 @@ export function subscribeAll(callback: (event: any) => unknown) {
 }
 
 export * as Bus from "."
+export { ReliableHub } from "./reliable-hub"
+export { classifyEvent, eventPolicy } from "./policy"

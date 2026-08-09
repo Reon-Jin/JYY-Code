@@ -27,6 +27,9 @@ export type Payload<D extends Definition = Definition> = {
   readonly version?: number
   readonly location?: Location.Ref
   readonly metadata?: Record<string, unknown>
+  readonly sequence?: number
+  readonly aggregateSequence?: number
+  readonly gap?: boolean
 }
 
 export type Sync = (event: Payload) => Effect.Effect<void>
@@ -46,6 +49,9 @@ export function define<const Type extends string, Fields extends Schema.Struct.F
     type: Schema.Literal(input.type),
     version: Schema.optional(Schema.Number),
     location: Schema.optional(Location.Ref),
+    sequence: Schema.optional(Schema.Number),
+    aggregateSequence: Schema.optional(Schema.Number),
+    gap: Schema.optional(Schema.Boolean),
     data: Data,
   }).annotate({ identifier: input.type })
 
@@ -91,6 +97,8 @@ export const layer = Layer.effect(
     const all = yield* PubSub.unbounded<Payload>()
     const typed = new Map<string, PubSub.PubSub<Payload>>()
     const syncHandlers = new Array<Sync>()
+    let sequence = 0
+    const aggregateSequences = new Map<string, number>()
 
     const getOrCreate = (definition: Definition) =>
       Effect.gen(function* () {
@@ -110,14 +118,27 @@ export const layer = Layer.effect(
 
     function publishEvent<D extends Definition>(event: Payload<D>) {
       return Effect.gen(function* () {
+        const aggregateKey = definitionAggregate(event)
+        const next = {
+          ...event,
+          sequence: event.sequence ?? ++sequence,
+          ...(aggregateKey
+            ? { aggregateSequence: event.aggregateSequence ?? (aggregateSequences.set(aggregateKey, (aggregateSequences.get(aggregateKey) ?? 0) + 1), aggregateSequences.get(aggregateKey)) }
+            : {}),
+        } as Payload<D>
         for (const sync of syncHandlers) {
-          yield* sync(event as Payload)
+          yield* sync(next as Payload)
         }
-        const pubsub = typed.get(event.type)
-        if (pubsub) yield* PubSub.publish(pubsub, event as Payload)
-        yield* PubSub.publish(all, event as Payload)
-        return event
+        const pubsub = typed.get(next.type)
+        if (pubsub) yield* PubSub.publish(pubsub, next as Payload)
+        yield* PubSub.publish(all, next as Payload)
+        return next
       })
+    }
+
+    function definitionAggregate(event: Payload) {
+      const definition = registry.get(event.type)
+      return definition?.aggregate ? String((event.data as Record<string, unknown>)[definition.aggregate]) : undefined
     }
 
     function publish<D extends Definition>(definition: D, data: Data<D>, options?: PublishOptions) {
