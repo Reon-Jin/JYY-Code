@@ -59,6 +59,12 @@ import { settingsHref } from "../features/settings/settings-navigation"
 
 type AsyncSessionAction = (sessionID: string) => Promise<void>
 
+type FileScope = {
+  directory: string
+  workspaceID?: string
+  sessionID?: string
+}
+
 export type WorkspaceLayoutViewProps = {
   projectName: string
   projectDirectory: string
@@ -384,6 +390,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const [selectedModel, setSelectedModel] = createSignal<ModelSelection>()
   const [activeFilePath, setActiveFilePath] = createSignal<string>()
   const [activeFileChange, setActiveFileChange] = createSignal<VcsFileDiff>()
+  const [selectedFileScope, setSelectedFileScope] = createSignal<FileScope>()
   const [fileDirty, setFileDirty] = createSignal(false)
   const [inspectorPreferences, setInspectorPreferences] = createSignal<InspectorPreferences>(
     loadInspectorPreferences(data.directory()),
@@ -483,12 +490,35 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return [...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])].find((session) => session.id === rootID)
   })
   const isChildSession = createMemo(() => Boolean(parentSessionID()))
-  const activeFileDirectory = createMemo(() => activeSession()?.directory ?? data.directory())
+  const activeSessionFileDirectory = createMemo(() => activeSession()?.directory ?? data.directory())
+  const activeSessionFileWorkspaceID = createMemo(() => {
+    const session = activeSession()
+    const root = rootSession()
+    if (!session?.workspaceID) return undefined
+    if (
+      session.parentID &&
+      session.directory &&
+      root?.directory &&
+      normalizeDirectory(session.directory) !== normalizeDirectory(root.directory)
+    )
+      return undefined
+    return session.workspaceID
+  })
+  const activeFileScope = createMemo<FileScope>(
+    () =>
+      selectedFileScope() ?? {
+        directory: activeSessionFileDirectory(),
+        workspaceID: activeSessionFileWorkspaceID(),
+        sessionID: activeSession()?.id,
+      },
+  )
   const rootDiffDirectory = createMemo(() => rootSession()?.directory ?? data.directory())
   const diffSharedCompat = createMemo(() => {
     if (!isChildSession()) return false
     const activeDirectory = activeSession()?.directory
-    return activeDirectory !== undefined && normalizeDirectory(activeDirectory) === normalizeDirectory(rootDiffDirectory())
+    return (
+      activeDirectory !== undefined && normalizeDirectory(activeDirectory) === normalizeDirectory(rootDiffDirectory())
+    )
   })
   const diffMode = createMemo<"git" | "session">(() =>
     projects.activeProject()?.info.vcs === "git" ? "git" : "session",
@@ -502,6 +532,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       () => {
         setActiveFilePath(undefined)
         setActiveFileChange(undefined)
+        setSelectedFileScope(undefined)
         setFileDirty(false)
       },
     ),
@@ -710,16 +741,36 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   }
 
   function openFile(event: FileOpenEvent) {
-    if (activeFilePath() === event.path && activeFileChange() === event.change) {
+    const fallbackScope: FileScope = {
+      directory: activeSessionFileDirectory(),
+      workspaceID: activeSessionFileWorkspaceID(),
+      sessionID: activeSession()?.id,
+    }
+    const nextScope: FileScope = event.directory
+      ? {
+          directory: event.directory,
+          workspaceID: event.workspaceID,
+          sessionID: event.sessionID,
+        }
+      : fallbackScope
+    const currentScope = selectedFileScope()
+    const sameScope =
+      currentScope &&
+      normalizeDirectory(currentScope.directory) === normalizeDirectory(nextScope.directory) &&
+      currentScope.workspaceID === nextScope.workspaceID &&
+      currentScope.sessionID === nextScope.sessionID
+    if (activeFilePath() === event.path && activeFileChange() === event.change && sameScope) {
       return
     }
     if (!canLeaveFile()) return
     if (activeFilePath() === event.path) {
       setActiveFileChange(event.change)
+      setSelectedFileScope(nextScope)
       return
     }
     setActiveFilePath(event.path)
     setActiveFileChange(event.change)
+    setSelectedFileScope(nextScope)
     setFileDirty(false)
   }
 
@@ -727,6 +778,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     if (!canLeaveFile()) return
     setActiveFilePath(undefined)
     setActiveFileChange(undefined)
+    setSelectedFileScope(undefined)
     setFileDirty(false)
   }
 
@@ -808,9 +860,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         <Show when={activeFilePath()} keyed>
           {(path) => (
             <FilePreview
-              directory={activeFileDirectory()}
-              workspaceID={activeSession()?.workspaceID}
-              sessionID={activeSession()?.id}
+              directory={activeFileScope().directory}
+              workspaceID={activeFileScope().workspaceID}
+              sessionID={activeFileScope().sessionID}
               path={path}
               change={activeFileChange()}
               onClose={closeFile}
@@ -982,8 +1034,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           diffSessionID={rootSessionID()}
           diffMode={diffMode()}
           diffSharedCompat={diffSharedCompat()}
-          fileDirectory={activeFileDirectory()}
-          fileWorkspaceID={activeSession()?.workspaceID}
+          fileDirectory={activeSessionFileDirectory()}
+          fileWorkspaceID={activeSessionFileWorkspaceID()}
           fileSessionID={activeSession()?.id}
           preferences={inspectorPreferences()}
           onPreferencesChange={updateInspectorPreferences}

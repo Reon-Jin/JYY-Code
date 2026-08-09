@@ -15,6 +15,9 @@ export type FileOpenEvent = {
   path: string
   source: "files" | "changes"
   change?: VcsFileDiff
+  directory?: string
+  workspaceID?: string
+  sessionID?: string
 }
 
 export type FileTreeProps = {
@@ -84,7 +87,13 @@ function FileTreeNode(props: {
       setOpen((value) => !value)
       return
     }
-    props.onOpenFile?.({ path: props.node.path, source: "files" })
+    props.onOpenFile?.({
+      path: props.node.path,
+      source: "files",
+      directory: props.directory,
+      ...(props.workspaceID ? { workspaceID: props.workspaceID } : {}),
+      ...(props.sessionID ? { sessionID: props.sessionID } : {}),
+    })
   }
 
   const keydown: JSX.EventHandlerUnion<HTMLButtonElement, KeyboardEvent> = (event) => {

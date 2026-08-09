@@ -31,6 +31,27 @@ import * as Log from "@jyycode-ai/core/util/log"
 
 const log = Log.create({ service: "plan" })
 
+export function childWorkspaceFor(input: {
+  session: Pick<Session.Info, "directory">
+  projectInfo?: Project.Info
+  worktree?: Worktree.Interface
+  bridge: EffectBridgeShape
+}) {
+  const projectInfo = input.projectInfo
+  if (!projectInfo || (projectInfo.vcs === "git" && !input.worktree)) return undefined
+  const isGit = projectInfo.vcs === "git"
+  return new ChildWorkspace({
+    project: {
+      root: projectInfo.id === "global" ? input.session.directory : projectInfo.worktree,
+      vcs: isGit ? "git" : "none",
+    },
+    runtimeRoot: path.join(Global.Path.data, isGit ? "worktree" : "plan-workspaces", String(projectInfo.id)),
+    ...(isGit && input.worktree
+      ? { worktree: worktreeAdapter({ service: input.worktree, run: input.bridge.promise }) }
+      : {}),
+  })
+}
+
 const Empty = Schema.Struct({})
 const AnyObject = Schema.declare<unknown>((_u): _u is unknown => true)
 
@@ -325,7 +346,8 @@ export const MERGE_APPLY_INPUT_SCHEMA: JSONSchema7 = {
           use: { enum: ["main", "child"] },
         },
       },
-      description: "Retry only after inspecting a conflict: use main for the edited parent file or child for an explicit replacement.",
+      description:
+        "Retry only after inspecting a conflict: use main for the edited parent file or child for an explicit replacement.",
     },
   },
 }
@@ -479,8 +501,19 @@ export function childTaskBrief(brief: DispatchBrief, role?: Pick<LaunchSnapshot,
     "",
     "## Working Directory",
     brief.workspace_root,
-    "你的工作目录与主 Agent 一致。所有相对路径都相对于此目录解析；不要在此目录之外读写文件。",
+    "这是当前子任务的工作目录，通常是主 Agent 工作区的隔离副本，不保证与主 Agent 使用同一目录。所有相对路径都相对于此目录解析；不要在此目录之外读写文件。",
   ]
+  if (brief.previous_feedback) {
+    parts.push(
+      "",
+      "## Previous Review Feedback",
+      "这是一次审核打回后的重试：必须立即按照下面的反馈修改后再提交，不要等待额外的“打回事件”。",
+      `- 反馈：${brief.previous_feedback.review_feedback.trim()}`,
+      ...(brief.previous_feedback.issues.length > 0
+        ? ["- 原有问题：", ...brief.previous_feedback.issues.map((issue) => `  - ${issue.trim()}`)]
+        : []),
+    )
+  }
   const rolePrompt = role?.prompt.trim()
   if (rolePrompt) parts.push("", "## Role Instructions", rolePrompt)
   return parts.join("\n")
@@ -496,7 +529,7 @@ function childInternalTaskBrief(brief: DispatchBrief) {
     "```",
     "",
     "请严格按简报执行：先写入 `output_path`，再调用 `Report`；不要创建或输出父方案。",
-    "`workspace_root` 是你的工作目录（与主 Agent 一致）；`output_path` 已是基于它解析好的绝对路径。简报或指令中出现的其他相对路径一律相对于 `workspace_root` 解析，禁止在工作目录之外读写文件。",
+    "`workspace_root` 是当前子任务的工作目录，通常是主 Agent 工作区的隔离副本；`output_path` 已是基于它解析好的绝对路径。简报或指令中出现的其他相对路径一律相对于 `workspace_root` 解析，禁止在工作目录之外读写文件。",
   ].join("\n")
   if (brief.mode !== "candidate") return standard
   return [
@@ -718,7 +751,7 @@ function protocolFor(
       },
       async terminate(sessionId) {
         const run = runtime.bridge.promise
-        await run(sessions.setArchived({ sessionID: sessionId as SessionID }))
+        await run(sessions.setArchived({ sessionID: sessionId as SessionID, time: Date.now() }))
       },
     },
     beforeReport: runtime.beforeReport,
@@ -972,6 +1005,14 @@ export const PlanUpdateTool = Tool.define(
         Effect.gen(function* () {
           const bridge = yield* EffectBridge.make()
           const board = yield* Blackboard.Service
+          const session = yield* getSession(sessions, ctx.sessionID)
+          const projectService = yield* Effect.serviceOption(Project.Service)
+          const worktreeService = yield* Effect.serviceOption(Worktree.Service)
+          const worktree = Option.getOrUndefined(worktreeService)
+          const projectInfo = Option.isSome(projectService)
+            ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
+            : undefined
+          const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
           const protocol = protocolFor(sessions, bus, {
             bridge,
             beforeStepAdvance: async (main) => {
@@ -984,8 +1025,8 @@ export const PlanUpdateTool = Tool.define(
                   retryable: true,
                 })
             },
+            childWorkspace,
           })
-          const session = yield* getSession(sessions, ctx.sessionID)
           const result = yield* Effect.promise(() => protocol.update(protocolContext(session, ctx), input))
           if (result.ok) requestToolCatalogRefresh(ctx)
           return jsonResult("Plan.update", result)
@@ -1018,24 +1059,10 @@ export const DispatchDispatchTool = Tool.define(
           const projectService = yield* Effect.serviceOption(Project.Service)
           const worktreeService = yield* Effect.serviceOption(Worktree.Service)
           const worktree = Option.getOrUndefined(worktreeService)
-          const projectInfo =
-            Option.isSome(projectService)
-              ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
-              : undefined
-          const childWorkspace = projectInfo && (projectInfo.vcs !== "git" || worktree)
-            ? new ChildWorkspace({
-                project: {
-                  root: projectInfo.worktree,
-                  vcs: projectInfo.vcs === "git" ? "git" : "none",
-                },
-                runtimeRoot: path.join(
-                  Global.Path.data,
-                  projectInfo.vcs === "git" ? "worktree" : "plan-workspaces",
-                  String(projectInfo.id),
-                ),
-                ...(projectInfo.vcs === "git" && worktree ? { worktree: worktreeAdapter({ service: worktree, run: bridge.promise }) } : {}),
-              })
+          const projectInfo = Option.isSome(projectService)
+            ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
             : undefined
+          const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
           const protocol = protocolFor(sessions, bus, {
             bridge,
             promptOps: promptOps(ctx),
@@ -1044,7 +1071,11 @@ export const DispatchDispatchTool = Tool.define(
               enabledProfiles(resolveProfiles((await bridge.promise(config.get())).subagents?.profiles)),
           })
           const result = yield* Effect.promise(() => protocol.dispatch(protocolContext(session, ctx), input))
-          if (result.ok) requestToolCatalogRefresh(ctx)
+          // A failed dispatch still settles the task as rejected and records
+          // an Inbox item. Invalidate this turn's tool snapshot as well, so
+          // batched/replayed Dispatch_dispatch calls cannot retry stale input
+          // in a loop before the next model turn can recover the task.
+          requestToolCatalogRefresh(ctx)
           return jsonResult("Dispatch.dispatch", result)
         }),
     }
@@ -1104,7 +1135,14 @@ export const DispatchCancelTool = Tool.define(
         Effect.gen(function* () {
           const bridge = yield* EffectBridge.make()
           const session = yield* getSession(sessions, ctx.sessionID)
-          const protocol = protocolFor(sessions, bus, { bridge })
+          const projectService = yield* Effect.serviceOption(Project.Service)
+          const worktreeService = yield* Effect.serviceOption(Worktree.Service)
+          const worktree = Option.getOrUndefined(worktreeService)
+          const projectInfo = Option.isSome(projectService)
+            ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
+            : undefined
+          const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
+          const protocol = protocolFor(sessions, bus, { bridge, childWorkspace })
           const result = yield* Effect.promise(() => protocol.cancel(protocolContext(session, ctx), input.taskIds))
           if (result.ok) requestToolCatalogRefresh(ctx)
           return jsonResult("Dispatch.cancel", result)
@@ -1299,8 +1337,7 @@ export const MergeApplyTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description:
-        MERGE_APPLY_DESCRIPTION,
+      description: MERGE_APPLY_DESCRIPTION,
       parameters: AnyObject,
       jsonSchema: MERGE_APPLY_INPUT_SCHEMA,
       catalog: {
@@ -1316,27 +1353,10 @@ export const MergeApplyTool = Tool.define(
           const projectService = yield* Effect.serviceOption(Project.Service)
           const worktreeService = yield* Effect.serviceOption(Worktree.Service)
           const worktree = Option.getOrUndefined(worktreeService)
-          const projectInfo =
-            Option.isSome(projectService)
-              ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
-              : undefined
-          const childWorkspace =
-            projectInfo && (projectInfo.vcs !== "git" || worktree)
-              ? new ChildWorkspace({
-                  project: {
-                    root: projectInfo.worktree,
-                    vcs: projectInfo.vcs === "git" ? "git" : "none",
-                  },
-                  runtimeRoot: path.join(
-                    Global.Path.data,
-                    projectInfo.vcs === "git" ? "worktree" : "plan-workspaces",
-                    String(projectInfo.id),
-                  ),
-                  ...(projectInfo.vcs === "git" && worktree
-                    ? { worktree: worktreeAdapter({ service: worktree, run: bridge.promise }) }
-                    : {}),
-                })
-              : undefined
+          const projectInfo = Option.isSome(projectService)
+            ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
+            : undefined
+          const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
           const protocol = protocolFor(sessions, bus, { bridge, childWorkspace })
           const result = yield* Effect.promise(() => protocol.merge(protocolContext(session, ctx), input))
           if (result.ok) requestToolCatalogRefresh(ctx)

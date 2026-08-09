@@ -40,8 +40,8 @@ const log = Log.create({ service: "session.tools" })
  * These tools mutate the persisted protocol state that determines the next
  * model-visible tool catalog. The AI SDK executes a batch of tool calls with
  * Promise.all, so protocol mutations must be serialized and stale mutations
- * after the first successful one must be skipped rather than executed against
- * an old snapshot.
+ * after the first call invalidates the current snapshot must be skipped
+ * rather than executed against an old snapshot.
  */
 const PROTOCOL_MUTATION_TOOL_IDS = new Set([
   "Blackboard",
@@ -430,6 +430,10 @@ export function requiredPlanTool(input: {
       ? input.plan.steps.find((step) => step.id === input.plan?.current_step)
       : undefined
     if (currentStep && currentStep.tasks.length === 0) return "Plan_update"
+    // A rejected task needs an explicit recovery turn before it can be
+    // dispatched again. Keeping it in the dispatch gate makes an unchanged
+    // failed call repeat forever when the model retries the same arguments.
+    if (currentStep?.tasks.some((task) => task.status === "rejected")) return "Plan_update"
     const pending = pendingDispatchTasks(input.plan)
     if (pending.length > 0)
       return pending.every(
@@ -718,16 +722,12 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     (item) => input.agent.mode !== "subagent" || isSubagentToolVisible(item.id, allowedToolIDs, candidateGate),
   )
   const hasToolSearch = visibleRegistryDefs.some((item) => item.id === "tool_search")
-  const searchableDefs = [
-    ...visibleRegistryDefs.filter((item) => item.id !== "tool_search"),
-    ...visibleMcpDefs,
-  ]
+  const searchableDefs = [...visibleRegistryDefs.filter((item) => item.id !== "tool_search"), ...visibleMcpDefs]
   for (const item of visibleRegistryDefs) {
     if (item.id === "tool_search") continue
     // Subagents cannot call tool_search to expand a lazy tool, so expose the
     // full context_read schema/description to them directly.
-    const lazy =
-      shouldLazyLoadTool(item) && !(item.id === "context_read" && input.session.parentID !== undefined)
+    const lazy = shouldLazyLoadTool(item) && !(item.id === "context_read" && input.session.parentID !== undefined)
     addToolDef(item, { lazy })
   }
   for (const item of visibleMcpDefs) {

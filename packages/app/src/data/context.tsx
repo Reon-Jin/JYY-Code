@@ -24,8 +24,8 @@ export type DataProviderInput = {
 
 export type DataContextValue = {
   client: () => JyycodeClient
-  fileMediaUrl: (path: string, workspaceID?: string) => string
-  filePreviewUrl: (path: string, workspaceID?: string) => string
+  fileMediaUrl: (path: string, workspaceID?: string, directory?: string) => string
+  filePreviewUrl: (path: string, workspaceID?: string, directory?: string) => string
   queryClient: () => QueryClient
   directory: () => string
   generation: () => number
@@ -65,10 +65,10 @@ export function DataProvider(props: ParentProps<DataProviderInput>) {
 
   const value: DataContextValue = {
     client,
-    fileMediaUrl: (path, workspaceID) =>
-      createFileMediaUrl({ bootstrap: props.bootstrap, directory: props.directory, path, workspaceID }),
-    filePreviewUrl: (path, workspaceID) =>
-      createFilePreviewUrl({ bootstrap: props.bootstrap, directory: props.directory, path, workspaceID }),
+    fileMediaUrl: (path, workspaceID, directory) =>
+      createFileMediaUrl({ bootstrap: props.bootstrap, directory: directory ?? props.directory, path, workspaceID }),
+    filePreviewUrl: (path, workspaceID, directory) =>
+      createFilePreviewUrl({ bootstrap: props.bootstrap, directory: directory ?? props.directory, path, workspaceID }),
     queryClient,
     directory: () => props.directory,
     generation: () => props.generation,

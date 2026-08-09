@@ -24,7 +24,7 @@ afterEach(() => {
 })
 
 describe("ChangesPanel", () => {
-  it("summarizes files and renders only the selected text diff", async () => {
+  it("summarizes files and allows multiple diffs to stay expanded", async () => {
     const user = userEvent.setup()
     render(() => <ChangesPanelView directory={directory} changes={changes} />)
 
@@ -38,9 +38,9 @@ describe("ChangesPanel", () => {
     expect(screen.queryByText("二进制文件或无可显示文本 Diff")).not.toBeInTheDocument()
 
     await user.click(second)
-    expect(first).toHaveAttribute("aria-expanded", "false")
+    expect(first).toHaveAttribute("aria-expanded", "true")
     expect(second).toHaveAttribute("aria-expanded", "true")
-    expect(screen.queryByText("const safe = true")).not.toBeInTheDocument()
+    expect(screen.getByText("const safe = true")).toBeVisible()
     expect(screen.getByText("二进制文件或无可显示文本 Diff")).toBeVisible()
     expect(screen.queryByText(/last-turn/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/^Session$/i)).not.toBeInTheDocument()
@@ -63,7 +63,25 @@ describe("ChangesPanel", () => {
     render(() => <ChangesPanelView directory={directory} changes={changes} onOpenFile={onOpenFile} />)
 
     await user.click(screen.getByRole("button", { name: "打开文件 src/app.ts" }))
-    expect(onOpenFile).toHaveBeenCalledWith({ path: "src/app.ts", source: "changes", change: changes[0] })
+    expect(onOpenFile).toHaveBeenCalledWith({
+      path: "src/app.ts",
+      source: "changes",
+      change: changes[0],
+      directory,
+    })
+  })
+
+  it("does not show internal JYYCode metadata changes", () => {
+    render(() => (
+      <ChangesPanelView
+        directory={directory}
+        changes={[...changes, { file: ".jyycode/plan/plan.json", status: "added", additions: 10, deletions: 0 }]}
+      />
+    ))
+
+    expect(screen.queryByRole("button", { name: /\.jyycode/ })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /src\/app\.ts/ })).toBeVisible()
+    expect(screen.getByRole("button", { name: /assets\/image\.png/ })).toBeVisible()
   })
 
   it("refreshes on file events and keeps the selected file when it still exists", async () => {

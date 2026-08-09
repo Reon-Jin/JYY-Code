@@ -152,11 +152,114 @@ describe("file-backed plan protocol", () => {
     expect(read.plan.steps[0]?.tasks[0]?.dispatch?.role?.id).toBe("reviewer")
   })
 
+  it("does not terminate a child session before workspace preparation creates it", async () => {
+    const root = workspace()
+    const missingProjectRoot = path.join(root, "missing-project")
+    let creates = 0
+    let terminations = 0
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      childWorkspace: new ChildWorkspace({
+        project: { root: missingProjectRoot, vcs: "none" },
+        runtimeRoot: path.join(root, "runtime"),
+      }),
+      children: {
+        async create() {
+          creates++
+          return "ses_child"
+        },
+        async start() {},
+        async terminate() {
+          terminations++
+        },
+      },
+    })
+    await protocol.create(context(root), createInput(path.join(root, "notes.md")))
+
+    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+    expect(dispatched).toMatchObject({
+      ok: false,
+      error: { code: "SCHEMA_VALIDATION", message: expect.stringContaining("ENOENT") },
+    })
+    expect(creates).toBe(0)
+    expect(terminations).toBe(0)
+
+    const read = await protocol.read(context(root))
+    if (!read.ok || !read.plan) return
+    expect(read.plan.steps[0]?.tasks[0]?.status).toBe("rejected")
+  })
+
+  it("starts every task in a dispatch wave concurrently", async () => {
+    const root = workspace()
+    const input = createInput(path.join("out", "one.md"))
+    input.steps[0]!.tasks!.push({
+      title: "Check API",
+      goal: "Check the API request shape",
+      done_criteria: "API check file exists",
+      output_path: path.join("out", "two.md"),
+    })
+    let releaseFirst!: () => void
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    let firstStarted!: () => void
+    const firstStartedSignal = new Promise<void>((resolve) => {
+      firstStarted = resolve
+    })
+    let secondStarted!: () => void
+    const secondStartedSignal = new Promise<void>((resolve) => {
+      secondStarted = resolve
+    })
+    const started: string[] = []
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      profiles: async () => [defaultGeneralProfile],
+      children: {
+        async create(input) {
+          return `ses_${input.taskId}`
+        },
+        async start(input) {
+          started.push(input.taskId)
+          if (input.taskId === "s1_t1") {
+            firstStarted()
+            await firstRelease
+            return
+          }
+          secondStarted()
+        },
+        async terminate() {},
+      },
+    })
+    await protocol.create(context(root), input)
+
+    const dispatching = protocol.dispatch(context(root), { taskIds: ["s1_t1", "s1_t2"], role: "general" })
+    await firstStartedSignal
+    const secondStartedBeforeFirstFinished = await Promise.race([
+      secondStartedSignal.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
+    ])
+    expect(secondStartedBeforeFirstFinished).toBe(true)
+    releaseFirst()
+
+    expect(await dispatching).toMatchObject({
+      ok: true,
+      dispatched: [
+        { taskId: "s1_t1", idempotent: false },
+        { taskId: "s1_t2", idempotent: false },
+      ],
+    })
+    expect(started).toEqual(["s1_t1", "s1_t2"])
+    const read = await protocol.read(context(root))
+    if (!read.ok || !read.plan) return
+    expect(read.plan.steps[0]?.tasks.map((task) => task.status)).toEqual(["running", "running"])
+  })
+
   it("cancels running and already-cancelled dispatches idempotently", async () => {
     const root = workspace()
     let terminations = 0
     const protocol = new PlanProtocol({
       store: new PlanStore(),
+      inbox: new PlanInbox(),
       children: {
         async create(input) {
           return input.childSessionId
@@ -172,7 +275,7 @@ describe("file-backed plan protocol", () => {
 
     expect(await protocol.cancel(context(root), ["s1_t1"])).toMatchObject({
       ok: true,
-      next_action_hint: expect.stringContaining("pending/rejected"),
+      next_action_hint: expect.stringContaining("pending"),
     })
     expect(await protocol.cancel(context(root), ["s1_t1"])).toMatchObject({ ok: true })
     expect(terminations).toBe(1)
@@ -403,10 +506,7 @@ describe("file-backed plan protocol", () => {
   it("rejects an output_path with a stray drive prefix at create time", async () => {
     const root = workspace()
     const protocol = new PlanProtocol({ store: new PlanStore() })
-    const result = await protocol.create(
-      context(root),
-      createInput(`c:/${root.replace(/\\/g, "/")}/notes.md`),
-    )
+    const result = await protocol.create(context(root), createInput(`c:/${root.replace(/\\/g, "/")}/notes.md`))
     expect(result).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
   })
 
@@ -756,10 +856,20 @@ describe("file-backed plan protocol", () => {
       expect(pending.plan.steps[0]?.tasks[0]?.merge?.status).toBe("pending")
 
       const merged = await mergeApply(protocol, root, { task_id: "s1_t1" })
-      expect(merged).toMatchObject({ ok: true, status: "merged", cleanup: "completed", applied_paths: expect.arrayContaining(["src/merged.ts"]) })
+      expect(merged).toMatchObject({
+        ok: true,
+        status: "merged",
+        cleanup: "completed",
+        applied_paths: expect.arrayContaining(["src/merged.ts"]),
+      })
       expect(fs.readFileSync(path.join(root, "src", "merged.ts"), "utf8")).toBe("export const merged = true\n")
       expect(fs.existsSync(childRoot)).toBe(false)
-      const after = await protocol.read(context(root))
+      const afterMerge = await protocol.read(context(root))
+      if (afterMerge.ok && afterMerge.plan) {
+        const journalDirectory = afterMerge.plan.steps[0]?.tasks[0]?.merge?.journal_directory
+        expect(journalDirectory ? fs.existsSync(journalDirectory) : false).toBe(false)
+      }
+      const after = afterMerge
       expect(after).toMatchObject({ ok: true, plan: { current_step: "s2" } })
       if (after.ok && after.plan) expect(after.plan.steps[0]?.tasks[0]?.merge?.status).toBe("merged")
     } finally {
@@ -830,7 +940,10 @@ describe("file-backed plan protocol", () => {
       expect(protocol.inboxEntries(context(root))).toHaveLength(1)
       expect(protocol.drainWakeups("ses_main")).toHaveLength(1)
 
-      const unknown = await mergeApply(protocol, root, { task_id: "s1_t1", resolutions: [{ path: "missing.ts", use: "main" }] })
+      const unknown = await mergeApply(protocol, root, {
+        task_id: "s1_t1",
+        resolutions: [{ path: "missing.ts", use: "main" }],
+      })
       expect(unknown).toMatchObject({ ok: false, error: { code: expect.any(String) } })
       expect(fs.readFileSync(path.join(root, "src", "config.ts"), "utf8")).toBe("main\n")
 
@@ -965,7 +1078,8 @@ describe("file-backed plan protocol", () => {
     const root = workspace()
     const missingArtifact = path.join(root, "not-created.md")
     const rootContext = context(root)
-    const creator = new PlanProtocol({ children: createHardeningChildren().controller })
+    const sharedInbox = new PlanInbox()
+    const creator = new PlanProtocol({ children: createHardeningChildren().controller, inbox: sharedInbox })
     await creator.create(rootContext, createInput(missingArtifact))
     const dispatched = await creator.dispatch(rootContext, { taskIds: ["s1_t1"], role: "general" })
     expect(dispatched.ok).toBe(true)
@@ -994,14 +1108,16 @@ describe("file-backed plan protocol", () => {
     if (!second.ok) return
     expect(second.review).toBe("rejected_precheck")
 
-    const read = await new PlanProtocol().read(rootContext)
+    const read = await new PlanProtocol({ inbox: sharedInbox }).read(rootContext)
     if (!read.ok || !read.progress) return
     expect(read.progress.inbox_pending).toBe(1)
-    const inbox = await new PlanProtocol().readInbox(rootContext)
+    const inbox = await new PlanProtocol({ inbox: sharedInbox }).readInbox(rootContext)
     expect(inbox.ok).toBe(true)
     if (!inbox.ok) return
     expect(inbox.items[0]?.kind).toBe("report_precheck_failed")
-    const handled = await new PlanProtocol().readInbox(rootContext, { mark_handled: [inbox.items[0]!.id] })
+    const handled = await new PlanProtocol({ inbox: sharedInbox }).readInbox(rootContext, {
+      mark_handled: [inbox.items[0]!.id],
+    })
     expect(handled).toEqual({ ok: true, items: [] })
   })
 

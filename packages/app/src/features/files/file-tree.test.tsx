@@ -51,7 +51,12 @@ describe("FileTree", () => {
     expect(await screen.findByRole("treeitem", { name: "app.tsx" })).toBeVisible()
 
     await user.click(screen.getByRole("button", { name: "app.tsx" }))
-    expect(onOpenFile).toHaveBeenCalledWith({ path: "src/app.tsx", source: "files" })
+    expect(onOpenFile).toHaveBeenCalledWith({
+      path: "src/app.tsx",
+      source: "files",
+      directory,
+      workspaceID: "wrk_main",
+    })
     expect(backend.requests.filter((request) => request.path === "/file").map((request) => request.query.path)).toEqual(
       ["", "src"],
     )

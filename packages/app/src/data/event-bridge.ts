@@ -77,6 +77,15 @@ function sameDirectory(left: string | undefined, right: string) {
   return typeof left === "string" && normalizeDirectory(left) === normalizeDirectory(right)
 }
 
+function isDirectoryOrDescendant(candidate: string, root: string) {
+  const normalizedCandidate = normalizeDirectory(candidate)
+  const normalizedRoot = normalizeDirectory(root)
+  if (normalizedCandidate === normalizedRoot) return true
+  const separator =
+    normalizedRoot.endsWith("\\") || normalizedRoot.endsWith("/") ? "" : normalizedRoot.includes("\\") ? "\\" : "/"
+  return normalizedCandidate.startsWith(`${normalizedRoot}${separator}`)
+}
+
 export function routeEvent(directory: string, event: GlobalEvent): CacheAction[] {
   const payload = event.payload
   if (payload.type === "server.connected") {
@@ -653,6 +662,7 @@ export class EventBridge {
           this.#invalidate(keys.fileContent(action.directory, workspaceID, sessionID, action.relativePath))
         }
         this.#invalidateScopedWorkspaceQueries(action.directory, undefined, undefined, action.relativePath)
+        this.#invalidateNestedWorkspaceFileQueries(action.directory, action.relativePath)
         void this.#options.queryClient.invalidateQueries({
           queryKey: keys.pullRequestsScope(action.directory),
           exact: false,
@@ -744,6 +754,17 @@ export class EventBridge {
       if (kind !== "vcs-diff" && kind !== "session-diff" && kind !== "files") continue
       if (sessionID !== undefined && key[5] !== sessionID) continue
       if (kind === "files" && relativePath && (key[9] !== "content" || key[7] !== path)) continue
+      this.#invalidate(key)
+    }
+  }
+
+  #invalidateNestedWorkspaceFileQueries(directory: string, relativePath?: string) {
+    const path = relativePath ? normalizeRelativePath(relativePath) : undefined
+    for (const query of this.#options.queryClient.getQueryCache().getAll()) {
+      const key = query.queryKey
+      if (key[0] !== "project" || typeof key[1] !== "string" || !isDirectoryOrDescendant(key[1], directory)) continue
+      if (key[2] !== "workspace" || key[8] !== "files") continue
+      if (path && key[9] === "content" && key[7] !== path) continue
       this.#invalidate(key)
     }
   }

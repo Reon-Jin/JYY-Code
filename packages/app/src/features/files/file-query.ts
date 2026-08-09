@@ -15,6 +15,7 @@ export type FileQueryScope = {
 export type FileQueryInput = FileQueryScope & {
   client: FileClient
   signal?: AbortSignal
+  live?: boolean
 }
 
 export type FileWriteInput = Pick<FileContentWrite, "path" | "content" | "encoding" | "revision">
@@ -43,6 +44,8 @@ export function fileListQueryOptions(input: FileQueryInput) {
   return {
     queryKey: keys.fileList(input.directory, input.workspaceID, input.sessionID, input.relativePath),
     queryFn: ({ signal }: { signal: AbortSignal }) => loadFileList({ ...input, signal }),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
   } as const
 }
 
@@ -56,6 +59,9 @@ export function fileContentQueryOptions(input: FileQueryInput) {
   return {
     queryKey: keys.fileContent(input.directory, input.workspaceID, input.sessionID, input.relativePath),
     queryFn: ({ signal }: { signal: AbortSignal }) => loadFileContent({ ...input, signal }),
+    refetchInterval: input.live ? 1_000 : false,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
   } as const
 }
 

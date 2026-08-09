@@ -51,7 +51,13 @@ import { assertInside, assertOutputArtifact, resolveInside } from "./path-guard"
 import { ChildWorkspace, type WorkspaceHandle, type WorkspaceReservation } from "./child-workspace"
 import { markPlanSessionActive } from "./recovery"
 import { runtimeMetricPayload, type RuntimeMetricInput } from "./runtime-event"
-import { applyWorkspaceMerge, planWorkspaceMerge, workspaceFingerprint, type WorkspaceMergeTransactionResult } from "./workspace-merge"
+import {
+  applyWorkspaceMerge,
+  planWorkspaceMerge,
+  removeMergeJournal,
+  workspaceFingerprint,
+  type WorkspaceMergeTransactionResult,
+} from "./workspace-merge"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -209,7 +215,9 @@ function nowIso(now: () => number) {
   return new Date(now()).toISOString()
 }
 
-function dispatchWorkspaceMetadata(workspace: WorkspaceReservation | WorkspaceHandle): NonNullable<DispatchRecord["workspace"]> {
+function dispatchWorkspaceMetadata(
+  workspace: WorkspaceReservation | WorkspaceHandle,
+): NonNullable<DispatchRecord["workspace"]> {
   return {
     mode: workspace.mode,
     root: workspace.root,
@@ -295,7 +303,11 @@ function validateMergeApplyInput(input: unknown): asserts input is MergeApplyInp
   if (typeof value.task_id !== "string" || !/^s[1-9]\d*_t[1-9]\d*$/.test(value.task_id))
     inputError("task_id must be a valid Task id")
   if (value.paths !== undefined) {
-    if (!Array.isArray(value.paths) || value.paths.length > 200 || !value.paths.every((item) => typeof item === "string"))
+    if (
+      !Array.isArray(value.paths) ||
+      value.paths.length > 200 ||
+      !value.paths.every((item) => typeof item === "string")
+    )
       inputError("paths must contain at most 200 strings")
   }
   if (value.resolutions !== undefined) {
@@ -419,7 +431,10 @@ function nextActionHint(plan: PlanFile, inboxPending: number) {
   const candidates = current.tasks.filter((task) => task.mode === "candidate")
   if (candidates.length > 0) {
     const candidateIDs = candidates.map((task) => task.id).join("、")
-    const pendingCandidates = candidates.filter((task) => task.status === "pending" || task.status === "rejected")
+    const rejectedCandidates = candidates.filter((task) => task.status === "rejected")
+    if (rejectedCandidates.length > 0)
+      return `${current.id} 有 ${rejectedCandidates.length} 个候选任务需要修复；请先用 Plan_update(reopen_task/edit_task) 再重新派发`
+    const pendingCandidates = candidates.filter((task) => task.status === "pending")
     if (pendingCandidates.length > 0)
       return `${current.id} 是 candidate Step；请一次调用 Dispatch_dispatch，taskIds 必须包含全部候选：${candidateIDs}`
     const phase = current.candidate_discussion?.phase
@@ -436,9 +451,12 @@ function nextActionHint(plan: PlanFile, inboxPending: number) {
   }
   const reported = plan.steps.flatMap((step) => step.tasks).filter((task) => task.status === "reported")
   if (reported.length) return `有 ${reported.length} 个任务待审核：${reported.map((task) => task.id).join("、")}`
-  const pending = current.tasks.filter((task) => task.status === "pending" || task.status === "rejected")
+  const rejected = current.tasks.filter((task) => task.status === "rejected")
+  if (rejected.length)
+    return `${current.id} 有 ${rejected.length} 个 rejected 任务；请先用 Plan_update(reopen_task/edit_task) 修复后再 Dispatch_dispatch`
+  const pending = current.tasks.filter((task) => task.status === "pending")
   if (pending.length)
-    return `${current.id} 有 ${pending.length} 个 pending/rejected 任务，可开始派发或执行；多智能体模式请一次 Dispatch_dispatch 放入全部 ready 任务，不要分批`
+    return `${current.id} 有 ${pending.length} 个 pending 任务，可开始派发；多智能体模式请一次 Dispatch_dispatch 放入全部 ready 任务，不要分批`
   if (plan.status === "done") return "方案已完成，可向用户交付总结"
   return `${current.id} 已无可立即推进的任务，等待运行中任务汇报或审核`
 }
@@ -719,7 +737,14 @@ function applyOp(
     }
     case "reopen_task": {
       const { task } = findTask(plan, op.stepId, op.taskId)
-      if (!(task.status === "reported" || task.status === "approved" || task.status === "rejected" || task.status === "dismissed"))
+      if (
+        !(
+          task.status === "reported" ||
+          task.status === "approved" ||
+          task.status === "rejected" ||
+          task.status === "dismissed"
+        )
+      )
         throw new PlanProtocolError({
           code: ERROR_CODES.INVALID_STATE,
           message: `任务 ${task.id} 当前为 ${task.status}，不可 reopen_task`,
@@ -1019,7 +1044,12 @@ export class PlanProtocol {
   private async updateDispatchLifecycle(
     ctx: PlanExecutionContext,
     taskId: string,
-    input: { lifecycle?: DispatchRecord["lifecycle"]; status?: TaskStatus; child_session_id?: string; workspace?: DispatchRecord["workspace"] },
+    input: {
+      lifecycle?: DispatchRecord["lifecycle"]
+      status?: TaskStatus
+      child_session_id?: string
+      workspace?: DispatchRecord["workspace"]
+    },
   ) {
     await this.write(ctx, (latest) => {
       if (!latest)
@@ -1084,6 +1114,15 @@ export class PlanProtocol {
       await this.childWorkspace.remove(loaded.directory)
     } catch (error) {
       errors.push(`workspace cleanup: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    try {
+      const journalDirectory = task.merge?.journal_directory
+      const runtimeRoot = workspace.baseline_directory
+        ? path.dirname(path.resolve(workspace.baseline_directory))
+        : undefined
+      if (journalDirectory && runtimeRoot) removeMergeJournal(journalDirectory, runtimeRoot)
+    } catch (error) {
+      errors.push(`merge journal cleanup: ${error instanceof Error ? error.message : String(error)}`)
     }
     if (errors.length) {
       try {
@@ -1160,7 +1199,7 @@ export class PlanProtocol {
       task_id: input.taskId,
       kind: "runtime_error",
       message: `Dispatch ${input.taskId} 失败：${[message, ...cleanupErrors].join("；")}`,
-      suggested_actions: ["读取 Inbox 查看失败阶段", "必要时用同一任务重新 Dispatch_dispatch"],
+      suggested_actions: ["读取 Inbox 查看失败阶段", "先用 Plan_update 修复或重开任务，再重新 Dispatch_dispatch"],
     })
   }
 
@@ -1568,90 +1607,95 @@ export class PlanProtocol {
             result: { next_action_hint: nextActionHint(next, this.inbox.pendingCount(ctx.sessionId)) },
           }
         })
-        for (const [taskId, item] of prepared) {
-          let actualChild = item.dispatch.child_session_id
-          let workspaceHandle: WorkspaceHandle | undefined
-          try {
-            if (item.reservation && this.childWorkspace) {
-              workspaceHandle = await this.childWorkspace.create(item.reservation)
-              this.metric(ctx.sessionId, {
-                metric: "dispatch",
-                phase: "workspace",
-                outcome: "created",
-                duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
-              })
-              await this.updateDispatchLifecycle(ctx, taskId, {
-                workspace: dispatchWorkspaceMetadata(workspaceHandle),
-              })
-            }
-            if (this.children) {
-              const childBrief = workspaceHandle
-                ? {
-                    ...item.brief,
-                    workspace_root: workspaceHandle.directory,
-                    output_path: resolveInside(
-                      workspaceHandle.directory,
-                      path.relative(ctx.workspaceRoot, item.brief.output_path),
-                      `浠诲姟 ${taskId} 鐨?child output_path`,
-                    ),
-                  }
-                : item.brief
-              const childInput: ChildStartInput = {
-                parentSessionId: ctx.sessionId,
+        const launchResults = await Promise.allSettled(
+          [...prepared].map(async ([taskId, item]) => {
+            let actualChild: string | undefined
+            let workspaceHandle: WorkspaceHandle | undefined
+            try {
+              if (item.reservation && this.childWorkspace) {
+                workspaceHandle = await this.childWorkspace.create(item.reservation)
+                this.metric(ctx.sessionId, {
+                  metric: "dispatch",
+                  phase: "workspace",
+                  outcome: "created",
+                  duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
+                })
+                await this.updateDispatchLifecycle(ctx, taskId, {
+                  workspace: dispatchWorkspaceMetadata(workspaceHandle),
+                })
+              }
+              if (this.children) {
+                const childBrief = workspaceHandle
+                  ? {
+                      ...item.brief,
+                      workspace_root: workspaceHandle.directory,
+                      output_path: resolveInside(
+                        workspaceHandle.directory,
+                        path.relative(ctx.workspaceRoot, item.brief.output_path),
+                        `浠诲姟 ${taskId} 鐨?child output_path`,
+                      ),
+                    }
+                  : item.brief
+                const childInput: ChildStartInput = {
+                  parentSessionId: ctx.sessionId,
+                  taskId,
+                  childSessionId: item.dispatch.child_session_id,
+                  brief: childBrief,
+                  role: item.role,
+                  workspace: workspaceHandle ? dispatchWorkspaceMetadata(workspaceHandle) : item.dispatch.workspace,
+                }
+                const createdChild = await this.children.create(childInput)
+                actualChild = createdChild
+                this.metric(ctx.sessionId, {
+                  metric: "dispatch",
+                  phase: "create",
+                  outcome: "created",
+                  duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
+                })
+                registerChildRun(createdChild, item.dispatch.run_id, ctx.workspaceRoot)
+                await this.updateDispatchLifecycle(ctx, taskId, {
+                  child_session_id: createdChild,
+                  lifecycle: "child_created",
+                })
+                childInput.childSessionId = createdChild
+                await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "starting" })
+                await this.children.start(childInput)
+                await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
+                this.metric(ctx.sessionId, {
+                  metric: "dispatch",
+                  phase: "start",
+                  outcome: "started",
+                  duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
+                })
+              } else if (!this.childWorkspace) {
+                // The convenience/default protocol may not have a runtime child
+                // controller (for example, an embedded caller supplies the
+                // child runner separately). Keep the durable task state
+                // reportable instead of leaving it permanently dispatched.
+                await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
+                this.metric(ctx.sessionId, { metric: "dispatch", phase: "start", outcome: "delegated", count: 1 })
+              }
+              return {
+                taskId,
+                run_id: item.dispatch.run_id,
+                child_session_id: actualChild ?? item.dispatch.child_session_id,
+                idempotent: false,
+              }
+            } catch (error) {
+              this.metric(ctx.sessionId, { metric: "dispatch", phase: "start", outcome: "failed" })
+              await this.failDispatch(ctx, {
                 taskId,
                 childSessionId: actualChild,
-                brief: childBrief,
-                role: item.role,
-                workspace: workspaceHandle
-                  ? dispatchWorkspaceMetadata(workspaceHandle)
-                  : item.dispatch.workspace,
-              }
-              actualChild = await this.children.create(childInput)
-              this.metric(ctx.sessionId, {
-                metric: "dispatch",
-                phase: "create",
-                outcome: "created",
-                duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
+                workspaceDirectory: workspaceHandle?.directory ?? item.dispatch.workspace?.directory,
+                error,
               })
-              registerChildRun(actualChild, item.dispatch.run_id, ctx.workspaceRoot)
-              await this.updateDispatchLifecycle(ctx, taskId, {
-                child_session_id: actualChild,
-                lifecycle: "child_created",
-              })
-              childInput.childSessionId = actualChild
-              await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "starting" })
-              await this.children.start(childInput)
-              await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
-              this.metric(ctx.sessionId, {
-                metric: "dispatch",
-                phase: "start",
-                outcome: "started",
-                duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
-              })
-            } else if (!this.childWorkspace) {
-              // The convenience/default protocol may not have a runtime child
-              // controller (for example, an embedded caller supplies the
-              // child runner separately). Keep the durable task state
-              // reportable instead of leaving it permanently dispatched.
-              await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
-              this.metric(ctx.sessionId, { metric: "dispatch", phase: "start", outcome: "delegated", count: 1 })
+              throw error
             }
-            dispatched.push({
-              taskId,
-              run_id: item.dispatch.run_id,
-              child_session_id: actualChild,
-              idempotent: false,
-            })
-          } catch (error) {
-            this.metric(ctx.sessionId, { metric: "dispatch", phase: "start", outcome: "failed" })
-            await this.failDispatch(ctx, {
-              taskId,
-              childSessionId: this.children ? actualChild : undefined,
-              workspaceDirectory: workspaceHandle?.directory ?? item.dispatch.workspace?.directory,
-              error,
-            })
-            throw error
-          }
+          }),
+        )
+        for (const result of launchResults) {
+          if (result.status === "rejected") throw result.reason
+          dispatched.push(result.value)
         }
         return { ok: true, dispatched, next_action_hint: result.result.next_action_hint }
       }
@@ -2042,14 +2086,7 @@ export class PlanProtocol {
       const absolutePath = resolveInside(ctx.workspaceRoot, proposalPath, "candidate proposal")
       const expectedRoot = resolveInside(
         ctx.workspaceRoot,
-        path.join(
-          ".jyycode",
-          "plan",
-          state.parsed.parentSessionId,
-          "candidates",
-          state.step.id,
-          state.task.id,
-        ),
+        path.join(".jyycode", "plan", state.parsed.parentSessionId, "candidates", state.step.id, state.task.id),
         "candidate output root",
       )
       assertInside(expectedRoot, absolutePath, "candidate proposal")
@@ -2364,7 +2401,12 @@ export class PlanProtocol {
       validateMergeApplyInput(input)
       const value = input as MergeApplyInput
       const plan = this.store.read(this.path(ctx))
-      if (!plan) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "plan not found", hint: "read the current Plan first" })
+      if (!plan)
+        throw new PlanProtocolError({
+          code: ERROR_CODES.INVALID_STATE,
+          message: "plan not found",
+          hint: "read the current Plan first",
+        })
       const step = plan.steps.find((item) => item.tasks.some((task) => task.id === value.task_id))
       const task = step?.tasks.find((item) => item.id === value.task_id)
       if (!task || !step)
@@ -2479,12 +2521,20 @@ export class PlanProtocol {
           if (!current) inputError(`resolution does not name an unresolved conflict: ${resolution.path}`)
           const previous = task.merge?.conflicts.find((conflict) => conflict.path === resolution.path)
           if (!previous || previous.fingerprint !== current.fingerprint)
-            inputError(`resolution is stale for conflict: ${resolution.path}`, "re-read the conflict and retry with a current resolution")
+            inputError(
+              `resolution is stale for conflict: ${resolution.path}`,
+              "re-read the conflict and retry with a current resolution",
+            )
         }
       }
 
       await this.write(ctx, (latest) => {
-        if (!latest) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "plan not found", hint: "read the current plan" })
+        if (!latest)
+          throw new PlanProtocolError({
+            code: ERROR_CODES.INVALID_STATE,
+            message: "plan not found",
+            hint: "read the current plan",
+          })
         const next = clonePlan(latest)
         const target = next.steps.flatMap((item) => item.tasks).find((item) => item.id === value.task_id)
         if (!target || target.status !== "approved" || target.dispatch?.run_id !== task.dispatch!.run_id)
@@ -2541,15 +2591,31 @@ export class PlanProtocol {
       }
 
       const boundedConflicts = transaction.conflicts.slice(0, 50)
-      const finalStatus = transaction.status === "conflict" ? "conflict" : transaction.status === "merged" || transaction.status === "already_merged" ? "merged" : "failed"
+      const finalStatus =
+        transaction.status === "conflict"
+          ? "conflict"
+          : transaction.status === "merged" || transaction.status === "already_merged"
+            ? "merged"
+            : "failed"
       await this.write(ctx, (latest) => {
-        if (!latest) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "plan disappeared during Merge.apply", hint: "read the latest plan and retry" })
+        if (!latest)
+          throw new PlanProtocolError({
+            code: ERROR_CODES.INVALID_STATE,
+            message: "plan disappeared during Merge.apply",
+            hint: "read the latest plan and retry",
+          })
         const next = clonePlan(latest)
         const target = next.steps.flatMap((item) => item.tasks).find((item) => item.id === value.task_id)
         if (!target?.merge || target.dispatch?.run_id !== task.dispatch!.run_id)
-          throw new PlanProtocolError({ code: ERROR_CODES.RUN_STALE, message: "task run changed during Merge.apply", hint: "stop and read the latest plan" })
+          throw new PlanProtocolError({
+            code: ERROR_CODES.RUN_STALE,
+            message: "task run changed during Merge.apply",
+            hint: "stop and read the latest plan",
+          })
         target.merge.status = finalStatus
-        target.merge.applied_paths = [...new Set([...target.merge.applied_paths, ...transaction.applied_paths])].sort((left, right) => left.localeCompare(right))
+        target.merge.applied_paths = [...new Set([...target.merge.applied_paths, ...transaction.applied_paths])].sort(
+          (left, right) => left.localeCompare(right),
+        )
         target.merge.conflicts = boundedConflicts
         target.merge.target_fingerprint = transaction.target_fingerprint
         target.merge.completed_at = nowIso(this.now)
@@ -2602,7 +2668,9 @@ export class PlanProtocol {
         })
       }
       if (finalStatus === "conflict") {
-        const conflictKey = boundedConflicts.map((conflict) => `${conflict.path}:${conflict.kind}:${conflict.fingerprint}`).join("|")
+        const conflictKey = boundedConflicts
+          .map((conflict) => `${conflict.path}:${conflict.kind}:${conflict.fingerprint}`)
+          .join("|")
         this.inbox.add({
           session_id: ctx.sessionId,
           task_id: task.id,
@@ -2782,8 +2850,9 @@ export class PlanProtocol {
   replayWakeups(sessionId: string, afterSeq = -1) {
     const events = this.events
       .readAfter(sessionId, afterSeq)
-      .filter((event): event is WakeupEvent =>
-        event.type === "report_arrived" || event.type === "check_point" || event.type === "user_message",
+      .filter(
+        (event): event is WakeupEvent =>
+          event.type === "report_arrived" || event.type === "check_point" || event.type === "user_message",
       )
     for (const event of events) this.wakeups.push(event)
     return events

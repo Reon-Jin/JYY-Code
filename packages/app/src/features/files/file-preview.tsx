@@ -534,6 +534,7 @@ export function FilePreview(props: FilePreviewProps) {
         workspaceID: props.workspaceID,
         sessionID: props.sessionID,
         relativePath: props.path,
+        live: true,
       }),
       enabled: Boolean(props.path),
     }),
@@ -743,7 +744,7 @@ export function FilePreview(props: FilePreviewProps) {
                       <HtmlPreview
                         source={htmlSource()}
                         path={props.path}
-                        previewUrl={data.filePreviewUrl(props.path, props.workspaceID)}
+                        previewUrl={data.filePreviewUrl(props.path, props.workspaceID, props.directory)}
                       />
                     </ZoomSurface>
                   </Show>
@@ -776,7 +777,11 @@ export function FilePreview(props: FilePreviewProps) {
                     <MediaPreview
                       content={content()}
                       kind={kind()}
-                      streamUrl={kind() === "video" ? data.fileMediaUrl(props.path, props.workspaceID) : undefined}
+                      streamUrl={
+                        kind() === "video"
+                          ? data.fileMediaUrl(props.path, props.workspaceID, props.directory)
+                          : undefined
+                      }
                     />
                   </Show>
                   <Show when={kind() === "pdf" || kind() === "docx"}>

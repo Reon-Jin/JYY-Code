@@ -418,7 +418,7 @@ describe("model-facing plan tool names", () => {
     expect(Object.keys(updateTools).sort()).toEqual(["Plan_read", "Plan_update"])
   })
 
-  it("forces multi-agent roots to create, prepare, and dispatch active work instead of doing it themselves", () => {
+  it("forces multi-agent roots to create, recover, prepare, and dispatch active work instead of doing it themselves", () => {
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 1 })).toBe("Plan_read")
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 1, blackboardUnread: 2, planExists: false })).toBe(
       "Blackboard",
@@ -444,7 +444,7 @@ describe("model-facing plan tool names", () => {
           ],
         },
       }),
-    ).toBe("Dispatch_dispatch")
+    ).toBe("Plan_update")
     expect(
       requiredPlanTool({
         root: true,
@@ -683,9 +683,7 @@ describe("model-facing plan tool names", () => {
         },
       } as unknown as Provider.Interface
       return <A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> =>
-        Effect.runPromise(
-          effect.pipe(Effect.provideService(Provider.Service, provider)) as Effect.Effect<A, E, never>,
-        )
+        Effect.runPromise(effect.pipe(Effect.provideService(Provider.Service, provider)) as Effect.Effect<A, E, never>)
     }
 
     const availableCalls: string[] = []

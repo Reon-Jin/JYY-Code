@@ -112,7 +112,10 @@ describe("PlanRecovery", () => {
     let childRoot = ""
     let childOutput = ""
     try {
-      const childWorkspace = new ChildWorkspace({ project: { root: value.root, vcs: "none" }, runtimeRoot: value.runtime })
+      const childWorkspace = new ChildWorkspace({
+        project: { root: value.root, vcs: "none" },
+        runtimeRoot: value.runtime,
+      })
       const protocol = new PlanProtocol({
         childWorkspace,
         children: {
@@ -166,7 +169,10 @@ describe("PlanRecovery", () => {
       task.merge!.cleanup = "pending"
       task.merge!.journal_directory = journalDirectory
       task.merge!.started_at = new Date().toISOString()
-      fs.writeFileSync(path.join(value.root, ".jyycode", "plan", "ses_main", "plan.json"), JSON.stringify(running, null, 2))
+      fs.writeFileSync(
+        path.join(value.root, ".jyycode", "plan", "ses_main", "plan.json"),
+        JSON.stringify(running, null, 2),
+      )
 
       const restarted = new PlanRecovery({
         workspaceRoot: value.root,
@@ -179,7 +185,11 @@ describe("PlanRecovery", () => {
       expect(fs.readFileSync(path.join(value.root, "src", "a.ts"), "utf8")).toBe("export const a = 1\n")
       expect(fs.readFileSync(path.join(value.root, "src", "b.ts"), "utf8")).toBe("export const b = 1\n")
       expect(fs.existsSync(childRoot)).toBe(false)
-      expect(readHardeningPlan(value.root).steps[0]?.tasks[0]?.merge).toMatchObject({ status: "merged", cleanup: "completed" })
+      expect(fs.existsSync(journalDirectory)).toBe(false)
+      expect(readHardeningPlan(value.root).steps[0]?.tasks[0]?.merge).toMatchObject({
+        status: "merged",
+        cleanup: "completed",
+      })
     } finally {
       value.cleanup()
     }
@@ -192,7 +202,10 @@ describe("PlanRecovery", () => {
     try {
       fs.mkdirSync(path.join(value.root, "src"), { recursive: true })
       fs.writeFileSync(path.join(value.root, "src", "config.ts"), "base\n")
-      const childWorkspace = new ChildWorkspace({ project: { root: value.root, vcs: "none" }, runtimeRoot: value.runtime })
+      const childWorkspace = new ChildWorkspace({
+        project: { root: value.root, vcs: "none" },
+        runtimeRoot: value.runtime,
+      })
       const inbox = new PlanInbox()
       const protocol = new PlanProtocol({
         inbox,
@@ -233,12 +246,18 @@ describe("PlanRecovery", () => {
       task.merge!.cleanup = "pending"
       task.merge!.journal_directory = path.join(value.runtime, "merge-conflict-journal")
       task.merge!.started_at = new Date().toISOString()
-      fs.writeFileSync(path.join(value.root, ".jyycode", "plan", "ses_main", "plan.json"), JSON.stringify(stored, null, 2))
+      fs.writeFileSync(
+        path.join(value.root, ".jyycode", "plan", "ses_main", "plan.json"),
+        JSON.stringify(stored, null, 2),
+      )
 
       const restarted = new PlanRecovery({ workspaceRoot: value.root, store: new PlanStore(), inbox, childWorkspace })
       const result = await restarted.reconcilePlan("ses_main")
       expect(result.continued).toEqual(["s1_t1"])
-      expect(readHardeningPlan(value.root).steps[0]?.tasks[0]?.merge).toMatchObject({ status: "conflict", cleanup: "not_started" })
+      expect(readHardeningPlan(value.root).steps[0]?.tasks[0]?.merge).toMatchObject({
+        status: "conflict",
+        cleanup: "not_started",
+      })
       expect(fs.readFileSync(path.join(value.root, "src", "config.ts"), "utf8")).toBe("main\n")
       expect(fs.existsSync(childRoot)).toBe(true)
       expect(inbox.pending("ses_main")).toHaveLength(1)

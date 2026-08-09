@@ -114,7 +114,7 @@ function canonicalRelative(value: string, field = "path") {
   const slash = value.replaceAll("\\", "/")
   if (slash.startsWith("/") || slash.startsWith("//") || /^[A-Za-z]:\//.test(slash)) fail(`${field} must be relative`)
   const parts = slash.split("/")
-  if (parts.some((part) => part === ".." || part === "" && parts.length > 1)) fail(`${field} escapes the workspace`)
+  if (parts.some((part) => part === ".." || (part === "" && parts.length > 1))) fail(`${field} escapes the workspace`)
   if (parts.some((part) => INTERNAL_NAMES.has(part))) fail(`${field} targets internal runtime metadata`)
   if (parts.some((part) => part === ".")) fail(`${field} contains an ambiguous segment`)
   return parts.join("/")
@@ -123,6 +123,13 @@ function canonicalRelative(value: string, field = "path") {
 function isWithin(root: string, target: string) {
   const relative = path.relative(root, target)
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+}
+
+export function removeMergeJournal(journalDirectory: string, runtimeRoot: string) {
+  const root = path.resolve(runtimeRoot)
+  const directory = path.resolve(journalDirectory)
+  if (directory === root || !isWithin(root, directory)) fail("merge journal is outside the owning runtime root")
+  if (fs.existsSync(directory)) fs.rmSync(directory, { recursive: true, force: true })
 }
 
 function canonicalRoot(value: string, field: string) {
@@ -182,8 +189,7 @@ function entryIsBinary(entry: FileEntry | undefined) {
 function readEntry(entry: FileEntry | undefined): MergeApplyEntry | undefined {
   if (!entry) return undefined
   if (entry.kind === "symlink") return { path: entry.path, kind: "symlink", source: "child", link: entry.link }
-  if (entry.text !== undefined)
-    return { path: entry.path, kind: "file", source: "child", content: entry.text }
+  if (entry.text !== undefined) return { path: entry.path, kind: "file", source: "child", content: entry.text }
   return { path: entry.path, kind: "file", source: "child", bytes: entry.bytes }
 }
 
@@ -242,7 +248,11 @@ function renderMergedText(baseText: string, mainText: string, childText: string)
   for (const left of mainHunks) {
     for (const right of childHunks) {
       if (hunkOverlap(left, right)) {
-        if (left.start === right.start && left.end === right.end && left.replacement.join("\n") === right.replacement.join("\n"))
+        if (
+          left.start === right.start &&
+          left.end === right.end &&
+          left.replacement.join("\n") === right.replacement.join("\n")
+        )
           continue
         return undefined
       }
@@ -262,7 +272,11 @@ function renderMergedText(baseText: string, mainText: string, childText: string)
   return lines.join(newline) + (base.trailing || main.trailing || child.trailing ? newline : "")
 }
 
-function conflictKind(base: FileEntry | undefined, main: FileEntry | undefined, child: FileEntry | undefined): MergeConflictKind {
+function conflictKind(
+  base: FileEntry | undefined,
+  main: FileEntry | undefined,
+  child: FileEntry | undefined,
+): MergeConflictKind {
   if (base?.kind === "symlink" || main?.kind === "symlink" || child?.kind === "symlink") return "symlink"
   if (!base && main && child) return "add_add"
   if (base && (!main || !child)) return "delete_modify"
@@ -291,7 +305,11 @@ function conflictSummary(
   }
 }
 
-function applyEntryFrom(entry: FileEntry | undefined, source: "child" | "merged", content?: string): MergeApplyEntry | undefined {
+function applyEntryFrom(
+  entry: FileEntry | undefined,
+  source: "child" | "merged",
+  content?: string,
+): MergeApplyEntry | undefined {
   if (!entry) return undefined
   if (entry.kind === "symlink") return { path: entry.path, kind: "symlink", source, link: entry.link }
   if (content !== undefined) return { path: entry.path, kind: "file", source, content }
@@ -472,7 +490,7 @@ function replaceFromStage(root: string, relative: string, staged: string) {
 
 function restoreBackup(root: string, relative: string, backup: string | undefined) {
   removeTarget(root, relative)
-  if (!backup || !fs.existsSync(backup) && !fs.lstatSync(backup, { throwIfNoEntry: false })) return
+  if (!backup || (!fs.existsSync(backup) && !fs.lstatSync(backup, { throwIfNoEntry: false }))) return
   const destination = targetPath(root, relative)
   ensureParentDirectories(root, destination)
   const stat = fs.lstatSync(backup)
@@ -500,7 +518,12 @@ function readJournal(pathname: string): MergeJournal | undefined {
   }
 }
 
-function journalResult(journal: MergeJournal, status: WorkspaceMergeTransactionResult["status"], plan: MergePlan, error?: string) {
+function journalResult(
+  journal: MergeJournal,
+  status: WorkspaceMergeTransactionResult["status"],
+  plan: MergePlan,
+  error?: string,
+) {
   return {
     status,
     applied_paths: [...journal.applied_paths].sort((left, right) => left.localeCompare(right)),

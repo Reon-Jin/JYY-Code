@@ -26,23 +26,36 @@ export type ChangesPanelViewProps = {
 }
 
 export function ChangesPanelView(props: ChangesPanelViewProps) {
-  const changes = () => props.changes ?? []
+  const changes = () => displayableChanges(props.changes)
   const additions = () => changes().reduce((sum, change) => sum + change.additions, 0)
   const deletions = () => changes().reduce((sum, change) => sum + change.deletions, 0)
-  const [selected, setSelected] = createSignal<string>()
+  const [expandedFiles, setExpandedFiles] = createSignal<ReadonlySet<string>>(new Set())
   let initialized = false
 
   createEffect(() => {
     const files = changes()
-    if (files.length === 0) return
-    if (!initialized) {
+    const available = new Set(files.map((change) => change.file))
+    if (!initialized && files.length > 0) {
       initialized = true
-      setSelected(files[0]?.file)
+      setExpandedFiles(new Set([files[0]!.file]))
       return
     }
-    const current = selected()
-    if (current && !files.some((change) => change.file === current)) setSelected(files[0]?.file)
+    setExpandedFiles((current) => {
+      const next = new Set([...current].filter((file) => available.has(file)))
+      if (next.size === current.size) return current
+      if (next.size === 0 && current.size > 0 && files.length > 0) next.add(files[0]!.file)
+      return next
+    })
   })
+
+  const toggleFile = (file: string) => {
+    setExpandedFiles((current) => {
+      const next = new Set(current)
+      if (next.has(file)) next.delete(file)
+      else next.add(file)
+      return next
+    })
+  }
 
   return (
     <section class="changes-panel" aria-labelledby="changes-panel-title">
@@ -96,11 +109,19 @@ export function ChangesPanelView(props: ChangesPanelViewProps) {
                   {(change) => (
                     <ChangeFile
                       change={change}
-                      expanded={selected() === change.file}
-                      onToggle={() => setSelected((current) => (current === change.file ? undefined : change.file))}
+                      expanded={expandedFiles().has(change.file)}
+                      onToggle={() => toggleFile(change.file)}
                       onOpenFile={
                         props.onOpenFile
-                          ? (next) => props.onOpenFile?.({ path: next.file, source: "changes", change: next })
+                          ? (next) =>
+                              props.onOpenFile?.({
+                                path: next.file,
+                                source: "changes",
+                                change: next,
+                                directory: props.directory,
+                                ...(props.workspaceID ? { workspaceID: props.workspaceID } : {}),
+                                ...(props.sessionID ? { sessionID: props.sessionID } : {}),
+                              })
                           : undefined
                       }
                     />
@@ -121,7 +142,12 @@ function displayableChanges(
     | readonly { file?: string; additions: number; deletions: number; patch?: string; status?: VcsFileDiff["status"] }[]
     | undefined,
 ) {
-  return (changes ?? []).flatMap((change) => (change.file === undefined ? [] : [{ ...change, file: change.file }]))
+  return (changes ?? []).flatMap((change) => {
+    if (change.file === undefined) return []
+    const segments = change.file.replaceAll("\\", "/").split("/")
+    if (segments.includes(".jyycode")) return []
+    return [{ ...change, file: change.file }]
+  })
 }
 
 function errorMessage(cause: unknown) {

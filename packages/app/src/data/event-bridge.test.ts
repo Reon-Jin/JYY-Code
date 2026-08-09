@@ -268,6 +268,8 @@ describe("event routing", () => {
     queryClient.setQueryData(keys.todos("C:\\a", session.id), [])
     queryClient.setQueryData(keys.todos("C:\\a", "ses_other"), otherTodos)
     queryClient.setQueryData<VcsInfo>(keys.vcsInfo("C:\\a"), { branch: "main", default_branch: "main" })
+    const nestedFileKey = keys.fileContent("C:\\a\\child-workspace", undefined, "ses_child", "src/app.tsx")
+    queryClient.setQueryData(nestedFileKey, { type: "text", content: "old", revision: "1" })
 
     let releaseStream = () => {}
     const streamWait = new Promise<void>((resolve) => {
@@ -318,6 +320,7 @@ describe("event routing", () => {
     expect(invalidated.filter((key) => JSON.stringify(key) === JSON.stringify(keys.vcsDiff("C:\\a")))).toHaveLength(1)
     expect(invalidated).toContainEqual(keys.vcsBranches("C:\\a"))
     expect(invalidated).toContainEqual(keys.pullRequestsScope("C:\\a"))
+    expect(invalidated).toContainEqual(nestedFileKey)
 
     bridge.abort()
     releaseStream()

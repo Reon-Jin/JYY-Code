@@ -179,11 +179,13 @@
 }
 
 .change-file__line[data-kind="add"] {
-  background: rgb(76 122 95 / 10%);
+  background: color-mix(in srgb, var(--color-success) 27%, var(--color-bg));
+  box-shadow: inset 4px 0 0 var(--color-success);
 }
 
 .change-file__line[data-kind="delete"] {
-  background: rgb(156 74 61 / 8%);
+  background: color-mix(in srgb, var(--color-danger) 24%, var(--color-bg));
+  box-shadow: inset 4px 0 0 var(--color-danger);
 }
 
 .change-file__line-number {
@@ -196,7 +198,16 @@
 
 .change-file__marker {
   text-align: center;
+  font-weight: 800;
   user-select: none;
+}
+
+.change-file__line[data-kind="add"] .change-file__marker {
+  color: var(--color-success);
+}
+
+.change-file__line[data-kind="delete"] .change-file__marker {
+  color: var(--color-danger);
 }
 
 .change-file__line-content {
