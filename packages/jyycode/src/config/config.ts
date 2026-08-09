@@ -386,6 +386,15 @@ export const Info = Schema.Struct({
   ).annotate({
     description: "Session-storage reporting and retention hints; hard safety limits remain code-defined",
   }),
+  fork: Schema.optional(
+    Schema.Struct({
+      max_logical_bytes: Schema.optional(PositiveInt),
+      max_part_count: Schema.optional(PositiveInt),
+      max_physical_blob_bytes: Schema.optional(PositiveInt),
+    }),
+  ).annotate({
+    description: "Fork budget hints; runtime hard caps remain code-defined",
+  }),
   execution_budget: Schema.optional(
     Schema.Record(
       Schema.String,

@@ -32,6 +32,7 @@ import { defaultPlanEvents, defaultPlanInbox } from "@/plan/events"
 import { RuntimeEvent } from "@/plan/runtime-event"
 import { planFilePath, readPlanFileSync } from "@/plan/schema"
 import { MessageID, PartID, SessionID } from "@/session/schema"
+import { ForkBudgetError } from "@/session/fork-budget"
 import { NamedError } from "@jyycode-ai/core/util/error"
 import { Cause, Effect, Exit, Option, Schema, Scope } from "effect"
 import * as Stream from "effect/Stream"
@@ -58,6 +59,7 @@ import {
   UpdatePayload,
 } from "../groups/session"
 import { PermissionNotFoundError } from "../errors"
+import * as ApiError from "../errors"
 import * as SessionError from "./session-errors"
 
 const tryParseJson = (text: string) =>
@@ -483,8 +485,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload?: typeof ForkPayload.Type
     }) {
-      return yield* SessionError.mapStorageNotFound(
-        session.fork({ sessionID: ctx.params.sessionID, messageID: ctx.payload?.messageID }),
+      return yield* session.fork({ sessionID: ctx.params.sessionID, messageID: ctx.payload?.messageID }).pipe(
+        Effect.mapError((error) =>
+          error instanceof ForkBudgetError ? new HttpApiError.BadRequest({}) : ApiError.notFound(error.message),
+        ),
       )
     })
 

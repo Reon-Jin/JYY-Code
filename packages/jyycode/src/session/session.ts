@@ -43,6 +43,7 @@ import { Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { NonNegativeInt, optionalOmitUndefined } from "@jyycode-ai/core/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { makeService as makeBlobService } from "@/storage/blob"
+import { estimateFork, ForkBudgetError } from "./fork-budget"
 
 const log = Log.create({ service: "session" })
 
@@ -492,7 +493,7 @@ export interface Interface {
     workspaceID?: WorkspaceID
     directory?: string
   }) => Effect.Effect<Info>
-  readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
+  readonly fork: (input: { sessionID: SessionID; messageID?: MessageID; allowLarge?: boolean }) => Effect.Effect<Info, NotFound | ForkBudgetError>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
   readonly get: (id: SessionID) => Effect.Effect<Info, NotFound>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
@@ -728,9 +729,12 @@ export const layer: Layer.Layer<
       })
     })
 
-    const fork = Effect.fn("Session.fork")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
+    const fork = Effect.fn("Session.fork")(function* (input: { sessionID: SessionID; messageID?: MessageID; allowLarge?: boolean }) {
       const ctx = yield* InstanceState.context
       const original = yield* get(input.sessionID)
+      const msgs = yield* messages({ sessionID: input.sessionID })
+      const estimate = estimateFork(msgs)
+      if (!estimate.allowed && input.allowLarge !== true) yield* Effect.fail(new ForkBudgetError(estimate))
       const title = getForkedTitle(original.title)
       const session = yield* createNext({
         directory: ctx.directory,
@@ -738,7 +742,6 @@ export const layer: Layer.Layer<
         workspaceID: original.workspaceID,
         title,
       })
-      const msgs = yield* messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()
 
       for (const msg of msgs) {
