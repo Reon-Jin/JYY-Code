@@ -51,6 +51,11 @@ export type MergeConflictSummary = {
   fingerprint?: string
 }
 
+export type MergeResolution = {
+  path: string
+  use: "main" | "child"
+}
+
 export type MergeRecord = {
   status: MergeStatus
   attempt: number
@@ -60,6 +65,8 @@ export type MergeRecord = {
   completed_at: string | null
   target_fingerprint: string | null
   cleanup: MergeCleanupStatus
+  journal_directory?: string | null
+  error?: string
   cleanup_error?: string
 }
 
@@ -339,6 +346,8 @@ function isValidMerge(value: unknown): value is MergeRecord {
     (value.completed_at === null || validDateTime(value.completed_at)) &&
     (value.target_fingerprint === null || nonEmptyString(value.target_fingerprint)) &&
     ["not_started", "pending", "completed", "failed"].includes(String(value.cleanup)) &&
+    (value.journal_directory === undefined || value.journal_directory === null || nonEmptyString(value.journal_directory)) &&
+    (value.error === undefined || nonEmptyString(value.error)) &&
     (value.cleanup_error === undefined || nonEmptyString(value.cleanup_error))
   )
 }

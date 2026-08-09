@@ -139,6 +139,8 @@
         "completed_at": { "type": ["string", "null"], "format": "date-time" },
         "target_fingerprint": { "type": ["string", "null"] },
         "cleanup": { "enum": ["not_started", "pending", "completed", "failed"] },
+        "journal_directory": { "type": ["string", "null"] },
+        "error": { "type": "string", "minLength": 1 },
         "cleanup_error": { "type": "string", "minLength": 1 }
       }
     },
