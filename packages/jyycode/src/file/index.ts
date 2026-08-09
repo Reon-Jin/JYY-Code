@@ -67,6 +67,7 @@ export type Content = DeepMutable<Schema.Schema.Type<typeof Content>>
 export const WriteInput = Schema.Struct({
   path: Schema.String,
   content: Schema.String,
+  encoding: Schema.optional(Schema.Literal("base64")),
   revision: Schema.optional(Schema.String),
 }).annotate({ identifier: "FileContentWrite" })
 export type WriteInput = DeepMutable<Schema.Schema.Type<typeof WriteInput>>
@@ -271,6 +272,8 @@ const text = new Set([
   "cfg",
   "conf",
   "env",
+  "csv",
+  "tsv",
 ])
 
 const textName = new Set([
@@ -314,7 +317,29 @@ const isTextByName = (file: string) => textName.has(name(file))
 const isBinaryByExtension = (file: string) => binary.has(ext(file))
 const isImage = (mimeType: string) => mimeType.startsWith("image/")
 const getImageMimeType = (file: string) => mime[ext(file)] || "image/" + ext(file)
-const previewBinary = new Set(["pdf", "docx", "pptx", "mp4", "avi", "mov", "wmv", "flv", "webm", "mkv", "mp3", "wav", "ogg", "oga", "flac", "aac", "m4a", "wma", "weba"])
+const spreadsheetBinary = new Set(["xls", "xlsx", "xlsm", "xlt", "xltx", "xltm", "xlsb", "ods"])
+const previewBinary = new Set([
+  "pdf",
+  "docx",
+  "pptx",
+  "mp4",
+  "avi",
+  "mov",
+  "wmv",
+  "flv",
+  "webm",
+  "mkv",
+  "mp3",
+  "wav",
+  "ogg",
+  "oga",
+  "flac",
+  "aac",
+  "m4a",
+  "wma",
+  "weba",
+  ...spreadsheetBinary,
+])
 const maxTextBytes = 2 * 1024 * 1024
 const maxPreviewBytes = 25 * 1024 * 1024
 const maxDocumentPreviewBytes = 256 * 1024 * 1024
@@ -699,12 +724,58 @@ export const layer = Layer.effect(
       }
 
       const mimeType = AppFileSystem.mimeType(full)
+      const binarySpreadsheet = input.encoding === "base64" && spreadsheetBinary.has(ext(input.path))
+      if (input.encoding === "base64" && !binarySpreadsheet) {
+        return yield* new UnsupportedWriteError({ message: "Base64 writes are only supported for spreadsheet files" })
+      }
       const isMedia =
         isBinaryByExtension(input.path) ||
         previewBinary.has(ext(input.path)) ||
         isImage(mimeType) ||
         mimeType.startsWith("audio/") ||
         mimeType.startsWith("video/")
+      if (binarySpreadsheet) {
+        let bytes: Uint8Array
+        try {
+          if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input.content)) {
+            throw new Error("invalid base64")
+          }
+          bytes = Uint8Array.from(Buffer.from(input.content, "base64"))
+        } catch {
+          return yield* new UnsupportedWriteError({ message: "Spreadsheet content must be valid base64" })
+        }
+        if (bytes.byteLength > maxPreviewBytes) {
+          return yield* new TooLargeError({ message: "Spreadsheet files larger than 25 MiB cannot be edited" })
+        }
+
+        const exists = yield* appFs.existsSafe(full)
+        const currentBytes = exists
+          ? yield* appFs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
+          : undefined
+        const currentRevision = yield* revisionFor(full, input.path, currentBytes)
+        if (input.revision !== undefined && input.revision !== currentRevision) {
+          return yield* new RevisionConflictError({
+            message: "File changed since it was read",
+            expectedRevision: input.revision,
+            currentRevision,
+          })
+        }
+        if (exists && input.revision === undefined) {
+          return yield* new RevisionConflictError({
+            message: "A revision is required when replacing an existing file",
+            currentRevision,
+          })
+        }
+
+        const temporary = `${full}.${randomUUID()}.tmp`
+        yield* appFs.ensureDir(path.dirname(full)).pipe(Effect.orDie)
+        yield* appFs.writeFile(temporary, bytes).pipe(Effect.orDie)
+        yield* appFs
+          .rename(temporary, full)
+          .pipe(Effect.orDie, Effect.ensuring(appFs.remove(temporary, { force: true }).pipe(Effect.ignore)))
+        return { revision: yield* revisionFor(full, input.path, bytes) }
+      }
+
       if (isMedia || input.content.includes("\0")) {
         return yield* new UnsupportedWriteError({ message: "Only UTF-8 text files are supported for editing" })
       }

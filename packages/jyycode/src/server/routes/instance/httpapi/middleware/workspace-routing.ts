@@ -12,6 +12,7 @@ import { Context, Data, Effect, Layer, Option, Schema } from "effect"
 import { HttpClient, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 import * as Socket from "effect/unstable/socket/Socket"
+import { parseFilePreviewRoute } from "@/server/shared/file-preview-routing"
 import { InvalidRequestError } from "../errors"
 
 // Query fields this middleware reads from the URL. Spread into every
@@ -67,7 +68,7 @@ function configuredWorkspaceID(): WorkspaceID | undefined {
 }
 
 function selectedWorkspaceID(url: URL, sessionWorkspaceID?: WorkspaceID): WorkspaceID | undefined {
-  const workspaceParam = url.searchParams.get("workspace")
+  const workspaceParam = parseFilePreviewRoute(url)?.workspaceID ?? url.searchParams.get("workspace")
   return sessionWorkspaceID ?? (workspaceParam ? WorkspaceID.make(workspaceParam) : undefined)
 }
 
@@ -84,7 +85,7 @@ function selectedV2WorkspaceID(
 }
 
 function defaultDirectory(request: HttpServerRequest.HttpServerRequest, url: URL): string {
-  return url.searchParams.get("directory") || request.headers["x-jyycode-directory"] || process.cwd()
+  return parseFilePreviewRoute(url)?.directory || url.searchParams.get("directory") || request.headers["x-jyycode-directory"] || process.cwd()
 }
 
 function shouldStayOnControlPlane(request: HttpServerRequest.HttpServerRequest, url: URL): boolean {

@@ -1755,6 +1755,7 @@ export type FileContent = {
 export type FileContentWrite = {
   path: string
   content: string
+  encoding?: "base64"
   revision?: string
 }
 

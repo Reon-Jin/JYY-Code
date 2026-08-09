@@ -4,7 +4,7 @@ import { createQuery } from "@tanstack/solid-query"
 import { ArrowLeft, Eye, File as FileIcon, Pencil, RefreshCw, X } from "lucide-solid"
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist/types/src/display/api"
-import { createEffect, createMemo, createSignal, onCleanup, Show, type JSX } from "solid-js"
+import { createContext, createEffect, createMemo, createSignal, onCleanup, Show, useContext, type JSX } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
@@ -12,7 +12,8 @@ import { useData } from "../../data/context"
 import { tr } from "../../i18n/i18n-context"
 import { createFileApi, fileContentQueryOptions } from "./file-query"
 import { isDeletedChange, isEditableText, previewKind, type PreviewKind } from "./file-types"
-import { FileEditor, type FileEditorSaveInput } from "./file-editor"
+import { FileEditor } from "./file-editor"
+import { SpreadsheetEditor } from "./spreadsheet-editor"
 import { oldContentFromUnifiedDiff } from "../changes/unified-diff"
 import { renderMarkdown } from "../conversation/markdown"
 import "./file-preview.css"
@@ -21,6 +22,13 @@ export const MAX_PREVIEW_BYTES = 25 * 1024 * 1024
 export const MAX_DOCUMENT_PREVIEW_BYTES = 256 * 1024 * 1024
 export const PREVIEW_ZOOM_MIN = 0.5
 export const PREVIEW_ZOOM_MAX = 4
+const PDF_BASE_SCALE = 1.35
+
+type FileSaveInput = {
+  content: string
+  encoding?: "base64"
+  revision: string
+}
 
 export type FilePreviewProps = {
   directory: string
@@ -89,21 +97,30 @@ function pdfAssetUrl(directory: "cmaps" | "standard_fonts") {
   return new URL(`${import.meta.env.BASE_URL}pdfjs/${directory}/`, document.baseURI).toString()
 }
 
-function ZoomSurface(props: { class?: string; children: JSX.Element }) {
+const ZoomContext = createContext<(deltaY: number) => void>()
+
+function ZoomSurface(props: { class?: string; dataKind?: string; children: JSX.Element }) {
   const [zoom, setZoom] = createSignal(1)
+  const adjustZoom = (deltaY: number) => setZoom((current) => nextPreviewZoom(current, deltaY))
 
   const onWheel = (event: WheelEvent) => {
     if (!event.ctrlKey) return
     event.preventDefault()
-    setZoom((current) => nextPreviewZoom(current, event.deltaY))
+    adjustZoom(event.deltaY)
   }
 
   return (
-    <div class={`file-preview__zoom-viewport${props.class ? ` ${props.class}` : ""}`} onWheel={onWheel}>
-      <div class="file-preview__zoom-surface" style={{ transform: `scale(${zoom()})` }}>
-        {props.children}
+    <ZoomContext.Provider value={adjustZoom}>
+      <div
+        class={`file-preview__zoom-viewport${props.class ? ` ${props.class}` : ""}`}
+        data-kind={props.dataKind}
+        onWheel={onWheel}
+      >
+        <div class="file-preview__zoom-surface" style={{ transform: `scale(${zoom()})` }}>
+          {props.children}
+        </div>
       </div>
-    </div>
+    </ZoomContext.Provider>
   )
 }
 
@@ -141,13 +158,31 @@ function PdfPreview(props: { content: FileContent }) {
   let host: HTMLDivElement | undefined
   const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
   const [message, setMessage] = createSignal<string>()
+  const [zoom, setZoom] = createSignal(1)
+  const [documentVersion, setDocumentVersion] = createSignal(0)
+  let documentProxy: PDFDocumentProxy | undefined
+  let loadingTask: PDFDocumentLoadingTask | undefined
+  let activeRenderTask: { cancel: () => void } | undefined
+  let renderRequest = 0
+  let loadGeneration = 0
+
+  const onWheel = (event: WheelEvent) => {
+    if (!event.ctrlKey) return
+    event.preventDefault()
+    setZoom((current) => nextPreviewZoom(current, event.deltaY))
+  }
 
   createEffect(() => {
     const data = contentBytes(props.content)
     if (!host) return
     let cancelled = false
-    let loadingTask: PDFDocumentLoadingTask | undefined
-    let documentProxy: PDFDocumentProxy | undefined
+    let currentLoadingTask: PDFDocumentLoadingTask | undefined
+    let currentDocument: PDFDocumentProxy | undefined
+    const generation = ++loadGeneration
+    documentProxy = undefined
+    activeRenderTask?.cancel()
+    activeRenderTask = undefined
+    renderRequest += 1
     host.replaceChildren()
     setState("loading")
     setMessage(undefined)
@@ -158,17 +193,57 @@ function PdfPreview(props: { content: FileContent }) {
       }
       const pdfjs = await import("pdfjs-dist")
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc
-      loadingTask = pdfjs.getDocument({
+      currentLoadingTask = pdfjs.getDocument({
         data,
         cMapUrl: pdfAssetUrl("cmaps"),
         cMapPacked: true,
         standardFontDataUrl: pdfAssetUrl("standard_fonts"),
       })
-      documentProxy = await loadingTask.promise
-      for (let pageNumber = 1; pageNumber <= documentProxy.numPages; pageNumber += 1) {
-        if (cancelled) return
-        const page = await documentProxy.getPage(pageNumber)
-        const viewport = page.getViewport({ scale: 1.35 })
+      loadingTask = currentLoadingTask
+      currentDocument = await currentLoadingTask.promise
+      documentProxy = currentDocument
+      if (!cancelled) setDocumentVersion((version) => version + 1)
+    }
+
+    void render().catch((cause) => {
+      if (cancelled) return
+      setMessage(errorText(cause))
+      setState("error")
+    })
+    onCleanup(() => {
+      cancelled = true
+      loadGeneration += 1
+      renderRequest += 1
+      activeRenderTask?.cancel()
+      activeRenderTask = undefined
+      host?.replaceChildren()
+      void currentLoadingTask?.destroy()
+      void currentDocument?.destroy()
+      if (loadingTask === currentLoadingTask) loadingTask = undefined
+      if (documentProxy === currentDocument) documentProxy = undefined
+    })
+  })
+
+  createEffect(() => {
+    const targetZoom = zoom()
+    documentVersion()
+    const currentDocument = documentProxy
+    const currentHost = host
+    const generation = loadGeneration
+    if (!currentDocument || !currentHost) return
+
+    activeRenderTask?.cancel()
+    activeRenderTask = undefined
+    const request = ++renderRequest
+    const isCurrent = () => generation === loadGeneration && request === renderRequest
+
+    const renderAtZoom = async () => {
+      const pages = window.document.createDocumentFragment()
+      for (let pageNumber = 1; pageNumber <= currentDocument.numPages; pageNumber += 1) {
+        if (!isCurrent()) return
+        const page = await currentDocument.getPage(pageNumber)
+        if (!isCurrent()) return
+        const viewport = page.getViewport({ scale: PDF_BASE_SCALE * targetZoom })
         const outputScale = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1
         const metrics = pdfCanvasMetrics(viewport, outputScale)
         const canvas = window.document.createElement("canvas")
@@ -179,29 +254,31 @@ function PdfPreview(props: { content: FileContent }) {
         canvas.className = "file-preview__pdf-page"
         const context = canvas.getContext("2d")
         if (!context) throw new Error(tr("files.render-failed"))
-        host.append(canvas)
-        await page.render({
+        pages.append(canvas)
+        const renderTask = page.render({
           canvasContext: context,
           viewport,
-          transform:
-            metrics.outputScale === 1
-              ? undefined
-              : [metrics.outputScale, 0, 0, metrics.outputScale, 0, 0],
-        }).promise
+          transform: metrics.outputScale === 1 ? undefined : [metrics.outputScale, 0, 0, metrics.outputScale, 0, 0],
+        })
+        activeRenderTask = renderTask
+        try {
+          await renderTask.promise
+        } catch (cause) {
+          if (!isCurrent()) return
+          throw cause
+        } finally {
+          if (activeRenderTask === renderTask) activeRenderTask = undefined
+        }
       }
-      if (!cancelled) setState("ready")
+      if (!isCurrent()) return
+      currentHost.replaceChildren(pages)
+      setState("ready")
     }
 
-    void render().catch((cause) => {
-      if (cancelled) return
+    void renderAtZoom().catch((cause) => {
+      if (!isCurrent()) return
       setMessage(errorText(cause))
       setState("error")
-    })
-    onCleanup(() => {
-      cancelled = true
-      host?.replaceChildren()
-      void loadingTask?.destroy()
-      void documentProxy?.destroy()
     })
   })
 
@@ -217,9 +294,9 @@ function PdfPreview(props: { content: FileContent }) {
           <InlineError message={message() ?? tr("files.render-failed")} />
         </div>
       </Show>
-      <ZoomSurface class="file-preview__document-viewport">
+      <div class="file-preview__document-viewport" onWheel={onWheel}>
         <div ref={host} class="file-preview__document-host" />
-      </ZoomSurface>
+      </div>
     </div>
   )
 }
@@ -241,7 +318,8 @@ function DocxPreview(props: { content: FileContent }) {
     setHtml(undefined)
 
     const render = async () => {
-      if (!data?.byteLength || data.byteLength > MAX_DOCUMENT_PREVIEW_BYTES) throw new Error(tr("files.binary-too-large"))
+      if (!data?.byteLength || data.byteLength > MAX_DOCUMENT_PREVIEW_BYTES)
+        throw new Error(tr("files.binary-too-large"))
       const mammoth = await import("mammoth")
       const converter = mammoth.default ?? mammoth
       const result = await converter.convertToHtml({
@@ -270,7 +348,7 @@ function DocxPreview(props: { content: FileContent }) {
   })
 
   return (
-    <div class="file-preview__document" data-kind="docx">
+    <ZoomSurface class="file-preview__document" dataKind="docx">
       <Show when={state() === "loading"}>
         <p class="file-preview__state" role="status">
           <Spinner /> {tr("files.loading-preview")}
@@ -285,7 +363,7 @@ function DocxPreview(props: { content: FileContent }) {
         <article class="file-preview__docx" innerHTML={html()!} />
       </Show>
       <div ref={host} class="file-preview__document-host" />
-    </div>
+    </ZoomSurface>
   )
 }
 
@@ -293,15 +371,40 @@ function BinaryDocumentPreview(props: { kind: PreviewKind; content: FileContent 
   return props.kind === "pdf" ? <PdfPreview content={props.content} /> : <DocxPreview content={props.content} />
 }
 
-function HtmlPreview(props: { content: FileContent; path: string }) {
-  const html = () =>
-    DOMPurify.sanitize(contentText(props.content) ?? "", {
-      USE_PROFILES: { html: true },
-      FORBID_TAGS: ["base", "embed", "form", "iframe", "meta", "object", "script"],
-      FORBID_ATTR: ["srcset"],
-    })
+function htmlWithPreviewBase(source: string, baseUrl: string) {
+  const zoomScript = `<script>(() => { window.addEventListener("wheel", (event) => { if (!event.ctrlKey) return; event.preventDefault(); parent.postMessage({ type: "jyycode-html-preview-zoom", deltaY: event.deltaY }, "*"); }, { passive: false }); })();</script>`
+  const runtime = `${/<base\b/i.test(source) ? "" : `<base href="${baseUrl.replaceAll('"', "&quot;")}">`}${zoomScript}`
+  const head = /<head\b[^>]*>/i.exec(source)
+  if (!head || head.index === undefined) return `${runtime}${source}`
+  const insertAt = head.index + head[0].length
+  return `${source.slice(0, insertAt)}${runtime}${source.slice(insertAt)}`
+}
 
-  return <iframe class="file-preview__html" title={props.path} sandbox="" referrerPolicy="no-referrer" srcdoc={html()} />
+function HtmlPreview(props: { source: string; path: string; previewUrl: string }) {
+  const adjustZoom = useContext(ZoomContext)
+  let frame: HTMLIFrameElement | undefined
+  const baseUrl = () => new URL(".", props.previewUrl).toString()
+  const html = () => htmlWithPreviewBase(props.source, baseUrl())
+
+  createEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame?.contentWindow || event.data?.type !== "jyycode-html-preview-zoom") return
+      adjustZoom?.(Number(event.data.deltaY))
+    }
+    window.addEventListener("message", onMessage)
+    onCleanup(() => window.removeEventListener("message", onMessage))
+  })
+
+  return (
+    <iframe
+      ref={frame}
+      class="file-preview__html"
+      title={props.path}
+      sandbox="allow-scripts allow-forms allow-modals"
+      referrerPolicy="no-referrer"
+      srcdoc={html()}
+    />
+  )
 }
 
 function PptxPreview(props: { content: FileContent }) {
@@ -354,7 +457,7 @@ function PptxPreview(props: { content: FileContent }) {
   })
 
   return (
-    <div class="file-preview__pptx" data-kind="pptx">
+    <ZoomSurface class="file-preview__pptx" dataKind="pptx">
       <Show when={state() === "loading"}>
         <p class="file-preview__state" role="status">
           <Spinner /> {tr("files.loading-preview")}
@@ -366,7 +469,7 @@ function PptxPreview(props: { content: FileContent }) {
         </div>
       </Show>
       <div ref={host} class="file-preview__pptx-host" />
-    </div>
+    </ZoomSurface>
   )
 }
 
@@ -423,6 +526,7 @@ export function FilePreview(props: FilePreviewProps) {
   const kind = createMemo(() => previewKind(props.path))
   const [dirty, setDirty] = createSignal(false)
   const [draft, setDraft] = createSignal("")
+  const [draftEncoding, setDraftEncoding] = createSignal<"base64" | undefined>()
   const [draftRevision, setDraftRevision] = createSignal("")
   const [observedPath, setObservedPath] = createSignal("")
   const [observedRevision, setObservedRevision] = createSignal("")
@@ -430,7 +534,7 @@ export function FilePreview(props: FilePreviewProps) {
   const [saving, setSaving] = createSignal(false)
   const [saveError, setSaveError] = createSignal<string>()
   const [conflict, setConflict] = createSignal(false)
-  const [markdownPreview, setMarkdownPreview] = createSignal(false)
+  const [textPreview, setTextPreview] = createSignal(false)
   const deleted = createMemo(() => isDeletedChange(props.change))
 
   const query = createQuery(
@@ -471,12 +575,14 @@ export function FilePreview(props: FilePreviewProps) {
 
   createEffect(() => {
     const content = displayedContent()
-    if (!content || content.type !== "text" || content.encoding === "base64") return
+    const spreadsheet = kind() === "spreadsheet"
+    if (!content || content.type !== "text" || (!spreadsheet && content.encoding === "base64")) return
     if (observedPath() !== props.path) {
       setObservedPath(props.path)
       setObservedRevision(content.revision)
       setDraftRevision(content.revision)
       setDraft(content.content)
+      setDraftEncoding(content.encoding)
       setConflict(false)
       return
     }
@@ -488,14 +594,21 @@ export function FilePreview(props: FilePreviewProps) {
     }
     setDraftRevision(content.revision)
     setDraft(content.content)
+    setDraftEncoding(content.encoding)
   })
 
-  const save = async (input: FileEditorSaveInput) => {
+  const save = async (input: FileSaveInput) => {
     setSaving(true)
     setSaveError(undefined)
     try {
-      const result = await api().write({ path: props.path, content: input.content, revision: input.revision })
+      const result = await api().write({
+        path: props.path,
+        content: input.content,
+        encoding: input.encoding,
+        revision: input.revision,
+      })
       setDraft(input.content)
+      setDraftEncoding(input.encoding)
       setDraftRevision(result.revision)
       setObservedRevision(result.revision)
       setConflict(false)
@@ -511,22 +624,29 @@ export function FilePreview(props: FilePreviewProps) {
   const reload = async () => {
     const result = await query.refetch()
     const content = result.data ?? query.data
-    if (!content || content.type !== "text" || content.encoding === "base64") return
+    const spreadsheet = kind() === "spreadsheet"
+    if (!content || content.type !== "text" || (!spreadsheet && content.encoding === "base64")) return
     setObservedRevision(content.revision)
     setDraftRevision(content.revision)
     setDraft(content.content)
+    setDraftEncoding(content.encoding)
     setConflict(false)
     setSaveError(undefined)
     setResetToken((value) => value + 1)
     updateDirty(false)
   }
 
-  const markdownToolbar = (
-    <Button size="small" variant="ghost" onClick={() => setMarkdownPreview((value) => !value)}>
-      <Show when={markdownPreview()} fallback={<Eye aria-hidden="true" />}>
+  const textPreviewToolbar = (
+    <Button size="small" variant="ghost" onClick={() => setTextPreview((value) => !value)}>
+      <Show when={textPreview()} fallback={<Eye aria-hidden="true" />}>
         <Pencil aria-hidden="true" />
       </Show>
-      {markdownPreview() ? tr("files.markdown-edit") : tr("files.markdown-preview")}
+      <Show
+        when={kind() === "html"}
+        fallback={textPreview() ? tr("files.markdown-edit") : tr("files.markdown-preview")}
+      >
+        {textPreview() ? tr("files.html-edit") : tr("files.html-preview")}
+      </Show>
     </Button>
   )
 
@@ -544,8 +664,29 @@ export function FilePreview(props: FilePreviewProps) {
       onContentChange={setDraft}
       resetToken={resetToken()}
       onClose={props.onClose}
-      toolbar={kind() === "markdown" ? markdownToolbar : undefined}
+      toolbar={kind() === "markdown" || kind() === "html" ? textPreviewToolbar : undefined}
       initialDirty={dirty()}
+    />
+  )
+
+  const spreadsheetEditor = (content: FileContent) => (
+    <SpreadsheetEditor
+      path={props.path}
+      content={draft()}
+      encoding={draftEncoding()}
+      revision={draftRevision() || content.revision}
+      saving={saving()}
+      error={saveError()}
+      readOnly={deleted()}
+      onSave={deleted() ? undefined : save}
+      onDirtyChange={updateDirty}
+      onExternalChange={() => setConflict(true)}
+      onContentChange={(value, encoding) => {
+        setDraft(value)
+        setDraftEncoding(encoding)
+      }}
+      resetToken={resetToken()}
+      onClose={props.onClose}
     />
   )
 
@@ -581,17 +722,41 @@ export function FilePreview(props: FilePreviewProps) {
             }
           >
             {(content) => {
+              const spreadsheet = () => kind() === "spreadsheet" && content().type === "text"
               const editable = () =>
                 content().type === "text" && content().encoding !== "base64" && isEditableText(props.path)
-              const isMarkdown = () => kind() === "markdown" && editable()
+              const isTextPreviewKind = () => kind() === "markdown" || kind() === "html"
+              const showTextEditor = () => editable() && (!isTextPreviewKind() || !textPreview())
+              const showMarkdownPreview = () => kind() === "markdown" && editable() && textPreview()
+              const showHtmlPreview = () => kind() === "html" && (!editable() || textPreview())
+              const htmlSource = () => (editable() ? draft() : (contentText(content()) ?? ""))
               return (
                 <>
-                  <Show when={editable() && (!isMarkdown() || !markdownPreview())}>{editor(content())}</Show>
-                  <Show when={isMarkdown() && markdownPreview()}>
-                    <PreviewHeader path={props.path} onClose={props.onClose} toolbar={markdownToolbar} readOnly />
+                  <Show when={spreadsheet()}>{spreadsheetEditor(content())}</Show>
+                  <Show when={showTextEditor()}>{editor(content())}</Show>
+                  <Show when={showMarkdownPreview()}>
+                    <PreviewHeader path={props.path} onClose={props.onClose} toolbar={textPreviewToolbar} readOnly />
                     <div class="file-preview__markdown-viewport">
-                      <article class="file-preview__markdown conversation-markdown" innerHTML={renderMarkdown(draft())} />
+                      <article
+                        class="file-preview__markdown conversation-markdown"
+                        innerHTML={renderMarkdown(draft())}
+                      />
                     </div>
+                  </Show>
+                  <Show when={showHtmlPreview()}>
+                    <PreviewHeader
+                      path={props.path}
+                      onClose={props.onClose}
+                      toolbar={editable() ? textPreviewToolbar : undefined}
+                      readOnly
+                    />
+                    <ZoomSurface class="file-preview__html-viewport">
+                      <HtmlPreview
+                        source={htmlSource()}
+                        path={props.path}
+                        previewUrl={data.filePreviewUrl(props.path, props.workspaceID)}
+                      />
+                    </ZoomSurface>
                   </Show>
                   <Show
                     when={
@@ -602,12 +767,19 @@ export function FilePreview(props: FilePreviewProps) {
                       kind() !== "pdf" &&
                       kind() !== "docx" &&
                       kind() !== "pptx" &&
+                      kind() !== "spreadsheet" &&
                       kind() !== "html"
                     }
                   >
                     <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
                     <div class="file-preview__state">
                       <InlineError message={tr("files.unsupported")} />
+                    </div>
+                  </Show>
+                  <Show when={kind() === "spreadsheet" && !spreadsheet()}>
+                    <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
+                    <div class="file-preview__state">
+                      <InlineError message={tr("files.binary-too-large")} />
                     </div>
                   </Show>
                   <Show when={kind() === "image" || kind() === "video" || kind() === "audio"}>
@@ -621,12 +793,6 @@ export function FilePreview(props: FilePreviewProps) {
                   <Show when={kind() === "pdf" || kind() === "docx"}>
                     <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
                     <BinaryDocumentPreview content={content()} kind={kind()} />
-                  </Show>
-                  <Show when={kind() === "html"}>
-                    <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
-                    <div class="file-preview__html-viewport">
-                      <HtmlPreview content={content()} path={props.path} />
-                    </div>
                   </Show>
                   <Show when={kind() === "pptx"}>
                     <PreviewHeader path={props.path} onClose={props.onClose} readOnly />
@@ -657,5 +823,9 @@ export function FilePreview(props: FilePreviewProps) {
 }
 
 export function isFilePreviewEditable(path: string, content: FileContent | undefined) {
-  return Boolean(content && content.type === "text" && content.encoding !== "base64" && isEditableText(path))
+  return Boolean(
+    content &&
+      content.type === "text" &&
+      (previewKind(path) === "spreadsheet" || (content.encoding !== "base64" && isEditableText(path))),
+  )
 }

@@ -17,7 +17,7 @@ export type FileQueryInput = FileQueryScope & {
   signal?: AbortSignal
 }
 
-export type FileWriteInput = Pick<FileContentWrite, "path" | "content" | "revision">
+export type FileWriteInput = Pick<FileContentWrite, "path" | "content" | "encoding" | "revision">
 
 const requestOptions = (signal?: AbortSignal) =>
   signal ? ({ throwOnError: true, signal } as const) : ({ throwOnError: true } as const)
@@ -89,7 +89,7 @@ export function createFileApi(input: FileApiInput) {
         type: "text",
         content: value.content,
         revision: result.data.revision,
-        encoding: undefined,
+        encoding: value.encoding,
         mimeType: undefined,
       })
     }

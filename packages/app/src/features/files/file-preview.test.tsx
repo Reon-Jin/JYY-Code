@@ -1,5 +1,7 @@
 import type { FileContent, VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
+import * as XLSX from "xlsx"
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
+import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DataProvider } from "../../data/context"
 import { I18nProvider } from "../../i18n/i18n-context"
@@ -155,7 +157,7 @@ describe("FilePreview", () => {
     expect(screen.queryByRole("button", { name: "Save file" })).not.toBeInTheDocument()
   })
 
-  it("renders sanitized HTML files as a preview", async () => {
+  it("renders browser-like HTML files as a preview", async () => {
     const backend = createFakeJyycode(directory)
     backend.fileContents.set("index.html", {
       type: "text",
@@ -173,10 +175,108 @@ describe("FilePreview", () => {
       </DataProvider>
     ))
 
+    await screen.findByRole("textbox")
+    await screen.getByRole("button", { name: "预览 HTML" }).click()
     const frame = await screen.findByTitle("index.html")
-    expect(frame).toHaveAttribute("sandbox", "")
+    expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-forms allow-modals")
     expect(frame.getAttribute("srcdoc")).toContain("<h1>Hello</h1>")
-    expect(frame.getAttribute("srcdoc")).not.toContain("<script>")
+    expect(frame.getAttribute("srcdoc")).toContain('<script>alert("unsafe")</script>')
+    expect(frame.getAttribute("srcdoc")).toContain("<base href=")
+    expect(frame.getAttribute("srcdoc")).toContain("jyycode-html-preview-zoom")
+  })
+
+  it("switches HTML between editor and sanitized preview using the draft", async () => {
+    const user = userEvent.setup()
+    const backend = createFakeJyycode(directory)
+    backend.fileContents.set("index.html", {
+      type: "text",
+      content: '<h1>Hello</h1><script>alert("unsafe")</script>',
+      revision: "revision-1",
+    })
+    vi.spyOn(globalThis, "fetch").mockImplementation(backend.fetch)
+    render(() => (
+      <DataProvider
+        bootstrap={{ baseUrl: "http://desktop.test", username: "jyycode", password: "secret" }}
+        generation={0}
+        directory={directory}
+      >
+        <FilePreview directory={directory} path="index.html" />
+      </DataProvider>
+    ))
+
+    const editor = await screen.findByRole("textbox")
+    editor.focus()
+    await user.keyboard("{Control>}a{/Control}")
+    await user.keyboard('<h1>Draft</h1><script>alert("unsafe")</script>')
+    await screen.getByRole("button", { name: "预览 HTML" }).click()
+
+    const frame = await screen.findByTitle("index.html")
+    expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-forms allow-modals")
+    expect(frame.getAttribute("srcdoc")).toContain("<h1>Draft</h1>")
+    expect(frame.getAttribute("srcdoc")).toContain('<script>alert("unsafe")</script>')
+    expect(frame.getAttribute("srcdoc")).toContain("<base href=")
+    expect(frame.getAttribute("srcdoc")).toContain("jyycode-html-preview-zoom")
+    await screen.getByRole("button", { name: "编辑 HTML" }).click()
+    await waitFor(() => expect(screen.getByRole("textbox")).toBeVisible())
+  })
+
+  it("opens and saves CSV files through the spreadsheet grid", async () => {
+    const user = userEvent.setup()
+    const backend = createFakeJyycode(directory)
+    backend.fileContents.set("data.csv", {
+      type: "text",
+      content: "Name,Amount\nAlice,1",
+      revision: "revision-csv",
+    })
+    vi.spyOn(globalThis, "fetch").mockImplementation(backend.fetch)
+    render(() => (
+      <DataProvider
+        bootstrap={{ baseUrl: "http://desktop.test", username: "jyycode", password: "secret" }}
+        generation={0}
+        directory={directory}
+      >
+        <FilePreview directory={directory} workspaceID="wrk_child" sessionID="ses_child" path="data.csv" />
+      </DataProvider>
+    ))
+
+    const amount = await screen.findByRole("textbox", { name: "B2" })
+    await user.click(amount)
+    await user.keyboard("{Control>}a{/Control}2")
+    await user.click(screen.getByRole("button", { name: "保存文件" }))
+    await waitFor(() => expect(backend.fileContents.get("data.csv")?.content).toContain("Alice,2"))
+    expect(
+      backend.requests.find((request) => request.method === "PUT" && request.path === "/file/content")?.body,
+    ).toMatchObject({
+      path: "data.csv",
+      revision: "revision-csv",
+    })
+  })
+
+  it("opens base64 Excel workbooks with their sheet tabs", async () => {
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["Summary"], ["Ready"]]), "Summary")
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["Details"], ["One"]]), "Details")
+    const backend = createFakeJyycode(directory)
+    backend.fileContents.set("report.xlsx", {
+      type: "text",
+      content: XLSX.write(workbook, { type: "base64", bookType: "xlsx" }) as string,
+      encoding: "base64",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      revision: "revision-xlsx",
+    })
+    vi.spyOn(globalThis, "fetch").mockImplementation(backend.fetch)
+    render(() => (
+      <DataProvider
+        bootstrap={{ baseUrl: "http://desktop.test", username: "jyycode", password: "secret" }}
+        generation={0}
+        directory={directory}
+      >
+        <FilePreview directory={directory} path="report.xlsx" />
+      </DataProvider>
+    ))
+
+    expect(await screen.findByRole("tab", { name: "Summary" })).toHaveAttribute("aria-selected", "true")
+    expect(screen.getByRole("tab", { name: "Details" })).toBeVisible()
   })
 })
 
@@ -194,6 +294,9 @@ describe("file preview helpers", () => {
     expect(contentText({ type: "text", content: "<h1>Hello</h1>", revision: "1" })).toBe("<h1>Hello</h1>")
     expect(MAX_PREVIEW_BYTES).toBe(25 * 1024 * 1024)
     expect(isFilePreviewEditable("src/app.tsx", textContent())).toBe(true)
+    expect(isFilePreviewEditable("report.xlsx", { ...image, type: "text", mimeType: "application/vnd.ms-excel" })).toBe(
+      true,
+    )
     expect(isFilePreviewEditable("image.png", image)).toBe(false)
   })
 

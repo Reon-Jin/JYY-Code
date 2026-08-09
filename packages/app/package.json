@@ -46,7 +46,8 @@
     "marked": "catalog:",
     "marked-katex-extension": "catalog:",
     "pdfjs-dist": "catalog:",
-    "solid-js": "catalog:"
+    "solid-js": "catalog:",
+    "xlsx": "0.18.5"
   },
   "devDependencies": {
     "@solidjs/testing-library": "catalog:",

@@ -13,7 +13,7 @@ import {
 import type { DesktopBootstrap } from "../platform/types"
 import { EventBridge, type ConnectionState } from "./event-bridge"
 import { createDesktopQueryClient } from "./query-client"
-import { createDesktopClient, createFileMediaUrl } from "./sdk"
+import { createDesktopClient, createFileMediaUrl, createFilePreviewUrl } from "./sdk"
 
 export type DataProviderInput = {
   bootstrap: DesktopBootstrap
@@ -25,6 +25,7 @@ export type DataProviderInput = {
 export type DataContextValue = {
   client: () => JyycodeClient
   fileMediaUrl: (path: string, workspaceID?: string) => string
+  filePreviewUrl: (path: string, workspaceID?: string) => string
   queryClient: () => QueryClient
   directory: () => string
   generation: () => number
@@ -66,6 +67,8 @@ export function DataProvider(props: ParentProps<DataProviderInput>) {
     client,
     fileMediaUrl: (path, workspaceID) =>
       createFileMediaUrl({ bootstrap: props.bootstrap, directory: props.directory, path, workspaceID }),
+    filePreviewUrl: (path, workspaceID) =>
+      createFilePreviewUrl({ bootstrap: props.bootstrap, directory: props.directory, path, workspaceID }),
     queryClient,
     directory: () => props.directory,
     generation: () => props.generation,

@@ -1,0 +1,192 @@
+.spreadsheet-editor {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  background: var(--color-panel);
+}
+
+.spreadsheet-editor__header {
+  height: var(--workspace-header-height, 69px);
+  min-height: var(--workspace-header-height, 69px);
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--space-3);
+  padding-inline-start: 64px;
+}
+
+.spreadsheet-editor__header > svg,
+.spreadsheet-editor__back svg,
+.spreadsheet-editor__save svg {
+  width: 14px;
+  height: 14px;
+}
+
+.spreadsheet-editor__path {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--color-text);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spreadsheet-editor__dirty {
+  color: var(--color-warning);
+  font-size: 0.7rem;
+}
+
+.spreadsheet-editor__readonly {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.spreadsheet-editor > .ui-inline-error {
+  margin: var(--space-2) var(--space-3) 0;
+}
+
+.spreadsheet-editor__formula-bar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-3);
+}
+
+.spreadsheet-editor__cell-name {
+  width: 44px;
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.spreadsheet-editor__formula-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+}
+
+.spreadsheet-editor__sheet-tabs {
+  display: flex;
+  min-width: 0;
+  gap: 2px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--space-3);
+}
+
+.spreadsheet-editor__sheet-tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 7px 10px 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.spreadsheet-editor__sheet-tab:hover,
+.spreadsheet-editor__sheet-tab:focus-visible,
+.spreadsheet-editor__sheet-tab[data-active="true"] {
+  color: var(--color-text);
+}
+
+.spreadsheet-editor__sheet-tab[data-active="true"] {
+  border-bottom-color: var(--color-accent);
+}
+
+.spreadsheet-editor__surface {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--color-bg);
+}
+
+.spreadsheet-editor__table {
+  min-width: max-content;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: var(--font-code);
+  font-size: 0.72rem;
+}
+
+.spreadsheet-editor__table th,
+.spreadsheet-editor__table td {
+  min-width: 112px;
+  height: 28px;
+  box-sizing: border-box;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  padding: 0;
+}
+
+.spreadsheet-editor__table thead th,
+.spreadsheet-editor__table tbody th {
+  position: sticky;
+  z-index: 1;
+  min-width: 44px;
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-weight: 500;
+  text-align: center;
+}
+
+.spreadsheet-editor__table thead th {
+  top: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.spreadsheet-editor__table tbody th {
+  left: 0;
+}
+
+.spreadsheet-editor__table .spreadsheet-editor__corner {
+  left: 0;
+  z-index: 2;
+}
+
+.spreadsheet-editor__table td[data-selected="true"] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.spreadsheet-editor__table td input {
+  width: 100%;
+  height: 28px;
+  box-sizing: border-box;
+  border: 0;
+  padding: 0 7px;
+  outline: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+}
+
+.spreadsheet-editor__table td input:focus {
+  background: var(--color-panel);
+}
+
+.spreadsheet-editor__state {
+  min-height: 120px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+  text-align: center;
+}

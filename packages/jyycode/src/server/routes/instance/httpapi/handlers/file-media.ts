@@ -1,5 +1,6 @@
 import { InstanceState } from "@/effect/instance-state"
 import { containsPath } from "@/project/instance-context"
+import { parseFilePreviewRoute } from "@/server/shared/file-preview-routing"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { Effect } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
@@ -49,7 +50,8 @@ const serve = Effect.fn("FileHttpApi.media")(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest
   const ctx = yield* InstanceState.context
   const url = new URL(request.url, "http://localhost")
-  const requestedPath = url.searchParams.get("path") ?? ""
+  const filePreview = parseFilePreviewRoute(url)
+  const requestedPath = filePreview?.filePath ?? url.searchParams.get("path") ?? ""
   const fullPath = path.resolve(ctx.directory, requestedPath)
   if (!containsPath(fullPath, ctx)) return HttpServerResponse.empty({ status: 403 })
 
@@ -60,13 +62,21 @@ const serve = Effect.fn("FileHttpApi.media")(function* () {
   if (!metadata?.isFile()) return HttpServerResponse.empty({ status: 404 })
 
   const headers = responseHeaders(fullPath, metadata.size, metadata.mtimeMs)
+  if (filePreview) {
+    headers.set("cache-control", "no-cache")
+    headers.set("access-control-allow-origin", "*")
+  }
   const etag = headers.get("etag")
   if (etag && request.headers["if-none-match"] === etag) {
     return HttpServerResponse.empty({ status: 304, headers })
   }
 
   const rangeHeader = request.headers.range
-  const range = rangeHeader ? parseFileByteRange(rangeHeader, metadata.size) : { start: 0, end: Math.min(metadata.size - 1, MAX_RANGE_BYTES - 1) }
+  const range = rangeHeader
+    ? parseFileByteRange(rangeHeader, metadata.size)
+    : filePreview
+      ? { start: 0, end: Math.max(0, metadata.size - 1) }
+      : { start: 0, end: Math.min(metadata.size - 1, MAX_RANGE_BYTES - 1) }
   if (!range) {
     headers.set("content-range", `bytes */${metadata.size}`)
     return HttpServerResponse.empty({ status: 416, headers })
@@ -74,7 +84,7 @@ const serve = Effect.fn("FileHttpApi.media")(function* () {
 
   const length = range.end - range.start + 1
   headers.set("content-length", String(length))
-  if (range.start !== 0 || range.end !== metadata.size - 1 || rangeHeader === undefined) {
+  if (!filePreview && (range.start !== 0 || range.end !== metadata.size - 1 || rangeHeader === undefined)) {
     headers.set("content-range", `bytes ${range.start}-${range.end}/${metadata.size}`)
   }
   if (request.method === "HEAD") return HttpServerResponse.empty({ status: 206, headers })
@@ -92,11 +102,12 @@ const serve = Effect.fn("FileHttpApi.media")(function* () {
     },
     catch: () => new Error("Unable to read file"),
   })
-  return HttpServerResponse.raw(bytes, { status: 206, headers })
+  return HttpServerResponse.raw(bytes, { status: filePreview && !rangeHeader ? 200 : 206, headers })
 })
 
 export const fileMediaRoute = HttpRouter.use((router) =>
   Effect.gen(function* () {
     yield* router.add("GET", "/file/raw", serve)
+    yield* router.add("GET", "/file/preview/*", serve)
   }),
 )

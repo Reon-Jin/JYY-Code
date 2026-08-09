@@ -29,7 +29,12 @@ const read = Effect.fn("FileTest.read")(function* (input: string) {
   return yield* file.read(input)
 })
 
-const write = Effect.fn("FileTest.write")(function* (input: { path: string; content: string; revision?: string }) {
+const write = Effect.fn("FileTest.write")(function* (input: {
+  path: string
+  content: string
+  encoding?: "base64"
+  revision?: string
+}) {
   const file = yield* File.Service
   return yield* file.write(input)
 })
@@ -154,6 +159,19 @@ describe("file/index Filesystem patterns", () => {
         const result = yield* read("binary.so")
         expect(result.type).toBe("binary")
         expect(result.content).toBe("")
+      }),
+    )
+
+    it.instance("reads spreadsheet binaries as base64 preview content", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const binaryContent = Buffer.from([0x50, 0x4b, 0x03, 0x04])
+        yield* Effect.promise(() => fs.writeFile(path.join(test.directory, "report.xlsx"), binaryContent))
+
+        const result = yield* read("report.xlsx")
+        expect(result.type).toBe("text")
+        expect(result.encoding).toBe("base64")
+        expect(result.content).toBe(binaryContent.toString("base64"))
       }),
     )
   })
@@ -404,6 +422,25 @@ describe("file/index Filesystem patterns", () => {
         expect(yield* Effect.promise(() => fs.readFile(path.join(test.directory, "editable.txt"), "utf-8"))).toBe(
           "after\n",
         )
+      }),
+    )
+
+    it.instance("writes base64 spreadsheet bytes atomically when the revision matches", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const before = Buffer.from([0x50, 0x4b, 0x03, 0x04])
+        const after = Buffer.from([0x50, 0x4b, 0x05, 0x06])
+        yield* Effect.promise(() => fs.writeFile(path.join(test.directory, "report.xlsx"), before))
+        const current = yield* read("report.xlsx")
+        const saved = yield* write({
+          path: "report.xlsx",
+          content: after.toString("base64"),
+          encoding: "base64",
+          revision: current.revision,
+        })
+
+        expect(saved.revision).not.toBe(current.revision)
+        expect(yield* Effect.promise(() => fs.readFile(path.join(test.directory, "report.xlsx")))).toEqual(after)
       }),
     )
 

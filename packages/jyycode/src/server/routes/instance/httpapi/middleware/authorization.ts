@@ -5,6 +5,7 @@ import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi"
 import { hasPtyConnectTicketURL } from "@/server/shared/pty-ticket"
 import { isPublicUIPath } from "@/server/shared/public-ui"
 import { UnauthorizedError } from "../errors"
+import { parseFilePreviewRoute } from "@/server/shared/file-preview-routing"
 
 const AUTH_TOKEN_QUERY = "auth_token"
 const UNAUTHORIZED = 401
@@ -72,7 +73,7 @@ function credentialFromRequest(request: HttpServerRequest.HttpServerRequest) {
 }
 
 function credentialFromURL(url: URL, request: HttpServerRequest.HttpServerRequest) {
-  const token = url.searchParams.get(AUTH_TOKEN_QUERY)
+  const token = url.searchParams.get(AUTH_TOKEN_QUERY) ?? parseFilePreviewRoute(url)?.authToken
   if (token) return decodeCredential(token)
   const match = /^Basic\s+(.+)$/i.exec(request.headers.authorization ?? "")
   if (match) return decodeCredential(match[1])

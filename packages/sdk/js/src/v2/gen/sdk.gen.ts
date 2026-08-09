@@ -2046,7 +2046,7 @@ export class File extends HeyApiClient {
   /**
    * Write file content
    *
-   * Write UTF-8 text content to a project file with optimistic revision checking.
+   * Write UTF-8 text or base64 spreadsheet content to a project file with optimistic revision checking.
    */
   public write<ThrowOnError extends boolean = false>(
     parameters?: {

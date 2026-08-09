@@ -7,6 +7,11 @@ describe("file preview types", () => {
     ["src/data.json", "code"],
     ["docs/readme.md", "markdown"],
     ["notes.txt", "text"],
+    ["data.csv", "spreadsheet"],
+    ["data.tsv", "spreadsheet"],
+    ["reports/summary.xlsx", "spreadsheet"],
+    ["reports/legacy.xls", "spreadsheet"],
+    ["reports/model.xlsm", "spreadsheet"],
     ["LICENSE", "text"],
     ["docs/manual.pdf", "pdf"],
     ["docs/manual.docx", "docx"],
@@ -24,6 +29,10 @@ describe("file preview types", () => {
   it("falls back to editable text for unknown extensions", () => {
     expect(previewKind("notes.custom-extension")).toBe("text")
     expect(isEditableText("notes.custom-extension")).toBe(true)
+    expect(isEditableText("docs/page.html")).toBe(true)
+    expect(isEditableText("docs/page.htm")).toBe(true)
+    expect(isEditableText("data.csv")).toBe(false)
+    expect(isEditableText("reports/summary.xlsx")).toBe(false)
     expect(isEditableText("archive.bin")).toBe(false)
     expect(isEditableText("legacy.doc")).toBe(false)
   })

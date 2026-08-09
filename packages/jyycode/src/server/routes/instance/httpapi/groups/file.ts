@@ -149,7 +149,8 @@ export const FileApi = HttpApi.make("file")
           OpenApi.annotations({
             identifier: "file.write",
             summary: "Write file content",
-            description: "Write UTF-8 text content to a project file with optimistic revision checking.",
+            description:
+              "Write UTF-8 text or base64 spreadsheet content to a project file with optimistic revision checking.",
           }),
         ),
         HttpApiEndpoint.get("status", FilePaths.status, {

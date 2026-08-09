@@ -3,6 +3,7 @@ import { Context } from "effect"
 import path from "path"
 import { HttpApiApp } from "../../src/server/routes/instance/httpapi/server"
 import { FilePaths } from "../../src/server/routes/instance/httpapi/groups/file"
+import { filePreviewPath } from "../../src/server/shared/file-preview-routing"
 import * as Log from "@jyycode-ai/core/util/log"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
@@ -69,6 +70,22 @@ describe("file HttpApi", () => {
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(Uint8Array.from([2, 3, 4, 5, 6]))
   })
 
+  test("serves project resources through browser preview paths", async () => {
+    await using tmp = await tmpdir({ git: false })
+    await Bun.write(path.join(tmp.path, "index.html"), "<link rel=stylesheet href=./styles.css>")
+    await Bun.write(path.join(tmp.path, "styles.css"), "body { color: red; }")
+
+    const route = filePreviewPath({ directory: tmp.path, authToken: "preview-token", path: "index.html" })
+    const page = await request(route, tmp.path)
+    const styles = await request(route.replace("index.html", "styles.css"), tmp.path)
+
+    expect(page.status).toBe(200)
+    expect(page.headers.get("content-type")).toContain("text/html")
+    expect(await page.text()).toContain("styles.css")
+    expect(styles.status).toBe(200)
+    expect(await styles.text()).toContain("color: red")
+  })
+
   test("returns small PPTX files as previewable binary content", async () => {
     await using tmp = await tmpdir({ git: false })
     await Bun.write(path.join(tmp.path, "slides.pptx"), new Uint8Array(77 * 1024))
@@ -123,5 +140,28 @@ describe("file HttpApi", () => {
     })
     expect(conflict.status).toBe(409)
     expect(await conflict.json()).toMatchObject({ name: "FileConflictError" })
+  })
+
+  test("writes scoped base64 spreadsheet content", async () => {
+    await using tmp = await tmpdir({ git: false })
+    const before = Uint8Array.from([0x50, 0x4b, 0x03, 0x04])
+    const after = Uint8Array.from([0x50, 0x4b, 0x05, 0x06])
+    await Bun.write(path.join(tmp.path, "report.xlsx"), before)
+
+    const current = await request(FilePaths.content, tmp.path, { path: "report.xlsx" })
+    const currentBody = await current.json()
+    const saved = await request(FilePaths.content, tmp.path, undefined, {
+      method: "PUT",
+      body: JSON.stringify({
+        path: "report.xlsx",
+        content: Buffer.from(after).toString("base64"),
+        encoding: "base64",
+        revision: currentBody.revision,
+      }),
+      headers: { "content-type": "application/json" },
+    })
+
+    expect(saved.status).toBe(200)
+    expect(await Bun.file(path.join(tmp.path, "report.xlsx")).arrayBuffer()).toEqual(after.buffer)
   })
 })

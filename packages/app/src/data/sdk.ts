@@ -28,4 +28,21 @@ export function createFileMediaUrl(input: {
   return url.toString()
 }
 
+export function createFilePreviewUrl(input: {
+  bootstrap: DesktopBootstrap
+  directory: string
+  path: string
+  workspaceID?: string
+}) {
+  const base = input.bootstrap.baseUrl.replace(/\/+$/, "")
+  const authToken = btoa(`${input.bootstrap.username}:${input.bootstrap.password}`)
+  const segments = [
+    input.directory,
+    input.workspaceID ?? "_",
+    authToken,
+    ...input.path.replaceAll("\\", "/").split("/").filter(Boolean),
+  ].map((value) => encodeURIComponent(value))
+  return new URL(`${base}/file/preview/${segments.join("/")}`).toString()
+}
+
 export type DesktopClient = ReturnType<typeof createDesktopClient>

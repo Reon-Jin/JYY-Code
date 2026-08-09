@@ -2,6 +2,7 @@ export type PreviewKind =
   | "code"
   | "markdown"
   | "text"
+  | "spreadsheet"
   | "pdf"
   | "docx"
   | "pptx"
@@ -37,8 +38,24 @@ const codeExtensions = new Set([
 ])
 
 const markdownExtensions = new Set(["md", "markdown", "mdown", "mkdn", "mdx"])
-const textExtensions = new Set(["conf", "csv", "editorconfig", "env", "ini", "log", "properties", "toml"])
-const imageExtensions = new Set(["apng", "avif", "bmp", "gif", "heic", "heif", "ico", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"])
+const spreadsheetExtensions = new Set(["csv", "tsv", "xls", "xlsx", "xlsm", "xlt", "xltx", "xltm", "xlsb", "ods"])
+const textExtensions = new Set(["conf", "editorconfig", "env", "ini", "log", "properties", "toml"])
+const imageExtensions = new Set([
+  "apng",
+  "avif",
+  "bmp",
+  "gif",
+  "heic",
+  "heif",
+  "ico",
+  "jpeg",
+  "jpg",
+  "png",
+  "svg",
+  "tif",
+  "tiff",
+  "webp",
+])
 const videoExtensions = new Set(["avi", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "webm", "wmv"])
 const audioExtensions = new Set(["aac", "flac", "m4a", "mp3", "oga", "ogg", "wav", "weba", "wma"])
 const binaryExtensions = new Set([
@@ -70,8 +87,13 @@ const binaryExtensions = new Set([
   "wasm",
   "woff",
   "woff2",
+  "xlsb",
+  "xlsm",
   "xls",
   "xz",
+  "xlt",
+  "xltm",
+  "xltx",
   "zip",
 ])
 
@@ -87,6 +109,7 @@ export function previewKind(file: string): PreviewKind {
   const ext = extension(file)
 
   if (ext === "md" || markdownExtensions.has(ext)) return "markdown"
+  if (spreadsheetExtensions.has(ext)) return "spreadsheet"
   if (ext === "html" || ext === "htm") return "html"
   if (codeExtensions.has(ext)) return "code"
   if (textExtensions.has(ext) || !ext) return "text"
@@ -104,7 +127,7 @@ export function previewKind(file: string): PreviewKind {
 
 export function isEditableText(file: string): boolean {
   const kind = previewKind(file)
-  return kind === "code" || kind === "markdown" || kind === "text"
+  return kind === "code" || kind === "markdown" || kind === "text" || kind === "html"
 }
 
 export function isHiddenFileNode(
