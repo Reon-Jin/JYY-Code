@@ -42,6 +42,7 @@ import { Global } from "@jyycode-ai/core/global"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { NonNegativeInt, optionalOmitUndefined } from "@jyycode-ai/core/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { makeService as makeBlobService } from "@/storage/blob"
 
 const log = Log.create({ service: "session" })
 
@@ -553,6 +554,7 @@ export const layer: Layer.Layer<
     const storage = yield* Storage.Service
     const sync = yield* SyncEvent.Service
     const flags = yield* RuntimeFlags.Service
+    const blobs = makeBlobService()
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
@@ -661,12 +663,14 @@ export const layer: Layer.Layer<
 
     const updatePart = <T extends MessageV2.Part>(part: T): Effect.Effect<T> =>
       Effect.gen(function* () {
+        const normalized = yield* blobs.normalizePart(part).pipe(Effect.orDie)
         yield* sync.run(MessageV2.Event.PartUpdated, {
           sessionID: part.sessionID,
-          part: structuredClone(part),
+          part: structuredClone(normalized.part),
           time: Date.now(),
         })
-        return part
+        yield* blobs.attachPart(normalized.part, normalized.records).pipe(Effect.catchCause(() => Effect.void))
+        return normalized.part as T
       }).pipe(Effect.withSpan("Session.updatePart"))
 
     const getPart: Interface["getPart"] = Effect.fn("Session.getPart")(function* (input) {

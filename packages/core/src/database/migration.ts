@@ -9,6 +9,7 @@ import schema from "./schema.gen"
 type Database = EffectDrizzleSqlite.EffectSQLiteDatabase
 type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0]
 const lock = Semaphore.makeUnsafe(1)
+const normalizeLegacyMigrationId = (id: string) => id.replaceAll("_", "").replaceAll("-", "")
 
 export type Migration = {
   readonly id: string
@@ -70,7 +71,11 @@ export function applyOnly(db: Database, input: readonly Migration[]) {
     }
 
     for (const migration of input) {
-      if (completed.has(migration.id)) continue
+      // Drizzle's generated folder names may retain hyphens while the TypeScript
+      // module identifier uses underscores. Treat the filesystem spelling as a
+      // legacy alias so upgrading an existing database does not rerun a DDL step.
+      const normalizedID = normalizeLegacyMigrationId(migration.id)
+      if ([...completed].some((id) => normalizeLegacyMigrationId(id) === normalizedID)) continue
       yield* db.transaction((tx) =>
         Effect.gen(function* () {
           yield* migration.up(tx)

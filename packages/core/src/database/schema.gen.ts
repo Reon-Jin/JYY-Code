@@ -30,6 +30,10 @@ const statements = [
   "CREATE INDEX `blackboard_message_parent_idx` ON `blackboard_message` (`parent_message_id`);",
   "CREATE INDEX `blackboard_message_task_task_idx` ON `blackboard_message_task` (`task_id`);",
   "CREATE INDEX `todo_session_idx` ON `todo` (`session_id`);;",
+  "CREATE TABLE `blob` (\n\t`digest` text PRIMARY KEY,\n\t`size` integer NOT NULL,\n\t`mime` text NOT NULL,\n\t`created_at` integer NOT NULL,\n\t`verified_at` integer NOT NULL,\n\t`last_ref_removed_at` integer\n);",
+  "CREATE TABLE `blob_ref` (\n\t`part_id` text NOT NULL,\n\t`slot` text NOT NULL,\n\t`digest` text NOT NULL,\n\t`created_at` integer NOT NULL,\n\tCONSTRAINT `blob_ref_pk` PRIMARY KEY(`part_id`, `slot`),\n\tCONSTRAINT `fk_blob_ref_part_id_part_id_fk` FOREIGN KEY (`part_id`) REFERENCES `part`(`id`) ON DELETE CASCADE,\n\tCONSTRAINT `fk_blob_ref_digest_blob_digest_fk` FOREIGN KEY (`digest`) REFERENCES `blob`(`digest`) ON DELETE RESTRICT\n);",
+  "CREATE INDEX `blob_ref_digest_idx` ON `blob_ref` (`digest`);",
+  "CREATE INDEX `blob_verified_idx` ON `blob` (`verified_at`);",
 ] as const
 
 export default {

@@ -27,6 +27,7 @@ import * as EffectLogger from "@jyycode-ai/core/effect/logger"
 import { MessageError } from "./message-error"
 import { AuthError, OutputLengthError } from "./message-error"
 import { CompactionCheckpointSchema } from "./compaction-checkpoint"
+import { BlobStore } from "@/storage/blob"
 export { AuthError, OutputLengthError } from "./message-error"
 
 /** Error shape thrown by Bun's fetch() when gzip/br decompression fails mid-stream */
@@ -647,6 +648,13 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
   options?: { stripMedia?: boolean; toolOutputMaxChars?: number },
 ) {
   const result: UIMessage[] = []
+  const blobs = new BlobStore()
+  const resolveAttachment = (attachment: { mime: string; url: string; filename?: string }) =>
+    attachment.url.startsWith("blob:") || attachment.url.startsWith("file:")
+      ? Effect.promise(() => blobs.toDataURL(attachment.url, attachment.mime)).pipe(
+          Effect.map((url) => ({ ...attachment, url })),
+        )
+      : Effect.succeed(attachment)
   const toolNames = new Set<string>()
   // Track media from tool results that need to be injected as user messages
   // for providers that don't support that media type in tool results.
@@ -728,9 +736,10 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
               text: `[Attached ${part.mime}: ${part.filename ?? "file"}]`,
             })
           } else {
+            const url = yield* resolveAttachment(part).pipe(Effect.map((attachment) => attachment.url))
             userMessage.parts.push({
               type: "file",
-              url: part.url,
+              url,
               mediaType: part.mime,
               filename: part.filename,
             })
@@ -806,15 +815,16 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
               ? "[Old tool result content cleared]"
               : truncateToolOutput(part.state.output, options?.toolOutputMaxChars)
             const attachments = part.state.time.compacted || options?.stripMedia ? [] : (part.state.attachments ?? [])
+            const resolvedAttachments = yield* Effect.forEach(attachments, resolveAttachment, { concurrency: 1 })
 
             // For providers that don't support media in tool results, extract media files
             // (images, PDFs) to be sent as a separate user message
-            const mediaAttachments = attachments.filter((a) => isMedia(a.mime))
+            const mediaAttachments = resolvedAttachments.filter((a) => isMedia(a.mime))
             const extractedMedia = mediaAttachments.filter((a) => !supportsMediaInToolResult(a))
             if (extractedMedia.length > 0) {
               media.push(...extractedMedia)
             }
-            const finalAttachments = attachments.filter((a) => !isMedia(a.mime) || supportsMediaInToolResult(a))
+            const finalAttachments = resolvedAttachments.filter((a) => !isMedia(a.mime) || supportsMediaInToolResult(a))
 
             const output =
               finalAttachments.length > 0
