@@ -284,7 +284,10 @@ function conflictSummary(
     ...(main ? { main_path: path.join(roots.main, relative.replaceAll("/", path.sep)) } : {}),
     ...(child ? { child_path: path.join(roots.child, relative.replaceAll("/", path.sep)) } : {}),
     ...(base ? { base_path: path.join(roots.base, relative.replaceAll("/", path.sep)) } : {}),
-    fingerprint: hashText(`${kind}\0${base?.hash ?? ""}\0${main?.hash ?? ""}\0${child?.hash ?? ""}`),
+    // Keep the fingerprint stable when the parent edits the conflicted file
+    // between attempts. The base/child pair is the merge input that a
+    // resolution is authorizing; a changed child must invalidate that retry.
+    fingerprint: hashText(`${kind}\0${base?.hash ?? ""}\0${child?.hash ?? ""}`),
   }
 }
 

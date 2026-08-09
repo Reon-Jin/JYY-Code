@@ -51,7 +51,7 @@ import { assertInside, assertOutputArtifact, resolveInside } from "./path-guard"
 import { ChildWorkspace, type WorkspaceHandle, type WorkspaceReservation } from "./child-workspace"
 import { markPlanSessionActive } from "./recovery"
 import { runtimeMetricPayload, type RuntimeMetricInput } from "./runtime-event"
-import { applyWorkspaceMerge, workspaceFingerprint, type WorkspaceMergeTransactionResult } from "./workspace-merge"
+import { applyWorkspaceMerge, planWorkspaceMerge, workspaceFingerprint, type WorkspaceMergeTransactionResult } from "./workspace-merge"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -2357,6 +2357,7 @@ export class PlanProtocol {
     }>
   > {
     const startedAt = this.now()
+    let mergeStarted = false
     try {
       assertMain(ctx)
       assertMode(ctx, "multi", "Merge.apply")
@@ -2462,7 +2463,27 @@ export class PlanProtocol {
           })
       }
 
-      const started = await this.write(ctx, (latest) => {
+      if (workspace.mode === "shared_compat" && (value.paths?.length || value.resolutions?.length))
+        inputError("paths and resolutions require an isolated task workspace")
+
+      if (workspace.mode !== "shared_compat") {
+        const preflight = planWorkspaceMerge({
+          base: baseDirectory!,
+          main: mainRoot,
+          child: childDirectory!,
+          paths: value.paths,
+        })
+        const currentConflicts = new Map(preflight.conflicts.map((conflict) => [conflict.path, conflict]))
+        for (const resolution of value.resolutions ?? []) {
+          const current = currentConflicts.get(resolution.path)
+          if (!current) inputError(`resolution does not name an unresolved conflict: ${resolution.path}`)
+          const previous = task.merge?.conflicts.find((conflict) => conflict.path === resolution.path)
+          if (!previous || previous.fingerprint !== current.fingerprint)
+            inputError(`resolution is stale for conflict: ${resolution.path}`, "re-read the conflict and retry with a current resolution")
+        }
+      }
+
+      await this.write(ctx, (latest) => {
         if (!latest) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "plan not found", hint: "read the current plan" })
         const next = clonePlan(latest)
         const target = next.steps.flatMap((item) => item.tasks).find((item) => item.id === value.task_id)
@@ -2489,7 +2510,13 @@ export class PlanProtocol {
           result: { started: true },
         }
       })
-      void started
+      mergeStarted = true
+      this.metric(ctx.sessionId, {
+        metric: "merge",
+        phase: "started",
+        outcome: "running",
+        duration_ms: Math.max(0, this.now() - startedAt),
+      })
 
       let transaction: WorkspaceMergeTransactionResult
       if (workspace.mode === "shared_compat") {
@@ -2512,6 +2539,7 @@ export class PlanProtocol {
         })
       }
 
+      const boundedConflicts = transaction.conflicts.slice(0, 50)
       const finalStatus = transaction.status === "conflict" ? "conflict" : transaction.status === "merged" || transaction.status === "already_merged" ? "merged" : "failed"
       await this.write(ctx, (latest) => {
         if (!latest) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "plan disappeared during Merge.apply", hint: "read the latest plan and retry" })
@@ -2521,7 +2549,7 @@ export class PlanProtocol {
           throw new PlanProtocolError({ code: ERROR_CODES.RUN_STALE, message: "task run changed during Merge.apply", hint: "stop and read the latest plan" })
         target.merge.status = finalStatus
         target.merge.applied_paths = [...new Set([...target.merge.applied_paths, ...transaction.applied_paths])].sort((left, right) => left.localeCompare(right))
-        target.merge.conflicts = transaction.conflicts
+        target.merge.conflicts = boundedConflicts
         target.merge.target_fingerprint = transaction.target_fingerprint
         target.merge.completed_at = nowIso(this.now)
         target.merge.error = transaction.error
@@ -2572,12 +2600,40 @@ export class PlanProtocol {
           }
         })
       }
+      if (finalStatus === "conflict") {
+        const conflictKey = boundedConflicts.map((conflict) => `${conflict.path}:${conflict.kind}:${conflict.fingerprint}`).join("|")
+        this.inbox.add({
+          session_id: ctx.sessionId,
+          task_id: task.id,
+          run_id: task.dispatch.run_id,
+          kind: "merge_conflict",
+          message: `Merge conflict for ${task.id}: ${boundedConflicts
+            .map((conflict) => `${conflict.path} (${conflict.kind}) [${conflict.fingerprint}]`)
+            .join(", ")}`,
+          suggested_actions: [
+            "inspect the reported main_path/base_path/child_path",
+            "edit the parent file and retry Merge.apply with an explicit resolution",
+          ],
+        })
+        const event = this.publish({
+          type: "user_message",
+          session_id: ctx.sessionId,
+          payload: {
+            kind: "merge_conflict",
+            task_id: task.id,
+            run_id: task.dispatch.run_id,
+            conflicts: boundedConflicts,
+            dedupe_key: `merge_conflict:${task.id}:${conflictKey}`,
+          },
+        }) as WakeupEvent
+        this.wakeups.push(event)
+      }
       const after = this.store.read(this.path(ctx))
       const mergedTask = after?.steps.flatMap((item) => item.tasks).find((item) => item.id === task.id)
       const status = transaction.status === "already_merged" ? "already_merged" : finalStatus
       this.metric(ctx.sessionId, {
         metric: "merge",
-        phase: "apply",
+        phase: status === "conflict" ? "conflict" : status === "failed" ? "failed" : "completed",
         outcome: status,
         duration_ms: Math.max(0, this.now() - startedAt),
         count: transaction.applied_paths.length,
@@ -2587,7 +2643,7 @@ export class PlanProtocol {
         status,
         task_id: task.id,
         applied_paths: transaction.applied_paths,
-        conflicts: transaction.conflicts,
+        conflicts: boundedConflicts,
         cleanup: mergedTask?.merge?.cleanup ?? "not_started",
         next_action_hint:
           status === "conflict"
@@ -2597,6 +2653,13 @@ export class PlanProtocol {
               : "merge completed; continue with the current Step",
       }
     } catch (error) {
+      if (mergeStarted)
+        this.metric(ctx.sessionId, {
+          metric: "merge",
+          phase: "failed",
+          outcome: "failed",
+          duration_ms: Math.max(0, this.now() - startedAt),
+        })
       return responseFromError(error)
     }
   }

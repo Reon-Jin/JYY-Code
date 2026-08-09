@@ -767,6 +767,130 @@ describe("file-backed plan protocol", () => {
     }
   })
 
+  it("applies clean paths before surfacing deduped conflicts and accepts a main resolution", async () => {
+    const root = workspace()
+    const runtime = fs.mkdtempSync(path.join(os.tmpdir(), "jyycode-merge-conflict-runtime-"))
+    let childRoot = ""
+    let childOutput = ""
+    try {
+      fs.mkdirSync(path.join(root, "src"), { recursive: true })
+      fs.writeFileSync(path.join(root, "src", "config.ts"), "base\n")
+      const protocol = new PlanProtocol({
+        childWorkspace: new ChildWorkspace({ project: { root, vcs: "none" }, runtimeRoot: runtime }),
+        children: {
+          async create(input) {
+            childRoot = path.dirname(path.dirname(input.brief.output_path))
+            childOutput = input.brief.output_path
+            return input.childSessionId
+          },
+          async start() {},
+          async terminate() {},
+        },
+      })
+      await protocol.create(context(root), createInput("out/result.md"))
+      const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+      expect(dispatched).toMatchObject({ ok: true })
+      if (!dispatched.ok) return
+      fs.mkdirSync(path.dirname(childOutput), { recursive: true })
+      fs.writeFileSync(childOutput, "report\n")
+      fs.writeFileSync(path.join(childRoot, "src", "config.ts"), "child\n")
+      const runId = dispatched.dispatched[0]!.run_id
+      await protocol.report(
+        { workspaceRoot: childRoot, sessionId: "child_s1_t1", mode: "single", runId },
+        { run_id: runId, status: "done", summary: "ready", artifacts: [childOutput], issues: [] },
+      )
+      const before = await protocol.read(context(root))
+      if (!before.ok || !before.plan) return
+      await protocol.update(context(root), {
+        revision: before.plan.revision,
+        ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
+      })
+      fs.writeFileSync(path.join(root, "src", "config.ts"), "main\n")
+      protocol.drainWakeups("ses_main")
+
+      const first = await mergeApply(protocol, root, { task_id: "s1_t1" })
+      expect(first).toMatchObject({ ok: true, status: "conflict", applied_paths: ["out/result.md"] })
+      expect(fs.readFileSync(path.join(root, "src", "config.ts"), "utf8")).toBe("main\n")
+      expect(protocol.inboxEntries(context(root))).toHaveLength(1)
+      expect(protocol.inboxEntries(context(root))[0]).toMatchObject({ kind: "merge_conflict", task_id: "s1_t1" })
+      expect(protocol.drainWakeups("ses_main")).toHaveLength(1)
+
+      const repeated = await mergeApply(protocol, root, { task_id: "s1_t1" })
+      expect(repeated).toMatchObject({ ok: true, status: "conflict" })
+      expect(protocol.inboxEntries(context(root))).toHaveLength(1)
+      expect(protocol.drainWakeups("ses_main")).toHaveLength(1)
+
+      const unknown = await mergeApply(protocol, root, { task_id: "s1_t1", resolutions: [{ path: "missing.ts", use: "main" }] })
+      expect(unknown).toMatchObject({ ok: false, error: { code: expect.any(String) } })
+      expect(fs.readFileSync(path.join(root, "src", "config.ts"), "utf8")).toBe("main\n")
+
+      fs.writeFileSync(path.join(root, "src", "config.ts"), "main-resolved\n")
+      const resolved = await mergeApply(protocol, root, {
+        task_id: "s1_t1",
+        resolutions: [{ path: "src/config.ts", use: "main" }],
+      })
+      expect(resolved).toMatchObject({ ok: true, status: "merged", cleanup: "completed" })
+      expect(fs.readFileSync(path.join(root, "src", "config.ts"), "utf8")).toBe("main-resolved\n")
+      expect(fs.existsSync(childRoot)).toBe(false)
+    } finally {
+      fs.rmSync(runtime, { recursive: true, force: true })
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("allows an explicit child resolution to overwrite the parent conflict", async () => {
+    const root = workspace()
+    const runtime = fs.mkdtempSync(path.join(os.tmpdir(), "jyycode-merge-child-resolution-"))
+    let childRoot = ""
+    let childOutput = ""
+    try {
+      fs.mkdirSync(path.join(root, "src"), { recursive: true })
+      fs.writeFileSync(path.join(root, "src", "config.ts"), "base\n")
+      const protocol = new PlanProtocol({
+        childWorkspace: new ChildWorkspace({ project: { root, vcs: "none" }, runtimeRoot: runtime }),
+        children: {
+          async create(input) {
+            childRoot = path.dirname(path.dirname(input.brief.output_path))
+            childOutput = input.brief.output_path
+            return input.childSessionId
+          },
+          async start() {},
+          async terminate() {},
+        },
+      })
+      await protocol.create(context(root), createInput("out/result.md"))
+      const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+      expect(dispatched).toMatchObject({ ok: true })
+      if (!dispatched.ok) return
+      fs.mkdirSync(path.dirname(childOutput), { recursive: true })
+      fs.writeFileSync(childOutput, "report\n")
+      fs.writeFileSync(path.join(childRoot, "src", "config.ts"), "child\n")
+      const runId = dispatched.dispatched[0]!.run_id
+      await protocol.report(
+        { workspaceRoot: childRoot, sessionId: "child_s1_t1", mode: "single", runId },
+        { run_id: runId, status: "done", summary: "ready", artifacts: [childOutput], issues: [] },
+      )
+      const before = await protocol.read(context(root))
+      if (!before.ok || !before.plan) return
+      await protocol.update(context(root), {
+        revision: before.plan.revision,
+        ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
+      })
+      fs.writeFileSync(path.join(root, "src", "config.ts"), "main\n")
+      expect(await mergeApply(protocol, root, { task_id: "s1_t1" })).toMatchObject({ ok: true, status: "conflict" })
+
+      const resolved = await mergeApply(protocol, root, {
+        task_id: "s1_t1",
+        resolutions: [{ path: "src/config.ts", use: "child" }],
+      })
+      expect(resolved).toMatchObject({ ok: true, status: "merged" })
+      expect(fs.readFileSync(path.join(root, "src", "config.ts"), "utf8")).toBe("child\n")
+    } finally {
+      fs.rmSync(runtime, { recursive: true, force: true })
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("normalizes legacy plans and validates durable merge metadata", async () => {
     const root = workspace()
     const protocol = new PlanProtocol()
