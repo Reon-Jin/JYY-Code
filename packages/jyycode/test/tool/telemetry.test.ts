@@ -121,6 +121,59 @@ function processor() {
 }
 
 describe("ToolTelemetry", () => {
+  it.instance("preserves the tool start time across metadata updates", () =>
+    Effect.gen(function* () {
+      const started = Date.now() - 5_000
+      let state: any = { status: "running", input: {}, time: { start: started } }
+      const layer = registryLayer([
+        def("lookup", (_args, ctx) =>
+          Effect.gen(function* () {
+            yield* ctx.metadata({ title: "Lookup", metadata: { phase: "start" } })
+            yield* Effect.sleep("20 millis")
+            yield* ctx.metadata({ title: "Lookup", metadata: { phase: "end" } })
+            return { title: "Lookup", output: "ok", metadata: {} }
+          }),
+        ),
+      ])
+      const processorWithState = {
+        ...processor(),
+        updateToolCall: (_id: string, update: (part: any) => any) =>
+          Effect.sync(() => {
+            const part = update({
+              id: "part_tool",
+              messageID: message.id,
+              sessionID: session.id,
+              type: "tool",
+              callID: "call_duration",
+              tool: "lookup",
+              state,
+            })
+            state = part.state
+            return part
+          }),
+      }
+
+      const tools = yield* SessionTools.resolve({
+        agent,
+        model: provider.model,
+        session,
+        processor: processorWithState,
+        bypassAgentCheck: false,
+        messages: [],
+        promptOps: {},
+      } as any).pipe(Effect.provide(layer))
+
+      yield* Effect.promise(() =>
+        (tools.lookup as any).execute(
+          { query: "weather" },
+          { toolCallId: "call_duration", abortSignal: new AbortController().signal },
+        ),
+      )
+
+      expect(state.time.start).toBe(started)
+    }),
+  )
+
   it.instance("publishes catalog resolution events from session tool resolution", () =>
     Effect.gen(function* () {
       const events: Array<{ type: string; properties: any }> = []

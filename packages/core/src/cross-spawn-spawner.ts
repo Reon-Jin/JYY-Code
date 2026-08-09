@@ -294,9 +294,12 @@ export const make = Effect.gen(function* () {
   ) => {
     if (globalThis.process.platform === "win32") {
       return Effect.callback<void, PlatformError.PlatformError>((resume) => {
-        NodeChildProcess.exec(`taskkill /pid ${proc.pid} /T /F`, { windowsHide: true }, (err) => {
+        const killer = NodeChildProcess.exec(`taskkill /pid ${proc.pid} /T /F`, { windowsHide: true }, (err) => {
           if (err) return resume(Effect.fail(toPlatformError("kill", toError(err), command)))
           resume(Effect.void)
+        })
+        return Effect.sync(() => {
+          if (killer.exitCode === null) killer.kill()
         })
       })
     }
@@ -393,7 +396,11 @@ export const make = Effect.gen(function* () {
               const escalated = command.options.forceKillAfter
                 ? Effect.timeoutOrElse(attempt, {
                     duration: command.options.forceKillAfter,
-                    orElse: () => send("SIGKILL").pipe(Effect.andThen(Deferred.await(signal)), Effect.asVoid),
+                    orElse: () =>
+                      Effect.timeoutOrElse(send("SIGKILL").pipe(Effect.andThen(Deferred.await(signal)), Effect.asVoid), {
+                        duration: command.options.forceKillAfter!,
+                        orElse: () => Effect.void,
+                      }),
                   })
                 : attempt
               return yield* Effect.ignore(escalated)
@@ -430,7 +437,11 @@ export const make = Effect.gen(function* () {
               if (!opts?.forceKillAfter) return attempt
               return Effect.timeoutOrElse(attempt, {
                 duration: opts.forceKillAfter,
-                orElse: () => send("SIGKILL").pipe(Effect.andThen(Deferred.await(signal)), Effect.asVoid),
+                orElse: () =>
+                  Effect.timeoutOrElse(send("SIGKILL").pipe(Effect.andThen(Deferred.await(signal)), Effect.asVoid), {
+                    duration: opts.forceKillAfter!,
+                    orElse: () => Effect.void,
+                  }),
               })
             },
             unref: Effect.sync(() => {

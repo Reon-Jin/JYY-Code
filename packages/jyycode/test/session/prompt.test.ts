@@ -257,7 +257,12 @@ function makePrompt(input?: {
   processor?: "blocking"
   memory?: Layer.Layer<Memory.Service>
   experience?: Layer.Layer<ExperienceMemory.Service>
+  bashDefaultTimeoutMs?: number
 }) {
+  const runtimeFlags = RuntimeFlags.layer({
+    experimentalEventSystem: true,
+    ...(input?.bashDefaultTimeoutMs !== undefined ? { bashDefaultTimeoutMs: input.bashDefaultTimeoutMs } : {}),
+  })
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -289,7 +294,7 @@ function makePrompt(input?: {
     Layer.provide(Reference.defaultLayer),
     Layer.provide(Ripgrep.defaultLayer),
     Layer.provide(Format.defaultLayer),
-    Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
+    Layer.provide(runtimeFlags),
     Layer.provideMerge(todo),
     Layer.provideMerge(question),
     Layer.provideMerge(deps),
@@ -301,11 +306,11 @@ function makePrompt(input?: {
       : SessionProcessor.layer.pipe(
           Layer.provide(summary),
           Layer.provide(Image.defaultLayer),
-          Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
+          Layer.provide(runtimeFlags),
           Layer.provideMerge(deps),
         )
   const compact = SessionCompaction.layer.pipe(
-    Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
+    Layer.provide(runtimeFlags),
     Layer.provideMerge(proc),
     Layer.provideMerge(deps),
   )
@@ -323,7 +328,7 @@ function makePrompt(input?: {
     Layer.provideMerge(trunc),
     Layer.provide(Instruction.defaultLayer),
     Layer.provide(SystemPrompt.defaultLayer),
-    Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
+    Layer.provide(runtimeFlags),
     Layer.provideMerge(deps),
     Layer.provide(summary),
   )
@@ -337,6 +342,7 @@ function makeHttp(input?: {
   processor?: "blocking"
   memory?: Layer.Layer<Memory.Service>
   experience?: Layer.Layer<ExperienceMemory.Service>
+  bashDefaultTimeoutMs?: number
 }) {
   return Layer.mergeAll(TestLLMServer.layer, makePrompt(input))
 }
@@ -345,6 +351,7 @@ function makeHttpNoLLMServer(input?: {
   processor?: "blocking"
   memory?: Layer.Layer<Memory.Service>
   experience?: Layer.Layer<ExperienceMemory.Service>
+  bashDefaultTimeoutMs?: number
 }) {
   return makePrompt(input)
 }
@@ -354,6 +361,7 @@ const withMemory = testEffect(makeHttp({ memory: memoryLifecycleLayer }))
 const withMemoryLifecycle = testEffect(makeHttp({ memory: memoryLifecycleLayer }))
 const withMemoryFailure = testEffect(makeHttp({ memory: memoryFailureLayer }))
 const noLLMServer = testEffect(makeHttpNoLLMServer())
+const timeoutNoLLMServer = testEffect(makeHttpNoLLMServer({ bashDefaultTimeoutMs: 200 }))
 const raceNoLLMServer = testEffect(makeHttpNoLLMServer({ processor: "blocking" }))
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
 const unixNoLLMServer = process.platform !== "win32" ? noLLMServer.instance : noLLMServer.instance.skip
@@ -2115,6 +2123,25 @@ unixNoLLMServer(
     ),
   { config: { ...cfg, shell: "bash" } },
   30_000,
+)
+
+timeoutNoLLMServer.instance(
+  "shell terminates commands that exceed the default timeout",
+  () =>
+    Effect.gen(function* () {
+      const { prompt, chat } = yield* boot()
+      const result = yield* prompt.shell({
+        sessionID: chat.id,
+        agent: "build",
+        command: process.platform === "win32" ? "Start-Sleep -Seconds 30" : "sleep 30",
+      })
+
+      const tool = completedTool(result.parts)
+      if (!tool) return
+      expect(tool.state.output).toContain("exceeding timeout 200 ms")
+    }),
+  { config: cfg },
+  10_000,
 )
 
 unixNoLLMServer(

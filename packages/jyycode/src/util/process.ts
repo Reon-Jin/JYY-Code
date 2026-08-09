@@ -153,11 +153,18 @@ export async function stop(proc: ChildProcess) {
     return
   }
 
-  const out = await run(["taskkill", "/pid", String(proc.pid), "/T", "/F"], {
-    nothrow: true,
-  })
-
-  if (out.code === 0) return
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(), 3_000)
+  try {
+    const out = await run(["taskkill", "/pid", String(proc.pid), "/T", "/F"], {
+      nothrow: true,
+      abort: abort.signal,
+      timeout: 250,
+    })
+    if (out.code === 0) return
+  } finally {
+    clearTimeout(timer)
+  }
   proc.kill()
 }
 

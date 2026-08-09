@@ -54,13 +54,18 @@ function decodeBase64(value: string) {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0))
 }
 
-export function contentBytes(content: FileContent | undefined) {
-  if (!content?.content || content.encoding !== "base64") return undefined
+function decodeBase64Content(value: string | undefined) {
+  if (!value) return undefined
   try {
-    return decodeBase64(content.content)
+    return decodeBase64(value)
   } catch {
     return undefined
   }
+}
+
+export function contentBytes(content: FileContent | undefined) {
+  if (!content?.content || content.encoding !== "base64") return undefined
+  return decodeBase64Content(content.content)
 }
 
 export function contentDataUrl(content: FileContent | undefined) {
@@ -154,6 +159,7 @@ function PdfPreview(props: { content: FileContent }) {
   let activeRenderTask: { cancel: () => void } | undefined
   let renderRequest = 0
   let loadGeneration = 0
+  const encodedContent = createMemo(() => (props.content.encoding === "base64" ? props.content.content : undefined))
 
   const onWheel = (event: WheelEvent) => {
     if (!event.ctrlKey) return
@@ -162,7 +168,7 @@ function PdfPreview(props: { content: FileContent }) {
   }
 
   createEffect(() => {
-    const data = contentBytes(props.content)
+    const data = decodeBase64Content(encodedContent())
     if (!host) return
     let cancelled = false
     let currentLoadingTask: PDFDocumentLoadingTask | undefined
@@ -295,10 +301,10 @@ function DocxPreview(props: { content: FileContent }) {
   const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
   const [message, setMessage] = createSignal<string>()
   const [html, setHtml] = createSignal<string>()
-  const bytes = () => contentBytes(props.content)
+  const encodedContent = createMemo(() => (props.content.encoding === "base64" ? props.content.content : undefined))
 
   createEffect(() => {
-    const data = bytes()
+    const data = decodeBase64Content(encodedContent())
     if (!host) return
     let cancelled = false
     host.replaceChildren()
@@ -400,9 +406,10 @@ function PptxPreview(props: { content: FileContent }) {
   let host: HTMLDivElement | undefined
   const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
   const [message, setMessage] = createSignal<string>()
+  const encodedContent = createMemo(() => (props.content.encoding === "base64" ? props.content.content : undefined))
 
   createEffect(() => {
-    const data = contentBytes(props.content)
+    const data = decodeBase64Content(encodedContent())
     if (!host) return
     let cancelled = false
     let viewer: { destroy: () => void } | undefined

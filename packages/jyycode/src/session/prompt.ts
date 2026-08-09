@@ -42,7 +42,7 @@ import { Truncate } from "@/tool/truncate"
 import { Image } from "@/image/image"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
-import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
+import { Cause, Effect, Exit, Fiber, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import * as EffectLogger from "@jyycode-ai/core/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
 import type { TaskPromptOps } from "./tools"
@@ -612,8 +612,10 @@ export const layer = Layer.effect(
           const cfg = yield* config.get()
           const sh = Shell.preferred(cfg.shell)
           const args = Shell.args(sh, input.command, cwd)
+          const timeout = flags.bashDefaultTimeoutMs ?? 2 * 60 * 1000
           let output = ""
           let aborted = false
+          let expired = false
 
           const finish = Effect.uninterruptible(
             Effect.gen(function* () {
@@ -662,21 +664,40 @@ export const layer = Layer.effect(
                 forceKillAfter: "3 seconds",
               })
               const handle = yield* spawner.spawn(cmd)
-              yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>
-                Effect.gen(function* () {
-                  output += chunk
-                  if (part.state.status === "running") {
-                    part.state.metadata = { output, description: "" }
-                    yield* sessions.updatePart(part)
-                  }
-                }),
+              const outputFiber = yield* Effect.forkScoped(
+                Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>
+                  Effect.gen(function* () {
+                    output += chunk
+                    if (part.state.status === "running") {
+                      part.state.metadata = { output, description: "" }
+                      yield* sessions.updatePart(part)
+                    }
+                  }),
+                ),
               )
-              yield* handle.exitCode
+              const result = yield* Effect.race(
+                handle.exitCode.pipe(Effect.map((code) => ({ kind: "exit" as const, code }))),
+                Effect.sleep(`${timeout + 100} millis`).pipe(
+                  Effect.map(() => ({ kind: "timeout" as const, code: null })),
+                ),
+              )
+              if (result.kind === "timeout") {
+                expired = true
+                yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.ignore)
+                yield* Fiber.join(outputFiber).pipe(Effect.timeoutOption("2 seconds"), Effect.ignore)
+              } else {
+                yield* Fiber.join(outputFiber)
+              }
             }).pipe(Effect.scoped, Effect.orDie),
           ).pipe(Effect.exit)
 
           if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause) && !Cause.hasDies(exit.cause)) {
             aborted = true
+          }
+          if (expired) {
+            output +=
+              `\n\n<metadata>\nshell tool terminated command after exceeding timeout ${timeout} ms. ` +
+              "If this command is expected to take longer and is not waiting for interactive input, retry with a larger timeout value in milliseconds.\n</metadata>"
           }
           yield* finish
 

@@ -1,11 +1,37 @@
 import { describe, expect } from "bun:test"
-import { Effect } from "effect"
-import { ChildProcess } from "effect/unstable/process"
+import { Effect, Layer, Stream } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { BackgroundProcess } from "@/process/job"
+import * as Truncate from "@/tool/truncate"
 import { testEffect } from "../lib/effect"
 import { pollWithTimeout } from "../lib/effect"
 
 const it = testEffect(BackgroundProcess.defaultLayer)
+
+const stalledSpawner = Layer.succeed(
+  ChildProcessSpawner.ChildProcessSpawner,
+  ChildProcessSpawner.make(() =>
+    Effect.succeed(
+      ChildProcessSpawner.makeHandle({
+        pid: ChildProcessSpawner.ProcessId(1),
+        exitCode: Effect.never,
+        isRunning: Effect.succeed(true),
+        kill: () => Effect.never,
+        stdin: { [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") } as any,
+        stdout: Stream.empty,
+        stderr: Stream.empty,
+        all: Stream.empty,
+        getInputFd: () => ({ [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") }) as any,
+        getOutputFd: () => Stream.empty,
+        unref: Effect.succeed(Effect.void),
+      }),
+    ),
+  ),
+)
+
+const stalledIt = testEffect(
+  BackgroundProcess.layer.pipe(Layer.provide(stalledSpawner), Layer.provide(Truncate.defaultLayer)),
+)
 
 describe("process.job", () => {
   it.instance("starts a process and captures output while running", () =>
@@ -45,6 +71,25 @@ describe("process.job", () => {
       const output = yield* service.output({ id: "proc_missing" })
 
       expect(output.info).toBeUndefined()
+    }),
+  )
+
+  stalledIt.live("finishes a kill when the child handle never responds", () =>
+    Effect.gen(function* () {
+      const service = yield* BackgroundProcess.Service
+      const proc = yield* service.start({
+        command: ChildProcess.make("ignored"),
+        rawCommand: "ignored",
+        cwd: process.cwd(),
+        env: process.env,
+        title: "stalled process",
+      })
+
+      const started = Date.now()
+      const result = yield* service.kill({ id: proc.id, forceAfterMs: 50 })
+
+      expect(Date.now() - started).toBeLessThan(1_000)
+      expect(result?.status).toBe("cancelled")
     }),
   )
 })

@@ -188,8 +188,14 @@ export const layer = Layer.effect(
       const active = (yield* SynchronizedRef.get(processes)).get(input.id)
       if (!active) return undefined
       if (!active.handle || active.info.status !== "running") return snapshot(active)
-      yield* active.handle.kill({ forceKillAfter: `${input.forceAfterMs ?? 3000} millis` }).pipe(Effect.ignore)
-      yield* active.handle.exitCode.pipe(Effect.timeoutOption("2 seconds"), Effect.ignore)
+      const forceAfterMs = Math.max(input.forceAfterMs ?? 3000, 50)
+      const killBudgetMs = Math.max(forceAfterMs * 2, 100)
+      const exitWaitMs = Math.min(Math.max(forceAfterMs, 100), 2000)
+      yield* active.handle.kill({ forceKillAfter: `${forceAfterMs} millis` }).pipe(
+        Effect.timeoutOption(`${killBudgetMs} millis`),
+        Effect.ignore,
+      )
+      yield* active.handle.exitCode.pipe(Effect.timeoutOption(`${exitWaitMs} millis`), Effect.ignore)
       return yield* finish(input.id, "cancelled", { exit: null })
     })
 

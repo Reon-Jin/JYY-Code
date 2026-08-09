@@ -5,7 +5,11 @@ import { type ChildProcess, spawnSync } from "node:child_process"
 export function stop(proc: ChildProcess) {
   if (proc.exitCode !== null || proc.signalCode !== null) return
   if (process.platform === "win32" && proc.pid) {
-    const out = spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"], { windowsHide: true })
+    const out = spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"], {
+      windowsHide: true,
+      timeout: 3_000,
+      killSignal: "SIGKILL",
+    })
     if (!out.error && out.status === 0) return
   }
   proc.kill()

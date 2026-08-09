@@ -496,6 +496,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     metadata: (val) =>
       input.processor.updateToolCall(options.toolCallId, (match) => {
         if (!["running", "pending"].includes(match.state.status)) return match
+        const started = match.state.status === "running" ? match.state.time.start : Date.now()
         return {
           ...match,
           state: {
@@ -503,7 +504,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
             metadata: val.metadata,
             status: "running",
             input: args,
-            time: { start: Date.now() },
+            time: { start: started },
           },
         }
       }),
