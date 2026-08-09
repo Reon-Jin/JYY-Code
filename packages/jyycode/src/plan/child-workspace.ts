@@ -5,6 +5,7 @@ import path from "node:path"
 import { Effect } from "effect"
 import { Worktree } from "@/worktree"
 import { assertInside } from "./path-guard"
+import { assertManifestIdentity, assertRuntimePath, assertWorkspaceIdentity, isPathInside } from "./workspace-path"
 
 export type ChildWorkspaceMode = "worktree" | "snapshot" | "shared_compat"
 export type CleanupPolicy = "on_success" | "on_cancel" | "retain_on_failure"
@@ -90,12 +91,14 @@ export function worktreeAdapter(input: {
 export class ChildWorkspaceError extends Error {
   readonly directory: string | null
   readonly recoverable: boolean
+  readonly code?: string
 
-  constructor(message: string, input: { directory?: string | null; recoverable?: boolean } = {}) {
+  constructor(message: string, input: { directory?: string | null; recoverable?: boolean; code?: string } = {}) {
     super(message)
     this.name = "ChildWorkspaceError"
     this.directory = input.directory ?? null
     this.recoverable = input.recoverable ?? true
+    this.code = input.code
   }
 }
 
@@ -307,16 +310,29 @@ function manifestPath(runtimeRoot: string, name: string) {
   return path.join(runtimeRoot, `${name}.manifest.json`)
 }
 
-function writeManifest(pathname: string, manifest: BaselineManifestEntry[]) {
-  const payload = JSON.stringify({ version: 1, entries: manifest })
+function writeManifest(
+  pathname: string,
+  manifest: BaselineManifestEntry[],
+  identity?: { rootSessionId: string; taskId: string; name: string },
+) {
+  const payload = JSON.stringify({ version: 1, ...(identity ? {
+    root_session_id: identity.rootSessionId,
+    task_id: identity.taskId,
+    name: identity.name,
+  } : {}), entries: manifest })
   fs.writeFileSync(pathname, payload, "utf8")
   return { hash: hashManifest(manifest), size: manifestSize(manifest), fileCount: manifest.length }
 }
 
-function readManifest(pathname: string, expectedHash?: string | null) {
+function readManifest(
+  pathname: string,
+  expectedHash?: string | null,
+  identity?: { rootSessionId: string; taskId: string; name: string },
+) {
   try {
     const value = JSON.parse(fs.readFileSync(pathname, "utf8")) as { version?: unknown; entries?: unknown }
     if (value.version !== 1 || !Array.isArray(value.entries)) throw new Error("invalid manifest")
+    if (identity) assertManifestIdentity(value, identity)
     const entries = value.entries as BaselineManifestEntry[]
     if (
       entries.some(
@@ -344,6 +360,8 @@ function readManifest(pathname: string, expectedHash?: string | null) {
       `baseline manifest is unreadable: ${error instanceof Error ? error.message : String(error)}`,
       {
         directory: pathname,
+        recoverable: error instanceof ChildWorkspaceError ? error.recoverable : false,
+        code: error && typeof error === "object" && "code" in error ? String(error.code) : undefined,
       },
     )
   }
@@ -432,8 +450,7 @@ function clearTreeExceptGit(directory: string, preserveGit = true) {
 }
 
 function isInside(root: string, target: string) {
-  const relative = path.relative(path.resolve(root), path.resolve(target))
-  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+  return isPathInside(root, target)
 }
 
 export class ChildWorkspace {
@@ -533,7 +550,11 @@ export class ChildWorkspace {
       copyManifest(this.project.root, baselineDirectory, baselineManifest)
       const baselineManifestHash = hashManifest(baselineManifest)
       const baselineManifestPath = manifestPath(this.runtimeRoot, reservation.name)
-      const manifestMetadata = writeManifest(baselineManifestPath, baselineManifest)
+      const manifestMetadata = writeManifest(baselineManifestPath, baselineManifest, {
+        rootSessionId: reservation.rootSessionId,
+        taskId: reservation.taskId,
+        name: reservation.name,
+      })
 
       if (reservation.mode === "worktree") {
         if (!this.worktree) throw new ChildWorkspaceError("Git 项目缺少 Worktree service")
@@ -630,10 +651,18 @@ export class ChildWorkspace {
         directory: savedManifestPath,
       })
     const saved = fs.existsSync(savedManifestPath)
-      ? readManifest(savedManifestPath, reservation.baseline_manifest_hash)
+      ? readManifest(savedManifestPath, reservation.baseline_manifest_hash, {
+          rootSessionId: reservation.rootSessionId,
+          taskId: reservation.taskId,
+          name: reservation.name,
+        })
       : (() => {
           const entries = walkFiles(baselineDirectory)
-          const metadata = writeManifest(savedManifestPath, entries)
+          const metadata = writeManifest(savedManifestPath, entries, {
+            rootSessionId: reservation.rootSessionId,
+            taskId: reservation.taskId,
+            name: reservation.name,
+          })
           return { entries, ...metadata }
         })()
     if (
@@ -703,7 +732,16 @@ export class ChildWorkspace {
   }
 
   async remove(directory: string) {
-    const canonical = this.canonical(directory)
+    let canonical: string
+    try {
+      canonical = assertRuntimePath({ runtimeRoot: this.runtimeRoot, candidate: directory, label: "workspace directory" })
+    } catch (error) {
+      throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), {
+        directory,
+        recoverable: false,
+        code: error && typeof error === "object" && "code" in error ? String(error.code) : undefined,
+      })
+    }
     const match = [...this.reservations.entries()].find(
       ([, reservation]) => reservation.directory !== null && this.canonical(reservation.directory) === canonical,
     )
@@ -714,12 +752,67 @@ export class ChildWorkspace {
         recoverable: false,
       })
     try {
+      assertWorkspaceIdentity({
+        actual: entry,
+        expected: {
+          rootSessionId: entry.rootSessionId,
+          taskId: entry.taskId,
+          name: deterministicName(entry.rootSessionId, entry.taskId),
+        },
+      })
+    } catch (error) {
+      throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), {
+        directory,
+        recoverable: false,
+        code: error && typeof error === "object" && "code" in error ? String(error.code) : undefined,
+      })
+    }
+    let baseline: string | undefined
+    let manifest: string | undefined
+    try {
+      if (entry.baseline_directory) {
+        baseline = assertRuntimePath({
+          runtimeRoot: this.runtimeRoot,
+          candidate: entry.baseline_directory,
+          label: "baseline directory",
+        })
+        if (baseline === path.resolve(this.project.root))
+          throw new ChildWorkspaceError("鎷掔粷娓呯悊涓嶅畨鍏ㄧ殑 baseline directory", {
+            directory: baseline,
+            recoverable: false,
+          })
+      }
+      if (entry.baseline_manifest_path) {
+        manifest = assertRuntimePath({
+          runtimeRoot: this.runtimeRoot,
+          candidate: entry.baseline_manifest_path,
+          label: "baseline manifest",
+        })
+        if (fs.existsSync(manifest))
+          readManifest(manifest, entry.baseline_manifest_hash, {
+            rootSessionId: entry.rootSessionId,
+            taskId: entry.taskId,
+            name: entry.name,
+          })
+      }
+    } catch (error) {
+      throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), {
+        directory,
+        recoverable: error instanceof ChildWorkspaceError ? error.recoverable : false,
+        code: error && typeof error === "object" && "code" in error ? String(error.code) : undefined,
+      })
+    }
+    try {
       if (entry.mode === "worktree") {
         if (!this.worktree) throw new ChildWorkspaceError("Git 项目缺少 Worktree service", { directory })
         await this.worktree.remove(canonical)
       } else if (fs.existsSync(canonical)) fs.rmSync(canonical, { recursive: true, force: true })
       if (entry.baseline_directory) {
-        const baseline = this.canonical(entry.baseline_directory)
+        const baseline = assertRuntimePath({
+          runtimeRoot: this.runtimeRoot,
+          candidate: entry.baseline_directory,
+          label: "baseline directory",
+        })
         if (!isInside(this.runtimeRoot, baseline) || baseline === path.resolve(this.project.root))
           throw new ChildWorkspaceError("拒绝清理不安全的 baseline directory", {
             directory: baseline,
@@ -728,18 +821,27 @@ export class ChildWorkspace {
         if (fs.existsSync(baseline)) fs.rmSync(baseline, { recursive: true, force: true })
       }
       if (entry.baseline_manifest_path) {
-        const manifest = this.canonical(entry.baseline_manifest_path)
-        if (!isInside(this.runtimeRoot, manifest))
-          throw new ChildWorkspaceError("refusing to remove an unsafe baseline manifest", {
-            directory: manifest,
-            recoverable: false,
+        const manifest = assertRuntimePath({
+          runtimeRoot: this.runtimeRoot,
+          candidate: entry.baseline_manifest_path,
+          label: "baseline manifest",
+        })
+        if (fs.existsSync(manifest))
+          readManifest(manifest, entry.baseline_manifest_hash, {
+            rootSessionId: entry.rootSessionId,
+            taskId: entry.taskId,
+            name: entry.name,
           })
         if (fs.existsSync(manifest)) fs.rmSync(manifest, { force: true })
       }
       if (match) this.reservations.delete(match[0])
       return true
     } catch (error) {
-      throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), { directory })
+      throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), {
+        directory,
+        recoverable: error instanceof ChildWorkspaceError ? error.recoverable : undefined,
+        code: error && typeof error === "object" && "code" in error ? String(error.code) : undefined,
+      })
     }
   }
 

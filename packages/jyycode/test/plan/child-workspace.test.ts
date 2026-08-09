@@ -4,6 +4,7 @@ import path from "node:path"
 import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "bun:test"
 import { ChildWorkspace, ChildWorkspaceError, type WorktreeAdapter } from "../../src/plan/child-workspace"
+import { assertRuntimePath, WorkspacePathError } from "../../src/plan/workspace-path"
 
 function tempDirectory(prefix: string) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -275,5 +276,24 @@ describe("ChildWorkspace", () => {
     await expect(manager.remove(created.directory)).rejects.toBeInstanceOf(ChildWorkspaceError)
     expect(manager.get("ses_root", "s1_t1")).toMatchObject({ directory: created.directory })
     await expect(manager.remove(path.join(runtime, "unknown"))).rejects.toMatchObject({ recoverable: false })
+  })
+
+  it("rejects outside paths and manifest identity changes before deleting", async () => {
+    const root = tempDirectory("jyycode-child-identity-project-")
+    const runtime = tempDirectory("jyycode-child-identity-runtime-")
+    const manager = new ChildWorkspace({ project: { root, vcs: "none" }, runtimeRoot: runtime })
+    const created = await manager.create(manager.reserve("ses_root", "s1_t1"))
+
+    expect(() =>
+      assertRuntimePath({ runtimeRoot: runtime, candidate: path.join(runtime, "..", "outside"), label: "child" }),
+    ).toThrow(WorkspacePathError)
+    const manifest = JSON.parse(fs.readFileSync(created.baseline_manifest_path!, "utf8")) as Record<string, unknown>
+    manifest.task_id = "s1_t2"
+    fs.writeFileSync(created.baseline_manifest_path!, JSON.stringify(manifest))
+    await expect(manager.remove(created.directory)).rejects.toMatchObject({
+      recoverable: false,
+      code: "PATH_IDENTITY_MISMATCH",
+    })
+    expect(fs.existsSync(created.directory)).toBe(true)
   })
 })

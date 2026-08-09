@@ -29,6 +29,9 @@ export type WorkspaceCleanupInput = {
   /** A shared_compat child has no directory to remove, but still has a stop phase. */
   deleteWorkspace?: boolean
   remove?: () => Promise<boolean | void>
+  retryDelaysMs?: readonly number[]
+  sleep?: (milliseconds: number) => Promise<void>
+  jitter?: () => number
   persist: (record: CleanupRecord) => Promise<void>
 }
 
@@ -38,6 +41,40 @@ export type WorkspaceCleanupResult = {
 }
 
 export const CLEANUP_RETRY_DELAY_MS = 1_000
+export const CLEANUP_LOCK_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000] as const
+
+export function isTransientCleanupError(error: unknown) {
+  const code = codeOf(error)
+  return code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY"
+}
+
+function sleep(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+}
+
+export async function retryLockedCleanup<T>(
+  operation: () => Promise<T>,
+  options: {
+    delaysMs?: readonly number[]
+    sleep?: (milliseconds: number) => Promise<void>
+    jitter?: () => number
+  } = {},
+) {
+  const delays = options.delaysMs ?? CLEANUP_LOCK_RETRY_DELAYS_MS
+  const wait = options.sleep ?? sleep
+  const jitter = options.jitter ?? (() => Math.floor(Math.random() * 25))
+  let attempt = 0
+  while (true) {
+    try {
+      return await operation()
+    } catch (error) {
+      if (!isTransientCleanupError(error) || attempt >= delays.length) throw error
+      const delay = Math.max(0, delays[attempt]! + Math.max(0, jitter()))
+      attempt++
+      await wait(delay)
+    }
+  }
+}
 
 function nowIso(now: () => number) {
   return new Date(now()).toISOString()
@@ -127,7 +164,11 @@ export class WorkspaceCleanupService {
       if (!input.workspaceDirectory) return this.fail(input, record, "delete", new Error("workspace directory is missing"), now)
       if (!input.remove) return this.fail(input, record, "delete", new Error("workspace remove operation is unavailable"), now)
       try {
-        await input.remove()
+        await retryLockedCleanup(input.remove, {
+          delaysMs: input.retryDelaysMs,
+          sleep: input.sleep,
+          jitter: input.jitter,
+        })
       } catch (error) {
         return this.fail(input, record, "delete", error, now)
       }

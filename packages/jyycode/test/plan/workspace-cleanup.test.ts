@@ -30,6 +30,7 @@ describe("durable workspace cleanup", () => {
         }
         return true
       },
+      retryDelaysMs: [],
       persist: async (record: CleanupRecord) => {
         records.push(record)
       },
@@ -115,5 +116,50 @@ describe("durable workspace cleanup", () => {
     expect(first.record.state).toBe("quarantined")
     expect(second.changed).toBe(false)
     expect(removeCalls).toBe(1)
+  })
+
+  test("retries only transient Windows cleanup errors with bounded backoff", async () => {
+    const service = new WorkspaceCleanupService()
+    const waits: number[] = []
+    let calls = 0
+    const result = await service.run({
+      rootSessionId: "ses_main",
+      taskId: "s1_t5",
+      workspaceDirectory: "C:/runtime/locked",
+      stop: async () => {},
+      remove: async () => {
+        calls++
+        if (calls < 3) throw Object.assign(new Error("locked"), { code: "EBUSY" })
+        return true
+      },
+      sleep: async (milliseconds) => {
+        waits.push(milliseconds)
+      },
+      jitter: () => 0,
+      persist: async () => {},
+    })
+    expect(result.record.state).toBe("completed")
+    expect(calls).toBe(3)
+    expect(waits).toEqual([100, 250])
+
+    calls = 0
+    const permanent = await service.run({
+      rootSessionId: "ses_main",
+      taskId: "s1_t6",
+      workspaceDirectory: "C:/runtime/denied",
+      stop: async () => {},
+      remove: async () => {
+        calls++
+        throw Object.assign(new Error("access denied"), { code: "EACCES" })
+      },
+      sleep: async (milliseconds) => {
+        waits.push(milliseconds)
+      },
+      jitter: () => 0,
+      persist: async () => {},
+    })
+    expect(permanent.record.state).toBe("failed")
+    expect(calls).toBe(1)
+    expect(waits).toEqual([100, 250])
   })
 })
