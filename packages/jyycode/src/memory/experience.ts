@@ -2,12 +2,13 @@ import path from "path"
 import { createHash } from "crypto"
 import { Context, Effect, Layer } from "effect"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
-import { Global } from "@jyycode-ai/core/global"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import * as Log from "@jyycode-ai/core/util/log"
 import { SessionID } from "@/session/schema"
 import { normalizeKeywords, parseImportance, validateKeywords } from "./memory"
 import { buildCorpusStats, buildQueryTerms, scoreExperience } from "./experience-score"
+import { EXPERIENCE_DIRECTORY, workspaceDirectory } from "./runtime-path"
+import { sanitizeForPersistence } from "./sanitize"
 import type { Importance } from "./memory"
 import {
   EXPERIENCE_CONFIDENCES,
@@ -17,18 +18,8 @@ import {
   EXPERIENCE_KINDS,
   EXPERIENCE_STATUSES,
 } from "./experience-schema"
-import type {
-  ExperienceCandidate,
-  ExperienceConfidence,
-  ExperienceKind,
-  ExperienceStatus,
-} from "./experience-schema"
-export type {
-  ExperienceCandidate,
-  ExperienceConfidence,
-  ExperienceKind,
-  ExperienceStatus,
-} from "./experience-schema"
+import type { ExperienceCandidate, ExperienceConfidence, ExperienceKind, ExperienceStatus } from "./experience-schema"
+export type { ExperienceCandidate, ExperienceConfidence, ExperienceKind, ExperienceStatus } from "./experience-schema"
 
 const log = Log.create({ service: "memory.experience" })
 
@@ -76,28 +67,32 @@ export type ExperienceMaintenanceResult = {
 }
 
 export interface ExperienceInterface {
-  readonly ensure: (sessionID: SessionID) => Effect.Effect<void, Error>
-  readonly readStore: (sessionID: SessionID) => Effect.Effect<ExperienceStore, Error>
+  readonly ensure: (sessionID: SessionID, workspaceRoot?: string) => Effect.Effect<void, Error>
+  readonly readStore: (sessionID: SessionID, workspaceRoot?: string) => Effect.Effect<ExperienceStore, Error>
   readonly upsert: (
     sessionID: SessionID,
     candidate: ExperienceCandidate,
+    workspaceRoot?: string,
   ) => Effect.Effect<ExperienceMutationResult, Error>
   readonly upsertMany: (
     sessionID: SessionID,
     candidates: readonly ExperienceCandidate[],
+    workspaceRoot?: string,
   ) => Effect.Effect<number, Error>
   readonly search: (input: {
     sessionID: SessionID
     query: string
     kind?: ExperienceKind
     limit?: number
+    workspaceRoot?: string
   }) => Effect.Effect<ExperienceEntry[], Error>
   readonly formatExperienceSnapshot: (
     sessionID: SessionID,
     taskKeywords: readonly string[],
     taskGoal?: string,
+    workspaceRoot?: string,
   ) => Effect.Effect<string, Error>
-  readonly maintain: (sessionID: SessionID) => Effect.Effect<ExperienceMaintenanceResult, Error>
+  readonly maintain: (sessionID: SessionID, workspaceRoot?: string) => Effect.Effect<ExperienceMaintenanceResult, Error>
   readonly managementRead: () => Effect.Effect<ExperienceStore, Error>
   readonly managementUpdate: (input: {
     expected: ExperienceEntry
@@ -274,21 +269,27 @@ export const layerWithDirectory = (directory: string) =>
       const fs = yield* AppFileSystem.Service
       const flock = yield* EffectFlock.Service
 
-      const filePath = Effect.fn("ExperienceMemory.filePath")(function* (_sessionID: SessionID) {
-        return path.join(directory, EXPERIENCE_FILE)
+      const filePath = Effect.fn("ExperienceMemory.filePath")(function* (
+        _sessionID: SessionID,
+        workspaceRoot?: string,
+      ) {
+        return path.join(workspaceDirectory(directory, workspaceRoot), EXPERIENCE_FILE)
       })
 
-      const ensure = Effect.fn("ExperienceMemory.ensure")(function* (sessionID: SessionID) {
-        const target = yield* filePath(sessionID)
-        yield* fs.ensureDir(directory).pipe(Effect.orDie)
+      const ensure = Effect.fn("ExperienceMemory.ensure")(function* (sessionID: SessionID, workspaceRoot?: string) {
+        const target = yield* filePath(sessionID, workspaceRoot)
+        yield* fs.ensureDir(path.dirname(target)).pipe(Effect.orDie)
         const exists = yield* fs.existsSafe(target).pipe(Effect.orDie)
         const empty = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie))?.trim() === ""
         if (!exists || empty) yield* fs.writeWithDirs(target, serializeExperienceStore([])).pipe(Effect.orDie)
       })
 
-      const readStore = Effect.fn("ExperienceMemory.readStore")(function* (sessionID: SessionID) {
-        yield* ensure(sessionID)
-        const text = (yield* fs.readFileStringSafe(yield* filePath(sessionID)).pipe(Effect.orDie)) ?? ""
+      const readStore = Effect.fn("ExperienceMemory.readStore")(function* (
+        sessionID: SessionID,
+        workspaceRoot?: string,
+      ) {
+        yield* ensure(sessionID, workspaceRoot)
+        const text = (yield* fs.readFileStringSafe(yield* filePath(sessionID, workspaceRoot)).pipe(Effect.orDie)) ?? ""
         return yield* Effect.try({ try: () => parseExperienceStore(text), catch: (error) => asError(error) })
       })
 
@@ -304,32 +305,45 @@ export const layerWithDirectory = (directory: string) =>
       const writeStore = Effect.fn("ExperienceMemory.writeStore")(function* (
         sessionID: SessionID,
         store: ExperienceStore,
+        workspaceRoot?: string,
       ) {
-        yield* writeFileAtomic(yield* filePath(sessionID), serializeExperienceStore(store.entries, store.lastMaintainedAt))
+        yield* writeFileAtomic(
+          yield* filePath(sessionID, workspaceRoot),
+          serializeExperienceStore(store.entries, store.lastMaintainedAt),
+        )
       })
 
       const appendAudit = Effect.fn("ExperienceMemory.appendAudit")(function* (
         sessionID: SessionID,
         entry: Record<string, unknown>,
+        workspaceRoot?: string,
       ) {
-        const target = path.join(directory, "audit.jsonl")
-        yield* fs.ensureDir(directory).pipe(Effect.orDie)
-        yield* flock.withLock(
-          Effect.gen(function* () {
-            const current = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
-            yield* writeFileAtomic(target, current + JSON.stringify({ time: new Date().toISOString(), ...entry }) + "\n")
-          }),
-          target,
-        ).pipe(
-          Effect.catchCause((cause) => Effect.sync(() => log.error("failed to append experience audit", { cause }))),
-        )
+        const scopedDirectory = workspaceDirectory(directory, workspaceRoot)
+        const target = path.join(scopedDirectory, "audit.jsonl")
+        yield* fs.ensureDir(scopedDirectory).pipe(Effect.orDie)
+        const safeEntry = sanitizeAuditEntry(entry)
+        yield* flock
+          .withLock(
+            Effect.gen(function* () {
+              const current = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
+              yield* writeFileAtomic(
+                target,
+                current + JSON.stringify({ time: new Date().toISOString(), ...safeEntry }) + "\n",
+              )
+            }),
+            target,
+          )
+          .pipe(
+            Effect.catchCause((cause) => Effect.sync(() => log.error("failed to append experience audit", { cause }))),
+          )
       })
 
       const upsert = Effect.fn("ExperienceMemory.upsert")(function* (
         sessionID: SessionID,
         candidate: ExperienceCandidate,
+        workspaceRoot?: string,
       ) {
-        yield* ensure(sessionID)
+        yield* ensure(sessionID, workspaceRoot)
         const entry = normalizeExperience({
           scope: "experience",
           kind: candidate.kind,
@@ -344,16 +358,16 @@ export const layerWithDirectory = (directory: string) =>
           status: "active",
           sessionID,
         })
-        const target = yield* filePath(sessionID)
+        const target = yield* filePath(sessionID, workspaceRoot)
         return yield* flock.withLock(
           Effect.gen(function* () {
-            const store = yield* readStore(sessionID)
+            const store = yield* readStore(sessionID, workspaceRoot)
             const entries = [...store.entries]
             const key = experienceKey(entry)
             const storedKey = storedExperienceKey(entry)
             const exact = entries.findIndex((existing) => storedExperienceKey(existing) === storedKey)
             if (exact !== -1) {
-              yield* appendAudit(sessionID, { action: "memory.experience.duplicate", key, content: entry.content })
+              yield* appendAudit(sessionID, { action: "memory.experience.duplicate", key }, workspaceRoot)
               return { status: "duplicate" as const, key, message: "Duplicate experience already exists." }
             }
             const cluster = entries.flatMap((existing, index) =>
@@ -368,14 +382,21 @@ export const layerWithDirectory = (directory: string) =>
                 supersededReason: `Outcome reversed by ${sessionID} on ${entry.updatedAt}: ${entry.content.slice(0, 80)}`,
               }
               entries.push(entry)
-              yield* writeStore(sessionID, { ...store, entries })
-              yield* appendAudit(sessionID, {
-                action: "memory.experience.superseded",
+              yield* writeStore(sessionID, { ...store, entries }, workspaceRoot)
+              yield* appendAudit(
+                sessionID,
+                {
+                  action: "memory.experience.superseded",
+                  key,
+                  oldKey: experienceKey(old),
+                },
+                workspaceRoot,
+              )
+              return {
+                status: "superseded" as const,
                 key,
-                oldKey: experienceKey(old),
-                content: entry.content,
-              })
-              return { status: "superseded" as const, key, message: "New experience superseded the opposite earlier lesson." }
+                message: "New experience superseded the opposite earlier lesson.",
+              }
             }
             const sameKind = cluster.filter(
               (index) => entries[index]!.kind === entry.kind && entries[index]!.sessionID === sessionID,
@@ -385,14 +406,21 @@ export const layerWithDirectory = (directory: string) =>
               for (const index of sameKind) merged = mergeExperienceEntries(merged, entries[index]!)
               entries[sameKind[0]!] = merged
               for (const index of sameKind.slice(1).reverse()) entries.splice(index, 1)
-              yield* writeStore(sessionID, { ...store, entries })
-              yield* appendAudit(sessionID, {
-                action: "memory.experience.merged",
-                key,
-                merged: sameKind.length,
-                content: merged.content,
-              })
-              return { status: "merged" as const, key: experienceKey(merged), message: "Merged with a same-session experience." }
+              yield* writeStore(sessionID, { ...store, entries }, workspaceRoot)
+              yield* appendAudit(
+                sessionID,
+                {
+                  action: "memory.experience.merged",
+                  key,
+                  merged: sameKind.length,
+                },
+                workspaceRoot,
+              )
+              return {
+                status: "merged" as const,
+                key: experienceKey(merged),
+                message: "Merged with a same-session experience.",
+              }
             }
             entries.push(entry)
             const projected = serializeExperienceStore(entries, store.lastMaintainedAt)
@@ -400,25 +428,36 @@ export const layerWithDirectory = (directory: string) =>
               const outcome = maintainStore({ ...store, entries })
               const retained = outcome.entries.some((existing) => storedExperienceKey(existing) === storedKey)
               if (!retained || outcome.entries.length > EXPERIENCE_ENTRY_LIMIT) {
-                yield* appendAudit(sessionID, { action: "memory.experience.capacity_rejected", key, content: entry.content })
+                yield* appendAudit(sessionID, { action: "memory.experience.capacity_rejected", key }, workspaceRoot)
                 return { status: "capacity_rejected" as const, key, message: "Experience rejected at capacity." }
               }
-              const next: ExperienceStore = { schemaVersion: 1, lastMaintainedAt: localDate(), entries: outcome.entries }
-              yield* writeStore(sessionID, next)
-              yield* appendAudit(sessionID, {
-                action: "memory.experience.maintain_on_write",
-                removed: outcome.removed,
-                merged: outcome.merged,
-              })
+              const next: ExperienceStore = {
+                schemaVersion: 1,
+                lastMaintainedAt: localDate(),
+                entries: outcome.entries,
+              }
+              yield* writeStore(sessionID, next, workspaceRoot)
+              yield* appendAudit(
+                sessionID,
+                {
+                  action: "memory.experience.maintain_on_write",
+                  removed: outcome.removed,
+                  merged: outcome.merged,
+                },
+                workspaceRoot,
+              )
             } else {
-              yield* writeStore(sessionID, { ...store, entries })
+              yield* writeStore(sessionID, { ...store, entries }, workspaceRoot)
             }
-            yield* appendAudit(sessionID, {
-              action: "memory.experience.written",
-              key,
-              kind: entry.kind,
-              content: entry.content,
-            })
+            yield* appendAudit(
+              sessionID,
+              {
+                action: "memory.experience.written",
+                key,
+                kind: entry.kind,
+              },
+              workspaceRoot,
+            )
             return { status: "written" as const, key, message: "Experience stored." }
           }),
           target,
@@ -428,8 +467,9 @@ export const layerWithDirectory = (directory: string) =>
       const upsertMany = Effect.fn("ExperienceMemory.upsertMany")(function* (
         sessionID: SessionID,
         candidates: readonly ExperienceCandidate[],
+        workspaceRoot?: string,
       ) {
-        const results = yield* Effect.forEach(candidates, (candidate) => upsert(sessionID, candidate), {
+        const results = yield* Effect.forEach(candidates, (candidate) => upsert(sessionID, candidate, workspaceRoot), {
           concurrency: 1,
         })
         return results.filter((result) => result.status !== "duplicate").length
@@ -440,14 +480,15 @@ export const layerWithDirectory = (directory: string) =>
         query: string
         kind?: ExperienceKind
         limit?: number
+        workspaceRoot?: string
       }) {
-        yield* ensure(input.sessionID)
+        yield* ensure(input.sessionID, input.workspaceRoot)
         const query = input.query.normalize("NFKC").trim().toLowerCase()
         const limit = Math.min(10, Math.max(1, input.limit ?? 5))
-        const target = yield* filePath(input.sessionID)
+        const target = yield* filePath(input.sessionID, input.workspaceRoot)
         return yield* flock.withLock(
           Effect.gen(function* () {
-            const store = yield* readStore(input.sessionID)
+            const store = yield* readStore(input.sessionID, input.workspaceRoot)
             const candidates = store.entries.filter(
               (entry) => entry.status === "active" && (!input.kind || entry.kind === input.kind),
             )
@@ -474,8 +515,12 @@ export const layerWithDirectory = (directory: string) =>
                 const current = byKey.get(key) ?? entry
                 byKey.set(key, { ...current, uses: current.uses + 1 })
               }
-              yield* writeStore(input.sessionID, { ...store, entries: [...byKey.values()] })
-              yield* appendAudit(input.sessionID, { action: "memory.experience.search", query, hits: scored.length })
+              yield* writeStore(input.sessionID, { ...store, entries: [...byKey.values()] }, input.workspaceRoot)
+              yield* appendAudit(
+                input.sessionID,
+                { action: "memory.experience.search", query, hits: scored.length },
+                input.workspaceRoot,
+              )
             }
             return scored.map(({ entry }) => byKey.get(storedExperienceKey(entry)) ?? entry)
           }),
@@ -487,9 +532,10 @@ export const layerWithDirectory = (directory: string) =>
         sessionID: SessionID,
         taskKeywords: readonly string[],
         taskGoal?: string,
+        workspaceRoot?: string,
       ) {
-        yield* ensure(sessionID)
-        const store = yield* readStore(sessionID)
+        yield* ensure(sessionID, workspaceRoot)
+        const store = yield* readStore(sessionID, workspaceRoot)
         const active = store.entries.filter((entry) => entry.status === "active")
         if (active.length === 0) return ""
         const normalizedKeywords = normalizeKeywords(taskKeywords)
@@ -514,7 +560,7 @@ export const layerWithDirectory = (directory: string) =>
         const lines = ["# EXPERIENCE（跨会话经验：先查相关经验，再动手）"]
         let budget = EXPERIENCE_SNAPSHOT_MAX_CHARS - lines[0]!.length - 1
         for (const { entry } of matched) {
-          const line = `- [${entry.kind}] ${entry.content}`
+          const line = `- [${entry.kind}] ${sanitizeForPersistence(entry.content).text}`
           if (budget <= 0) break
           const bounded = line.length <= budget ? line : `${line.slice(0, budget - 1)}…`
           lines.push(bounded)
@@ -523,15 +569,15 @@ export const layerWithDirectory = (directory: string) =>
         return lines.join("\n") + "\n"
       })
 
-      const maintain = Effect.fn("ExperienceMemory.maintain")(function* (sessionID: SessionID) {
-        yield* ensure(sessionID)
-        const target = yield* filePath(sessionID)
+      const maintain = Effect.fn("ExperienceMemory.maintain")(function* (sessionID: SessionID, workspaceRoot?: string) {
+        yield* ensure(sessionID, workspaceRoot)
+        const target = yield* filePath(sessionID, workspaceRoot)
         return yield* flock.withLock(
           Effect.gen(function* () {
-            const store = yield* readStore(sessionID)
+            const store = yield* readStore(sessionID, workspaceRoot)
             const outcome = maintainStore(store)
             const next: ExperienceStore = { schemaVersion: 1, lastMaintainedAt: localDate(), entries: outcome.entries }
-            yield* writeStore(sessionID, next)
+            yield* writeStore(sessionID, next, workspaceRoot)
             yield* appendAudit(sessionID, {
               action: "memory.experience.maintain",
               removed: outcome.removed,
@@ -580,7 +626,6 @@ export const layerWithDirectory = (directory: string) =>
             yield* appendAudit(managementSessionID, {
               action: "memory.experience.management_update",
               key: experienceKey(replacement),
-              content: replacement.content,
             })
             return replacement
           }),
@@ -649,7 +694,7 @@ export const layerWithDirectory = (directory: string) =>
     }),
   ).pipe(Layer.provide(EffectFlock.defaultLayer))
 
-export const layer = layerWithDirectory(path.join(Global.Path.data, "memory"))
+export const layer = layerWithDirectory(EXPERIENCE_DIRECTORY)
 export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer))
 
 function mergeExperienceEntries(left: ExperienceEntry, right: ExperienceEntry): ExperienceEntry {
@@ -720,8 +765,12 @@ function normalizeExperience(entry: ExperienceEntry): ExperienceEntry {
   }
   const importance = parseImportance(entry.importance)
   const keywords = validateKeywords(entry.keywords)
-  const content = parseSingleLine(entry.content, EXPERIENCE_CONTENT_CHAR_LIMIT, "experience content")
-  const evidence = parseSingleLine(entry.evidence, EXPERIENCE_EVIDENCE_CHAR_LIMIT, "experience evidence")
+  const content = sanitizeForPersistence(
+    parseSingleLine(entry.content, EXPERIENCE_CONTENT_CHAR_LIMIT, "experience content"),
+  ).text
+  const evidence = sanitizeForPersistence(
+    parseSingleLine(entry.evidence, EXPERIENCE_EVIDENCE_CHAR_LIMIT, "experience evidence"),
+  ).text
   if (!EXPERIENCE_EVIDENCE_ANCHOR.test(evidence)) {
     throw new Error("Invalid experience evidence: expected [sessionID#turn] at the start")
   }
@@ -732,7 +781,9 @@ function normalizeExperience(entry: ExperienceEntry): ExperienceEntry {
   if (!sessionID || /\s/u.test(sessionID)) throw new Error("Invalid experience sessionID")
   let supersededReason: string | undefined
   if (entry.supersededReason !== undefined) {
-    supersededReason = parseSingleLine(entry.supersededReason, 200, "experience supersededReason")
+    supersededReason = sanitizeForPersistence(
+      parseSingleLine(entry.supersededReason, 200, "experience supersededReason"),
+    ).text
   }
   return {
     scope: "experience",
@@ -801,6 +852,23 @@ function isCalendarDate(value: string): boolean {
   const day = Number(value.slice(6, 8))
   const date = new Date(Date.UTC(year, month - 1, day))
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+function sanitizeAuditEntry(entry: Record<string, unknown>): Record<string, unknown> {
+  let redactions = 0
+  const next: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(entry)) {
+    if (key === "content" || key === "evidence" || key === "supersededReason") continue
+    if (typeof value === "string") {
+      const sanitized = sanitizeForPersistence(value)
+      next[key] = sanitized.text
+      redactions += sanitized.redacted
+    } else {
+      next[key] = value
+    }
+  }
+  if (redactions > 0) next.redactions = Number(next.redactions ?? 0) + redactions
+  return next
 }
 
 function asError(error: unknown) {

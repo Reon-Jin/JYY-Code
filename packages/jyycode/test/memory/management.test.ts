@@ -44,10 +44,7 @@ async function fixture(input?: { legacy?: boolean }) {
   const layer = MemoryManagement.layer.pipe(Layer.provide(memoryLayer), Layer.provide(experienceLayer))
   const run = <A, E>(
     effect: Effect.Effect<A, E, MemoryManagement.Service | Memory.Service | ExperienceMemory.Service>,
-  ) =>
-    Effect.runPromise(
-      effect.pipe(Effect.provide(Layer.merge(Layer.merge(layer, memoryLayer), experienceLayer))),
-    )
+  ) => Effect.runPromise(effect.pipe(Effect.provide(Layer.merge(Layer.merge(layer, memoryLayer), experienceLayer))))
   return { directory, legacyDirectory, child, run }
 }
 
@@ -229,9 +226,7 @@ describe("audited memory management storage", () => {
       ),
     )
     await ctx.run(
-      management.use((service) =>
-        service.update({ ...task, content: "当前任务：更新任务；进展：完成回归检查" }),
-      ),
+      management.use((service) => service.update({ ...task, content: "当前任务：更新任务；进展：完成回归检查" })),
     )
     if (task.scope !== "task") throw new Error("Expected task memory")
     const stale = await ctx.run(
@@ -284,22 +279,29 @@ describe("audited memory management storage", () => {
     )
   })
 
-  test("migrates a valid legacy store and removes the source after copying", async () => {
+  test("migrates a valid legacy store only through the explicit API and preserves the source", async () => {
     const ctx = await fixture({ legacy: true })
     const source = path.join(ctx.legacyDirectory!, "USER.json")
     const text = Memory.serializeStore("user", [
       { scope: "user", importance: 6, keywords: ["迁移"], content: "用户需要迁移记忆。" },
     ])
     await fs.writeFile(source, text, "utf8")
-    await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
-    await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "user" })))
+    await ctx.run(
+      Memory.Service.use((memory) => {
+        if (!memory.migrateFromDirectory) throw new Error("migration API unavailable")
+        return memory.migrateFromDirectory({
+          sessionID: SessionID.make("ses_migration"),
+          sourceDirectory: ctx.legacyDirectory!,
+        })
+      }),
+    )
     expect(await fs.readFile(path.join(ctx.directory, "USER.json"), "utf8")).toBe(text)
     expect(
       await fs.stat(source).then(
         () => true,
         () => false,
       ),
-    ).toBe(false)
+    ).toBe(true)
   })
 
   test("reflects direct JSON edits in desktop management reads", async () => {
@@ -338,9 +340,7 @@ describe("audited memory management storage", () => {
 
     const page = await ctx.run(MemoryManagement.Service.use((management) => management.list({ scope: "task" })))
     expect(page.entries).toHaveLength(2)
-    expect(
-      page.entries.every((entry) => entry.scope === "task" && entry.projectID === "proj_one"),
-    ).toBe(true)
+    expect(page.entries.every((entry) => entry.scope === "task" && entry.projectID === "proj_one")).toBe(true)
 
     const scoped = await ctx.run(
       MemoryManagement.Service.use((management) =>
@@ -348,9 +348,10 @@ describe("audited memory management storage", () => {
       ),
     )
     expect(scoped.entries).toHaveLength(2)
-    expect(
-      (scoped.entries as MemoryManagement.TaskEntry[]).map((entry) => String(entry.sessionID)).sort(),
-    ).toEqual(["ses_p1_a", "ses_p1_b"])
+    expect((scoped.entries as MemoryManagement.TaskEntry[]).map((entry) => String(entry.sessionID)).sort()).toEqual([
+      "ses_p1_a",
+      "ses_p1_b",
+    ])
   })
 
   test("updates and deletes one session's task entry by opaque id without touching siblings", async () => {
@@ -478,7 +479,9 @@ describe("audited memory management storage", () => {
     )
     expect(updated).toMatchObject({ scope: "experience", kind: "lesson", content: "修改经验前先检查证据锚点" })
 
-    await ctx.run(MemoryManagement.Service.use((management) => management.remove({ scope: "experience", id: updated.id })))
+    await ctx.run(
+      MemoryManagement.Service.use((management) => management.remove({ scope: "experience", id: updated.id })),
+    )
     const afterRemove = await ctx.run(
       MemoryManagement.Service.use((management) => management.list({ scope: "experience" })),
     )

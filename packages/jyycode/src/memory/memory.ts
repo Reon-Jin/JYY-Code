@@ -1,9 +1,8 @@
 export * as Memory from "./memory"
 
 import path from "path"
-import { randomUUID } from "crypto"
+import { createHash, randomUUID } from "crypto"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
-import { Global } from "@jyycode-ai/core/global"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import { Session } from "@/session/session"
@@ -18,13 +17,15 @@ import {
   EXPERIENCE_KINDS,
 } from "./experience-schema"
 import type { ExperienceCandidate, ExperienceConfidence, ExperienceKind } from "./experience-schema"
+import { LEGACY_MEMORY_DIRECTORY, MEMORY_DIRECTORY } from "./runtime-path"
+import { looksSensitive, sanitizeForPersistence } from "./sanitize"
 export type { ExperienceCandidate } from "./experience-schema"
 const log = Log.create({ service: "memory" })
 
 const MEMORY_FILE = "MEMORY.json"
 const USER_FILE = "USER.json"
-export const LEGACY_DIRECTORY = path.normalize("D:/jyycode/memory")
-export const DIRECTORY = path.join(Global.Path.data, "memory")
+export const LEGACY_DIRECTORY = LEGACY_MEMORY_DIRECTORY
+export const DIRECTORY = MEMORY_DIRECTORY
 const MEMORY_CHAR_LIMIT = 20_000
 const USER_CHAR_LIMIT = 2_000
 const ENTRY_LIMIT = 50
@@ -401,11 +402,25 @@ export type UsageInfo = {
   scope: Scope
 }
 
+export type MemoryMigrationResult = {
+  sourceDirectory: string
+  targetDirectory: string
+  scopes: Scope[]
+  sourceHashes: Record<string, string>
+  targetHashes: Record<string, string>
+  sourcePreserved: true
+}
+
 export interface Interface {
   readonly dir: (sessionID: SessionID) => Effect.Effect<string>
   /** Resolve the project key that a session belongs to for project-scoped task memory views. */
   readonly resolveProjectID: (sessionID: SessionID) => Effect.Effect<string>
   readonly ensure: (sessionID: SessionID) => Effect.Effect<void, Error>
+  /** Explicitly copy and validate a legacy store. The source is never removed. */
+  readonly migrateFromDirectory?: (input: {
+    sessionID: SessionID
+    sourceDirectory: string
+  }) => Effect.Effect<MemoryMigrationResult, Error>
   readonly read: (input: { sessionID: SessionID; scope: Scope; section?: string }) => Effect.Effect<string, Error>
   readonly upsertTaskMemory: (input: TaskMemoryUpsertInput) => Effect.Effect<MutationResult, Error>
   readonly upsertUserMemory: (input: UserMemoryUpsertInput) => Effect.Effect<MutationResult, Error>
@@ -462,7 +477,7 @@ const filenames: Record<Scope, string> = {
   user: USER_FILE,
 }
 
-export const layerWithDirectory = (directory: string, options?: { legacyDirectory?: string }) =>
+export const layerWithDirectory = (directory: string, _options?: { legacyDirectory?: string }) =>
   Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -470,7 +485,6 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       const sessions = yield* Session.Service
       const flock = yield* EffectFlock.Service
       const memoryDirectory = path.normalize(directory)
-      const legacyDirectory = options?.legacyDirectory ? path.normalize(options.legacyDirectory) : undefined
 
       const dir = Effect.fn("Memory.dir")(function* (_sessionID: SessionID) {
         return memoryDirectory
@@ -505,24 +519,9 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
           const target = yield* filePath(sessionID, scope)
           const exists = yield* fs.existsSafe(target).pipe(Effect.orDie)
           if (!exists) {
-            const legacyTarget = legacyDirectory ? path.join(legacyDirectory, filenames[scope]) : undefined
-            const legacyText = legacyTarget ? yield* fs.readFileStringSafe(legacyTarget).pipe(Effect.orDie) : undefined
-            let initial = templates[scope]
-            let removeLegacy = false
-            if (legacyText !== undefined && legacyText.trim() !== "") {
-              const store = yield* Effect.try({
-                try: () => parseStore(scope, legacyText),
-                catch: (error) => asError(error),
-              })
-              initial = serializeStore(scope, store.entries, store.lastCompactedAt)
-              removeLegacy = true
-            } else if (legacyText !== undefined) {
-              removeLegacy = true
-            }
-            yield* fs.writeWithDirs(target, initial).pipe(Effect.orDie)
-            if (removeLegacy && legacyTarget && path.resolve(legacyTarget) !== path.resolve(target)) {
-              yield* fs.remove(legacyTarget, { force: true }).pipe(Effect.ignore)
-            }
+            // Legacy stores are never discovered implicitly. Use the explicit
+            // migration API when a user has selected a source directory.
+            yield* fs.writeWithDirs(target, templates[scope]).pipe(Effect.orDie)
           } else if ((yield* fs.readFileStringSafe(target).pipe(Effect.orDie))?.trim() === "") {
             yield* fs.writeWithDirs(target, templates[scope]).pipe(Effect.orDie)
           }
@@ -557,8 +556,9 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       const readStore = Effect.fn("Memory.readStore")(function* (sessionID: SessionID, scope: Scope) {
         const text = yield* readFull(sessionID, scope)
         const store = yield* Effect.try({ try: () => parseStore(scope, text), catch: (error) => asError(error) })
-        if (scope !== "memory") return store
-        return yield* migrateTaskProjectKeys(store)
+        const safe = { ...store, entries: store.entries.map(sanitizeMemoryEntry) }
+        if (scope !== "memory") return safe
+        return yield* migrateTaskProjectKeys(safe)
       })
 
       const writeFileAtomic = Effect.fn("Memory.writeFileAtomic")(function* (target: string, content: string) {
@@ -573,6 +573,45 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       const writeFull = Effect.fn("Memory.writeFull")(function* (sessionID: SessionID, scope: Scope, text: string) {
         const target = yield* filePath(sessionID, scope)
         yield* writeFileAtomic(target, text.endsWith("\n") ? text : text + "\n")
+      })
+
+      const migrateFromDirectory = Effect.fn("Memory.migrateFromDirectory")(function* (input: {
+        sessionID: SessionID
+        sourceDirectory: string
+      }) {
+        yield* assertPrimaryWriter(input.sessionID)
+        yield* ensure(input.sessionID)
+        const sourceDirectory = path.normalize(input.sourceDirectory)
+        const targetDirectory = yield* dir(input.sessionID)
+        if (path.resolve(sourceDirectory) === path.resolve(targetDirectory)) {
+          return yield* Effect.fail(new Error("Memory migration source and target must be different"))
+        }
+        const scopes: Scope[] = []
+        const sourceHashes: Record<string, string> = {}
+        const targetHashes: Record<string, string> = {}
+        for (const scope of ["memory", "user"] as const) {
+          const sourceTarget = path.join(sourceDirectory, filenames[scope])
+          const sourceText = yield* fs.readFileStringSafe(sourceTarget).pipe(Effect.orDie)
+          if (sourceText === undefined || sourceText.trim() === "") continue
+          const store = yield* Effect.try({
+            try: () => parseStore(scope, sourceText),
+            catch: (error) => asError(error),
+          })
+          const sanitizedEntries = store.entries.map((entry) => sanitizeMemoryEntry(entry))
+          const targetText = serializeStore(scope, sanitizedEntries, store.lastCompactedAt)
+          yield* writeFull(input.sessionID, scope, targetText)
+          scopes.push(scope)
+          sourceHashes[filenames[scope]] = createHash("sha256").update(sourceText).digest("hex")
+          targetHashes[filenames[scope]] = createHash("sha256").update(targetText).digest("hex")
+        }
+        yield* audit(input.sessionID, {
+          action: "memory.migrate",
+          sourceDirectory,
+          targetDirectory,
+          scopes,
+          sourcePreserved: true,
+        })
+        return { sourceDirectory, targetDirectory, scopes, sourceHashes, targetHashes, sourcePreserved: true as const }
       })
 
       const writeStore = Effect.fn("Memory.writeStore")(function* (
@@ -623,10 +662,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
             const store = yield* readStore(sessionID, scope)
             const deduplicated = scope === "user" ? deduplicateStoredUserEntries(store.entries) : null
             const entries = deduplicated ? [...deduplicated.entries] : [...store.entries]
-            const normalized = normalizeEntry(candidate)
-            if (looksSensitive(normalized.content)) {
-              return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
-            }
+            const normalized = sanitizeMemoryEntry(normalizeEntry(candidate))
             const key = entryKey(normalized)
             const matchingIndexes = entries.flatMap((entry, index) => {
               if (entryKey(entry) === key) return [index]
@@ -720,8 +756,9 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       })
 
       const upsertTaskMemory = Effect.fn("Memory.upsertTaskMemory")(function* (input: TaskMemoryUpsertInput) {
+        const sanitized = sanitizeForPersistence(input.content)
         const content = yield* Effect.try({
-          try: () => validateTaskContent(input.content),
+          try: () => validateTaskContent(sanitized.text),
           catch: (error) => asError(error),
         })
         const projectID = yield* resolveProjectID(input.sessionID)
@@ -749,20 +786,20 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       const write = Effect.fn("Memory.write")(function* (input: MemoryWriteInput) {
         yield* assertPrimaryWriter(input.sessionID)
         const clean = sanitizeContent(input.content)
-        if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
-        if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
+        const sanitized = sanitizeForPersistence(clean)
+        if (!sanitized.text) return yield* Effect.fail(new Error("Memory content is empty"))
         const importance = confidenceImportance(input.confidence)
         const sectionKeyword = (input.section || (input.scope === "memory" ? "任务成果" : "用户事实")).slice(0, 4)
         const keywords = validateKeywords([sectionKeyword])
         const result =
           input.scope === "memory"
-            ? yield* upsertTaskMemory({ sessionID: input.sessionID, importance, keywords, content: clean })
-            : yield* upsertUserMemory({ sessionID: input.sessionID, importance, keywords, content: clean })
+            ? yield* upsertTaskMemory({ sessionID: input.sessionID, importance, keywords, content: sanitized.text })
+            : yield* upsertUserMemory({ sessionID: input.sessionID, importance, keywords, content: sanitized.text })
         yield* audit(input.sessionID, {
           action: "memory.write",
           scope: input.scope,
           section: input.section,
-          content: clean,
+          redactions: sanitized.redacted,
           reason: input.reason,
           result: result.status,
         })
@@ -779,11 +816,12 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         yield* assertPrimaryWriter(input.sessionID)
         yield* ensure(input.sessionID)
         const clean = sanitizeContent(input.newContent)
-        if (!clean) return yield* Effect.fail(new Error("Memory content is empty"))
-        if (looksSensitive(clean)) return yield* Effect.fail(new Error("Refusing to store sensitive memory content"))
-        if (input.scope === "memory") {
-          yield* Effect.try({ try: () => validateTaskContent(clean), catch: (error) => asError(error) })
-        }
+        const sanitized = sanitizeForPersistence(clean)
+        if (!sanitized.text) return yield* Effect.fail(new Error("Memory content is empty"))
+        const validatedContent =
+          input.scope === "memory"
+            ? yield* Effect.try({ try: () => validateTaskContent(sanitized.text), catch: (error) => asError(error) })
+            : sanitized.text
 
         const targetFile = yield* filePath(input.sessionID, input.scope)
         return yield* flock.withLock(
@@ -803,7 +841,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
             if (error) return yield* Effect.fail(new Error(error))
             const index = match ? scoped[match.index]!.index : -1
             const entries = [...store.entries]
-            entries[index] = normalizeEntry({ ...entries[index]!, content: clean })
+            entries[index] = normalizeEntry({ ...entries[index]!, content: validatedContent })
             const projected = serializeStore(input.scope, entries, store.lastCompactedAt)
             if (projected.length > charLimit(input.scope)) {
               return yield* Effect.fail(
@@ -814,8 +852,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
             yield* audit(input.sessionID, {
               action: "memory.replace",
               scope: input.scope,
-              oldText: input.oldText,
-              newContent: clean,
+              redactions: sanitized.redacted,
               reason: input.reason,
             })
             return { file: targetFile, status: "replaced" as const, message: `Memory replaced.\nFile: ${targetFile}` }
@@ -910,8 +947,8 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       })
 
       const validateManagementEntry = (entry: MemoryEntry) => {
-        const normalized = normalizeEntry(entry)
-        if (looksSensitive(normalized.content)) throw new Error("Refusing to store sensitive memory content")
+        if (looksSensitive(entry.content)) throw new Error("Refusing to store sensitive memory content")
+        const normalized = sanitizeMemoryEntry(normalizeEntry(entry))
         if (normalized.scope === "memory") validateTaskContent(normalized.content)
         return normalized
       }
@@ -1029,8 +1066,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
             const store = yield* readStore(input.sessionID, "memory")
             const entries = store.entries.filter(
               (entry) =>
-                entry.scope !== "memory" ||
-                (entry.sessionID !== input.sessionID && entry.projectID !== projectID),
+                entry.scope !== "memory" || (entry.sessionID !== input.sessionID && entry.projectID !== projectID),
             )
             const removed = store.entries.length - entries.length
             yield* writeManagedEntries(input.sessionID, "memory", store, entries, "memory.management.clear_task")
@@ -1086,10 +1122,11 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
       const formatWithHeader = Effect.fn("Memory.formatWithHeader")(function* (sessionID: SessionID, scope: Scope) {
         yield* ensure(sessionID)
         const store = yield* readStore(sessionID, scope)
-        const serialized = serializeStore(scope, store.entries, store.lastCompactedAt)
+        const safeEntries = store.entries.map(sanitizeMemoryEntry)
+        const serialized = serializeStore(scope, safeEntries, store.lastCompactedAt)
         const projectID = scope === "memory" ? yield* resolveProjectID(sessionID) : undefined
         let text = formatEntries(
-          selectSnapshotEntries(store.entries, scope, sessionID, projectID),
+          selectSnapshotEntries(safeEntries, scope, sessionID, projectID),
           scope === "memory" ? sessionID : undefined,
         )
         const limit = scope === "user" ? USER_SNAPSHOT_MAX_CHARS : MEMORY_SNAPSHOT_MAX_CHARS
@@ -1120,9 +1157,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         const projectID = yield* resolveProjectID(sessionID)
         const siblings = store.entries.filter(
           (candidate): candidate is TaskMemoryEntry =>
-            candidate.scope === "memory" &&
-            candidate.sessionID !== sessionID &&
-            candidate.projectID === projectID,
+            candidate.scope === "memory" && candidate.sessionID !== sessionID && candidate.projectID === projectID,
         )
         if (siblings.length === 0) return ""
         return siblings
@@ -1279,11 +1314,15 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         entry: Record<string, unknown>,
       ) {
         const target = path.join(yield* dir(sessionID), "audit.jsonl")
+        const sanitized = sanitizeAuditEntry(entry)
         yield* fs.ensureDir(path.dirname(target)).pipe(Effect.orDie)
         yield* flock.withLock(
           Effect.gen(function* () {
             const current = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
-            yield* writeFileAtomic(target, current + JSON.stringify(entry) + "\n")
+            yield* writeFileAtomic(
+              target,
+              current + JSON.stringify({ time: new Date().toISOString(), ...sanitized }) + "\n",
+            )
           }),
           target,
         )
@@ -1293,6 +1332,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
         dir,
         resolveProjectID,
         ensure,
+        migrateFromDirectory,
         read,
         upsertTaskMemory,
         upsertUserMemory,
@@ -1316,9 +1356,7 @@ export const layerWithDirectory = (directory: string, options?: { legacyDirector
     }),
   ).pipe(Layer.provide(EffectFlock.defaultLayer))
 
-export const layer = layerWithDirectory(DIRECTORY, {
-  legacyDirectory: process.platform === "win32" ? LEGACY_DIRECTORY : undefined,
-})
+export const layer = layerWithDirectory(DIRECTORY)
 
 export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer), Layer.provide(Session.defaultLayer))
 
@@ -1582,14 +1620,18 @@ function entriesEquivalent(left: MemoryEntry, right: MemoryEntry): boolean {
   if (left.importance !== right.importance || left.content !== right.content) return false
   if (entryKey(left) !== entryKey(right)) return false
   if (left.keywords.join("\u001f") !== right.keywords.join("\u001f")) return false
-  return left.scope === "user" || (right.scope === "memory" && (left.projectID ?? left.sessionID) === (right.projectID ?? right.sessionID))
+  return (
+    left.scope === "user" ||
+    (right.scope === "memory" && (left.projectID ?? left.sessionID) === (right.projectID ?? right.sessionID))
+  )
 }
 
 function containsCandidate(entries: readonly MemoryEntry[], candidate: MemoryEntry): boolean {
   if (candidate.scope === "memory") {
     return entries.some(
       (entry) =>
-        entry.scope === "memory" && (entry.projectID ?? entry.sessionID) === (candidate.projectID ?? candidate.sessionID),
+        entry.scope === "memory" &&
+        (entry.projectID ?? entry.sessionID) === (candidate.projectID ?? candidate.sessionID),
     )
   }
   return entries.some(
@@ -1634,15 +1676,16 @@ function peerTaskContent(content: string) {
 
 function formatEntry(entry: MemoryEntry, ownSessionID?: SessionID) {
   const displayContent =
-    entry.scope === "memory" && entry.sessionID !== ownSessionID
-      ? peerTaskContent(entry.content)
-      : entry.content
-  const fields = [`importance=${entry.importance}`, `keywords=${entry.keywords.join(", ")}`, `content=${displayContent}`]
+    entry.scope === "memory" && entry.sessionID !== ownSessionID ? peerTaskContent(entry.content) : entry.content
+  const fields = [
+    `importance=${entry.importance}`,
+    `keywords=${entry.keywords.join(", ")}`,
+    `content=${displayContent}`,
+  ]
   if (entry.scope === "memory") {
     const owner = entry.sessionID === ownSessionID ? "self" : "peer"
     fields.splice(1, 0, `owner=${owner}`, `date=${entry.date}`, `sessionID=${entry.sessionID}`)
-  }
-  else if (entry.date) fields.splice(1, 0, `date=${entry.date}`)
+  } else if (entry.date) fields.splice(1, 0, `date=${entry.date}`)
   return fields.join(" | ")
 }
 
@@ -1710,6 +1753,31 @@ function latestRealMessageText(messages: readonly MessageV2.WithParts[], role: "
 
 function sanitizeContent(input: string) {
   return input.replace(/\s+/g, " ").trim()
+}
+
+function sanitizeMemoryEntry(entry: MemoryEntry): MemoryEntry {
+  const content = sanitizeForPersistence(entry.content).text
+  const keywords = entry.keywords.map((keyword) => sanitizeForPersistence(keyword).text).filter(Boolean)
+  return normalizeEntry({ ...entry, content, keywords })
+}
+
+function sanitizeAuditEntry(entry: Record<string, unknown>): Record<string, unknown> {
+  let redactions = 0
+  const next: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(entry)) {
+    // Audit records describe the mutation; they do not need a copy of the
+    // memory body or replacement text, which could reintroduce a secret.
+    if (key === "content" || key === "oldText" || key === "newContent") continue
+    if (typeof value === "string") {
+      const sanitized = sanitizeForPersistence(value)
+      next[key] = sanitized.text
+      redactions += sanitized.redacted
+    } else {
+      next[key] = value
+    }
+  }
+  if (redactions > 0) next.redactions = Number(next.redactions ?? 0) + redactions
+  return next
 }
 
 function normalizedContent(input: string) {
@@ -1809,11 +1877,15 @@ function parseExperienceCandidate(value: unknown, label: string): ExperienceCand
   if (!(EXPERIENCE_CONFIDENCES as readonly string[]).includes(confidence)) {
     throw new Error(`Invalid memory decision ${label}: confidence must be low, medium, or high`)
   }
-  const content = parseContent(expectString(candidate.content, `memory decision ${label} content`))
+  const content = sanitizeForPersistence(
+    parseContent(expectString(candidate.content, `memory decision ${label} content`)),
+  ).text
   if ([...content].length > EXPERIENCE_CONTENT_CHAR_LIMIT) {
     throw new Error(`Invalid memory decision ${label}: content exceeds ${EXPERIENCE_CONTENT_CHAR_LIMIT} characters`)
   }
-  const evidence = parseContent(expectString(candidate.evidence, `memory decision ${label} evidence`))
+  const evidence = sanitizeForPersistence(
+    parseContent(expectString(candidate.evidence, `memory decision ${label} evidence`)),
+  ).text
   if ([...evidence].length > EXPERIENCE_EVIDENCE_CHAR_LIMIT) {
     throw new Error(`Invalid memory decision ${label}: evidence exceeds ${EXPERIENCE_EVIDENCE_CHAR_LIMIT} characters`)
   }
@@ -1836,16 +1908,33 @@ function parseCandidate(value: unknown, label: string): MemoryCandidate {
   const normalized: MemoryCandidate = {
     importance: parseImportance(candidate.importance),
     keywords: validateKeywords(expectStringArray(candidate.keywords, `memory decision ${label} keywords`)),
-    content: parseContent(expectString(candidate.content, `memory decision ${label} content`)),
+    content: sanitizeForPersistence(parseContent(expectString(candidate.content, `memory decision ${label} content`)))
+      .text,
   }
-  if (looksSensitive(normalized.content)) throw new Error(`Invalid memory decision ${label}: sensitive content`)
   return normalized
 }
 
 const TASK_FORMAT = "当前任务：<goal>；进展：<progress>；[经验：<lesson>]"
 
-function validateTaskContent(input: string) {
+function normalizeTaskContent(input: string) {
   const content = parseContent(input)
+  const progressMarker = "；进展："
+  const progressStart = content.indexOf(progressMarker)
+  if (progressStart === -1) return content
+
+  const goal = content.slice(0, progressStart).replace(/；/gu, "、")
+  const rest = content.slice(progressStart + 1)
+  const lessonMarker = "；经验："
+  const lessonStart = rest.indexOf(lessonMarker)
+  if (lessonStart === -1) return `${goal}；${rest.replace(/；/gu, "、")}`
+
+  const progress = rest.slice("进展：".length, lessonStart).replace(/；/gu, "、")
+  const lesson = rest.slice(lessonStart + 1).replace(/；/gu, "、")
+  return `${goal}；进展：${progress}；${lesson}`
+}
+
+function validateTaskContent(input: string) {
+  const content = normalizeTaskContent(input)
   const formatError = `Invalid task memory content: expected "${TASK_FORMAT}"`
   if (/下一步|我用了|最终学会了|我完成了/u.test(content)) throw new Error(formatError)
   const segments = content.split("；")
@@ -1880,7 +1969,7 @@ function validateTaskContentForPhase(input: string, _phase: MemoryUpdatePhase) {
   return validateTaskContent(input)
 }
 
-function looksSensitive(input: string) {
+function legacyLooksSensitive(input: string) {
   return /(password|passwd|secret|token|api[_-]?key|private[_-]?key|cookie|authorization|bearer|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|密码|密钥|令牌|私钥)/i.test(
     input,
   )

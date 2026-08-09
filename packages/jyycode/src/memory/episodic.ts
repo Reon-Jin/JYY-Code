@@ -5,6 +5,7 @@ import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { SessionID } from "@/session/schema"
 import * as Log from "@jyycode-ai/core/util/log"
 import { buildDigestPrompt, DIGEST_MAX_OUTPUT_CHARS } from "./episodic-digest"
+import { sanitizeForPersistence } from "./sanitize"
 import type { MessageV2 } from "@/session/message-v2"
 
 const log = Log.create({ service: "memory.episodic" })
@@ -140,6 +141,27 @@ export function truncate(text: string, maxChars: number) {
   return `${text.slice(0, maxChars)}\n…(truncated ${text.length - maxChars} chars)`
 }
 
+function sanitizeEpisodeText(text: string, maxChars: number) {
+  return truncate(sanitizeForPersistence(text).text, maxChars)
+}
+
+function sanitizeEpisodeTurn(turn: EpisodeTurn): EpisodeTurn {
+  return {
+    ...turn,
+    sessionID: sanitizeEpisodeText(turn.sessionID, 200),
+    ...(turn.userText ? { userText: sanitizeEpisodeText(turn.userText, EPISODE_OUTPUT_MAX_CHARS) } : {}),
+    files: turn.files.map((file) => sanitizeEpisodeText(file, EPISODE_INPUT_MAX_CHARS)),
+    ...(turn.assistantText ? { assistantText: sanitizeEpisodeText(turn.assistantText, EPISODE_OUTPUT_MAX_CHARS) } : {}),
+    toolCalls: turn.toolCalls.map((call) => ({
+      ...call,
+      tool: sanitizeEpisodeText(call.tool, 200),
+      input: sanitizeEpisodeText(call.input, EPISODE_INPUT_MAX_CHARS),
+      ...(call.output ? { output: sanitizeEpisodeText(call.output, EPISODE_OUTPUT_MAX_CHARS) } : {}),
+      ...(call.error ? { error: sanitizeEpisodeText(call.error, EPISODE_OUTPUT_MAX_CHARS) } : {}),
+    })),
+  }
+}
+
 export function realUserTurnIndexes(messages: MessageV2.WithParts[]) {
   const indexes: number[] = []
   for (let i = 0; i < messages.length; i++) {
@@ -174,7 +196,7 @@ export function episodeFromMessages(messages: MessageV2.WithParts[]): EpisodeTur
             (part): part is Extract<MessageV2.Part, { type: "text" }> =>
               part.type === "text" && !part.synthetic && !part.ignored,
           )
-          .map((part) => part.text.trim())
+          .map((part) => sanitizeEpisodeText(part.text.trim(), EPISODE_OUTPUT_MAX_CHARS))
           .filter(Boolean)
           .join("\n")
       : ""
@@ -182,7 +204,7 @@ export function episodeFromMessages(messages: MessageV2.WithParts[]): EpisodeTur
     user?.info.role === "user"
       ? user.parts
           .filter((part): part is Extract<MessageV2.Part, { type: "file" }> => part.type === "file")
-          .map((part) => part.filename ?? part.url)
+          .map((part) => sanitizeEpisodeText(part.filename ?? part.url, EPISODE_INPUT_MAX_CHARS))
       : []
   const toolCalls: EpisodeToolCall[] = []
   let assistantText: string | undefined
@@ -191,12 +213,19 @@ export function episodeFromMessages(messages: MessageV2.WithParts[]): EpisodeTur
     for (const part of message.parts) {
       if (part.type === "tool") {
         const input = "input" in part.state ? JSON.stringify(part.state.input) : undefined
-        const call: EpisodeToolCall = { tool: part.tool, input: truncate(input ?? "", EPISODE_INPUT_MAX_CHARS) }
-        if (part.state.status === "completed") call.output = truncate(part.state.output, EPISODE_OUTPUT_MAX_CHARS)
-        else if (part.state.status === "error") call.error = truncate(part.state.error, EPISODE_OUTPUT_MAX_CHARS)
+        const call: EpisodeToolCall = {
+          tool: sanitizeEpisodeText(part.tool, 200),
+          input: sanitizeEpisodeText(input ?? "", EPISODE_INPUT_MAX_CHARS),
+        }
+        if (part.state.status === "completed")
+          call.output = sanitizeEpisodeText(part.state.output, EPISODE_OUTPUT_MAX_CHARS)
+        else if (part.state.status === "error")
+          call.error = sanitizeEpisodeText(part.state.error, EPISODE_OUTPUT_MAX_CHARS)
         toolCalls.push(call)
       } else if (part.type === "text" && !part.synthetic && !part.ignored && part.text.trim()) {
-        assistantText = [assistantText, part.text.trim()].filter(Boolean).join("\n\n")
+        assistantText = [assistantText, sanitizeEpisodeText(part.text.trim(), EPISODE_OUTPUT_MAX_CHARS)]
+          .filter(Boolean)
+          .join("\n\n")
       }
     }
   }
@@ -287,6 +316,7 @@ export const layer = Layer.effect(
       turn: EpisodeTurn
     }) {
       const target = episodesPath(input.workspaceRoot, input.sessionID)
+      const safeTurn = sanitizeEpisodeTurn(input.turn)
       yield* flock.withLock(
         Effect.gen(function* () {
           const current = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
@@ -303,8 +333,8 @@ export const layer = Layer.effect(
               })
             }
           }
-          revisions.set(input.turn.turn, input.turn)
-          const newestTurn = Math.max(...revisions.keys(), input.turn.turn)
+          revisions.set(safeTurn.turn, safeTurn)
+          const newestTurn = Math.max(...revisions.keys(), safeTurn.turn)
           const cutoffTurn = newestTurn - EPISODE_RETENTION_TURNS
           const cutoffTime = Date.now() - EPISODE_RETENTION_DAYS * 24 * 60 * 60 * 1000
           const retained = [...revisions.values()]
@@ -420,7 +450,7 @@ export const layer = Layer.effect(
             backfillText: Option.isSome(index) ? undefined : input.backfillText,
             episodes: digestable,
           })
-          const text = truncate((yield* input.generate(prompt)).trim(), DIGEST_TARGET_CHARS)
+          const text = sanitizeEpisodeText((yield* input.generate(prompt)).trim(), DIGEST_TARGET_CHARS)
           if (!text) return { status: "skipped" as const, reason: "empty_generation" }
 
           const indexTarget = digestIndexPath(input.workspaceRoot, input.sessionID)

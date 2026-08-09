@@ -96,10 +96,14 @@ export const ContextReadTool = Tool.define(
                   query,
                   kind: params.kind,
                   limit,
+                  workspaceRoot: root,
                 })
-              : (yield* experienceMemory.readStore(ctx.sessionID)).entries
+              : (yield* experienceMemory.readStore(ctx.sessionID, root)).entries
                   .filter((entry) => entry.status === "active" && (!params.kind || entry.kind === params.kind))
-                  .sort((left, right) => right.importance - left.importance || right.updatedAt.localeCompare(left.updatedAt))
+                  .sort(
+                    (left, right) =>
+                      right.importance - left.importance || right.updatedAt.localeCompare(left.updatedAt),
+                  )
                   .slice(0, limit)
             if (hits.length === 0) {
               return {
@@ -112,13 +116,12 @@ export const ContextReadTool = Tool.define(
               title: query ? `Experience search: ${query}` : "Experience list",
               metadata: { action: "experience", matches: hits.length },
               output: hits
-                .map(
-                  (entry) =>
-                    [
-                      `[${entry.kind}] importance=${entry.importance} uses=${entry.uses} date=${entry.date}`,
-                      `Rule: ${entry.content}`,
-                      `Evidence: ${entry.evidence}`,
-                    ].join("\n"),
+                .map((entry) =>
+                  [
+                    `[${entry.kind}] importance=${entry.importance} uses=${entry.uses} date=${entry.date}`,
+                    `Rule: ${entry.content}`,
+                    `Evidence: ${entry.evidence}`,
+                  ].join("\n"),
                 )
                 .join("\n\n---\n\n"),
             }

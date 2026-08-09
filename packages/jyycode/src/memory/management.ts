@@ -73,6 +73,8 @@ export interface Interface {
   readonly list: (input: {
     scope: Scope
     sessionID?: SessionID
+    /** Experience queries may opt into a workspace-scoped store. */
+    workspaceRoot?: string
     query?: string
     cursor?: string
     limit?: number
@@ -162,8 +164,14 @@ export const layer = Layer.effect(
       compact: memory.managementCompact,
     }
 
-    const entriesFor = Effect.fn("MemoryManagement.entriesFor")(function* (scope: Scope, sessionID?: SessionID) {
-      if (scope === "experience") return (yield* experience.managementRead()).entries
+    const entriesFor = Effect.fn("MemoryManagement.entriesFor")(function* (
+      scope: Scope,
+      sessionID?: SessionID,
+      workspaceRoot?: string,
+    ) {
+      if (scope === "experience") {
+        return (yield* experience.readStore(sessionID ?? managementSessionID, workspaceRoot)).entries
+      }
       const writer =
         scope === "task" && !sessionID
           ? managementSessionID
@@ -193,12 +201,13 @@ export const layer = Layer.effect(
     const list = Effect.fn("MemoryManagement.list")(function* (input: {
       scope: Scope
       sessionID?: SessionID
+      workspaceRoot?: string
       query?: string
       cursor?: string
       limit?: number
     }) {
       const query = input.query?.normalize("NFKC").trim().toLowerCase() ?? ""
-      const filtered = (yield* entriesFor(input.scope, input.sessionID))
+      const filtered = (yield* entriesFor(input.scope, input.sessionID, input.workspaceRoot))
         .filter((entry) =>
           !query
             ? true
@@ -369,10 +378,7 @@ export const layer = Layer.effect(
   }),
 )
 
-export const defaultLayer = layer.pipe(
-  Layer.provide(Memory.defaultLayer),
-  Layer.provide(ExperienceMemory.defaultLayer),
-)
+export const defaultLayer = layer.pipe(Layer.provide(Memory.defaultLayer), Layer.provide(ExperienceMemory.defaultLayer))
 
 function asError(error: unknown) {
   return error instanceof Error ? error : new Error(String(error))
