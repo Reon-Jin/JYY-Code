@@ -24,5 +24,6 @@ export default defineConfig(({ mode }) => ({
     setupFiles: ["./src/test/setup.ts"],
     restoreMocks: true,
     clearMocks: true,
+    maxWorkers: 4,
   },
 }))

@@ -386,7 +386,7 @@ describe("model-facing plan tool names", () => {
     expect(createResult.metadata).toMatchObject({ gated: true, tool: "Plan_create", requiredTool: "Plan_read" })
   })
 
-  it("keeps read-only memory tools available under every plan gate", () => {
+  it("does not expose read-only memory tools under a mandatory plan gate", () => {
     const readTools = {
       Plan_read: {} as never,
       memory: {} as never,
@@ -394,7 +394,7 @@ describe("model-facing plan tool names", () => {
       bash: {} as never,
     }
     retainRequiredPlanTools(readTools, "Plan_read", false)
-    expect(Object.keys(readTools).sort()).toEqual(["Plan_read", "context_read", "memory"])
+    expect(Object.keys(readTools).sort()).toEqual(["Plan_read"])
 
     const createTools = {
       Plan_read: {} as never,
@@ -405,13 +405,7 @@ describe("model-facing plan tool names", () => {
       bash: {} as never,
     }
     retainRequiredPlanTools(createTools, "Plan_create", false)
-    expect(Object.keys(createTools).sort()).toEqual([
-      "Plan_create",
-      "Plan_read",
-      "Plan_update",
-      "context_read",
-      "memory",
-    ])
+    expect(Object.keys(createTools).sort()).toEqual(["Plan_create", "Plan_read", "Plan_update"])
 
     const updateTools = {
       Plan_read: {} as never,
@@ -421,7 +415,7 @@ describe("model-facing plan tool names", () => {
       bash: {} as never,
     }
     retainRequiredPlanTools(updateTools, "Plan_update", false)
-    expect(Object.keys(updateTools).sort()).toEqual(["Plan_read", "Plan_update", "context_read", "memory"])
+    expect(Object.keys(updateTools).sort()).toEqual(["Plan_read", "Plan_update"])
   })
 
   it("forces multi-agent roots to create, prepare, and dispatch active work instead of doing it themselves", () => {

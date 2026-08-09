@@ -826,9 +826,10 @@ it.instance("multi-agent roots tolerate preflight calls before creating a missin
       noReply: true,
       parts: [{ type: "text", text: "implement the requested multi-stage change" }],
     })
-    // These calls reproduce the screenshot: the model may batch a roster
-    // lookup and a repeated read before it emits the required Plan_create.
+    // These calls reproduce the screenshot: the model may batch a Blackboard
+    // read, roster lookup, and repeated reads before it emits Plan_create.
     yield* llm.tool("Plan_read", {})
+    yield* llm.tool("Blackboard", {})
     yield* llm.tool("Dispatch_roles", {})
     yield* llm.tool("Plan_read", {})
     yield* llm.tool("Plan_create", {
@@ -861,19 +862,19 @@ it.instance("multi-agent roots tolerate preflight calls before creating a missin
     yield* prompt.loop({ sessionID: chat.id })
 
     const inputs = yield* llm.inputs
-    expect(inputs).toHaveLength(5)
+    expect(inputs).toHaveLength(6)
     expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_read")
     // Gated plan write tools stay visible as inert stubs: providers that
     // ignore the required tool choice then get a recoverable gated result
-    // instead of a hard unknown-tool failure. Memory tools are also available
-    // under the gate so the model can read persistent memory on the first turn.
+    // instead of a hard unknown-tool failure. The mandatory choice is exact,
+    // so read-only context tools cannot become a retry loop.
     expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_create")
     expect(JSON.stringify(inputs[0]?.tools)).toContain("暂时禁用")
-    expect(inputs[0]?.tool_choice).toBe("required")
+    expect(inputs[0]?.tool_choice).toEqual({ type: "function", function: { name: "Plan_read" } })
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_create")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_read")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Dispatch_roles")
-    expect(inputs[1]?.tool_choice).toBe("required")
+    expect(inputs[1]?.tool_choice).toEqual({ type: "function", function: { name: "Plan_create" } })
 
     const messages = yield* sessions.messages({ sessionID: chat.id })
     const failedTools = messages
@@ -941,7 +942,7 @@ it.instance("cancelling a dispatched task forces the next turn to redispatch", (
 
     const inputs = yield* llm.inputs
     expect(inputs).toHaveLength(3)
-    expect(inputs[2]?.tool_choice).toBe("required")
+    expect(inputs[2]?.tool_choice).toEqual({ type: "function", function: { name: "Dispatch_dispatch" } })
     const messages = yield* sessions.messages({ sessionID: chat.id })
     const failedTools = messages
       .flatMap((message) => message.parts)

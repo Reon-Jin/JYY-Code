@@ -848,7 +848,34 @@ export const BlackboardTool = Tool.define(
             yield* wakeBlackboardRecipients(ctx, board, message, bridge)
             return jsonResult("Blackboard", message)
           }
-          return jsonResult("Blackboard", yield* board.readAgent(ctx.sessionID))
+          const isMissingBlackboardState = (error: unknown) => {
+            if (error instanceof Blackboard.BlackboardError)
+              return error.code === "PLAN_NOT_FOUND" || error.code === "NO_CURRENT_STEP"
+            if (!error || typeof error !== "object") return false
+            const code = "code" in error ? error.code : undefined
+            const message = "message" in error ? error.message : undefined
+            return (
+              code === "PLAN_NOT_FOUND" ||
+              code === "NO_CURRENT_STEP" ||
+              (typeof message === "string" && message.includes("plan.json"))
+            )
+          }
+          const emptyBlackboardSnapshot = () =>
+            Effect.succeed({
+              rootSessionID: ctx.sessionID,
+              stepID: "",
+              tasks: [],
+              messages: [],
+              remaining: 0,
+              status: "plan_not_created" as const,
+            })
+          const snapshot = yield* board.readAgent(ctx.sessionID).pipe(
+            Effect.catchIf(isMissingBlackboardState, emptyBlackboardSnapshot),
+            Effect.catchDefect((error) =>
+              isMissingBlackboardState(error) ? emptyBlackboardSnapshot() : Effect.die(error),
+            ),
+          )
+          return jsonResult("Blackboard", snapshot)
         }).pipe(Effect.provide(Blackboard.defaultLayer)),
     }
   }),

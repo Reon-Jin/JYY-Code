@@ -107,10 +107,6 @@ export function retainOnlyTool(tools: Record<string, AITool>, requiredTool: stri
  */
 const GATED_PLAN_WRITE_TOOL_NAMES = new Set(["Plan_create", "Plan_update", "Dispatch_dispatch"])
 
-/** Read-only memory tools stay available under plan gates so the model can
- * check persistent memory before or while it reads/creates the plan. */
-const PLAN_GATE_MEMORY_TOOL_NAMES = new Set(["memory", "context_read"])
-
 function gatedPlanWriteStub(name: string, requiredTool: string): AITool {
   return tool({
     description: `${name} 当前被协议门控暂时禁用`,
@@ -155,7 +151,6 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
     // hiding it turns that valid request into an unknown-tool failure.
     const allowed = new Set([
       "Plan_read",
-      ...PLAN_GATE_MEMORY_TOOL_NAMES,
       "Goal_done",
       ...multiAgentOnly(["Dispatch_cancel", "Dispatch_dispatch", "Blackboard", "Blackboard_Reply", "Dispatch_roles"]),
     ])
@@ -173,7 +168,6 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
       "Plan_create",
       "Plan_read",
       "Plan_update",
-      ...PLAN_GATE_MEMORY_TOOL_NAMES,
       "Goal_done",
       ...multiAgentOnly(["Dispatch_roles", "Dispatch_cancel", "Dispatch_dispatch", "Blackboard", "Blackboard_Reply"]),
     ])
@@ -188,7 +182,6 @@ export function retainRequiredPlanTools(tools: Record<string, AITool>, requiredT
     const allowed = new Set([
       requiredTool,
       "Plan_read",
-      ...PLAN_GATE_MEMORY_TOOL_NAMES,
       "Goal_done",
       ...multiAgentOnly(["Blackboard", "Blackboard_Reply", "Dispatch_roles", "Dispatch_cancel"]),
     ])

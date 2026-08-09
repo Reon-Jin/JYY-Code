@@ -62,7 +62,7 @@ describe("ChangesPanel", () => {
     const onOpenFile = vi.fn()
     render(() => <ChangesPanelView directory={directory} changes={changes} onOpenFile={onOpenFile} />)
 
-    await user.click(screen.getByRole("button", { name: "Open file src/app.ts" }))
+    await user.click(screen.getByRole("button", { name: "打开文件 src/app.ts" }))
     expect(onOpenFile).toHaveBeenCalledWith({ path: "src/app.ts", source: "changes", change: changes[0] })
   })
 
