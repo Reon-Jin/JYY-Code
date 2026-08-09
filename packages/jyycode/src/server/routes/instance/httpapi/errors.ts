@@ -166,6 +166,16 @@ export class PtyForbiddenError extends Schema.TaggedErrorClass<PtyForbiddenError
   { httpApiStatus: 403 },
 ) {}
 
+export class PtyTerminationFailedError extends Schema.TaggedErrorClass<PtyTerminationFailedError>()(
+  "PtyTerminationFailedError",
+  {
+    ptyID: Schema.String,
+    code: Schema.Literal("PTY_KILL_FAILED"),
+    message: Schema.String,
+  },
+  { httpApiStatus: 409 },
+) {}
+
 export class ProjectNotFoundError extends Schema.TaggedErrorClass<ProjectNotFoundError>()(
   "ProjectNotFoundError",
   {

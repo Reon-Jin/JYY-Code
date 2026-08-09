@@ -7,15 +7,23 @@ import { lazy } from "@jyycode-ai/core/util/lazy"
 import { Plugin } from "@/plugin"
 import { Shell } from "@/shell/shell"
 import type { Proc } from "#pty"
+import type { TerminationResult } from "@jyycode-ai/core/process-supervisor"
 import * as Log from "@jyycode-ai/core/util/log"
 import { PtyID } from "./schema"
-import { Effect, Layer, Context, Schema, Types } from "effect"
+import { Effect, Layer, Context, Schema, Types, Scope, Clock } from "effect"
 import { NonNegativeInt, PositiveInt } from "@jyycode-ai/core/schema"
 
 const log = Log.create({ service: "pty" })
 
 const BUFFER_LIMIT = 1024 * 1024 * 2
 const BUFFER_CHUNK = 64 * 1024
+const MAX_SESSIONS_PER_INSTANCE = 16
+const DEFAULT_SESSIONS_PER_OWNER = 8
+const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000
+const MAX_IDLE_TIMEOUT_MS = DEFAULT_IDLE_TIMEOUT_MS
+const DEFAULT_ABSOLUTE_TIMEOUT_MS = 8 * 60 * 60 * 1000
+const MAX_ABSOLUTE_TIMEOUT_MS = DEFAULT_ABSOLUTE_TIMEOUT_MS
+const TERMINATION_TIMEOUT_MS = 8_000
 const encoder = new TextEncoder()
 
 type Socket = {
@@ -34,6 +42,16 @@ type Active = {
   bufferCursor: number
   cursor: number
   subscribers: Map<unknown, Socket>
+  ownerSessionID?: string
+  ownerWorkspaceID?: string
+  createdAt: number
+  lastActivityAt: number
+  idleExpiresAt: number
+  absoluteExpiresAt: number
+  idleTimeoutMs: number
+  absoluteTimeoutMs: number
+  watchdog?: ReturnType<typeof Effect.runFork>
+  termination?: TerminationResult
 }
 
 type State = {
@@ -59,8 +77,15 @@ export const Info = Schema.Struct({
   command: Schema.String,
   args: Schema.Array(Schema.String),
   cwd: Schema.String,
-  status: Schema.Literals(["running", "exited"]),
+  status: Schema.Literals(["running", "exited", "kill_failed"]),
   pid: PositiveInt,
+  owner_session_id: Schema.optional(Schema.String),
+  owner_workspace_id: Schema.optional(Schema.String),
+  created_at: PositiveInt,
+  last_activity_at: PositiveInt,
+  idle_expires_at: PositiveInt,
+  absolute_expires_at: PositiveInt,
+  termination_reason: Schema.optional(Schema.String),
 }).annotate({ identifier: "Pty" })
 
 export type Info = Types.DeepMutable<Schema.Schema.Type<typeof Info>>
@@ -71,6 +96,8 @@ export const CreateInput = Schema.Struct({
   cwd: Schema.optional(Schema.String),
   title: Schema.optional(Schema.String),
   env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  owner_session_id: Schema.optional(Schema.String),
+  owner_workspace_id: Schema.optional(Schema.String),
 })
 
 export type CreateInput = Types.DeepMutable<Schema.Schema.Type<typeof CreateInput>>
@@ -91,6 +118,11 @@ export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Pty
   ptyID: PtyID,
 }) {}
 
+export class TerminationError extends Schema.TaggedErrorClass<TerminationError>()("Pty.TerminationError", {
+  ptyID: PtyID,
+  message: Schema.String,
+}) {}
+
 export const Event = {
   Created: BusEvent.define("pty.created", Schema.Struct({ info: Info })),
   Updated: BusEvent.define("pty.updated", Schema.Struct({ info: Info })),
@@ -101,9 +133,9 @@ export const Event = {
 export interface Interface {
   readonly list: () => Effect.Effect<Info[]>
   readonly get: (id: PtyID) => Effect.Effect<Info, NotFoundError>
-  readonly create: (input: CreateInput) => Effect.Effect<Info>
+  readonly create: (input: CreateInput) => Effect.Effect<Info, never, Scope.Scope>
   readonly update: (id: PtyID, input: UpdateInput) => Effect.Effect<Info, NotFoundError>
-  readonly remove: (id: PtyID) => Effect.Effect<void, NotFoundError>
+  readonly remove: (id: PtyID) => Effect.Effect<void, NotFoundError | TerminationError>
   readonly resize: (id: PtyID, cols: number, rows: number) => Effect.Effect<void, NotFoundError>
   readonly write: (id: PtyID, data: string) => Effect.Effect<void, NotFoundError>
   readonly connect: (
@@ -124,18 +156,44 @@ export const layer = Layer.effect(
     const config = yield* Config.Service
     const bus = yield* Bus.Service
     const plugin = yield* Plugin.Service
+    const clock = yield* Clock.Clock
 
-    function teardown(session: Active) {
-      try {
-        session.process.kill()
-      } catch {}
+    const failedTermination = (session: Active, reason: string, error?: unknown): TerminationResult => ({
+      state: "kill_failed",
+      pid: session.info.pid,
+      remainingPids: [session.info.pid],
+      error: error instanceof Error ? error.message : reason,
+    })
+
+    const teardown = Effect.fn("Pty.teardown")(function* (session: Active, reason: string) {
+      if (session.info.status === "running" || session.info.status === "kill_failed") {
+        const result = yield* Effect.tryPromise({
+          try: () => session.process.kill("SIGTERM"),
+          catch: (error) => error,
+        }).pipe(
+          Effect.timeoutOrElse({
+            duration: `${TERMINATION_TIMEOUT_MS} millis`,
+            orElse: () => Effect.succeed(failedTermination(session, reason)),
+          }),
+          Effect.catch((error) => Effect.succeed(failedTermination(session, reason, error))),
+        )
+        session.termination = result
+        if (result.state === "kill_failed") {
+          session.info.status = "kill_failed"
+          session.info.termination_reason = reason
+        } else {
+          session.info.status = "exited"
+        }
+      }
+
       for (const [sub, ws] of session.subscribers.entries()) {
         try {
           if (sock(ws) === sub) ws.close()
         } catch {}
       }
       session.subscribers.clear()
-    }
+      return session.termination ?? ({ state: "exited", pid: session.info.pid, remainingPids: [] } satisfies TerminationResult)
+    })
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("Pty.state")(function* (ctx) {
@@ -145,12 +203,9 @@ export const layer = Layer.effect(
         }
 
         yield* Effect.addFinalizer(() =>
-          Effect.sync(() => {
-            for (const session of state.sessions.values()) {
-              teardown(session)
-            }
-            state.sessions.clear()
-          }),
+          Effect.forEach(state.sessions.values(), (session) => teardown(session, "instance_dispose").pipe(Effect.ignore), {
+            concurrency: "unbounded",
+          }).pipe(Effect.asVoid, Effect.tap(() => Effect.sync(() => state.sessions.clear()))),
         )
 
         return state
@@ -163,12 +218,27 @@ export const layer = Layer.effect(
       return session
     })
 
+    const touch = (session: Active) => {
+      if (session.info.status !== "running") return
+      const now = clock.currentTimeMillisUnsafe()
+      session.lastActivityAt = now
+      session.idleExpiresAt = Math.min(now + session.idleTimeoutMs, session.absoluteExpiresAt)
+      session.info.last_activity_at = now
+      session.info.idle_expires_at = session.idleExpiresAt
+    }
+
     const remove = Effect.fn("Pty.remove")(function* (id: PtyID) {
       const s = yield* InstanceState.get(state)
       const session = yield* requireSession(id)
-      s.sessions.delete(id)
       log.info("removing session", { id })
-      teardown(session)
+      const result = yield* teardown(session, "removed")
+      if (result.state === "kill_failed") {
+        return yield* new TerminationError({
+          ptyID: id,
+          message: `PTY process tree termination failed for ${id}`,
+        })
+      }
+      s.sessions.delete(id)
       yield* bus.publish(Event.Deleted, { id: session.info.id })
     })
 
@@ -185,6 +255,26 @@ export const layer = Layer.effect(
       const s = yield* InstanceState.get(state)
       const bridge = yield* EffectBridge.make()
       const cfg = yield* config.get()
+      const ptyConfig = cfg.pty
+      const ownerSessionID = input.owner_session_id
+      const ownerWorkspaceID = input.owner_workspace_id
+      const ownerLimit = Math.max(1, ptyConfig?.max_sessions_per_owner ?? DEFAULT_SESSIONS_PER_OWNER)
+      if (s.sessions.size >= MAX_SESSIONS_PER_INSTANCE) {
+        throw new Error(`PTY session limit exceeded: maximum ${MAX_SESSIONS_PER_INSTANCE} per instance`)
+      }
+      if (ownerSessionID || ownerWorkspaceID) {
+        const owned = Array.from(s.sessions.values()).filter(
+          (session) =>
+            (ownerSessionID !== undefined && session.ownerSessionID === ownerSessionID) ||
+            (ownerWorkspaceID !== undefined && session.ownerWorkspaceID === ownerWorkspaceID),
+        ).length
+        if (owned >= ownerLimit) throw new Error(`PTY owner session limit exceeded: maximum ${ownerLimit}`)
+      }
+      const idleTimeoutMs = Math.min(ptyConfig?.idle_timeout_ms ?? DEFAULT_IDLE_TIMEOUT_MS, MAX_IDLE_TIMEOUT_MS)
+      const absoluteTimeoutMs = Math.min(
+        ptyConfig?.absolute_timeout_ms ?? DEFAULT_ABSOLUTE_TIMEOUT_MS,
+        MAX_ABSOLUTE_TIMEOUT_MS,
+      )
       const id = PtyID.ascending()
       const command = input.command || Shell.preferred(cfg.shell)
       const args = input.args || []
@@ -218,6 +308,7 @@ export const layer = Layer.effect(
         }),
       )
 
+      const now = clock.currentTimeMillisUnsafe()
       const info = {
         id,
         title: input.title || `Terminal ${id.slice(-4)}`,
@@ -226,6 +317,12 @@ export const layer = Layer.effect(
         cwd,
         status: "running",
         pid: proc.pid,
+        owner_session_id: ownerSessionID,
+        owner_workspace_id: ownerWorkspaceID,
+        created_at: now,
+        last_activity_at: now,
+        idle_expires_at: Math.min(now + idleTimeoutMs, now + absoluteTimeoutMs),
+        absolute_expires_at: now + absoluteTimeoutMs,
       } as const
       const session: Active = {
         info,
@@ -234,9 +331,18 @@ export const layer = Layer.effect(
         bufferCursor: 0,
         cursor: 0,
         subscribers: new Map(),
+        ownerSessionID,
+        ownerWorkspaceID,
+        createdAt: now,
+        lastActivityAt: now,
+        idleExpiresAt: info.idle_expires_at,
+        absoluteExpiresAt: info.absolute_expires_at,
+        idleTimeoutMs,
+        absoluteTimeoutMs,
       }
       s.sessions.set(id, session)
       proc.onData((chunk) => {
+        if (chunk.length > 0) touch(session)
         session.cursor += chunk.length
 
         for (const [key, ws] of session.subscribers.entries()) {
@@ -265,9 +371,27 @@ export const layer = Layer.effect(
         if (session.info.status === "exited") return
         log.info("session exited", { id, exitCode })
         session.info.status = "exited"
+        session.termination = { state: "exited", pid: session.info.pid, remainingPids: [] }
         bridge.fork(bus.publish(Event.Exited, { id, exitCode }))
         bridge.fork(remove(id))
       })
+      session.watchdog = yield* Effect.forkScoped(
+        Effect.gen(function* () {
+          while (session.info.status === "running") {
+            yield* Effect.sleep("1 second")
+            const current = clock.currentTimeMillisUnsafe()
+            if (current >= session.absoluteExpiresAt || current >= session.idleExpiresAt) {
+              yield* remove(id).pipe(
+                Effect.catch((error) => {
+                  log.error("PTY expiry cleanup failed", { id, error: String(error) })
+                  return Effect.void
+                }),
+              )
+              return
+            }
+          }
+        }),
+      )
       yield* bus.publish(Event.Created, { info })
       return info
     })
@@ -294,6 +418,7 @@ export const layer = Layer.effect(
     const write = Effect.fn("Pty.write")(function* (id: PtyID, data: string) {
       const session = yield* requireSession(id)
       if (session.info.status === "running") {
+        if (data.length > 0) touch(session)
         session.process.write(data)
       }
     })
@@ -351,6 +476,7 @@ export const layer = Layer.effect(
 
       return {
         onMessage: (message: string | ArrayBuffer) => {
+          touch(session)
           session.process.write(typeof message === "string" ? message : new TextDecoder().decode(message))
         },
         onClose: () => {

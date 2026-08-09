@@ -5,6 +5,7 @@ import { Plugin } from "../../src/plugin"
 import { Pty } from "../../src/pty"
 import type { PtyID } from "../../src/pty/schema"
 import { Cause, Effect, Exit, Layer, Queue } from "effect"
+import * as TestClock from "effect/testing/TestClock"
 import { testEffect } from "../lib/effect"
 
 type PtyEvent = { type: "created" | "exited" | "deleted"; id: PtyID }
@@ -144,5 +145,25 @@ describe("pty", () => {
         yield* pty.remove(info.id).pipe(Effect.ignore)
       }),
     { git: true },
+  )
+
+  ptyTest(
+    "reclaims an inactive PTY at the idle deadline without waiting for wall clock time",
+    () =>
+      Effect.gen(function* () {
+        const pty = yield* Pty.Service
+        const info = yield* pty.create({
+          command: "/usr/bin/env",
+          args: ["sh", "-c", "sleep 5"],
+          title: "idle",
+        })
+
+        yield* TestClock.adjust("31 minutes")
+        yield* TestClock.adjust("1 second")
+
+        const result = yield* pty.get(info.id).pipe(Effect.exit)
+        expect(Exit.isFailure(result)).toBe(true)
+      }),
+    { git: true, config: { pty: { idle_timeout_ms: 1_000, absolute_timeout_ms: 60_000 } } },
   )
 })

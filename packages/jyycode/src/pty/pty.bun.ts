@@ -1,4 +1,5 @@
 import { spawn as create } from "bun-pty"
+import { killProcessTreeVerified } from "@jyycode-ai/core/process-supervisor"
 import type { Opts, Proc } from "./pty"
 
 export type { Disp, Exit, Opts, Proc } from "./pty"
@@ -20,7 +21,10 @@ export function spawn(file: string, args: string[], opts: Opts): Proc {
       pty.resize(cols, rows)
     },
     kill(signal) {
-      pty.kill(signal)
+      try {
+        pty.kill(signal)
+      } catch {}
+      return killProcessTreeVerified(pty.pid, { signal: signal as NodeJS.Signals | undefined })
     },
   }
 }

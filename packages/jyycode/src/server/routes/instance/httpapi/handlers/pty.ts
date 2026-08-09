@@ -89,6 +89,15 @@ export const ptyHandlers = HttpApiBuilder.group(InstanceHttpApi, "pty", (handler
             }),
           ),
         ),
+        Effect.catchTag("Pty.TerminationError", (error) =>
+          Effect.fail(
+            new ApiError.PtyTerminationFailedError({
+              ptyID: error.ptyID,
+              code: "PTY_KILL_FAILED",
+              message: error.message,
+            }),
+          ),
+        ),
       )
       return true
     })

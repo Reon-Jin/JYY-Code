@@ -175,6 +175,19 @@ export const Info = Schema.Struct({
   shell: Schema.optional(Schema.String).annotate({
     description: "Default shell to use for terminal and bash tool",
   }),
+  pty: Schema.optional(
+    Schema.Struct({
+      max_sessions_per_owner: Schema.optional(PositiveInt).annotate({
+        description: "Maximum PTY sessions owned by one session/workspace",
+      }),
+      idle_timeout_ms: Schema.optional(PositiveInt).annotate({
+        description: "PTY idle timeout in milliseconds; the runtime caps it at 30 minutes",
+      }),
+      absolute_timeout_ms: Schema.optional(PositiveInt).annotate({
+        description: "PTY absolute lifetime in milliseconds; the runtime caps it at 8 hours",
+      }),
+    }),
+  ),
   logLevel: Schema.optional(LogLevelRef).annotate({ description: "Log level" }),
   server: Schema.optional(ConfigServer.Server).annotate({
     description: "Server configuration for jyycode serve and web commands",

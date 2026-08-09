@@ -1,5 +1,6 @@
 /** @ts-expect-error */
 import * as pty from "@lydell/node-pty"
+import { killProcessTreeVerified } from "@jyycode-ai/core/process-supervisor"
 import type { Opts, Proc } from "./pty"
 
 export type { Disp, Exit, Opts, Proc } from "./pty"
@@ -21,7 +22,10 @@ export function spawn(file: string, args: string[], opts: Opts): Proc {
       proc.resize(cols, rows)
     },
     kill(signal) {
-      proc.kill(signal)
+      try {
+        proc.kill(signal)
+      } catch {}
+      return killProcessTreeVerified(proc.pid, { signal: signal as NodeJS.Signals | undefined })
     },
   }
 }

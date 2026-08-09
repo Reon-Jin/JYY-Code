@@ -10,7 +10,7 @@ import {
   WorkspaceRoutingQuery,
   WorkspaceRoutingQueryFields,
 } from "../middleware/workspace-routing"
-import { PtyForbiddenError, PtyNotFoundError } from "../errors"
+import { PtyForbiddenError, PtyNotFoundError, PtyTerminationFailedError } from "../errors"
 import { described } from "./metadata"
 
 const root = "/pty"
@@ -101,7 +101,7 @@ export const PtyApi = HttpApi.make("pty")
           params: { ptyID: PtyID },
           query: WorkspaceRoutingQuery,
           success: described(Schema.Boolean, "Session removed"),
-          error: PtyNotFoundError,
+          error: [PtyNotFoundError, PtyTerminationFailedError],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "pty.remove",

@@ -21,5 +21,6 @@ export type Proc = {
   onExit(listener: (event: Exit) => void): Disp
   write(data: string): void
   resize(cols: number, rows: number): void
-  kill(signal?: string): void
+  kill(signal?: string): Promise<TerminationResult>
 }
+import type { TerminationResult } from "@jyycode-ai/core/process-supervisor"
