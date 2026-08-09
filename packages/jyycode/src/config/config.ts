@@ -421,7 +421,19 @@ export const Info = Schema.Struct({
         description: "Continue the agent loop when a tool call is denied",
       }),
       mcp_timeout: Schema.optional(PositiveInt).annotate({
-        description: "Timeout in milliseconds for model context protocol (MCP) requests",
+        description: "Deprecated alias for mcp_idle_timeout_ms",
+      }),
+      mcp_idle_timeout_ms: Schema.optional(PositiveInt).annotate({
+        description: "Default MCP request idle timeout in milliseconds",
+      }),
+      mcp_total_timeout_ms: Schema.optional(PositiveInt).annotate({
+        description: "Default MCP request total timeout in milliseconds",
+      }),
+      mcp_max_concurrency: Schema.optional(PositiveInt).annotate({
+        description: "Maximum number of MCP servers that may start concurrently; capped by the runtime",
+      }),
+      mcp_idle_ttl_ms: Schema.optional(PositiveInt).annotate({
+        description: "Idle lifetime for reusable MCP resources before cleanup",
       }),
     }),
   ),

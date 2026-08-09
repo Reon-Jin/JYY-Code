@@ -231,6 +231,37 @@ it.instance(
 )
 
 it.instance(
+  "does not start configured MCP until definitions are requested",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        lastCreatedClientName = "lazy-server"
+        getOrCreateClientState("lazy-server").tools = [
+          { name: "lazy_tool", description: "lazy", inputSchema: { type: "object", properties: {} } },
+        ]
+
+        expect(clientCreateCount).toBe(0)
+        expect((yield* mcp.status())["lazy-server"]?.status).toBe("disabled")
+        expect(clientCreateCount).toBe(0)
+
+        const defs = yield* mcp.toolDefs()
+        expect(defs.some((item) => item.id.includes("lazy_tool"))).toBe(true)
+        expect(clientCreateCount).toBe(1)
+      }),
+    ),
+  {
+    config: {
+      mcp: {
+        "lazy-server": {
+          type: "local",
+          command: ["echo", "lazy"],
+        },
+      },
+    },
+  },
+)
+
+it.instance(
   "exposes MCP tools as catalog definitions",
   () =>
     MCP.Service.use((mcp: MCPNS.Interface) =>
@@ -253,7 +284,7 @@ it.instance(
           catalog: {
             category: "mcp",
             mutability: "external",
-            risk: "medium",
+            risk: "high",
           },
         })
       }),

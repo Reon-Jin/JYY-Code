@@ -873,7 +873,16 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     includeContextRead: true,
     ...(allowedToolIDs ? { toolIDs: allowedToolIDs } : {}),
   })
-  const mcpDefs = candidateGate && candidateGate.phase !== "running" ? [] : yield* mcp.toolDefs()
+  // A profile-backed child that has no MCP allowance should not even resolve
+  // MCP definitions: resolving them is the point at which configured servers
+  // are started. Root sessions and explicitly MCP-enabled roles still opt in.
+  const shouldResolveMcp = input.agent.mode !== "subagent" || allowedToolIDs?.has(SUBAGENT_READ_ONLY_MCP_TOOL_ID) === true
+  const mcpDefs =
+    candidateGate && candidateGate.phase !== "running"
+      ? []
+      : shouldResolveMcp
+        ? yield* mcp.toolDefs()
+        : []
   const visibleRegistryDefs = filterToolIDs(registryDefs, allowedToolIDs).filter((item) => {
     if (item.id === "Goal_done" && (input.session.parentID !== undefined || input.session.goal?.status !== "running"))
       return false

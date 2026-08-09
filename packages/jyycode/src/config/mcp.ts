@@ -13,7 +13,13 @@ export const Local = Schema.Struct({
     description: "Enable or disable the MCP server on startup",
   }),
   timeout: Schema.optional(PositiveInt).annotate({
-    description: "Timeout in ms for MCP server requests. Defaults to 5000 (5 seconds) if not specified.",
+    description: "Deprecated alias for idle_timeout_ms.",
+  }),
+  idle_timeout_ms: Schema.optional(PositiveInt).annotate({
+    description: "Maximum idle time in ms for an MCP request. Defaults to 60000 and is capped at 120000.",
+  }),
+  total_timeout_ms: Schema.optional(PositiveInt).annotate({
+    description: "Maximum total time in ms for an MCP request. Defaults to 300000 and is capped at 600000.",
   }),
 }).annotate({ identifier: "McpLocalConfig" })
 export type Local = Schema.Schema.Type<typeof Local>
@@ -49,7 +55,13 @@ export const Remote = Schema.Struct({
     description: "OAuth authentication configuration for the MCP server. Set to false to disable OAuth auto-detection.",
   }),
   timeout: Schema.optional(PositiveInt).annotate({
-    description: "Timeout in ms for MCP server requests. Defaults to 5000 (5 seconds) if not specified.",
+    description: "Deprecated alias for idle_timeout_ms.",
+  }),
+  idle_timeout_ms: Schema.optional(PositiveInt).annotate({
+    description: "Maximum idle time in ms for an MCP request. Defaults to 60000 and is capped at 120000.",
+  }),
+  total_timeout_ms: Schema.optional(PositiveInt).annotate({
+    description: "Maximum total time in ms for an MCP request. Defaults to 300000 and is capped at 600000.",
   }),
 }).annotate({ identifier: "McpRemoteConfig" })
 export type Remote = Schema.Schema.Type<typeof Remote>

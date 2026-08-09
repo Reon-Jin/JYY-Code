@@ -12,6 +12,11 @@ export interface InstanceState<A, E = never, R = never> {
   readonly cache: ScopedCache.ScopedCache<string, A, E, R>
 }
 
+export interface MakeOptions<A> {
+  /** Runs before an instance entry is invalidated, allowing pooled resources to release their lease. */
+  readonly onInvalidate?: (value: A) => Effect.Effect<void>
+}
+
 export const context = Effect.gen(function* () {
   const ctx = yield* InstanceRef
   if (!ctx) return yield* Effect.die(new Error("InstanceRef not provided"))
@@ -26,6 +31,7 @@ export const directory = Effect.map(context, (ctx) => ctx.directory)
 
 export const make = <A, E = never, R = never>(
   init: (ctx: InstanceContext) => Effect.Effect<A, E, R | Scope.Scope>,
+  options: MakeOptions<A> = {},
 ): Effect.Effect<InstanceState<A, E, Exclude<R, Scope.Scope>>, never, R | Scope.Scope> =>
   Effect.gen(function* () {
     const cache = yield* ScopedCache.make<string, A, E, R>({
@@ -36,9 +42,20 @@ export const make = <A, E = never, R = never>(
         }),
     })
 
-    const off = registerDisposer((directory) =>
-      Effect.runPromise(ScopedCache.invalidate(cache, directory).pipe(Effect.provide(EffectLogger.layer))),
-    )
+    const off = registerDisposer((directory) => {
+      const beforeInvalidate = Effect.gen(function* () {
+        if (!options.onInvalidate) return
+        if (!(yield* ScopedCache.has(cache, directory))) return
+        const value = yield* ScopedCache.get(cache, directory)
+        yield* options.onInvalidate(value)
+      }).pipe(Effect.catch(() => Effect.void))
+
+      return Effect.runPromise(
+        Effect.flatMap(beforeInvalidate, () => ScopedCache.invalidate(cache, directory)).pipe(
+          Effect.provide(EffectLogger.layer),
+        ),
+      )
+    })
     yield* Effect.addFinalizer(() => Effect.sync(off))
 
     return {
