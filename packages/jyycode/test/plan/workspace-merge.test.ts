@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
+// @ts-ignore Task 4 adds the implementation module targeted by this contract suite.
 import { planWorkspaceMerge } from "../../src/plan/workspace-merge"
 import { createMergeWorkspaceFixture } from "./hardening-fixtures"
 
@@ -14,7 +15,9 @@ function copyTree(source: string, target: string) {
   fs.cpSync(source, target, { recursive: true, force: true })
 }
 
-function pathsOf(entries: Array<{ path: string }>) {
+type MergeApplyEntry = { path: string; content?: string }
+
+function pathsOf(entries: MergeApplyEntry[]) {
   return entries.map((entry) => entry.path)
 }
 
@@ -89,7 +92,7 @@ describe("workspace three-way merge contract", () => {
       const result = planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child })
       expect(pathsOf(result.apply)).toContain("src/file.ts")
       expect(result.conflicts).toEqual([])
-      expect(result.apply.find((entry) => entry.path === "src/file.ts")?.content).toBe("ONE\ntwo\nTHREE\nfour\n")
+      expect(result.apply.find((entry: MergeApplyEntry) => entry.path === "src/file.ts")?.content).toBe("ONE\ntwo\nTHREE\nfour\n")
     } finally {
       fixture.cleanup()
     }
@@ -106,7 +109,7 @@ describe("workspace three-way merge contract", () => {
 
       const result = planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child })
       expect(result.conflicts).toEqual([expect.objectContaining({ path: "src/file.ts", kind: "content" })])
-      expect(result.apply.some((entry) => entry.path === "src/file.ts")).toBe(false)
+      expect(result.apply.some((entry: MergeApplyEntry) => entry.path === "src/file.ts")).toBe(false)
     } finally {
       fixture.cleanup()
     }
@@ -128,7 +131,7 @@ describe("workspace three-way merge contract", () => {
         resolutions: [{ path: "src/config.ts", use: "child" }],
       })
       expect(child.conflicts).toEqual([])
-      expect(child.apply.find((entry) => entry.path === "src/config.ts")?.content).toBe(
+      expect(child.apply.find((entry: MergeApplyEntry) => entry.path === "src/config.ts")?.content).toBe(
         "export const value = \"child\"\n",
       )
 

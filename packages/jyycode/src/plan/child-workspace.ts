@@ -23,6 +23,9 @@ export type WorkspaceReservation = {
   directory: string | null
   created_at: string | null
   cleanup: CleanupPolicy
+  baseline_directory?: string | null
+  baseline_manifest_hash?: string | null
+  source_revision?: string | null
 }
 
 export type BaselineManifestEntry = {
@@ -33,6 +36,9 @@ export type BaselineManifestEntry = {
 
 export type WorkspaceHandle = WorkspaceReservation & {
   directory: string
+  baseline_directory: string | null
+  baseline_manifest_hash: string | null
+  source_revision: string | null
   baseline_manifest: BaselineManifestEntry[]
 }
 
@@ -94,6 +100,10 @@ function hashFile(pathname: string) {
   return crypto.createHash("sha256").update(fs.readFileSync(pathname)).digest("hex")
 }
 
+function hashManifest(manifest: BaselineManifestEntry[]) {
+  return crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex")
+}
+
 function walkFiles(root: string, current = root): BaselineManifestEntry[] {
   const entries: BaselineManifestEntry[] = []
   for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
@@ -103,8 +113,49 @@ function walkFiles(root: string, current = root): BaselineManifestEntry[] {
     if (entry.isDirectory()) entries.push(...walkFiles(root, pathname))
     else if (entry.isSymbolicLink()) entries.push({ relative_path: relative, hash: fs.readlinkSync(pathname), mode: "symlink" })
     else if (entry.isFile()) entries.push({ relative_path: relative, hash: hashFile(pathname), mode: "file" })
+    else throw new ChildWorkspaceError(`不支持的 workspace 文件类型: ${relative}`)
   }
   return entries.sort((left, right) => left.relative_path.localeCompare(right.relative_path))
+}
+
+function assertSafeSymlink(root: string, pathname: string) {
+  const target = fs.readlinkSync(pathname)
+  const resolved = path.resolve(path.dirname(pathname), target)
+  if (!isInside(root, resolved))
+    throw new ChildWorkspaceError("拒绝复制指向 workspace 外部的 symlink", { directory: pathname })
+  return target
+}
+
+function copyTree(source: string, target: string, root = source) {
+  if (!fs.existsSync(target)) fs.mkdirSync(target, { recursive: true })
+  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+    if (entry.name === ".git") continue
+    const sourcePath = path.join(source, entry.name)
+    const targetPath = path.join(target, entry.name)
+    if (entry.isDirectory()) {
+      fs.mkdirSync(targetPath, { recursive: true })
+      copyTree(sourcePath, targetPath, root)
+    } else if (entry.isSymbolicLink()) {
+      const link = assertSafeSymlink(root, sourcePath)
+      if (fs.existsSync(targetPath) || fs.lstatSync(targetPath, { throwIfNoEntry: false })) fs.rmSync(targetPath, { recursive: true, force: true })
+      try {
+        fs.symlinkSync(link, targetPath)
+      } catch (error) {
+        throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), { directory: targetPath })
+      }
+    } else if (entry.isFile()) {
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+      fs.copyFileSync(sourcePath, targetPath)
+    } else throw new ChildWorkspaceError(`不支持的 workspace 文件类型: ${path.relative(root, sourcePath)}`)
+  }
+}
+
+function clearTreeExceptGit(directory: string) {
+  if (!fs.existsSync(directory)) return
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (entry.name === ".git") continue
+    fs.rmSync(path.join(directory, entry.name), { recursive: true, force: true })
+  }
 }
 
 function isInside(root: string, target: string) {
@@ -146,6 +197,9 @@ export class ChildWorkspace {
       directory: mode === "shared_compat" ? this.project.root : path.join(this.runtimeRoot, deterministicName(rootSessionId, taskId)),
       created_at: null,
       cleanup: mode === "shared_compat" ? "retain_on_failure" : "on_success",
+      baseline_directory: null,
+      baseline_manifest_hash: null,
+      source_revision: null,
     }
     this.reservations.set(key, reservation)
     return structuredClone(reservation)
@@ -160,6 +214,9 @@ export class ChildWorkspace {
         ...reservation,
         directory: this.project.root,
         created_at: reservation.created_at ?? new Date(this.now()).toISOString(),
+        baseline_directory: null,
+        baseline_manifest_hash: null,
+        source_revision: reservation.source_revision ?? null,
         baseline_manifest: walkFiles(this.project.root),
       }
       this.reservations.set(key, handle)
@@ -167,7 +224,29 @@ export class ChildWorkspace {
     }
     if (!reservation.directory) throw new ChildWorkspaceError("隔离 workspace 缺少 directory")
     try {
-      let directory = reservation.directory
+      const directory = path.resolve(reservation.directory)
+      if (!isInside(this.runtimeRoot, directory))
+        throw new ChildWorkspaceError("child workspace 必须位于 runtime workspace 根目录", { directory })
+      const baselineDirectory = path.resolve(
+        reservation.baseline_directory ?? path.join(this.runtimeRoot, `${reservation.name}.baseline`),
+      )
+      if (!isInside(this.runtimeRoot, baselineDirectory) || baselineDirectory === directory)
+        throw new ChildWorkspaceError("baseline directory 必须是 runtime 根目录下的独立 sibling", { directory: baselineDirectory })
+
+      if (fs.existsSync(baselineDirectory)) {
+        const loaded = this.load({ ...reservation, directory, baseline_directory: baselineDirectory })
+        if (loaded) {
+          this.reservations.set(key, loaded)
+          return structuredClone(loaded)
+        }
+      }
+
+      fs.mkdirSync(baselineDirectory, { recursive: true })
+      clearTreeExceptGit(baselineDirectory)
+      copyTree(this.project.root, baselineDirectory, this.project.root)
+      const baselineManifest = walkFiles(baselineDirectory)
+      const baselineManifestHash = hashManifest(baselineManifest)
+
       if (reservation.mode === "worktree") {
         if (!this.worktree) throw new ChildWorkspaceError("Git 项目缺少 Worktree service")
         const info = await this.worktree.makeWorktreeInfo({ name: reservation.name, detached: true })
@@ -176,18 +255,36 @@ export class ChildWorkspace {
             directory: info.directory,
           })
         await this.worktree.createFromInfo(info)
-        directory = path.resolve(info.directory)
+        if (path.resolve(info.directory) !== directory && fs.existsSync(directory))
+          throw new ChildWorkspaceError("Worktree adapter 返回了与 reservation 不同的 directory", { directory: info.directory })
+        const worktreeDirectory = path.resolve(info.directory)
+        clearTreeExceptGit(worktreeDirectory)
+        copyTree(baselineDirectory, worktreeDirectory, baselineDirectory)
+        const handle: WorkspaceHandle = {
+          ...reservation,
+          directory: worktreeDirectory,
+          created_at: reservation.created_at ?? new Date(this.now()).toISOString(),
+          baseline_directory: baselineDirectory,
+          baseline_manifest_hash: baselineManifestHash,
+          source_revision: reservation.source_revision ?? null,
+          baseline_manifest: baselineManifest,
+        }
+        this.reservations.set(key, handle)
+        return structuredClone(handle)
       } else {
-        if (!isInside(this.runtimeRoot, directory))
-          throw new ChildWorkspaceError("snapshot directory 必须位于 runtime workspace 根目录")
-        if (!fs.existsSync(directory)) fs.cpSync(this.project.root, directory, { recursive: true, force: false })
+        if (!fs.existsSync(directory)) fs.mkdirSync(directory, { recursive: true })
+        clearTreeExceptGit(directory)
+        copyTree(baselineDirectory, directory, baselineDirectory)
       }
-      const canonical = fs.existsSync(directory) ? fs.realpathSync.native(directory) : path.resolve(directory)
+      const canonical = fs.existsSync(directory) ? fs.realpathSync.native(directory) : directory
       const handle: WorkspaceHandle = {
         ...reservation,
         directory: canonical,
         created_at: reservation.created_at ?? new Date(this.now()).toISOString(),
-        baseline_manifest: walkFiles(canonical),
+        baseline_directory: baselineDirectory,
+        baseline_manifest_hash: baselineManifestHash,
+        source_revision: reservation.source_revision ?? null,
+        baseline_manifest: baselineManifest,
       }
       this.reservations.set(key, handle)
       return structuredClone(handle)
@@ -204,6 +301,34 @@ export class ChildWorkspace {
     const reservation = this.reserve(rootSessionId, taskId)
     if (reservation.mode !== "snapshot") throw new ChildWorkspaceError("当前项目不是 snapshot capability")
     return this.create(reservation)
+  }
+
+  load(reservation: WorkspaceReservation): WorkspaceHandle | undefined {
+    if (reservation.mode === "shared_compat") {
+      return {
+        ...reservation,
+        directory: this.project.root,
+        baseline_directory: null,
+        baseline_manifest_hash: null,
+        source_revision: reservation.source_revision ?? null,
+        baseline_manifest: walkFiles(this.project.root),
+      }
+    }
+    const directory = reservation.directory ? path.resolve(reservation.directory) : null
+    const baselineDirectory = reservation.baseline_directory
+      ? path.resolve(reservation.baseline_directory)
+      : path.join(this.runtimeRoot, `${reservation.name}.baseline`)
+    if (!directory || !isInside(this.runtimeRoot, directory) || !isInside(this.runtimeRoot, baselineDirectory)) return undefined
+    if (!fs.existsSync(directory) || !fs.existsSync(baselineDirectory)) return undefined
+    const baselineManifest = walkFiles(baselineDirectory)
+    return {
+      ...reservation,
+      directory: fs.realpathSync.native(directory),
+      baseline_directory: fs.realpathSync.native(baselineDirectory),
+      baseline_manifest_hash: reservation.baseline_manifest_hash ?? hashManifest(baselineManifest),
+      source_revision: reservation.source_revision ?? null,
+      baseline_manifest: baselineManifest,
+    }
   }
 
   canonical(directory: string) {
@@ -245,6 +370,12 @@ export class ChildWorkspace {
         if (!this.worktree) throw new ChildWorkspaceError("Git 项目缺少 Worktree service", { directory })
         await this.worktree.remove(canonical)
       } else if (fs.existsSync(canonical)) fs.rmSync(canonical, { recursive: true, force: true })
+      if (entry.baseline_directory) {
+        const baseline = this.canonical(entry.baseline_directory)
+        if (!isInside(this.runtimeRoot, baseline) || baseline === path.resolve(this.project.root))
+          throw new ChildWorkspaceError("拒绝清理不安全的 baseline directory", { directory: baseline, recoverable: false })
+        if (fs.existsSync(baseline)) fs.rmSync(baseline, { recursive: true, force: true })
+      }
       if (match) this.reservations.delete(match[0])
       return true
     } catch (error) {
