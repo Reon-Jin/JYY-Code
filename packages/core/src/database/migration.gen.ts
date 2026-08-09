@@ -32,5 +32,6 @@ export const migrations = (
     import("./migration/20260802101138_candidate_task_blackboard"),
     import("./migration/20260806031414_session_goal"),
     import("./migration/20260809120000_session_blob"),
+    import("./migration/20260809130000_session_agent_depth"),
   ])
 ).map((module) => module.default) satisfies DatabaseMigration.Migration[]

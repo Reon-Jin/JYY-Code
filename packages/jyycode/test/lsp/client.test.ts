@@ -221,7 +221,7 @@ describe("LSPClient interop", () => {
         await client.notify.open({ path: second })
         await client.notify.open({ path: third })
 
-        expect(await client.connection.sendRequest("test/get-did-close-count", {})).toBe(1)
+        expect((await client.connection.sendRequest("test/get-did-close-count", {})) as unknown as number).toBe(1)
         expect(client.diagnostics.get(first)).toBeUndefined()
         await client.shutdown()
       },

@@ -17,6 +17,9 @@ import {
   PlanProtocol,
   parentSessionIdForRunId,
   registerChildRun,
+  registerChildBudget,
+  clearChildBudget,
+  takeChildBudgetFailure,
   runIdForChildSession,
   markChildRunIntent,
   takeChildRunIntent,
@@ -425,6 +428,7 @@ function protocolContext(session: Session.Info, ctx: Tool.Context): PlanExecutio
     workspaceRoot: session.directory,
     sessionId: session.id,
     mode: session.multiAgent === true ? "multi" : "single",
+    agentDepth: session.agentDepth ?? 0,
     runId: runId(ctx, session),
   }
 }
@@ -723,6 +727,7 @@ function protocolFor(
         if (!runtime.promptOps) return
         const ops = runtime.promptOps
         registerChildRun(input.childSessionId, input.brief.run_id)
+        if (input.brief.budget) registerChildBudget(input.childSessionId, input.brief.budget)
         const heartbeat =
           input.workspace?.directory && input.workspace.mode !== "shared_compat" && runtime.leaseStore
             ? setInterval(() => {
@@ -756,6 +761,7 @@ function protocolFor(
             // agent never sees a bogus "child stopped without Report" entry
             // for an intentional interruption.
             if (takeChildRunIntent(input.childSessionId)) return
+            const budgetFailure = takeChildBudgetFailure(input.childSessionId)
             const outcome = yield* Effect.promise(() =>
               protocol.settleChildExit({
                 workspaceRoot: input.brief.workspace_root,
@@ -768,7 +774,8 @@ function protocolFor(
             // A clean exit only needs a notification when it actually parked
             // the task; children that already reported and candidate children
             // waiting on a checkpoint ended their turn on purpose.
-            if (message === undefined && !outcome.settled) return
+            if (message === undefined && !budgetFailure && !outcome.settled) return
+            const failureMessage = budgetFailure ? `Child execution stopped: ${budgetFailure}.` : undefined
             protocol.inbox.add({
               session_id: input.parentSessionId,
               task_id: input.taskId,
@@ -776,6 +783,7 @@ function protocolFor(
               kind: "runtime_error",
               message:
                 message ??
+                failureMessage ??
                 `子 Agent 未提交 Report 即停止运行：任务 ${input.taskId} 已标记为需要修改，可修正后重新派发或取消。`,
               suggested_actions: ["读取 Inbox 查看错误", "取消任务并修正后重新派发"],
             })
@@ -804,6 +812,7 @@ function protocolFor(
             // Runs after clean exits and after the recovered failure above;
             // the second call is a no-op when the task was already settled.
             Effect.flatMap(() => settleAndNotify()),
+            Effect.ensuring(Effect.sync(() => clearChildBudget(input.childSessionId))),
           ),
         )
       },

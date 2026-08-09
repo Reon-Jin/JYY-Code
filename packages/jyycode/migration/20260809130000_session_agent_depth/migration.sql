@@ -1,0 +1,1 @@
+ALTER TABLE `session` ADD `agent_depth` integer DEFAULT 0 NOT NULL;

@@ -1,5 +1,6 @@
 import type { Permission } from "../permission"
 import type { Agent } from "./agent"
+import { DEFAULT_HARD_MAX_AGENT_DEPTH } from "./subagent-depth"
 
 /**
  * Build the `permission` ruleset for a subagent's session when it's spawned
@@ -18,8 +19,12 @@ export function deriveSubagentSessionPermission(input: {
   parentSessionPermission: Permission.Ruleset
   parentAgent: Agent.Info | undefined
   subagent: Agent.Info
+  /** Runtime-injected ancestry; callers cannot use permission to raise it. */
+  parentAgentDepth?: number
 }): Permission.Ruleset {
-  const canTask = input.subagent.permission.some((rule) => rule.permission === "task" && rule.action === "allow")
+  const canTask =
+    (input.parentAgentDepth === undefined || input.parentAgentDepth < DEFAULT_HARD_MAX_AGENT_DEPTH) &&
+    input.subagent.permission.some((rule) => rule.permission === "task" && rule.action === "allow")
   const canTodo = input.subagent.permission.some((rule) => rule.permission === "todowrite" && rule.action === "allow")
   const parentAgentDenies =
     input.parentAgent?.permission.filter((rule) => rule.action === "deny" && rule.permission === "edit") ?? []

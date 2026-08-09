@@ -129,6 +129,30 @@ describe("file-backed plan protocol", () => {
     })
   })
 
+  it("rejects nested dispatch at the protocol boundary while allowing root dispatch", async () => {
+    const root = workspace()
+    let createdDepth: number | undefined
+    const protocol = new PlanProtocol({
+      children: {
+        async create(input) {
+          createdDepth = input.agentDepth
+          return input.childSessionId
+        },
+        async start() {},
+        async terminate() {},
+      },
+    })
+    await protocol.create(context(root), createInput(path.join(root, "notes.md")))
+
+    const nested = await protocol.dispatch({ ...context(root), agentDepth: 1 }, { taskIds: ["s1_t1"], role: "general" })
+    expect(nested).toMatchObject({ ok: false, error: { code: "DISPATCH_UNAVAILABLE" } })
+    expect(createdDepth).toBeUndefined()
+
+    const rootDispatch = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+    expect(rootDispatch).toMatchObject({ ok: true })
+    expect(createdDepth).toBe(1)
+  })
+
   it("resolves a fresh role when a cancelled task is retried", async () => {
     const root = workspace()
     const profiles = [defaultGeneralProfile]
@@ -1861,7 +1885,7 @@ describe("file-backed plan protocol", () => {
     expect(retried.ok).toBe(true)
     if (!retried.ok) return
     expect(retried.dispatched[0]?.idempotent).toBe(false)
-    expect(retried.dispatched[0]?.run_id).toBe(runId)
+    expect(retried.dispatched[0]?.run_id).not.toBe(runId)
   })
 
   it("does not settle cancelled or reported runs", async () => {

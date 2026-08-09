@@ -45,6 +45,7 @@ import { NonNegativeInt, optionalOmitUndefined } from "@jyycode-ai/core/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { makeService as makeBlobService } from "@/storage/blob"
 import { estimateFork, ForkBudgetError } from "./fork-budget"
+import { computeAgentDepth } from "@/agent/subagent-depth"
 
 const log = Log.create({ service: "session" })
 
@@ -83,6 +84,7 @@ export function fromRow(row: SessionRow): Info {
     directory: row.directory,
     path: row.path ?? undefined,
     parentID: row.parent_id ?? undefined,
+    agentDepth: row.agent_depth ?? (row.parent_id ? 1 : 0),
     title: row.title,
     agent: row.agent ?? undefined,
     model: row.model
@@ -124,6 +126,7 @@ export function toRow(info: Info) {
     project_id: info.projectID,
     workspace_id: info.workspaceID,
     parent_id: info.parentID,
+    agent_depth: info.agentDepth ?? (info.parentID ? 1 : 0),
     slug: info.slug,
     directory: info.directory,
     path: info.path,
@@ -238,6 +241,7 @@ export const Info = Schema.Struct({
   directory: Schema.String,
   path: optionalOmitUndefined(Schema.String),
   parentID: optionalOmitUndefined(SessionID),
+  agentDepth: optionalOmitUndefined(NonNegativeInt),
   summary: optionalOmitUndefined(Summary),
   cost: optionalOmitUndefined(Schema.Finite),
   tokens: optionalOmitUndefined(Tokens),
@@ -573,8 +577,19 @@ export const layer: Layer.Layer<
       permission?: Permission.Ruleset
     }) {
       const ctx = yield* InstanceState.context
+      const id = SessionID.descending(input.id)
+      const agentDepth = computeAgentDepth({
+        sessionID: id,
+        parentID: input.parentID,
+        lookup: (parentID) => {
+          const row = Database.legacyQuery((d) =>
+            d.select().from(SessionTable).where(eq(SessionTable.id, parentID as SessionID)).get(),
+          )
+          return row ? fromRow(row) : undefined
+        },
+      })
       const result: Info = {
-        id: SessionID.descending(input.id),
+        id,
         slug: Slug.create(),
         version: InstallationVersion,
         projectID: ctx.project.id,
@@ -582,6 +597,7 @@ export const layer: Layer.Layer<
         path: input.path,
         workspaceID: input.workspaceID,
         parentID: input.parentID,
+        agentDepth,
         title: input.title ?? createDefaultTitle(!!input.parentID),
         agent: input.agent,
         model: input.model,

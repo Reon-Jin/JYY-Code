@@ -23,6 +23,8 @@ import {
   type CreateStepInput,
   type CreateTaskInput,
   type DispatchRecord,
+  type DispatchBudget,
+  type DispatchBudgetSource,
   type MergeRecord,
   type MergeResolution,
   type PlanFile,
@@ -71,6 +73,16 @@ import {
   type CleanupRecord,
 } from "./workspace-cleanup"
 import { isWorkspaceQuotaError } from "./workspace-budget"
+import {
+  DEFAULT_AGENT_DEADLINE_MS,
+  DEFAULT_AGENT_MAX_STEPS,
+  DEFAULT_AGENT_NO_PROGRESS_STEPS,
+  MAX_AGENT_DEADLINE_MS,
+  MAX_AGENT_NO_PROGRESS_STEPS,
+  MAX_AGENT_STEPS,
+} from "@/config/agent"
+import { budgetFor, type ExecutionBudget } from "@/execution/budget"
+import { assertCanSpawnSubagent, SubagentDepthError } from "@/agent/subagent-depth"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -78,8 +90,12 @@ export type PlanExecutionContext = {
   workspaceRoot: string
   sessionId: string
   mode: ExecutionMode
+  /** Runtime-injected from Session.Info; never accepted from dispatch input. */
+  agentDepth?: number
   /** Runtime-injected only for Report calls made by a child session. */
   runId?: string
+  /** Optional immutable parent budget supplied by the root runtime. */
+  parentBudget?: Partial<DispatchBudget>
 }
 
 export type ChildStartInput = {
@@ -88,6 +104,8 @@ export type ChildStartInput = {
   childSessionId: string
   brief: DispatchBrief
   role: LaunchSnapshot
+  /** Derived by dispatch from the parent context. */
+  agentDepth: number
   workspace?: DispatchRecord["workspace"]
 }
 
@@ -134,6 +152,11 @@ export type DispatchBrief = {
   /** Absolute path resolved against workspace_root at dispatch time. */
   output_path: string
   report_format: string
+  max_steps?: number
+  deadline_at?: string
+  no_progress_steps?: number
+  source?: DispatchBudgetSource
+  budget?: DispatchBudget
   mode?: PlanTaskMode
   step_context: {
     plan_goal: string
@@ -151,6 +174,97 @@ export type DispatchBrief = {
   }>
   blackboard_summary?: Array<{ id: string; kind: string; summary: string; task_ids: string[] }>
   previous_feedback?: { review_feedback: string; issues: string[] }
+}
+
+export type ChildBudgetSnapshot = DispatchBudget
+
+export type ChildBudgetResolutionInput = {
+  now?: number
+  role?: Partial<Pick<LaunchSnapshot, "steps" | "timeout_ms" | "no_progress_steps">>
+  task?: Pick<PlanTask, "max_steps" | "timeout_ms" | "no_progress_steps">
+  parent?: Partial<DispatchBudget>
+}
+
+/** Resolve a finite child budget once, before a dispatch is persisted. */
+export function resolveChildBudget(input: ChildBudgetResolutionInput = {}): ChildBudgetSnapshot {
+  const now = input.now ?? Date.now()
+  const candidates: Array<{ value: number; source: DispatchBudgetSource }> = [
+    { value: DEFAULT_AGENT_MAX_STEPS, source: "default" },
+  ]
+  if (input.role?.steps !== undefined) candidates.push({ value: input.role.steps, source: "profile" })
+  if (input.task?.max_steps !== undefined) candidates.push({ value: input.task.max_steps, source: "plan" })
+  if (input.parent?.max_steps !== undefined) candidates.push({ value: input.parent.max_steps, source: "parent" })
+  const maxStepsCandidate = candidates.reduce((left, right) => (right.value < left.value ? right : left))
+
+  const deadlineCandidates: Array<{ value: number; source: DispatchBudgetSource }> = [
+    { value: DEFAULT_AGENT_DEADLINE_MS, source: "default" },
+  ]
+  if (input.role?.timeout_ms !== undefined) deadlineCandidates.push({ value: input.role.timeout_ms, source: "profile" })
+  if (input.task?.timeout_ms !== undefined) deadlineCandidates.push({ value: input.task.timeout_ms, source: "plan" })
+  if (input.parent?.deadline_at !== undefined) {
+    const parentRemaining = Date.parse(input.parent.deadline_at) - now
+    if (Number.isFinite(parentRemaining)) deadlineCandidates.push({ value: Math.max(0, parentRemaining), source: "parent" })
+  }
+  const deadlineCandidate = deadlineCandidates.reduce((left, right) => (right.value < left.value ? right : left))
+
+  const noProgressCandidates: Array<{ value: number; source: DispatchBudgetSource }> = [
+    { value: DEFAULT_AGENT_NO_PROGRESS_STEPS, source: "default" },
+  ]
+  if (input.role?.no_progress_steps !== undefined)
+    noProgressCandidates.push({ value: input.role.no_progress_steps, source: "profile" })
+  if (input.task?.no_progress_steps !== undefined)
+    noProgressCandidates.push({ value: input.task.no_progress_steps, source: "plan" })
+  if (input.parent?.no_progress_steps !== undefined)
+    noProgressCandidates.push({ value: input.parent.no_progress_steps, source: "parent" })
+  const noProgressCandidate = noProgressCandidates.reduce((left, right) => (right.value < left.value ? right : left))
+
+  const max_steps = Math.max(1, Math.min(MAX_AGENT_STEPS, Math.floor(maxStepsCandidate.value)))
+  const deadlineMs = Math.max(0, Math.min(MAX_AGENT_DEADLINE_MS, Math.floor(deadlineCandidate.value)))
+  const no_progress_steps = Math.max(
+    1,
+    Math.min(MAX_AGENT_NO_PROGRESS_STEPS, Math.floor(noProgressCandidate.value)),
+  )
+  const selectedSources = new Set([
+    maxStepsCandidate.source,
+    deadlineCandidate.source,
+    noProgressCandidate.source,
+  ])
+  const source = (["parent", "plan", "profile", "default"] as const).find((item) => selectedSources.has(item))!
+  return {
+    max_steps,
+    deadline_at: new Date(now + deadlineMs).toISOString(),
+    no_progress_steps,
+    source,
+  }
+}
+
+type ActiveChildBudget = ChildBudgetSnapshot & { execution: ExecutionBudget }
+const activeChildBudgets = new Map<string, ActiveChildBudget>()
+const childBudgetFailures = new Map<string, string>()
+
+export function registerChildBudget(sessionId: string, snapshot: ChildBudgetSnapshot) {
+  const remaining = Math.max(0, Date.parse(snapshot.deadline_at) - Date.now())
+  const execution = budgetFor("child_agent", remaining)
+  activeChildBudgets.set(sessionId, { ...snapshot, execution })
+}
+
+export function childBudgetFor(sessionId: string) {
+  return activeChildBudgets.get(sessionId)
+}
+
+export function markChildBudgetFailure(sessionId: string, code: string) {
+  childBudgetFailures.set(sessionId, code)
+}
+
+export function takeChildBudgetFailure(sessionId: string) {
+  const failure = childBudgetFailures.get(sessionId)
+  if (failure) childBudgetFailures.delete(sessionId)
+  return failure
+}
+
+export function clearChildBudget(sessionId: string) {
+  activeChildBudgets.delete(sessionId)
+  childBudgetFailures.delete(sessionId)
 }
 
 const childRunRegistry = new Map<string, string>()
@@ -402,7 +516,17 @@ function validateCreateInput(input: unknown): asserts input is CreatePlanInput {
       const task = rawTask as Record<string, unknown>
       assertOnly(
         task,
-        ["title", "goal", "done_criteria", "instructions", "output_path", "mode"],
+        [
+          "title",
+          "goal",
+          "done_criteria",
+          "instructions",
+          "output_path",
+          "max_steps",
+          "timeout_ms",
+          "no_progress_steps",
+          "mode",
+        ],
         `steps[${index}].tasks[${taskIndex}]`,
       )
       requiredText(task.title, `steps[${index}].tasks[${taskIndex}].title`)
@@ -412,6 +536,13 @@ function validateCreateInput(input: unknown): asserts input is CreatePlanInput {
         inputError(`steps[${index}].tasks[${taskIndex}].instructions must be non-empty`)
       if (task.output_path !== undefined && !asString(task.output_path))
         inputError(`steps[${index}].tasks[${taskIndex}].output_path must be non-empty`)
+      for (const field of ["max_steps", "timeout_ms", "no_progress_steps"] as const) {
+        if (
+          task[field] !== undefined &&
+          (!Number.isSafeInteger(task[field]) || Number(task[field]) < 1)
+        )
+          inputError(`steps[${index}].tasks[${taskIndex}].${field} must be a positive safe integer`)
+      }
       if (task.mode !== undefined && task.mode !== "standard" && task.mode !== "candidate")
         inputError(`steps[${index}].tasks[${taskIndex}].mode must be standard or candidate`)
       if (task.mode === "candidate" && task.output_path !== undefined) {
@@ -593,6 +724,11 @@ function createTask(input: CreateTaskInput, id: string, workspaceRoot?: string, 
     goal: requiredText(input.goal, "task.goal"),
     done_criteria: requiredText(input.done_criteria, "task.done_criteria"),
     ...(input.instructions ? { instructions: requiredText(input.instructions, "task.instructions") } : {}),
+    ...(input.max_steps !== undefined ? { max_steps: Math.min(MAX_AGENT_STEPS, input.max_steps) } : {}),
+    ...(input.timeout_ms !== undefined ? { timeout_ms: Math.min(MAX_AGENT_DEADLINE_MS, input.timeout_ms) } : {}),
+    ...(input.no_progress_steps !== undefined
+      ? { no_progress_steps: Math.min(MAX_AGENT_NO_PROGRESS_STEPS, input.no_progress_steps) }
+      : {}),
     output_path:
       taskMode === "candidate" && workspaceRoot && rootSessionID
         ? path.join(planDirectory(workspaceRoot, rootSessionID), "candidates", id.split("_t")[0]!, id, "proposal.md")
@@ -757,6 +893,15 @@ function applyOp(
       if (op.fields.done_criteria !== undefined)
         task.done_criteria = requiredText(op.fields.done_criteria, "done_criteria")
       if (op.fields.instructions !== undefined) task.instructions = requiredText(op.fields.instructions, "instructions")
+      for (const field of ["max_steps", "timeout_ms", "no_progress_steps"] as const) {
+        const value = op.fields[field]
+        if (value !== undefined && (!Number.isSafeInteger(value) || Number(value) < 1))
+          inputError(`${field} must be a positive safe integer`)
+        if (field === "max_steps" && value !== undefined) task.max_steps = Math.min(MAX_AGENT_STEPS, value)
+        if (field === "timeout_ms" && value !== undefined) task.timeout_ms = Math.min(MAX_AGENT_DEADLINE_MS, value)
+        if (field === "no_progress_steps" && value !== undefined)
+          task.no_progress_steps = Math.min(MAX_AGENT_NO_PROGRESS_STEPS, value)
+      }
       if (op.fields.output_path !== undefined) {
         const value = requiredText(op.fields.output_path, "output_path")
         if (workspaceRoot) resolveWorkspacePath(workspaceRoot, value, `任务 ${op.taskId} 的 output_path`)
@@ -907,7 +1052,7 @@ function applyOp(
 }
 
 function parseRunId(runId: string) {
-  const match = /^run__(.+)__(s[1-9]\d*_t[1-9]\d*)$/.exec(runId)
+  const match = /^run__(.+)__(s[1-9]\d*_t[1-9]\d*)(?:__[A-Za-z0-9_-]+)?$/.exec(runId)
   return match ? { parentSessionId: match[1]!, taskId: match[2]! } : undefined
 }
 
@@ -1564,6 +1709,19 @@ export class PlanProtocol {
     try {
       assertMain(ctx)
       assertMode(ctx, "multi", "Dispatch_dispatch")
+      let childAgentDepth: number
+      try {
+        childAgentDepth = assertCanSpawnSubagent(ctx.agentDepth ?? 0)
+      } catch (error) {
+        if (error instanceof SubagentDepthError) {
+          throw new PlanProtocolError({
+            code: ERROR_CODES.DISPATCH_UNAVAILABLE,
+            message: error.message,
+            hint: "Nested subagent dispatch is blocked by the session hard depth limit.",
+          })
+        }
+        throw error
+      }
       validateDispatchInput(input)
       const taskIds = input.taskIds
       const plan = this.store.read(this.path(ctx))
@@ -1644,8 +1802,17 @@ export class PlanProtocol {
         // shares the parent's working directory, so the brief carries only
         // absolute paths and relative paths can never drift to process.cwd().
         const outputPath = resolveWorkspacePath(ctx.workspaceRoot, task.output_path!, `任务 ${task.id} 的 output_path`)
-        const runId = `run__${ctx.sessionId}__${task.id}`
+        // A retry is a new run, even when the task id is unchanged. Keeping
+        // the attempt identity in both records prevents late reports or
+        // watchers from attaching to a newer retry.
+        const runId = `run__${ctx.sessionId}__${task.id}__${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`
         const childSessionId = `child_${ctx.sessionId}_${task.id}`
+        const budget = resolveChildBudget({
+          now: this.now(),
+          role,
+          task,
+          parent: ctx.parentBudget,
+        })
         const brief: DispatchBrief = {
           run_id: runId,
           task_title: task.title,
@@ -1664,6 +1831,8 @@ export class PlanProtocol {
           },
           report_format:
             "调用 Report({run_id,status,summary,artifacts?,issues?})；status=done 时 artifacts 必须列出真实存在的产出文件。",
+          ...budget,
+          budget,
           step_directory: (plan.steps.find((step) => step.id === plan.current_step)?.tasks ?? []).map((item) => ({
             task_id: item.id,
             title: item.title,
@@ -1694,6 +1863,8 @@ export class PlanProtocol {
             ...(reservation
               ? { workspace: dispatchWorkspaceMetadata(reservation), lifecycle: "reserved" as const }
               : {}),
+            ...budget,
+            budget,
           },
           brief,
           role: launch,
@@ -1783,6 +1954,7 @@ export class PlanProtocol {
                   childSessionId: item.dispatch.child_session_id,
                   brief: childBrief,
                   role: item.role,
+                  agentDepth: childAgentDepth,
                   workspace: workspaceHandle ? dispatchWorkspaceMetadata(workspaceHandle) : item.dispatch.workspace,
                 }
                 const createdChild = await this.children.create(childInput)
