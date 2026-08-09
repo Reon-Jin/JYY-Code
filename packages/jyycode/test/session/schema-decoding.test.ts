@@ -95,6 +95,35 @@ describe("Session.Info", () => {
     expect(decode(input)).toEqual(input)
   })
 
+  test("accepts goal history for multiple runs in one session", () => {
+    const input = {
+      id: sessionID,
+      slug: "goal-history",
+      projectID,
+      directory: "/tmp/proj",
+      title: "Goal history",
+      version: "0.1.0",
+      goal: {
+        condition: "second goal",
+        status: "running" as const,
+        startedAt: 30,
+        updatedAt: 30,
+        history: [
+          {
+            condition: "first goal",
+            status: "done" as const,
+            startedAt: 10,
+            updatedAt: 20,
+            completedAt: 20,
+            result: "first complete",
+          },
+        ],
+      },
+      time: { created: 1, updated: 2 },
+    }
+    expect(decode(input)).toEqual(input)
+  })
+
   test("rejects unbranded session id", () => {
     const bad = { id: "not-a-session-id" } as unknown
     expect(() => decode(bad)).toThrow()

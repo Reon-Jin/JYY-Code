@@ -34,6 +34,40 @@ async function withStore<T>(run: (service: ExperienceMemory.ExperienceInterface)
 }
 
 describe("experience service", () => {
+  test("loads the pre-isolation store and preserves the legacy source", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "experience-current-"))
+    const legacyDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "experience-legacy-"))
+    cleanup.push(directory, legacyDirectory)
+    const entry: ExperienceMemory.ExperienceEntry = {
+      scope: "experience",
+      ...candidate({ content: "旧位置的经验仍然可见" }),
+      date: ExperienceMemory.localDate(),
+      updatedAt: ExperienceMemory.localDate(),
+      uses: 0,
+      status: "active",
+      sessionID,
+    }
+    const text = ExperienceMemory.serializeExperienceStore([entry])
+    await fs.writeFile(path.join(legacyDirectory, ExperienceMemory.EXPERIENCE_FILE), text, "utf8")
+    await fs.writeFile(
+      path.join(directory, ExperienceMemory.EXPERIENCE_FILE),
+      ExperienceMemory.serializeExperienceStore([]),
+      "utf8",
+    )
+    const layer = ExperienceMemory.layerWithDirectory(directory, { legacyDirectory }).pipe(
+      Layer.provide(AppFileSystem.defaultLayer),
+    )
+
+    const store = await Effect.runPromise(
+      ExperienceMemory.Service.use((service) => service.managementRead()).pipe(Effect.provide(layer)),
+    )
+
+    expect(store.entries).toHaveLength(1)
+    expect(store.entries[0]?.content).toBe("旧位置的经验仍然可见")
+    expect(await fs.readFile(path.join(directory, ExperienceMemory.EXPERIENCE_FILE), "utf8")).toBe(text)
+    expect(await fs.readFile(path.join(legacyDirectory, ExperienceMemory.EXPERIENCE_FILE), "utf8")).toBe(text)
+  })
+
   test("writes then reports an exact duplicate", async () => {
     await withStore(async (service) => {
       const first = await Effect.runPromise(service.upsert(sessionID, candidate()))

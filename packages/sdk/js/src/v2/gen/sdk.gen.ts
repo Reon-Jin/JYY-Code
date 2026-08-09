@@ -4721,6 +4721,16 @@ export class Session2 extends HeyApiClient {
         turns?: number
         maxTurns?: number
         result?: string
+        history?: Array<{
+          condition: string
+          status: "running" | "done" | "failed" | "cancelled"
+          startedAt?: number
+          updatedAt?: number
+          completedAt?: number
+          turns?: number
+          maxTurns?: number
+          result?: string
+        }>
       }
       permission?: PermissionRuleset
       workspaceID?: string
@@ -4873,6 +4883,16 @@ export class Session2 extends HeyApiClient {
         turns?: number
         maxTurns?: number
         result?: string
+        history?: Array<{
+          condition: string
+          status: "running" | "done" | "failed" | "cancelled"
+          startedAt?: number
+          updatedAt?: number
+          completedAt?: number
+          turns?: number
+          maxTurns?: number
+          result?: string
+        }>
       }
       permission?: PermissionRuleset
       time?: {

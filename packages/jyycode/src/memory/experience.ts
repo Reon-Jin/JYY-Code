@@ -7,7 +7,7 @@ import * as Log from "@jyycode-ai/core/util/log"
 import { SessionID } from "@/session/schema"
 import { normalizeKeywords, parseImportance, validateKeywords } from "./memory"
 import { buildCorpusStats, buildQueryTerms, scoreExperience } from "./experience-score"
-import { EXPERIENCE_DIRECTORY, workspaceDirectory } from "./runtime-path"
+import { EXPERIENCE_DIRECTORY, LEGACY_EXPERIENCE_DIRECTORY, workspaceDirectory } from "./runtime-path"
 import { sanitizeForPersistence } from "./sanitize"
 import type { Importance } from "./memory"
 import {
@@ -262,26 +262,45 @@ export function dateNDaysAgo(days: number): string {
   return localDate(date)
 }
 
-export const layerWithDirectory = (directory: string) =>
+export const layerWithDirectory = (directory: string, options: { legacyDirectory?: string } = {}) =>
   Layer.effect(
     Service,
     Effect.gen(function* () {
       const fs = yield* AppFileSystem.Service
       const flock = yield* EffectFlock.Service
+      const experienceDirectory = path.normalize(directory)
+      const legacyDirectory = options.legacyDirectory ? path.normalize(options.legacyDirectory) : undefined
 
       const filePath = Effect.fn("ExperienceMemory.filePath")(function* (
         _sessionID: SessionID,
         workspaceRoot?: string,
       ) {
-        return path.join(workspaceDirectory(directory, workspaceRoot), EXPERIENCE_FILE)
+        return path.join(workspaceDirectory(experienceDirectory, workspaceRoot), EXPERIENCE_FILE)
       })
 
       const ensure = Effect.fn("ExperienceMemory.ensure")(function* (sessionID: SessionID, workspaceRoot?: string) {
         const target = yield* filePath(sessionID, workspaceRoot)
         yield* fs.ensureDir(path.dirname(target)).pipe(Effect.orDie)
         const exists = yield* fs.existsSafe(target).pipe(Effect.orDie)
-        const empty = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie))?.trim() === ""
-        if (!exists || empty) yield* fs.writeWithDirs(target, serializeExperienceStore([])).pipe(Effect.orDie)
+        const targetText = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie))?.trim()
+        let needsLegacy = !exists || !targetText
+        if (!needsLegacy && !workspaceRoot && legacyDirectory) {
+          const current = yield* Effect.try({ try: () => parseExperienceStore(targetText), catch: asError })
+          needsLegacy = current.entries.length === 0
+        }
+        if (needsLegacy) {
+          const legacyTarget =
+            !workspaceRoot && legacyDirectory ? path.join(legacyDirectory, EXPERIENCE_FILE) : undefined
+          if (legacyTarget && path.resolve(legacyTarget) !== path.resolve(target)) {
+            const legacyText = (yield* fs.readFileStringSafe(legacyTarget).pipe(Effect.orDie))?.trim()
+            if (legacyText) {
+              yield* Effect.try({ try: () => parseExperienceStore(legacyText), catch: asError })
+              yield* fs.writeWithDirs(target, `${legacyText}\n`).pipe(Effect.orDie)
+              return
+            }
+          }
+          yield* fs.writeWithDirs(target, serializeExperienceStore([])).pipe(Effect.orDie)
+        }
       })
 
       const readStore = Effect.fn("ExperienceMemory.readStore")(function* (
@@ -694,7 +713,7 @@ export const layerWithDirectory = (directory: string) =>
     }),
   ).pipe(Layer.provide(EffectFlock.defaultLayer))
 
-export const layer = layerWithDirectory(EXPERIENCE_DIRECTORY)
+export const layer = layerWithDirectory(EXPERIENCE_DIRECTORY, { legacyDirectory: LEGACY_EXPERIENCE_DIRECTORY })
 export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer))
 
 function mergeExperienceEntries(left: ExperienceEntry, right: ExperienceEntry): ExperienceEntry {

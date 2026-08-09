@@ -219,7 +219,7 @@ const Model = Schema.Struct({
 
 export const GoalStatus = Schema.Literals(["running", "done", "failed", "cancelled"])
 
-export const Goal = Schema.Struct({
+const GoalHistoryEntry = Schema.Struct({
   condition: Schema.String,
   status: GoalStatus,
   startedAt: optionalOmitUndefined(NonNegativeInt),
@@ -228,6 +228,13 @@ export const Goal = Schema.Struct({
   turns: optionalOmitUndefined(NonNegativeInt),
   maxTurns: optionalOmitUndefined(NonNegativeInt),
   result: optionalOmitUndefined(Schema.String),
+})
+
+export type GoalHistoryEntry = Types.DeepMutable<Schema.Schema.Type<typeof GoalHistoryEntry>>
+
+export const Goal = Schema.Struct({
+  ...GoalHistoryEntry.fields,
+  history: optionalOmitUndefined(Schema.mutable(Schema.Array(GoalHistoryEntry))),
 })
 export type Goal = Types.DeepMutable<Schema.Schema.Type<typeof Goal>>
 
@@ -826,7 +833,14 @@ export const layer: Layer.Layer<
     })
 
     const setGoal = Effect.fn("Session.setGoal")(function* (input: { sessionID: SessionID; goal: Goal | null }) {
+      const current = yield* get(input.sessionID).pipe(Effect.orDie)
       const now = Date.now()
+      const previous = current.goal
+      const history = [...(input.goal?.history ?? previous?.history ?? [])]
+      if (input.goal?.status === "running" && previous?.status !== "running" && previous !== undefined) {
+        const { history: _previousHistory, ...previousRun } = previous
+        history.push(previousRun)
+      }
       const goal = input.goal
         ? {
             condition: input.goal.condition,
@@ -837,6 +851,7 @@ export const layer: Layer.Layer<
             turns: input.goal.turns ?? 0,
             maxTurns: input.goal.maxTurns ?? DEFAULT_GOAL_MAX_TURNS,
             ...(input.goal.result !== undefined ? { result: input.goal.result } : {}),
+            ...(history.length > 0 ? { history } : {}),
           }
         : null
       yield* patch(input.sessionID, { goal, time: { updated: now } })

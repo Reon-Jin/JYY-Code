@@ -171,6 +171,47 @@ describe("step-finish token propagation via Bus event", () => {
 })
 
 describe("Session", () => {
+  it.instance("preserves completed goal runs when a new goal starts", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionNs.Service
+      const created = yield* session.create({
+        goal: { condition: "first goal", status: "running", startedAt: 10, updatedAt: 10 },
+      })
+
+      yield* session.setGoal({
+        sessionID: created.id,
+        goal: {
+          ...created.goal!,
+          status: "done",
+          updatedAt: 20,
+          completedAt: 20,
+          result: "first complete",
+        },
+      })
+      yield* session.setGoal({
+        sessionID: created.id,
+        goal: { condition: "second goal", status: "running", startedAt: 30, updatedAt: 30 },
+      })
+
+      const reloaded = yield* session.get(created.id)
+      expect(reloaded.goal).toMatchObject({
+        condition: "second goal",
+        status: "running",
+        history: [
+          expect.objectContaining({
+            condition: "first goal",
+            status: "done",
+            startedAt: 10,
+            completedAt: 20,
+            result: "first complete",
+          }),
+        ],
+      })
+
+      yield* session.remove(created.id)
+    }),
+  )
+
   it.live("remove works without an instance", () =>
     Effect.gen(function* () {
       const session = yield* SessionNs.Service

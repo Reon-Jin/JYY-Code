@@ -790,6 +790,16 @@ export type Session = {
     turns?: number
     maxTurns?: number
     result?: string
+    history?: Array<{
+      condition: string
+      status: "running" | "done" | "failed" | "cancelled"
+      startedAt?: number
+      updatedAt?: number
+      completedAt?: number
+      turns?: number
+      maxTurns?: number
+      result?: string
+    }>
   }
   version: string
   time: {
@@ -1686,6 +1696,16 @@ export type GlobalSession = {
     turns?: number
     maxTurns?: number
     result?: string
+    history?: Array<{
+      condition: string
+      status: "running" | "done" | "failed" | "cancelled"
+      startedAt?: number
+      updatedAt?: number
+      completedAt?: number
+      turns?: number
+      maxTurns?: number
+      result?: string
+    }>
   }
   version: string
   time: {
@@ -2582,6 +2602,16 @@ export type SyncEventSessionUpdated = {
         turns?: number
         maxTurns?: number
         result?: string
+        history?: Array<{
+          condition: string
+          status: "running" | "done" | "failed" | "cancelled"
+          startedAt?: number
+          updatedAt?: number
+          completedAt?: number
+          turns?: number
+          maxTurns?: number
+          result?: string
+        }>
       } | null
       version?: string | null
       time?: {
@@ -8207,6 +8237,16 @@ export type SessionCreateData = {
       turns?: number
       maxTurns?: number
       result?: string
+      history?: Array<{
+        condition: string
+        status: "running" | "done" | "failed" | "cancelled"
+        startedAt?: number
+        updatedAt?: number
+        completedAt?: number
+        turns?: number
+        maxTurns?: number
+        result?: string
+      }>
     }
     permission?: PermissionRuleset
     workspaceID?: string
@@ -8348,6 +8388,16 @@ export type SessionUpdateData = {
       turns?: number
       maxTurns?: number
       result?: string
+      history?: Array<{
+        condition: string
+        status: "running" | "done" | "failed" | "cancelled"
+        startedAt?: number
+        updatedAt?: number
+        completedAt?: number
+        turns?: number
+        maxTurns?: number
+        result?: string
+      }>
     }
     permission?: PermissionRuleset
     time?: {

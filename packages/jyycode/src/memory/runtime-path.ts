@@ -6,6 +6,8 @@ import { Global } from "@jyycode-ai/core/global"
 export const LEGACY_MEMORY_DIRECTORY = path.normalize("D:/jyycode/memory")
 export const MEMORY_DIRECTORY = path.join(Global.Path.data, "memory")
 export const EXPERIENCE_DIRECTORY = path.join(Global.Path.data, "experience")
+/** Experience stores created before workspace isolation lived beside MEMORY.json. */
+export const LEGACY_EXPERIENCE_DIRECTORY = MEMORY_DIRECTORY
 
 export function normalizeWorkspaceRoot(root: string): string {
   const resolved = path.resolve(root.trim() || path.parse(process.cwd()).root)

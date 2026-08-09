@@ -434,7 +434,7 @@ describe("MessageTimeline", () => {
     expect(screen.queryByRole("img", { name: "目标进行中" })).not.toBeInTheDocument()
   })
 
-  it("keeps the goal end marker at the completion position when later messages arrive", () => {
+  it("places goal markers after the messages that contain their timeline boundaries", () => {
     const duringGoal = conversation(
       [{ id: "part_during", sessionID, messageID: "msg_during", type: "text", text: "during goal" }],
       { ...info, id: "msg_during", time: { created: 50 } },
@@ -460,9 +460,78 @@ describe("MessageTimeline", () => {
     const markers = [...container.querySelectorAll<HTMLElement>(".goal-timeline-marker")]
     const articles = [...container.querySelectorAll<HTMLElement>(".conversation-message")]
     expect(markers.map((marker) => marker.dataset.marker)).toEqual(["start", "end"])
+    const duringArticle = articles[0]!
     const endMarker = markers[1]!
     const afterArticle = articles[1]!
+    expect(duringArticle.compareDocumentPosition(markers[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(duringArticle.compareDocumentPosition(endMarker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(endMarker.compareDocumentPosition(afterArticle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("renders every completed goal run in a session", () => {
+    const messages = [50, 150, 250, 350].map((created, index) => {
+      const message = { ...info, id: `msg_goal_${index}`, time: { created } }
+      return conversation(
+        [{ id: `part_goal_${index}`, sessionID, messageID: message.id, type: "text", text: `goal ${index}` }],
+        message,
+      )
+    })
+
+    const { container } = render(() => (
+      <MessageTimeline
+        messages={messages}
+        goal={{
+          condition: "third goal",
+          status: "done",
+          startedAt: 210,
+          updatedAt: 300,
+          completedAt: 300,
+          maxTurns: 30,
+          history: [
+            {
+              condition: "first goal",
+              status: "done",
+              startedAt: 10,
+              updatedAt: 100,
+              completedAt: 100,
+              maxTurns: 30,
+            },
+            {
+              condition: "second goal",
+              status: "done",
+              startedAt: 110,
+              updatedAt: 200,
+              completedAt: 200,
+              maxTurns: 30,
+            },
+          ],
+        }}
+      />
+    ))
+
+    const markers = [...container.querySelectorAll<HTMLElement>(".goal-timeline-marker")]
+    expect(markers.map((marker) => marker.dataset.marker)).toEqual(["start", "end", "start", "end", "start", "end"])
+    expect(markers.filter((marker) => marker.dataset.marker === "start")).toHaveLength(3)
+    expect(markers.filter((marker) => marker.dataset.marker === "end")).toHaveLength(3)
+  })
+
+  it("does not render a goal end marker for a cancelled run", () => {
+    render(() => (
+      <MessageTimeline
+        messages={[conversation([{ id: "part_cancelled", sessionID, messageID: info.id, type: "text", text: "cancelled" }])]}
+        goal={{
+          condition: "cancelled goal",
+          status: "cancelled",
+          startedAt: 10,
+          updatedAt: 20,
+          completedAt: 20,
+          maxTurns: 30,
+        }}
+      />
+    ))
+
+    expect(document.querySelector('.goal-timeline-marker[data-marker="start"]')).toBeInTheDocument()
+    expect(document.querySelector('.goal-timeline-marker[data-marker="end"]')).not.toBeInTheDocument()
   })
 
   it("shows compaction progress and completion indicators", () => {

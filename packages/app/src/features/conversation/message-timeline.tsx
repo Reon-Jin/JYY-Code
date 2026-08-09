@@ -20,6 +20,14 @@ import { completeUIPerformanceStage } from "../../performance/ui-performance"
 
 type Goal = NonNullable<Session["goal"]>
 
+type GoalTimelineMarkerEvent = {
+  marker: "start" | "end"
+  messageIndex: number
+  time: number
+  showOrb: boolean
+  key: string
+}
+
 export type MessageTimelineProps = {
   messages: readonly ConversationMessage[]
   goal?: Goal
@@ -84,6 +92,60 @@ function createMessageSignatureTracker() {
     previousValue = entries.join("|")
     return previousValue
   }
+}
+
+function goalRuns(goal?: Goal) {
+  return goal ? [...(goal.history ?? []), goal] : []
+}
+
+function startMarkerMessageIndex(messages: readonly PresentedConversationMessage[], startedAt: number) {
+  const index = messages.findIndex((message) => message.info.time.created >= startedAt)
+  return index === -1 ? messages.length - 1 : index
+}
+
+function endMarkerMessageIndex(messages: readonly PresentedConversationMessage[], completedAt: number) {
+  let index = -1
+  for (let i = 0; i < messages.length; i += 1) {
+    if (messages[i]!.info.time.created > completedAt) break
+    index = i
+  }
+  return index
+}
+
+function goalTimelineMarkers(
+  goal: Goal | undefined,
+  messages: readonly PresentedConversationMessage[],
+): GoalTimelineMarkerEvent[] {
+  const runs = goalRuns(goal)
+  const markers: GoalTimelineMarkerEvent[] = []
+
+  for (const [runIndex, run] of runs.entries()) {
+    if (run.startedAt !== undefined) {
+      markers.push({
+        marker: "start",
+        messageIndex: startMarkerMessageIndex(messages, run.startedAt),
+        time: run.startedAt,
+        showOrb: runIndex === runs.length - 1 && run.status === "running",
+        key: `goal:${runIndex}:start`,
+      })
+    }
+    if ((run.status === "done" || run.status === "failed") && run.completedAt !== undefined) {
+      markers.push({
+        marker: "end",
+        messageIndex: endMarkerMessageIndex(messages, run.completedAt),
+        time: run.completedAt,
+        showOrb: false,
+        key: `goal:${runIndex}:end`,
+      })
+    }
+  }
+
+  return markers.sort((left, right) => {
+    if (left.messageIndex !== right.messageIndex) return left.messageIndex - right.messageIndex
+    if (left.time !== right.time) return left.time - right.time
+    if (left.marker === right.marker) return 0
+    return left.marker === "start" ? -1 : 1
+  })
 }
 
 function GoalTimelineMarker(props: { marker: "start" | "end"; showOrb?: boolean }) {
@@ -208,23 +270,24 @@ function PresentedMessageView(props: {
 export function MessageTimeline(props: MessageTimelineProps) {
   const [hasNewMessages, setHasNewMessages] = createSignal(false)
   let conversationPainted = false
-  const goalStatus = createMemo(() => props.goal?.status)
-  const goalStartedAt = createMemo(() => props.goal?.startedAt)
-  const goalCompletedAt = createMemo(() => props.goal?.completedAt)
   const signatureFor = createMessageSignatureTracker()
+  const presentedMessages = createMemo(() => presentConversationMessages(props.messages))
+  const goalMarkers = createMemo(() => goalTimelineMarkers(props.goal, presentedMessages()))
+  const markersByMessageIndex = createMemo(() => {
+    const markers = new Map<number, GoalTimelineMarkerEvent[]>()
+    for (const marker of goalMarkers()) {
+      const entries = markers.get(marker.messageIndex)
+      if (entries) entries.push(marker)
+      else markers.set(marker.messageIndex, [marker])
+    }
+    return markers
+  })
   const signature = createMemo(
     () =>
-      `${signatureFor(props.messages)}|goal:${goalStatus() ?? ""}:${goalStartedAt() ?? ""}:${
-        goalCompletedAt() ?? ""
-      }`,
+      `${signatureFor(props.messages)}|goal:${goalMarkers()
+        .map((marker) => `${marker.key}:${marker.messageIndex}:${marker.time}:${marker.showOrb}`)
+        .join(",")}`,
   )
-  const presentedMessages = createMemo(() => presentConversationMessages(props.messages))
-  const goalEndIndex = createMemo(() => {
-    const completedAt = goalCompletedAt()
-    if (completedAt === undefined) return undefined
-    const index = presentedMessages().findIndex((message) => message.info.time.created > completedAt)
-    return index === -1 ? undefined : index
-  })
   const messageIDs = createMemo(() => presentedMessages().map((message) => message.info.id))
   const messagesByID = createMemo(() => new Map(presentedMessages().map((message) => [message.info.id, message])))
   const pendingActivityKeys = createMemo(() => {
@@ -342,25 +405,22 @@ export function MessageTimeline(props: MessageTimelineProps) {
             >
               <div class="message-timeline__content">
                 <CompactionIndicator status={props.compaction} />
-                <Show when={goalStartedAt() !== undefined}>
-                  <GoalTimelineMarker marker="start" showOrb={goalStatus() === "running"} />
-                </Show>
+                <For each={markersByMessageIndex().get(-1) ?? []}>
+                  {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb} />}
+                </For>
                 <For each={messageIDs()}>
                   {(messageID, index) => (
                     <>
-                      <Show when={goalEndIndex() !== undefined && index() === goalEndIndex()}>
-                        <GoalTimelineMarker marker="end" />
-                      </Show>
                       <PresentedMessageView
                         message={messagesByID().get(messageID)!}
                         pendingActivityKeys={pendingActivityKeys()}
                       />
+                      <For each={markersByMessageIndex().get(index()) ?? []}>
+                        {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb} />}
+                      </For>
                     </>
                   )}
                 </For>
-                <Show when={goalCompletedAt() !== undefined && goalEndIndex() === undefined}>
-                  <GoalTimelineMarker marker="end" />
-                </Show>
               </div>
             </Show>
           </div>

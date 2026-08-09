@@ -58,6 +58,16 @@ export const SessionTable = sqliteTable(
       turns?: number
       maxTurns?: number
       result?: string
+      history?: Array<{
+        condition: string
+        status: "running" | "done" | "failed" | "cancelled"
+        startedAt?: number
+        updatedAt?: number
+        completedAt?: number
+        turns?: number
+        maxTurns?: number
+        result?: string
+      }>
     }>(),
     multi_agent_enabled: integer({ mode: "boolean" }),
     ...Timestamps,
