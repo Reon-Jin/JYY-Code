@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { isSubagentForbiddenToolID, isSubagentFixedToolID } from "./subagent-tool-policy"
+import { isSubagentForbiddenToolID, isSubagentFixedToolID, isSubagentSelectableToolID } from "./subagent-tool-policy"
 
 const NON_EMPTY_TEXT = Schema.String.check(Schema.isPattern(/\S/))
 const TOOL_ID = Schema.String.check(Schema.isPattern(/\S/))
@@ -151,7 +151,7 @@ function validateProfile(profile: SubagentProfile, index: number) {
       if (toolID !== toolID.trim()) {
         throw new Error(`subagents.profiles[${index}].tools must not contain surrounding whitespace`)
       }
-      if (isSubagentForbiddenToolID(toolID) || isSubagentFixedToolID(toolID)) {
+      if (!isSubagentSelectableToolID(toolID) || isSubagentForbiddenToolID(toolID) || isSubagentFixedToolID(toolID)) {
         throw new Error(`subagents.profiles[${index}].tools cannot configure system tool: ${toolID}`)
       }
       if (ids.has(toolID)) throw new Error(`duplicate subagent tool ID: ${toolID}`)

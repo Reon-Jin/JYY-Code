@@ -29,7 +29,10 @@ import {
   isSubagentCandidateToolID,
   isSubagentForbiddenToolID,
   isSubagentFixedToolID,
+  isReviewerReadOnlyShellCommand,
+  defaultSubagentToolIDs,
   normalizeSubagentSelectableToolIDs,
+  SUBAGENT_READ_ONLY_MCP_TOOL_ID,
   SUBAGENT_CANDIDATE_TOOL_IDS,
   SUBAGENT_FIXED_TOOL_IDS,
 } from "@/agent/subagent-tool-policy"
@@ -297,7 +300,12 @@ export function subagentRoleToolIDs(
 ) {
   if (agent.mode !== "subagent") return undefined
   const configured = subagentToolIDs(agent)
-  const allowed = configured ? normalizeSubagentSelectableToolIDs([...configured]) : undefined
+  const profileID = typeof agent.options.subagentProfileID === "string" ? agent.options.subagentProfileID : undefined
+  const allowed = configured
+    ? normalizeSubagentSelectableToolIDs([...configured])
+    : profileID
+      ? new Set(defaultSubagentToolIDs(profileID))
+      : undefined
   if (!allowed) return undefined
   if (session.parentID !== undefined) {
     for (const id of SUBAGENT_FIXED_TOOL_IDS) allowed.add(id)
@@ -539,6 +547,21 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
       ? ({ type: "object", additionalProperties: true } as const)
       : ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
     schemaBytes += ToolTelemetry.approximateSchemaBytes(schema)
+    const reviewerShell =
+      input.agent.mode === "subagent" &&
+      String(input.agent.options.subagentProfileID ?? "").toLowerCase() === "reviewer" &&
+      item.id === "bash"
+    const executeDef = reviewerShell
+      ? (args: unknown, ctx: Tool.Context) => {
+          const command =
+            args && typeof args === "object" && typeof (args as Record<string, unknown>).command === "string"
+              ? String((args as Record<string, unknown>).command)
+              : ""
+          if (!isReviewerReadOnlyShellCommand(command))
+            return Effect.fail(new Error("reviewer shell is restricted to a single read-only command"))
+          return item.execute(args as never, ctx)
+        }
+      : item.execute
     tools[modelToolName] = tool({
       description: options.lazy ? lazyToolDescription(item) : item.description,
       inputSchema: jsonSchema(schema),
@@ -558,7 +581,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
                   { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
                   { args },
                 )
-                const result = yield* item.execute(args, ctx)
+                const result = yield* executeDef(args, ctx)
                 const output = {
                   ...result,
                   attachments: result.attachments?.map((attachment) => ({
@@ -728,9 +751,19 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     if (!PLAN_TOOL_IDS.has(item.id)) return true
     return isPlanToolVisible(item.id, input.session)
   })
-  const visibleMcpDefs = filterToolIDs(mcpDefs, allowedToolIDs).filter(
-    (item) => input.agent.mode !== "subagent" || isSubagentToolVisible(item.id, allowedToolIDs, candidateGate),
-  )
+  const visibleMcpDefs = (allowedToolIDs
+    ? mcpDefs.filter(
+        (item) => allowedToolIDs.has(item.id) || allowedToolIDs.has(SUBAGENT_READ_ONLY_MCP_TOOL_ID),
+      )
+    : mcpDefs
+  ).filter((item) => {
+    if (input.agent.mode !== "subagent") return true
+    const readOnlyMcp =
+      allowedToolIDs?.has(SUBAGENT_READ_ONLY_MCP_TOOL_ID) &&
+      item.catalog?.category === "mcp" &&
+      item.catalog.mutability === "read"
+    return readOnlyMcp || isSubagentToolVisible(item.id, allowedToolIDs, candidateGate)
+  })
   const hasToolSearch = visibleRegistryDefs.some((item) => item.id === "tool_search")
   const searchableDefs = [...visibleRegistryDefs.filter((item) => item.id !== "tool_search"), ...visibleMcpDefs]
   modelNameResolution = ToolRegistry.resolveToolModelNames(searchableDefs.map(identityForModel))

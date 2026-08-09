@@ -24,6 +24,7 @@ import * as Option from "effect/Option"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { type DeepMutable } from "@jyycode-ai/core/schema"
 import { enabledProfiles, profileAgentName, resolveProfiles } from "./subagent-profile"
+import { defaultSubagentToolIDs } from "./subagent-tool-policy"
 
 export const Info = Schema.Struct({
   name: Schema.String,
@@ -232,7 +233,7 @@ export const layer = Layer.effect(
             description: profile.description,
             options: {
               subagentProfileID: profile.id,
-              ...(profile.tools !== undefined ? { subagentToolIDs: [...profile.tools] } : {}),
+              subagentToolIDs: [...(profile.tools ?? defaultSubagentToolIDs(profile.id))],
             },
             permission: subagentPermission,
             mode: "subagent",

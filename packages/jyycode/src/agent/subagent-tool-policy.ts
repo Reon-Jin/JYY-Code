@@ -21,6 +21,17 @@ export const SUBAGENT_SELECTABLE_TOOL_IDS = [
 
 export const SUBAGENT_SELECTABLE_TOOL_ID_SET = new Set<string>(SUBAGENT_SELECTABLE_TOOL_IDS)
 
+/** Internal marker used to admit only MCP tools with a positive read-only hint. */
+export const SUBAGENT_READ_ONLY_MCP_TOOL_ID = "__subagent_read_only_mcp__"
+
+const SAFE_DEFAULT_TOOL_IDS = ["read", "glob", "grep", "context_read"] as const
+const ROLE_DEFAULT_TOOL_IDS: Record<string, readonly string[]> = {
+  researcher: ["read", "glob", "grep", "websearch", "webfetch", "context_read", SUBAGENT_READ_ONLY_MCP_TOOL_ID],
+  planner: ["read", "glob", "grep", "context_read"],
+  implementer: ["read", "glob", "grep", "write", "edit", "bash"],
+  reviewer: ["read", "glob", "grep", "bash", "context_read"],
+}
+
 /** Always available to a normal child session when the surrounding protocol requires them. */
 export const SUBAGENT_FIXED_TOOL_IDS = ["skill", "Report", "Blackboard", "Blackboard.reply"] as const
 
@@ -48,13 +59,57 @@ export const SUBAGENT_FORBIDDEN_TOOL_IDS = [
   "Goal_done",
 ] as const
 
+export function defaultSubagentToolIDs(profileID: string | undefined) {
+  const role = profileID?.trim().toLowerCase()
+  return [...(ROLE_DEFAULT_TOOL_IDS[role ?? ""] ?? SAFE_DEFAULT_TOOL_IDS)]
+}
+
 export function isSubagentSelectableToolID(id: string) {
-  return SUBAGENT_SELECTABLE_TOOL_ID_SET.has(id) || (!isSubagentFixedToolID(id) && !isSubagentForbiddenToolID(id))
+  return (
+    id !== "*" &&
+    id !== SUBAGENT_READ_ONLY_MCP_TOOL_ID &&
+    (SUBAGENT_SELECTABLE_TOOL_ID_SET.has(id) || (!isSubagentFixedToolID(id) && !isSubagentForbiddenToolID(id)))
+  )
 }
 
 export function normalizeSubagentSelectableToolIDs(ids: readonly string[] | undefined) {
-  const selected = ids === undefined ? SUBAGENT_SELECTABLE_TOOL_IDS : ids.filter(isSubagentSelectableToolID)
+  const selected =
+    ids === undefined
+      ? SAFE_DEFAULT_TOOL_IDS
+      : ids.filter((id) => id === SUBAGENT_READ_ONLY_MCP_TOOL_ID || isSubagentSelectableToolID(id))
   return new Set<string>(selected)
+}
+
+const READ_ONLY_SHELL_COMMANDS = new Set([
+  "cat",
+  "dir",
+  "find",
+  "findstr",
+  "get-childitem",
+  "get-content",
+  "git diff",
+  "git log",
+  "git show",
+  "git status",
+  "grep",
+  "ls",
+  "pwd",
+  "rg",
+  "select-string",
+  "type",
+  "wc",
+  "where",
+  "whoami",
+])
+
+/** Conservative command gate for the reviewer role's shell surface. */
+export function isReviewerReadOnlyShellCommand(command: string) {
+  if (!command.trim() || /[;&|><`$()\r\n]/.test(command)) return false
+  const tokens = command.trim().split(/\s+/)
+  const first = tokens[0]?.toLowerCase().replace(/^["']|["']$/g, "")
+  if (!first) return false
+  const key = first === "git" ? `${first} ${tokens[1]?.toLowerCase() ?? ""}` : first
+  return READ_ONLY_SHELL_COMMANDS.has(key)
 }
 
 export function isSubagentCandidateToolID(id: string) {

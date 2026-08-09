@@ -3162,7 +3162,6 @@ it.instance("profile subagent child session gets role skills in the skill tool a
               prompt:
                 "你是一位精通各种office的高手，可以使用你的docx,pdf,pptx和xlsx四个技能进行各种office文档的生成和处理。",
               avatar: "chart",
-              tools: ["edit", "glob", "grep", "read", "webfetch", "websearch", "write", "bash", "process"],
               enabled: true,
             },
           ],
@@ -3202,6 +3201,10 @@ it.instance("profile subagent child session gets role skills in the skill tool a
       expect(skillTool?.function?.description).toContain("docx")
       expect(skillTool?.function?.description).toContain("pdf")
       expect(skillTool?.function?.description).not.toContain("customize-jyycode")
+      const toolNames = (body.tools ?? []).map((item) => item.function?.name)
+      expect(toolNames).toContain("read")
+      expect(toolNames).not.toContain("write")
+      expect(toolNames).not.toContain("bash")
       // First-turn system context carries the role catalog so the child loads
       // its skills even when the dispatch brief prescribes a raw toolchain.
       const payload = JSON.stringify(body)

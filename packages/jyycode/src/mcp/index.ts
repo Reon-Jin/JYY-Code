@@ -215,6 +215,7 @@ function convertMcpToolDef(
     sourceID: `mcp:${clientName}\0${mcpTool.name}`,
     modelName: id,
   }
+  const readOnly = mcpTool.annotations?.readOnlyHint === true
 
   return identifyTool(
     {
@@ -224,8 +225,8 @@ function convertMcpToolDef(
       jsonSchema: schema,
       catalog: {
         category: "mcp",
-        mutability: "external",
-        risk: "medium",
+        mutability: readOnly ? "read" : "external",
+        risk: readOnly ? "low" : "high",
         tags: [clientName, mcpTool.name, "mcp"],
       },
       execute: (args, ctx) =>
