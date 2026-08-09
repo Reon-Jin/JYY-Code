@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { sql } from "drizzle-orm"
 import { Effect } from "effect"
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises"
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises"
+import crypto from "node:crypto"
 import os from "node:os"
 import path from "node:path"
 import { Database } from "@jyycode-ai/core/database/database"
+import { maintainNative } from "@jyycode-ai/core/database/database"
+import { Database as BunDatabase } from "bun:sqlite"
 import { BlobRefTable, BlobTable } from "../../src/storage/blob.sql"
 import { blobPath, parseBlobURL } from "../../src/storage/blob-path"
 import { runBlobBackfill } from "../../src/storage/blob-backfill"
@@ -21,6 +24,47 @@ async function withDatabase<A>(root: string, body: Effect.Effect<A, unknown, Dat
       yield* db.run(sql`CREATE TABLE blob_ref (part_id TEXT NOT NULL, slot TEXT NOT NULL, digest TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (part_id, slot))`)
       return yield* body
     }).pipe(Effect.provide(Database.layerFromPath(":memory:", Database.noMigrations)), Effect.scoped),
+  )
+}
+
+async function withFileDatabase<A>(filename: string, body: Effect.Effect<A, unknown, Database.Service>) {
+  return Effect.runPromise(body.pipe(Effect.provide(Database.layerFromPath(filename, Database.noMigrations)), Effect.scoped))
+}
+
+async function fileDigest(filename: string) {
+  const hash = crypto.createHash("sha256")
+  hash.update(await readFile(filename))
+  return hash.digest("hex")
+}
+
+async function removeTree(filename: string) {
+  if (typeof Bun.gc === "function") Bun.gc(true)
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      await rm(filename, { recursive: true, force: true })
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== "EBUSY" && code !== "EPERM") throw error
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+  }
+  await rm(filename, { recursive: true, force: true })
+}
+
+async function createCopyFixture(filename: string, value: string) {
+  await withFileDatabase(
+    filename,
+    Effect.gen(function* () {
+      const { db } = yield* Database.Service
+      yield* db.run(sql`CREATE TABLE session (id TEXT PRIMARY KEY)`)
+      yield* db.run(sql`CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL)`)
+      yield* db.run(sql`CREATE TABLE blob (digest TEXT PRIMARY KEY, size INTEGER NOT NULL, mime TEXT NOT NULL, created_at INTEGER NOT NULL, verified_at INTEGER NOT NULL, last_ref_removed_at INTEGER)`)
+      yield* db.run(sql`CREATE TABLE blob_ref (part_id TEXT NOT NULL, slot TEXT NOT NULL, digest TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (part_id, slot))`)
+      yield* db.run(
+        sql`INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES ('prt_copy', 'msg_copy', 'ses_copy', 1, 1, ${JSON.stringify({ type: "file", mime: "image/png", url: dataURL(value) })})`,
+      )
+    }),
   )
 }
 
@@ -75,7 +119,7 @@ describe("blob backfill", () => {
         expect(repeated.completed).toBe(true)
       }))
     } finally {
-      await rm(root, { recursive: true, force: true })
+      await removeTree(root)
     }
   })
 
@@ -102,7 +146,7 @@ describe("blob backfill", () => {
         expect((yield* db.select().from(PartTable).all()).find((row) => row.id === "prt_004")?.data).toMatchObject({ url: dataURL("active") })
       }))
     } finally {
-      await rm(root, { recursive: true, force: true })
+      await removeTree(root)
     }
   })
 
@@ -121,7 +165,60 @@ describe("blob backfill", () => {
         expect((yield* db.select().from(BlobRefTable).all())).toHaveLength(1)
       }))
     } finally {
-      await rm(root, { recursive: true, force: true })
+      await removeTree(root)
+    }
+  })
+
+  test("rehearses both database copies without touching the source files", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "jyycode-copy-rehearsal-"))
+    try {
+      for (const name of ["jyycode-main.db", "jyycode.db"]) {
+        const sourceDb = path.join(root, "source", name)
+        const copyDb = path.join(root, "copy", name)
+        const sourceRoot = path.join(root, "source", name.replace(/\.db$/, "-data"))
+        const copyRoot = path.join(root, "copy", name.replace(/\.db$/, "-data"))
+        await mkdir(path.dirname(sourceDb), { recursive: true })
+        await mkdir(path.dirname(copyDb), { recursive: true })
+        await createCopyFixture(sourceDb, `${name}-payload`)
+
+        const sourceBefore = { digest: await fileDigest(sourceDb), stat: await stat(sourceDb) }
+        await copyFile(sourceDb, copyDb)
+        const copyBefore = new BunDatabase(copyDb, { readonly: true, create: false })
+        expect(copyBefore.query("PRAGMA integrity_check").get()).toMatchObject({ integrity_check: "ok" })
+        expect(copyBefore.query("SELECT id, time_updated, data FROM part WHERE id = 'prt_copy'").all()).toHaveLength(1)
+        copyBefore.close(true)
+
+        const result = await withFileDatabase(
+          copyDb,
+          Effect.gen(function* () {
+            const { native } = yield* Database.Service
+            const dryRun = yield* runBlobBackfill({ root: copyRoot, watermark: Date.now() })
+            const applied = yield* runBlobBackfill({ root: copyRoot, dryRun: false, watermark: Date.now() })
+            return { dryRun, applied, integrity: maintainNative(native).integrity }
+          }),
+        )
+        expect(result.dryRun.dryRun).toBe(true)
+        expect(result.dryRun.candidates).toBe(1)
+        expect(result.applied.migrated).toBe(1)
+        expect(result.applied.completed).toBe(true)
+        expect(result.integrity).toBe("ok")
+
+        const copyAfter = new BunDatabase(copyDb, { readonly: true, create: false })
+        expect(copyAfter.query("PRAGMA integrity_check").get()).toMatchObject({ integrity_check: "ok" })
+        const migrated = copyAfter.query("SELECT data FROM part WHERE id = 'prt_copy'").get() as { data: string }
+        expect(migrated.data).toContain("blob:sha256:")
+        copyAfter.close(true)
+
+        const sourceAfter = new BunDatabase(sourceDb, { readonly: true, create: false })
+        const original = sourceAfter.query("SELECT data FROM part WHERE id = 'prt_copy'").get() as { data: string }
+        expect(original.data).toContain("data:image/png;base64,")
+        sourceAfter.close(true)
+        const sourceStatAfter = await stat(sourceDb)
+        expect(await fileDigest(sourceDb)).toBe(sourceBefore.digest)
+        expect(sourceStatAfter.mtimeMs).toBe(sourceBefore.stat.mtimeMs)
+      }
+    } finally {
+      await removeTree(root)
     }
   })
 })

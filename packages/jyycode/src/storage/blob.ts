@@ -159,7 +159,20 @@ export class BlobStore {
       }
       const afterQuarantine = await stat(destination).catch(() => undefined)
       if (!afterQuarantine) {
-        await rename(temp, destination)
+        try {
+          await rename(temp, destination)
+        } catch (error) {
+          // Windows can report EPERM when another writer wins the same
+          // content-addressed install race between stat() and rename().
+          // Re-check the destination before treating the write as failed.
+          const winner = await stat(destination).catch(() => undefined)
+          if (!winner) throw error
+          const winnerDigest = await digestFile(destination)
+          if (winnerDigest.digest !== digest || winnerDigest.size !== size) {
+            throw new BlobIntegrityError("concurrent blob install produced a digest collision")
+          }
+          await rm(temp, { force: true })
+        }
       } else {
         await rm(temp, { force: true })
       }
