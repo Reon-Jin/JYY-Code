@@ -105,7 +105,7 @@ export const layer: Layer.Layer<
       const metadata = yield* fs.stat(filepath).pipe(Effect.catch(() => Effect.succeed(undefined)))
       const cached = s.localCache.get(filepath)
       const mtimeMs = metadata ? Option.getOrElse(metadata.mtime, () => new Date(0)).getTime() : undefined
-      if (cached && metadata && cached.mtimeMs === mtimeMs && cached.size === metadata.size) {
+      if (cached && metadata && cached.mtimeMs === mtimeMs && cached.size === Number(metadata.size)) {
         return { source: filepath, ...cached, required } satisfies InstructionCandidate
       }
       const result = yield* Effect.tryPromise({
@@ -120,15 +120,15 @@ export const layer: Layer.Layer<
       const s = yield* InstanceState.get(state)
       const cached = s.remoteCache.get(url)
       if (cached) return { source: url, ...cached, required: true } satisfies InstructionCandidate
-      const res = yield* http.execute(HttpClientRequest.get(url)).pipe(Effect.timeout(5000))
+      const res = yield* http.execute(HttpClientRequest.get(url)).pipe(Effect.timeout(5000), Effect.orDie)
       const collected = yield* res.stream.pipe(
         Stream.runFold(
-          {
+          () => ({
             chunks: [] as Uint8Array[],
             bytes: 0,
             retained: 0,
             hash: createHash("sha256"),
-          },
+          }),
           (acc, chunk) => {
             acc.hash.update(chunk)
             acc.bytes += chunk.byteLength
@@ -141,7 +141,7 @@ export const layer: Layer.Layer<
             return acc
           },
         ),
-      )
+      ).pipe(Effect.orDie)
       const bounded: BoundedRead = {
         content: Buffer.concat(collected.chunks.map((item) => Buffer.from(item))).toString("utf8"),
         bytes: collected.bytes,
