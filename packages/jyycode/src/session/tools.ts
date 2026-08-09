@@ -5,7 +5,7 @@ import { MCP } from "@/mcp"
 import { Permission } from "@/permission"
 import { Tool } from "@/tool/tool"
 import { ToolJsonSchema } from "@/tool/json-schema"
-import { ToolRegistry } from "@/tool/registry"
+import { ToolRegistry, type ToolIdentity } from "@/tool/registry"
 import { ModelID } from "@/provider/schema"
 import { Plugin } from "@/plugin"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions } from "ai"
@@ -523,9 +523,18 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   // Serializing protocol mutations gives the first successful mutation a
   // chance to invalidate the stale calls queued behind it.
   let protocolMutationTail: Promise<unknown> = Promise.resolve()
+  let modelNameResolution: ToolRegistry.ResolvedToolNames | undefined
+
+  const identityForModel = (item: Tool.Def): ToolIdentity =>
+    ToolRegistry.toolIdentityFor(item) ?? {
+      source: item.catalog?.category === "mcp" ? "mcp" : "builtin",
+      sourceID: `fallback:${item.id}`,
+      modelName: toolNameForModel(item.id),
+    }
 
   const addToolDef = (item: Tool.Def, options: { lazy?: boolean } = {}) => {
-    const modelToolName = toolNameForModel(item.id)
+    const identity = identityForModel(item)
+    const modelToolName = modelNameResolution?.names.get(identity.sourceID) ?? identity.modelName
     const schema = options.lazy
       ? ({ type: "object", additionalProperties: true } as const)
       : ProviderTransform.schema(input.model, ToolJsonSchema.fromTool(item))
@@ -724,6 +733,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   )
   const hasToolSearch = visibleRegistryDefs.some((item) => item.id === "tool_search")
   const searchableDefs = [...visibleRegistryDefs.filter((item) => item.id !== "tool_search"), ...visibleMcpDefs]
+  modelNameResolution = ToolRegistry.resolveToolModelNames(searchableDefs.map(identityForModel))
+  for (const collision of modelNameResolution.collisions) {
+    log.warn("tool catalog model-name collision resolved", collision)
+  }
   for (const item of visibleRegistryDefs) {
     if (item.id === "tool_search") continue
     // Subagents cannot call tool_search to expand a lazy tool, so expose the

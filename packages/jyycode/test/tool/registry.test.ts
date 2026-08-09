@@ -1,10 +1,10 @@
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, describe, expect, it as bunIt } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { fileURLToPath, pathToFileURL } from "url"
 import { Effect, Layer, Result, Schema } from "effect"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
-import { ToolRegistry } from "@/tool/registry"
+import { ToolRegistry, identifyTool, indexToolIdentities } from "@/tool/registry"
 import { Tool } from "@/tool/tool"
 import { CatalogSearch } from "@/tool/catalog-search"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
@@ -37,6 +37,24 @@ import { EpisodicMemory } from "@/memory/episodic"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { MessageID, SessionID } from "@/session/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+
+bunIt("keeps source and model identity indexes lossless", () => {
+  const make = (sourceID: string, modelName: string) =>
+    identifyTool(
+      {
+        id: sourceID,
+        description: sourceID,
+        parameters: Schema.Unknown,
+        execute: () => Effect.succeed({ title: "", metadata: {}, output: "" }),
+      },
+      { source: "plugin", sourceID, modelName },
+    )
+
+  const indexes = indexToolIdentities([make("plugin:a", "same"), make("plugin:b", "same")])
+  expect(indexes.bySourceID.get("plugin:a")).toHaveLength(1)
+  expect(indexes.bySourceID.get("plugin:b")).toHaveLength(1)
+  expect(indexes.byModelName.get("same")).toHaveLength(2)
+})
 
 const node = CrossSpawnSpawner.defaultLayer
 const configLayer = TestConfig.layer({

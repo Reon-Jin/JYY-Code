@@ -262,6 +262,59 @@ it.instance(
 )
 
 it.instance(
+  "preserves open MCP input schema keywords and reports sanitized collisions",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        lastCreatedClientName = "a.b"
+        const first = getOrCreateClientState("a.b")
+        first.tools = [
+          {
+            name: "run",
+            inputSchema: {
+              type: "object",
+              additionalProperties: true,
+              patternProperties: { "^x-": { type: "string" } },
+            },
+          },
+        ]
+        yield* mcp.add("a.b", { type: "local", command: ["echo", "test"] })
+
+        lastCreatedClientName = "a/b"
+        const second = getOrCreateClientState("a/b")
+        second.tools = [
+          {
+            name: "run",
+            inputSchema: {
+              type: "object",
+              additionalProperties: { type: "number" },
+              properties: { fixed: { type: "boolean" } },
+            },
+          },
+        ]
+        yield* mcp.add("a/b", { type: "local", command: ["echo", "test"] })
+
+        const defs = yield* mcp.toolDefs()
+        expect(defs).toHaveLength(2)
+        expect(defs.find((def) => def.jsonSchema?.patternProperties)?.jsonSchema).toMatchObject({
+          additionalProperties: true,
+          patternProperties: { "^x-": { type: "string" } },
+        })
+        expect(defs.find((def) => def.jsonSchema?.properties)?.jsonSchema?.additionalProperties).toEqual({
+          type: "number",
+        })
+
+        const tools = yield* mcp.tools()
+        const names = Object.keys(tools)
+        expect(names).toHaveLength(2)
+        expect(new Set(names).size).toBe(2)
+        expect(names.every((name) => name.startsWith("a_b_run_"))).toBe(true)
+      }),
+    ),
+  { config: { mcp: {} } },
+)
+
+it.instance(
   "rejects oversized MCP image and blob attachments before creating data URLs",
   () =>
     MCP.Service.use((mcp: MCPNS.Interface) =>
@@ -289,7 +342,13 @@ it.instance(
         }
 
         serverState.callToolResult = {
-          content: [{ type: "image", mimeType: "image/png", data: "A".repeat(Math.ceil((ContentLimits.mcpAttachmentBytes + 1) * 4 / 3)) }],
+          content: [
+            {
+              type: "image",
+              mimeType: "image/png",
+              data: "A".repeat(Math.ceil(((ContentLimits.mcpAttachmentBytes + 1) * 4) / 3)),
+            },
+          ],
         }
         let exit = yield* def!.execute({}, ctx).pipe(Effect.exit)
         expect(Exit.isFailure(exit)).toBe(true)
@@ -302,7 +361,7 @@ it.instance(
               resource: {
                 uri: "file:///oversized.bin",
                 mimeType: "application/octet-stream",
-                blob: "A".repeat(Math.ceil((ContentLimits.mcpAttachmentBytes + 1) * 4 / 3)),
+                blob: "A".repeat(Math.ceil(((ContentLimits.mcpAttachmentBytes + 1) * 4) / 3)),
               },
             },
           ],

@@ -33,6 +33,13 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { Tool as JYYTool } from "@/tool/tool"
 import { ContentLimits, ensureBase64WithinLimit } from "@/tool/content-limits"
+import {
+  identifyTool,
+  providerSafeToolName,
+  resolveToolModelNames,
+  type ToolIdentity,
+  type IdentifiedToolDef,
+} from "@/tool/identity"
 
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
@@ -114,7 +121,21 @@ function isMcpConfigured(entry: McpEntry): entry is ConfigMCP.Info {
   return typeof entry === "object" && entry !== null && "type" in entry
 }
 
-const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_")
+const sanitize = providerSafeToolName
+
+function mcpInputSchema(inputSchema: unknown): JSONSchema7 {
+  if (typeof inputSchema !== "object" || inputSchema === null || Array.isArray(inputSchema)) {
+    throw new Error("MCP tool input schema must be a JSON Schema object")
+  }
+  const schema = { ...(inputSchema as JSONSchema7) }
+  if (schema.type !== undefined && schema.type !== "object") {
+    throw new Error(`MCP tool input schema must describe an object, got ${String(schema.type)}`)
+  }
+  // MCP tool arguments are objects, but preserve every provider-supported and
+  // provider-unknown keyword from the server schema verbatim.
+  if (schema.type === undefined) schema.type = "object"
+  return schema
+}
 
 function remoteURL(key: string, value: string) {
   if (URL.canParse(value)) return new URL(value)
@@ -158,15 +179,7 @@ function listTools(key: string, client: MCPClient, timeout: number) {
 
 // Convert MCP tool definition to AI SDK Tool type
 function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number): AITool {
-  const inputSchema = mcpTool.inputSchema
-
-  // Spread first, then override type to ensure it's always "object"
-  const schema: JSONSchema7 = {
-    ...(inputSchema as JSONSchema7),
-    type: "object",
-    properties: (inputSchema.properties ?? {}) as JSONSchema7["properties"],
-    additionalProperties: false,
-  }
+  const schema = mcpInputSchema(mcpTool.inputSchema)
 
   return dynamicTool({
     description: mcpTool.description ?? "",
@@ -194,89 +207,93 @@ function convertMcpToolDef(
   mcpTool: MCPToolDef,
   client: MCPClient,
   timeout?: number,
-): JYYTool.Def<typeof McpToolParameters> {
+): JYYTool.Def<typeof McpToolParameters> & { identity: ToolIdentity } {
   const id = sanitize(clientName) + "_" + sanitize(mcpTool.name)
-  const inputSchema = mcpTool.inputSchema
-  const schema: JSONSchema7 = {
-    ...(inputSchema as JSONSchema7),
-    type: "object",
-    properties: (inputSchema.properties ?? {}) as JSONSchema7["properties"],
-    additionalProperties: false,
+  const schema = mcpInputSchema(mcpTool.inputSchema)
+  const identity: ToolIdentity = {
+    source: "mcp",
+    sourceID: `mcp:${clientName}\0${mcpTool.name}`,
+    modelName: id,
   }
 
-  return {
-    id,
-    description: mcpTool.description ?? `MCP tool ${mcpTool.name} from ${clientName}`,
-    parameters: McpToolParameters,
-    jsonSchema: schema,
-    catalog: {
-      category: "mcp",
-      mutability: "external",
-      risk: "medium",
-      tags: [clientName, mcpTool.name, "mcp"],
-    },
-    execute: (args, ctx) =>
-      Effect.gen(function* () {
-        yield* ctx.ask({ permission: id, metadata: {}, patterns: ["*"], always: ["*"] })
-        const result = (yield* Effect.tryPromise({
-          try: () =>
-            client.callTool(
-              {
-                name: mcpTool.name,
-                arguments: (args || {}) as Record<string, unknown>,
-              },
-              CallToolResultSchema,
-              {
-                resetTimeoutOnProgress: true,
-                timeout,
-              },
-            ),
-          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        }).pipe(Effect.orDie)) as Awaited<ReturnType<MCPClient["callTool"]>>
+  return identifyTool(
+    {
+      id,
+      description: mcpTool.description ?? `MCP tool ${mcpTool.name} from ${clientName}`,
+      parameters: McpToolParameters,
+      jsonSchema: schema,
+      catalog: {
+        category: "mcp",
+        mutability: "external",
+        risk: "medium",
+        tags: [clientName, mcpTool.name, "mcp"],
+      },
+      execute: (args, ctx) =>
+        Effect.gen(function* () {
+          yield* ctx.ask({ permission: id, metadata: {}, patterns: ["*"], always: ["*"] })
+          const result = (yield* Effect.tryPromise({
+            try: () =>
+              client.callTool(
+                {
+                  name: mcpTool.name,
+                  arguments: (args || {}) as Record<string, unknown>,
+                },
+                CallToolResultSchema,
+                {
+                  resetTimeoutOnProgress: true,
+                  timeout,
+                },
+              ),
+            catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+          }).pipe(Effect.orDie)) as Awaited<ReturnType<MCPClient["callTool"]>>
 
-        const textParts: string[] = []
-        const attachments: NonNullable<JYYTool.ExecuteResult["attachments"]> = []
-        for (const contentItem of result.content as any[]) {
-          if (contentItem.type === "text") textParts.push(contentItem.text)
-          else if (contentItem.type === "image") {
-            yield* ensureBase64WithinLimit(contentItem.data, ContentLimits.mcpAttachmentBytes, "MCP image").pipe(
-              Effect.orDie,
-            )
-            attachments.push({
-              type: "file",
-              mime: contentItem.mimeType,
-              url: `data:${contentItem.mimeType};base64,${contentItem.data}`,
-            })
-          } else if (contentItem.type === "resource") {
-            const { resource } = contentItem
-            if ("text" in resource && resource.text) textParts.push(resource.text)
-            if ("blob" in resource && resource.blob) {
-              yield* ensureBase64WithinLimit(resource.blob, ContentLimits.mcpAttachmentBytes, "MCP resource blob").pipe(
+          const textParts: string[] = []
+          const attachments: NonNullable<JYYTool.ExecuteResult["attachments"]> = []
+          for (const contentItem of result.content as any[]) {
+            if (contentItem.type === "text") textParts.push(contentItem.text)
+            else if (contentItem.type === "image") {
+              yield* ensureBase64WithinLimit(contentItem.data, ContentLimits.mcpAttachmentBytes, "MCP image").pipe(
                 Effect.orDie,
               )
               attachments.push({
                 type: "file",
-                mime: resource.mimeType ?? "application/octet-stream",
-                url: `data:${resource.mimeType ?? "application/octet-stream"};base64,${resource.blob}`,
-                filename: resource.uri,
+                mime: contentItem.mimeType,
+                url: `data:${contentItem.mimeType};base64,${contentItem.data}`,
               })
+            } else if (contentItem.type === "resource") {
+              const { resource } = contentItem
+              if ("text" in resource && resource.text) textParts.push(resource.text)
+              if ("blob" in resource && resource.blob) {
+                yield* ensureBase64WithinLimit(
+                  resource.blob,
+                  ContentLimits.mcpAttachmentBytes,
+                  "MCP resource blob",
+                ).pipe(Effect.orDie)
+                attachments.push({
+                  type: "file",
+                  mime: resource.mimeType ?? "application/octet-stream",
+                  url: `data:${resource.mimeType ?? "application/octet-stream"};base64,${resource.blob}`,
+                  filename: resource.uri,
+                })
+              }
             }
           }
-        }
 
-        return {
-          title: "",
-          metadata: {
-            ...(typeof result.metadata === "object" && result.metadata !== null ? result.metadata : {}),
-            mcpServer: clientName,
-            mcpTool: mcpTool.name,
-            truncated: false,
-          },
-          output: textParts.join("\n\n"),
-          attachments,
-        }
-      }),
-  }
+          return {
+            title: "",
+            metadata: {
+              ...(typeof result.metadata === "object" && result.metadata !== null ? result.metadata : {}),
+              mcpServer: clientName,
+              mcpTool: mcpTool.name,
+              truncated: false,
+            },
+            output: textParts.join("\n\n"),
+            attachments,
+          }
+        }),
+    },
+    identity,
+  )
 }
 
 function defs(key: string, client: MCPClient, timeout?: number) {
@@ -756,7 +773,6 @@ export const layer = Layer.effect(
     })
 
     const tools = Effect.fn("MCP.tools")(function* () {
-      const result: Record<string, AITool> = {}
       const s = yield* InstanceState.get(state)
 
       const cfg = yield* cfgSvc.get()
@@ -767,31 +783,59 @@ export const layer = Layer.effect(
         ([clientName]) => s.status[clientName]?.status === "connected",
       )
 
-      yield* Effect.forEach(
+      const batches = yield* Effect.forEach(
         connectedClients,
         ([clientName, client]) =>
           Effect.gen(function* () {
+            const result: Array<{ identity: ToolIdentity; tool: AITool }> = []
             const mcpConfig = config[clientName]
             const entry = mcpConfig && isMcpConfigured(mcpConfig) ? mcpConfig : undefined
 
             const listed = s.defs[clientName]
             if (!listed) {
               log.warn("missing cached tools for connected server", { clientName })
-              return
+              return []
             }
 
             const timeout = entry?.timeout ?? defaultTimeout
             for (const mcpTool of listed) {
-              result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = convertMcpTool(mcpTool, client, timeout)
+              try {
+                result.push({
+                  identity: {
+                    source: "mcp",
+                    sourceID: `mcp:${clientName}\0${mcpTool.name}`,
+                    modelName: sanitize(clientName) + "_" + sanitize(mcpTool.name),
+                  },
+                  tool: convertMcpTool(mcpTool, client, timeout),
+                })
+              } catch (error) {
+                log.warn("MCP tool unavailable because its input schema is not safely transformable", {
+                  clientName,
+                  tool: mcpTool.name,
+                  error,
+                })
+              }
             }
+            return result
           }),
         { concurrency: "unbounded" },
       )
+      const entries = batches.flat()
+      const resolved = resolveToolModelNames(entries.map((entry) => entry.identity))
+      for (const collision of resolved.collisions) {
+        log.warn("MCP tool model-name collision resolved", collision)
+      }
+      const result: Record<string, AITool> = {}
+      for (const entry of entries) {
+        const name = resolved.names.get(entry.identity.sourceID)
+        if (!name) continue
+        result[name] = entry.tool
+      }
       return result
     })
 
     const toolDefs = Effect.fn("MCP.toolDefs")(function* () {
-      const result: JYYTool.Def[] = []
+      const result: IdentifiedToolDef[] = []
       const s = yield* InstanceState.get(state)
 
       const cfg = yield* cfgSvc.get()
@@ -817,7 +861,15 @@ export const layer = Layer.effect(
 
             const timeout = entry?.timeout ?? defaultTimeout
             for (const mcpTool of listed) {
-              result.push(convertMcpToolDef(clientName, mcpTool, client, timeout))
+              try {
+                result.push(convertMcpToolDef(clientName, mcpTool, client, timeout) as IdentifiedToolDef)
+              } catch (error) {
+                log.warn("MCP tool unavailable because its input schema is not safely transformable", {
+                  clientName,
+                  tool: mcpTool.name,
+                  error,
+                })
+              }
             }
           }),
         { concurrency: "unbounded" },

@@ -57,6 +57,32 @@ import { CatalogSearch } from "./catalog-search"
 import { ToolTelemetry } from "./telemetry"
 import { PlanProtocolTools } from "@/plan/tools"
 import { GoalTool } from "./goal"
+import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
+import {
+  identifyTool,
+  indexToolIdentities,
+  providerSafeToolName,
+  toolIdentityFor,
+  type IdentifiedToolDef,
+  type ResolvedToolNames,
+  type ToolIdentity,
+  type ToolIdentityIndexes,
+} from "./identity"
+export {
+  identifyTool,
+  indexToolIdentities,
+  providerSafeToolName,
+  resolveToolModelNames,
+  toolIdentityFor,
+} from "./identity"
+export type {
+  IdentifiedToolDef,
+  ResolvedToolNames,
+  ToolIdentity,
+  ToolIdentityIndexes,
+  ToolIdentitySource,
+  ToolNameCollision,
+} from "./identity"
 
 const log = Log.create({ service: "tool.registry" })
 
@@ -67,9 +93,10 @@ export function webSearchEnabled(_providerID: ProviderID, _flags = { exa: false,
 type ReadDef = Tool.InferDef<typeof ReadTool>
 
 type State = {
-  custom: Tool.Def[]
-  builtin: Tool.Def[]
+  custom: IdentifiedToolDef[]
+  builtin: IdentifiedToolDef[]
   read: ReadDef
+  indexes: ToolIdentityIndexes
 }
 
 const ToolSearchParameters = Schema.Struct({
@@ -189,9 +216,9 @@ export const layer: Layer.Layer<
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("ToolRegistry.state")(function* (ctx) {
-        const custom: Tool.Def[] = []
+        const custom: IdentifiedToolDef[] = []
 
-        function fromPlugin(id: string, def: ToolDefinition): Tool.Def {
+        function fromPlugin(id: string, def: ToolDefinition): IdentifiedToolDef {
           // Plugin tools still expose Zod args publicly; keep that compatibility
           // boxed at the registry boundary and give the LLM the original JSON Schema.
           // Normalize missing args to `{}` once — pre-1.14.49 the code was
@@ -204,55 +231,62 @@ export const layer: Layer.Layer<
           const parameters = zodParams
             ? Schema.declare<unknown>((u): u is unknown => zodParams.safeParse(u).success)
             : Schema.Unknown
-          return {
-            id,
-            parameters,
-            jsonSchema,
-            description: def.description,
-            catalog: {
-              category: "other",
-              mutability: "external",
-              risk: "medium",
-              detail: "advanced",
+          return identifyTool(
+            {
+              id,
+              parameters,
+              jsonSchema,
+              description: def.description,
+              catalog: {
+                category: "other",
+                mutability: "external",
+                risk: "medium",
+                detail: "advanced",
+              },
+              execute: (args, toolCtx) =>
+                Effect.gen(function* () {
+                  // Bridge the host's Effect-based `ask` into a Promise-returning
+                  // function for the plugin to make sure context persists
+                  const bridge = yield* EffectBridge.make()
+                  const pluginCtx: PluginToolContext = {
+                    ...toolCtx,
+                    ask: (req) => bridge.promise(toolCtx.ask(req)),
+                    directory: ctx.directory,
+                    worktree: ctx.worktree,
+                  }
+                  const result = yield* Effect.promise(() => def.execute(args as any, pluginCtx))
+                  const output = typeof result === "string" ? result : result.output
+                  const metadata = typeof result === "string" ? {} : (result.metadata ?? {})
+                  const attachments = typeof result === "string" ? undefined : result.attachments
+                  const info = yield* agent.get(toolCtx.agent)
+                  const out = yield* truncate.output(output, {}, info)
+                  return {
+                    title: typeof result === "string" ? "" : (result.title ?? ""),
+                    output: out.truncated ? out.content : output,
+                    attachments,
+                    metadata: {
+                      ...metadata,
+                      truncated: out.truncated,
+                      ...(out.truncated && { outputPath: out.outputPath }),
+                    },
+                  }
+                }).pipe(
+                  Effect.withSpan("Tool.execute", {
+                    attributes: {
+                      "tool.name": id,
+                      "session.id": toolCtx.sessionID,
+                      "message.id": toolCtx.messageID,
+                      ...(toolCtx.callID ? { "tool.call_id": toolCtx.callID } : {}),
+                    },
+                  }),
+                ),
             },
-            execute: (args, toolCtx) =>
-              Effect.gen(function* () {
-                // Bridge the host's Effect-based `ask` into a Promise-returning
-                // function for the plugin to make sure context persists
-                const bridge = yield* EffectBridge.make()
-                const pluginCtx: PluginToolContext = {
-                  ...toolCtx,
-                  ask: (req) => bridge.promise(toolCtx.ask(req)),
-                  directory: ctx.directory,
-                  worktree: ctx.worktree,
-                }
-                const result = yield* Effect.promise(() => def.execute(args as any, pluginCtx))
-                const output = typeof result === "string" ? result : result.output
-                const metadata = typeof result === "string" ? {} : (result.metadata ?? {})
-                const attachments = typeof result === "string" ? undefined : result.attachments
-                const info = yield* agent.get(toolCtx.agent)
-                const out = yield* truncate.output(output, {}, info)
-                return {
-                  title: typeof result === "string" ? "" : (result.title ?? ""),
-                  output: out.truncated ? out.content : output,
-                  attachments,
-                  metadata: {
-                    ...metadata,
-                    truncated: out.truncated,
-                    ...(out.truncated && { outputPath: out.outputPath }),
-                  },
-                }
-              }).pipe(
-                Effect.withSpan("Tool.execute", {
-                  attributes: {
-                    "tool.name": id,
-                    "session.id": toolCtx.sessionID,
-                    "message.id": toolCtx.messageID,
-                    ...(toolCtx.callID ? { "tool.call_id": toolCtx.callID } : {}),
-                  },
-                }),
-              ),
-          }
+            {
+              source: "plugin",
+              sourceID: `plugin:${id}`,
+              modelName: providerSafeToolName(id),
+            },
+          )
         }
 
         const dirs = yield* config.directories()
@@ -299,27 +333,51 @@ export const layer: Layer.Layer<
           goal: Tool.init(goal),
         })
 
+        const builtin = [
+          tool.invalid,
+          ...(questionEnabled ? [tool.question] : []),
+          tool.shell,
+          tool.read,
+          tool.glob,
+          tool.grep,
+          tool.edit,
+          tool.process,
+          tool.write,
+          tool.fetch,
+          tool.search,
+          tool.skill,
+          tool.goal,
+          ...(tool.memory ? [tool.memory] : []),
+          ...(tool.contextRead ? [tool.contextRead] : []),
+          ...planProtocolTools,
+        ].map((def) =>
+          identifyTool(def, {
+            source: PLAN_TOOL_IDS.has(def.id) ? "plan" : "builtin",
+            sourceID: `${PLAN_TOOL_IDS.has(def.id) ? "plan" : "builtin"}:${def.id}`,
+            modelName: PLAN_TOOL_IDS.has(def.id) ? modelFacingPlanToolName(def.id) : providerSafeToolName(def.id),
+          }),
+        )
+
+        const indexes = indexToolIdentities([...builtin, ...custom])
+        for (const [modelName, defs] of indexes.byModelName) {
+          if (defs.length > 1) {
+            log.warn("tool model-name collision detected", {
+              modelName,
+              sourceIDs: defs.map((def) => def.identity.sourceID),
+            })
+          }
+        }
+        for (const [sourceID, defs] of indexes.bySourceID) {
+          if (defs.length > 1) {
+            log.warn("duplicate tool source identity detected", { sourceID, count: defs.length })
+          }
+        }
+
         return {
           custom,
-          builtin: [
-            tool.invalid,
-            ...(questionEnabled ? [tool.question] : []),
-            tool.shell,
-            tool.read,
-            tool.glob,
-            tool.grep,
-            tool.edit,
-            tool.process,
-            tool.write,
-            tool.fetch,
-            tool.search,
-            tool.skill,
-            tool.goal,
-            ...(tool.memory ? [tool.memory] : []),
-            ...(tool.contextRead ? [tool.contextRead] : []),
-            ...planProtocolTools,
-          ],
-          read: tool.read,
+          builtin,
+          read: builtin.find((def) => def.id === tool.read.id) as unknown as ReadDef,
+          indexes,
         }
       }),
     )
@@ -380,22 +438,25 @@ export const layer: Layer.Layer<
             output.parameters === tool.parameters || output.jsonSchema !== tool.jsonSchema
               ? output.jsonSchema
               : undefined
-          return {
-            id: tool.id,
-            description: [
-              output.description,
-              tool.id === SkillTool.id
-                ? yield* describeSkill(input.agent, input.skillScope ?? Skill.rootScope)
-                : undefined,
-            ]
-              .filter(Boolean)
-              .join("\n"),
-            parameters: output.parameters,
-            catalog: tool.catalog,
-            jsonSchema,
-            execute: tool.execute,
-            formatValidationError: tool.formatValidationError,
-          }
+          return identifyTool(
+            {
+              id: tool.id,
+              description: [
+                output.description,
+                tool.id === SkillTool.id
+                  ? yield* describeSkill(input.agent, input.skillScope ?? Skill.rootScope)
+                  : undefined,
+              ]
+                .filter(Boolean)
+                .join("\n"),
+              parameters: output.parameters,
+              catalog: tool.catalog,
+              jsonSchema,
+              execute: tool.execute,
+              formatValidationError: tool.formatValidationError,
+            },
+            toolIdentityFor(tool)!,
+          )
         }),
         { concurrency: "unbounded" },
       )
@@ -436,7 +497,12 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
       Layer.provide(
-        Layer.mergeAll(Truncate.defaultLayer, Memory.defaultLayer, EpisodicMemory.defaultLayer, ExperienceMemory.defaultLayer),
+        Layer.mergeAll(
+          Truncate.defaultLayer,
+          Memory.defaultLayer,
+          EpisodicMemory.defaultLayer,
+          ExperienceMemory.defaultLayer,
+        ),
       ),
     )
     .pipe(Layer.provide(RuntimeFlags.defaultLayer)),
