@@ -33,6 +33,13 @@ const defaults = {
   microCompact: true,
   microCompactMaxChars: 8000,
   reactiveCompact: true,
+  status: {
+    estimatedTokens: 0,
+    budget: 0,
+    strategy: "micro+reactive+full",
+    tokensReclaimed: 0,
+    reason: "not_run",
+  },
 }
 
 describe("global compaction API", () => {
@@ -91,7 +98,16 @@ describe("global compaction API", () => {
             }
             const updated = yield* request("PUT", update)
             expect(updated.status).toBe(200)
-            expect(yield* json(updated)).toEqual(update)
+            expect(yield* json(updated)).toEqual({
+              ...update,
+              status: {
+                estimatedTokens: 0,
+                budget: 0,
+                strategy: "disabled",
+                tokensReclaimed: 0,
+                reason: "not_run",
+              },
+            })
 
             const configResponse = yield* Effect.promise(() =>
               Promise.resolve(handler.handler(new Request("http://localhost/global/config"), context)),

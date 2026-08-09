@@ -39,6 +39,13 @@ const TailTurns = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 20 })
 const TokenCount = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 131072 }))
 const TriggerRatio = Schema.Finite.check(Schema.isBetween({ minimum: 0.5, maximum: 0.98 }))
 const MicroCompactMaxChars = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100000 }))
+const CompactionStatus = Schema.Struct({
+  estimatedTokens: TokenCount,
+  budget: TokenCount,
+  strategy: Schema.String,
+  tokensReclaimed: TokenCount,
+  reason: Schema.String,
+})
 
 export const GlobalCompaction = Schema.Struct({
   auto: Schema.Boolean,
@@ -50,6 +57,8 @@ export const GlobalCompaction = Schema.Struct({
   microCompact: Schema.Boolean,
   microCompactMaxChars: MicroCompactMaxChars,
   reactiveCompact: Schema.Boolean,
+  /** Last observable compaction decision; absent only in legacy clients. */
+  status: Schema.optional(CompactionStatus),
 }).annotate({ identifier: "GlobalCompaction" })
 
 export const GlobalMemoryScope = Schema.Literals(["user", "task", "experience"])

@@ -68,10 +68,16 @@ const MAX_PRESERVE_RECENT_TOKENS = 8_000
 export const AUTO_FAILURE_LIMIT = 3
 
 export type RequestCompressionStage = "none" | "micro" | "reactive" | "full"
+export type RequestCompressionReason = "within_budget" | "micro_compacted" | "reactive_compacted" | "full_compaction_required"
 
 export type RequestPreparation = {
   messages: MessageV2.WithParts[]
   estimate: ContextEstimate
+  estimatedTokens: number
+  budget: number
+  strategy: RequestCompressionStage
+  tokensReclaimed: number
+  reason: RequestCompressionReason
   stage: RequestCompressionStage
   microSavings: number
   reactive: ReactiveCompactResult["stats"] | undefined
@@ -815,6 +821,7 @@ export const layer = Layer.effect(
       })
       let messages = structuredClone(input.messages)
       let estimate = estimateContextTokens(budgetInput(messages))
+      const initialEstimatedTokens = estimate.inputTokens
       let stage: RequestCompressionStage = "none"
       let microSavings = 0
       let reactiveStats: ReactiveCompactResult["stats"] | undefined
@@ -822,6 +829,17 @@ export const layer = Layer.effect(
       const done = (needsFullCompaction: boolean): RequestPreparation => ({
         messages,
         estimate,
+        estimatedTokens: estimate.inputTokens,
+        budget: hardBudget,
+        strategy: needsFullCompaction ? "full" : stage,
+        tokensReclaimed: Math.max(0, initialEstimatedTokens - estimate.inputTokens),
+        reason: needsFullCompaction
+          ? "full_compaction_required"
+          : stage === "micro"
+            ? "micro_compacted"
+            : stage === "reactive"
+              ? "reactive_compacted"
+              : "within_budget",
         stage,
         microSavings,
         reactive: reactiveStats,

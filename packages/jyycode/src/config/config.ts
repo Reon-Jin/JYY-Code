@@ -47,6 +47,10 @@ import { withTransientReadRetry } from "@/util/effect-http-client"
 
 const log = Log.create({ service: "config" })
 
+const CompactionTriggerRatio = Schema.Finite.check(Schema.isBetween({ minimum: 0.5, maximum: 0.98 }))
+const CompactionTokenCount = NonNegativeInt.check(Schema.isBetween({ minimum: 0, maximum: 131072 }))
+const CompactionMaxChars = NonNegativeInt.check(Schema.isBetween({ minimum: 0, maximum: 100000 }))
+
 // Custom merge function that concatenates array fields instead of replacing them
 // Keep remeda's deep conditional merge type out of hot config-loading paths; TS profiling showed it dominates here.
 function mergeConfig(target: Info, source: Info): Info {
@@ -312,20 +316,20 @@ export const Info = Schema.Struct({
         description:
           "Number of recent user turns, including their following assistant/tool responses, to keep verbatim during compaction (default: 2)",
       }),
-      preserve_recent_tokens: Schema.optional(NonNegativeInt).annotate({
+      preserve_recent_tokens: Schema.optional(CompactionTokenCount).annotate({
         description: "Maximum number of tokens from recent turns to preserve verbatim after compaction",
       }),
-      reserved: Schema.optional(NonNegativeInt).annotate({
+      reserved: Schema.optional(CompactionTokenCount).annotate({
         description: "Token buffer for compaction. Leaves enough window to avoid overflow during compaction.",
       }),
-      trigger_ratio: Schema.optional(Schema.Finite).annotate({
+      trigger_ratio: Schema.optional(CompactionTriggerRatio).annotate({
         description:
           "Fraction of media-aware active context estimate that triggers predictive compaction before the next model call (default: 0.92). Media attachments are estimated by MIME/decoded bytes, not base64 string length.",
       }),
       micro_compact: Schema.optional(Schema.Boolean).annotate({
         description: "Enable micro-compaction of tool results to save context (default: true).",
       }),
-      micro_compact_max_chars: Schema.optional(NonNegativeInt).annotate({
+      micro_compact_max_chars: Schema.optional(CompactionMaxChars).annotate({
         description: "Maximum characters to keep from micro-compacted tool results (default: 8000).",
       }),
       reactive_compact: Schema.optional(Schema.Boolean).annotate({

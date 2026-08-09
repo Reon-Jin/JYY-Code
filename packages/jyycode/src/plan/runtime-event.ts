@@ -30,6 +30,13 @@ export type RuntimeMetricInput = {
   count?: number
   savings_chars?: number
   retry_count?: number
+  estimated_tokens?: number
+  budget?: number
+  tokens_reclaimed?: number
+  redactions?: number
+  retention_days?: number
+  snapshot_files?: number
+  snapshot_bytes?: number
 }
 
 /**

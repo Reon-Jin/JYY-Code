@@ -35,16 +35,30 @@ const log = Log.create({ service: "server" })
 type CompactionConfig = (typeof Config.Info.Type)["compaction"]
 
 function globalCompaction(value: CompactionConfig): typeof GlobalCompaction.Type {
+  const auto = value?.auto ?? true
+  const microCompact = value?.micro_compact ?? true
+  const reactiveCompact = value?.reactive_compact ?? true
   return {
-    auto: value?.auto ?? true,
+    auto,
     prune: value?.prune ?? true,
     tailTurns: value?.tail_turns ?? 2,
     ...(value?.preserve_recent_tokens === undefined ? {} : { preserveRecentTokens: value.preserve_recent_tokens }),
     ...(value?.reserved === undefined ? {} : { reservedTokens: value.reserved }),
     triggerRatio: value?.trigger_ratio ?? 0.92,
-    microCompact: value?.micro_compact ?? true,
+    microCompact,
     microCompactMaxChars: value?.micro_compact_max_chars ?? 8000,
-    reactiveCompact: value?.reactive_compact ?? true,
+    reactiveCompact,
+    status: {
+      estimatedTokens: 0,
+      budget: 0,
+      strategy: auto
+        ? [microCompact ? "micro" : undefined, reactiveCompact ? "reactive" : undefined, "full"]
+            .filter(Boolean)
+            .join("+")
+        : "disabled",
+      tokensReclaimed: 0,
+      reason: "not_run",
+    },
   }
 }
 

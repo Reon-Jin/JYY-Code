@@ -448,20 +448,13 @@ describe("session.compaction.isOverflow", () => {
     ),
   )
 
-  // ─── Bug reproduction tests ───────────────────────────────────────────
-  // These tests demonstrate that when limit.input is set, isOverflow()
-  // does not subtract any headroom for the next model response. This means
-  // compaction only triggers AFTER we've already consumed the full input
-  // budget, leaving zero room for the next API call's output tokens.
-  //
-  // Compare: without limit.input, usable = context - output (reserves space).
-  // With limit.input, usable = limit.input (reserves nothing).
-  //
-  // Related issues: #10634, #8089, #11086, #12621
-  // Open PRs: #6875, #12924
+  // ─── Input-cap boundary regression tests ─────────────────────────────
+  // An explicit input cap still reserves the configured compaction buffer.
+  // These cases pin the behavior so equivalent model limits do not silently
+  // lose the headroom required for the next model response.
 
   it.live(
-    "BUG: no headroom when limit.input is set — compaction should trigger near boundary but does not",
+    "reserves compaction headroom when limit.input is set",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
@@ -473,11 +466,11 @@ describe("session.compaction.isOverflow", () => {
         // plus the model needs room to generate output — this WILL overflow.
         const tokens = { input: 180_000, output: 15_000, reasoning: 0, cache: { read: 3_000, write: 0 } }
         // count = 180K + 3K + 15K = 198K
-        // usable = limit.input = 200K (no output subtracted!)
-        // 198K > 200K = false → no compaction triggered
+        // usable = limit.input - the configured 20K compaction buffer = 180K
+        // 198K exceeds that bounded usable budget, so compaction is triggered.
 
-        // WITHOUT limit.input: usable = 200K - 32K = 168K, and 198K > 168K = true ✓
-        // WITH limit.input: usable = 200K, and 198K > 200K = false ✗
+        // WITHOUT limit.input: usable = 200K - 32K = 168K, and 198K > 168K.
+        // WITH limit.input: the explicit input cap still reserves compaction headroom.
 
         // With 198K used and only 2K headroom, the next turn will overflow.
         // Compaction MUST trigger here.
@@ -487,7 +480,7 @@ describe("session.compaction.isOverflow", () => {
   )
 
   it.live(
-    "BUG: without limit.input, same token count correctly triggers compaction",
+    "triggers compaction at the context-output boundary without limit.input",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
@@ -507,7 +500,7 @@ describe("session.compaction.isOverflow", () => {
   )
 
   it.live(
-    "BUG: asymmetry — limit.input model allows 30K more usage before compaction than equivalent model without it",
+    "keeps input-capped and context-capped models aligned",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
@@ -861,6 +854,11 @@ describe("session.compaction.prepareRequest", () => {
         })
         expect(result.needsFullCompaction).toBe(false)
         expect(result.stage).toBe("reactive")
+        expect(result.strategy).toBe("reactive")
+        expect(result.estimatedTokens).toBe(result.estimate.inputTokens)
+        expect(result.budget).toBe(68_000)
+        expect(result.tokensReclaimed).toBeGreaterThan(0)
+        expect(result.reason).toBe("reactive_compacted")
         expect(result.reactive?.changed).toBe(true)
         expect(result.estimate.inputTokens).toBeLessThanOrEqual(68_000)
       }).pipe(withCompaction({ config: cfg({ micro_compact_max_chars: 100_000 }) })),
@@ -881,6 +879,9 @@ describe("session.compaction.prepareRequest", () => {
           model: createModel({ context: 100_000, output: 32_000 }),
         })
         expect(result.stage).toBe("none")
+        expect(result.strategy).toBe("full")
+        expect(result.reason).toBe("full_compaction_required")
+        expect(result.tokensReclaimed).toBe(0)
         expect(result.needsFullCompaction).toBe(true)
       }).pipe(withCompaction({ config: cfg({ micro_compact: false, reactive_compact: false }) })),
     { git: true },

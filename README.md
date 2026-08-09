@@ -100,13 +100,13 @@ Parallel agents are not islands. JYY-Code provides a Step-scoped shared blackboa
 
 ### Structured Memory, Calibrated Before and After Execution
 
-JYY-Code's memory is not "chat history archiving" — it is a schema-governed, capacity-disciplined two-layer store:
+JYY-Code's memory is not "chat history archiving" — it is a schema-governed, capacity-disciplined layered store:
 
-- **Two layers**: `MEMORY.json` accumulates project outcomes, conventions, environment facts, and lessons; `USER.json` holds stable user identity and preferences — separated so neither dilutes the other.
+- **Separated scopes**: `MEMORY.json` holds one bounded task-state entry per session, `USER.json` holds stable user facts, and `EXPERIENCE.json` holds reusable success/failure/lesson rules. Task and user scopes are isolated from cross-project experience.
 - **Two-phase calibration**: the same memory entry is updated once during the **user-input phase** ("the user asked for A") and again during the **assistant-completion phase** ("I used B, and ultimately learned C") — understanding is calibrated before execution, experience is deposited after it. No "written then forgotten", no stale errors left uncorrected.
 - **Structured entries**: every entry carries an importance score (1–10) and normalized keywords with automatic dedup; writes follow strict character budgets — no rambling logs.
 - **Auto-injected every request**: a top-memory snapshot rides in every system prompt, so a brand-new session starts with the team's accumulated knowledge.
-- **Self-managing capacity**: approaching the cap triggers deterministic compaction and merging that frees space without dropping key points; sub-agent sessions are read-only to prevent concurrent corruption.
+- **Self-managing capacity**: approaching a cap triggers deterministic compaction and retention; sub-agent sessions can read context and experience, but persistent task/user memory remains root-only and write-protected.
 - An explicit memory management tool (add / replace / remove / compact) is available whenever the user wants to intervene.
 
 ## Quick Start
@@ -143,11 +143,11 @@ Global config: `~/.config/jyycode/jyycode.jsonc`
 }
 ```
 
-Project config lives at `.jyycode/jyycode.jsonc`. Main keys: `provider`, `permission`, `subagents`, `mcp`, `skills`, and `plugin`.
+Project config lives at `.jyycode/jyycode.jsonc`. Main keys: `provider`, `permission`, `subagents`, `mcp`, `skills`, and `plugin`. Context compaction is configured with `compaction.auto`, `compaction.trigger_ratio` (default `0.92`), `compaction.micro_compact`, `compaction.micro_compact_max_chars`, and `compaction.reactive_compact`; the micro and reactive stages are active in the request pipeline and expose bounded stage statistics to telemetry.
 
 ## More Built-In Capabilities
 
-- **Layered context engineering**: full compaction, reactive compaction, and overflow recovery pipelines with context-usage estimation — long runs never "lose their memory".
+- **Layered context engineering**: full compaction, micro-compaction of completed tool output, reactive emergency compaction, and overflow recovery pipelines with media-aware context estimation — long runs retain a bounded, inspectable working context.
 - **Git-grade snapshots & revert**: every turn's file changes land in a shadow Git snapshot; revert / unrevert at message granularity with per-file diffs; sessions can fork and generate share links.
 - **Human-in-the-loop questions**: when execution hits ambiguity, the agent asks you structured multiple-choice questions mid-run (with recommended options and multi-select), keeping decisions on track.
 - **Permission system**: per-tool allow / ask / deny rules, plus an independent tool policy and fixed toolset for sub-agents.

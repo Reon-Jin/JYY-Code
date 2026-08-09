@@ -2013,6 +2013,21 @@ export const layer = Layer.effect(
               outputReserve: Math.max(0, model.limit.output ?? 0),
               model,
             })
+            if (prepared.strategy !== "none" || prepared.needsFullCompaction) {
+              const event = defaultPlanProtocol.events.publish({
+                type: "runtime.metric",
+                session_id: session.id,
+                payload: runtimeMetricPayload({
+                  metric: "context.compaction",
+                  phase: prepared.strategy,
+                  outcome: prepared.reason,
+                  estimated_tokens: prepared.estimatedTokens,
+                  budget: prepared.budget,
+                  tokens_reclaimed: prepared.tokensReclaimed,
+                }),
+              })
+              yield* bus.publish(RuntimeEvent, event).pipe(Effect.ignore)
+            }
             if (prepared.needsFullCompaction) {
               if (canUsePersistentMemory && episodic) {
                 const digestDue = yield* episodic

@@ -1677,6 +1677,8 @@ export class PlanProtocol {
                   phase: "workspace",
                   outcome: "created",
                   duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
+                  snapshot_files: workspaceHandle?.baseline_manifest_file_count ?? 0,
+                  snapshot_bytes: workspaceHandle?.baseline_manifest_size ?? 0,
                 })
                 await this.updateDispatchLifecycle(ctx, taskId, {
                   workspace: dispatchWorkspaceMetadata(workspaceHandle),
