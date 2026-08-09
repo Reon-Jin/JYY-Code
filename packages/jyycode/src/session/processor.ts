@@ -29,6 +29,7 @@ import * as DateTime from "effect/DateTime"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Usage, type LLMEvent } from "@jyycode-ai/llm"
 import { ToolTelemetry } from "@/tool/telemetry"
+import { UsageLedger } from "./usage-ledger"
 
 const DOOM_LOOP_THRESHOLD = 3
 const log = Log.create({ service: "session.processor" })
@@ -84,6 +85,7 @@ interface ProcessorContext extends Input {
   refreshToolCatalog: boolean
   currentText: MessageV2.TextPart | undefined
   reasoningMap: Record<string, MessageV2.ReasoningPart>
+  usageLedger: UsageLedger
 }
 
 type StreamEvent = LLMEvent
@@ -125,6 +127,7 @@ export const layer = Layer.effect(
         refreshToolCatalog: false,
         currentText: undefined,
         reasoningMap: {},
+        usageLedger: new UsageLedger(),
       }
       let aborted = false
       let waitingForRetry = false
@@ -589,6 +592,11 @@ export const layer = Layer.effect(
               usage: value.usage ?? new Usage({}),
               metadata: value.providerMetadata,
             })
+            const ledger = ctx.usageLedger.applyStep(value.index, usage.tokens, usage.cost)
+            // A provider may replay a step-finish event. The provider step
+            // index is the only stable deduplication key; numeric usage
+            // equality is deliberately not used as a heuristic.
+            if (ledger.duplicate) return
             if (!ctx.assistantMessage.summary) {
               // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
               if (flags.experimentalEventSystem) {
@@ -596,15 +604,21 @@ export const layer = Layer.effect(
                   sessionID: ctx.sessionID,
                   finish: value.reason,
                   cost: usage.cost,
-                  tokens: usage.tokens,
+                  tokens: ledger.context,
                   snapshot: completedSnapshot,
                   timestamp: DateTime.makeUnsafe(Date.now()),
                 })
               }
             }
             ctx.assistantMessage.finish = value.reason
-            ctx.assistantMessage.cost += usage.cost
-            ctx.assistantMessage.tokens = usage.tokens
+            ctx.assistantMessage.cost = ledger.cost
+            ctx.assistantMessage.tokens = ledger.context
+            ctx.assistantMessage.usage = {
+              version: 1,
+              context: ledger.context,
+              billing: ledger.billing,
+              cost: ledger.cost,
+            }
             yield* session.updatePart({
               id: PartID.ascending(),
               reason: value.reason,
@@ -638,7 +652,7 @@ export const layer = Layer.effect(
               .pipe(Effect.ignore, Effect.forkIn(scope))
             if (
               !ctx.assistantMessage.summary &&
-              isOverflow({ cfg: yield* config.get(), tokens: usage.tokens, model: ctx.model })
+              isOverflow({ cfg: yield* config.get(), tokens: ledger.context, model: ctx.model })
             ) {
               ctx.needsCompaction = true
             }

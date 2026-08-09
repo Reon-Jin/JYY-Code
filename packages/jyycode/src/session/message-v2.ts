@@ -449,6 +449,24 @@ export const SubtaskPartInput = Schema.Struct({
 }).annotate({ identifier: "SubtaskPartInput" })
 export type SubtaskPartInput = Types.DeepMutable<Schema.Schema.Type<typeof SubtaskPartInput>>
 
+const TokenUsage = Schema.Struct({
+  total: Schema.optional(Schema.Finite),
+  input: Schema.Finite,
+  output: Schema.Finite,
+  reasoning: Schema.Finite,
+  cache: Schema.Struct({
+    read: Schema.Finite,
+    write: Schema.Finite,
+  }),
+})
+
+const UsageLedgerSnapshot = Schema.Struct({
+  version: Schema.Literal(1),
+  context: TokenUsage,
+  billing: TokenUsage,
+  cost: Schema.Finite,
+})
+
 export const Assistant = Schema.Struct({
   ...messageBase,
   role: Schema.Literal("assistant"),
@@ -471,16 +489,9 @@ export const Assistant = Schema.Struct({
   }),
   summary: Schema.optional(Schema.Boolean),
   cost: Schema.Finite,
-  tokens: Schema.Struct({
-    total: Schema.optional(Schema.Finite),
-    input: Schema.Finite,
-    output: Schema.Finite,
-    reasoning: Schema.Finite,
-    cache: Schema.Struct({
-      read: Schema.Finite,
-      write: Schema.Finite,
-    }),
-  }),
+  tokens: TokenUsage,
+  /** Versioned billing view; `tokens` remains the current-context view. */
+  usage: Schema.optional(UsageLedgerSnapshot),
   structured: Schema.optional(Schema.Any),
   variant: Schema.optional(Schema.String),
   finish: Schema.optional(Schema.String),
