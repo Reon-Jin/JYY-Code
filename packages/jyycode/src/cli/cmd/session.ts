@@ -1,7 +1,7 @@
 import type { Argv } from "yargs"
 import { Effect } from "effect"
 import { cmd } from "./cmd"
-import { effectCmd, fail } from "../effect-cmd"
+import { CliError, effectCmd, fail } from "../effect-cmd"
 import { Session } from "@/session/session"
 import { SessionID } from "../../session/schema"
 import { UI } from "../ui"
@@ -13,6 +13,9 @@ import { NotFoundError } from "@/storage/storage"
 import { EOL } from "os"
 import path from "path"
 import { which } from "../../util/which"
+import { MessageV2 } from "../../session/message-v2"
+import { MessageID, PartID } from "../../session/schema"
+import { planRecovery } from "../../session/compaction-recovery"
 
 function pagerCmd(): string[] {
   const lessOptions = ["-R", "-S"]
@@ -44,8 +47,102 @@ function pagerCmd(): string[] {
 export const SessionCommand = cmd({
   command: "session",
   describe: "manage sessions",
-  builder: (yargs: Argv) => yargs.command(SessionListCommand).command(SessionDeleteCommand).demandCommand(),
+  builder: (yargs: Argv) =>
+    yargs.command(SessionListCommand).command(SessionDeleteCommand).command(SessionRecoverCommand).demandCommand(),
   async handler() {},
+})
+
+export const SessionRecoverCommand = effectCmd({
+  command: "recover <sessionID>",
+  describe: "inspect or copy a session through bounded compaction recovery",
+  builder: (yargs) =>
+    yargs
+      .positional("sessionID", {
+        describe: "session ID to recover",
+        type: "string",
+        demandOption: true,
+      })
+      .option("dry-run", {
+        type: "boolean",
+        default: false,
+        description: "inspect recovery chunks without creating a session",
+      })
+      .option("chunked", {
+        type: "boolean",
+        default: false,
+        description: "recover through bounded 50-message chunks",
+      })
+      .option("create-copy", {
+        type: "boolean",
+        default: false,
+        description: "create a new session and copy recovered messages",
+      }),
+  handler: Effect.fn("Cli.session.recover")(function* (args) {
+    if (!args.dryRun && !args.createCopy) return yield* fail("choose --dry-run or --create-copy")
+    const sessions = yield* Session.Service
+    const sessionID = SessionID.make(args.sessionID)
+    const original = yield* sessions
+      .get(sessionID)
+      .pipe(
+        Effect.mapError(
+          (error) => new CliError({ message: error instanceof Error ? error.message : `Session not found: ${args.sessionID}` }),
+        ),
+      )
+    const messages = yield* sessions
+      .messages({ sessionID })
+      .pipe(Effect.mapError((error) => new CliError({ message: error instanceof Error ? error.message : String(error) })))
+    const plan = planRecovery(messages, {
+      pageSize: args.chunked ? 50 : Math.max(1, messages.length),
+    })
+    const report: Record<string, unknown> = {
+      sourceSessionID: args.sessionID,
+      sourceHighWatermark: plan.sourceHighWatermark,
+      pages: plan.pages,
+      chunks: plan.chunks.map((chunk) => ({
+        index: chunk.index,
+        itemCount: chunk.items.length,
+        tokens: chunk.measure.tokens,
+        bytes: chunk.measure.bytes,
+      })),
+      measure: plan.measure,
+      truncated: plan.truncated,
+      dryRun: !args.createCopy,
+    }
+
+    if (args.createCopy) {
+      const copy = yield* sessions.create({
+        title: `${original.title} (recovered copy)`,
+        agent: original.agent,
+        model: original.model,
+        goal: original.goal,
+        permission: original.permission,
+        directory: original.directory,
+      })
+      const messageIDs = new Map<string, MessageID>()
+      for (const chunk of plan.chunks) {
+        for (const message of chunk.items) {
+          const info = structuredClone(message.info) as MessageV2.Info
+          const newMessageID = MessageID.ascending()
+          messageIDs.set(message.info.id, newMessageID)
+          info.id = newMessageID
+          info.sessionID = copy.id
+          if (info.role === "assistant") info.parentID = messageIDs.get(info.parentID) ?? info.parentID
+          yield* sessions.updateMessage(info)
+          for (const part of message.parts) {
+            const cloned = structuredClone(part)
+            cloned.id = PartID.ascending()
+            cloned.sessionID = copy.id
+            cloned.messageID = newMessageID
+            yield* sessions.updatePart(cloned)
+          }
+        }
+      }
+      report.copySessionID = copy.id
+      report.dryRun = false
+    }
+
+    process.stdout.write(`${JSON.stringify(report)}\n`)
+  }),
 })
 
 export const SessionDeleteCommand = effectCmd({

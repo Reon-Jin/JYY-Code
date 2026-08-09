@@ -26,6 +26,7 @@ import { NonNegativeInt } from "@jyycode-ai/core/schema"
 import * as EffectLogger from "@jyycode-ai/core/effect/logger"
 import { MessageError } from "./message-error"
 import { AuthError, OutputLengthError } from "./message-error"
+import { CompactionCheckpointSchema } from "./compaction-checkpoint"
 export { AuthError, OutputLengthError } from "./message-error"
 
 /** Error shape thrown by Bun's fetch() when gzip/br decompression fails mid-stream */
@@ -187,6 +188,8 @@ export const CompactionPart = Schema.Struct({
   auto: Schema.Boolean,
   overflow: Schema.optional(Schema.Boolean),
   tail_start_id: Schema.optional(MessageID),
+  /** Durable source boundary and recovery facts for an in-flight compaction. */
+  checkpoint: Schema.optional(CompactionCheckpointSchema),
 }).annotate({ identifier: "CompactionPart" })
 export type CompactionPart = Types.DeepMutable<Schema.Schema.Type<typeof CompactionPart>>
 

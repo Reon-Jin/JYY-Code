@@ -11,6 +11,7 @@ import { Agent } from "@/agent/agent"
 import { Plugin } from "@/plugin"
 import { Config } from "@/config/config"
 import { NotFoundError } from "@/storage/storage"
+import { NamedError } from "@jyycode-ai/core/util/error"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect, Layer, Context, Schema } from "effect"
 import * as DateTime from "effect/DateTime"
@@ -46,6 +47,15 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { SessionEvent } from "@jyycode-ai/core/session-event"
 import { estimateContextTokens, type ContextBudgetInput, type ContextEstimate } from "./context-estimate"
+import {
+  assessProgress,
+  createCheckpoint,
+  measureEffectiveContext,
+  sameSourceHighWatermark,
+  sourceHighWatermark,
+  updateCheckpoint,
+  type CompactionCheckpoint,
+} from "./compaction-checkpoint"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -151,6 +161,37 @@ function summaryText(message: MessageV2.WithParts) {
     .join("\n\n")
     .trim()
   return text || undefined
+}
+
+function compactionPart(message: MessageV2.WithParts) {
+  return message.parts.find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+}
+
+function compactionSourceMessages(messages: MessageV2.WithParts[], source: { id: string }) {
+  const boundary = messages.findIndex((message) => message.info.id === source.id)
+  if (boundary < 0) return messages
+  let end = boundary + 1
+  // A compaction marker and its summary are part of the stable prefix even
+  // when a new user message arrives while the model is summarizing.
+  while (end < messages.length) {
+    const message = messages[end]
+    if (message.info.role === "user" && compactionPart(message)) {
+      end++
+      continue
+    }
+    if (
+      message.info.role === "assistant" &&
+      message.info.summary === true &&
+      end > boundary &&
+      messages[end - 1]?.info.role === "user" &&
+      message.info.parentID === messages[end - 1]!.info.id
+    ) {
+      end++
+      continue
+    }
+    break
+  }
+  return messages.slice(0, end)
 }
 
 function completedCompactions(messages: MessageV2.WithParts[]) {
@@ -461,7 +502,7 @@ export const layer = Layer.effect(
         throw new Error(`Compaction parent must be a user message: ${input.parentID}`)
       }
       const userMessage = parent.info
-      const compactionPart = parent.parts.find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+      const marker = compactionPart(parent)
 
       let messages = input.messages
       let replay:
@@ -493,7 +534,7 @@ export const layer = Layer.effect(
         ? yield* provider.getModel(agent.model.providerID, agent.model.modelID).pipe(Effect.orDie)
         : yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID).pipe(Effect.orDie)
       const cfg = yield* config.get()
-      const history = compactionPart && messages.at(-1)?.info.id === input.parentID ? messages.slice(0, -1) : messages
+      const history = marker && messages.at(-1)?.info.id === input.parentID ? messages.slice(0, -1) : messages
       const prior = completedCompactions(history)
       const hidden = new Set(prior.flatMap((item) => [item.userIndex, item.assistantIndex]))
       const previousSummary = prior.at(-1)?.summary
@@ -502,6 +543,23 @@ export const layer = Layer.effect(
         cfg,
         model,
       })
+      const source = marker?.checkpoint?.sourceHighWatermark ?? sourceHighWatermark(input.messages)
+      const before = marker?.checkpoint?.before ?? measureEffectiveContext(MessageV2.filterCompacted(history))
+      let checkpoint: CompactionCheckpoint =
+        marker?.checkpoint ??
+        createCheckpoint({
+          sessionID: input.sessionID,
+          sourceHighWatermark: source,
+          before,
+          status: "active",
+        })
+      checkpoint = updateCheckpoint(checkpoint, {
+        status: "active",
+        verbatimTailMessageIDs: selected.tail_start_id ? [selected.tail_start_id] : [],
+      })
+      if (marker && (!marker.checkpoint || marker.checkpoint.status !== "active")) {
+        yield* session.updatePart({ ...marker, checkpoint })
+      }
       // Allow plugins to inject context or replace compaction prompt.
       const compacting = yield* plugin.trigger(
         "experimental.session.compacting",
@@ -550,21 +608,38 @@ export const layer = Layer.effect(
         sessionID: input.sessionID,
         model,
       })
-      const result = yield* processor.process({
-        user: userMessage,
-        agent,
-        sessionID: input.sessionID,
-        tools: {},
-        system: [],
-        messages: [
-          ...modelMessages,
-          {
-            role: "user",
-            content: [{ type: "text", text: nextPrompt }],
-          },
-        ],
-        model,
-      })
+      const result = yield* processor
+        .process({
+          user: userMessage,
+          agent,
+          sessionID: input.sessionID,
+          tools: {},
+          system: [],
+          messages: [
+            ...modelMessages,
+            {
+              role: "user",
+              content: [{ type: "text", text: nextPrompt }],
+            },
+          ],
+          model,
+        })
+        .pipe(
+          Effect.onInterrupt(() =>
+            Effect.uninterruptible(
+              Effect.gen(function* () {
+                const cancelled = updateCheckpoint(checkpoint, {
+                  status: "cancelled",
+                  reason: "compaction interrupted before activation",
+                })
+                if (marker) yield* session.updatePart({ ...marker, checkpoint: cancelled })
+                processor.message.error = new MessageV2.AbortedError({ message: "Compaction was cancelled" }).toObject()
+                processor.message.finish = "error"
+                yield* session.updateMessage(processor.message)
+              }),
+            ),
+          ),
+        )
 
       if (result === "compact") {
         processor.message.error = new MessageV2.ContextOverflowError({
@@ -577,11 +652,34 @@ export const layer = Layer.effect(
         return "stop"
       }
 
-      if (compactionPart && selected.tail_start_id && compactionPart.tail_start_id !== selected.tail_start_id) {
+      const persisted = yield* session.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
+      const stable = compactionSourceMessages(persisted, source)
+      const after = measureEffectiveContext(MessageV2.filterCompacted(stable))
+      const assessment = assessProgress(before, after)
+      checkpoint = updateCheckpoint(checkpoint, {
+        after,
+        status: assessment.ok ? "complete" : "no_progress",
+        reason: assessment.ok ? undefined : assessment.reason,
+      })
+      if (marker) {
         yield* session.updatePart({
-          ...compactionPart,
-          tail_start_id: selected.tail_start_id,
+          ...marker,
+          ...(selected.tail_start_id ? { tail_start_id: selected.tail_start_id } : {}),
+          checkpoint,
         })
+      }
+
+      // A short manual compaction can be useful even when it cannot save
+      // 4,096 tokens. Automatic compaction is strict once the history is large
+      // enough to make the invariant meaningful, and always rejects growth.
+      const enforceProgress = input.auto && before.tokens >= 4_096
+      if (result === "continue" && enforceProgress && !assessment.ok) {
+        processor.message.error = new NamedError.Unknown({
+          message: `Compaction made insufficient progress (${assessment.tokenReduction} token reduction; required ${assessment.requiredTokens})`,
+        }).toObject()
+        processor.message.finish = "error"
+        yield* session.updateMessage(processor.message)
+        return "stop"
       }
 
       if (result === "continue" && input.auto) {
@@ -695,12 +793,16 @@ export const layer = Layer.effect(
       return result
     })
 
-    const failedAutoCompactions = (messages: MessageV2.WithParts[]) => {
+    const failedAutoCompactions = (messages: MessageV2.WithParts[], source = sourceHighWatermark(messages)) => {
       let failed = 0
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i]
         if (msg.info.role !== "assistant") continue
-        if (!msg.info.summary) continue
+        const assistant = msg.info as MessageV2.Assistant
+        if (assistant.summary !== true) continue
+        const parent = messages.find((candidate) => candidate.info.id === assistant.parentID)
+        const checkpoint = parent ? compactionPart(parent)?.checkpoint : undefined
+        if (checkpoint && !sameSourceHighWatermark(checkpoint.sourceHighWatermark, source)) break
         if (msg.info.error) {
           failed++
           continue
@@ -882,10 +984,10 @@ export const layer = Layer.effect(
       auto: boolean
       overflow?: boolean
     }) {
-      if (input.auto) {
-        const messages = yield* session
+      const messages = yield* session
           .messages({ sessionID: input.sessionID })
           .pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed([])))
+      if (input.auto) {
         const failures = failedAutoCompactions(messages)
         if (failures >= AUTO_FAILURE_LIMIT) {
           log.warn("auto compaction circuit open", { sessionID: input.sessionID, failures })
@@ -893,6 +995,24 @@ export const layer = Layer.effect(
         }
       }
 
+      const source = sourceHighWatermark(messages)
+      const before = measureEffectiveContext(MessageV2.filterCompacted(messages))
+      const attempt = Math.max(
+        1,
+        ...messages.flatMap((message) => {
+          const marker = compactionPart(message)
+          return marker?.checkpoint && sameSourceHighWatermark(marker.checkpoint.sourceHighWatermark, source)
+            ? [marker.checkpoint.attempt + 1]
+            : []
+        }),
+      )
+      const checkpoint = createCheckpoint({
+        sessionID: input.sessionID,
+        sourceHighWatermark: source,
+        before,
+        attempt,
+        status: "pending",
+      })
       const msg = yield* session.updateMessage({
         id: MessageID.ascending(),
         role: "user",
@@ -908,6 +1028,7 @@ export const layer = Layer.effect(
         type: "compaction",
         auto: input.auto,
         overflow: input.overflow,
+        checkpoint,
       })
       if (flags.experimentalEventSystem) {
         yield* events.publish(SessionEvent.Compaction.Started, {
