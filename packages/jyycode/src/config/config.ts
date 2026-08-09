@@ -435,6 +435,18 @@ export const Info = Schema.Struct({
       mcp_idle_ttl_ms: Schema.optional(PositiveInt).annotate({
         description: "Idle lifetime for reusable MCP resources before cleanup",
       }),
+      lsp_max_clients: Schema.optional(PositiveInt).annotate({
+        description: "Maximum active LSP clients per instance; capped by the runtime",
+      }),
+      lsp_idle_ttl_ms: Schema.optional(PositiveInt).annotate({
+        description: "Idle LSP client lifetime in milliseconds",
+      }),
+      lsp_max_open_documents: Schema.optional(PositiveInt).annotate({
+        description: "Maximum open documents retained per LSP client; hard-capped by the runtime",
+      }),
+      lsp_max_document_text_bytes: Schema.optional(PositiveInt).annotate({
+        description: "Maximum text bytes retained per open LSP document",
+      }),
     }),
   ),
 }).annotate({ identifier: "Config" })

@@ -192,6 +192,42 @@ describe("LSPClient interop", () => {
     })
   })
 
+  test("evicts documents with didClose and clears their diagnostics", async () => {
+    const handle = spawnFakeServer() as any
+    await using tmp = await tmpdir()
+    const first = path.join(tmp.path, "first.ts")
+    const second = path.join(tmp.path, "second.ts")
+    const third = path.join(tmp.path, "third.ts")
+    await Promise.all([Bun.write(first, "first\n"), Bun.write(second, "second\n"), Bun.write(third, "third\n")])
+
+    await withTestInstance({
+      directory: tmp.path,
+      fn: async (ctx) => {
+        const client = await LSPClient.create({
+          serverID: "fake",
+          server: handle as unknown as LSPServer.Handle,
+          root: tmp.path,
+          directory: tmp.path,
+          instance: ctx,
+          maxOpenDocuments: 2,
+        })
+
+        await client.notify.open({ path: first })
+        await client.connection.sendNotification("test/publish-diagnostics", {
+          uri: pathToFileURL(first).href,
+          diagnostics: [{ message: "stale", range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
+        })
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        await client.notify.open({ path: second })
+        await client.notify.open({ path: third })
+
+        expect(await client.connection.sendRequest("test/get-did-close-count", {})).toBe(1)
+        expect(client.diagnostics.get(first)).toBeUndefined()
+        await client.shutdown()
+      },
+    })
+  })
+
   test("document mode falls back to push diagnostics", async () => {
     const handle = spawnFakeServer() as any
     await using tmp = await tmpdir()

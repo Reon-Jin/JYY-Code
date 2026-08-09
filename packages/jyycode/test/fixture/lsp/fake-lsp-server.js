@@ -5,6 +5,7 @@ let readBuffer = Buffer.alloc(0)
 let lastChange = null
 let initializeParams = null
 let diagnosticRequestCount = 0
+let didCloseCount = 0
 let registeredCapability = false
 const pendingClientRequests = new Map()
 let pullConfig = {
@@ -149,6 +150,11 @@ function handle(raw) {
     return
   }
 
+  if (data.method === "textDocument/didClose") {
+    didCloseCount += 1
+    return
+  }
+
   if (data.method === "test/trigger") {
     const method = data.params && data.params.method
     if (method === "client/registerCapability") {
@@ -208,6 +214,11 @@ function handle(raw) {
 
   if (data.method === "test/get-diagnostic-request-count") {
     sendResponse(data.id, diagnosticRequestCount)
+    return
+  }
+
+  if (data.method === "test/get-did-close-count") {
+    sendResponse(data.id, didCloseCount)
     return
   }
 

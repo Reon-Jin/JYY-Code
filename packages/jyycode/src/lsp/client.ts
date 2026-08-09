@@ -11,6 +11,7 @@ import { Effect, Schema } from "effect"
 import type * as LSPServer from "./server"
 import { withTimeout } from "../util/timeout"
 import { Filesystem } from "@/util/filesystem"
+import { DocumentCache, limitDiagnostics } from "./document-cache"
 import { InstanceRef } from "@/effect/instance-ref"
 import { makeRuntime } from "@/effect/run-service"
 import type { InstanceContext } from "@/project/instance-context"
@@ -108,18 +109,20 @@ function endPosition(text: string) {
 
 function dedupeDiagnostics(items: Diagnostic[]) {
   const seen = new Set<string>()
-  return items.filter((item) => {
-    const key = JSON.stringify({
-      code: item.code,
-      severity: item.severity,
-      message: item.message,
-      source: item.source,
-      range: item.range,
-    })
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  return limitDiagnostics(
+    items.filter((item) => {
+      const key = JSON.stringify({
+        code: item.code,
+        severity: item.severity,
+        message: item.message,
+        source: item.source,
+        range: item.range,
+      })
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    }),
+  )
 }
 
 function configurationValue(settings: unknown, section?: string) {
@@ -144,6 +147,8 @@ export async function create(input: {
   root: string
   directory: string
   instance: InstanceContext
+  maxOpenDocuments?: number
+  maxDocumentTextBytes?: number
 }) {
   const logger = log.clone().tag("serverID", input.serverID)
   logger.info("starting client")
@@ -172,7 +177,7 @@ export async function create(input: {
   const mergedDiagnostics = (filePath: string) =>
     dedupeDiagnostics([...(pushDiagnostics.get(filePath) ?? []), ...(pullDiagnostics.get(filePath) ?? [])])
   const updatePushDiagnostics = (filePath: string, next: Diagnostic[]) => {
-    pushDiagnostics.set(filePath, next)
+    pushDiagnostics.set(filePath, limitDiagnostics(next))
     void busRuntime.runPromise((svc) =>
       svc
         .publish(Event.Diagnostics, { path: filePath, serverID: input.serverID })
@@ -180,7 +185,7 @@ export async function create(input: {
     )
   }
   const updatePullDiagnostics = (filePath: string, next: Diagnostic[]) => {
-    pullDiagnostics.set(filePath, next)
+    pullDiagnostics.set(filePath, limitDiagnostics(next))
   }
   const emitRegistrationChange = () => {
     for (const listener of [...registrationListeners]) listener()
@@ -201,7 +206,7 @@ export async function create(input: {
       version: typeof params.version === "number" ? params.version : undefined,
     })
     if (shouldSeedDiagnosticsOnFirstPush(input.serverID) && !pushDiagnostics.has(filePath)) {
-      pushDiagnostics.set(filePath, params.diagnostics)
+      pushDiagnostics.set(filePath, limitDiagnostics(params.diagnostics))
       return
     }
     updatePushDiagnostics(filePath, params.diagnostics)
@@ -304,7 +309,24 @@ export async function create(input: {
     })
   }
 
-  const files: Record<string, { version: number; text: string }> = {}
+  const files = new DocumentCache({
+    maxOpenDocuments: input.maxOpenDocuments,
+    maxDocumentTextBytes: input.maxDocumentTextBytes,
+  })
+
+  async function closeDocument(filePath: string) {
+    await connection.sendNotification("textDocument/didClose", {
+      textDocument: { uri: pathToFileURL(filePath).href },
+    })
+    files.close(filePath)
+    pushDiagnostics.delete(filePath)
+    pullDiagnostics.delete(filePath)
+    published.delete(filePath)
+  }
+
+  async function closeEvictedDocuments(evicted: Array<{ key: string }>) {
+    for (const item of evicted) await closeDocument(item.key)
+  }
 
   // --- Diagnostic helpers ---
 
@@ -600,7 +622,7 @@ export async function create(input: {
         const extension = path.extname(request.path)
         const languageId = LANGUAGE_EXTENSIONS[extension] ?? "plaintext"
 
-        const document = files[request.path]
+        const document = files.get(request.path)
         if (document !== undefined) {
           // Do not wipe diagnostics on didChange. Some servers (e.g. clangd) only
           // re-emit diagnostics when the content actually changes, so clearing
@@ -617,7 +639,7 @@ export async function create(input: {
           })
 
           const next = document.version + 1
-          files[request.path] = { version: next, text }
+          files.set(request.path, next, text)
           logger.info("textDocument/didChange", {
             path: request.path,
             version: next,
@@ -628,7 +650,7 @@ export async function create(input: {
               version: next,
             },
             contentChanges:
-              syncKind === TEXT_DOCUMENT_SYNC_INCREMENTAL
+              syncKind === TEXT_DOCUMENT_SYNC_INCREMENTAL && !document.textTruncated
                 ? [
                     {
                       range: {
@@ -654,6 +676,8 @@ export async function create(input: {
         })
 
         logger.info("textDocument/didOpen", request)
+        const evicted = files.set(request.path, 0, text)
+        await closeEvictedDocuments(evicted)
         pushDiagnostics.delete(request.path)
         pullDiagnostics.delete(request.path)
         await connection.sendNotification("textDocument/didOpen", {
@@ -664,8 +688,13 @@ export async function create(input: {
             text,
           },
         })
-        files[request.path] = { version: 0, text }
         return 0
+      },
+      async close(request: { path: string }) {
+        const normalizedPath = Filesystem.normalizePath(
+          path.isAbsolute(request.path) ? request.path : path.resolve(input.directory, request.path),
+        )
+        if (files.has(normalizedPath)) await closeDocument(normalizedPath)
       },
     },
     get diagnostics() {
@@ -692,6 +721,7 @@ export async function create(input: {
     },
     async shutdown() {
       logger.info("shutting down")
+      for (const filePath of [...files.keys()]) await closeDocument(filePath)
       connection.end()
       connection.dispose()
       await Process.stop(input.server.process)

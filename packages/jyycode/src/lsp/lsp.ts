@@ -118,6 +118,12 @@ interface State {
   servers: Record<string, LSPServer.Info>
   broken: Set<string>
   spawning: Map<string, Promise<LSPClient.Info | undefined>>
+  lastUsed: Map<LSPClient.Info, number>
+  busy: Set<LSPClient.Info>
+  maxClients: number
+  idleTtlMs: number
+  maxOpenDocuments: number | undefined
+  maxDocumentTextBytes: number | undefined
 }
 
 export interface Interface {
@@ -196,6 +202,12 @@ export const layer = Layer.effect(
           servers,
           broken: new Set(),
           spawning: new Map(),
+          lastUsed: new Map(),
+          busy: new Set(),
+          maxClients: Math.max(1, Math.min(32, cfg.experimental?.lsp_max_clients ?? 8)),
+          idleTtlMs: Math.max(1_000, Math.min(30 * 60_000, cfg.experimental?.lsp_idle_ttl_ms ?? 10 * 60_000)),
+          maxOpenDocuments: cfg.experimental?.lsp_max_open_documents,
+          maxDocumentTextBytes: cfg.experimental?.lsp_max_document_text_bytes,
         }
 
         yield* Effect.addFinalizer(() =>
@@ -213,6 +225,18 @@ export const layer = Layer.effect(
       if (!containsPath(file, ctx)) return [] as LSPClient.Info[]
       const s = yield* InstanceState.get(state)
       return yield* Effect.promise(async () => {
+        const idleBefore = Date.now() - s.idleTtlMs
+        for (const client of [...s.clients]) {
+          if (s.busy.has(client) || (s.lastUsed.get(client) ?? Date.now()) > idleBefore) continue
+          s.clients = s.clients.filter((item) => item !== client)
+          s.lastUsed.delete(client)
+          try {
+            await client.shutdown()
+          } catch (error) {
+            log.warn("failed to shut down idle LSP client", { serverID: client.serverID, error })
+          }
+        }
+
         const extension = path.parse(file).ext || file
         const result: LSPClient.Info[] = []
 
@@ -238,6 +262,8 @@ export const layer = Layer.effect(
             root,
             directory: ctx.directory,
             instance: ctx,
+            maxOpenDocuments: s.maxOpenDocuments,
+            maxDocumentTextBytes: s.maxDocumentTextBytes,
           }).catch(async (err) => {
             s.broken.add(key)
             await Process.stop(handle.process)
@@ -249,11 +275,13 @@ export const layer = Layer.effect(
 
           const existing = s.clients.find((x) => x.root === root && x.serverID === server.id)
           if (existing) {
+            s.lastUsed.set(existing, Date.now())
             await Process.stop(handle.process)
             return existing
           }
 
           s.clients.push(client)
+          s.lastUsed.set(client, Date.now())
           return client
         }
 
@@ -266,7 +294,13 @@ export const layer = Layer.effect(
 
           const match = s.clients.find((x) => x.root === root && x.serverID === server.id)
           if (match) {
+            s.lastUsed.set(match, Date.now())
             result.push(match)
+            continue
+          }
+
+          if (s.clients.length + s.spawning.size >= s.maxClients) {
+            log.warn("LSP client limit reached", { maxClients: s.maxClients, root, serverID: server.id })
             continue
           }
 
@@ -300,12 +334,39 @@ export const layer = Layer.effect(
 
     const run = Effect.fnUntraced(function* <T>(file: string, fn: (client: LSPClient.Info) => Promise<T>) {
       const clients = yield* getClients(file)
-      return yield* Effect.promise(() => Promise.all(clients.map((x) => fn(x))))
+      const s = yield* InstanceState.get(state)
+      return yield* Effect.promise(() =>
+        Promise.all(
+          clients.map(async (client) => {
+            s.busy.add(client)
+            s.lastUsed.set(client, Date.now())
+            try {
+              return await fn(client)
+            } finally {
+              s.busy.delete(client)
+              s.lastUsed.set(client, Date.now())
+            }
+          }),
+        ),
+      )
     })
 
     const runAll = Effect.fnUntraced(function* <T>(fn: (client: LSPClient.Info) => Promise<T>) {
       const s = yield* InstanceState.get(state)
-      return yield* Effect.promise(() => Promise.all(s.clients.map((x) => fn(x))))
+      return yield* Effect.promise(() =>
+        Promise.all(
+          s.clients.map(async (client) => {
+            s.busy.add(client)
+            s.lastUsed.set(client, Date.now())
+            try {
+              return await fn(client)
+            } finally {
+              s.busy.delete(client)
+              s.lastUsed.set(client, Date.now())
+            }
+          }),
+        ),
+      )
     })
 
     const init = Effect.fn("LSP.init")(function* () {
