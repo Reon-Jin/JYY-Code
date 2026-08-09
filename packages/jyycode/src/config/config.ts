@@ -373,6 +373,18 @@ export const Info = Schema.Struct({
   ).annotate({
     description: "Retention, orphan-recovery, and runtime disk-watermark policy for plan workspaces",
   }),
+  execution_budget: Schema.optional(
+    Schema.Record(
+      Schema.String,
+      Schema.Struct({
+        default_ms: Schema.optional(NonNegativeInt),
+        hard_cap_ms: Schema.optional(NonNegativeInt),
+        grace_ms: Schema.optional(NonNegativeInt),
+      }),
+    ),
+  ).annotate({
+    description: "Per-operation execution budget overrides; code-level hard caps always win",
+  }),
   experimental: Schema.optional(
     Schema.Struct({
       disable_paste_summary: Schema.optional(Schema.Boolean),

@@ -1,4 +1,5 @@
 import { Agent } from "@/agent/agent"
+import { Config } from "@/config/config"
 import { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
 import { MCP } from "@/mcp"
@@ -9,7 +10,7 @@ import { ToolRegistry, type ToolIdentity } from "@/tool/registry"
 import { ModelID } from "@/provider/schema"
 import { Plugin } from "@/plugin"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions } from "ai"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import path from "node:path"
 import { MessageV2 } from "./message-v2"
@@ -25,7 +26,7 @@ import { ToolTelemetry } from "@/tool/telemetry"
 import { CatalogSearch } from "@/tool/catalog-search"
 import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
 import { Skill } from "@/skill"
-import { budgetFor } from "@/execution/budget"
+import { budgetFor, DEFAULT_BUDGETS, type BudgetConfig } from "@/execution/budget"
 import { combineAbortSignals } from "@/execution/deadline"
 import { planFilePath, readPlanFileSync, type CandidateDiscussionPhase } from "@/plan/schema"
 import {
@@ -487,6 +488,20 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const registry = yield* ToolRegistry.Service
   const mcp = yield* MCP.Service
   const bus = yield* Bus.Service
+  const configService = yield* Effect.serviceOption(Config.Service)
+  const config = Option.isSome(configService) ? yield* Effect.promise(() => run.promise(configService.value.get())) : undefined
+  const executionBudgetConfig = Object.fromEntries(
+    Object.entries(config?.execution_budget ?? {})
+      .filter(([operationClass]) => Object.prototype.hasOwnProperty.call(DEFAULT_BUDGETS, operationClass))
+      .map(([operationClass, value]) => [
+        operationClass,
+        {
+          ...(value.default_ms !== undefined ? { defaultMs: value.default_ms } : {}),
+          ...(value.hard_cap_ms !== undefined ? { hardCapMs: value.hard_cap_ms } : {}),
+          ...(value.grace_ms !== undefined ? { graceMs: value.grace_ms } : {}),
+        },
+      ]),
+  ) as BudgetConfig
   let schemaBytes = 0
 
   const context = (
@@ -581,7 +596,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
         const executeTool = () =>
           run.promise(
             Effect.gen(function* () {
-              const budget = budgetFor("generic_tool")
+              const budget = budgetFor("generic_tool", undefined, undefined, executionBudgetConfig)
               const ctx = context(args, options, budget)
               const started = Date.now()
               const refreshRequested = ctx.extra?.toolCatalogRefreshRequested
