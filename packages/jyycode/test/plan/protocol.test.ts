@@ -647,34 +647,48 @@ describe("file-backed plan protocol", () => {
 
   it("keeps review approval separate from parent integration", async () => {
     const root = workspace()
-    const outputPath = path.join(root, "out")
-    const artifact = path.join(outputPath, "report.md")
+    const runtime = fs.mkdtempSync(path.join(os.tmpdir(), "jyycode-review-runtime-"))
     const parentFile = path.join(root, "src", "parent.ts")
     fs.mkdirSync(path.dirname(parentFile), { recursive: true })
     fs.writeFileSync(parentFile, "parent content\n")
-    fs.mkdirSync(outputPath, { recursive: true })
-    fs.writeFileSync(artifact, "report\n")
-    const protocol = new PlanProtocol({ children: createHardeningChildren().controller })
-    await protocol.create(context(root), createInput(outputPath))
-    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
-    expect(dispatched.ok).toBe(true)
-    if (!dispatched.ok) return
-    const runId = dispatched.dispatched[0]!.run_id
-    const reported = await protocol.report(
-      { ...context(root, "single", "child_s1_t1"), runId },
-      { run_id: runId, status: "done", summary: "ready", artifacts: [artifact], issues: [] },
-    )
-    expect(reported).toMatchObject({ ok: true, review: "pending_review" })
-    const before = await protocol.read(context(root))
-    if (!before.ok || !before.plan) return
-    const approved = await protocol.update(context(root), {
-      revision: before.plan.revision,
-      ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
-    })
-    expect(approved).toMatchObject({ ok: true })
-    expect(fs.readFileSync(parentFile, "utf8")).toBe("parent content\n")
-    const after = await protocol.read(context(root))
-    expect(after).toMatchObject({ ok: true, plan: { current_step: "s1" } })
+    let childOutput = ""
+    try {
+      const protocol = new PlanProtocol({
+        childWorkspace: new ChildWorkspace({ project: { root, vcs: "none" }, runtimeRoot: runtime }),
+        children: {
+          async create(input) {
+            childOutput = input.brief.output_path
+            return input.childSessionId
+          },
+          async start() {},
+          async terminate() {},
+        },
+      })
+      await protocol.create(context(root), createInput("out/result.md"))
+      const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+      expect(dispatched.ok).toBe(true)
+      if (!dispatched.ok) return
+      fs.mkdirSync(path.dirname(childOutput), { recursive: true })
+      fs.writeFileSync(childOutput, "report\n")
+      const runId = dispatched.dispatched[0]!.run_id
+      const reported = await protocol.report(
+        { workspaceRoot: path.dirname(path.dirname(childOutput)), sessionId: "child_s1_t1", mode: "single", runId },
+        { run_id: runId, status: "done", summary: "ready", artifacts: [childOutput], issues: [] },
+      )
+      expect(reported).toMatchObject({ ok: true, review: "pending_review" })
+      const before = await protocol.read(context(root))
+      if (!before.ok || !before.plan) return
+      const approved = await protocol.update(context(root), {
+        revision: before.plan.revision,
+        ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
+      })
+      expect(approved).toMatchObject({ ok: true })
+      expect(fs.readFileSync(parentFile, "utf8")).toBe("parent content\n")
+      const after = await protocol.read(context(root))
+      expect(after).toMatchObject({ ok: true, plan: { current_step: "s1" } })
+    } finally {
+      fs.rmSync(runtime, { recursive: true, force: true })
+    }
   })
 
   it("accepts the minimal Merge.apply input and rejects tasks that are not approved", async () => {
@@ -692,6 +706,64 @@ describe("file-backed plan protocol", () => {
       fs.writeFileSync(planPath, JSON.stringify(stored))
       const result = await mergeApply(protocol, root, { task_id: "s1_t1" })
       expect(result).toMatchObject({ ok: false, error: { code: expect.any(String) } })
+    }
+  })
+
+  it("merges an approved isolated task only after review and cleans child artifacts after durable success", async () => {
+    const root = workspace()
+    const runtime = fs.mkdtempSync(path.join(os.tmpdir(), "jyycode-merge-runtime-"))
+    let childRoot = ""
+    let childOutput = ""
+    try {
+      const protocol = new PlanProtocol({
+        childWorkspace: new ChildWorkspace({ project: { root, vcs: "none" }, runtimeRoot: runtime }),
+        children: {
+          async create(input) {
+            childRoot = path.dirname(path.dirname(input.brief.output_path))
+            childOutput = input.brief.output_path
+            return input.childSessionId
+          },
+          async start() {},
+          async terminate() {},
+        },
+      })
+      await protocol.create(context(root), createInput("out/result.md"))
+      const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+      expect(dispatched).toMatchObject({ ok: true })
+      if (!dispatched.ok) return
+      fs.mkdirSync(path.dirname(childOutput), { recursive: true })
+      fs.writeFileSync(childOutput, "report\n")
+      fs.mkdirSync(path.join(childRoot, "src"), { recursive: true })
+      fs.writeFileSync(path.join(childRoot, "src", "merged.ts"), "export const merged = true\n")
+      const runId = dispatched.dispatched[0]!.run_id
+      expect(
+        await protocol.report(
+          { workspaceRoot: childRoot, sessionId: "child_s1_t1", mode: "single", runId },
+          { run_id: runId, status: "done", summary: "ready", artifacts: [childOutput], issues: [] },
+        ),
+      ).toMatchObject({ ok: true, review: "pending_review" })
+      const before = await protocol.read(context(root))
+      if (!before.ok || !before.plan) return
+      expect(
+        await protocol.update(context(root), {
+          revision: before.plan.revision,
+          ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
+        }),
+      ).toMatchObject({ ok: true })
+      const pending = await protocol.read(context(root))
+      if (!pending.ok || !pending.plan) return
+      expect(pending.plan.current_step).toBe("s1")
+      expect(pending.plan.steps[0]?.tasks[0]?.merge?.status).toBe("pending")
+
+      const merged = await mergeApply(protocol, root, { task_id: "s1_t1" })
+      expect(merged).toMatchObject({ ok: true, status: "merged", cleanup: "completed", applied_paths: expect.arrayContaining(["src/merged.ts"]) })
+      expect(fs.readFileSync(path.join(root, "src", "merged.ts"), "utf8")).toBe("export const merged = true\n")
+      expect(fs.existsSync(childRoot)).toBe(false)
+      const after = await protocol.read(context(root))
+      expect(after).toMatchObject({ ok: true, plan: { current_step: "s2" } })
+      if (after.ok && after.plan) expect(after.plan.steps[0]?.tasks[0]?.merge?.status).toBe("merged")
+    } finally {
+      fs.rmSync(runtime, { recursive: true, force: true })
     }
   })
 

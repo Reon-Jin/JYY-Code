@@ -305,7 +305,7 @@ export class ChildWorkspace {
 
   load(reservation: WorkspaceReservation): WorkspaceHandle | undefined {
     if (reservation.mode === "shared_compat") {
-      return {
+      const handle = {
         ...reservation,
         directory: this.project.root,
         baseline_directory: null,
@@ -313,6 +313,8 @@ export class ChildWorkspace {
         source_revision: reservation.source_revision ?? null,
         baseline_manifest: walkFiles(this.project.root),
       }
+      this.reservations.set(`${reservation.rootSessionId}\0${reservation.taskId}`, handle)
+      return handle
     }
     const directory = reservation.directory ? path.resolve(reservation.directory) : null
     const baselineDirectory = reservation.baseline_directory
@@ -321,7 +323,7 @@ export class ChildWorkspace {
     if (!directory || !isInside(this.runtimeRoot, directory) || !isInside(this.runtimeRoot, baselineDirectory)) return undefined
     if (!fs.existsSync(directory) || !fs.existsSync(baselineDirectory)) return undefined
     const baselineManifest = walkFiles(baselineDirectory)
-    return {
+    const handle = {
       ...reservation,
       directory: fs.realpathSync.native(directory),
       baseline_directory: fs.realpathSync.native(baselineDirectory),
@@ -329,6 +331,8 @@ export class ChildWorkspace {
       source_revision: reservation.source_revision ?? null,
       baseline_manifest: baselineManifest,
     }
+    this.reservations.set(`${reservation.rootSessionId}\0${reservation.taskId}`, handle)
+    return handle
   }
 
   canonical(directory: string) {

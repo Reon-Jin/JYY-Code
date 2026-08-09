@@ -1,4 +1,5 @@
 import fs from "node:fs"
+import crypto from "node:crypto"
 import path from "node:path"
 import {
   defaultProfiles,
@@ -14,6 +15,7 @@ import {
   PlanProtocolError,
   clonePlan,
   isStepComplete,
+  mergeStatus,
   planDirectory,
   planFilePath,
   responseFromError,
@@ -21,6 +23,8 @@ import {
   type CreateStepInput,
   type CreateTaskInput,
   type DispatchRecord,
+  type MergeRecord,
+  type MergeResolution,
   type PlanFile,
   type PlanTaskMode,
   type PlanStep,
@@ -47,6 +51,7 @@ import { assertInside, assertOutputArtifact, resolveInside } from "./path-guard"
 import { ChildWorkspace, type WorkspaceHandle, type WorkspaceReservation } from "./child-workspace"
 import { markPlanSessionActive } from "./recovery"
 import { runtimeMetricPayload, type RuntimeMetricInput } from "./runtime-event"
+import { applyWorkspaceMerge, workspaceFingerprint, type WorkspaceMergeTransactionResult } from "./workspace-merge"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -261,6 +266,12 @@ function resolveWorkspacePath(workspaceRoot: string, value: string, field: strin
 
 export type DispatchInput = { taskIds: string[]; role: string }
 
+export type MergeApplyInput = {
+  task_id: string
+  paths?: string[]
+  resolutions?: MergeResolution[]
+}
+
 function validateDispatchInput(input: unknown): asserts input is DispatchInput {
   if (!input || typeof input !== "object" || Array.isArray(input))
     inputError("Dispatch_dispatch input must be an object")
@@ -275,6 +286,34 @@ function validateDispatchInput(input: unknown): asserts input is DispatchInput {
     inputError("taskIds 必须是 1-20 个合法 taskId")
   if (new Set(value.taskIds as string[]).size !== (value.taskIds as string[]).length) inputError("taskIds 不允许重复")
   requiredText(value.role, "role")
+}
+
+function validateMergeApplyInput(input: unknown): asserts input is MergeApplyInput {
+  if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Merge.apply input must be an object")
+  const value = input as Record<string, unknown>
+  assertOnly(value, ["task_id", "paths", "resolutions"], "merge")
+  if (typeof value.task_id !== "string" || !/^s[1-9]\d*_t[1-9]\d*$/.test(value.task_id))
+    inputError("task_id must be a valid Task id")
+  if (value.paths !== undefined) {
+    if (!Array.isArray(value.paths) || value.paths.length > 200 || !value.paths.every((item) => typeof item === "string"))
+      inputError("paths must contain at most 200 strings")
+  }
+  if (value.resolutions !== undefined) {
+    if (
+      !Array.isArray(value.resolutions) ||
+      value.resolutions.length > 200 ||
+      !value.resolutions.every(
+        (item) =>
+          !!item &&
+          typeof item === "object" &&
+          !Array.isArray(item) &&
+          Object.keys(item).every((key) => key === "path" || key === "use") &&
+          typeof (item as Record<string, unknown>).path === "string" &&
+          ((item as Record<string, unknown>).use === "main" || (item as Record<string, unknown>).use === "child"),
+      )
+    )
+      inputError("resolutions must contain path and use=main|child")
+  }
 }
 
 function assertOnly(value: Record<string, unknown>, allowed: readonly string[], prefix: string) {
@@ -459,6 +498,29 @@ function recomputeProgress(plan: PlanFile, workspaceRoot: string) {
   })
   plan.current_step = currentIndex < plan.steps.length ? plan.steps[currentIndex]!.id : null
   plan.status = currentIndex >= plan.steps.length ? "done" : "active"
+}
+
+function emptyMergeRecord(status: MergeRecord["status"] = "pending"): MergeRecord {
+  return {
+    status,
+    attempt: 0,
+    applied_paths: [],
+    conflicts: [],
+    started_at: null,
+    completed_at: null,
+    target_fingerprint: null,
+    cleanup: "not_started",
+    journal_directory: null,
+  }
+}
+
+function pathWithin(root: string, candidate: string) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate))
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
+}
+
+function mergeJournalName(runId: string) {
+  return `.jyycode-merge-${crypto.createHash("sha256").update(runId).digest("hex").slice(0, 16)}`
 }
 
 function createTask(input: CreateTaskInput, id: string, workspaceRoot?: string, rootSessionID?: string): PlanTask {
@@ -978,6 +1040,7 @@ export class PlanProtocol {
       if (input.child_session_id !== undefined) task.dispatch.child_session_id = input.child_session_id
       if (input.workspace !== undefined) task.dispatch.workspace = input.workspace
       if (input.status !== undefined) task.status = input.status
+      if ((task.mode ?? "standard") === "standard" && !task.merge) task.merge = emptyMergeRecord("pending")
       next.revision++
       next.updated_at = nowIso(this.now)
       return {
@@ -987,6 +1050,73 @@ export class PlanProtocol {
         result: { updated: true },
       }
     })
+  }
+
+  private recordedWorkspace(ctx: PlanExecutionContext, task: PlanTask): WorkspaceHandle | undefined {
+    const workspace = task.dispatch?.workspace
+    if (!workspace || !this.childWorkspace) return undefined
+    const reservation = this.childWorkspace.reserve(ctx.sessionId, task.id)
+    return this.childWorkspace.load({
+      ...reservation,
+      ...workspace,
+      rootSessionId: ctx.sessionId,
+      taskId: task.id,
+      name: reservation.name,
+    })
+  }
+
+  private async cleanupTaskWorkspace(ctx: PlanExecutionContext, taskId: string) {
+    const plan = this.store.read(this.path(ctx))
+    const task = plan?.steps.flatMap((step) => step.tasks).find((item) => item.id === taskId)
+    const workspace = task?.dispatch?.workspace
+    if (!task || !workspace || workspace.mode === "shared_compat") return [] as string[]
+    const errors: string[] = []
+    try {
+      if (task.dispatch?.child_session_id && this.children)
+        await this.children.terminate(task.dispatch.child_session_id)
+    } catch (error) {
+      errors.push(`child cleanup: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    try {
+      if (!this.childWorkspace) throw new Error("child workspace manager unavailable")
+      const loaded = this.recordedWorkspace(ctx, task)
+      if (!loaded) throw new Error("recorded child workspace is missing")
+      await this.childWorkspace.remove(loaded.directory)
+    } catch (error) {
+      errors.push(`workspace cleanup: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    if (errors.length) {
+      try {
+        await this.write(ctx, (latest) => {
+          if (!latest) throw new Error("plan missing while recording cleanup failure")
+          const next = clonePlan(latest)
+          const target = next.steps.flatMap((step) => step.tasks).find((item) => item.id === taskId)
+          if (target?.merge) {
+            target.merge.cleanup = "failed"
+            target.merge.cleanup_error = errors.join("; ")
+          }
+          next.revision++
+          next.updated_at = nowIso(this.now)
+          return {
+            mutate(planTarget) {
+              Object.assign(planTarget, next)
+            },
+            result: { updated: true },
+          }
+        })
+      } catch (error) {
+        errors.push(`record cleanup failure: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      this.inbox.add({
+        session_id: ctx.sessionId,
+        task_id: taskId,
+        run_id: task.dispatch?.run_id,
+        kind: "runtime_error",
+        message: `Task ${taskId} cleanup failed: ${errors.join("; ")}`,
+        suggested_actions: ["read Inbox", "inspect the recorded workspace before redispatching"],
+      })
+    }
+    return errors
   }
 
   private async failDispatch(
@@ -1251,6 +1381,9 @@ export class PlanProtocol {
           },
         }
       })
+      for (const review of result.result.reviewed ?? []) {
+        if (review.result === "rejected") await this.cleanupTaskWorkspace(ctx, review.taskId)
+      }
       return { ok: true, ...result.result }
     } catch (error) {
       return responseFromError(error)
@@ -1424,6 +1557,7 @@ export class PlanProtocol {
               })
             target.dispatch = item.dispatch
             target.status = "dispatched"
+            if ((target.mode ?? "standard") === "standard") target.merge = emptyMergeRecord("pending")
           }
           next.revision++
           next.updated_at = nowIso(this.now)
@@ -2141,6 +2275,8 @@ export class PlanProtocol {
       const persisted = this.store.read(planPath)
       if (!persisted) throw new Error("Report 写入后无法读取父 plan")
       if (result.review === "already_reported") return { ok: true, ...result }
+      if (result.review === "rejected_precheck")
+        await this.cleanupTaskWorkspace({ ...ctx, sessionId: parsed.parentSessionId }, parsed.taskId)
       if (result.review === "pending_review") {
         const reportStep = persisted.steps.find((step) => step.tasks.some((task) => task.id === parsed.taskId))
         const snapshot = projectPlanSnapshot(persisted, {
@@ -2197,6 +2333,270 @@ export class PlanProtocol {
             : undefined
         if (runId) this.reportAttempts.set(runId, (this.reportAttempts.get(runId) ?? 0) + 1)
       }
+      return responseFromError(error)
+    }
+  }
+
+  async merge(
+    ctx: PlanExecutionContext,
+    input: unknown,
+  ): Promise<
+    ProtocolResponse<{
+      status: "merged" | "conflict" | "already_merged" | "failed"
+      task_id: string
+      applied_paths: string[]
+      conflicts: Array<{
+        path: string
+        kind: string
+        main_path?: string
+        child_path?: string
+        base_path?: string
+      }>
+      cleanup: string
+      next_action_hint: string
+    }>
+  > {
+    const startedAt = this.now()
+    try {
+      assertMain(ctx)
+      assertMode(ctx, "multi", "Merge.apply")
+      validateMergeApplyInput(input)
+      const value = input as MergeApplyInput
+      const plan = this.store.read(this.path(ctx))
+      if (!plan) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "plan not found", hint: "read the current Plan first" })
+      const step = plan.steps.find((item) => item.tasks.some((task) => task.id === value.task_id))
+      const task = step?.tasks.find((item) => item.id === value.task_id)
+      if (!task || !step)
+        throw new PlanProtocolError({
+          code: ERROR_CODES.TASK_NOT_FOUND,
+          message: `task not found: ${value.task_id}`,
+          hint: "use a task_id from the current plan",
+        })
+      if ((task.mode ?? "standard") === "candidate")
+        throw new PlanProtocolError({
+          code: ERROR_CODES.INVALID_STATE,
+          message: "candidate tasks are not merged through Merge.apply",
+          hint: "complete candidate selection through the candidate workflow",
+        })
+      if (task.status !== "approved")
+        throw new PlanProtocolError({
+          code: ERROR_CODES.INVALID_STATE,
+          message: `task ${task.id} must be approved before Merge.apply (current: ${task.status})`,
+          hint: "review the Report first, then retry Merge.apply",
+        })
+      if (!task.dispatch || task.dispatch.cancelled_at !== null)
+        throw new PlanProtocolError({
+          code: ERROR_CODES.RUN_STALE,
+          message: `task ${task.id} has no active dispatch workspace`,
+          hint: "redispatch the task before merging it",
+        })
+      if (mergeStatus(task) === "merged") {
+        return {
+          ok: true,
+          status: "already_merged",
+          task_id: task.id,
+          applied_paths: task.merge?.applied_paths ?? [],
+          conflicts: task.merge?.conflicts ?? [],
+          cleanup: task.merge?.cleanup ?? "completed",
+          next_action_hint: "merge already completed; continue with the current Step",
+        }
+      }
+      const workspace = task.dispatch.workspace
+      if (!workspace)
+        throw new PlanProtocolError({
+          code: ERROR_CODES.INVALID_STATE,
+          message: `task ${task.id} has no recorded child workspace`,
+          hint: "dispatch the task with an isolated workspace before calling Merge.apply",
+        })
+      const mainRoot = path.resolve(ctx.workspaceRoot)
+      if (path.resolve(workspace.root) !== mainRoot)
+        throw new PlanProtocolError({
+          code: ERROR_CODES.INVALID_STATE,
+          message: "recorded workspace root does not match the current parent workspace",
+          hint: "do not merge a workspace belonging to another project",
+        })
+
+      let baseDirectory: string | undefined
+      let childDirectory: string | undefined
+      let journalDirectory: string | null = null
+      if (workspace.mode === "shared_compat") {
+        if (!workspace.directory || path.resolve(workspace.directory) !== mainRoot)
+          throw new PlanProtocolError({
+            code: ERROR_CODES.INVALID_STATE,
+            message: "shared compatibility workspace is not the parent workspace",
+            hint: "refresh the recorded dispatch metadata before merging",
+          })
+      } else {
+        const loaded = this.recordedWorkspace(ctx, task)
+        baseDirectory = loaded?.baseline_directory ?? workspace.baseline_directory ?? undefined
+        childDirectory = loaded?.directory ?? workspace.directory ?? undefined
+        if (!baseDirectory || !childDirectory)
+          throw new PlanProtocolError({
+            code: ERROR_CODES.INVALID_STATE,
+            message: "isolated task is missing baseline or child directory",
+            hint: "preserve the recorded workspace and retry after recovery",
+          })
+        const baselineRoot = path.resolve(baseDirectory)
+        const runtimeRoot = path.dirname(baselineRoot)
+        const canonicalBaseline = fs.realpathSync.native(baselineRoot)
+        const canonicalChild = fs.realpathSync.native(path.resolve(childDirectory))
+        if (
+          !pathWithin(runtimeRoot, canonicalBaseline) ||
+          !pathWithin(runtimeRoot, canonicalChild) ||
+          canonicalBaseline === canonicalChild ||
+          canonicalChild === mainRoot
+        )
+          throw new PlanProtocolError({
+            code: ERROR_CODES.INVALID_STATE,
+            message: "recorded child/baseline paths are outside their owned runtime root",
+            hint: "do not use a workspace path that was not created by this Task",
+          })
+        journalDirectory = task.merge?.journal_directory
+          ? path.resolve(task.merge.journal_directory)
+          : path.join(runtimeRoot, mergeJournalName(task.dispatch.run_id))
+        if (!pathWithin(runtimeRoot, journalDirectory))
+          throw new PlanProtocolError({
+            code: ERROR_CODES.INVALID_STATE,
+            message: "merge journal is outside the recorded runtime root",
+            hint: "recreate the isolated Task workspace before retrying",
+          })
+      }
+
+      const started = await this.write(ctx, (latest) => {
+        if (!latest) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "plan not found", hint: "read the current plan" })
+        const next = clonePlan(latest)
+        const target = next.steps.flatMap((item) => item.tasks).find((item) => item.id === value.task_id)
+        if (!target || target.status !== "approved" || target.dispatch?.run_id !== task.dispatch!.run_id)
+          throw new PlanProtocolError({
+            code: ERROR_CODES.RUN_STALE,
+            message: "task changed while Merge.apply was preparing",
+            hint: "read the latest plan and retry the current Task",
+          })
+        const merge = target.merge ? structuredClone(target.merge) : emptyMergeRecord()
+        merge.status = "running"
+        merge.attempt = Math.max(1, (target.merge?.attempt ?? 0) + (target.merge?.status === "running" ? 0 : 1))
+        merge.started_at = merge.started_at ?? nowIso(this.now)
+        merge.completed_at = null
+        merge.cleanup = "pending"
+        merge.journal_directory = journalDirectory
+        merge.error = undefined
+        next.revision++
+        next.updated_at = nowIso(this.now)
+        return {
+          mutate(targetPlan) {
+            Object.assign(targetPlan, next)
+          },
+          result: { started: true },
+        }
+      })
+      void started
+
+      let transaction: WorkspaceMergeTransactionResult
+      if (workspace.mode === "shared_compat") {
+        transaction = {
+          status: "merged",
+          applied_paths: [],
+          conflicts: [],
+          plan: { apply: [], keep: [], delete: [], conflicts: [] },
+          journal_path: "",
+          target_fingerprint: workspaceFingerprint(mainRoot),
+        }
+      } else {
+        transaction = applyWorkspaceMerge({
+          base: baseDirectory!,
+          main: mainRoot,
+          child: childDirectory!,
+          paths: value.paths,
+          resolutions: value.resolutions,
+          journal_directory: journalDirectory!,
+        })
+      }
+
+      const finalStatus = transaction.status === "conflict" ? "conflict" : transaction.status === "merged" || transaction.status === "already_merged" ? "merged" : "failed"
+      await this.write(ctx, (latest) => {
+        if (!latest) throw new PlanProtocolError({ code: ERROR_CODES.INVALID_STATE, message: "plan disappeared during Merge.apply", hint: "read the latest plan and retry" })
+        const next = clonePlan(latest)
+        const target = next.steps.flatMap((item) => item.tasks).find((item) => item.id === value.task_id)
+        if (!target?.merge || target.dispatch?.run_id !== task.dispatch!.run_id)
+          throw new PlanProtocolError({ code: ERROR_CODES.RUN_STALE, message: "task run changed during Merge.apply", hint: "stop and read the latest plan" })
+        target.merge.status = finalStatus
+        target.merge.applied_paths = [...new Set([...target.merge.applied_paths, ...transaction.applied_paths])].sort((left, right) => left.localeCompare(right))
+        target.merge.conflicts = transaction.conflicts
+        target.merge.target_fingerprint = transaction.target_fingerprint
+        target.merge.completed_at = nowIso(this.now)
+        target.merge.error = transaction.error
+        if (finalStatus !== "merged") target.merge.cleanup = "not_started"
+        next.revision++
+        next.updated_at = nowIso(this.now)
+        recomputeProgress(next, ctx.workspaceRoot)
+        return {
+          mutate(targetPlan) {
+            Object.assign(targetPlan, next)
+          },
+          result: { updated: true },
+        }
+      })
+
+      if (finalStatus === "merged" && workspace.mode !== "shared_compat") {
+        const cleanupErrors = await this.cleanupTaskWorkspace(ctx, task.id)
+        await this.write(ctx, (latest) => {
+          if (!latest) throw new Error("plan disappeared while recording merge cleanup")
+          const next = clonePlan(latest)
+          const target = next.steps.flatMap((item) => item.tasks).find((item) => item.id === task.id)
+          if (target?.merge) {
+            target.merge.cleanup = cleanupErrors.length ? "failed" : "completed"
+            if (cleanupErrors.length) target.merge.cleanup_error = cleanupErrors.join("; ")
+          }
+          next.revision++
+          next.updated_at = nowIso(this.now)
+          return {
+            mutate(targetPlan) {
+              Object.assign(targetPlan, next)
+            },
+            result: { updated: true },
+          }
+        })
+      } else if (finalStatus === "merged") {
+        await this.write(ctx, (latest) => {
+          if (!latest) throw new Error("plan disappeared while recording shared merge")
+          const next = clonePlan(latest)
+          const target = next.steps.flatMap((item) => item.tasks).find((item) => item.id === task.id)
+          if (target?.merge) target.merge.cleanup = "completed"
+          next.revision++
+          next.updated_at = nowIso(this.now)
+          return {
+            mutate(targetPlan) {
+              Object.assign(targetPlan, next)
+            },
+            result: { updated: true },
+          }
+        })
+      }
+      const after = this.store.read(this.path(ctx))
+      const mergedTask = after?.steps.flatMap((item) => item.tasks).find((item) => item.id === task.id)
+      const status = transaction.status === "already_merged" ? "already_merged" : finalStatus
+      this.metric(ctx.sessionId, {
+        metric: "merge",
+        phase: "apply",
+        outcome: status,
+        duration_ms: Math.max(0, this.now() - startedAt),
+        count: transaction.applied_paths.length,
+      })
+      return {
+        ok: true,
+        status,
+        task_id: task.id,
+        applied_paths: transaction.applied_paths,
+        conflicts: transaction.conflicts,
+        cleanup: mergedTask?.merge?.cleanup ?? "not_started",
+        next_action_hint:
+          status === "conflict"
+            ? "inspect the conflict paths, edit main_path when needed, then retry Merge.apply with resolutions[{path,use:'main'|'child'}]"
+            : status === "failed"
+              ? "inspect the recorded merge journal and retry Merge.apply after fixing the reported failure"
+              : "merge completed; continue with the current Step",
+      }
+    } catch (error) {
       return responseFromError(error)
     }
   }
