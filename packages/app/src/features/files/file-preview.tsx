@@ -1,7 +1,7 @@
 import DOMPurify from "dompurify"
 import type { FileContent, VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
 import { createQuery } from "@tanstack/solid-query"
-import { ArrowLeft, Eye, File as FileIcon, Pencil, RefreshCw, X } from "lucide-solid"
+import { ArrowLeft, Eye, File as FileIcon, Pencil, RefreshCw } from "lucide-solid"
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist/types/src/display/api"
 import { createContext, createEffect, createMemo, createSignal, onCleanup, Show, useContext, type JSX } from "solid-js"
@@ -139,17 +139,6 @@ function PreviewHeader(props: { path: string; onClose?: () => void; toolbar?: JS
         <span class="file-preview__readonly">{tr("files.read-only")}</span>
       </Show>
       {props.toolbar}
-      <Show when={props.onClose}>
-        <Button
-          class="file-preview__close"
-          size="icon"
-          variant="ghost"
-          aria-label={tr("files.close")}
-          onClick={props.onClose}
-        >
-          <X aria-hidden="true" />
-        </Button>
-      </Show>
     </header>
   )
 }
