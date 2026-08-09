@@ -167,6 +167,8 @@ to inspect the current database, release channel, migration status, and session 
 
 If sessions appear "lost", first confirm the current database with `jyycode db status`, then open `/sessions` from the same project or worktree.
 
+Session-storage migrations are copy-first and resumable. Use `jyycode storage backfill --dry-run --json` before applying a bounded backfill; it records a timestamp watermark and cursor so interrupted runs can resume. Keep the database and blob root as a matched pair, retain the original copy for rollback, and defer payload pruning and blob garbage collection until recovery checks pass. The disposable-root soak command is documented in [session-storage operations](docs/operations/session-storage.md).
+
 ## Develop from Source
 
 ```bash

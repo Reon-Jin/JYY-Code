@@ -6,6 +6,7 @@ import { CliError, effectCmd } from "../effect-cmd"
 import { cmd } from "./cmd"
 import { maintainActiveDatabase, maintainDatabase } from "@/storage/maintenance"
 import { inspectStorage, parseDuration, planCleanup } from "@/storage/retention"
+import { BLOB_BACKFILL_DEFAULTS, runBlobBackfill } from "@/storage/blob-backfill"
 
 function print(value: unknown, json: boolean) {
   process.stdout.write(`${json ? JSON.stringify(value) : JSON.stringify(value, null, 2)}\n`)
@@ -94,10 +95,46 @@ const MaintainCommand = effectCmd({
   }),
 })
 
+const BackfillCommand = effectCmd({
+  command: "backfill",
+  describe: "backfill legacy data URL attachments into content-addressed blobs",
+  instance: false,
+  builder: (yargs: Argv) =>
+    yargs
+      .option("root", { type: "string", description: "storage root override for diagnostics/tests" })
+      .option("dry-run", { type: "boolean", default: true, description: "report candidates without changing storage" })
+      .option("batch-size", { type: "number", default: BLOB_BACKFILL_DEFAULTS.batchSize, description: "maximum parts per batch" })
+      .option("batch-bytes", { type: "number", default: BLOB_BACKFILL_DEFAULTS.batchBytes, description: "maximum source bytes per batch" })
+      .option("batch-timeout-ms", { type: "number", default: BLOB_BACKFILL_DEFAULTS.batchTimeoutMs, description: "maximum wall-clock time per batch" })
+      .option("max-batches", { type: "number", description: "stop after this many batches so a run can be resumed" })
+      .option("cursor", { type: "string", description: "cursor file override" })
+      .option("reset", { type: "boolean", default: false, description: "ignore the existing cursor and start a new watermark" })
+      .option("json", { type: "boolean", default: false, description: "write machine-readable JSON" }),
+  handler: Effect.fn("Cli.storage.backfill")(function* (args) {
+    const result = yield* runBlobBackfill({
+      root: args.root ?? Global.Path.data,
+      dryRun: args["dry-run"],
+      batchSize: args["batch-size"],
+      batchBytes: args["batch-bytes"],
+      batchTimeoutMs: args["batch-timeout-ms"],
+      maxBatches: args["max-batches"],
+      cursorPath: args.cursor,
+      reset: args.reset,
+    })
+    print(result, args.json === true)
+  }),
+})
+
 export const StorageCommand = cmd({
   command: "storage",
   describe: "inspect and maintain session storage",
   builder: (yargs: Argv) =>
-    yargs.command(InspectCommand).command(CleanupCommand).command(GCCommand).command(MaintainCommand).demandCommand(),
+    yargs
+      .command(InspectCommand)
+      .command(CleanupCommand)
+      .command(GCCommand)
+      .command(MaintainCommand)
+      .command(BackfillCommand)
+      .demandCommand(),
   async handler() {},
 })

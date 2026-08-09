@@ -173,6 +173,8 @@ jyycode db status
 
 如果会话看起来"丢失"，先用 `jyycode db status` 确认当前数据库，再从同一项目或 worktree 打开 `/sessions`。
 
+会话存储迁移应先复制数据库和存储根目录，再执行 `jyycode storage backfill --dry-run --json` 预览。正式迁移按批次限制执行，并保存时间水位和游标，支持中断后继续；请保留原始副本，并在恢复检查完成前不要启用 payload 清理或 blob 垃圾回收。完整的隔离目录压测命令见[会话存储运维文档](docs/operations/session-storage.md)。
+
 Multi-Agent 的计划文件位于项目 `.jyycode/plan/<root-session-id>/plan.json`。Git Worktree、非 Git 快照和显式共享兼容模式的清理策略以及崩溃恢复步骤见：[计划恢复架构](docs/architecture/plan-recovery.md)、[Agent 隔离架构](docs/architecture/agent-isolation.md) 和 [恢复运行手册](docs/operations/recovery-runbook.md)。
 
 ## 从源码开发
