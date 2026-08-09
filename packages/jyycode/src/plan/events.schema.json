@@ -10,6 +10,9 @@
     "session_id": { "type": "string", "minLength": 1 },
     "revision": { "type": "integer", "minimum": 1 },
     "at": { "type": "string", "format": "date-time" },
-    "payload": { "type": "object" }
+    "payload": {
+      "type": "object",
+      "description": "Event payload. Merge notifications contain bounded paths/fingerprints only; runtime.metric values are scalar."
+    }
   }
 }

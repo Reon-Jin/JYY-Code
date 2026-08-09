@@ -14,6 +14,18 @@ Get-Content -LiteralPath "<workspace>\.jyycode\plan\<root-session-id>\plan.json"
 
 Check the task `status`, `dispatch.lifecycle`, `run_id`, `child_session_id`, `workspace`, and `report`. Do not edit `plan.json` by hand while the runtime is active.
 
+For an integration issue, also inspect the Task's `merge` record: `status`, `attempt`, `applied_paths`, bounded `conflicts`, `target_fingerprint`, `cleanup`, `journal_directory`, and `cleanup_error`. The journal is under the exact recorded runtime directory, for example:
+
+```powershell
+$plan = Get-Content -Raw -LiteralPath "<workspace>\.jyycode\plan\<root-session-id>\plan.json" | ConvertFrom-Json
+$task = $plan.steps | ForEach-Object { $_.tasks } | Where-Object { $_.id -eq "s1_t1" }
+$task.merge.journal_directory
+Get-ChildItem -LiteralPath $task.merge.journal_directory -Recurse -Force
+Get-Content -LiteralPath (Join-Path $task.merge.journal_directory "merge.json")
+```
+
+Only inspect the persisted `main_path`, `child_path`, and `base_path` conflict paths. Do not copy complete file contents into Inbox or telemetry.
+
 Inspect the persistent Inbox and event records through the Inbox/Plan tools or the supported database inspection command:
 
 ```text
@@ -27,6 +39,9 @@ Runtime subscriptions are not durable; after a restart, a missing in-memory wake
 - `reported`, `approved`, `rejected`, or `dismissed`: treat the task as settled; do not dispatch a second child.
 - `running`: verify whether the child session still exists and is not archived. An active child can continue; a missing child is reconciled to `rejected` with an Inbox entry.
 - `reserved`, `child_created`, or expired `starting`: inspect the recorded workspace and child session. Startup reconcile will resume only when a resume path is available; otherwise it rejects safely for explicit redispatch.
+- `merge.status=running`: preserve the recorded journal and let startup recovery resume it. Do not manually copy child files into the parent.
+- `merge.status=conflict`: inspect the bounded conflict summaries, edit the parent with normal tools if appropriate, then retry `Merge.apply` with `resolutions:[{path,use:"main"|"child"}]`. Do not use an implicit prefer-child policy.
+- `merge.status=merged` with `cleanup=pending` or `failed`: retry the exact recorded cleanup operation after fixing the workspace service; the parent integration is already durable.
 - `plan.json.tmp` or `.bak.*`: do not delete it first. `PlanStore` selects the newest complete candidate and the next successful write cleans old backups.
 
 ## 3. Preserve failed isolated workspaces
@@ -44,6 +59,7 @@ Use protocol operations in this order:
 3. For a live dispatched/running Task, use `Dispatch_cancel` when cancellation is intended.
 4. For a reported/approved/rejected/dismissed Task that must run again, use `Plan_update(reopen_task)` with a concrete reason, then dispatch the reopened Task.
 5. Retry the same `run_id` only for a retryable Report precheck or revision conflict; never replay a stale run after a replacement dispatch.
+6. For a merge conflict, use the same Task ID and a short relative `resolutions` array. Unknown, out-of-scope, or stale resolutions must be rejected without changing the parent.
 
 ## 5. Schema or database failures
 
@@ -54,3 +70,5 @@ If a database migration or event-store initialization fails, stop the new runtim
 ## 6. What to capture in an incident
 
 Capture session ID, plan revision, Task ID, lifecycle, run ID, workspace mode/directory, Inbox entry IDs, event sequence, and metric phase/outcome. Do not attach prompts, memory contents, provider credentials, secrets, or complete tool output to the incident record.
+
+Never run a recursive delete against the runtime root, plan root, or workspace root. Cleanup must use the exact persisted child/baseline metadata, and `shared_compat` must never be removed by recovery.

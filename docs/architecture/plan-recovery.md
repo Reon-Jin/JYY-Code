@@ -42,3 +42,17 @@ The root session executes startup reconciliation once per process/workspace/sess
 ## Observability
 
 Plan runtime metrics use scalar fields only: metric name, phase, outcome, duration, counts, savings, and retry counts. They intentionally exclude prompts, memory contents, secrets, provider errors, and complete tool output. Recovery actions and final counts are emitted separately so an operator can distinguish a continued child, a rejection, and an already-settled task.
+
+## Merge recovery
+
+An approved isolated Task is not complete until its merge record is `merged`. The merge lifecycle is:
+
+```text
+pending -> running -> merged -> cleanup completed
+                  \-> conflict -> explicit resolution retry
+                  \-> failed  -> preserve journal and workspace
+```
+
+`Merge.apply` writes a journal below the recorded runtime root before applying parent changes. On startup, recovery uses only the persisted baseline, child, journal, and workspace metadata: an interrupted `running` journal is resumed, an already-applied journal is settled idempotently, and a conflict preserves both sidecars for inspection. A successful merge is recorded before child/baseline cleanup begins. Cleanup failure leaves `merged` plus `cleanup: failed` and creates a bounded Inbox entry; it never rolls back already-integrated parent files.
+
+Recovery rejects a merge whose dispatch was cancelled or whose recorded paths no longer belong to the owning runtime root. It never scans the runtime directory to infer Task ownership and never attaches file contents to events, Inbox entries, or telemetry.

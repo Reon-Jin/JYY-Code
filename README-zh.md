@@ -41,7 +41,7 @@ JYY-Code 把一次请求升级为**一次有组织的工程运行**：
 JYY-Code 的内核是一条由运行时强制执行的工程闭环，而不是一段"请好好合作"的提示词：
 
 ```text
-Plan_create → Plan_update(add_task) → Dispatch_dispatch → Report → review_task
+Plan_create → Plan_update(add_task) → Dispatch_dispatch → Report → review_task(approve) → Merge.apply → merged → cleanup
      ↑                                                              ↓
      └────────── reject + 具体 feedback（自动带入下次派发）──────────┘
 ```
@@ -63,6 +63,8 @@ JYY-Code 把"能并行的一律并行"写进了协议，而不是交给模型自
 - **角色分波**：不同角色的 Task 分成不同波次批量派发，同一角色的多个 Task 合并进同一波，调度效率最大化。
 - **Worktree 隔离**：内置 Git worktree 管理，并行实验互不污染工作区。
 - **项目级 Agent 隔离**：Git 项目中的标准 Task 使用独立 Worktree；非 Git 项目使用可写快照工作区。共享主工作区只有显式启用 `shared_compat` 才会使用，并会保留更高的并发污染风险。
+- **统一合并入口**：审核通过不会自动改写父工作区。主 Agent 调用 `Merge.apply({"task_id":"s1_t1"})` 集成 Git Worktree 或非 Git 快照中的变更；非重叠修改自动合并，真实冲突保留在原地并通过 Inbox/唤醒提示。
+- **显式冲突决策**：主 Agent 检查 `main_path`、`child_path`、`base_path` 后编辑父文件，再用 `{"task_id":"s1_t1","resolutions":[{"path":"src/config.ts","use":"main"}]}` 重试。后端不会静默执行 prefer-child，也不会把完整文件内容写入计划、事件或遥测。
 - **可恢复的计划运行**：`Plan`、`Inbox`、事件序列和 Dispatch lifecycle 持久化；运行时订阅仍是进程内机制。进程重启时 root session 首次进入 Multi-Agent 流程会执行一次 reconcile，活动 child 继续、失联运行会安全转为 rejected 并写入 Inbox。
 - **事件驱动，零轮询**：派发后主 Agent 立即挂起，由 Report / Inbox / 黑板事件精确唤醒，不为等待浪费一个 token。
 
