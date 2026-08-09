@@ -1,6 +1,7 @@
 import { AppProcess } from "@jyycode-ai/core/process"
 import { Effect, Layer, Context, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
+import { budgetFor } from "@/execution/budget"
 
 const cfg = [
   "--no-optional-locks",
@@ -25,7 +26,12 @@ const fail = (err: unknown) =>
     stdout: Buffer.alloc(0),
     stderr: Buffer.from(err instanceof Error ? err.message : String(err)),
     truncated: false,
+    timedOut: err instanceof Error && /timed out/i.test(err.message),
   }) satisfies Result
+
+const networkCommands = new Set(["clone", "fetch", "pull", "push", "ls-remote", "submodule"])
+const operationClass = (args: readonly string[]) =>
+  (networkCommands.has(args[0] ?? "") ? "git_network" : "git_local") as "git_network" | "git_local"
 
 export type Kind = "added" | "deleted" | "modified"
 
@@ -62,6 +68,7 @@ export interface Result {
   readonly stdout: Buffer
   readonly stderr: Buffer
   readonly truncated: boolean
+  readonly timedOut?: boolean
 }
 
 export interface Options {
@@ -69,6 +76,7 @@ export interface Options {
   readonly env?: Record<string, string>
   readonly maxOutputBytes?: number
   readonly stdin?: ChildProcess.CommandInput
+  readonly timeout?: number
 }
 
 export interface Interface {
@@ -108,16 +116,17 @@ export const layer = Layer.effect(
 
     const run = Effect.fn("Git.run")(
       function* (args: string[], opts: Options) {
+        const budget = budgetFor(operationClass(args), opts.timeout)
         const result = yield* appProcess.run(
           ChildProcess.make("git", [...cfg, ...args], {
             cwd: opts.cwd,
-            env: opts.env,
+            env: { ...opts.env, GIT_TERMINAL_PROMPT: "0" },
             extendEnv: true,
             stdin: opts.stdin ?? "ignore",
             stdout: "pipe",
             stderr: "pipe",
           }),
-          { maxOutputBytes: opts.maxOutputBytes },
+          { maxOutputBytes: opts.maxOutputBytes, timeout: budget.effectiveMs },
         )
         return {
           exitCode: result.exitCode,
@@ -125,6 +134,7 @@ export const layer = Layer.effect(
           stdout: result.stdout,
           stderr: result.stderr,
           truncated: result.stdoutTruncated || result.stderrTruncated,
+          timedOut: result.stderr.toString("utf8").includes("Timed out"),
         } satisfies Result
       },
       Effect.catch((err) => Effect.succeed(fail(err))),

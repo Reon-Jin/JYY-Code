@@ -18,6 +18,7 @@ import { NodePath } from "@effect/platform-node"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { AppProcess } from "@jyycode-ai/core/process"
 import { InstanceState } from "@/effect/instance-state"
+import { budgetFor } from "@/execution/budget"
 
 const log = Log.create({ service: "worktree" })
 
@@ -163,12 +164,10 @@ export const layer: Layer.Layer<
 
     const git = Effect.fnUntraced(
       function* (args: string[], opts?: { cwd?: string }) {
-        const result = yield* appProcess.run(
-          ChildProcess.make("git", args, { cwd: opts?.cwd, extendEnv: true, stdin: "ignore" }),
-        )
+        const result = yield* gitSvc.run(args, { cwd: opts?.cwd ?? (yield* InstanceState.context).worktree })
         return {
           code: result.exitCode,
-          text: result.stdout.toString("utf8"),
+          text: result.text(),
           stderr: result.stderr.toString("utf8"),
         } satisfies GitResult
       },
@@ -386,6 +385,16 @@ export const layer: Layer.Layer<
       })
     }
 
+    const cleanDirectoryWithDeadline = Effect.fnUntraced(function* (target: string) {
+      const budget = budgetFor("workspace_cleanup")
+      return yield* cleanDirectory(target).pipe(
+        Effect.timeoutOrElse({
+          duration: budget.effectiveMs,
+          orElse: () => Effect.fail(new RemoveFailedError({ message: "worktree directory cleanup timed out" })),
+        }),
+      )
+    })
+
     const remove = Effect.fn("Worktree.remove")(function* (input: RemoveInput) {
       const ctx = yield* InstanceState.context
       if (ctx.project.vcs !== "git") {
@@ -406,7 +415,7 @@ export const layer: Layer.Layer<
         const directoryExists = yield* fs.exists(directory).pipe(Effect.orDie)
         if (directoryExists) {
           yield* stopFsmonitor(directory)
-          yield* cleanDirectory(directory)
+          yield* cleanDirectoryWithDeadline(directory)
         }
         return true
       }
@@ -429,7 +438,7 @@ export const layer: Layer.Layer<
         }
       }
 
-      yield* cleanDirectory(entry.path)
+      yield* cleanDirectoryWithDeadline(entry.path)
 
       const branch = entry.branch?.replace(/^refs\/heads\//, "")
       if (branch) {
@@ -457,12 +466,24 @@ export const layer: Layer.Layer<
     const runStartCommand = Effect.fnUntraced(
       function* (directory: string, cmd: string) {
         const [shell, args] = process.platform === "win32" ? ["cmd", ["/c", cmd]] : ["bash", ["-lc", cmd]]
+        const budget = budgetFor("foreground_shell")
         const result = yield* appProcess.run(
-          ChildProcess.make(shell, args as string[], { cwd: directory, extendEnv: true, stdin: "ignore" }),
+          ChildProcess.make(shell, args as string[], {
+            cwd: directory,
+            env: { GIT_TERMINAL_PROMPT: "0" },
+            extendEnv: true,
+            stdin: "ignore",
+          }),
+          { timeout: budget.effectiveMs },
         )
         return { code: result.exitCode, stderr: result.stderr.toString("utf8") }
       },
-      Effect.catch(() => Effect.succeed({ code: 1, stderr: "" })),
+      Effect.catch((error) =>
+        Effect.succeed({
+          code: 124,
+          stderr: String(error),
+        }),
+      ),
     )
 
     const runStartScript = Effect.fnUntraced(function* (directory: string, cmd: string, kind: string) {
