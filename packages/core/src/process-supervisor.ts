@@ -11,6 +11,8 @@ export type TerminationResult = {
   readonly remainingPids: readonly number[]
   readonly signal?: NodeJS.Signals
   readonly error?: string
+  /** True when Windows used the development taskkill fallback without the guardian artifact. */
+  readonly degraded?: boolean
 }
 
 export class ProcessTerminationError extends Error {
@@ -34,7 +36,7 @@ export type TerminationOptions = {
   readonly platform?: NodeJS.Platform
 }
 
-type ProcessRecord = { readonly pid: number; readonly ppid: number }
+type ProcessRecord = { readonly pid: number; readonly ppid: number; readonly pgid?: number }
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -78,16 +80,28 @@ async function processRecords(platform: NodeJS.Platform): Promise<readonly Proce
     }
   }
   try {
-    const result = await execFile("ps", ["-eo", "pid=,ppid="], { maxBuffer: 2 * 1024 * 1024 })
+    const result = await execFile("ps", ["-eo", "pid=,ppid=,pgid="], { maxBuffer: 2 * 1024 * 1024 })
     return result.stdout.split(/\r?\n/).flatMap((line) => {
-      const match = /^\s*(\d+)\s+(\d+)\s*$/.exec(line)
+      const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s*$/.exec(line)
       if (!match) return []
       const pid = Number(match[1])
       const ppid = Number(match[2])
-      return validPid(pid) && validPid(ppid) ? [{ pid, ppid }] : []
+      const pgid = Number(match[3])
+      return validPid(pid) && validPid(ppid) && validPid(pgid) ? [{ pid, ppid, pgid }] : []
     })
   } catch {
     return []
+  }
+}
+
+function isProcessGroupAlive(pid: number, platform: NodeJS.Platform): boolean {
+  if (platform === "win32" || !validPid(pid)) return false
+  try {
+    process.kill(-pid, 0)
+    return true
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code === "EPERM"
   }
 }
 
@@ -109,20 +123,36 @@ export async function listProcessTreePids(pid: number, platform: NodeJS.Platform
   return result
 }
 
+export async function listProcessGroupPids(pid: number, platform: NodeJS.Platform = process.platform): Promise<number[]> {
+  if (platform === "win32" || !validPid(pid)) return []
+  const rows = await processRecords(platform)
+  return rows.filter((row) => row.pgid === pid && isProcessAlive(row.pid)).map((row) => row.pid)
+}
+
+async function activeProcessPids(pid: number, platform: NodeJS.Platform): Promise<number[]> {
+  const tree = await listProcessTreePids(pid, platform)
+  const group = await listProcessGroupPids(pid, platform)
+  return [...new Set([...tree, ...group])]
+}
+
 async function waitUntilDead(pid: number, originalTree: readonly number[], platform: NodeJS.Platform, timeoutMs: number, pollMs: number): Promise<boolean> {
   const deadline = Date.now() + Math.max(0, timeoutMs)
   do {
-    const current = await listProcessTreePids(pid, platform)
+    const current = await activeProcessPids(pid, platform)
     if (current.length === 0 && originalTree.every((item) => !isProcessAlive(item))) return true
     if (Date.now() >= deadline) break
     await delay(Math.min(pollMs, Math.max(1, deadline - Date.now())))
   } while (Date.now() <= deadline)
-  const current = await listProcessTreePids(pid, platform)
+  const current = await activeProcessPids(pid, platform)
   return current.length === 0 && originalTree.every((item) => !isProcessAlive(item))
 }
 
-async function windowsKill(pid: number): Promise<void> {
+async function windowsKill(pid: number): Promise<{ degraded: boolean }> {
+  if (process.env.JYYCODE_RELEASE === "1" && !process.env.JYYCODE_PROCESS_GUARDIAN) {
+    throw new Error("PROCESS_GUARDIAN_MISSING")
+  }
   await execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true })
+  return { degraded: !process.env.JYYCODE_PROCESS_GUARDIAN }
 }
 
 /**
@@ -138,13 +168,17 @@ export async function terminateProcessTree(pid: number, options: TerminationOpti
   const pollMs = options.pollMs ?? 25
   const signal = options.signal ?? "SIGTERM"
   const killSignal = options.killSignal ?? "SIGKILL"
+  let degraded = false
 
-  if (!validPid(pid) || !isProcessAlive(pid)) return { state: "exited", pid, remainingPids: [] }
-  const originalTree = await listProcessTreePids(pid, platform)
+  if (!validPid(pid)) return { state: "exited", pid, remainingPids: [] }
+  const leaderAlive = isProcessAlive(pid)
+  const groupAlive = isProcessGroupAlive(pid, platform)
+  if (!leaderAlive && !groupAlive) return { state: "exited", pid, remainingPids: [] }
+  const originalTree = leaderAlive ? await activeProcessPids(pid, platform) : []
 
   const send = async (next: NodeJS.Signals) => {
     if (platform === "win32") {
-      await windowsKill(pid)
+      degraded = (await windowsKill(pid)).degraded
       return
     }
     try {
@@ -153,30 +187,37 @@ export async function terminateProcessTree(pid: number, options: TerminationOpti
       const code = (error as NodeJS.ErrnoException).code
       if (code === "ESRCH") return
       // A process not created as a group leader can still be terminated by PID.
-      if (code === "EINVAL" || code === "EPERM") process.kill(pid, next)
+      // EPERM is deliberately not downgraded: it means termination was not
+      // confirmed and must surface as kill_failed to the caller.
+      if (code === "EINVAL") process.kill(pid, next)
       else throw error
     }
   }
 
   try {
     await send(signal)
-    if (await waitUntilDead(pid, originalTree, platform, graceMs, pollMs)) return { state: "killed", pid, remainingPids: [], signal }
+    if (await waitUntilDead(pid, originalTree, platform, graceMs, pollMs))
+      return { state: "killed", pid, remainingPids: [], signal, ...(degraded ? { degraded: true } : {}) }
     await send(killSignal)
   } catch (error) {
     const dead = await waitUntilDead(pid, originalTree, platform, verifyMs, pollMs)
-    if (dead) return { state: "exited", pid, remainingPids: [] }
+    if (dead) return { state: "exited", pid, remainingPids: [], ...(degraded ? { degraded: true } : {}) }
     return {
       state: "kill_failed",
       pid,
       remainingPids: [pid],
       signal,
       error: error instanceof Error ? error.message : String(error),
+      ...(degraded ? { degraded: true } : {}),
     }
   }
 
-  if (await waitUntilDead(pid, originalTree, platform, verifyMs, pollMs)) return { state: "killed", pid, remainingPids: [], signal: killSignal }
-  const remaining = (await listProcessTreePids(pid, platform)).length > 0 ? await listProcessTreePids(pid, platform) : originalTree.filter(isProcessAlive)
-  return { state: "kill_failed", pid, remainingPids: remaining, signal: killSignal }
+  if (await waitUntilDead(pid, originalTree, platform, verifyMs, pollMs))
+    return { state: "killed", pid, remainingPids: [], signal: killSignal, ...(degraded ? { degraded: true } : {}) }
+  const remaining = (await activeProcessPids(pid, platform)).length > 0
+    ? await activeProcessPids(pid, platform)
+    : originalTree.filter(isProcessAlive)
+  return { state: "kill_failed", pid, remainingPids: remaining, signal: killSignal, ...(degraded ? { degraded: true } : {}) }
 }
 
 export async function killProcessTreeVerified(pid: number, options: TerminationOptions = {}): Promise<TerminationResult> {

@@ -43,6 +43,14 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - name: Build and verify Windows process guardian
+        shell: pwsh
+        run: |
+          cargo build --release --manifest-path packages/process-guardian/Cargo.toml --target x86_64-pc-windows-msvc
+          $guardian = "packages/process-guardian/target/x86_64-pc-windows-msvc/release/jyycode-process-guardian.exe"
+          if (!(Test-Path -LiteralPath $guardian) -or ((Get-Item -LiteralPath $guardian).Length -le 0)) { throw "Missing process guardian: $guardian" }
+          (Get-FileHash -LiteralPath $guardian -Algorithm SHA256).Hash
+
       - name: Validate version and secrets
         shell: pwsh
         run: |
@@ -99,6 +107,13 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-13
         with:
           targets: aarch64-apple-darwin
+
+      - name: Build and verify macOS process guardian
+        shell: bash
+        run: |
+          cargo build --release --manifest-path packages/process-guardian/Cargo.toml --target aarch64-apple-darwin
+          test -s packages/process-guardian/target/aarch64-apple-darwin/release/jyycode-process-guardian
+          shasum -a 256 packages/process-guardian/target/aarch64-apple-darwin/release/jyycode-process-guardian
 
       - name: Validate version and secrets
         shell: bash

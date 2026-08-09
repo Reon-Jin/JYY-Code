@@ -4,6 +4,7 @@ import * as NodePath from "@effect/platform-node/NodePath"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import * as Duration from "effect/Duration"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
@@ -22,10 +23,28 @@ import {
   ProcessId,
 } from "effect/unstable/process/ChildProcessSpawner"
 import * as NodeChildProcess from "node:child_process"
+import { existsSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { PassThrough } from "node:stream"
 import launch from "cross-spawn"
+import { killProcessTreeVerified } from "./process-supervisor"
 
 const toError = (err: unknown): Error => (err instanceof globalThis.Error ? err : new globalThis.Error(String(err)))
+
+const resolveSpawnCommand = (command: ChildProcess.StandardCommand): { command: string; args: string[] } => {
+  if (process.platform !== "win32" || process.env.JYYCODE_RELEASE !== "1") {
+    return { command: command.command, args: [...command.args] }
+  }
+  if (command.options.shell) throw new Error("PROCESS_GUARDIAN_SHELL_UNSUPPORTED")
+  const candidates = [
+    process.env.JYYCODE_PROCESS_GUARDIAN,
+    join(dirname(process.execPath), "jyycode-process-guardian.exe"),
+    process.argv[1] ? join(dirname(process.argv[1]), "jyycode-process-guardian.exe") : undefined,
+  ].filter((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0)
+  const guardian = candidates.find((candidate) => existsSync(candidate))
+  if (!guardian) throw new Error("PROCESS_GUARDIAN_MISSING")
+  return { command: guardian, args: ["--", command.command, ...command.args] }
+}
 
 const toTag = (err: NodeJS.ErrnoException): PlatformError.SystemErrorTag => {
   switch (err.code) {
@@ -265,7 +284,14 @@ export const make = Effect.gen(function* () {
   const spawn = (command: ChildProcess.StandardCommand, opts: NodeChildProcess.SpawnOptions) =>
     Effect.callback<readonly [NodeChildProcess.ChildProcess, ExitSignal], PlatformError.PlatformError>((resume) => {
       const signal = Deferred.makeUnsafe<readonly [code: number | null, signal: NodeJS.Signals | null]>()
-      const proc = launch(command.command, command.args, opts)
+      let proc: NodeChildProcess.ChildProcess
+      try {
+        const resolved = resolveSpawnCommand(command)
+        proc = launch(resolved.command, resolved.args, opts)
+      } catch (error) {
+        resume(Effect.fail(toPlatformError("spawn", toError(error), command)))
+        return
+      }
       let end = false
       let exit: readonly [code: number | null, signal: NodeJS.Signals | null] | undefined
       proc.on("error", (err) => {
@@ -287,61 +313,21 @@ export const make = Effect.gen(function* () {
       })
     })
 
-  const killGroup = (
+  const killVerified = (
     command: ChildProcess.StandardCommand,
     proc: NodeChildProcess.ChildProcess,
-    signal: NodeJS.Signals,
+    options?: ChildProcess.KillOptions,
   ) => {
-    if (globalThis.process.platform === "win32") {
-      return Effect.callback<void, PlatformError.PlatformError>((resume) => {
-        const killer = NodeChildProcess.exec(`taskkill /pid ${proc.pid} /T /F`, { windowsHide: true }, (err) => {
-          if (err) return resume(Effect.fail(toPlatformError("kill", toError(err), command)))
-          resume(Effect.void)
-        })
-        return Effect.sync(() => {
-          if (killer.exitCode === null) killer.kill()
-        })
-      })
-    }
-
-    return Effect.try({
-      try: () => {
-        globalThis.process.kill(-proc.pid!, signal)
-      },
+    return Effect.tryPromise({
+      try: () =>
+        killProcessTreeVerified(proc.pid!, {
+          graceMs: options?.forceKillAfter === undefined ? undefined : Duration.toMillis(options.forceKillAfter),
+          signal: options?.killSignal ?? "SIGTERM",
+          killSignal: "SIGKILL",
+        }),
       catch: (err) => toPlatformError("kill", toError(err), command),
     })
   }
-
-  const killOne = (
-    command: ChildProcess.StandardCommand,
-    proc: NodeChildProcess.ChildProcess,
-    signal: NodeJS.Signals,
-  ) =>
-    Effect.suspend(() => {
-      if (proc.kill(signal)) return Effect.void
-      return Effect.fail(toPlatformError("kill", new Error("Failed to kill child process"), command))
-    })
-
-  const timeout =
-    (
-      proc: NodeChildProcess.ChildProcess,
-      command: ChildProcess.StandardCommand,
-      opts: ChildProcess.KillOptions | undefined,
-    ) =>
-    <A, E, R>(
-      f: (
-        command: ChildProcess.StandardCommand,
-        proc: NodeChildProcess.ChildProcess,
-        signal: NodeJS.Signals,
-      ) => Effect.Effect<A, E, R>,
-    ) => {
-      const signal = opts?.killSignal ?? "SIGTERM"
-      if (Predicate.isUndefined(opts?.forceKillAfter)) return f(command, proc, signal)
-      return Effect.timeoutOrElse(f(command, proc, signal), {
-        duration: opts.forceKillAfter,
-        orElse: () => f(command, proc, "SIGKILL"),
-      })
-    }
 
   const source = (handle: ChildProcessHandle, from: ChildProcess.PipeFromOption | undefined) => {
     const opt = from ?? "stdout"
@@ -382,28 +368,14 @@ export const make = Effect.gen(function* () {
             }),
             Effect.fnUntraced(function* ([proc, signal]) {
               const done = yield* Deferred.isDone(signal)
-              const kill = timeout(proc, command, command.options)
               if (done) {
                 const [code] = yield* Deferred.await(signal)
                 if (process.platform === "win32") return yield* Effect.void
-                if (code !== 0 && Predicate.isNotNull(code)) return yield* Effect.ignore(kill(killGroup))
+                if (code !== 0 && Predicate.isNotNull(code))
+                  return yield* killVerified(command, proc, command.options).pipe(Effect.asVoid, Effect.orDie)
                 return yield* Effect.void
               }
-              const send = (s: NodeJS.Signals) =>
-                Effect.catch(killGroup(command, proc, s), () => killOne(command, proc, s))
-              const sig = command.options.killSignal ?? "SIGTERM"
-              const attempt = send(sig).pipe(Effect.andThen(Deferred.await(signal)), Effect.asVoid)
-              const escalated = command.options.forceKillAfter
-                ? Effect.timeoutOrElse(attempt, {
-                    duration: command.options.forceKillAfter,
-                    orElse: () =>
-                      Effect.timeoutOrElse(send("SIGKILL").pipe(Effect.andThen(Deferred.await(signal)), Effect.asVoid), {
-                        duration: command.options.forceKillAfter!,
-                        orElse: () => Effect.void,
-                      }),
-                  })
-                : attempt
-              return yield* Effect.ignore(escalated)
+              return yield* killVerified(command, proc, command.options).pipe(Effect.asVoid, Effect.orDie)
             }),
           )
 
@@ -430,19 +402,7 @@ export const make = Effect.gen(function* () {
               )
             }),
             kill: (opts?: ChildProcess.KillOptions) => {
-              const sig = opts?.killSignal ?? "SIGTERM"
-              const send = (s: NodeJS.Signals) =>
-                Effect.catch(killGroup(command, proc, s), () => killOne(command, proc, s))
-              const attempt = send(sig).pipe(Effect.andThen(Deferred.await(signal)), Effect.asVoid)
-              if (!opts?.forceKillAfter) return attempt
-              return Effect.timeoutOrElse(attempt, {
-                duration: opts.forceKillAfter,
-                orElse: () =>
-                  Effect.timeoutOrElse(send("SIGKILL").pipe(Effect.andThen(Deferred.await(signal)), Effect.asVoid), {
-                    duration: opts.forceKillAfter!,
-                    orElse: () => Effect.void,
-                  }),
-              })
+              return killVerified(command, proc, opts).pipe(Effect.asVoid)
             },
             unref: Effect.sync(() => {
               if (ref) {

@@ -29,3 +29,25 @@ jobs:
 
       - name: Test Desktop release scripts
         run: bun run --cwd packages/desktop test
+
+  core-process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4be706ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-13
+
+      - name: Test process guardian
+        run: cargo test --manifest-path packages/process-guardian/Cargo.toml
+
+      - name: Typecheck core
+        run: bun run --cwd packages/core typecheck
+
+      - name: Test process supervision
+        run: bun run --cwd packages/core test --timeout 60000 test/effect/cross-spawn-spawner.test.ts test/process/process.test.ts

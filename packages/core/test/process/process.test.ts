@@ -1,15 +1,52 @@
 import { describe, expect } from "bun:test"
 import { realpathSync } from "node:fs"
+import * as NodeChildProcess from "node:child_process"
 import { tmpdir } from "node:os"
 import { Effect, Exit, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { AppProcess } from "@jyycode-ai/core/process"
+import { killProcessTreeVerified, listProcessGroupPids } from "@jyycode-ai/core/process-supervisor"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(AppProcess.defaultLayer)
 
 const NODE = process.execPath
 const cmd = (...args: string[]) => ChildProcess.make(NODE, args)
+
+const gone = async (pid: number): Promise<boolean> => {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return true
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  return false
+}
+
+function waitLine(stream: NodeJS.ReadableStream): Promise<number> {
+  return new Promise((resolve, reject) => {
+    let buffer = ""
+    const onData = (chunk: Buffer | string) => {
+      buffer += chunk.toString()
+      const line = buffer.split(/\r?\n/, 1)[0]
+      const pid = Number(line)
+      if (!Number.isSafeInteger(pid) || pid <= 0) return
+      stream.off("data", onData)
+      stream.off("error", onError)
+      resolve(pid)
+    }
+    const onError = (error: Error) => {
+      stream.off("data", onData)
+      stream.off("error", onError)
+      reject(error)
+    }
+    stream.on("data", onData)
+    stream.on("error", onError)
+  })
+}
 
 describe("AppProcess", () => {
   describe("run", () => {
@@ -274,6 +311,19 @@ describe("AppProcess", () => {
         expect(Exit.isFailure(exit)).toBe(true)
       }),
     )
+
+    it.live(
+      "timeout interrupts the stream and terminates the process tree",
+      Effect.gen(function* () {
+        const svc = yield* AppProcess.Service
+        const exit = yield* Effect.exit(
+          svc
+            .runStream(cmd("-e", "setInterval(() => {}, 60_000)"), { timeout: 100 })
+            .pipe(Stream.runCollect),
+        )
+        expect(Exit.isFailure(exit)).toBe(true)
+      }),
+    )
   })
 
   describe("spawn (inherited)", () => {
@@ -287,6 +337,38 @@ describe("AppProcess", () => {
           yield* handle.kill()
         }),
       ),
+    )
+  })
+
+  describe("verified process-tree termination", () => {
+    it.live(
+      "kills a running grandchild and verifies the process group is empty",
+      Effect.gen(function* () {
+        if (process.platform === "win32") return
+        const script = [
+          "const { spawn } = require('node:child_process')",
+          "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 10000)'], { stdio: 'ignore' })",
+          "console.log(child.pid)",
+          "setInterval(() => {}, 10000)",
+        ].join(";")
+        const parent = NodeChildProcess.spawn(NODE, ["-e", script], {
+          detached: true,
+          stdio: ["ignore", "pipe", "ignore"],
+        })
+        const childPid = yield* Effect.promise(() => waitLine(parent.stdout!))
+        const parentPid = parent.pid!
+        const group = yield* Effect.promise(() => listProcessGroupPids(parentPid))
+        expect(group).toContain(parentPid)
+        expect(group).toContain(childPid)
+
+        const result = yield* Effect.promise(() =>
+          killProcessTreeVerified(parentPid, { graceMs: 100, verifyMs: 2_000, pollMs: 25 }),
+        )
+        expect(["exited", "killed"]).toContain(result.state)
+        expect(result.remainingPids).toEqual([])
+        expect(yield* Effect.promise(() => gone(parentPid))).toBe(true)
+        expect(yield* Effect.promise(() => gone(childPid))).toBe(true)
+      }),
     )
   })
 })

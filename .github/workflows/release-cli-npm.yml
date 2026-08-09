@@ -37,6 +37,9 @@ jobs:
       - name: Setup Bun
         uses: ./.github/actions/setup-bun
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@4be706ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-13
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -54,6 +57,13 @@ jobs:
 
       - name: Install archive tools
         run: sudo apt-get update && sudo apt-get install -y zip
+
+      - name: Build and verify process guardian
+        shell: bash
+        run: |
+          cargo build --release --manifest-path packages/process-guardian/Cargo.toml
+          test -s packages/process-guardian/target/release/jyycode-process-guardian
+          sha256sum packages/process-guardian/target/release/jyycode-process-guardian
 
       - name: Set package versions
         run: node ./script/set-release-version.cjs "$VERSION"

@@ -21,6 +21,7 @@ export interface RunOptions {
 
 export interface RunStreamOptions {
   readonly signal?: AbortSignal
+  readonly timeout?: Duration.Input
   readonly includeStderr?: boolean
   readonly okExitCodes?: ReadonlyArray<number>
   readonly maxErrorBytes?: number
@@ -218,11 +219,24 @@ export const layer = Layer.effect(
       const mapped = built.pipe(
         Stream.catch((cause): Stream.Stream<string, AppProcessError> => Stream.fail(wrapError(description, cause))),
       )
-      if (!options?.signal) return mapped
-      const signal = options.signal
-      return mapped.pipe(
-        Stream.interruptWhen(waitForAbort(signal).pipe(Effect.mapError((cause) => wrapError(description, cause)))),
-      )
+      let bounded = mapped
+      if (options?.signal) {
+        bounded = bounded.pipe(
+          Stream.interruptWhen(
+            waitForAbort(options.signal).pipe(Effect.mapError((cause) => wrapError(description, cause))),
+          ),
+        )
+      }
+      if (options?.timeout !== undefined) {
+        bounded = bounded.pipe(
+          Stream.interruptWhen(
+            Effect.sleep(options.timeout).pipe(
+              Effect.flatMap(() => Effect.fail(new AppProcessError({ command: description, cause: new Error("Timed out") }))),
+            ),
+          ),
+        )
+      }
+      return bounded
     }
 
     return Service.of({ ...spawner, run, runStream })

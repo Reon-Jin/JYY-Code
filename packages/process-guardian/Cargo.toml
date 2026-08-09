@@ -1,0 +1,12 @@
+[package]
+name = "jyycode-process-guardian"
+version = "0.1.0"
+edition = "2021"
+description = "Small process-tree guardian used by JYYCode release builds"
+license = "MIT"
+
+[profile.release]
+strip = "symbols"
+lto = true
+codegen-units = 1
+
