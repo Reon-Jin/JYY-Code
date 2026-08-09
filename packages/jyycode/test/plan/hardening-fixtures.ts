@@ -14,6 +14,25 @@ export function createHardeningWorkspace() {
   }
 }
 
+export function createMergeWorkspaceFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jyycode-merge-"))
+  const parent = path.join(root, "parent")
+  const baseline = path.join(root, "baseline")
+  const child = path.join(root, "child")
+  fs.mkdirSync(parent, { recursive: true })
+  fs.mkdirSync(baseline, { recursive: true })
+  fs.mkdirSync(child, { recursive: true })
+  return {
+    root,
+    parent,
+    baseline,
+    child,
+    cleanup() {
+      fs.rmSync(root, { recursive: true, force: true })
+    },
+  }
+}
+
 export function hardeningContext(
   workspaceRoot: string,
   sessionId = "ses_main",

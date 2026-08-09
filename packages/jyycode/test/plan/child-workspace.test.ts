@@ -78,6 +78,30 @@ describe("ChildWorkspace", () => {
     expect(metadata && "baseline_manifest" in metadata ? metadata.baseline_manifest : undefined).toHaveLength(1)
   })
 
+  it("records a durable baseline sidecar for later merge and restart", async () => {
+    const root = tempDirectory("jyycode-child-project-")
+    const runtime = tempDirectory("jyycode-child-runtime-")
+    fs.mkdirSync(path.join(root, "src"), { recursive: true })
+    fs.writeFileSync(path.join(root, "src", "main.ts"), "export const value = 1\n")
+    const manager = new ChildWorkspace({ project: { root, vcs: "none" }, runtimeRoot: runtime })
+    const reservation = manager.reserve("ses_root", "s1_t1")
+    const created = await manager.create(reservation)
+
+    expect(created.baseline_directory).toStartWith(runtime)
+    expect(created.baseline_directory).not.toBe(created.directory)
+    expect(created.baseline_manifest_hash).toMatch(/^[a-f0-9]{64}$/)
+    expect(fs.readFileSync(path.join(created.baseline_directory, "src", "main.ts"), "utf8")).toBe(
+      "export const value = 1\n",
+    )
+
+    const restarted = new ChildWorkspace({ project: { root, vcs: "none" }, runtimeRoot: runtime })
+    expect(restarted.load(reservation)).toMatchObject({
+      directory: created.directory,
+      baseline_directory: created.baseline_directory,
+      baseline_manifest_hash: created.baseline_manifest_hash,
+    })
+  })
+
   it("retains metadata when cleanup fails and refuses unknown directories", async () => {
     const root = tempDirectory("jyycode-child-git-")
     const runtime = tempDirectory("jyycode-child-runtime-")

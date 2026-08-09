@@ -50,6 +50,17 @@ function createInput(outputPath?: string) {
   }
 }
 
+type MergeProtocol = PlanProtocol & {
+  merge(
+    context: { workspaceRoot: string; sessionId: string; mode: "single" | "multi" },
+    input: { task_id: string; paths?: string[]; resolutions?: Array<{ path: string; use: "main" | "child" }> },
+  ): Promise<unknown>
+}
+
+function mergeApply(protocol: PlanProtocol, root: string, input: Parameters<MergeProtocol["merge"]>[1]) {
+  return (protocol as MergeProtocol).merge(context(root), input)
+}
+
 class FailingPlanStore extends PlanStore {
   failWrites = false
 
@@ -625,6 +636,56 @@ describe("file-backed plan protocol", () => {
       .map((event) => event.payload)
     expect(metrics.some((payload) => payload.metric === "dispatch" && payload.phase === "start")).toBe(true)
     expect(metrics.some((payload) => payload.metric === "report" && payload.phase === "submit")).toBe(true)
+  })
+
+  it("keeps review approval separate from parent integration", async () => {
+    const root = workspace()
+    const outputPath = path.join(root, "out")
+    const artifact = path.join(outputPath, "report.md")
+    const parentFile = path.join(root, "src", "parent.ts")
+    fs.mkdirSync(path.dirname(parentFile), { recursive: true })
+    fs.writeFileSync(parentFile, "parent content\n")
+    fs.mkdirSync(outputPath, { recursive: true })
+    fs.writeFileSync(artifact, "report\n")
+    const protocol = new PlanProtocol({ children: createHardeningChildren().controller })
+    await protocol.create(context(root), createInput(outputPath))
+    const dispatched = await protocol.dispatch(context(root), { taskIds: ["s1_t1"], role: "general" })
+    expect(dispatched.ok).toBe(true)
+    if (!dispatched.ok) return
+    const runId = dispatched.dispatched[0]!.run_id
+    const reported = await protocol.report(
+      { ...context(root, "single", "child_s1_t1"), runId },
+      { run_id: runId, status: "done", summary: "ready", artifacts: [artifact], issues: [] },
+    )
+    expect(reported).toMatchObject({ ok: true, review: "pending_review" })
+    const before = await protocol.read(context(root))
+    if (!before.ok || !before.plan) return
+    const approved = await protocol.update(context(root), {
+      revision: before.plan.revision,
+      ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
+    })
+    expect(approved).toMatchObject({ ok: true })
+    expect(fs.readFileSync(parentFile, "utf8")).toBe("parent content\n")
+    const after = await protocol.read(context(root))
+    expect(after).toMatchObject({ ok: true, plan: { current_step: "s1" } })
+  })
+
+  it("accepts the minimal Merge.apply input and rejects tasks that are not approved", async () => {
+    const root = workspace()
+    const protocol = new PlanProtocol({ children: createHardeningChildren().controller })
+    await protocol.create(context(root), createInput(path.join(root, "out")))
+
+    const pending = await mergeApply(protocol, root, { task_id: "s1_t1" })
+    expect(pending).toMatchObject({ ok: false, error: { code: expect.any(String) } })
+
+    const planPath = planFilePath(root, "ses_main")
+    const stored = JSON.parse(fs.readFileSync(planPath, "utf8"))
+    for (const status of ["rejected", "dismissed"] as const) {
+      stored.steps[0].tasks[0].status = status
+      fs.writeFileSync(planPath, JSON.stringify(stored))
+      const result = await mergeApply(protocol, root, { task_id: "s1_t1" })
+      expect(result).toMatchObject({ ok: false, error: { code: expect.any(String) } })
+    }
   })
 
   it("keeps report retry state and Inbox entries across protocol calls", async () => {
