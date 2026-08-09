@@ -8,6 +8,7 @@ import { assertExternalDirectoryEffect } from "./external-directory"
 import DESCRIPTION from "./glob.txt"
 import * as Tool from "./tool"
 import { Reference } from "@/reference/reference"
+import { isRuntimePath } from "@/file/runtime-excludes"
 
 export const Parameters = Schema.Struct({
   pattern: Schema.String.annotate({ description: "The glob pattern to match files against" }),
@@ -47,6 +48,15 @@ export const GlobTool = Tool.define(
 
           let search = params.path ?? ins.directory
           search = path.isAbsolute(search) ? search : path.resolve(ins.directory, search)
+          const allowRuntime = isRuntimePath(search)
+          if (allowRuntime) {
+            yield* ctx.ask({
+              permission: "runtime_data",
+              patterns: [search],
+              always: ["*"],
+              metadata: { path: search, reason: "explicit runtime data access" },
+            })
+          }
           yield* reference.ensure(search)
           const info = yield* fs.stat(search).pipe(Effect.catch(() => Effect.succeed(undefined)))
           if (info?.type === "File") {
@@ -59,7 +69,7 @@ export const GlobTool = Tool.define(
 
           const limit = 100
           let truncated = false
-          const files = yield* rg.files({ cwd: search, glob: [params.pattern], signal: ctx.abort }).pipe(
+          const files = yield* rg.files({ cwd: search, glob: [params.pattern], allowRuntime, signal: ctx.abort }).pipe(
             Stream.mapEffect((file) =>
               Effect.gen(function* () {
                 const full = path.resolve(search, file)

@@ -40,6 +40,13 @@ async function cleanupStaleTempDirectories() {
   )
 }
 
+async function ensurePrivateDirectory(directory: string) {
+  await fs.mkdir(directory, { recursive: true, mode: 0o700 })
+  if (process.platform === "win32") return
+  const stat = await fs.lstat(directory).catch(() => undefined)
+  if (stat?.isDirectory()) await fs.chmod(directory, 0o700).catch(() => {})
+}
+
 const paths = {
   get home() {
     return process.env.JYYCODE_TEST_HOME ?? os.homedir()
@@ -62,13 +69,13 @@ await fs.rm(Path.tmp, { recursive: true, force: true })
 await cleanupStaleTempDirectories()
 
 await Promise.all([
-  fs.mkdir(Path.data, { recursive: true }),
-  fs.mkdir(Path.config, { recursive: true }),
-  fs.mkdir(Path.state, { recursive: true }),
-  fs.mkdir(Path.tmp, { recursive: true }),
-  fs.mkdir(Path.log, { recursive: true }),
-  fs.mkdir(Path.bin, { recursive: true }),
-  fs.mkdir(Path.repos, { recursive: true }),
+  ensurePrivateDirectory(Path.data),
+  ensurePrivateDirectory(Path.config),
+  ensurePrivateDirectory(Path.state),
+  ensurePrivateDirectory(Path.tmp),
+  ensurePrivateDirectory(Path.log),
+  ensurePrivateDirectory(Path.bin),
+  ensurePrivateDirectory(Path.repos),
 ])
 
 // `Path.tmp` is intentionally process-scoped. A synchronous exit hook covers

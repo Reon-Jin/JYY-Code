@@ -2,10 +2,16 @@ export * as Log from "./log"
 
 import path from "path"
 import fs from "fs/promises"
-import { createWriteStream } from "fs"
 import * as Global from "../global"
 import { Schema } from "effect"
 import { Glob } from "./glob"
+import {
+  BoundedLogSink,
+  DEFAULT_LOG_RECORD_BYTES,
+  boundLogText,
+  formatLogValue,
+  redactLogText,
+} from "./log-sink"
 
 export const Level = Schema.Literals(["DEBUG", "INFO", "WARN", "ERROR"]).annotate({
   identifier: "LogLevel",
@@ -58,31 +64,38 @@ let logpath = ""
 export function file() {
   return logpath
 }
+let sink: BoundedLogSink | undefined
 let write = (msg: any) => {
-  process.stderr.write(msg)
-  return msg.length
+  const text = boundLogText(String(msg), DEFAULT_LOG_RECORD_BYTES)
+  process.stderr.write(text)
+  return text.length
 }
 
 export async function init(options: Options) {
   if (options.level) level = options.level
+  await sink?.close()
+  sink = undefined
   void cleanup(Global.Path.log)
-  if (options.print) return
+  if (options.print) {
+    logpath = ""
+    return
+  }
   logpath = path.join(
     Global.Path.log,
     options.dev ? "dev.log" : new Date().toISOString().split(".")[0].replace(/:/g, "") + ".log",
   )
   const runID = process.env.JYYCODE_RUN_ID
   const shouldTruncate = !options.dev || !runID || process.env[initializedRunID] !== runID
-  if (shouldTruncate) await fs.truncate(logpath).catch(() => {})
+  if (shouldTruncate) {
+    const existing = await fs.lstat(logpath).catch(() => undefined)
+    if (!existing || existing.isFile()) await fs.truncate(logpath).catch(() => {})
+  }
   if (options.dev && runID) process.env[initializedRunID] = runID
-  const stream = createWriteStream(logpath, { flags: "a" })
-  write = async (msg: any) => {
-    return new Promise((resolve, reject) => {
-      stream.write(msg, (err) => {
-        if (err) reject(err)
-        else resolve(msg.length)
-      })
-    })
+  sink = new BoundedLogSink({ file: logpath })
+  write = (msg: any) => {
+    const text = String(msg)
+    sink?.write(text)
+    return text.length
   }
 }
 
@@ -130,14 +143,14 @@ export function create(tags?: Record<string, any>) {
       .map(([key, value]) => {
         const prefix = `${key}=`
         if (value instanceof Error) return prefix + formatError(value)
-        if (typeof value === "object") return prefix + JSON.stringify(value)
-        return prefix + value
+        return prefix + formatLogValue(value)
       })
       .join(" ")
     const next = new Date()
     const diff = next.getTime() - last
     last = next.getTime()
-    return [next.toISOString().split(".")[0], "+" + diff + "ms", prefix, message].filter(Boolean).join(" ") + "\n"
+    const renderedMessage = typeof message === "string" ? redactLogText(message) : formatLogValue(message)
+    return [next.toISOString().split(".")[0], "+" + diff + "ms", prefix, renderedMessage].filter(Boolean).join(" ") + "\n"
   }
   const result: Logger = {
     debug(message?: any, extra?: Record<string, any>) {

@@ -13,6 +13,7 @@ import * as Log from "@jyycode-ai/core/util/log"
 import { sanitizedProcessEnv } from "@jyycode-ai/core/util/jyycode-process"
 import { which } from "@/util/which"
 import { NonNegativeInt } from "@jyycode-ai/core/schema"
+import { runtimeExclusionGlobs, shouldExcludeRuntimePath } from "./runtime-excludes"
 
 const log = Log.create({ service: "ripgrep" })
 const VERSION = "15.1.0"
@@ -116,6 +117,7 @@ export interface FilesInput {
   follow?: boolean
   maxDepth?: number
   signal?: AbortSignal
+  allowRuntime?: boolean
 }
 
 export interface SearchInput {
@@ -126,6 +128,7 @@ export interface SearchInput {
   follow?: boolean
   file?: string[]
   signal?: AbortSignal
+  allowRuntime?: boolean
 }
 
 export interface TreeInput {
@@ -198,6 +201,7 @@ function fail(queue: Queue.Queue<string, PlatformError | Error | Cause.Done>, er
 
 function filesArgs(input: FilesInput) {
   const args = ["--no-config", "--files", "--glob=!.git/*"]
+  if (!input.allowRuntime) for (const glob of runtimeExclusionGlobs(input.cwd)) args.push(`--glob=${glob}`)
   if (input.follow) args.push("--follow")
   if (input.hidden !== false) args.push("--hidden")
   if (input.hidden === false) args.push("--glob=!.*")
@@ -211,6 +215,7 @@ function filesArgs(input: FilesInput) {
 
 function searchArgs(input: SearchInput) {
   const args = ["--no-config", "--json", "--hidden", "--glob=!.git/*", "--no-messages"]
+  if (!input.allowRuntime) for (const glob of runtimeExclusionGlobs(input.cwd)) args.push(`--glob=${glob}`)
   if (input.follow) args.push("--follow")
   if (input.glob) {
     for (const glob of input.glob) args.push(`--glob=${glob}`)
@@ -357,6 +362,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | ChildPro
                 const stdout = yield* Stream.decodeText(handle.stdout).pipe(
                   Stream.splitLines,
                   Stream.filter((line) => line.length > 0),
+                  Stream.filter((line) => input.allowRuntime || !shouldExcludeRuntimePath(input.cwd, line)),
                   Stream.runForEach((line) => Effect.sync(() => Queue.offerUnsafe(queue, clean(line)))),
                   Effect.forkScoped,
                 )
@@ -392,6 +398,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | ChildPro
                   Stream.filter((line) => line.length > 0),
                   Stream.mapEffect(parse),
                   Stream.filter((item): item is Match => item.type === "match"),
+                  Stream.filter((item) => input.allowRuntime || !shouldExcludeRuntimePath(input.cwd, item.data.path.text)),
                   Stream.map((item) => row(item.data)),
                   Stream.runCollect,
                   Effect.map((chunk) => [...chunk]),
@@ -439,7 +446,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | ChildPro
 
         const root: Node = { name: "", children: new Map() }
         for (const file of list) {
-          if (file.includes(".jyycode")) continue
+          if (shouldExcludeRuntimePath(input.cwd, file)) continue
           const parts = file.split(path.sep)
           if (parts.length < 2) continue
           let node = root

@@ -8,6 +8,7 @@ import { assertExternalDirectoryEffect } from "./external-directory"
 import DESCRIPTION from "./grep.txt"
 import * as Tool from "./tool"
 import { Reference } from "@/reference/reference"
+import { isRuntimePath } from "@/file/runtime-excludes"
 
 const MAX_LINE_LENGTH = 2000
 
@@ -63,6 +64,15 @@ export const GrepTool = Tool.define(
           const requested = path.isAbsolute(params.path ?? ins.directory)
             ? (params.path ?? ins.directory)
             : path.join(ins.directory, params.path ?? ".")
+          const allowRuntime = isRuntimePath(requested)
+          if (allowRuntime) {
+            yield* ctx.ask({
+              permission: "runtime_data",
+              patterns: [requested],
+              always: ["*"],
+              metadata: { path: requested, reason: "explicit runtime data access" },
+            })
+          }
           yield* reference.ensure(requested)
           const requestedInfo = yield* fs.stat(requested).pipe(Effect.catch(() => Effect.succeed(undefined)))
           yield* assertExternalDirectoryEffect(ctx, requested, {
@@ -80,6 +90,7 @@ export const GrepTool = Tool.define(
             pattern: params.pattern,
             glob: params.include ? [params.include] : undefined,
             file,
+            allowRuntime,
             signal: ctx.abort,
           })
           if (result.items.length === 0) return empty
