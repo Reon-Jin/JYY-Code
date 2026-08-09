@@ -63,6 +63,7 @@ import {
   workspaceFingerprint,
   type WorkspaceMergeTransactionResult,
 } from "./workspace-merge"
+import type { ChildTerminationRequest, ChildTerminationResult } from "./child-termination"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -86,7 +87,10 @@ export type ChildStartInput = {
 export type ChildController = {
   create(input: ChildStartInput): Promise<string>
   start(input: ChildStartInput): Promise<void>
-  terminate(sessionId: string): Promise<void>
+  // `void` is retained for embedded legacy controllers; the production
+  // controller always returns ChildTerminationResult and never uses this
+  // compatibility path for cleanup decisions.
+  terminate(sessionId: string, request?: ChildTerminationRequest): Promise<ChildTerminationResult | void>
 }
 
 export type CandidateBoardController = {
@@ -236,6 +240,25 @@ function dispatchWorkspaceMetadata(
     baseline_manifest_file_count: workspace.baseline_manifest_file_count ?? null,
     source_revision: workspace.source_revision ?? null,
   }
+}
+
+export function childTerminationRequest(
+  workspace: DispatchRecord["workspace"] | undefined,
+): ChildTerminationRequest | undefined {
+  if (!workspace) return undefined
+  return {
+    workspace: {
+      mode: workspace.mode,
+      directory: workspace.directory,
+      // shared_compat deliberately disposes the parent instance through the
+      // instance store, but never removes the parent workspace directory.
+      dispose: workspace.mode === "shared_compat",
+    },
+  }
+}
+
+function terminationFailure(result: ChildTerminationResult | void) {
+  return result?.state === "stop_failed" ? `${result.phase}: ${result.message}` : undefined
 }
 
 function assertMain(ctx: PlanExecutionContext) {
@@ -1107,21 +1130,31 @@ export class PlanProtocol {
     const plan = this.store.read(this.path(ctx))
     const task = plan?.steps.flatMap((step) => step.tasks).find((item) => item.id === taskId)
     const workspace = task?.dispatch?.workspace
-    if (!task || !workspace || workspace.mode === "shared_compat") return [] as string[]
+    if (!task || !workspace) return [] as string[]
     const errors: string[] = []
+    let childStopped = false
     try {
-      if (task.dispatch?.child_session_id && this.children)
-        await this.children.terminate(task.dispatch.child_session_id)
+      if (!task.dispatch?.child_session_id) throw new Error("recorded child session is missing")
+      if (!this.children) throw new Error("child termination coordinator unavailable")
+      const result = await this.children.terminate(
+        task.dispatch.child_session_id,
+        childTerminationRequest(workspace),
+      )
+      const failure = terminationFailure(result)
+      if (failure) errors.push(`child cleanup: ${failure}`)
+      else childStopped = true
     } catch (error) {
       errors.push(`child cleanup: ${error instanceof Error ? error.message : String(error)}`)
     }
-    try {
-      if (!this.childWorkspace) throw new Error("child workspace manager unavailable")
-      const loaded = this.recordedWorkspace(ctx, task)
-      if (!loaded) throw new Error("recorded child workspace is missing")
-      await this.childWorkspace.remove(loaded.directory)
-    } catch (error) {
-      errors.push(`workspace cleanup: ${error instanceof Error ? error.message : String(error)}`)
+    if (childStopped && workspace.mode !== "shared_compat") {
+      try {
+        if (!this.childWorkspace) throw new Error("child workspace manager unavailable")
+        const loaded = this.recordedWorkspace(ctx, task)
+        if (!loaded) throw new Error("recorded child workspace is missing")
+        await this.childWorkspace.remove(loaded.directory)
+      } catch (error) {
+        errors.push(`workspace cleanup: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }
     try {
       const journalDirectory = task.merge?.journal_directory
@@ -1171,7 +1204,7 @@ export class PlanProtocol {
     input: {
       taskId: string
       childSessionId?: string
-      workspaceDirectory?: string | null
+      workspace?: DispatchRecord["workspace"]
       error: unknown
     },
   ) {
@@ -1182,16 +1215,22 @@ export class PlanProtocol {
       // Keep the original failure visible in Inbox even if the recovery write races another writer.
     }
     const cleanupErrors: string[] = []
+    let childStopped = false
     if (input.childSessionId && this.children) {
       try {
-        await this.children.terminate(input.childSessionId)
+        const result = await this.children.terminate(input.childSessionId, childTerminationRequest(input.workspace))
+        const failure = terminationFailure(result)
+        if (failure) cleanupErrors.push(`child cleanup: ${failure}`)
+        else childStopped = true
       } catch (error) {
         cleanupErrors.push(`child cleanup: ${error instanceof Error ? error.message : String(error)}`)
       }
+    } else if (input.childSessionId) {
+      cleanupErrors.push("child cleanup: child termination coordinator unavailable")
     }
-    if (input.workspaceDirectory && this.childWorkspace) {
+    if (childStopped && input.workspace?.mode !== "shared_compat" && input.workspace?.directory && this.childWorkspace) {
       try {
-        await this.childWorkspace.remove(input.workspaceDirectory)
+        await this.childWorkspace.remove(input.workspace.directory)
       } catch (error) {
         cleanupErrors.push(`workspace cleanup: ${error instanceof Error ? error.message : String(error)}`)
       }
@@ -1746,7 +1785,7 @@ export class PlanProtocol {
               await this.failDispatch(ctx, {
                 taskId,
                 childSessionId: actualChild,
-                workspaceDirectory: workspaceHandle?.directory ?? item.dispatch.workspace?.directory,
+                workspace: workspaceHandle ? dispatchWorkspaceMetadata(workspaceHandle) : item.dispatch.workspace,
                 error,
               })
               throw error
@@ -1818,7 +1857,11 @@ export class PlanProtocol {
             hint: "先调用 Plan_create",
           })
         const next = clonePlan(latest)
-        const toTerminate: Array<{ taskId: string; child_session_id: string; workspace_directory?: string | null }> = []
+        const toTerminate: Array<{
+          taskId: string
+          child_session_id: string
+          workspace?: DispatchRecord["workspace"]
+        }> = []
         const cancelled = targets.map((source) => {
           const task = next.steps.flatMap((step) => step.tasks).find((item) => item.id === source.id)
           if (!task || !task.dispatch)
@@ -1837,7 +1880,7 @@ export class PlanProtocol {
             toTerminate.push({
               taskId: task.id,
               child_session_id: task.dispatch.child_session_id,
-              workspace_directory: task.dispatch.workspace?.directory,
+              workspace: task.dispatch.workspace,
             })
           task.status = "pending"
           task.dispatch.cancelled_at = nowIso(this.now)
@@ -1862,10 +1905,17 @@ export class PlanProtocol {
         }
       })
       const termination_errors: Array<{ taskId: string; child_session_id: string; message: string }> = []
+      const stoppedChildren = new Set<string>()
       if (this.children) {
         for (const target of result.result.toTerminate) {
           try {
-            await this.children.terminate(target.child_session_id)
+            const termination = await this.children.terminate(
+              target.child_session_id,
+              childTerminationRequest(target.workspace),
+            )
+            const failure = terminationFailure(termination)
+            if (failure) termination_errors.push({ ...target, message: failure })
+            else stoppedChildren.add(target.child_session_id)
           } catch (error) {
             termination_errors.push({
               ...target,
@@ -1873,12 +1923,18 @@ export class PlanProtocol {
             })
           }
         }
+      } else if (result.result.toTerminate.length > 0) {
+        for (const target of result.result.toTerminate)
+          termination_errors.push({ ...target, message: "child termination coordinator unavailable" })
       }
       if (this.childWorkspace) {
         for (const target of result.result.toTerminate) {
-          if (!target.workspace_directory) continue
+          if (target.workspace?.mode === "shared_compat" || !target.workspace?.directory) continue
+          // Workspace deletion is contingent on the coordinator's successful
+          // result. Never delete a workspace after a stop_failed result.
+          if (!stoppedChildren.has(target.child_session_id)) continue
           try {
-            await this.childWorkspace.remove(target.workspace_directory)
+            await this.childWorkspace.remove(target.workspace.directory)
           } catch (error) {
             termination_errors.push({
               taskId: target.taskId,

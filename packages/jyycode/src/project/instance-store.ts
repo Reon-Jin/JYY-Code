@@ -19,6 +19,8 @@ export interface Interface {
   readonly load: (input: LoadInput) => Effect.Effect<InstanceContext>
   readonly reload: (input: LoadInput) => Effect.Effect<InstanceContext>
   readonly dispose: (ctx: InstanceContext) => Effect.Effect<void>
+  /** Dispose only an already-cached instance; never boots a missing directory. */
+  readonly disposeDirectory: (directory: string) => Effect.Effect<void>
   readonly disposeAll: () => Effect.Effect<void>
   readonly provide: <A, E, R>(input: LoadInput, effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
 }
@@ -151,6 +153,21 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
       yield* disposeEntry(ctx.directory, entry, ctx).pipe(Effect.asVoid)
     })
 
+    const disposeDirectory = Effect.fn("InstanceStore.disposeDirectory")(function* (directory: string) {
+      const resolved = AppFileSystem.resolve(directory)
+      const entry = cache.get(resolved)
+      // Cleanup must not call load/disposeContext for a missing cache entry:
+      // doing so would execute instance disposers for a context that was never
+      // booted in this store and could accidentally initialize a new instance.
+      if (!entry) return
+      const exit = yield* Deferred.await(entry.deferred).pipe(Effect.exit)
+      if (Exit.isFailure(exit)) {
+        yield* removeEntry(resolved, entry).pipe(Effect.asVoid)
+        return
+      }
+      yield* disposeEntry(resolved, entry, exit.value).pipe(Effect.asVoid)
+    })
+
     const disposeAllOnce = Effect.fnUntraced(function* () {
       yield* Effect.logInfo("disposing all instances")
       yield* Effect.forEach(
@@ -185,6 +202,7 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
       load,
       reload,
       dispose,
+      disposeDirectory,
       disposeAll,
       provide,
     })

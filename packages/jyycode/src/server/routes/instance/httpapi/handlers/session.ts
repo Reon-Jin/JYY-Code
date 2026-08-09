@@ -15,9 +15,18 @@ import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
+import { InstanceStore } from "@/project/instance-store"
+import { EffectBridge } from "@/effect/bridge"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
-import { clearChildRunIntent, markChildRunIntent, peekChildRunIntent, PlanProtocol } from "@/plan/protocol"
+import {
+  childTerminationRequest,
+  clearChildRunIntent,
+  markChildRunIntent,
+  peekChildRunIntent,
+  PlanProtocol,
+} from "@/plan/protocol"
+import { terminateChild } from "@/plan/child-termination"
 import { Blackboard } from "@/plan/blackboard"
 import { defaultPlanEvents, defaultPlanInbox } from "@/plan/events"
 import { RuntimeEvent } from "@/plan/runtime-event"
@@ -91,6 +100,11 @@ function activePlanTaskForChild(child: Session.Info): ChildTaskRef | undefined {
   return undefined
 }
 
+function workspaceForChild(ref: ChildTaskRef) {
+  const plan = readPlanFileSync(planFilePath(ref.workspaceRoot, ref.parentSessionId))
+  return plan?.steps.flatMap((step) => step.tasks).find((task) => task.id === ref.taskId)?.dispatch?.workspace
+}
+
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* Session.Service
@@ -104,6 +118,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const agentSvc = yield* Agent.Service
     const permissionSvc = yield* Permission.Service
     const statusSvc = yield* SessionStatus.Service
+    const instanceStore = yield* InstanceStore.Service
+    const bridge = yield* EffectBridge.make()
     const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
     const blackboard = yield* Blackboard.Service
@@ -532,10 +548,40 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const terminate = Effect.fn("SessionHttpApi.terminate")(function* (ctx: { params: { sessionID: SessionID } }) {
       const child = yield* requireSession(ctx.params.sessionID)
       const ref = activePlanTaskForChild(child)
-      // The endpoint owns the settle and the Inbox notification; the dispatch
-      // watcher and any steered-turn watcher skip this run via the intent.
-      const intent = ref ? markChildRunIntent(child.id, "terminate") : undefined
-      yield* promptSvc.cancel(child.id)
+      let intentSeq: number | undefined
+      const termination = yield* Effect.tryPromise({
+        try: () =>
+          terminateChild(
+            {
+              sessionId: child.id,
+              request: ref ? childTerminationRequest(workspaceForChild(ref)) : undefined,
+            },
+            {
+              markIntent: () => {
+                intentSeq = markChildRunIntent(child.id, "terminate").seq
+              },
+              cancel: () => bridge.promise(promptSvc.cancel(child.id)),
+              status: () => bridge.promise(statusSvc.get(child.id)),
+              disposeDirectory: (directory) => bridge.promise(instanceStore.disposeDirectory(directory)),
+              archive: () => bridge.promise(session.setArchived({ sessionID: child.id, time: Date.now() })),
+            },
+          ),
+        catch: () => new HttpApiError.BadRequest({}),
+      })
+      if (termination.state === "stop_failed") {
+        if (ref) {
+          yield* notifyParent({
+            ref,
+            kind: "runtime_error",
+            message: `Child termination failed during ${termination.phase}: ${termination.message}`,
+            suggestedActions: ["read Inbox", "preserve the child workspace and retry termination"],
+            wakeKind: "plan_child_termination_failed",
+            wakeText: `Child ${child.id} could not be terminated safely. The workspace was preserved; inspect Inbox before retrying.`,
+          })
+        }
+        if (intentSeq !== undefined) clearChildRunIntent(child.id, intentSeq)
+        return HttpApiSchema.NoContent.make()
+      }
       if (ref) {
         const outcome = yield* settleChildTask(ref)
         yield* notifyParent({
@@ -548,7 +594,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           wakeKind: "plan_child_user_terminated",
           wakeText: `用户手动终止了子 Agent ${child.id}（任务 ${ref.taskId}），任务状态已同步更新。先调用 Plan_read，再处理 Inbox。`,
         })
-        if (intent) clearChildRunIntent(child.id, intent.seq)
+        if (intentSeq !== undefined) clearChildRunIntent(child.id, intentSeq)
       }
       return HttpApiSchema.NoContent.make()
     })

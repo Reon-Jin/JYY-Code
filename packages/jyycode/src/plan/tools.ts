@@ -18,6 +18,7 @@ import {
   parentSessionIdForRunId,
   registerChildRun,
   runIdForChildSession,
+  markChildRunIntent,
   takeChildRunIntent,
   type DispatchBrief,
   type PlanExecutionContext,
@@ -27,6 +28,8 @@ import { PlanProtocolError, planFilePath, readPlanFileSync } from "./schema"
 import { RuntimeEvent } from "./runtime-event"
 import { Blackboard } from "./blackboard"
 import { ChildWorkspace, worktreeAdapter } from "./child-workspace"
+import { terminateChild, type ChildTerminationRequest } from "./child-termination"
+import { InstanceStore } from "@/project/instance-store"
 import * as Log from "@jyycode-ai/core/util/log"
 
 const log = Log.create({ service: "plan" })
@@ -652,6 +655,7 @@ function protocolFor(
     profiles?: () => Promise<readonly SubagentProfile[]>
     candidateBoard?: Blackboard.Interface
     childWorkspace?: ChildWorkspace
+    disposeDirectory?: (directory: string) => Promise<void>
   },
 ) {
   let protocol: PlanProtocol
@@ -749,9 +753,24 @@ function protocolFor(
           ),
         )
       },
-      async terminate(sessionId) {
+      async terminate(sessionId, request?: ChildTerminationRequest) {
         const run = runtime.bridge.promise
-        await run(sessions.setArchived({ sessionID: sessionId as SessionID, time: Date.now() }))
+        if (!runtime.promptOps) throw new Error("Plan runtime requires promptOps for child termination")
+        if (!runtime.disposeDirectory) throw new Error("Plan runtime requires instanceStore for child termination")
+        return terminateChild(
+          { sessionId, request },
+          {
+            markIntent: () => {
+              // The coordinator owns termination, so the dispatch watcher must
+              // not race it with an automatic child-exit settle.
+              markChildRunIntent(sessionId, "terminate")
+            },
+            cancel: () => run(runtime.promptOps!.cancel(sessionId as SessionID)),
+            status: () => run(runtime.promptOps!.status(sessionId as SessionID)),
+            disposeDirectory: (directory) => runtime.disposeDirectory!(directory),
+            archive: () => run(sessions.setArchived({ sessionID: sessionId as SessionID, time: Date.now() })),
+          },
+        )
       },
     },
     beforeReport: runtime.beforeReport,
@@ -1013,8 +1032,11 @@ export const PlanUpdateTool = Tool.define(
             ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
             : undefined
           const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
+          const disposeDirectory = (directory: string) =>
+            bridge.promise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
           const protocol = protocolFor(sessions, bus, {
             bridge,
+            promptOps: promptOps(ctx),
             beforeStepAdvance: async (main) => {
               const unread = await bridge.promise(board.unreadForMain(main.sessionId as SessionID))
               if (unread > 0)
@@ -1026,6 +1048,7 @@ export const PlanUpdateTool = Tool.define(
                 })
             },
             childWorkspace,
+            disposeDirectory,
           })
           const result = yield* Effect.promise(() => protocol.update(protocolContext(session, ctx), input))
           if (result.ok) requestToolCatalogRefresh(ctx)
@@ -1063,10 +1086,13 @@ export const DispatchDispatchTool = Tool.define(
             ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
             : undefined
           const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
+          const disposeDirectory = (directory: string) =>
+            bridge.promise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
           const protocol = protocolFor(sessions, bus, {
             bridge,
             promptOps: promptOps(ctx),
             childWorkspace,
+            disposeDirectory,
             profiles: async () =>
               enabledProfiles(resolveProfiles((await bridge.promise(config.get())).subagents?.profiles)),
           })
@@ -1142,7 +1168,14 @@ export const DispatchCancelTool = Tool.define(
             ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
             : undefined
           const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
-          const protocol = protocolFor(sessions, bus, { bridge, childWorkspace })
+          const disposeDirectory = (directory: string) =>
+            bridge.promise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
+          const protocol = protocolFor(sessions, bus, {
+            bridge,
+            promptOps: promptOps(ctx),
+            childWorkspace,
+            disposeDirectory,
+          })
           const result = yield* Effect.promise(() => protocol.cancel(protocolContext(session, ctx), input.taskIds))
           if (result.ok) requestToolCatalogRefresh(ctx)
           return jsonResult("Dispatch.cancel", result)
@@ -1294,9 +1327,12 @@ export const ReportTool = Tool.define(
           const session = yield* getSession(sessions, ctx.sessionID)
           const ops = promptOps(ctx)
           const board = yield* Blackboard.Service
+          const disposeDirectory = (directory: string) =>
+            bridge.promise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
           const protocol = protocolFor(sessions, bus, {
             bridge,
             promptOps: ops,
+            disposeDirectory,
             beforeReport: async (child) => {
               try {
                 await bridge.promise(board.assertReportReady(child.sessionId as SessionID))
@@ -1357,7 +1393,14 @@ export const MergeApplyTool = Tool.define(
             ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
             : undefined
           const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
-          const protocol = protocolFor(sessions, bus, { bridge, childWorkspace })
+          const disposeDirectory = (directory: string) =>
+            bridge.promise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
+          const protocol = protocolFor(sessions, bus, {
+            bridge,
+            promptOps: promptOps(ctx),
+            childWorkspace,
+            disposeDirectory,
+          })
           const result = yield* Effect.promise(() => protocol.merge(protocolContext(session, ctx), input))
           if (result.ok) requestToolCatalogRefresh(ctx)
           return jsonResult("Merge.apply", result)

@@ -3,7 +3,7 @@ import path from "node:path"
 import { clonePlan, planFilePath, type DispatchRecord, type PlanFile, type PlanTask } from "./schema"
 import { PlanStore, defaultPlanStore } from "./store"
 import { PlanInbox, defaultPlanInbox } from "./events"
-import type { ChildController } from "./protocol"
+import { childTerminationRequest, type ChildController } from "./protocol"
 import { ChildWorkspace } from "./child-workspace"
 import {
   applyWorkspaceMerge,
@@ -123,13 +123,24 @@ export class PlanRecovery {
     const childSessionId = task.dispatch?.child_session_id
     const workspaceDirectory = task.dispatch?.workspace?.directory
     const cleanupErrors: string[] = []
+    let childStopped = !childSessionId
     try {
-      if (childSessionId && this.children) await this.children.terminate(childSessionId)
+      if (childSessionId && !this.children) throw new Error("child termination coordinator unavailable")
+      if (childSessionId && this.children) {
+        const termination = await this.children.terminate(
+          childSessionId,
+          childTerminationRequest(task.dispatch?.workspace),
+        )
+        if (termination?.state === "stop_failed")
+          cleanupErrors.push(`child cleanup: ${termination.phase}: ${termination.message}`)
+        else childStopped = true
+      }
     } catch (error) {
       cleanupErrors.push(`child cleanup: ${error instanceof Error ? error.message : String(error)}`)
     }
     try {
-      if (workspaceDirectory && this.childWorkspace) await this.childWorkspace.remove(workspaceDirectory)
+      if (childStopped && workspaceDirectory && this.childWorkspace && task.dispatch?.workspace?.mode !== "shared_compat")
+        await this.childWorkspace.remove(workspaceDirectory)
     } catch (error) {
       cleanupErrors.push(`workspace cleanup: ${error instanceof Error ? error.message : String(error)}`)
     }

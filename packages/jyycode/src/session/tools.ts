@@ -16,6 +16,7 @@ import { MessageV2 } from "./message-v2"
 import * as Session from "./session"
 import { SessionProcessor } from "./processor"
 import { PartID, type SessionID } from "./schema"
+import type { Info as SessionStatusInfo } from "./status"
 import type { SessionPrompt } from "./prompt"
 import * as Log from "@jyycode-ai/core/util/log"
 import { EffectBridge } from "@/effect/bridge"
@@ -455,6 +456,7 @@ export function requiredPlanTool(input: {
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
+  status(sessionID: SessionID): Effect.Effect<SessionStatusInfo>
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
   loop(input: SessionPrompt.LoopInput): Effect.Effect<MessageV2.WithParts>
