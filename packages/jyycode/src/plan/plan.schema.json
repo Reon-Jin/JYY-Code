@@ -45,6 +45,7 @@
         "status": { "enum": ["pending", "dispatched", "running", "reported", "approved", "rejected", "dismissed"] },
         "dispatch": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/dispatch" }] },
         "report": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/report" }] },
+        "merge": { "$ref": "#/$defs/merge" },
         "reopen_reason": { "type": "string", "minLength": 1 }
       }
     },
@@ -72,7 +73,10 @@
         "root": { "type": "string", "minLength": 1 },
         "directory": { "type": ["string", "null"] },
         "created_at": { "type": ["string", "null"], "format": "date-time" },
-        "cleanup": { "enum": ["on_success", "on_cancel", "retain_on_failure"] }
+        "cleanup": { "enum": ["on_success", "on_cancel", "retain_on_failure"] },
+        "baseline_directory": { "type": ["string", "null"] },
+        "baseline_manifest_hash": { "type": ["string", "null"] },
+        "source_revision": { "type": ["string", "null"] }
       }
     },
     "profileSnapshot": {
@@ -120,6 +124,35 @@
         "synthesis_artifact": { "type": "string", "minLength": 1 },
         "rationale": { "type": "string", "minLength": 1 },
         "selected_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "merge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "attempt", "applied_paths", "conflicts", "started_at", "completed_at", "target_fingerprint", "cleanup"],
+      "properties": {
+        "status": { "enum": ["not_started", "pending", "running", "merged", "conflict", "failed"] },
+        "attempt": { "type": "integer", "minimum": 0 },
+        "applied_paths": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "conflicts": { "type": "array", "items": { "$ref": "#/$defs/mergeConflict" } },
+        "started_at": { "type": ["string", "null"], "format": "date-time" },
+        "completed_at": { "type": ["string", "null"], "format": "date-time" },
+        "target_fingerprint": { "type": ["string", "null"] },
+        "cleanup": { "enum": ["not_started", "pending", "completed", "failed"] },
+        "cleanup_error": { "type": "string", "minLength": 1 }
+      }
+    },
+    "mergeConflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "kind"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["content", "add_add", "delete_modify", "binary", "symlink"] },
+        "main_path": { "type": "string", "minLength": 1 },
+        "child_path": { "type": "string", "minLength": 1 },
+        "base_path": { "type": "string", "minLength": 1 },
+        "fingerprint": { "type": "string", "minLength": 1 }
       }
     },
     "report": {

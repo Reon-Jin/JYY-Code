@@ -5,7 +5,14 @@ import { describe, expect, it } from "bun:test"
 import { PlanProtocol, type ChildStartInput } from "../../src/plan/protocol"
 import { PlanEventHub, PlanInbox, WakeupQueue, validatePlanEvent } from "../../src/plan/events"
 import { AGING_MS, PlanStore, STALE_LOCK_MS, type WriteRequest } from "../../src/plan/store"
-import { planFilePath, PlanProtocolError, validatePlanFile } from "../../src/plan/schema"
+import {
+  isStepComplete,
+  normalizePlanFile,
+  planFilePath,
+  PlanProtocolError,
+  validatePlanFile,
+  type PlanFile,
+} from "../../src/plan/schema"
 import { projectPlanSnapshot, validatePlanSnapshot } from "../../src/plan/snapshot"
 import { planSystemPrompt } from "../../src/plan/prompts"
 import { defaultGeneralProfile } from "../../src/agent/subagent-profile"
@@ -686,6 +693,58 @@ describe("file-backed plan protocol", () => {
       const result = await mergeApply(protocol, root, { task_id: "s1_t1" })
       expect(result).toMatchObject({ ok: false, error: { code: expect.any(String) } })
     }
+  })
+
+  it("normalizes legacy plans and validates durable merge metadata", async () => {
+    const root = workspace()
+    const protocol = new PlanProtocol()
+    await protocol.create(context(root), createInput())
+    const read = await protocol.read(context(root))
+    if (!read.ok || !read.plan) return
+
+    const legacy = structuredClone(read.plan) as PlanFile
+    delete legacy.steps[0]!.tasks[0]!.mode
+    delete legacy.steps[0]!.tasks[0]!.merge
+    const normalized = normalizePlanFile(legacy) as PlanFile
+    expect(normalized.steps[0]?.tasks[0]?.mode).toBe("standard")
+    expect(normalized.steps[0]?.tasks[0]?.merge).toBeUndefined()
+    expect(fs.readFileSync(planFilePath(root, "ses_main"), "utf8")).not.toContain('"merge"')
+
+    const task = normalized.steps[0]!.tasks[0]!
+    task.status = "approved"
+    task.dispatch = {
+      run_id: "run__ses_main__s1_t1",
+      child_session_id: "child_s1_t1",
+      dispatched_at: new Date().toISOString(),
+      cancelled_at: null,
+      workspace: {
+        mode: "snapshot",
+        root,
+        directory: path.join(root, ".runtime", "child"),
+        created_at: new Date().toISOString(),
+        cleanup: "on_success",
+        baseline_directory: path.join(root, ".runtime", "baseline"),
+        baseline_manifest_hash: "a".repeat(64),
+        source_revision: null,
+      },
+    }
+    task.merge = {
+      status: "pending",
+      attempt: 1,
+      applied_paths: [],
+      conflicts: [],
+      started_at: null,
+      completed_at: null,
+      target_fingerprint: null,
+      cleanup: "not_started",
+    }
+    expect(validatePlanFile(normalized)).toEqual([])
+    expect(isStepComplete(normalized.steps[0]!, root)).toBe(false)
+    task.merge.status = "merged"
+    expect(isStepComplete(normalized.steps[0]!, root)).toBe(true)
+
+    task.merge.status = "unknown" as never
+    expect(validatePlanFile(normalized)).toContain("plan.steps[0].tasks[0].merge: invalid merge record")
   })
 
   it("keeps report retry state and Inbox entries across protocol calls", async () => {

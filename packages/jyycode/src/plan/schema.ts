@@ -38,7 +38,38 @@ export type CandidateSelection = {
   selected_at: string
 }
 
-export type DispatchWorkspace = {
+export type MergeStatus = "not_started" | "pending" | "running" | "merged" | "conflict" | "failed"
+export type MergeConflictKind = "content" | "add_add" | "delete_modify" | "binary" | "symlink"
+export type MergeCleanupStatus = "not_started" | "pending" | "completed" | "failed"
+
+export type MergeConflictSummary = {
+  path: string
+  kind: MergeConflictKind
+  main_path?: string
+  child_path?: string
+  base_path?: string
+  fingerprint?: string
+}
+
+export type MergeRecord = {
+  status: MergeStatus
+  attempt: number
+  applied_paths: string[]
+  conflicts: MergeConflictSummary[]
+  started_at: string | null
+  completed_at: string | null
+  target_fingerprint: string | null
+  cleanup: MergeCleanupStatus
+  cleanup_error?: string
+}
+
+export type WorkspaceBaseline = {
+  baseline_directory?: string | null
+  baseline_manifest_hash?: string | null
+  source_revision?: string | null
+}
+
+export type DispatchWorkspace = WorkspaceBaseline & {
   mode: "worktree" | "snapshot" | "shared_compat"
   root: string
   directory: string | null
@@ -81,6 +112,7 @@ export type PlanTask = {
   status: TaskStatus
   dispatch: DispatchRecord | null
   report: ReportRecord | null
+  merge?: MergeRecord
   reopen_reason?: string
 }
 
@@ -281,6 +313,36 @@ function validCandidateSelection(value: unknown): value is CandidateSelection {
   )
 }
 
+function isValidMergeConflict(value: unknown): value is MergeConflictSummary {
+  if (!isRecord(value)) return false
+  return (
+    nonEmptyString(value.path) &&
+    ["content", "add_add", "delete_modify", "binary", "symlink"].includes(String(value.kind)) &&
+    (value.main_path === undefined || nonEmptyString(value.main_path)) &&
+    (value.child_path === undefined || nonEmptyString(value.child_path)) &&
+    (value.base_path === undefined || nonEmptyString(value.base_path)) &&
+    (value.fingerprint === undefined || nonEmptyString(value.fingerprint))
+  )
+}
+
+function isValidMerge(value: unknown): value is MergeRecord {
+  if (!isRecord(value)) return false
+  return (
+    ["not_started", "pending", "running", "merged", "conflict", "failed"].includes(String(value.status)) &&
+    Number.isInteger(value.attempt) &&
+    (value.attempt as number) >= 0 &&
+    Array.isArray(value.applied_paths) &&
+    value.applied_paths.every((item) => nonEmptyString(item)) &&
+    Array.isArray(value.conflicts) &&
+    value.conflicts.every(isValidMergeConflict) &&
+    (value.started_at === null || validDateTime(value.started_at)) &&
+    (value.completed_at === null || validDateTime(value.completed_at)) &&
+    (value.target_fingerprint === null || nonEmptyString(value.target_fingerprint)) &&
+    ["not_started", "pending", "completed", "failed"].includes(String(value.cleanup)) &&
+    (value.cleanup_error === undefined || nonEmptyString(value.cleanup_error))
+  )
+}
+
 export function validatePlanFile(value: unknown): string[] {
   const errors: string[] = []
   if (!isRecord(value)) return ["plan: must be an object"]
@@ -375,6 +437,7 @@ export function validatePlanFile(value: unknown): string[] {
           "status",
           "dispatch",
           "report",
+          "merge",
           "reopen_reason",
         ])
         for (const key of Object.keys(rawTask))
@@ -403,6 +466,8 @@ export function validatePlanFile(value: unknown): string[] {
           errors.push(errorAt(`${taskPrefix}.dispatch`, "invalid dispatch record"))
         if (!("report" in rawTask) || (rawTask.report !== null && !isValidReport(rawTask.report)))
           errors.push(errorAt(`${taskPrefix}.report`, "invalid report record"))
+        if (rawTask.merge !== undefined && !isValidMerge(rawTask.merge))
+          errors.push(errorAt(`${taskPrefix}.merge`, "invalid merge record"))
       }
     }
     if (value.current_step !== null && !stepIds.has(String(value.current_step)))
@@ -437,9 +502,12 @@ function isValidDispatch(value: unknown): value is DispatchRecord {
     (isRecord(workspace) &&
       ["worktree", "snapshot", "shared_compat"].includes(String(workspace.mode)) &&
       nonEmptyString(workspace.root) &&
-      (workspace.directory === null || nonEmptyString(workspace.directory)) &&
-      (workspace.created_at === null || validDateTime(workspace.created_at)) &&
-      ["on_success", "on_cancel", "retain_on_failure"].includes(String(workspace.cleanup)))
+    (workspace.directory === null || nonEmptyString(workspace.directory)) &&
+    (workspace.created_at === null || validDateTime(workspace.created_at)) &&
+      ["on_success", "on_cancel", "retain_on_failure"].includes(String(workspace.cleanup)) &&
+      (workspace.baseline_directory === undefined || workspace.baseline_directory === null || nonEmptyString(workspace.baseline_directory)) &&
+      (workspace.baseline_manifest_hash === undefined || workspace.baseline_manifest_hash === null || nonEmptyString(workspace.baseline_manifest_hash)) &&
+      (workspace.source_revision === undefined || workspace.source_revision === null || nonEmptyString(workspace.source_revision)))
   return (
     /^run__[A-Za-z0-9_-]+__s[1-9]\d*_t[1-9]\d*$/.test(String(value.run_id)) &&
     nonEmptyString(value.child_session_id) &&
@@ -499,6 +567,10 @@ export function normalizePlanFile(value: unknown): unknown {
   return normalized
 }
 
+export function mergeStatus(task: PlanTask): MergeStatus {
+  return task.merge?.status ?? "not_started"
+}
+
 function pathWithin(workspace: string, candidate: string) {
   const relative = path.relative(path.resolve(workspace), path.resolve(candidate))
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
@@ -506,7 +578,15 @@ function pathWithin(workspace: string, candidate: string) {
 
 export function isStepComplete(step: PlanStep, workspace: string): boolean {
   const isCandidate = step.tasks.some((task) => task.mode === "candidate")
-  if (!isCandidate) return step.tasks.length > 0 && step.tasks.every((task) => task.status === "approved")
+  if (!isCandidate)
+    return (
+      step.tasks.length > 0 &&
+      step.tasks.every(
+        (task) =>
+          task.status === "approved" &&
+          (!task.dispatch?.workspace || mergeStatus(task) === "merged"),
+      )
+    )
   if (step.tasks.length < 2 || step.tasks.length > 3 || step.tasks.some((task) => task.mode !== "candidate"))
     return false
   const selection = step.candidate_selection

@@ -211,6 +211,9 @@ function dispatchWorkspaceMetadata(workspace: WorkspaceReservation | WorkspaceHa
     directory: workspace.directory,
     created_at: workspace.created_at,
     cleanup: workspace.cleanup,
+    baseline_directory: workspace.baseline_directory ?? null,
+    baseline_manifest_hash: workspace.baseline_manifest_hash ?? null,
+    source_revision: workspace.source_revision ?? null,
   }
 }
 
