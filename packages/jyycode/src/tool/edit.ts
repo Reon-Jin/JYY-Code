@@ -15,6 +15,7 @@ import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import * as Bom from "@/util/bom"
 import { applyEditOperations, normalizeLineEndings, trimDiff } from "./edit-shared"
 import { fileWriteLock } from "@/file/write-lock"
+import { resolveUserPath } from "@/util/filesystem"
 
 export { trimDiff } from "./edit-shared"
 
@@ -53,9 +54,7 @@ export const EditTool = Tool.define(
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
-          const filePath = path.isAbsolute(params.filePath)
-            ? params.filePath
-            : path.join(instance.directory, params.filePath)
+          const filePath = resolveUserPath(params.filePath, instance.directory)
           yield* assertExternalDirectoryEffect(ctx, filePath)
 
           let diff = ""

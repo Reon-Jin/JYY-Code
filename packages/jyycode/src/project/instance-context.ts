@@ -1,5 +1,5 @@
 import { LocalContext } from "@/util/local-context"
-import { AppFileSystem } from "@jyycode-ai/core/filesystem"
+import { containsCanonicalPath } from "@/util/filesystem"
 import type * as Project from "./project"
 
 export interface InstanceContext {
@@ -16,9 +16,9 @@ export const context = LocalContext.create<InstanceContext>("instance")
  * Paths within the worktree but outside the working directory should not trigger external_directory permission.
  */
 export function containsPath(filepath: string, ctx: InstanceContext): boolean {
-  if (AppFileSystem.contains(ctx.directory, filepath)) return true
+  if (containsCanonicalPath(ctx.directory, filepath)) return true
   // Non-git projects set worktree to "/" which would match ANY absolute path.
   // Skip worktree check in this case to preserve external_directory permissions.
   if (ctx.worktree === "/") return false
-  return AppFileSystem.contains(ctx.worktree, filepath)
+  return containsCanonicalPath(ctx.worktree, filepath)
 }

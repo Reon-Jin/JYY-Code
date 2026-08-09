@@ -1,6 +1,7 @@
 import { afterEach, describe, expect } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
+import os from "os"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import { EditTool } from "@/tool/edit"
 import { LSP } from "@/lsp/lsp"
@@ -11,6 +12,7 @@ import { Bus } from "@/bus"
 import { Truncate } from "@/tool/truncate"
 import { SessionID, MessageID } from "@/session/schema"
 import { Tool } from "@/tool/tool"
+import { Permission } from "@/permission"
 import { disposeAllInstances, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { fileWriteLock } from "@/file/write-lock"
@@ -78,6 +80,42 @@ const loadRaw = Effect.fn("EditToolTest.loadRaw")(function* (p: string) {
 })
 
 describe("tool.edit", () => {
+  it.instance("denies editing through a symlink that escapes the project", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const outside = yield* Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "jyycode-edit-outside-")))
+      yield* Effect.addFinalizer(() => Effect.promise(() => fs.rm(outside, { recursive: true, force: true })))
+      const outsideFile = path.join(outside, "secret.txt")
+      const link = path.join(test.directory, "link-outside")
+      yield* Effect.promise(() => fs.writeFile(outsideFile, "do not edit", "utf-8"))
+
+      try {
+        yield* Effect.promise(() => fs.symlink(outside, link, process.platform === "win32" ? "junction" : "dir"))
+      } catch (error) {
+        if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") return
+        throw error
+      }
+
+      let requested = false
+      const next = {
+        ...ctx,
+        ask: (request: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+          if (request.permission !== "external_directory") return Effect.void
+          requested = true
+          return Effect.die(new Permission.DeniedError({ ruleset: [] }))
+        },
+      }
+      const exit = yield* run({
+        filePath: outsideFile.replace(outside, link),
+        edits: [{ oldString: "do not edit", newString: "changed" }],
+      }, next).pipe(Effect.exit)
+
+      expect(exit._tag).toBe("Failure")
+      expect(requested).toBe(true)
+      expect(yield* loadRaw(outsideFile)).toBe("do not edit")
+    }),
+  )
+
   it.instance("applies ordered edits atomically", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance

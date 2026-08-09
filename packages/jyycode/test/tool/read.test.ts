@@ -1,6 +1,7 @@
 import { afterEach, describe, expect } from "bun:test"
 import { Cause, Effect, Exit, Layer, Stream } from "effect"
 import path from "path"
+import fs from "fs/promises"
 import { Agent } from "../../src/agent/agent"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
@@ -220,6 +221,38 @@ describe("tool.read external_directory permission", () => {
       }),
     )
   }
+
+  it.instance("denies reading through a symlink that escapes the project", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const outside = yield* tmpdirScoped()
+      const outsideFile = path.join(outside, "secret.txt")
+      const link = path.join(test.directory, "link-outside")
+      yield* put(outsideFile, "do not read")
+
+      try {
+        yield* Effect.promise(() => fs.symlink(outside, link, process.platform === "win32" ? "junction" : "dir"))
+      } catch (error) {
+        if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") return
+        throw error
+      }
+
+      let requested = false
+      const next = {
+        ...ctx,
+        ask: (request: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+          if (request.permission !== "external_directory") return Effect.void
+          requested = true
+          return Effect.die(new Permission.DeniedError({ ruleset: [] }))
+        },
+      }
+      const exit = yield* exec(path.join(test.directory), { filePath: path.join(link, "secret.txt") }, next).pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(requested).toBe(true)
+      expect(yield* load(outsideFile)).toBe("do not read")
+    }),
+  )
 
   it.live("uses worktree-relative path for read permission so user rules match like edit/write", () =>
     Effect.gen(function* () {

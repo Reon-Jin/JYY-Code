@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, stat as statFile, writeFile } from "fs/promises"
 import { createWriteStream, existsSync, statSync } from "fs"
 import { realpathSync } from "fs"
-import { dirname, isAbsolute, join, relative, resolve as pathResolve, win32 } from "path"
+import { basename, dirname, isAbsolute, join, relative, resolve as pathResolve, win32 } from "path"
 import { Readable } from "stream"
 import { pipeline } from "stream/promises"
 import { Glob } from "@jyycode-ai/core/util/glob"
@@ -118,12 +118,7 @@ export async function mimeType(p: string): Promise<string> {
  */
 export function normalizePath(p: string): string {
   if (process.platform !== "win32") return p
-  const resolved = win32.normalize(win32.resolve(windowsPath(p)))
-  try {
-    return realpathSync.native(resolved)
-  } catch {
-    return resolved
-  }
+  return canonicalizeForContainment(p)
 }
 
 export function normalizePathPattern(p: string): string {
@@ -139,13 +134,7 @@ export function normalizePathPattern(p: string): string {
 // Also resolves symlinks so that callers using the result as a cache key
 // always get the same canonical path for a given physical directory.
 export function resolve(p: string): string {
-  const resolved = pathResolve(windowsPath(p))
-  try {
-    return normalizePath(realpathSync(resolved))
-  } catch (e) {
-    if (isEnoent(e)) return normalizePath(resolved)
-    throw e
-  }
+  return canonicalizeForContainment(p)
 }
 
 export function resolveFilePath(root: string, file: string): string {
@@ -158,14 +147,78 @@ export function windowsPath(p: string): string {
   if (process.platform !== "win32") return p
   return (
     p
-      .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+      .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (match, drive) =>
+        existsSync(`${drive.toUpperCase()}:\\`) ? `${drive.toUpperCase()}:/` : match,
+      )
       // Git Bash for Windows paths are typically /<drive>/...
-      .replace(/^\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+      .replace(/^\/([a-zA-Z])(?:\/|$)/, (match, drive) =>
+        existsSync(`${drive.toUpperCase()}:\\`) ? `${drive.toUpperCase()}:/` : match,
+      )
       // Cygwin git paths are typically /cygdrive/<drive>/...
-      .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+      .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (match, drive) =>
+        existsSync(`${drive.toUpperCase()}:\\`) ? `${drive.toUpperCase()}:/` : match,
+      )
       // WSL paths are typically /mnt/<drive>/...
-      .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+      .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (match, drive) =>
+        existsSync(`${drive.toUpperCase()}:\\`) ? `${drive.toUpperCase()}:/` : match,
+      )
   )
+}
+
+/**
+ * Resolve a user supplied path relative to the instance directory.
+ *
+ * Windows root-relative paths must inherit the instance drive, not the
+ * process cwd drive. Drive-qualified and UNC paths remain absolute.
+ */
+export function resolveUserPath(input: string, cwd: string): string {
+  if (process.platform !== "win32") return pathResolve(cwd, input)
+
+  const value = windowsPath(input)
+  const base = win32.normalize(windowsPath(cwd))
+  if (/^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\") || value.startsWith("//")) {
+    return win32.normalize(value)
+  }
+
+  if (value.startsWith("\\") || value.startsWith("/")) {
+    const root = win32.parse(base).root
+    return win32.normalize(join(root, value.replace(/^[/\\]+/, "")))
+  }
+
+  return win32.resolve(base, value)
+}
+
+/**
+ * Canonicalize an existing path, or the nearest existing parent plus the
+ * unresolved suffix for a path that is about to be created.
+ */
+export function canonicalizeForContainment(input: string): string {
+  const resolved =
+    process.platform === "win32" ? win32.normalize(windowsPath(input)) : pathResolve(input)
+  let current = resolved
+  const suffix: string[] = []
+
+  while (!existsSync(current)) {
+    const parent = dirname(current)
+    if (parent === current) return resolved
+    suffix.unshift(basename(current))
+    current = parent
+  }
+
+  const canonicalParent = realpathSync.native(current)
+  return suffix.reduce((parent, item) => join(parent, item), canonicalParent)
+}
+
+/**
+ * Check containment using canonical paths and path-relative semantics.
+ * String-prefix checks are unsafe for siblings such as `/workspace-old`.
+ */
+export function containsCanonicalPath(root: string, target: string): boolean {
+  const canonicalRoot = canonicalizeForContainment(root)
+  const canonicalTarget = canonicalizeForContainment(target)
+  const child = process.platform === "win32" ? win32.relative(canonicalRoot, canonicalTarget) : relative(canonicalRoot, canonicalTarget)
+  const absolute = process.platform === "win32" ? win32.isAbsolute(child) : isAbsolute(child)
+  return child === "" || (!child.startsWith("..") && !absolute)
 }
 export function overlaps(a: string, b: string) {
   const relA = relative(a, b)

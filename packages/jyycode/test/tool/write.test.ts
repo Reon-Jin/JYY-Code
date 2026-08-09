@@ -9,10 +9,11 @@ import { Bus } from "../../src/bus"
 import { Format } from "../../src/format"
 import { Truncate } from "@/tool/truncate"
 import { Tool } from "@/tool/tool"
+import { Permission } from "@/permission"
 import { Agent } from "../../src/agent/agent"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
-import { disposeAllInstances, TestInstance } from "../fixture/fixture"
+import { disposeAllInstances, TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { fileWriteLock } from "@/file/write-lock"
 
@@ -57,6 +58,38 @@ const run = Effect.fn("WriteToolTest.run")(function* (
 })
 
 describe("tool.write", () => {
+  it.instance("denies writing through a symlink that escapes the project", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const outside = yield* tmpdirScoped()
+      const outsideFile = path.join(outside, "secret.txt")
+      const link = path.join(test.directory, "link-outside")
+      yield* Effect.promise(() => fs.writeFile(outsideFile, "do not overwrite", "utf-8"))
+
+      try {
+        yield* Effect.promise(() => fs.symlink(outside, link, process.platform === "win32" ? "junction" : "dir"))
+      } catch (error) {
+        if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") return
+        throw error
+      }
+
+      let requested = false
+      const next = {
+        ...ctx,
+        ask: (request: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
+          if (request.permission !== "external_directory") return Effect.void
+          requested = true
+          return Effect.die(new Permission.DeniedError({ ruleset: [] }))
+        },
+      }
+      const exit = yield* run({ filePath: outsideFile.replace(outside, link), content: "changed" }, next).pipe(Effect.exit)
+
+      expect(exit._tag).toBe("Failure")
+      expect(requested).toBe(true)
+      expect(yield* Effect.promise(() => fs.readFile(outsideFile, "utf-8"))).toBe("do not overwrite")
+    }),
+  )
+
   describe("new file creation", () => {
     it.instance("writes content to new file", () =>
       Effect.gen(function* () {

@@ -14,6 +14,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { trimDiff } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import * as Bom from "@/util/bom"
+import { resolveUserPath } from "@/util/filesystem"
 import { fileWriteLock } from "@/file/write-lock"
 
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
@@ -45,9 +46,7 @@ export const WriteTool = Tool.define(
       execute: (params: { content: string; filePath: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
-          const filepath = path.isAbsolute(params.filePath)
-            ? params.filePath
-            : path.join(instance.directory, params.filePath)
+          const filepath = resolveUserPath(params.filePath, instance.directory)
           yield* assertExternalDirectoryEffect(ctx, filepath)
 
           const { exists, waitedMs } = yield* Effect.scoped(

@@ -9,6 +9,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { Instruction } from "../session/instruction"
 import { isPdfAttachment, sniffAttachmentMime } from "@/util/media"
+import { resolveUserPath } from "@/util/filesystem"
 import { Reference } from "@/reference/reference"
 
 const DEFAULT_READ_LIMIT = 2000
@@ -202,10 +203,7 @@ export const ReadTool = Tool.define(
       ctx: Tool.Context,
     ) {
       const instance = yield* InstanceState.context
-      let filepath = params.filePath
-      if (!path.isAbsolute(filepath)) {
-        filepath = path.resolve(instance.directory, filepath)
-      }
+      let filepath = resolveUserPath(params.filePath, instance.directory)
       if (process.platform === "win32") {
         filepath = AppFileSystem.normalizePath(filepath)
       }
