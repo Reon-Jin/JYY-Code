@@ -183,7 +183,7 @@ export const layer = Layer.effect(
         // window leaves a gap between digest coverage and the verbatim tail
         // before the next digest is generated.
         const historyBase = Option.isSome(digest)
-          ? sliceLastTurns(history, EpisodicMemory.DIGEST_INTERVAL_TURNS)
+          ? sliceLastTurns(history, EpisodicMemory.DIGEST_KEEP_RECENT_TURNS)
           : history
         const historyText = [
           ...(Option.isSome(digest) ? ["<episodic-digest>", digest.value, "</episodic-digest>"] : []),
@@ -1727,7 +1727,7 @@ export const layer = Layer.effect(
           // window leaves a gap between digest coverage and the verbatim tail
           // before the next digest is generated.
           const historyForModel = Option.isSome(episodicDigest)
-            ? sliceLastTurns(msgs, EpisodicMemory.DIGEST_INTERVAL_TURNS)
+            ? sliceLastTurns(msgs, EpisodicMemory.DIGEST_KEEP_RECENT_TURNS)
             : msgs
 
           const msg: MessageV2.Assistant = {

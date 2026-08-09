@@ -96,7 +96,7 @@ describe("EpisodicMemory", () => {
     }),
   )
 
-  it.live("interval digest is due every 5 turns and keeps last 2 turns", () =>
+  it.live("interval digest is due every 5 turns and keeps one five-turn window", () =>
     Effect.gen(function* () {
       const root = yield* tmpdirScoped()
       const memory = yield* EpisodicMemory.Service
@@ -134,6 +134,36 @@ describe("EpisodicMemory", () => {
         generate: () => Effect.succeed("unused"),
       })
       expect(again.status).toBe("skipped")
+
+      for (let turn = 6; turn <= 10; turn++) {
+        yield* memory.recordTurn({ sessionID, workspaceRoot: root, turn: episode(turn) })
+      }
+      expect(yield* memory.isDigestDue({ sessionID, workspaceRoot: root, reason: "interval", totalTurns: 8 })).toBe(
+        false,
+      )
+      expect(yield* memory.isDigestDue({ sessionID, workspaceRoot: root, reason: "interval", totalTurns: 10 })).toBe(
+        true,
+      )
+    }),
+  )
+
+  it.live("upserts a repeated turn and reads the final revision", () =>
+    Effect.gen(function* () {
+      const root = yield* tmpdirScoped()
+      const memory = yield* EpisodicMemory.Service
+      yield* memory.recordTurn({ sessionID, workspaceRoot: root, turn: episode(7) })
+      yield* memory.recordTurn({
+        sessionID,
+        workspaceRoot: root,
+        turn: { ...episode(7), assistantText: "final answer after the second tool step" },
+      })
+
+      const found = yield* memory.readEpisode({ sessionID, workspaceRoot: root, turn: 7 })
+      expect(Option.isSome(found)).toBe(true)
+      if (Option.isSome(found)) expect(found.value.assistantText).toContain("final answer")
+      const fs = yield* AppFileSystem.Service
+      const raw = (yield* fs.readFileStringSafe(EpisodicMemory.episodesPath(root, sessionID)).pipe(Effect.orDie)) ?? ""
+      expect(raw.trim().split("\n")).toHaveLength(1)
     }),
   )
 
@@ -144,12 +174,12 @@ describe("EpisodicMemory", () => {
       for (let turn = 1; turn <= 5; turn++) {
         yield* memory.recordTurn({ sessionID, workspaceRoot: root, turn: episode(turn) })
       }
-      expect(
-        yield* memory.isDigestDue({ sessionID, workspaceRoot: root, reason: "interval", totalTurns: 4 }),
-      ).toBe(false)
-      expect(
-        yield* memory.isDigestDue({ sessionID, workspaceRoot: root, reason: "interval", totalTurns: 5 }),
-      ).toBe(true)
+      expect(yield* memory.isDigestDue({ sessionID, workspaceRoot: root, reason: "interval", totalTurns: 4 })).toBe(
+        false,
+      )
+      expect(yield* memory.isDigestDue({ sessionID, workspaceRoot: root, reason: "interval", totalTurns: 5 })).toBe(
+        true,
+      )
     }),
   )
 
@@ -171,31 +201,35 @@ describe("EpisodicMemory", () => {
         userMessage("u1", "第一轮"),
         assistantMessage("a1", []),
         userMessage("u2", "第二轮"),
-        assistantMessage("a2", [
-          {
-            id: PartID.make("prt_a2_tool"),
-            messageID: MessageID.make("msg_a2"),
-            sessionID: testSessionID,
-            type: "tool",
-            callID: "call_1",
-            tool: "bash",
-            state: {
-              status: "completed",
-              input: { command: "ls" },
-              output: "src\n",
-              title: "x",
-              metadata: {},
-              time: { start: 1, end: 2 },
+        assistantMessage(
+          "a2",
+          [
+            {
+              id: PartID.make("prt_a2_tool"),
+              messageID: MessageID.make("msg_a2"),
+              sessionID: testSessionID,
+              type: "tool",
+              callID: "call_1",
+              tool: "bash",
+              state: {
+                status: "completed",
+                input: { command: "ls" },
+                output: "src\n",
+                title: "x",
+                metadata: {},
+                time: { start: 1, end: 2 },
+              },
             },
-          },
-          {
-            id: PartID.make("prt_a2_text"),
-            messageID: MessageID.make("msg_a2"),
-            sessionID: testSessionID,
-            type: "text",
-            text: "完成",
-          },
-        ], "u2"),
+            {
+              id: PartID.make("prt_a2_text"),
+              messageID: MessageID.make("msg_a2"),
+              sessionID: testSessionID,
+              type: "text",
+              text: "完成",
+            },
+          ],
+          "u2",
+        ),
       ]
       const episode = episodeFromMessages(messages)
       expect(episode.turn).toBe(2)

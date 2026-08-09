@@ -4,15 +4,19 @@ import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { SessionID } from "@/session/schema"
 import * as Log from "@jyycode-ai/core/util/log"
-import { buildDigestPrompt } from "./episodic-digest"
+import { buildDigestPrompt, DIGEST_MAX_OUTPUT_CHARS } from "./episodic-digest"
 import type { MessageV2 } from "@/session/message-v2"
 
 const log = Log.create({ service: "memory.episodic" })
 
 export const DIGEST_INTERVAL_TURNS = 5
+export const DIGEST_KEEP_RECENT_TURNS = 5
+export const EPISODE_RETENTION_TURNS = 1_000
+export const EPISODE_RETENTION_DAYS = 30
+export const MAX_DIGEST_INDEX_ENTRIES = 200
 export const EPISODE_INPUT_MAX_CHARS = 8_000
 export const EPISODE_OUTPUT_MAX_CHARS = 60_000
-export const DIGEST_TARGET_CHARS = 3_000
+export const DIGEST_TARGET_CHARS = DIGEST_MAX_OUTPUT_CHARS
 export const DIGEST_INJECT_MAX_CHARS = 4_000
 
 export type EpisodeToolCall = {
@@ -46,6 +50,8 @@ export type DigestIndex = {
   latestSeq: number | null
   entries: DigestEntry[]
   coveredTurns: number
+  /** Turn at which the digest interval last fired; independent of coverage. */
+  lastDigestTriggeredAtTurn?: number
 }
 
 export type DigestResult =
@@ -151,7 +157,7 @@ export function realUserTurnIndexes(messages: MessageV2.WithParts[]) {
   return indexes
 }
 
-export function sliceLastTurns(messages: MessageV2.WithParts[], keepTurns = 2) {
+export function sliceLastTurns(messages: MessageV2.WithParts[], keepTurns = DIGEST_KEEP_RECENT_TURNS) {
   const indexes = realUserTurnIndexes(messages)
   if (indexes.length <= keepTurns) return messages
   return messages.slice(indexes[indexes.length - keepTurns]!)
@@ -251,10 +257,7 @@ export const layer = Layer.effect(
       return episodes
     })
 
-    const readIndex = Effect.fn("EpisodicMemory.readIndex")(function* (
-      workspaceRoot: string,
-      sessionID: SessionID,
-    ) {
+    const readIndex = Effect.fn("EpisodicMemory.readIndex")(function* (workspaceRoot: string, sessionID: SessionID) {
       const target = digestIndexPath(workspaceRoot, sessionID)
       const text = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
       const parsed = text.trim() ? parseIndex(text) : undefined
@@ -272,10 +275,7 @@ export const layer = Layer.effect(
       return text.trim() ? Option.some(text) : Option.none<string>()
     })
 
-    const writeFileAtomic = Effect.fn("EpisodicMemory.writeFileAtomic")(function* (
-      target: string,
-      content: string,
-    ) {
+    const writeFileAtomic = Effect.fn("EpisodicMemory.writeFileAtomic")(function* (target: string, content: string) {
       const temp = `${target}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
       yield* fs.writeWithDirs(temp, content)
       yield* fs.rename(temp, target).pipe(Effect.ensuring(fs.remove(temp, { force: true }).pipe(Effect.ignore)))
@@ -290,7 +290,30 @@ export const layer = Layer.effect(
       yield* flock.withLock(
         Effect.gen(function* () {
           const current = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie)) ?? ""
-          yield* writeFileAtomic(target, current + JSON.stringify(input.turn) + "\n")
+          const revisions = new Map<number, EpisodeTurn>()
+          for (const line of current.split("\n")) {
+            if (!line.trim()) continue
+            try {
+              const episode = JSON.parse(line) as EpisodeTurn
+              if (episode.version === 1 && typeof episode.turn === "number") revisions.set(episode.turn, episode)
+            } catch (error) {
+              log.warn("skipping corrupt episode revision during upsert", {
+                sessionID: input.sessionID,
+                error: String(error),
+              })
+            }
+          }
+          revisions.set(input.turn.turn, input.turn)
+          const newestTurn = Math.max(...revisions.keys(), input.turn.turn)
+          const cutoffTurn = newestTurn - EPISODE_RETENTION_TURNS
+          const cutoffTime = Date.now() - EPISODE_RETENTION_DAYS * 24 * 60 * 60 * 1000
+          const retained = [...revisions.values()]
+            .filter((episode) => {
+              const timestamp = Date.parse(episode.time)
+              return episode.turn > cutoffTurn && (!Number.isFinite(timestamp) || timestamp >= cutoffTime)
+            })
+            .sort((a, b) => a.turn - b.turn)
+          yield* writeFileAtomic(target, retained.map((episode) => JSON.stringify(episode)).join("\n") + "\n")
         }),
         target,
       )
@@ -311,7 +334,7 @@ export const layer = Layer.effect(
       turn: number
     }) {
       const episodes = yield* readEpisodes(input.workspaceRoot, input.sessionID)
-      const found = episodes.find((episode) => episode.turn === input.turn)
+      const found = episodes.findLast((episode) => episode.turn === input.turn)
       return found ? Option.some(found) : Option.none<EpisodeTurn>()
     })
 
@@ -352,10 +375,13 @@ export const layer = Layer.effect(
       const index = yield* readIndex(input.workspaceRoot, input.sessionID)
       const episodes = yield* readEpisodes(input.workspaceRoot, input.sessionID)
       const covered = Option.isSome(index) ? index.value.coveredTurns : 0
-      const keepFrom = Math.max(0, input.totalTurns - 2)
+      const lastTriggered = Option.isSome(index)
+        ? (index.value.lastDigestTriggeredAtTurn ?? index.value.coveredTurns + DIGEST_KEEP_RECENT_TURNS)
+        : 0
+      const keepFrom = Math.max(0, input.totalTurns)
       const digestable = episodes.filter((episode) => episode.turn > covered && episode.turn <= keepFrom)
       const hasSeed = Option.isSome(index) || Boolean(input.previousSummary) || Boolean(input.backfillText)
-      if (input.reason === "interval" && input.totalTurns - covered < DIGEST_INTERVAL_TURNS) return false
+      if (input.reason === "interval" && input.totalTurns - lastTriggered < DIGEST_INTERVAL_TURNS) return false
       if (input.reason === "threshold" && digestable.length === 0 && Option.isSome(index)) return false
       if (digestable.length === 0 && !hasSeed) return false
       return true
@@ -367,11 +393,14 @@ export const layer = Layer.effect(
           const index = yield* readIndex(input.workspaceRoot, input.sessionID)
           const episodes = yield* readEpisodes(input.workspaceRoot, input.sessionID)
           const covered = Option.isSome(index) ? index.value.coveredTurns : 0
-          const keepFrom = Math.max(0, input.totalTurns - 2)
+          const lastTriggered = Option.isSome(index)
+            ? (index.value.lastDigestTriggeredAtTurn ?? index.value.coveredTurns + DIGEST_KEEP_RECENT_TURNS)
+            : 0
+          const keepFrom = Math.max(0, input.totalTurns)
           const digestable = episodes.filter((episode) => episode.turn > covered && episode.turn <= keepFrom)
           const hasSeed = Option.isSome(index) || Boolean(input.previousSummary) || Boolean(input.backfillText)
 
-          if (input.reason === "interval" && input.totalTurns - covered < DIGEST_INTERVAL_TURNS) {
+          if (input.reason === "interval" && input.totalTurns - lastTriggered < DIGEST_INTERVAL_TURNS) {
             return { status: "skipped" as const, reason: "interval_not_due" }
           }
           if (input.reason === "threshold" && digestable.length === 0 && Option.isSome(index)) {
@@ -391,7 +420,7 @@ export const layer = Layer.effect(
             backfillText: Option.isSome(index) ? undefined : input.backfillText,
             episodes: digestable,
           })
-          const text = (yield* input.generate(prompt)).trim()
+          const text = truncate((yield* input.generate(prompt)).trim(), DIGEST_TARGET_CHARS)
           if (!text) return { status: "skipped" as const, reason: "empty_generation" }
 
           const indexTarget = digestIndexPath(input.workspaceRoot, input.sessionID)
@@ -406,6 +435,9 @@ export const layer = Layer.effect(
 
               const currentLatest = Option.isSome(current) ? current.value.latestSeq : null
               const seq = (currentLatest ?? 0) + 1
+              const currentTriggered = Option.isSome(current)
+                ? (current.value.lastDigestTriggeredAtTurn ?? current.value.coveredTurns + DIGEST_KEEP_RECENT_TURNS)
+                : 0
               const next: DigestIndex = {
                 version: 1,
                 latestSeq: seq,
@@ -418,8 +450,9 @@ export const layer = Layer.effect(
                     parentSeq: currentLatest,
                     createdAt: new Date().toISOString(),
                   },
-                ],
+                ].slice(-MAX_DIGEST_INDEX_ENTRIES),
                 coveredTurns: newCovered,
+                lastDigestTriggeredAtTurn: Math.max(currentTriggered, input.totalTurns),
               }
               yield* writeFileAtomic(digestFilePath(input.workspaceRoot, input.sessionID, seq), text)
               yield* writeFileAtomic(indexTarget, JSON.stringify(next, null, 2))

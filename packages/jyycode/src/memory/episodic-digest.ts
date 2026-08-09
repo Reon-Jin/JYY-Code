@@ -2,6 +2,7 @@ import type { EpisodeTurn } from "./episodic"
 
 export const DIGEST_PROMPT_TOOL_OUTPUT_MAX = 2_000
 export const DIGEST_PROMPT_TEXT_MAX = 1_500
+export const DIGEST_MAX_OUTPUT_CHARS = 3_000
 
 export function truncate(text: string, maxChars: number) {
   if (text.length <= maxChars) return text
@@ -25,11 +26,7 @@ export function formatEpisodesForDigest(episodes: EpisodeTurn[]) {
   return episodes.map(formatEpisodeForDigest).join("\n\n---\n\n")
 }
 
-export function buildDigestPrompt(input: {
-  previousDigest?: string
-  backfillText?: string
-  episodes: EpisodeTurn[]
-}) {
+export function buildDigestPrompt(input: { previousDigest?: string; backfillText?: string; episodes: EpisodeTurn[] }) {
   const lines = [
     "You are the episodic memory compactor for a coding assistant.",
     "Compress completed conversation turns into a cumulative Markdown digest that preserves what still matters for future turns.",
@@ -47,7 +44,7 @@ export function buildDigestPrompt(input: {
     "- From tool results keep only key facts; drop web-page boilerplate, long listings, and raw dumps.",
     "- Discard superseded details; when a previous digest is given, carry forward only what is still true and merge new facts into it.",
     "- Do not mention the compaction process. Respond in the same language as the conversation.",
-    "- Output at most 3000 characters.",
+    `- Output at most ${DIGEST_MAX_OUTPUT_CHARS} characters.`,
   ]
   if (input.previousDigest) lines.push("", "<previous-digest>", input.previousDigest, "</previous-digest>")
   if (input.backfillText) lines.push("", "<older-history>", input.backfillText, "</older-history>")
