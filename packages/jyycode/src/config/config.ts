@@ -394,6 +394,9 @@ export const Info = Schema.Struct({
       runtime_hard_limit_bytes: Schema.optional(PositiveInt),
       terminal_reference_max: Schema.optional(PositiveInt),
       sweep_interval_minutes: Schema.optional(PositiveInt),
+      inventory_max_entries: Schema.optional(PositiveInt),
+      migration_index: Schema.optional(Schema.Boolean),
+      legacy_root: Schema.optional(Schema.String),
     }),
   ).annotate({
     description: "Retention, orphan-recovery, and runtime disk-watermark policy for plan workspaces",

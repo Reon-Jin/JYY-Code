@@ -48,6 +48,12 @@ export function isTransientCleanupError(error: unknown) {
   return code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY"
 }
 
+/** Stable, non-sensitive age used by inventory/telemetry callers. */
+export function cleanupRecordAgeMs(record: CleanupRecord, now = Date.now()) {
+  const updated = Date.parse(record.updated_at)
+  return Number.isFinite(updated) ? Math.max(0, now - updated) : 0
+}
+
 function sleep(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
 }
@@ -66,7 +72,11 @@ export async function retryLockedCleanup<T>(
   let attempt = 0
   while (true) {
     try {
-      return await operation()
+      const result = await operation()
+      if (result === false) {
+        throw Object.assign(new Error("cleanup operation did not confirm removal"), { code: "CLEANUP_NOT_CONFIRMED" })
+      }
+      return result
     } catch (error) {
       if (!isTransientCleanupError(error) || attempt >= delays.length) throw error
       const delay = Math.max(0, delays[attempt]! + Math.max(0, jitter()))

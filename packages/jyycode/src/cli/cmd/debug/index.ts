@@ -18,6 +18,7 @@ import { AgentCommand } from "./agent"
 import { StartupCommand } from "./startup"
 import { V2Command } from "./v2"
 import { StorageCommand } from "./storage-audit"
+import { PlanWorkspacesCommand } from "./plan-workspaces"
 
 export const DebugCommand = cmd({
   command: "debug",
@@ -35,6 +36,7 @@ export const DebugCommand = cmd({
       .command(AgentCommand)
       .command(V2Command)
       .command(StorageCommand)
+      .command(PlanWorkspacesCommand)
       .command(InfoCommand)
       .command(PathsCommand)
       .command(WaitCommand)

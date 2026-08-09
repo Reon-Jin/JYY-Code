@@ -169,6 +169,8 @@ If sessions appear "lost", first confirm the current database with `jyycode db s
 
 Session-storage migrations are copy-first and resumable. Use `jyycode storage backfill --dry-run --json` before applying a bounded backfill; it records a timestamp watermark and cursor so interrupted runs can resume. Keep the database and blob root as a matched pair, retain the original copy for rollback, and defer payload pruning and blob garbage collection until recovery checks pass. The disposable-root soak command is documented in [session-storage operations](docs/operations/session-storage.md).
 
+Plan workspace cleanup is also inventory-first. Run `jyycode debug plan-workspaces inspect --project global --json` and the matching `cleanup --dry-run` before any quarantine apply; unknown directories and `kill_failed` results require manual review. See [plan workspace operations](docs/operations/plan-workspaces.md) for the backup and quarantine boundaries.
+
 ## Develop from Source
 
 ```bash
