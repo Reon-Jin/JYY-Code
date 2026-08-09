@@ -130,6 +130,7 @@ async function runIntegration(vcs: "git" | "none") {
     expect(fs.existsSync(path.join(runtime, `${path.basename(childRoot)}.baseline`))).toBe(false)
     const afterMerge = await protocol.read(context(root))
     expect(afterMerge).toMatchObject({ ok: true, plan: { current_step: "s2" } })
+    if (afterMerge.ok && afterMerge.plan) expect(afterMerge.plan.steps[0].tasks[0].merge?.attempt).toBe(1)
 
     if (!afterMerge.ok || !afterMerge.plan) return
     const expanded = await protocol.update(context(root), {

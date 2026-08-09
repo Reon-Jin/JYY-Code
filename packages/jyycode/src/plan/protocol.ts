@@ -2501,6 +2501,7 @@ export class PlanProtocol {
         merge.cleanup = "pending"
         merge.journal_directory = journalDirectory
         merge.error = undefined
+        target.merge = merge
         next.revision++
         next.updated_at = nowIso(this.now)
         return {
