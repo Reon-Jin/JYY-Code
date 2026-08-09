@@ -723,6 +723,17 @@ it.live("session.processor effect tests complete AI SDK tool calls when native f
         expect(call.state.metadata).toEqual({ source: "test" })
         expect(call.state.time.start).toBeDefined()
         expect(call.state.time.end).toBeDefined()
+
+        // A late timeout/defect notification must not overwrite the already
+        // completed tool result or finalize the call a second time.
+        const lateFailure = yield* (handle.failToolCall
+          ? handle.failToolCall("call_1", new Error("late tool failure"), { phase: "late" })
+          : Effect.succeed(false))
+        expect(lateFailure).toBe(false)
+        const afterLateFailure = MessageV2.parts(msg.id).find(
+          (part): part is MessageV2.ToolPart => part.type === "tool" && part.callID === "call_1",
+        )
+        expect(afterLateFailure?.state.status).toBe("completed")
       }),
     { config: (url) => providerCfg(url) },
   ),

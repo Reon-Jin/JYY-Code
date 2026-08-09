@@ -41,6 +41,20 @@ type TriggerName = {
   [K in keyof Hooks]-?: NonNullable<Hooks[K]> extends (input: any, output: any) => Promise<void> ? K : never
 }[keyof Hooks]
 
+export type TriggerOptions = {
+  /** Signal exposed to hooks so external work can stop before the stage deadline. */
+  readonly signal?: AbortSignal
+}
+
+export class HookTimeoutError extends Error {
+  readonly code = "PLUGIN_HOOK_TIMEOUT"
+
+  constructor(readonly hook: string, readonly effectiveMs: number) {
+    super(`plugin hook ${hook} exceeded its ${effectiveMs}ms execution budget`)
+    this.name = "HookTimeoutError"
+  }
+}
+
 export interface Interface {
   readonly trigger: <
     Name extends TriggerName,
@@ -50,6 +64,7 @@ export interface Interface {
     name: Name,
     input: Input,
     output: Output,
+    options?: TriggerOptions,
   ) => Effect.Effect<Output>
   readonly list: () => Effect.Effect<Hooks[]>
   readonly init: () => Effect.Effect<void>
@@ -264,13 +279,31 @@ export const layer = Layer.effect(
       Name extends TriggerName,
       Input = Parameters<Required<Hooks>[Name]>[0],
       Output = Parameters<Required<Hooks>[Name]>[1],
-    >(name: Name, input: Input, output: Output) {
+    >(name: Name, input: Input, output: Output, options?: TriggerOptions) {
       if (!name) return output
       const s = yield* InstanceState.get(state)
       for (const hook of s.hooks) {
         const fn = hook[name] as any
         if (!fn) continue
-        yield* Effect.promise(async () => fn(input, output))
+        yield* Effect.promise(async () => {
+          const result = Promise.resolve(fn(input, output, options?.signal))
+          if (!options?.signal) return result
+          if (options.signal.aborted) throw options.signal.reason ?? new Error("plugin hook aborted")
+          return new Promise<void>((resolve, reject) => {
+            const onAbort = () => reject(options.signal?.reason ?? new Error("plugin hook aborted"))
+            options.signal!.addEventListener("abort", onAbort, { once: true })
+            result.then(
+              () => {
+                options.signal?.removeEventListener("abort", onAbort)
+                resolve()
+              },
+              (error) => {
+                options.signal?.removeEventListener("abort", onAbort)
+                reject(error)
+              },
+            )
+          })
+        })
       }
       return output
     })

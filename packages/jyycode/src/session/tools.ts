@@ -10,7 +10,7 @@ import { ToolRegistry, type ToolIdentity } from "@/tool/registry"
 import { ModelID } from "@/provider/schema"
 import { Plugin } from "@/plugin"
 import { type Tool as AITool, tool, jsonSchema, type ToolExecutionOptions } from "ai"
-import { Effect, Option } from "effect"
+import { Cause, Effect, Exit, Fiber, Option, Scope } from "effect"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import path from "node:path"
 import { MessageV2 } from "./message-v2"
@@ -27,6 +27,7 @@ import { CatalogSearch } from "@/tool/catalog-search"
 import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
 import { Skill } from "@/skill"
 import { budgetFor, DEFAULT_BUDGETS, type BudgetConfig } from "@/execution/budget"
+import type { ExecutionBudget } from "@/execution/budget"
 import { combineAbortSignals } from "@/execution/deadline"
 import { planFilePath, readPlanFileSync, type CandidateDiscussionPhase } from "@/plan/schema"
 import {
@@ -122,7 +123,7 @@ function gatedPlanWriteStub(name: string, requiredTool: string): AITool {
       title: `${name} gated by protocol`,
       output: `当前步骤必须先调用 ${requiredTool}；${name} 未执行，方案未变更。请先完成 ${requiredTool} 并读取其结果（含最新 revision），下一步回复会重新开放 ${name}，届时携带最新 revision 重试。`,
       metadata: { gated: true, tool: name, requiredTool },
-    }),
+    })
   })
 }
 
@@ -474,7 +475,12 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   session: Session.Info
   processor: Pick<
     SessionProcessor.Handle,
-    "message" | "updateToolCall" | "completeToolCall" | "requestToolCatalogRefresh" | "toolCatalogRefreshRequested"
+    | "message"
+    | "updateToolCall"
+    | "completeToolCall"
+    | "failToolCall"
+    | "requestToolCatalogRefresh"
+    | "toolCatalogRefreshRequested"
   >
   bypassAgentCheck: boolean
   messages: MessageV2.WithParts[]
@@ -554,6 +560,31 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
         .pipe(Effect.orDie),
   })
 
+  const bounded = <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+    budget: ExecutionBudget,
+    timeout: () => Tool.ExecutionTimeoutError,
+  ) =>
+    Effect.gen(function* () {
+      const scope = yield* Scope.make()
+      const fiber = yield* Effect.forkIn(effect, scope)
+      const observed = yield* Effect.raceFirst(
+        Fiber.await(fiber),
+        Effect.sleep(budget.effectiveMs).pipe(Effect.as(undefined)),
+      )
+      if (observed === undefined || (Exit.isFailure(observed) && Cause.hasInterruptsOnly(observed.cause))) {
+        // Give cooperative tools a bounded cleanup window before terminating
+        // their private scope. External process handles are intentionally not
+        // reported as killed here; Task 19 owns verified process-tree kills.
+        if (budget.graceMs > 0) yield* Effect.sleep(budget.graceMs)
+        if (fiber.pollUnsafe() === undefined) yield* Fiber.interrupt(fiber).pipe(Effect.ignore)
+        yield* Scope.close(scope, Exit.void).pipe(Effect.ignore)
+        return yield* Effect.fail(timeout())
+      }
+      yield* Scope.close(scope, observed).pipe(Effect.ignore)
+      return yield* observed
+    })
+
   // AI SDK executes all tool calls from one assistant response in parallel.
   // Serializing protocol mutations gives the first successful mutation a
   // chance to invalidate the stale calls queued behind it.
@@ -599,16 +630,34 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
               const budget = budgetFor("generic_tool", undefined, undefined, executionBudgetConfig)
               const ctx = context(args, options, budget)
               const started = Date.now()
+              let phase: Tool.ToolExecutionPhase = "plugin_before"
               const refreshRequested = ctx.extra?.toolCatalogRefreshRequested
               if (typeof refreshRequested === "function" && refreshRequested()) {
                 return skippedAfterProtocolMutation(item.id)
               }
-              return yield* Effect.gen(function* () {
+              const execution = Effect.gen(function* () {
+                const pluginStage = () =>
+                  budget.child("plugin_hook", Math.max(1, Math.floor(budget.effectiveMs / 2)), executionBudgetConfig)
+
+                const beforeBudget = pluginStage()
                 yield* plugin.trigger(
                   "tool.execute.before",
                   { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
                   { args },
+                  { signal: beforeBudget.deadline.signal(ctx.abort) },
+                ).pipe(
+                  Effect.timeoutOrElse({
+                    duration: beforeBudget.effectiveMs,
+                    orElse: () =>
+                      Effect.fail(
+                        new Tool.ExecutionTimeoutError(item.id, beforeBudget.effectiveMs, {
+                          requestedMs: beforeBudget.requestedMs,
+                          phase: "plugin_before",
+                        }),
+                      ),
+                  }),
                 )
+                phase = "execute"
                 const result = yield* executeDef(args, ctx)
                 const output = {
                   ...result,
@@ -619,20 +668,42 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
                     messageID: input.processor.message.id,
                   })),
                 }
+                // Persist the tool result before running the post-hook. A
+                // broken hook must not turn a successful external operation
+                // back into a pending or error tool part.
+                yield* input.processor.completeToolCall(options.toolCallId, output)
+                phase = "plugin_after"
+                const afterBudget = pluginStage()
                 yield* plugin.trigger(
                   "tool.execute.after",
                   { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
                   output,
+                  { signal: afterBudget.deadline.signal(ctx.abort) },
+                ).pipe(
+                  Effect.timeoutOrElse({
+                    duration: afterBudget.effectiveMs,
+                    orElse: () =>
+                      Effect.fail(
+                        new Tool.ExecutionTimeoutError(item.id, afterBudget.effectiveMs, {
+                          requestedMs: afterBudget.requestedMs,
+                          phase: "plugin_after",
+                        }),
+                      ),
+                  }),
                 )
-                if (options.abortSignal?.aborted) {
-                  yield* input.processor.completeToolCall(options.toolCallId, output)
-                }
                 return output
-              }).pipe(
-                Effect.timeoutOrElse({
-                  duration: budget.effectiveMs,
-                  orElse: () => Effect.fail(new Tool.ExecutionTimeoutError(item.id, budget.effectiveMs)),
-                }),
+              })
+              return yield* bounded(
+                execution,
+                budget,
+                () =>
+                  new Tool.ExecutionTimeoutError(item.id, budget.effectiveMs, {
+                    requestedMs: budget.requestedMs,
+                    elapsedMs: Date.now() - started,
+                    phase: options.abortSignal?.aborted ? "abort" : phase,
+                    terminationResult: options.abortSignal?.aborted ? "aborted" : "not_applicable",
+                  }),
+              ).pipe(
                 Effect.matchCauseEffect({
                   onSuccess: (output) =>
                     ToolTelemetry.executionCompleted(bus, {
@@ -648,16 +719,44 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
                     }).pipe(Effect.as(output)),
                   onFailure: (cause) => {
                     const failure = ToolTelemetry.executionFailure(cause)
-                    return ToolTelemetry.executionCompleted(bus, {
-                      sessionID: ctx.sessionID,
-                      messageID: ctx.messageID,
-                      callID: ctx.callID,
-                      tool: item.id,
-                      success: false,
-                      status: failure.status,
-                      durationMs: Date.now() - started,
-                      error: failure.error,
-                    }).pipe(Effect.andThen(Effect.failCause(cause)))
+                    const error = Cause.squash(cause)
+                    const metadata = {
+                      ...(typeof (error as any)?.code === "string" ? { code: (error as any).code } : {}),
+                      requested_ms: budget.requestedMs ?? budget.effectiveMs,
+                      effective_ms: budget.effectiveMs,
+                      elapsed_ms: Date.now() - started,
+                      phase: error instanceof Tool.ExecutionTimeoutError
+                        ? error.phase
+                        : options.abortSignal?.aborted
+                          ? "abort"
+                          : phase,
+                      termination_result: error instanceof Tool.ExecutionTimeoutError
+                        ? error.terminationResult
+                        : options.abortSignal?.aborted
+                          ? "aborted"
+                          : "not_applicable",
+                    }
+                    const finalize = input.processor.failToolCall
+                      ? input.processor.failToolCall(options.toolCallId, error, metadata).pipe(Effect.ignore)
+                      : Effect.void
+                    return finalize.pipe(
+                      Effect.andThen(
+                        ToolTelemetry.executionCompleted(bus, {
+                          sessionID: ctx.sessionID,
+                          messageID: ctx.messageID,
+                          callID: ctx.callID,
+                          tool: item.id,
+                          success: false,
+                          status: failure.status,
+                          durationMs: Date.now() - started,
+                          error: failure.error,
+                        }),
+                      ),
+                      // Do not re-emit the race's interruption branch: callers
+                      // need the typed tool failure even when the timeout
+                      // combinator also records an internal interrupt.
+                      Effect.andThen(Effect.fail(error)),
+                    )
                   },
                 }),
               )

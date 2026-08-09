@@ -51,6 +51,11 @@ export interface Handle {
       attachments?: MessageV2.FilePart[]
     },
   ) => Effect.Effect<void>
+  readonly failToolCall?: (
+    toolCallID: string,
+    error: unknown,
+    metadata?: Record<string, any>,
+  ) => Effect.Effect<boolean>
   /** Mark this assistant turn's tool snapshot stale after a protocol mutation. */
   readonly requestToolCatalogRefresh?: () => void
   /** True after a protocol mutation invalidates this turn's tool snapshot. */
@@ -202,7 +207,11 @@ export const layer = Layer.effect(
         yield* settleToolCall(toolCallID)
       })
 
-      const failToolCall = Effect.fn("SessionProcessor.failToolCall")(function* (toolCallID: string, error: unknown) {
+      const failToolCall = Effect.fn("SessionProcessor.failToolCall")(function* (
+        toolCallID: string,
+        error: unknown,
+        metadata?: Record<string, any>,
+      ) {
         const match = yield* readToolCall(toolCallID)
         if (!match || match.part.state.status !== "running") return false
         yield* session.updatePart({
@@ -211,6 +220,7 @@ export const layer = Layer.effect(
             status: "error",
             input: match.part.state.input,
             error: errorMessage(error),
+            ...(metadata ? { metadata } : {}),
             time: { start: match.part.state.time.start, end: Date.now() },
           },
         })
@@ -927,6 +937,7 @@ export const layer = Layer.effect(
         },
         updateToolCall,
         completeToolCall,
+        failToolCall,
         requestToolCatalogRefresh() {
           ctx.refreshToolCatalog = true
         },
