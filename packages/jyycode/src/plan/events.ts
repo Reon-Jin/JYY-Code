@@ -125,6 +125,8 @@ export class WakeupQueue {
         queue.push({ ...event, payload: { items: [event.payload] } })
       }
     } else {
+      const dedupeKey = event.type === "user_message" && typeof event.payload.dedupe_key === "string" ? event.payload.dedupe_key : undefined
+      if (dedupeKey && queue.some((item) => item.type === "user_message" && item.payload.dedupe_key === dedupeKey)) return
       queue.push(event)
     }
     queue.sort((left, right) => {
@@ -151,7 +153,14 @@ export type InboxEntry = {
   session_id: string
   task_id?: string
   run_id?: string
-  kind: "report_precheck_failed" | "cancelled" | "runtime_error" | "user_interrupt" | "user_terminated"
+  kind:
+    | "report_precheck_failed"
+    | "cancelled"
+    | "runtime_error"
+    | "user_interrupt"
+    | "user_terminated"
+    | "merge_conflict"
+    | "merge_cleanup_failed"
   message: string
   step_id?: string
   task_title?: string
@@ -205,6 +214,14 @@ export class PlanInbox {
   }
 
   add(entry: Omit<InboxEntry, "id" | "created_at" | "resolved_at">) {
+    const duplicate = this.store.pending(entry.session_id).find(
+      (item) =>
+        item.kind === entry.kind &&
+        item.task_id === entry.task_id &&
+        item.run_id === entry.run_id &&
+        item.message === entry.message,
+    )
+    if (duplicate) return duplicate
     return this.store.add(entry as InboxEntryInput)
   }
 

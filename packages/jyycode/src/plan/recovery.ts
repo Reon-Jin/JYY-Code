@@ -6,12 +6,12 @@ import {
   type DispatchRecord,
   type PlanFile,
   type PlanTask,
-  type TaskStatus,
 } from "./schema"
 import { PlanStore, defaultPlanStore } from "./store"
 import { PlanInbox, defaultPlanInbox } from "./events"
 import type { ChildController } from "./protocol"
 import { ChildWorkspace } from "./child-workspace"
+import { applyWorkspaceMerge, workspaceFingerprint, type WorkspaceMergeTransactionResult } from "./workspace-merge"
 
 export type RecoveryResult = {
   sessionId: string
@@ -58,6 +58,13 @@ function dispatchLifecycle(dispatch: DispatchRecord) {
 
 function taskPath(workspaceRoot: string, sessionId: string) {
   return planFilePath(workspaceRoot, sessionId)
+}
+
+const MERGE_CONFLICT_LIMIT = 50
+
+function pathWithin(root: string, target: string) {
+  const relative = path.relative(path.resolve(root), path.resolve(target))
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
 }
 
 export class PlanRecovery {
@@ -152,6 +159,211 @@ export class PlanRecovery {
     })
   }
 
+  private async cleanupMergeWorkspace(sessionId: string, task: PlanTask) {
+    const workspace = task.dispatch?.workspace
+    if (!workspace || workspace.mode === "shared_compat") return
+    if (!this.childWorkspace) throw new Error("child workspace manager unavailable")
+    if (!workspace.directory || !workspace.baseline_directory) throw new Error("recorded child/baseline directory is missing")
+    const runtimeRoot = path.dirname(path.resolve(workspace.baseline_directory))
+    const childDirectory = path.resolve(workspace.directory)
+    const baselineDirectory = path.resolve(workspace.baseline_directory)
+    if (path.resolve(workspace.root) !== this.workspaceRoot || !pathWithin(runtimeRoot, childDirectory) || !pathWithin(runtimeRoot, baselineDirectory))
+      throw new Error("recorded merge workspace is outside the owning runtime root")
+    if (!fs.existsSync(childDirectory) || !fs.existsSync(baselineDirectory)) throw new Error("recorded merge workspace is missing")
+    const canonicalChild = fs.realpathSync.native(childDirectory)
+    const canonicalBaseline = fs.realpathSync.native(baselineDirectory)
+    if (!pathWithin(runtimeRoot, canonicalChild) || !pathWithin(runtimeRoot, canonicalBaseline) || canonicalChild === canonicalBaseline)
+      throw new Error("recorded merge workspace resolves outside the owning runtime root")
+    const reservation = this.childWorkspace.reserve(sessionId, task.id)
+    const loaded = this.childWorkspace.load({
+      ...reservation,
+      ...workspace,
+      rootSessionId: sessionId,
+      taskId: task.id,
+      name: reservation.name,
+      directory: canonicalChild,
+      baseline_directory: canonicalBaseline,
+    })
+    if (!loaded || path.resolve(loaded.directory) !== path.resolve(childDirectory)) throw new Error("recorded child workspace could not be reconstructed")
+    await this.childWorkspace.remove(loaded.directory)
+  }
+
+  private async recordMergeFailure(sessionId: string, taskId: string, reason: string, result: RecoveryResult) {
+    try {
+      await this.update(sessionId, taskId, (current) => {
+        if (!current.merge) return
+        current.merge.status = "failed"
+        current.merge.cleanup = "not_started"
+        current.merge.completed_at = nowIso(this.now)
+        current.merge.error = reason
+      })
+    } catch (error) {
+      result.errors.push(`${taskId}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    result.errors.push(`${taskId}: ${reason}`)
+    this.inbox.add({
+      session_id: sessionId,
+      task_id: taskId,
+      run_id: undefined,
+      kind: "runtime_error",
+      message: `Merge recovery failed for ${taskId}: ${reason}`,
+      suggested_actions: ["read the merge journal and current Plan", "preserve the recorded child workspace before retrying"],
+    })
+    this.record({ sessionId, taskId, phase: "reconcile", outcome: "error" })
+  }
+
+  private async reconcileMerge(sessionId: string, task: PlanTask, result: RecoveryResult) {
+    const merge = task.merge
+    if (!merge) return false
+    if (merge.status === "conflict" || merge.status === "failed" || merge.status === "pending" || merge.status === "not_started") return false
+
+    if (merge.status === "merged") {
+      if (merge.cleanup === "completed" || task.dispatch?.workspace?.mode === "shared_compat") return false
+      try {
+        await this.cleanupMergeWorkspace(sessionId, task)
+        await this.update(sessionId, task.id, (current) => {
+          if (current.merge) {
+            current.merge.cleanup = "completed"
+            current.merge.cleanup_error = undefined
+          }
+        })
+        result.settled.push(task.id)
+        this.record({ sessionId, taskId: task.id, phase: "settle", outcome: "settled" })
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        await this.update(sessionId, task.id, (current) => {
+          if (current.merge) {
+            current.merge.cleanup = "failed"
+            current.merge.cleanup_error = reason
+          }
+        }).catch((updateError) => result.errors.push(`${task.id}: ${updateError instanceof Error ? updateError.message : String(updateError)}`))
+        result.errors.push(`${task.id}: cleanup failed: ${reason}`)
+        this.inbox.add({
+          session_id: sessionId,
+          task_id: task.id,
+          run_id: task.dispatch?.run_id,
+          kind: "merge_cleanup_failed",
+          message: `Merge cleanup failed for ${task.id}: ${reason}`,
+          suggested_actions: ["inspect the exact recorded child/baseline paths", "retry cleanup after fixing the workspace service"],
+        })
+        this.record({ sessionId, taskId: task.id, phase: "settle", outcome: "error" })
+      }
+      return true
+    }
+
+    const dispatch = task.dispatch
+    const workspace = dispatch?.workspace
+    if (!dispatch || !workspace || dispatch.cancelled_at !== null || dispatch.lifecycle === "settled") {
+      await this.recordMergeFailure(sessionId, task.id, "merge run is stale or was cancelled", result)
+      return true
+    }
+
+    let transaction: WorkspaceMergeTransactionResult
+    try {
+      if (workspace.mode === "shared_compat") {
+        transaction = {
+          status: "merged",
+          applied_paths: [],
+          conflicts: [],
+          plan: { apply: [], keep: [], delete: [], conflicts: [] },
+          journal_path: "",
+          target_fingerprint: workspaceFingerprint(this.workspaceRoot),
+        }
+      } else {
+        if (!workspace.directory || !workspace.baseline_directory || !merge.journal_directory)
+          throw new Error("running merge is missing durable workspace or journal metadata")
+        const runtimeRoot = path.dirname(path.resolve(workspace.baseline_directory))
+        const journalDirectory = path.resolve(merge.journal_directory)
+        const childDirectory = path.resolve(workspace.directory)
+        const baselineDirectory = path.resolve(workspace.baseline_directory)
+        if (
+          path.resolve(workspace.root) !== this.workspaceRoot ||
+          !pathWithin(runtimeRoot, childDirectory) ||
+          !pathWithin(runtimeRoot, baselineDirectory) ||
+          !pathWithin(runtimeRoot, journalDirectory)
+        )
+          throw new Error("running merge paths are outside the owning runtime root")
+        transaction = applyWorkspaceMerge({
+          base: baselineDirectory,
+          main: this.workspaceRoot,
+          child: childDirectory,
+          journal_directory: journalDirectory,
+        })
+      }
+    } catch (error) {
+      await this.recordMergeFailure(sessionId, task.id, error instanceof Error ? error.message : String(error), result)
+      return true
+    }
+
+    const boundedConflicts = transaction.conflicts.slice(0, MERGE_CONFLICT_LIMIT)
+    const status = transaction.status === "conflict" ? "conflict" : transaction.status === "merged" || transaction.status === "already_merged" ? "merged" : "failed"
+    try {
+      await this.update(sessionId, task.id, (current) => {
+        if (!current.merge) return
+        current.merge.status = status
+        current.merge.applied_paths = [...new Set([...current.merge.applied_paths, ...transaction.applied_paths])].sort((left, right) => left.localeCompare(right))
+        current.merge.conflicts = boundedConflicts
+        current.merge.target_fingerprint = transaction.target_fingerprint
+        current.merge.completed_at = nowIso(this.now)
+        current.merge.error = transaction.error
+        current.merge.cleanup = status === "merged" ? "pending" : "not_started"
+      })
+    } catch (error) {
+      result.errors.push(`${task.id}: ${error instanceof Error ? error.message : String(error)}`)
+      this.record({ sessionId, taskId: task.id, phase: "settle", outcome: "error" })
+      return true
+    }
+
+    if (status === "conflict") {
+      this.inbox.add({
+        session_id: sessionId,
+        task_id: task.id,
+        run_id: dispatch.run_id,
+        kind: "merge_conflict",
+        message: `Merge conflict for ${task.id}: ${boundedConflicts.map((conflict) => `${conflict.path} (${conflict.kind}) [${conflict.fingerprint ?? ""}]`).join(", ")}`,
+        suggested_actions: ["inspect the reported main_path/base_path/child_path", "edit the parent file and retry Merge.apply with an explicit resolution"],
+      })
+      result.continued.push(task.id)
+      this.record({ sessionId, taskId: task.id, phase: "reconcile", outcome: "continued" })
+      return true
+    }
+    if (status !== "merged") {
+      result.errors.push(`${task.id}: merge recovery returned ${transaction.status}`)
+      this.record({ sessionId, taskId: task.id, phase: "settle", outcome: "error" })
+      return true
+    }
+    try {
+      await this.cleanupMergeWorkspace(sessionId, task)
+      await this.update(sessionId, task.id, (current) => {
+        if (current.merge) {
+          current.merge.cleanup = "completed"
+          current.merge.cleanup_error = undefined
+        }
+      })
+      result.settled.push(task.id)
+      this.record({ sessionId, taskId: task.id, phase: "settle", outcome: "settled" })
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      await this.update(sessionId, task.id, (current) => {
+        if (current.merge) {
+          current.merge.cleanup = "failed"
+          current.merge.cleanup_error = reason
+        }
+      }).catch((updateError) => result.errors.push(`${task.id}: ${updateError instanceof Error ? updateError.message : String(updateError)}`))
+      result.errors.push(`${task.id}: cleanup failed: ${reason}`)
+      this.inbox.add({
+        session_id: sessionId,
+        task_id: task.id,
+        run_id: dispatch.run_id,
+        kind: "merge_cleanup_failed",
+        message: `Merge cleanup failed for ${task.id}: ${reason}`,
+        suggested_actions: ["inspect the exact recorded child/baseline paths", "retry cleanup after fixing the workspace service"],
+      })
+      this.record({ sessionId, taskId: task.id, phase: "settle", outcome: "error" })
+    }
+    return true
+  }
+
   async reconcilePlan(rootSessionId: string): Promise<RecoveryResult> {
     const result: RecoveryResult = {
       sessionId: rootSessionId,
@@ -164,6 +376,7 @@ export class PlanRecovery {
     if (!plan) return result
 
     for (const task of plan.steps.flatMap((step) => step.tasks)) {
+      if (await this.reconcileMerge(rootSessionId, task, result)) continue
       const dispatch = task.dispatch
       if (!dispatch) continue
       const lifecycle = dispatchLifecycle(dispatch)

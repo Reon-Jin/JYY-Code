@@ -1,6 +1,7 @@
 import crypto from "node:crypto"
 import { describe, expect, it } from "bun:test"
 import { SqlitePlanEventStore } from "../../src/plan/event-store"
+import { runtimeMetricPayload } from "../../src/plan/runtime-event"
 
 describe("SqlitePlanEventStore", () => {
   it("assigns per-session sequences and replays after a fresh store instance", () => {
@@ -15,5 +16,17 @@ describe("SqlitePlanEventStore", () => {
     const restarted = new SqlitePlanEventStore()
     expect(restarted.lastSequence(sessionId)).toBe(1)
     expect(restarted.readAfter(sessionId, 0).map((event) => event.type)).toEqual(["report_arrived"])
+  })
+
+  it("keeps merge telemetry scalar and excludes file contents", () => {
+    const payload = runtimeMetricPayload({
+      metric: "merge",
+      phase: "conflict",
+      outcome: "conflict",
+      count: 2,
+      duration_ms: 4,
+    })
+    expect(payload).toEqual({ metric: "merge", phase: "conflict", outcome: "conflict", count: 2, duration_ms: 4 })
+    expect(Object.values(payload).every((value) => typeof value === "string" || typeof value === "number")).toBe(true)
   })
 })

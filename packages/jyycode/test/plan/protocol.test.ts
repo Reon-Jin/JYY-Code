@@ -775,7 +775,11 @@ describe("file-backed plan protocol", () => {
     try {
       fs.mkdirSync(path.join(root, "src"), { recursive: true })
       fs.writeFileSync(path.join(root, "src", "config.ts"), "base\n")
+      const events = new PlanEventHub()
+      const inbox = new PlanInbox()
       const protocol = new PlanProtocol({
+        events,
+        inbox,
         childWorkspace: new ChildWorkspace({ project: { root, vcs: "none" }, runtimeRoot: runtime }),
         children: {
           async create(input) {
@@ -811,6 +815,12 @@ describe("file-backed plan protocol", () => {
       const first = await mergeApply(protocol, root, { task_id: "s1_t1" })
       expect(first).toMatchObject({ ok: true, status: "conflict", applied_paths: ["out/result.md"] })
       expect(fs.readFileSync(path.join(root, "src", "config.ts"), "utf8")).toBe("main\n")
+      expect(
+        events
+          .readAfter("ses_main", -1)
+          .filter((event) => event.type === "runtime.metric" && event.payload.metric === "merge")
+          .map((event) => event.payload.phase),
+      ).toEqual(expect.arrayContaining(["started", "conflict"]))
       expect(protocol.inboxEntries(context(root))).toHaveLength(1)
       expect(protocol.inboxEntries(context(root))[0]).toMatchObject({ kind: "merge_conflict", task_id: "s1_t1" })
       expect(protocol.drainWakeups("ses_main")).toHaveLength(1)
@@ -832,6 +842,12 @@ describe("file-backed plan protocol", () => {
       expect(resolved).toMatchObject({ ok: true, status: "merged", cleanup: "completed" })
       expect(fs.readFileSync(path.join(root, "src", "config.ts"), "utf8")).toBe("main-resolved\n")
       expect(fs.existsSync(childRoot)).toBe(false)
+      expect(
+        events
+          .readAfter("ses_main", -1)
+          .filter((event) => event.type === "runtime.metric" && event.payload.metric === "merge")
+          .some((event) => event.payload.phase === "completed"),
+      ).toBe(true)
     } finally {
       fs.rmSync(runtime, { recursive: true, force: true })
       fs.rmSync(root, { recursive: true, force: true })
@@ -846,7 +862,9 @@ describe("file-backed plan protocol", () => {
     try {
       fs.mkdirSync(path.join(root, "src"), { recursive: true })
       fs.writeFileSync(path.join(root, "src", "config.ts"), "base\n")
+      const inbox = new PlanInbox()
       const protocol = new PlanProtocol({
+        inbox,
         childWorkspace: new ChildWorkspace({ project: { root, vcs: "none" }, runtimeRoot: runtime }),
         children: {
           async create(input) {

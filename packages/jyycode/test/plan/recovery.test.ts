@@ -8,6 +8,7 @@ import { PlanRecovery } from "../../src/plan/recovery"
 import { reconcilePlanOnce } from "../../src/plan/recovery"
 import { PlanStore } from "../../src/plan/store"
 import { PlanInbox } from "../../src/plan/events"
+import { applyWorkspaceMerge } from "../../src/plan/workspace-merge"
 import { readHardeningPlan, hardeningContext, hardeningPlanInput } from "./hardening-fixtures"
 
 function fixture() {
@@ -101,6 +102,147 @@ describe("PlanRecovery", () => {
       await expect(first).resolves.toMatchObject({ rejected: ["s1_t1"] })
       await expect(second).resolves.toMatchObject({ rejected: ["s1_t1"] })
       expect(inbox.pending("ses_main")).toHaveLength(1)
+    } finally {
+      value.cleanup()
+    }
+  })
+
+  it("resumes an interrupted merge journal after restart and cleans the recorded workspace", async () => {
+    const value = fixture()
+    let childRoot = ""
+    let childOutput = ""
+    try {
+      const childWorkspace = new ChildWorkspace({ project: { root: value.root, vcs: "none" }, runtimeRoot: value.runtime })
+      const protocol = new PlanProtocol({
+        childWorkspace,
+        children: {
+          async create(input) {
+            childRoot = path.dirname(path.dirname(input.brief.output_path))
+            childOutput = input.brief.output_path
+            return input.childSessionId
+          },
+          async start() {},
+          async terminate() {},
+        },
+      })
+      const root = hardeningContext(value.root)
+      await protocol.create(root, hardeningPlanInput("out/result.md"))
+      const dispatched = await protocol.dispatch(root, { taskIds: ["s1_t1"], role: "general" })
+      expect(dispatched).toMatchObject({ ok: true })
+      if (!dispatched.ok) return
+      fs.mkdirSync(path.dirname(childOutput), { recursive: true })
+      fs.writeFileSync(childOutput, "report\n")
+      fs.mkdirSync(path.join(childRoot, "src"), { recursive: true })
+      fs.writeFileSync(path.join(childRoot, "src", "a.ts"), "export const a = 1\n")
+      fs.writeFileSync(path.join(childRoot, "src", "b.ts"), "export const b = 1\n")
+      const runId = dispatched.dispatched[0]!.run_id
+      await protocol.report(
+        { workspaceRoot: childRoot, sessionId: "child_s1_t1", mode: "single", runId },
+        { run_id: runId, status: "done", summary: "ready", artifacts: [childOutput], issues: [] },
+      )
+      const before = await protocol.read(root)
+      if (!before.ok || !before.plan) return
+      await protocol.update(root, {
+        revision: before.plan.revision,
+        ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
+      })
+      const stored = readHardeningPlan(value.root)
+      const workspace = stored.steps[0]!.tasks[0]!.dispatch!.workspace!
+      const journalDirectory = path.join(value.runtime, "merge-restart-journal")
+      expect(() =>
+        applyWorkspaceMerge(
+          {
+            base: workspace.baseline_directory!,
+            main: value.root,
+            child: workspace.directory!,
+            journal_directory: journalDirectory,
+          },
+          { interruptAfterWrites: 1 },
+        ),
+      ).toThrow("simulated interruption")
+      const running = readHardeningPlan(value.root)
+      const task = running.steps[0]!.tasks[0]!
+      task.merge!.status = "running"
+      task.merge!.cleanup = "pending"
+      task.merge!.journal_directory = journalDirectory
+      task.merge!.started_at = new Date().toISOString()
+      fs.writeFileSync(path.join(value.root, ".jyycode", "plan", "ses_main", "plan.json"), JSON.stringify(running, null, 2))
+
+      const restarted = new PlanRecovery({
+        workspaceRoot: value.root,
+        store: new PlanStore(),
+        inbox: new PlanInbox(),
+        childWorkspace: new ChildWorkspace({ project: { root: value.root, vcs: "none" }, runtimeRoot: value.runtime }),
+      })
+      const result = await restarted.reconcilePlan("ses_main")
+      expect(result.settled).toEqual(["s1_t1"])
+      expect(fs.readFileSync(path.join(value.root, "src", "a.ts"), "utf8")).toBe("export const a = 1\n")
+      expect(fs.readFileSync(path.join(value.root, "src", "b.ts"), "utf8")).toBe("export const b = 1\n")
+      expect(fs.existsSync(childRoot)).toBe(false)
+      expect(readHardeningPlan(value.root).steps[0]?.tasks[0]?.merge).toMatchObject({ status: "merged", cleanup: "completed" })
+    } finally {
+      value.cleanup()
+    }
+  })
+
+  it("preserves a recovered conflict and records it without deleting the child workspace", async () => {
+    const value = fixture()
+    let childRoot = ""
+    let childOutput = ""
+    try {
+      fs.mkdirSync(path.join(value.root, "src"), { recursive: true })
+      fs.writeFileSync(path.join(value.root, "src", "config.ts"), "base\n")
+      const childWorkspace = new ChildWorkspace({ project: { root: value.root, vcs: "none" }, runtimeRoot: value.runtime })
+      const inbox = new PlanInbox()
+      const protocol = new PlanProtocol({
+        inbox,
+        childWorkspace,
+        children: {
+          async create(input) {
+            childRoot = path.dirname(path.dirname(input.brief.output_path))
+            childOutput = input.brief.output_path
+            return input.childSessionId
+          },
+          async start() {},
+          async terminate() {},
+        },
+      })
+      const root = hardeningContext(value.root)
+      await protocol.create(root, hardeningPlanInput("out/result.md"))
+      const dispatched = await protocol.dispatch(root, { taskIds: ["s1_t1"], role: "general" })
+      expect(dispatched).toMatchObject({ ok: true })
+      if (!dispatched.ok) return
+      fs.mkdirSync(path.dirname(childOutput), { recursive: true })
+      fs.writeFileSync(childOutput, "report\n")
+      fs.writeFileSync(path.join(childRoot, "src", "config.ts"), "child\n")
+      fs.writeFileSync(path.join(value.root, "src", "config.ts"), "main\n")
+      const runId = dispatched.dispatched[0]!.run_id
+      await protocol.report(
+        { workspaceRoot: childRoot, sessionId: "child_s1_t1", mode: "single", runId },
+        { run_id: runId, status: "done", summary: "ready", artifacts: [childOutput], issues: [] },
+      )
+      const before = await protocol.read(root)
+      if (!before.ok || !before.plan) return
+      await protocol.update(root, {
+        revision: before.plan.revision,
+        ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "approve" }],
+      })
+      const stored = readHardeningPlan(value.root)
+      const task = stored.steps[0]!.tasks[0]!
+      task.merge!.status = "running"
+      task.merge!.cleanup = "pending"
+      task.merge!.journal_directory = path.join(value.runtime, "merge-conflict-journal")
+      task.merge!.started_at = new Date().toISOString()
+      fs.writeFileSync(path.join(value.root, ".jyycode", "plan", "ses_main", "plan.json"), JSON.stringify(stored, null, 2))
+
+      const restarted = new PlanRecovery({ workspaceRoot: value.root, store: new PlanStore(), inbox, childWorkspace })
+      const result = await restarted.reconcilePlan("ses_main")
+      expect(result.continued).toEqual(["s1_t1"])
+      expect(readHardeningPlan(value.root).steps[0]?.tasks[0]?.merge).toMatchObject({ status: "conflict", cleanup: "not_started" })
+      expect(fs.readFileSync(path.join(value.root, "src", "config.ts"), "utf8")).toBe("main\n")
+      expect(fs.existsSync(childRoot)).toBe(true)
+      expect(inbox.pending("ses_main")).toHaveLength(1)
+      expect(inbox.pending("ses_main")[0]).toMatchObject({ kind: "merge_conflict", task_id: "s1_t1" })
     } finally {
       value.cleanup()
     }
