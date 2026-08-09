@@ -1,6 +1,6 @@
 Manage long-running background processes started in the workspace.
 
 Actions:
-- start: Start a long-running shell command in the background and return a process id immediately. Use for dev servers, file watchers, and commands expected to keep running while other work continues.
+- start: Start a long-running shell command in the background and return a process id immediately. Use for dev servers, file watchers, and commands expected to keep running while other work continues. The default lifetime is 10 minutes; requested lifetimes are capped at 60 minutes and are owned by the current session.
 - output: Read captured output from a background process started with start. Use to poll server startup logs, inspect watcher output, or confirm the process is still running.
-- kill: Stop a background process started with start. Use when a dev server, watcher, or other long-running process is no longer needed.
+- kill: Stop a background process started with start. Use when a dev server, watcher, or other long-running process is no longer needed. A `kill_failed` status means the process tree is still unverified and must not be treated as stopped.

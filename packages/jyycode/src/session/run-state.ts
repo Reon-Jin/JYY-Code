@@ -1,7 +1,8 @@
 import { InstanceState } from "@/effect/instance-state"
 import { Runner } from "@/effect/runner"
 import { BackgroundJob } from "@/background/job"
-import { Effect, Latch, Layer, Scope, Context } from "effect"
+import { BackgroundProcess } from "@/process/job"
+import { Effect, Latch, Layer, Scope, Context, Option } from "effect"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID } from "./schema"
@@ -29,6 +30,7 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const background = yield* BackgroundJob.Service
+    const backgroundProcess = yield* Effect.serviceOption(BackgroundProcess.Service)
     const status = yield* SessionStatus.Service
 
     const state = yield* InstanceState.make(
@@ -75,6 +77,7 @@ export const layer = Layer.effect(
 
     const cancel = Effect.fn("SessionRunState.cancel")(function* (sessionID: SessionID) {
       yield* cancelBackgroundJobs(background, sessionID)
+      if (Option.isSome(backgroundProcess)) yield* backgroundProcess.value.cancelOwner(sessionID)
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
       if (!existing || !existing.busy) {
@@ -109,6 +112,7 @@ export const layer = Layer.effect(
 
 export const defaultLayer = layer.pipe(
   Layer.provide(BackgroundJob.defaultLayer),
+  Layer.provide(BackgroundProcess.defaultLayer),
   Layer.provide(SessionStatus.defaultLayer),
 )
 

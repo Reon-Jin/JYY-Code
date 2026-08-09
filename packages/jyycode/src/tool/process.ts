@@ -22,6 +22,9 @@ const StartParameters = Schema.Struct({
     description: "The working directory to run the command in. Defaults to the current workspace directory.",
   }),
   description: Schema.String.annotate({ description: "Clear, concise description of what this process does" }),
+  timeout: Schema.optional(PositiveInt).annotate({
+    description: "Maximum lifetime in milliseconds. Defaults to 10 minutes and is capped at 60 minutes.",
+  }),
 })
 
 const OutputParameters = Schema.Struct({
@@ -65,6 +68,9 @@ function formatInfo(info: BackgroundProcess.Info) {
     `<command>${info.command}</command>`,
     `<cwd>${info.cwd}</cwd>`,
     info.exit !== undefined ? `<exit>${info.exit ?? "null"}</exit>` : undefined,
+    info.owner_session_id ? `<owner_session_id>${info.owner_session_id}</owner_session_id>` : undefined,
+    info.deadline_at !== undefined ? `<deadline_at>${info.deadline_at}</deadline_at>` : undefined,
+    info.termination_reason ? `<termination_reason>${info.termination_reason}</termination_reason>` : undefined,
     info.outputPath ? `<outputPath>${info.outputPath}</outputPath>` : undefined,
   ]
     .filter(Boolean)
@@ -145,6 +151,8 @@ export const ProcessTool = Tool.define(
               cwd,
               env,
               title: params.description,
+              owner_session_id: ctx.sessionID,
+              timeout: params.timeout,
             })
             const output = [
               "Started background process.",
@@ -212,7 +220,10 @@ export const ProcessTool = Tool.define(
           return {
             title: info.title ?? `Process ${params.id}`,
             metadata,
-            output: ["Stopped background process.", "", formatInfo(info)].join("\n"),
+            output:
+              info.status === "kill_failed"
+                ? ["Failed to verify background process termination.", "", formatInfo(info)].join("\n")
+                : ["Stopped background process.", "", formatInfo(info)].join("\n"),
           }
         }),
     }

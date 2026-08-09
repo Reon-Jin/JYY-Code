@@ -1,4 +1,4 @@
-import { Effect, Stream } from "effect"
+import { Effect, Exit, Stream } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
 import * as Tool from "./tool"
@@ -22,8 +22,18 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
+import { budgetFor } from "@/execution/budget"
 
 export { Parameters } from "./shell/prompt"
+
+export class ShellTerminationError extends Error {
+  readonly code = "TIMED_OUT_KILL_FAILED"
+
+  constructor(readonly timeoutMs: number, readonly reason: string) {
+    super(`shell process exceeded ${timeoutMs}ms but termination was not verified: ${reason}`)
+    this.name = "ShellTerminationError"
+  }
+}
 
 const MAX_METADATA_LENGTH = 30_000
 const CWD = new Set(["cd", "chdir", "popd", "pushd", "push-location", "set-location"])
@@ -429,6 +439,7 @@ export const ShellTool = Tool.define(
         cwd: string
         env: NodeJS.ProcessEnv
         timeout: number
+        graceMs: number
         description: string
       },
       ctx: Tool.Context,
@@ -444,6 +455,7 @@ export const ShellTool = Tool.define(
       let cut = false
       let expired = false
       let aborted = false
+      let killFailed: string | undefined
 
       const closeSink = Effect.fnUntraced(function* () {
         const stream = sink
@@ -548,16 +560,20 @@ export const ShellTool = Tool.define(
 
           if (exit.kind === "abort") {
             aborted = true
-            yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.orDie)
+            const killed = yield* Effect.exit(handle.kill({ forceKillAfter: `${input.graceMs} millis` }))
+            if (Exit.isFailure(killed)) killFailed = String(killed.cause)
           }
           if (exit.kind === "timeout") {
             expired = true
-            yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.orDie)
+            const killed = yield* Effect.exit(handle.kill({ forceKillAfter: `${input.graceMs} millis` }))
+            if (Exit.isFailure(killed)) killFailed = String(killed.cause)
           }
 
           return exit.kind === "exit" ? exit.code : null
         }),
       ).pipe(Effect.orDie)
+
+      if (killFailed) yield* Effect.die(new ShellTerminationError(input.timeout, killFailed))
 
       const meta: string[] = []
       if (expired) {
@@ -623,7 +639,10 @@ export const ShellTool = Tool.define(
               if (params.timeout !== undefined && params.timeout < 0) {
                 throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
               }
-              const timeout = params.timeout ?? defaultTimeout
+              const budget = ctx.budget
+                ? ctx.budget.child("foreground_shell", params.timeout)
+                : budgetFor("foreground_shell", params.timeout ?? defaultTimeout)
+              const timeout = budget.effectiveMs
               const ps = Shell.ps(shell)
               yield* Effect.scoped(
                 Effect.gen(function* () {
@@ -643,6 +662,7 @@ export const ShellTool = Tool.define(
                   cwd,
                   env: yield* shellEnv(ctx, cwd),
                   timeout,
+                  graceMs: budget.graceMs,
                   description: params.description,
                 },
                 ctx,

@@ -2,6 +2,7 @@ import { Slug } from "@jyycode-ai/core/util/slug"
 import { serviceUse } from "@/effect/service-use"
 import path from "path"
 import { BackgroundJob } from "@/background/job"
+import { BackgroundProcess } from "@/process/job"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Decimal } from "decimal.js"
@@ -555,6 +556,7 @@ export const layer: Layer.Layer<
     const storage = yield* Storage.Service
     const sync = yield* SyncEvent.Service
     const flags = yield* RuntimeFlags.Service
+    const backgroundProcess = yield* Effect.serviceOption(BackgroundProcess.Service)
     const blobs = makeBlobService()
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
@@ -644,6 +646,7 @@ export const layer: Layer.Layer<
         )
 
         if (hasInstance) yield* cancelBackgroundJobs(background, sessionID)
+        if (Option.isSome(backgroundProcess)) yield* backgroundProcess.value.cancelOwner(sessionID)
         const kids = yield* children(sessionID)
         for (const child of kids) {
           yield* remove(child.id)
@@ -786,6 +789,9 @@ export const layer: Layer.Layer<
     })
 
     const setArchived = Effect.fn("Session.setArchived")(function* (input: { sessionID: SessionID; time?: number }) {
+      if (input.time !== undefined && Option.isSome(backgroundProcess)) {
+        yield* backgroundProcess.value.cancelOwner(input.sessionID)
+      }
       yield* patch(input.sessionID, { time: { archived: input.time } })
     })
 
