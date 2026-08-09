@@ -77,6 +77,8 @@ import { enabledProfiles, resolveProfiles } from "@/agent/subagent-profile"
 import { Memory } from "@/memory/memory"
 import { Blackboard } from "@/plan/blackboard"
 import { Skill } from "@/skill"
+import { childBudgetFor, markChildBudgetFailure } from "@/plan/protocol"
+import { DEFAULT_AGENT_MAX_STEPS } from "@/config/agent"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1323,6 +1325,7 @@ export const layer = Layer.effect(
         let latestMemoryUserText = ""
         let step = 0
         let session = yield* sessions.get(sessionID).pipe(Effect.orDie)
+        const childBudget = childBudgetFor(sessionID)
         const canUsePersistentMemory = session.parentID === undefined
         if (
           session.parentID === undefined &&
@@ -1449,6 +1452,18 @@ export const layer = Layer.effect(
 
         while (true) {
           session = yield* sessions.get(sessionID).pipe(Effect.orDie)
+          if (childBudget && step >= childBudget.max_steps) {
+            markChildBudgetFailure(sessionID, "MAX_STEPS_BUDGET_EXCEEDED")
+            yield* slog.warn("child execution step budget exceeded", {
+              maxSteps: childBudget.max_steps,
+            })
+            break
+          }
+          if (childBudget && childBudget.execution.expired()) {
+            markChildBudgetFailure(sessionID, "DEADLINE_BUDGET_EXCEEDED")
+            yield* slog.warn("child execution deadline exceeded")
+            break
+          }
           yield* status.set(sessionID, { type: "busy" })
           yield* slog.info("loop", { step })
 
@@ -1509,6 +1524,13 @@ export const layer = Layer.effect(
           // sessions hard-stop right away (a subagent must not burn its budget);
           // main sessions get one warning reminder before the hard stop.
           if (lastAssistantMsg && lastAssistantInfo && !lastAssistantInfo.summary && !lastAssistantInfo.error) {
+            const waitingForUser = lastAssistantMsg.parts.some(
+              (part) => part.type === "tool" && part.tool === "question" && part.state.status === "pending",
+            )
+            if (waitingForUser) {
+              previousToolTurnSignature = undefined
+              repeatedToolTurnCount = 0
+            }
             const signature = [
               lastAssistantMsg.parts
                 .filter((part): part is MessageV2.TextPart => part.type === "text" && !part.synthetic)
@@ -1526,12 +1548,34 @@ export const layer = Layer.effect(
                 })
                 .join(","),
             ].join("|")
-            if (signature !== "|" && signature === previousToolTurnSignature) repeatedToolTurnCount++
+            if (!waitingForUser && signature !== "|" && signature === previousToolTurnSignature) repeatedToolTurnCount++
             else {
               previousToolTurnSignature = signature === "|" ? undefined : signature
               repeatedToolTurnCount = 0
             }
-            if (repeatedToolTurnCount >= 2) {
+            const noProgressLimit = childBudget?.no_progress_steps ?? 2
+            const noProgressThreshold = childBudget ? noProgressLimit - 1 : 2
+            if (repeatedToolTurnCount >= noProgressThreshold) {
+              if (childBudget) {
+                const code = "NO_PROGRESS_BUDGET_EXCEEDED"
+                markChildBudgetFailure(sessionID, code)
+                yield* slog.warn("child no-progress budget exceeded", {
+                  repetitions: repeatedToolTurnCount + 1,
+                  limit: childBudget.no_progress_steps,
+                })
+                yield* sessions.updateMessage({
+                  ...lastAssistantInfo,
+                  finish: "stop",
+                  error: new NamedError.Unknown({
+                    message: `${code}: the child repeated the same tool turn without effective progress.`,
+                  }).toObject(),
+                  time: {
+                    ...lastAssistantInfo.time,
+                    completed: lastAssistantInfo.time.completed ?? Date.now(),
+                  },
+                })
+                break
+              }
               if (session.parentID === undefined && !loopWarningIssued) {
                 loopWarningIssued = true
                 yield* slog.warn("assistant repeated an identical turn; issuing stuck-loop warning", {
@@ -1717,7 +1761,7 @@ export const layer = Layer.effect(
             yield* bus.publish(Session.Event.Error, { sessionID, error: error.toObject() })
             throw error
           }
-          const maxSteps = agent.steps ?? Infinity
+          const maxSteps = childBudget?.max_steps ?? (session.parentID !== undefined ? agent.steps ?? DEFAULT_AGENT_MAX_STEPS : agent.steps ?? Infinity)
           const isLastStep = step >= maxSteps
           msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
             Effect.provideService(RuntimeFlags.Service, flags),
@@ -1785,6 +1829,7 @@ export const layer = Layer.effect(
               bypassAgentCheck,
               messages: msgs,
               promptOps,
+              executionBudget: childBudget?.execution,
             }).pipe(
               Effect.provideService(Plugin.Service, plugin),
               Effect.provideService(Permission.Service, permission),
@@ -2093,7 +2138,7 @@ export const layer = Layer.effect(
               return "continue" as const
             }
             const modelMsgs = yield* MessageV2.toModelMessagesEffect(prepared.messages, model)
-            const result = yield* handle.process({
+            const streamInput = {
               user: lastUser,
               agent,
               permission: session.permission,
@@ -2104,7 +2149,24 @@ export const layer = Layer.effect(
               tools,
               model,
               toolChoice,
-            })
+            }
+            const result = childBudget
+              ? yield* Effect.raceFirst(
+                  handle.process(streamInput),
+                  Effect.sleep(Math.max(1, childBudget.execution.remaining())).pipe(Effect.as("deadline" as const)),
+                )
+              : yield* handle.process(streamInput)
+            if (result === "deadline") {
+              const code = "DEADLINE_BUDGET_EXCEEDED"
+              markChildBudgetFailure(sessionID, code)
+              handle.message.finish = "stop"
+              handle.message.error = new NamedError.Unknown({
+                message: `${code}: child execution exceeded its wall-clock deadline.`,
+              }).toObject()
+              handle.message.time.completed ??= Date.now()
+              yield* sessions.updateMessage(handle.message)
+              return "break" as const
+            }
 
             // Root sessions are event-driven after dispatch. A child Report, Inbox entry, or
             // Blackboard post wakes this session again; a plan read cannot make a running task

@@ -11,6 +11,16 @@ import { ConfigModelID } from "./model-id"
 import { ConfigParse } from "./parse"
 import { ConfigPermission } from "./permission"
 
+/** Safety defaults for delegated agents.  These are deliberately finite so a
+ * profile that omits execution limits can never fall back to an unbounded
+ * prompt loop. */
+export const DEFAULT_AGENT_MAX_STEPS = 60
+export const MAX_AGENT_STEPS = 1024
+export const DEFAULT_AGENT_DEADLINE_MS = 30 * 60 * 1000
+export const MAX_AGENT_DEADLINE_MS = 60 * 60 * 1000
+export const DEFAULT_AGENT_NO_PROGRESS_STEPS = 8
+export const MAX_AGENT_NO_PROGRESS_STEPS = 64
+
 const log = Log.create({ service: "config" })
 
 const Color = Schema.Union([
@@ -44,6 +54,12 @@ const AgentSchema = Schema.StructWithRest(
       description: "Maximum number of agentic iterations before forcing text-only response",
     }),
     maxSteps: Schema.optional(PositiveInt).annotate({ description: "@deprecated Use 'steps' field instead." }),
+    timeout_ms: Schema.optional(PositiveInt).annotate({
+      description: "Maximum wall-clock runtime for this agent; delegated agents are hard-capped by the runtime",
+    }),
+    no_progress_steps: Schema.optional(PositiveInt).annotate({
+      description: "Consecutive identical delegated steps allowed before the child is stopped",
+    }),
     permission: Schema.optional(ConfigPermission.Info),
   }),
   [Schema.Record(Schema.String, Schema.Any)],
@@ -62,6 +78,8 @@ const KNOWN_KEYS = new Set([
   "color",
   "steps",
   "maxSteps",
+  "timeout_ms",
+  "no_progress_steps",
   "options",
   "permission",
   "disable",

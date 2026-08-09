@@ -25,6 +25,14 @@ import * as OtelTracer from "@effect/opentelemetry/Tracer"
 import { type DeepMutable } from "@jyycode-ai/core/schema"
 import { enabledProfiles, profileAgentName, resolveProfiles } from "./subagent-profile"
 import { defaultSubagentToolIDs } from "./subagent-tool-policy"
+import {
+  DEFAULT_AGENT_DEADLINE_MS,
+  DEFAULT_AGENT_MAX_STEPS,
+  DEFAULT_AGENT_NO_PROGRESS_STEPS,
+  MAX_AGENT_STEPS,
+  MAX_AGENT_DEADLINE_MS,
+  MAX_AGENT_NO_PROGRESS_STEPS,
+} from "@/config/agent"
 
 export const Info = Schema.Struct({
   name: Schema.String,
@@ -46,6 +54,8 @@ export const Info = Schema.Struct({
   prompt: Schema.optional(Schema.String),
   options: Schema.Record(Schema.String, Schema.Unknown),
   steps: Schema.optional(Schema.Finite),
+  deadlineMs: Schema.optional(Schema.Finite),
+  noProgressSteps: Schema.optional(Schema.Finite),
 }).annotate({ identifier: "Agent" })
 export type Info = DeepMutable<Schema.Schema.Type<typeof Info>>
 
@@ -228,6 +238,18 @@ export const layer = Layer.effect(
         const subagentConfig = global.subagents !== undefined ? global.subagents : cfg.subagents
         for (const profile of enabledProfiles(resolveProfiles(subagentConfig?.profiles))) {
           const name = profileAgentName(profile.id)
+          const profileSteps = Math.min(
+            profile.steps ?? subagentConfig?.max_steps ?? DEFAULT_AGENT_MAX_STEPS,
+            MAX_AGENT_STEPS,
+          )
+          const profileDeadline = Math.min(
+            profile.timeout_ms ?? subagentConfig?.timeout_ms ?? DEFAULT_AGENT_DEADLINE_MS,
+            MAX_AGENT_DEADLINE_MS,
+          )
+          const profileNoProgress = Math.min(
+            profile.no_progress_steps ?? subagentConfig?.no_progress_steps ?? DEFAULT_AGENT_NO_PROGRESS_STEPS,
+            MAX_AGENT_NO_PROGRESS_STEPS,
+          )
           agents[name] = {
             name,
             description: profile.description,
@@ -238,6 +260,9 @@ export const layer = Layer.effect(
             permission: subagentPermission,
             mode: "subagent",
             native: profile.id === "general",
+            steps: profileSteps,
+            deadlineMs: profileDeadline,
+            noProgressSteps: profileNoProgress,
           }
         }
 
@@ -268,7 +293,18 @@ export const layer = Layer.effect(
           item.color = value.color ?? item.color
           item.hidden = value.hidden ?? item.hidden
           item.name = value.name ?? item.name
-          item.steps = value.steps ?? item.steps
+          item.steps = value.steps === undefined ? item.steps : Math.min(value.steps, MAX_AGENT_STEPS)
+          if (value.timeout_ms !== undefined) {
+            item.deadlineMs = Math.min(value.timeout_ms, MAX_AGENT_DEADLINE_MS)
+          }
+          if (value.no_progress_steps !== undefined) {
+            item.noProgressSteps = Math.min(value.no_progress_steps, MAX_AGENT_NO_PROGRESS_STEPS)
+          }
+          if (item.mode === "subagent") {
+            item.steps ??= DEFAULT_AGENT_MAX_STEPS
+            item.deadlineMs ??= DEFAULT_AGENT_DEADLINE_MS
+            item.noProgressSteps ??= DEFAULT_AGENT_NO_PROGRESS_STEPS
+          }
           item.options = mergeDeep(item.options, value.options ?? {})
           item.permission = Permission.merge(item.permission, Permission.fromConfig(value.permission ?? {}))
         }

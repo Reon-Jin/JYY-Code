@@ -93,6 +93,14 @@ export type DispatchWorkspace = WorkspaceBaseline & {
 }
 
 export type DispatchLifecycle = "reserved" | "child_created" | "starting" | "running" | "settled"
+export type DispatchBudgetSource = "default" | "profile" | "plan" | "parent"
+
+export type DispatchBudget = {
+  max_steps: number
+  deadline_at: string
+  no_progress_steps: number
+  source: DispatchBudgetSource
+}
 
 export type DispatchRecord = {
   run_id: string
@@ -103,6 +111,12 @@ export type DispatchRecord = {
   launch?: LaunchSnapshot
   workspace?: DispatchWorkspace
   lifecycle?: DispatchLifecycle
+  /** Immutable execution budget captured when this run was dispatched. */
+  max_steps?: number
+  deadline_at?: string
+  no_progress_steps?: number
+  source?: DispatchBudgetSource
+  budget?: DispatchBudget
 }
 
 export type ReportRecord = {
@@ -122,6 +136,10 @@ export type PlanTask = {
   /** Detailed execution context carried into the dispatched child brief. */
   instructions?: string
   output_path: string | null
+  /** Optional per-task child execution caps, snapshotted at dispatch time. */
+  max_steps?: number
+  timeout_ms?: number
+  no_progress_steps?: number
   /** Legacy in-memory fixtures may omit this; persisted plans are normalized to standard. */
   mode?: PlanTaskMode
   status: TaskStatus
@@ -159,6 +177,9 @@ export type CreateTaskInput = {
   done_criteria: string
   instructions?: string
   output_path?: string
+  max_steps?: number
+  timeout_ms?: number
+  no_progress_steps?: number
   mode?: PlanTaskMode
 }
 
@@ -185,7 +206,19 @@ export type PlanUpdateOp =
       op: "edit_task"
       stepId: string
       taskId: string
-      fields: Partial<Pick<PlanTask, "title" | "goal" | "done_criteria" | "instructions" | "output_path">>
+      fields: Partial<
+        Pick<
+          PlanTask,
+          | "title"
+          | "goal"
+          | "done_criteria"
+          | "instructions"
+          | "output_path"
+          | "max_steps"
+          | "timeout_ms"
+          | "no_progress_steps"
+        >
+      >
     }
   | { op: "remove_task"; stepId: string; taskId: string }
   | { op: "reopen_task"; stepId: string; taskId: string; reason: string }
@@ -472,6 +505,9 @@ export function validatePlanFile(value: unknown): string[] {
           "done_criteria",
           "instructions",
           "output_path",
+          "max_steps",
+          "timeout_ms",
+          "no_progress_steps",
           "mode",
           "status",
           "dispatch",
@@ -491,6 +527,15 @@ export function validatePlanFile(value: unknown): string[] {
           errors.push(errorAt(`${taskPrefix}.instructions`, "must be a non-empty string when provided"))
         if (rawTask.reopen_reason !== undefined && !nonEmptyString(rawTask.reopen_reason))
           errors.push(errorAt(`${taskPrefix}.reopen_reason`, "must be a non-empty string when provided"))
+        if (rawTask.max_steps !== undefined && (!Number.isSafeInteger(rawTask.max_steps) || Number(rawTask.max_steps) < 1))
+          errors.push(errorAt(`${taskPrefix}.max_steps`, "must be a positive safe integer when provided"))
+        if (rawTask.timeout_ms !== undefined && (!Number.isSafeInteger(rawTask.timeout_ms) || Number(rawTask.timeout_ms) < 1))
+          errors.push(errorAt(`${taskPrefix}.timeout_ms`, "must be a positive safe integer when provided"))
+        if (
+          rawTask.no_progress_steps !== undefined &&
+          (!Number.isSafeInteger(rawTask.no_progress_steps) || Number(rawTask.no_progress_steps) < 1)
+        )
+          errors.push(errorAt(`${taskPrefix}.no_progress_steps`, "must be a positive safe integer when provided"))
         if (!("output_path" in rawTask) || (rawTask.output_path !== null && typeof rawTask.output_path !== "string"))
           errors.push(errorAt(`${taskPrefix}.output_path`, "must be string or null"))
         if (rawTask.mode !== undefined && !["standard", "candidate"].includes(String(rawTask.mode)))
@@ -570,7 +615,7 @@ function isValidDispatch(value: unknown): value is DispatchRecord {
         workspace.source_revision === null ||
         nonEmptyString(workspace.source_revision)))
   return (
-    /^run__[A-Za-z0-9_-]+__s[1-9]\d*_t[1-9]\d*$/.test(String(value.run_id)) &&
+    /^run__[A-Za-z0-9_-]+__s[1-9]\d*_t[1-9]\d*(?:__[A-Za-z0-9_-]+)?$/.test(String(value.run_id)) &&
     nonEmptyString(value.child_session_id) &&
     validDateTime(value.dispatched_at) &&
     (value.cancelled_at === null || validDateTime(value.cancelled_at)) &&
@@ -579,6 +624,23 @@ function isValidDispatch(value: unknown): value is DispatchRecord {
     validWorkspace &&
     (value.lifecycle === undefined ||
       ["reserved", "child_created", "starting", "running", "settled"].includes(String(value.lifecycle)))
+    && (value.max_steps === undefined || (Number.isSafeInteger(value.max_steps) && Number(value.max_steps) >= 1))
+    && (value.deadline_at === undefined || validDateTime(value.deadline_at))
+    && (value.no_progress_steps === undefined || (Number.isSafeInteger(value.no_progress_steps) && Number(value.no_progress_steps) >= 1))
+    && (value.source === undefined || ["default", "profile", "plan", "parent"].includes(String(value.source)))
+    && (value.budget === undefined || isValidDispatchBudget(value.budget))
+  )
+}
+
+function isValidDispatchBudget(value: unknown): value is DispatchBudget {
+  if (!isRecord(value)) return false
+  return (
+    Number.isSafeInteger(value.max_steps) &&
+    Number(value.max_steps) >= 1 &&
+    validDateTime(value.deadline_at) &&
+    Number.isSafeInteger(value.no_progress_steps) &&
+    Number(value.no_progress_steps) >= 1 &&
+    ["default", "profile", "plan", "parent"].includes(String(value.source))
   )
 }
 

@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { PositiveInt } from "@jyycode-ai/core/schema"
 import { isSubagentForbiddenToolID, isSubagentFixedToolID, isSubagentSelectableToolID } from "./subagent-tool-policy"
 
 const NON_EMPTY_TEXT = Schema.String.check(Schema.isPattern(/\S/))
@@ -27,6 +28,9 @@ export const Profile = Schema.Struct({
   avatar: Avatar,
   model: Schema.optional(NON_EMPTY_TEXT),
   variant: Schema.optional(NON_EMPTY_TEXT),
+  steps: Schema.optional(PositiveInt),
+  timeout_ms: Schema.optional(PositiveInt),
+  no_progress_steps: Schema.optional(PositiveInt),
   /** Omitted means all currently available non-system tools; [] means no user-selectable tools. */
   tools: Schema.optional(Schema.mutable(Schema.Array(TOOL_ID))),
   enabled: Schema.Boolean,
@@ -34,7 +38,11 @@ export const Profile = Schema.Struct({
 export type SubagentProfile = Schema.Schema.Type<typeof Profile>
 
 export type ProfileSnapshot = Pick<SubagentProfile, "id" | "name" | "description" | "avatar">
-export type LaunchSnapshot = ProfileSnapshot & Pick<SubagentProfile, "prompt" | "model" | "variant" | "tools">
+export type LaunchSnapshot = ProfileSnapshot &
+  Pick<
+    SubagentProfile,
+    "prompt" | "model" | "variant" | "tools" | "steps" | "timeout_ms" | "no_progress_steps"
+  >
 
 export const defaultGeneralProfile: SubagentProfile = {
   id: "general",
@@ -209,6 +217,9 @@ export function launchSnapshot(profile: SubagentProfile): LaunchSnapshot {
     ...(profile.model ? { model: profile.model } : {}),
     ...(profile.variant ? { variant: profile.variant } : {}),
     ...(profile.tools !== undefined ? { tools: [...profile.tools] } : {}),
+    ...(profile.steps !== undefined ? { steps: profile.steps } : {}),
+    ...(profile.timeout_ms !== undefined ? { timeout_ms: profile.timeout_ms } : {}),
+    ...(profile.no_progress_steps !== undefined ? { no_progress_steps: profile.no_progress_steps } : {}),
   }
 }
 

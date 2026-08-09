@@ -485,6 +485,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   bypassAgentCheck: boolean
   messages: MessageV2.WithParts[]
   promptOps: TaskPromptOps
+  /** Parent child-agent budget; every tool budget is derived from it. */
+  executionBudget?: ExecutionBudget
 }) {
   using _ = log.time("resolveTools")
   const tools: Record<string, AITool> = {}
@@ -627,7 +629,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
         const executeTool = () =>
           run.promise(
             Effect.gen(function* () {
-              const budget = budgetFor("generic_tool", undefined, undefined, executionBudgetConfig)
+              const budget = budgetFor("generic_tool", undefined, input.executionBudget, executionBudgetConfig)
               const ctx = context(args, options, budget)
               const started = Date.now()
               let phase: Tool.ToolExecutionPhase = "plugin_before"

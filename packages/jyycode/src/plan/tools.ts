@@ -92,6 +92,7 @@ export function modelFacingPlanToolName(id: string) {
 }
 
 const nonEmptyStringSchema: JSONSchema7 = { type: "string", minLength: 1 }
+const positiveIntegerSchema: JSONSchema7 = { type: "integer", minimum: 1 }
 const stepIdSchema: JSONSchema7 = { type: "string", pattern: "^s[1-9]\\d*$" }
 const taskIdSchema: JSONSchema7 = { type: "string", pattern: "^s[1-9]\\d*_t[1-9]\\d*$" }
 
@@ -105,6 +106,9 @@ const taskInputSchema: JSONSchema7 = {
     done_criteria: nonEmptyStringSchema,
     instructions: nonEmptyStringSchema,
     output_path: nonEmptyStringSchema,
+    max_steps: positiveIntegerSchema,
+    timeout_ms: positiveIntegerSchema,
+    no_progress_steps: positiveIntegerSchema,
     mode: {
       enum: ["standard", "candidate"],
       description:
@@ -233,6 +237,9 @@ const updateOps: JSONSchema7[] = [
           done_criteria: nonEmptyStringSchema,
           instructions: nonEmptyStringSchema,
           output_path: nonEmptyStringSchema,
+          max_steps: positiveIntegerSchema,
+          timeout_ms: positiveIntegerSchema,
+          no_progress_steps: positiveIntegerSchema,
         },
       },
     },

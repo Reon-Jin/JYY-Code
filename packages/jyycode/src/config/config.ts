@@ -199,6 +199,15 @@ export const Info = Schema.Struct({
   subagents: Schema.optional(
     Schema.Struct({
       profiles: Schema.optional(Schema.mutable(Schema.Array(SubagentProfileSchema))),
+      max_steps: Schema.optional(PositiveInt).annotate({
+        description: "Default maximum prompt steps for delegated agents; runtime hard caps always apply",
+      }),
+      timeout_ms: Schema.optional(PositiveInt).annotate({
+        description: "Default delegated-agent wall-clock budget in milliseconds",
+      }),
+      no_progress_steps: Schema.optional(PositiveInt).annotate({
+        description: "Default consecutive no-progress step budget for delegated agents",
+      }),
     }),
   ).annotate({ description: "Global subagent profiles" }),
   reference: Schema.optional(ConfigReference.Info).annotate({

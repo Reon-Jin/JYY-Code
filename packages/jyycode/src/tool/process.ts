@@ -152,7 +152,12 @@ export const ProcessTool = Tool.define(
               env,
               title: params.description,
               owner_session_id: ctx.sessionID,
-              timeout: params.timeout,
+              timeout:
+                params.timeout !== undefined
+                  ? Math.min(params.timeout, Math.max(1, Math.floor(ctx.remaining?.() ?? params.timeout)))
+                  : ctx.remaining
+                    ? Math.max(1, Math.floor(ctx.remaining()))
+                    : undefined,
             })
             const output = [
               "Started background process.",

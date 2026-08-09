@@ -60,7 +60,12 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
-import { defaultPlanProtocol } from "../../src/plan/protocol"
+import {
+  clearChildBudget,
+  defaultPlanProtocol,
+  registerChildBudget,
+  resolveChildBudget,
+} from "../../src/plan/protocol"
 
 void Log.init({ print: false })
 
@@ -1610,6 +1615,36 @@ it.instance("cuts off repeated child-agent tool turns", () =>
     expect(yield* llm.calls).toBe(3)
     expect(result.info.role).toBe("assistant")
     if (result.info.role === "assistant") expect(result.info.finish).toBe("stop")
+  }),
+)
+
+it.instance("stops a dispatched child after its no-progress budget and records a code", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const parent = yield* sessions.create({ title: "Parent" })
+    const child = yield* sessions.create({ parentID: parent.id, title: "Budgeted child" })
+
+    yield* prompt.prompt({
+      sessionID: child.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "repeat until the budget trips" }],
+    })
+    registerChildBudget(
+      child.id,
+      resolveChildBudget({ now: Date.now(), role: { steps: 60, no_progress_steps: 8, timeout_ms: 30_000 } }),
+    )
+    for (let index = 0; index < 10; index++) {
+      yield* llm.push(reply().tool("first", { value: "same" }).stop())
+    }
+
+    const result = yield* prompt.loop({ sessionID: child.id })
+    expect(yield* llm.calls).toBe(8)
+    expect(result.info.role).toBe("assistant")
+    if (result.info.role === "assistant") expect(JSON.stringify(result.info.error)).toContain("NO_PROGRESS_BUDGET_EXCEEDED")
+    clearChildBudget(child.id)
   }),
 )
 
