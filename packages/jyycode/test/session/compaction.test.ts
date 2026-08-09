@@ -782,6 +782,111 @@ describe("session.compaction.microCompact", () => {
   )
 })
 
+describe("session.compaction.prepareRequest", () => {
+  const requestMessages = () => {
+    const messages: MessageV2.WithParts[] = []
+    for (let turn = 0; turn < 4; turn++) {
+      const sessionID = SessionID.make(`ses_prepare_request_${turn}`)
+      const userID = MessageID.ascending()
+      messages.push({
+        info: {
+          id: userID,
+          role: "user",
+          sessionID,
+          agent: "build",
+          model: ref,
+          time: { created: Date.now() },
+        },
+        parts: [
+          {
+            id: PartID.ascending(),
+            messageID: userID,
+            sessionID,
+            type: "text",
+            text: `goal ${turn}`,
+          },
+        ],
+      })
+      const assistantID = MessageID.ascending()
+      messages.push({
+        info: {
+          id: assistantID,
+          role: "assistant",
+          sessionID,
+          parentID: userID,
+          mode: "build",
+          agent: "build",
+          path: { cwd: "D:/jyycode", root: "D:/jyycode" },
+          cost: 0,
+          tokens: { output: 0, input: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          time: { created: Date.now() },
+        },
+        parts: [
+          {
+            id: PartID.ascending(),
+            messageID: assistantID,
+            sessionID,
+            type: "tool",
+            tool: "shell",
+            callID: `call-${turn}`,
+            state: {
+              status: "completed",
+              input: { turn },
+              output: "x".repeat(400_000),
+              title: "shell",
+              metadata: {},
+              time: { start: Date.now(), end: Date.now() },
+            },
+          },
+        ],
+      })
+    }
+    return messages
+  }
+
+  itCompaction.instance(
+    "runs micro then reactive compression before requesting full compaction",
+    () =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const result = yield* compact.prepareRequest({
+          messages: requestMessages(),
+          system: ["system"],
+          tools: { shell: { inputSchema: { type: "object" }, description: "shell" } },
+          injectedContext: ["memory"],
+          outputReserve: 32_000,
+          model: createModel({ context: 100_000, output: 32_000 }),
+        })
+        expect(result.needsFullCompaction).toBe(false)
+        expect(result.stage).toBe("reactive")
+        expect(result.reactive?.changed).toBe(true)
+        expect(result.estimate.inputTokens).toBeLessThanOrEqual(68_000)
+      }).pipe(withCompaction({ config: cfg({ micro_compact_max_chars: 100_000 }) })),
+    { git: true },
+  )
+
+  itCompaction.instance(
+    "honors both compression feature flags and falls back to full compaction",
+    () =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const result = yield* compact.prepareRequest({
+          messages: requestMessages(),
+          system: [],
+          tools: {},
+          injectedContext: [],
+          outputReserve: 32_000,
+          model: createModel({ context: 100_000, output: 32_000 }),
+        })
+        expect(result.stage).toBe("none")
+        expect(result.needsFullCompaction).toBe(true)
+      }).pipe(withCompaction({ config: cfg({ micro_compact: false, reactive_compact: false }) })),
+    { git: true },
+  )
+})
+
 describe("session.compaction.create", () => {
   it.live(
     "creates a compaction user message and part",

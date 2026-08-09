@@ -215,6 +215,7 @@ export const layer = Layer.effect(
           "The task entry is this session's working memory, one entry per session: a compact executive state, never a completion log.",
           "Task entries belonging to other sessions in the same project are read-only context below. Never adopt, merge, or rewrite them; your task.content must describe only THIS session's task.",
           'task.content must have exactly the form "当前任务：<goal>；进展：<progress>；[经验：<lesson>]" (经验 optional).',
+          "Only use ； for the two section separators; inside goal, progress, or lesson use 、 or commas instead.",
           "Limits excluding prefixes: goal ≤120, progress ≤160, 经验 ≤160 Unicode chars. Rephrase semantically to fit; never truncate, never use ellipses, and never write 我用了/最终学会了/下一步.",
           "A task entry is mandatory on every phase, including greetings: always set shouldUpdate to true and always return task.",
           "Write 经验：<lesson> only when this turn produced a durable success or failure lesson (what worked or failed and why); otherwise omit it. Task progress is current state, never a completion log or a next-step plan.",
@@ -1728,64 +1729,6 @@ export const layer = Layer.effect(
           const historyForModel = Option.isSome(episodicDigest)
             ? sliceLastTurns(msgs, EpisodicMemory.DIGEST_INTERVAL_TURNS)
             : msgs
-          if (yield* compaction.shouldCompact({ messages: historyForModel, model })) {
-            if (canUsePersistentMemory && episodic) {
-              const digestDue = yield* episodic
-                .isDigestDue({
-                  sessionID,
-                  workspaceRoot: ctx.directory,
-                  reason: "threshold",
-                  totalTurns: Math.max(0, countRealUserTurns(msgs) - 1),
-                  previousSummary: undefined,
-                })
-                .pipe(Effect.catch(() => Effect.succeed(false)))
-              if (digestDue && flags.experimentalEventSystem) {
-                yield* events
-                  .publish(SessionEvent.Compaction.Started, {
-                    sessionID,
-                    timestamp: DateTime.makeUnsafe(Date.now()),
-                    reason: "auto",
-                  })
-                  .pipe(Effect.ignore)
-              }
-              yield* episodic
-                .compactIfDue({
-                  sessionID,
-                  workspaceRoot: ctx.directory,
-                  reason: "threshold",
-                  totalTurns: Math.max(0, countRealUserTurns(msgs) - 1),
-                  previousSummary: undefined,
-                  generate: (prompt) => generateDigest(prompt, model).pipe(Effect.orDie),
-                })
-                .pipe(
-                  Effect.ignore,
-                  Effect.ensuring(
-                    digestDue && flags.experimentalEventSystem
-                      ? events
-                          .publish(SessionEvent.Compaction.Ended, {
-                            sessionID,
-                            timestamp: DateTime.makeUnsafe(Date.now()),
-                            text: "episodic digest",
-                          })
-                          .pipe(Effect.ignore)
-                      : Effect.void,
-                  ),
-                )
-            }
-            const created = yield* compaction.create({
-              sessionID,
-              agent: lastUser.agent,
-              model: lastUser.model,
-              auto: true,
-              overflow: true,
-            })
-            if (!created) {
-              yield* autoCompactionHalted
-              break
-            }
-            resetTurnGuards()
-            continue
-          }
 
           const msg: MessageV2.Assistant = {
             id: MessageID.ascending(),
@@ -1968,12 +1911,11 @@ export const layer = Layer.effect(
               Effect.catch(() => Effect.succeed(Option.none())),
             )
 
-            const [env, instructions, modelMsgs] = yield* Effect.all([
+            const [env, instructions] = yield* Effect.all([
               firstSessionTurn
                 ? sys.environment(model, { includeMemory: canUsePersistentMemory })
                 : Effect.succeed([] as string[]),
               instruction.system().pipe(Effect.orDie),
-              MessageV2.toModelMessagesEffect(historyForModel, model),
             ])
             const system = [...(snapshotText ? [snapshotText] : []), ...env, ...instructions]
             if (Option.isSome(episodicDigest)) {
@@ -2040,6 +1982,82 @@ export const layer = Layer.effect(
               : format.type === "json_schema"
                 ? ("required" as const)
                 : undefined
+            const requestTools = Object.fromEntries(
+              Object.entries(tools).map(([name, definition]) => [
+                name,
+                {
+                  inputSchema: (definition as AITool).inputSchema,
+                  description: definition.description,
+                },
+              ]),
+            )
+            const prepared = yield* compaction.prepareRequest({
+              messages: historyForModel,
+              system,
+              tools: requestTools,
+              injectedContext: [],
+              outputReserve: Math.max(0, model.limit.output ?? 0),
+              model,
+            })
+            if (prepared.needsFullCompaction) {
+              if (canUsePersistentMemory && episodic) {
+                const digestDue = yield* episodic
+                  .isDigestDue({
+                    sessionID,
+                    workspaceRoot: ctx.directory,
+                    reason: "threshold",
+                    totalTurns: Math.max(0, countRealUserTurns(msgs) - 1),
+                    previousSummary: undefined,
+                  })
+                  .pipe(Effect.catch(() => Effect.succeed(false)))
+                if (digestDue && flags.experimentalEventSystem) {
+                  yield* events
+                    .publish(SessionEvent.Compaction.Started, {
+                      sessionID,
+                      timestamp: DateTime.makeUnsafe(Date.now()),
+                      reason: "auto",
+                    })
+                    .pipe(Effect.ignore)
+                }
+                yield* episodic
+                  .compactIfDue({
+                    sessionID,
+                    workspaceRoot: ctx.directory,
+                    reason: "threshold",
+                    totalTurns: Math.max(0, countRealUserTurns(msgs) - 1),
+                    previousSummary: undefined,
+                    generate: (prompt) => generateDigest(prompt, model).pipe(Effect.orDie),
+                  })
+                  .pipe(
+                    Effect.ignore,
+                    Effect.ensuring(
+                      digestDue && flags.experimentalEventSystem
+                        ? events
+                            .publish(SessionEvent.Compaction.Ended, {
+                              sessionID,
+                              timestamp: DateTime.makeUnsafe(Date.now()),
+                              text: "episodic digest",
+                            })
+                            .pipe(Effect.ignore)
+                        : Effect.void,
+                    ),
+                  )
+              }
+              const created = yield* compaction.create({
+                sessionID,
+                agent: lastUser.agent,
+                model: lastUser.model,
+                auto: true,
+                overflow: true,
+              })
+              if (!created) {
+                yield* autoCompactionHalted
+                return "break" as const
+              }
+              resetTurnGuards()
+              return "continue" as const
+            }
+            const modelMsgs = yield* MessageV2.toModelMessagesEffect(prepared.messages, model)
             const result = yield* handle.process({
               user: lastUser,
               agent,

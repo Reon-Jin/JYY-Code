@@ -106,4 +106,49 @@ describe("estimateContextTokens", () => {
 
     expect(result.toolTokens).toBe(2000)
   })
+
+  test("counts the complete request budget, including system, schemas, arguments, injection, and reserve", () => {
+    const result = estimateContextTokens({
+      messages: [
+        user([
+          {
+            id: PartID.ascending(),
+            messageID,
+            sessionID,
+            type: "tool",
+            tool: "search",
+            callID: "call-budget",
+            state: {
+              status: "completed",
+              input: { query: "needle" },
+              output: "result",
+              title: "Search",
+              metadata: {},
+              time: { start: Date.now(), end: Date.now() },
+            },
+          },
+        ]),
+      ],
+      system: ["system instructions"],
+      tools: {
+        search: {
+          description: "Search for a value",
+          inputSchema: {
+            type: "object",
+            properties: { query: { type: "string" } },
+          },
+        },
+      },
+      injectedContext: ["<memory>durable context</memory>"],
+      outputReserve: 512,
+    })
+
+    expect(result.systemTokens).toBeGreaterThan(0)
+    expect(result.injectedTokens).toBeGreaterThan(0)
+    expect(result.toolSchemaTokens).toBeGreaterThan(0)
+    expect(result.toolArgumentTokens).toBeGreaterThan(0)
+    expect(result.outputReserve).toBe(512)
+    expect(result.safetyMarginTokens).toBeGreaterThan(0)
+    expect(result.totalTokens).toBe(result.inputTokens + result.outputReserve)
+  })
 })

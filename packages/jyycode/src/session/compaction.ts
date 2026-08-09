@@ -22,6 +22,7 @@ import {
   getAutocompactBufferTokens,
   getEffectiveContextWindow,
   getAutoCompactThreshold,
+  getPredictiveCompactThreshold,
   calculateTokenWarningState,
   estimateMaxTurnGrowth,
 } from "./overflow"
@@ -35,14 +36,16 @@ import {
   detectReactiveCompactTrigger,
   shouldAttemptReactiveCompact,
   createReactiveCompactState,
+  reactiveCompact,
   type ReactiveCompactConfig,
+  type ReactiveCompactResult,
   type ReactiveCompactState,
 } from "./reactive-compact"
 import { serviceUse } from "@/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { SessionEvent } from "@jyycode-ai/core/session-event"
-import { estimateContextTokens } from "./context-estimate"
+import { estimateContextTokens, type ContextBudgetInput, type ContextEstimate } from "./context-estimate"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -63,6 +66,17 @@ const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
 const MAX_PRESERVE_RECENT_TOKENS = 8_000
 export const AUTO_FAILURE_LIMIT = 3
+
+export type RequestCompressionStage = "none" | "micro" | "reactive" | "full"
+
+export type RequestPreparation = {
+  messages: MessageV2.WithParts[]
+  estimate: ContextEstimate
+  stage: RequestCompressionStage
+  microSavings: number
+  reactive: ReactiveCompactResult["stats"] | undefined
+  needsFullCompaction: boolean
+}
 
 function isCompletedToolPart(part: MessageV2.Part): part is MessageV2.ToolPart & {
   state: MessageV2.ToolStateCompleted
@@ -250,6 +264,12 @@ export interface Interface {
     messages: MessageV2.WithParts[]
     maxChars?: number
   }) => Effect.Effect<MessageV2.WithParts[]>
+  /** Apply the request-level compression chain before sending to a provider. */
+  readonly prepareRequest: (input: ContextBudgetInput & { model: Provider.Model }) => Effect.Effect<RequestPreparation>
+  /** Reactive compaction result with change statistics for telemetry and tests. */
+  readonly reactiveCompact: (input: {
+    messages: MessageV2.WithParts[]
+  }) => Effect.Effect<ReactiveCompactResult>
   /** Detect if the conversation needs reactive (emergency) compaction. */
   readonly detectReactiveNeed: (input: {
     messages: MessageV2.WithParts[]
@@ -720,6 +740,8 @@ export const layer = Layer.effect(
     const detectReactiveNeed = Effect.fn("SessionCompaction.detectReactiveNeed")(function* (input: {
       messages: MessageV2.WithParts[]
     }) {
+      const cfg = yield* config.get()
+      if (cfg.compaction?.reactive_compact === false) return null
       return detectReactiveCompactTrigger(input.messages) ? "prompt_too_long" : null
     })
 
@@ -733,6 +755,106 @@ export const layer = Layer.effect(
         model: input.model,
         config: cfg,
       })
+    })
+
+    const reactiveCompactFn = Effect.fn("SessionCompaction.reactiveCompact")(function* (input: {
+      messages: MessageV2.WithParts[]
+    }) {
+      const cfg = yield* config.get()
+      if (cfg.compaction?.reactive_compact === false) {
+        const messages = structuredClone(input.messages)
+        return {
+          messages,
+          stats: {
+            changed: false,
+            messagesChanged: 0,
+            partsChanged: 0,
+            compactedToolOutputs: 0,
+            compactedAssistantText: 0,
+            preservedActiveParts: messages.reduce(
+              (total, message) =>
+                total +
+                message.parts.filter(
+                  (part) =>
+                    part.type === "tool" && (part.state.status === "pending" || part.state.status === "running"),
+                ).length,
+              0,
+            ),
+            beforeChars: JSON.stringify(messages).length,
+            afterChars: JSON.stringify(messages).length,
+            savedChars: 0,
+          },
+        } satisfies ReactiveCompactResult
+      }
+      const state = createReactiveCompactState({ enabled: true })
+      if (!shouldAttemptReactiveCompact(state, { enabled: true })) {
+        return reactiveCompact({ messages: input.messages, config: { enabled: false } })
+      }
+      const result = reactiveCompact({ messages: input.messages })
+      if (result.stats.changed) log.info("reactively compacted old conversation segments", result.stats)
+      return result
+    })
+
+    const prepareRequest = Effect.fn("SessionCompaction.prepareRequest")(function* (
+      input: ContextBudgetInput & { model: Provider.Model },
+    ) {
+      const cfg = yield* config.get()
+      const outputReserve = Math.max(0, Number.isFinite(input.outputReserve) ? input.outputReserve : 0)
+      const budgetInput = (messages: MessageV2.WithParts[]): ContextBudgetInput => ({
+        messages,
+        system: input.system,
+        tools: input.tools,
+        injectedContext: input.injectedContext,
+        outputReserve,
+      })
+      const hardBudget = usable({ cfg, model: input.model, outputTokenMax: flags.outputTokenMax })
+      const softBudget = getPredictiveCompactThreshold({
+        cfg,
+        model: input.model,
+        outputTokenMax: flags.outputTokenMax,
+      })
+      let messages = structuredClone(input.messages)
+      let estimate = estimateContextTokens(budgetInput(messages))
+      let stage: RequestCompressionStage = "none"
+      let microSavings = 0
+      let reactiveStats: ReactiveCompactResult["stats"] | undefined
+
+      const done = (needsFullCompaction: boolean): RequestPreparation => ({
+        messages,
+        estimate,
+        stage,
+        microSavings,
+        reactive: reactiveStats,
+        needsFullCompaction,
+      })
+
+      if (estimate.inputTokens <= softBudget) return done(false)
+
+      if (cfg.compaction?.micro_compact !== false) {
+        const before = estimate.inputTokens
+        messages = yield* microCompactFn({
+          messages,
+          maxChars: cfg.compaction?.micro_compact_max_chars,
+        })
+        estimate = estimateContextTokens(budgetInput(messages))
+        microSavings = Math.max(0, before - estimate.inputTokens)
+        if (estimate.inputTokens <= softBudget) {
+          stage = "micro"
+          return done(false)
+        }
+        stage = "micro"
+      }
+
+      if (cfg.compaction?.reactive_compact !== false) {
+        const result = yield* reactiveCompactFn({ messages })
+        messages = result.messages
+        reactiveStats = result.stats
+        estimate = estimateContextTokens(budgetInput(messages))
+        if (result.stats.changed) stage = "reactive"
+        if (estimate.inputTokens <= hardBudget) return done(false)
+      }
+
+      return done(estimate.inputTokens > hardBudget)
     })
 
     const create = Effect.fn("SessionCompaction.create")(function* (input: {
@@ -784,6 +906,8 @@ export const layer = Layer.effect(
       shouldCompact,
       prune,
       microCompact: microCompactFn,
+      prepareRequest,
+      reactiveCompact: reactiveCompactFn,
       detectReactiveNeed,
       tokenWarningState: tokenWarningStateFn,
       process: processCompaction,
