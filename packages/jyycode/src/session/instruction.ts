@@ -1,5 +1,6 @@
 import path from "path"
-import { Effect, Layer, Context } from "effect"
+import { Effect, Layer, Context, Option } from "effect"
+import * as Stream from "effect/Stream"
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
@@ -10,6 +11,16 @@ import { withTransientReadRetry } from "@/util/effect-http-client"
 import { Global } from "@jyycode-ai/core/global"
 import type { MessageV2 } from "./message-v2"
 import type { MessageID } from "./schema"
+import { createHash } from "node:crypto"
+import {
+  budgetInstructions,
+  DEFAULT_INSTRUCTION_FILE_BYTES,
+  DEFAULT_INSTRUCTION_TOKENS,
+  InstructionBudgetError,
+  readFileBounded,
+  type BoundedRead,
+  type InstructionCandidate,
+} from "./instruction-budget"
 
 const files = (disableClaudeCodePrompt: boolean) => [
   "AGENTS.md",
@@ -71,6 +82,8 @@ export const layer: Layer.Layer<
         Effect.succeed({
           // Track which instruction files have already been attached for a given assistant message.
           claims: new Map<MessageID, Set<string>>(),
+          localCache: new Map<string, BoundedRead>(),
+          remoteCache: new Map<string, BoundedRead>(),
         }),
       ),
     )
@@ -87,18 +100,55 @@ export const layer: Layer.Layer<
         .pipe(Effect.catch(() => Effect.succeed([] as string[])))
     })
 
-    const read = Effect.fnUntraced(function* (filepath: string) {
-      return yield* fs.readFileString(filepath).pipe(Effect.catch(() => Effect.succeed("")))
+    const read = Effect.fnUntraced(function* (filepath: string, required = false) {
+      const s = yield* InstanceState.get(state)
+      const metadata = yield* fs.stat(filepath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      const cached = s.localCache.get(filepath)
+      const mtimeMs = metadata ? Option.getOrElse(metadata.mtime, () => new Date(0)).getTime() : undefined
+      if (cached && metadata && cached.mtimeMs === mtimeMs && cached.size === metadata.size) {
+        return { source: filepath, ...cached, required } satisfies InstructionCandidate
+      }
+      const result = yield* Effect.tryPromise({
+        try: () => readFileBounded(filepath, DEFAULT_INSTRUCTION_FILE_BYTES),
+        catch: () => new Error(`failed to read instruction ${filepath}`),
+      }).pipe(Effect.catch(() => Effect.succeed<BoundedRead>({ content: "", bytes: 0, digest: "" })))
+      s.localCache.set(filepath, result)
+      return { source: filepath, ...result, required } satisfies InstructionCandidate
     })
 
     const fetch = Effect.fnUntraced(function* (url: string) {
-      const res = yield* http.execute(HttpClientRequest.get(url)).pipe(
-        Effect.timeout(5000),
-        Effect.catch(() => Effect.succeed(null)),
+      const s = yield* InstanceState.get(state)
+      const cached = s.remoteCache.get(url)
+      if (cached) return { source: url, ...cached, required: true } satisfies InstructionCandidate
+      const res = yield* http.execute(HttpClientRequest.get(url)).pipe(Effect.timeout(5000))
+      const collected = yield* res.stream.pipe(
+        Stream.runFold(
+          {
+            chunks: [] as Uint8Array[],
+            bytes: 0,
+            retained: 0,
+            hash: createHash("sha256"),
+          },
+          (acc, chunk) => {
+            acc.hash.update(chunk)
+            acc.bytes += chunk.byteLength
+            const remaining = DEFAULT_INSTRUCTION_FILE_BYTES - acc.retained
+            if (remaining > 0) {
+              const next = chunk.subarray(0, remaining)
+              acc.chunks.push(next)
+              acc.retained += next.byteLength
+            }
+            return acc
+          },
+        ),
       )
-      if (!res) return ""
-      const body = yield* res.arrayBuffer.pipe(Effect.catch(() => Effect.succeed(new ArrayBuffer(0))))
-      return new TextDecoder().decode(body)
+      const bounded: BoundedRead = {
+        content: Buffer.concat(collected.chunks.map((item) => Buffer.from(item))).toString("utf8"),
+        bytes: collected.bytes,
+        digest: collected.hash.digest("hex"),
+      }
+      s.remoteCache.set(url, bounded)
+      return { source: url, ...bounded, required: true } satisfies InstructionCandidate
     })
 
     const clear = Effect.fn("Instruction.clear")(function* (messageID: MessageID) {
@@ -158,13 +208,30 @@ export const layer: Layer.Layer<
         (item) => item.startsWith("https://") || item.startsWith("http://"),
       )
 
-      const files = yield* Effect.forEach(Array.from(paths), read, { concurrency: 8 })
+      const configBudget = config.instruction_budget
+      // Preserve the existing source precedence (global before project) while
+      // using a stable Set built by systemPaths; precedence is part of the
+      // instruction provenance contract.
+      const pathsOrdered = Array.from(paths)
+      const local = yield* Effect.forEach(
+        pathsOrdered,
+        (item) => read(item, /(?:^|[\\/])(AGENTS|CLAUDE|CONTEXT)\.md$/i.test(item)),
+        { concurrency: 8 },
+      )
       const remote = yield* Effect.forEach(urls, fetch, { concurrency: 4 })
-
-      return [
-        ...Array.from(paths).flatMap((item, i) => (files[i] ? [`Instructions from: ${item}\n${files[i]}`] : [])),
-        ...urls.flatMap((item, i) => (remote[i] ? [`Instructions from: ${item}\n${remote[i]}`] : [])),
-      ]
+      const candidates = [...local, ...remote]
+      const budget = yield* Effect.try({
+        try: () =>
+          budgetInstructions(candidates, {
+            maxFileBytes: configBudget?.max_file_bytes ?? DEFAULT_INSTRUCTION_FILE_BYTES,
+            maxTokens: configBudget?.max_total_tokens ?? DEFAULT_INSTRUCTION_TOKENS,
+            safetyMargin: configBudget?.safety_margin,
+          }),
+        catch: (error) => (error instanceof InstructionBudgetError ? error : new Error(String(error))),
+      }).pipe(Effect.catch((error) => Effect.die(error)))
+      return budget.entries
+        .filter((entry) => entry.included)
+        .map((entry) => `Instructions from: ${entry.source}\n${entry.content}`)
     })
 
     const find = Effect.fn("Instruction.find")(function* (dir: string) {
@@ -208,9 +275,10 @@ export const layer: Layer.Layer<
         }
 
         set.add(found)
-        const content = yield* read(found)
-        if (content) {
-          results.push({ filepath: found, content: `Instructions from: ${found}\n${content}` })
+        const candidate = yield* read(found)
+        if (candidate.content) {
+          const entry = budgetInstructions([candidate], { maxFileBytes: DEFAULT_INSTRUCTION_FILE_BYTES }).entries[0]
+          if (entry?.included) results.push({ filepath: found, content: `Instructions from: ${found}\n${entry.content}` })
         }
 
         current = path.dirname(current)

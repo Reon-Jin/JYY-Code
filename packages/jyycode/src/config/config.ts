@@ -280,6 +280,15 @@ export const Info = Schema.Struct({
   instructions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
     description: "Additional instruction files or patterns to include",
   }),
+  instruction_budget: Schema.optional(
+    Schema.Struct({
+      max_file_bytes: Schema.optional(PositiveInt),
+      max_total_tokens: Schema.optional(PositiveInt),
+      safety_margin: Schema.optional(Schema.Number),
+    }),
+  ).annotate({
+    description: "Hard limits for project and remote instruction loading",
+  }),
   layout: Schema.optional(ConfigLayout.Layout).annotate({ description: "@deprecated Always uses stretch layout." }),
   permission: Schema.optional(ConfigPermission.Info),
   tools: Schema.optional(Schema.Record(Schema.String, Schema.Boolean)),
