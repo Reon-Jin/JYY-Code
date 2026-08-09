@@ -22,6 +22,80 @@ function pathsOf(entries: MergeApplyEntry[]) {
 }
 
 describe("workspace three-way merge contract", () => {
+  it("handles base-only, equal changes, add/add equal, and delete/delete without conflicts", () => {
+    const fixture = createMergeWorkspaceFixture()
+    try {
+      writeFile(fixture.baseline, "base-only.txt", "base\n")
+      writeFile(fixture.baseline, "same.txt", "base\n")
+      writeFile(fixture.baseline, "deleted.txt", "delete\n")
+      copyTree(fixture.baseline, fixture.parent)
+      copyTree(fixture.baseline, fixture.child)
+      fs.rmSync(path.join(fixture.parent, "base-only.txt"))
+      fs.rmSync(path.join(fixture.child, "base-only.txt"))
+      writeFile(fixture.parent, "same.txt", "same\n")
+      writeFile(fixture.child, "same.txt", "same\n")
+      writeFile(fixture.parent, "equal-add.txt", "add\n")
+      writeFile(fixture.child, "equal-add.txt", "add\n")
+      fs.rmSync(path.join(fixture.parent, "deleted.txt"))
+      fs.rmSync(path.join(fixture.child, "deleted.txt"))
+
+      const result = planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child })
+      expect(result.conflicts).toEqual([])
+      expect(result.apply).toEqual([])
+      expect(result.delete).toEqual([])
+      expect(result.keep).toEqual(["base-only.txt", "deleted.txt", "equal-add.txt", "same.txt"])
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it("merges CRLF/LF text and UTF-8 content deterministically", () => {
+    const fixture = createMergeWorkspaceFixture()
+    try {
+      writeFile(fixture.baseline, "src/lines.txt", "one\r\ntwo\r\nthree\r\n")
+      writeFile(fixture.baseline, "src/utf8.txt", "你好\n世界\n")
+      copyTree(fixture.baseline, fixture.parent)
+      copyTree(fixture.baseline, fixture.child)
+      writeFile(fixture.parent, "src/lines.txt", "ONE\r\ntwo\r\nthree\r\n")
+      writeFile(fixture.child, "src/lines.txt", "one\ntwo\nTHREE\n")
+      writeFile(fixture.child, "src/utf8.txt", "你好\n世界！\n")
+
+      const result = planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child })
+      expect(result.conflicts).toEqual([])
+      expect(result.apply.find((entry: MergeApplyEntry) => entry.path === "src/lines.txt")?.content).toBe(
+        "ONE\r\ntwo\r\nTHREE\r\n",
+      )
+      expect(result.apply.find((entry: MergeApplyEntry) => entry.path === "src/utf8.txt")?.content).toBe("你好\n世界！\n")
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it("honors a relative scope and rejects unsafe symlinks", () => {
+    const fixture = createMergeWorkspaceFixture()
+    try {
+      writeFile(fixture.baseline, "src/in-scope.ts", "base\n")
+      writeFile(fixture.baseline, "outside.ts", "base\n")
+      copyTree(fixture.baseline, fixture.parent)
+      copyTree(fixture.baseline, fixture.child)
+      writeFile(fixture.child, "src/in-scope.ts", "child\n")
+      writeFile(fixture.child, "outside.ts", "child\n")
+      const scoped = planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child, paths: ["src"] })
+      expect(pathsOf(scoped.apply)).toEqual(["src/in-scope.ts"])
+
+      let created = false
+      try {
+        fs.symlinkSync(path.join(fixture.root, "outside-target"), path.join(fixture.child, "unsafe"), "file")
+        created = true
+      } catch {
+        // Windows may not allow unprivileged symlink creation.
+      }
+      if (created) expect(() => planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child })).toThrow()
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   it("plans a child-only file addition for a non-Git snapshot", () => {
     const fixture = createMergeWorkspaceFixture()
     try {
