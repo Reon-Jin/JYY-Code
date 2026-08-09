@@ -20,6 +20,7 @@ export type StorageDatabaseReport = {
   readonly sessionCount?: number
   readonly messageCount?: number
   readonly partCount?: number
+  readonly toolCount?: number
   readonly partJsonBytes?: number
   readonly toolJsonBytes?: number
   readonly base64PartBytes?: number
@@ -117,6 +118,11 @@ function inspectDatabase(file: StorageFileReport, kind: StorageEntryKind, deadli
     const sessionCount = queryNumber(db, "SELECT COUNT(*) FROM session", deadline)
     const messageCount = queryNumber(db, "SELECT COUNT(*) FROM message", deadline)
     const partCount = queryNumber(db, "SELECT COUNT(*) FROM part", deadline)
+    const toolCount = queryNumber(
+      db,
+      `SELECT COUNT(*) FROM part WHERE data LIKE '%"type":"tool"%'`,
+      deadline,
+    )
     const partJsonBytes = queryNumber(db, "SELECT COALESCE(SUM(length(data)), 0) FROM part", deadline)
     const toolJsonBytes = queryNumber(
       db,
@@ -133,6 +139,7 @@ function inspectDatabase(file: StorageFileReport, kind: StorageEntryKind, deadli
       sessionCount,
       messageCount,
       partCount,
+      toolCount,
       partJsonBytes,
       toolJsonBytes,
       base64PartBytes,

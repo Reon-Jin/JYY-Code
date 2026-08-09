@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { parseDuration, retentionDecision } from "@/storage/retention"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { blobPath } from "@/storage/blob-path"
+import { inspectStorage, parseDuration, retentionDecision } from "@/storage/retention"
 
 describe("storage retention policy", () => {
   test("preserves roots and unknown lifecycle states", () => {
@@ -28,5 +32,23 @@ describe("storage retention policy", () => {
     expect(parseDuration("30d")).toBe(30 * 24 * 60 * 60 * 1000)
     expect(parseDuration("1.5h")).toBe(5_400_000)
     expect(() => parseDuration("forever")).toThrow()
+  })
+
+  test("inspects storage bytes without returning stored content", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "jyycode-retention-"))
+    const digest = "a".repeat(64)
+    try {
+      await mkdir(path.dirname(blobPath(digest, root)), { recursive: true })
+      await writeFile(blobPath(digest, root), Buffer.from("secret-blob"))
+      await mkdir(path.join(root, "log"), { recursive: true })
+      await writeFile(path.join(root, "log", "today.log"), "secret-log")
+      const report = await inspectStorage(root)
+      expect(report.blobs).toEqual({ count: 1, bytes: 11 })
+      expect(report.logs).toEqual({ count: 1, bytes: 10 })
+      expect(JSON.stringify(report)).not.toContain("secret-blob")
+      expect(JSON.stringify(report)).not.toContain("secret-log")
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

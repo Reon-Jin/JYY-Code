@@ -3,7 +3,7 @@ import { Global } from "@jyycode-ai/core/global"
 import { Effect } from "effect"
 import { Database } from "@/storage/db"
 import { Database as BunDatabase } from "bun:sqlite"
-import { mkdir, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises"
+import { rename, rm, stat, statfs, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
 
@@ -48,6 +48,7 @@ async function fullVacuum(file: string, options: MaintenanceOptions): Promise<Ma
   const temp = path.join(directory, `.${path.basename(resolved)}.${process.pid}.${randomUUID()}.vacuum.tmp`)
   const manifest = `${resolved}.vacuum-manifest.json`
   let native: BunDatabase | undefined
+  let replaced = false
   try {
     native = new BunDatabase(resolved, { readwrite: true, create: false })
     native.query("VACUUM INTO ?").run(temp)
@@ -81,6 +82,7 @@ async function fullVacuum(file: string, options: MaintenanceOptions): Promise<Ma
       return { path: resolved, status: "busy", mode: "full", manifest, reason: "Windows replacement is refused while database handles may be open" }
     }
     await rename(temp, resolved)
+    replaced = true
     return { path: resolved, status: "completed", mode: "full", manifest }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -89,7 +91,7 @@ async function fullVacuum(file: string, options: MaintenanceOptions): Promise<Ma
   } finally {
     native?.close(false)
     await rm(temp, { force: true }).catch(() => undefined)
-    if (!(await stat(resolved).catch(() => undefined))) await rm(resolved, { force: true }).catch(() => undefined)
+    if (!replaced) await rm(manifest, { force: true }).catch(() => undefined)
   }
 }
 

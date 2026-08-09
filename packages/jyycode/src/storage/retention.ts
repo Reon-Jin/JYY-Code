@@ -144,7 +144,7 @@ function aggregateDatabaseBytes(report: StorageAuditReport) {
       bytes: readable.reduce((sum, database) => sum + (database.partJsonBytes ?? 0), 0),
     },
     tools: {
-      count: readable.reduce((sum, database) => sum + (database.toolJsonBytes ? 1 : 0), 0),
+      count: readable.reduce((sum, database) => sum + (database.toolCount ?? 0), 0),
       bytes: readable.reduce((sum, database) => sum + (database.toolJsonBytes ?? 0), 0),
     },
   }
