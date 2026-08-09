@@ -133,6 +133,7 @@ export type ReplyInput = Schema.Schema.Type<typeof ReplyInput>
 export interface Interface {
   readonly ask: (input: AskInput) => Effect.Effect<void, Error>
   readonly reply: (input: ReplyInput) => Effect.Effect<void, NotFoundError>
+  readonly cancelSession?: (sessionID: SessionID) => Effect.Effect<void>
   readonly list: () => Effect.Effect<ReadonlyArray<Request>>
 }
 
@@ -298,7 +299,17 @@ export const layer = Layer.effect(
       return Array.from(pending.values(), (item) => item.info)
     })
 
-    return Service.of({ ask, reply, list })
+    const cancelSession = Effect.fn("Permission.cancelSession")(function* (sessionID: SessionID) {
+      const { pending } = yield* InstanceState.get(state)
+      for (const [requestID, item] of pending) {
+        if (item.info.sessionID !== sessionID) continue
+        pending.delete(requestID)
+        yield* bus.publish(Event.Replied, { sessionID, requestID, reply: "reject" })
+        yield* Deferred.fail(item.deferred, new RejectedError())
+      }
+    })
+
+    return Service.of({ ask, reply, cancelSession, list })
   }),
 )
 

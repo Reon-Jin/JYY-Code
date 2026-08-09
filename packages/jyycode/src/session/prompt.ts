@@ -33,6 +33,7 @@ import { NamedError } from "@jyycode-ai/core/util/error"
 import { SessionProcessor } from "./processor"
 import { Tool } from "@/tool/tool"
 import { Permission } from "@/permission"
+import { Question } from "@/question"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { Shell } from "@/shell/shell"
@@ -143,6 +144,7 @@ export const layer = Layer.effect(
     const commands = yield* Command.Service
     const config = yield* Config.Service
     const permission = yield* Permission.Service
+    const question = Option.getOrUndefined(yield* Effect.serviceOption(Question.Service))
     const fsys = yield* AppFileSystem.Service
     const mcp = yield* MCP.Service
     const lsp = yield* LSP.Service
@@ -340,6 +342,9 @@ export const layer = Layer.effect(
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID) {
       yield* elog.info("cancel", { sessionID })
+      if (permission.cancelSession) yield* permission.cancelSession(sessionID)
+      const cancelQuestion = question?.cancelSession
+      if (cancelQuestion) yield* cancelQuestion(sessionID)
       yield* state.cancel(sessionID)
     })
 
