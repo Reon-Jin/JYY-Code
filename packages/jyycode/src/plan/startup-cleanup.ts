@@ -4,7 +4,7 @@ import type { PlanFile, PlanTask } from "./schema"
 import { readPlanFileSync } from "./schema"
 
 const CHILD_WORKSPACE_PATTERN =
-  /^jyycode-[A-Za-z0-9_-]+-[A-Za-z0-9_-]+-[a-f0-9]{12}(?:\.baseline|\.manifest\.json|\.lease\.json)?$/
+  /^(?:jyycode-[A-Za-z0-9_-]+-[A-Za-z0-9_-]+-[a-f0-9]{12}(?:\.baseline|\.manifest\.json|\.lease\.json)?|baseline-[a-f0-9]{24}(?:\.source\.json)?)$/
 const MERGE_JOURNAL_PATTERN = /^\.jyycode-merge-[a-f0-9]{16}$/
 
 export type StartupWorkspaceCleanupResult = {
@@ -48,6 +48,8 @@ function addPath(set: Set<string>, root: string, value: string | null | undefine
     set.add(resolved)
     if (path.basename(resolved).startsWith("jyycode-") && !resolved.endsWith(".json"))
       set.add(path.join(path.dirname(resolved), `${path.basename(resolved)}.lease.json`))
+    if (path.basename(resolved).startsWith("baseline-") && !resolved.endsWith(".json"))
+      set.add(path.join(path.dirname(resolved), `${path.basename(resolved)}.source.json`))
   }
 }
 

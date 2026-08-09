@@ -6,6 +6,14 @@ import { Effect } from "effect"
 import { Worktree } from "@/worktree"
 import { assertInside } from "./path-guard"
 import { assertManifestIdentity, assertRuntimePath, assertWorkspaceIdentity, isPathInside } from "./workspace-path"
+import {
+  buildSnapshotManifest,
+  DEFAULT_SNAPSHOT_MANIFEST_LIMITS,
+  type SnapshotManifest,
+  type SnapshotManifestEntry,
+  type SnapshotManifestLimits,
+} from "./snapshot-manifest"
+import { preflightWorkspaceBudget, type WorkspaceBudget } from "./workspace-budget"
 
 export type ChildWorkspaceMode = "worktree" | "snapshot" | "shared_compat"
 export type CleanupPolicy = "on_success" | "on_cancel" | "retain_on_failure"
@@ -30,27 +38,15 @@ export type WorkspaceReservation = {
   baseline_manifest_hash?: string | null
   baseline_manifest_size?: number | null
   baseline_manifest_file_count?: number | null
+  baseline_id?: string | null
+  source_manifest_hash?: string | null
   source_revision?: string | null
 }
 
-export type BaselineManifestEntry = {
-  relative_path: string
-  hash: string
-  size: number
-  mode: "file" | "symlink"
-}
+export type BaselineManifestEntry = SnapshotManifestEntry
+export type SnapshotLimits = SnapshotManifestLimits
 
-export type SnapshotLimits = {
-  maxFileBytes: number
-  maxTotalBytes: number
-  maxFileCount: number
-}
-
-export const DEFAULT_SNAPSHOT_LIMITS: SnapshotLimits = {
-  maxFileBytes: 8 * 1024 * 1024,
-  maxTotalBytes: 256 * 1024 * 1024,
-  maxFileCount: 20_000,
-}
+export const DEFAULT_SNAPSHOT_LIMITS: SnapshotLimits = DEFAULT_SNAPSHOT_MANIFEST_LIMITS
 
 export type WorkspaceHandle = WorkspaceReservation & {
   directory: string
@@ -59,6 +55,8 @@ export type WorkspaceHandle = WorkspaceReservation & {
   baseline_manifest_hash: string | null
   baseline_manifest_size: number | null
   baseline_manifest_file_count: number | null
+  baseline_id: string | null
+  source_manifest_hash: string | null
   source_revision: string | null
   baseline_manifest: BaselineManifestEntry[]
 }
@@ -108,6 +106,9 @@ type ChildWorkspaceOptions = {
   worktree?: WorktreeAdapter
   now?: () => number
   snapshotLimits?: Partial<SnapshotLimits>
+  snapshotExclude?: readonly string[]
+  snapshotInclude?: readonly string[]
+  workspaceBudget?: { softLimitBytes?: number; hardLimitBytes?: number }
 }
 
 function safeToken(value: string) {
@@ -313,13 +314,20 @@ function manifestPath(runtimeRoot: string, name: string) {
 function writeManifest(
   pathname: string,
   manifest: BaselineManifestEntry[],
-  identity?: { rootSessionId: string; taskId: string; name: string },
+  identity?: { rootSessionId: string; taskId: string; name: string; baselineId?: string | null },
 ) {
-  const payload = JSON.stringify({ version: 1, ...(identity ? {
-    root_session_id: identity.rootSessionId,
-    task_id: identity.taskId,
-    name: identity.name,
-  } : {}), entries: manifest })
+  const payload = JSON.stringify({
+    version: 1,
+    ...(identity
+      ? {
+          root_session_id: identity.rootSessionId,
+          task_id: identity.taskId,
+          name: identity.name,
+          ...(identity.baselineId ? { baseline_id: identity.baselineId } : {}),
+        }
+      : {}),
+    entries: manifest,
+  })
   fs.writeFileSync(pathname, payload, "utf8")
   return { hash: hashManifest(manifest), size: manifestSize(manifest), fileCount: manifest.length }
 }
@@ -327,12 +335,22 @@ function writeManifest(
 function readManifest(
   pathname: string,
   expectedHash?: string | null,
-  identity?: { rootSessionId: string; taskId: string; name: string },
+  identity?: { rootSessionId: string; taskId: string; name: string; baselineId?: string | null },
 ) {
   try {
-    const value = JSON.parse(fs.readFileSync(pathname, "utf8")) as { version?: unknown; entries?: unknown }
+    const value = JSON.parse(fs.readFileSync(pathname, "utf8")) as {
+      version?: unknown
+      entries?: unknown
+      baseline_id?: unknown
+    }
     if (value.version !== 1 || !Array.isArray(value.entries)) throw new Error("invalid manifest")
     if (identity) assertManifestIdentity(value, identity)
+    if (identity?.baselineId !== undefined && value.baseline_id !== identity.baselineId)
+      throw new ChildWorkspaceError("baseline manifest baseline_id does not match the cleanup request", {
+        directory: pathname,
+        recoverable: false,
+        code: "PATH_IDENTITY_MISMATCH",
+      })
     const entries = value.entries as BaselineManifestEntry[]
     if (
       entries.some(
@@ -459,7 +477,17 @@ export class ChildWorkspace {
   private readonly worktree?: WorktreeAdapter
   private readonly now: () => number
   private readonly snapshotLimits: SnapshotLimits
+  private readonly snapshotExclude: readonly string[]
+  private readonly snapshotInclude: readonly string[]
+  private readonly workspaceBudget: { softLimitBytes?: number; hardLimitBytes?: number }
   private readonly reservations = new Map<string, WorkspaceHandle | WorkspaceReservation>()
+  private readonly pendingBaselines = new Map<string, { directory: string; manifest: SnapshotManifest }>()
+  private readonly baselineOperations = new Map<
+    string,
+    Promise<{ baselineId: string; directory: string; manifest: SnapshotManifest }>
+  >()
+  private pendingManifest?: SnapshotManifest
+  private pendingManifestUses = 0
 
   constructor(options: ChildWorkspaceOptions) {
     this.project = { ...options.project, root: path.resolve(options.project.root) }
@@ -467,6 +495,9 @@ export class ChildWorkspace {
     this.worktree = options.worktree
     this.now = options.now ?? Date.now
     this.snapshotLimits = { ...DEFAULT_SNAPSHOT_LIMITS, ...options.snapshotLimits }
+    this.snapshotExclude = options.snapshotExclude ?? []
+    this.snapshotInclude = options.snapshotInclude ?? []
+    this.workspaceBudget = options.workspaceBudget ?? {}
     fs.mkdirSync(this.runtimeRoot, { recursive: true })
   }
 
@@ -497,10 +528,97 @@ export class ChildWorkspace {
       baseline_manifest_hash: null,
       baseline_manifest_size: null,
       baseline_manifest_file_count: null,
+      baseline_id: null,
+      source_manifest_hash: null,
       source_revision: null,
     }
     this.reservations.set(key, reservation)
     return structuredClone(reservation)
+  }
+
+  private async sourceManifest() {
+    if (this.pendingManifest && this.pendingManifestUses > 0) {
+      this.pendingManifestUses--
+      const manifest = this.pendingManifest
+      if (this.pendingManifestUses === 0) this.pendingManifest = undefined
+      return manifest
+    }
+    return buildSnapshotManifest({
+      root: this.project.root,
+      runtimeRoot: this.runtimeRoot,
+      limits: this.snapshotLimits,
+      exclude: this.snapshotExclude,
+      include: this.snapshotInclude,
+    })
+  }
+
+  async preflight(reservations: readonly WorkspaceReservation[]) {
+    const snapshots = reservations.filter((reservation) => reservation.mode === "snapshot")
+    if (snapshots.length === 0) return undefined
+    const manifest = await buildSnapshotManifest({
+      root: this.project.root,
+      runtimeRoot: this.runtimeRoot,
+      limits: this.snapshotLimits,
+      exclude: this.snapshotExclude,
+      include: this.snapshotInclude,
+    })
+    const budget = await preflightWorkspaceBudget({
+      runtimeRoot: this.runtimeRoot,
+      manifest,
+      taskCount: snapshots.length,
+      ...this.workspaceBudget,
+    })
+    this.pendingManifest = manifest
+    this.pendingManifestUses = snapshots.length
+    return { manifest, budget }
+  }
+
+  private async ensureSharedBaseline(manifest: SnapshotManifest) {
+    const baselineId = `baseline-${manifest.source_manifest_hash.slice(0, 24)}`
+    const existing = this.pendingBaselines.get(manifest.source_manifest_hash)
+    if (existing) return { baselineId, ...existing }
+    const running = this.baselineOperations.get(manifest.source_manifest_hash)
+    if (running) return running
+    const operation = (async () => {
+      const directory = path.join(this.runtimeRoot, baselineId)
+      const sourcePath = path.join(this.runtimeRoot, `${baselineId}.source.json`)
+      if (!fs.existsSync(directory)) {
+        const staging = path.join(
+          this.runtimeRoot,
+          `.jyycode-snapshot-staging-${crypto.randomBytes(8).toString("hex")}`,
+        )
+        let published = false
+        try {
+          fs.mkdirSync(staging, { recursive: true })
+          copyManifest(this.project.root, staging, manifest.entries)
+          fs.writeFileSync(path.join(staging, "source.json"), JSON.stringify(manifest), "utf8")
+          fs.renameSync(staging, directory)
+          published = true
+          fs.renameSync(path.join(directory, "source.json"), sourcePath)
+        } catch (error) {
+          fs.rmSync(staging, { recursive: true, force: true })
+          if (published) fs.rmSync(directory, { recursive: true, force: true })
+          throw error
+        }
+      } else if (fs.existsSync(sourcePath)) {
+        const saved = JSON.parse(fs.readFileSync(sourcePath, "utf8")) as { source_manifest_hash?: unknown }
+        if (saved.source_manifest_hash !== manifest.source_manifest_hash)
+          throw new ChildWorkspaceError("immutable baseline manifest hash changed", {
+            directory,
+            recoverable: false,
+            code: "PATH_IDENTITY_MISMATCH",
+          })
+      }
+      const value = { directory, manifest }
+      this.pendingBaselines.set(manifest.source_manifest_hash, value)
+      return { baselineId, ...value }
+    })()
+    this.baselineOperations.set(manifest.source_manifest_hash, operation)
+    try {
+      return await operation
+    } finally {
+      this.baselineOperations.delete(manifest.source_manifest_hash)
+    }
   }
 
   async create(reservation: WorkspaceReservation): Promise<WorkspaceHandle> {
@@ -517,6 +635,8 @@ export class ChildWorkspace {
         baseline_manifest_hash: null,
         baseline_manifest_size: null,
         baseline_manifest_file_count: null,
+        baseline_id: null,
+        source_manifest_hash: null,
         source_revision: reservation.source_revision ?? null,
         baseline_manifest: walkFiles(this.project.root),
       }
@@ -524,6 +644,8 @@ export class ChildWorkspace {
       return structuredClone(handle)
     }
     if (!reservation.directory) throw new ChildWorkspaceError("隔离 workspace 缺少 directory")
+    let snapshotBaselineId: string | undefined
+    let snapshotManifestPath: string | undefined
     try {
       const directory = path.resolve(reservation.directory)
       if (!isInside(this.runtimeRoot, directory))
@@ -544,16 +666,25 @@ export class ChildWorkspace {
         }
       }
 
-      fs.mkdirSync(baselineDirectory, { recursive: true })
-      clearTreeExceptGit(baselineDirectory, false)
-      const baselineManifest = snapshotManifest(this.project.root, this.project.vcs, this.snapshotLimits)
-      copyManifest(this.project.root, baselineDirectory, baselineManifest)
-      const baselineManifestHash = hashManifest(baselineManifest)
+      const sourceManifest = reservation.mode === "snapshot" ? await this.sourceManifest() : undefined
+      const baselineManifest =
+        sourceManifest?.entries ?? snapshotManifest(this.project.root, this.project.vcs, this.snapshotLimits)
+      const shared = sourceManifest ? await this.ensureSharedBaseline(sourceManifest) : undefined
+      snapshotBaselineId = shared?.baselineId
+      const effectiveBaselineDirectory = shared?.directory ?? baselineDirectory
+      if (!shared) {
+        fs.mkdirSync(effectiveBaselineDirectory, { recursive: true })
+        clearTreeExceptGit(effectiveBaselineDirectory, false)
+        copyManifest(this.project.root, effectiveBaselineDirectory, baselineManifest)
+      }
+      const baselineManifestHash = shared?.manifest.source_manifest_hash ?? hashManifest(baselineManifest)
       const baselineManifestPath = manifestPath(this.runtimeRoot, reservation.name)
+      snapshotManifestPath = baselineManifestPath
       const manifestMetadata = writeManifest(baselineManifestPath, baselineManifest, {
         rootSessionId: reservation.rootSessionId,
         taskId: reservation.taskId,
         name: reservation.name,
+        baselineId: shared?.baselineId,
       })
 
       if (reservation.mode === "worktree") {
@@ -570,16 +701,18 @@ export class ChildWorkspace {
           })
         const worktreeDirectory = path.resolve(info.directory)
         clearTreeExceptGit(worktreeDirectory)
-        copyManifest(baselineDirectory, worktreeDirectory, baselineManifest)
+        copyManifest(effectiveBaselineDirectory, worktreeDirectory, baselineManifest)
         const handle: WorkspaceHandle = {
           ...reservation,
           directory: worktreeDirectory,
           created_at: reservation.created_at ?? new Date(this.now()).toISOString(),
-          baseline_directory: baselineDirectory,
+          baseline_directory: effectiveBaselineDirectory,
           baseline_manifest_path: baselineManifestPath,
           baseline_manifest_hash: baselineManifestHash,
           baseline_manifest_size: manifestMetadata.size,
           baseline_manifest_file_count: manifestMetadata.fileCount,
+          baseline_id: shared?.baselineId ?? reservation.baseline_id ?? null,
+          source_manifest_hash: shared?.manifest.source_manifest_hash ?? reservation.source_manifest_hash ?? null,
           source_revision: reservation.source_revision ?? null,
           baseline_manifest: baselineManifest,
         }
@@ -588,24 +721,39 @@ export class ChildWorkspace {
       } else {
         if (!fs.existsSync(directory)) fs.mkdirSync(directory, { recursive: true })
         clearTreeExceptGit(directory, false)
-        copyManifest(baselineDirectory, directory, baselineManifest)
+        copyManifest(effectiveBaselineDirectory, directory, baselineManifest)
       }
       const canonical = fs.existsSync(directory) ? fs.realpathSync.native(directory) : directory
       const handle: WorkspaceHandle = {
         ...reservation,
         directory: canonical,
         created_at: reservation.created_at ?? new Date(this.now()).toISOString(),
-        baseline_directory: baselineDirectory,
+        baseline_directory: effectiveBaselineDirectory,
         baseline_manifest_path: baselineManifestPath,
         baseline_manifest_hash: baselineManifestHash,
         baseline_manifest_size: manifestMetadata.size,
         baseline_manifest_file_count: manifestMetadata.fileCount,
+        baseline_id: shared?.baselineId ?? reservation.baseline_id ?? null,
+        source_manifest_hash: shared?.manifest.source_manifest_hash ?? reservation.source_manifest_hash ?? null,
         source_revision: reservation.source_revision ?? null,
         baseline_manifest: baselineManifest,
       }
       this.reservations.set(key, handle)
       return structuredClone(handle)
     } catch (error) {
+      if (reservation.mode === "snapshot") {
+        const cleanupDirectory = path.resolve(reservation.directory)
+        if (isInside(this.runtimeRoot, cleanupDirectory)) fs.rmSync(cleanupDirectory, { recursive: true, force: true })
+        if (snapshotManifestPath) fs.rmSync(snapshotManifestPath, { force: true })
+        if (
+          snapshotBaselineId &&
+          snapshotManifestPath &&
+          !this.hasOtherBaselineReference(snapshotBaselineId, snapshotManifestPath)
+        ) {
+          fs.rmSync(path.join(this.runtimeRoot, snapshotBaselineId), { recursive: true, force: true })
+          fs.rmSync(path.join(this.runtimeRoot, `${snapshotBaselineId}.source.json`), { force: true })
+        }
+      }
       throw error instanceof ChildWorkspaceError
         ? error
         : new ChildWorkspaceError(error instanceof Error ? error.message : String(error), {
@@ -630,6 +778,8 @@ export class ChildWorkspace {
         baseline_manifest_hash: null,
         baseline_manifest_size: null,
         baseline_manifest_file_count: null,
+        baseline_id: null,
+        source_manifest_hash: null,
         source_revision: reservation.source_revision ?? null,
         baseline_manifest: walkFiles(this.project.root),
       }
@@ -637,12 +787,11 @@ export class ChildWorkspace {
       return handle
     }
     const directory = reservation.directory ? path.resolve(reservation.directory) : null
-    const baselineDirectory = reservation.baseline_directory
+    let baselineId = reservation.baseline_id ?? undefined
+    let baselineDirectory = reservation.baseline_directory
       ? path.resolve(reservation.baseline_directory)
       : path.join(this.runtimeRoot, `${reservation.name}.baseline`)
-    if (!directory || !isInside(this.runtimeRoot, directory) || !isInside(this.runtimeRoot, baselineDirectory))
-      return undefined
-    if (!fs.existsSync(directory) || !fs.existsSync(baselineDirectory)) return undefined
+    if (!directory || !isInside(this.runtimeRoot, directory)) return undefined
     const savedManifestPath = path.resolve(
       reservation.baseline_manifest_path ?? manifestPath(this.runtimeRoot, reservation.name),
     )
@@ -650,21 +799,25 @@ export class ChildWorkspace {
       throw new ChildWorkspaceError("baseline manifest must be inside the runtime workspace", {
         directory: savedManifestPath,
       })
-    const saved = fs.existsSync(savedManifestPath)
-      ? readManifest(savedManifestPath, reservation.baseline_manifest_hash, {
-          rootSessionId: reservation.rootSessionId,
-          taskId: reservation.taskId,
-          name: reservation.name,
-        })
-      : (() => {
-          const entries = walkFiles(baselineDirectory)
-          const metadata = writeManifest(savedManifestPath, entries, {
-            rootSessionId: reservation.rootSessionId,
-            taskId: reservation.taskId,
-            name: reservation.name,
-          })
-          return { entries, ...metadata }
-        })()
+    if (!fs.existsSync(directory) || !fs.existsSync(savedManifestPath)) return undefined
+    if (!fs.existsSync(baselineDirectory)) {
+      try {
+        const metadata = JSON.parse(fs.readFileSync(savedManifestPath, "utf8")) as { baseline_id?: unknown }
+        if (typeof metadata.baseline_id === "string") {
+          baselineId = metadata.baseline_id
+          baselineDirectory = path.join(this.runtimeRoot, metadata.baseline_id)
+        }
+      } catch {
+        return undefined
+      }
+    }
+    if (!isInside(this.runtimeRoot, baselineDirectory) || !fs.existsSync(baselineDirectory)) return undefined
+    const saved = readManifest(savedManifestPath, reservation.baseline_manifest_hash, {
+      rootSessionId: reservation.rootSessionId,
+      taskId: reservation.taskId,
+      name: reservation.name,
+      baselineId,
+    })
     if (
       reservation.baseline_manifest_size !== undefined &&
       reservation.baseline_manifest_size !== null &&
@@ -686,6 +839,8 @@ export class ChildWorkspace {
       baseline_manifest_hash: reservation.baseline_manifest_hash ?? saved.hash,
       baseline_manifest_size: reservation.baseline_manifest_size ?? saved.size,
       baseline_manifest_file_count: reservation.baseline_manifest_file_count ?? saved.fileCount,
+      baseline_id: baselineId ?? null,
+      source_manifest_hash: reservation.source_manifest_hash ?? reservation.baseline_manifest_hash ?? null,
       source_revision: reservation.source_revision ?? null,
       baseline_manifest: baselineManifest,
     }
@@ -704,22 +859,31 @@ export class ChildWorkspace {
       "output_scope",
     )
     const scopePath = path.resolve(snapshot.directory, scope)
-    const baseline = new Map(snapshot.baseline_manifest.map((entry) => [entry.relative_path, entry]))
+    const normalizeRelative = (value: string) => value.replaceAll("\\", "/")
+    const baseline = new Map(snapshot.baseline_manifest.map((entry) => [normalizeRelative(entry.relative_path), entry]))
     const current = new Map(
-      snapshotManifest(snapshot.directory, "none", this.snapshotLimits).map((entry) => [entry.relative_path, entry]),
+      snapshotManifest(snapshot.directory, "none", this.snapshotLimits).map((entry) => [
+        normalizeRelative(entry.relative_path),
+        entry,
+      ]),
     )
-    const relativeScope = path.relative(snapshot.directory, scopePath)
+    const relativeScope = normalizeRelative(path.relative(snapshot.directory, scopePath))
     const inScope = (relative: string) =>
-      relativeScope === "" || relative === relativeScope || relative.startsWith(`${relativeScope}${path.sep}`)
+      relativeScope === "" || relative === relativeScope || relative.startsWith(`${relativeScope}/`)
     const changes: ChangeSetEntry[] = []
     for (const [relative, entry] of current) {
       if (!inScope(relative)) continue
       const previous = baseline.get(relative)
       if (!previous)
-        changes.push({ relative_path: relative, kind: "added", source_hash: entry.hash, baseline_hash: null })
+        changes.push({
+          relative_path: entry.relative_path,
+          kind: "added",
+          source_hash: entry.hash,
+          baseline_hash: null,
+        })
       else if (previous.hash !== entry.hash || previous.mode !== entry.mode)
         changes.push({
-          relative_path: relative,
+          relative_path: entry.relative_path,
           kind: "modified",
           source_hash: entry.hash,
           baseline_hash: previous.hash,
@@ -727,14 +891,39 @@ export class ChildWorkspace {
     }
     for (const [relative, entry] of baseline)
       if (inScope(relative) && !current.has(relative))
-        changes.push({ relative_path: relative, kind: "deleted", source_hash: null, baseline_hash: entry.hash })
+        changes.push({
+          relative_path: entry.relative_path,
+          kind: "deleted",
+          source_hash: null,
+          baseline_hash: entry.hash,
+        })
     return changes.sort((left, right) => left.relative_path.localeCompare(right.relative_path))
+  }
+
+  private hasOtherBaselineReference(baselineId: string, manifestPathname: string) {
+    for (const entry of fs.readdirSync(this.runtimeRoot, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".manifest.json")) continue
+      const pathname = path.join(this.runtimeRoot, entry.name)
+      if (path.resolve(pathname) === path.resolve(manifestPathname)) continue
+      try {
+        const value = JSON.parse(fs.readFileSync(pathname, "utf8")) as Record<string, unknown>
+        if (value.baseline_id === baselineId) return true
+      } catch {
+        // A malformed unrelated sidecar is not evidence that this baseline is
+        // still referenced; its owning cleanup will quarantine it separately.
+      }
+    }
+    return false
   }
 
   async remove(directory: string) {
     let canonical: string
     try {
-      canonical = assertRuntimePath({ runtimeRoot: this.runtimeRoot, candidate: directory, label: "workspace directory" })
+      canonical = assertRuntimePath({
+        runtimeRoot: this.runtimeRoot,
+        candidate: directory,
+        label: "workspace directory",
+      })
     } catch (error) {
       throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), {
         directory,
@@ -793,6 +982,7 @@ export class ChildWorkspace {
             rootSessionId: entry.rootSessionId,
             taskId: entry.taskId,
             name: entry.name,
+            baselineId: entry.baseline_id ?? undefined,
           })
       }
     } catch (error) {
@@ -818,7 +1008,15 @@ export class ChildWorkspace {
             directory: baseline,
             recoverable: false,
           })
-        if (fs.existsSync(baseline)) fs.rmSync(baseline, { recursive: true, force: true })
+        if (
+          !entry.baseline_id ||
+          !entry.baseline_manifest_path ||
+          !this.hasOtherBaselineReference(entry.baseline_id, entry.baseline_manifest_path)
+        ) {
+          if (fs.existsSync(baseline)) fs.rmSync(baseline, { recursive: true, force: true })
+          if (entry.baseline_id)
+            fs.rmSync(path.join(this.runtimeRoot, `${entry.baseline_id}.source.json`), { force: true })
+        }
       }
       if (entry.baseline_manifest_path) {
         const manifest = assertRuntimePath({
@@ -831,6 +1029,7 @@ export class ChildWorkspace {
             rootSessionId: entry.rootSessionId,
             taskId: entry.taskId,
             name: entry.name,
+            baselineId: entry.baseline_id ?? undefined,
           })
         if (fs.existsSync(manifest)) fs.rmSync(manifest, { force: true })
       }

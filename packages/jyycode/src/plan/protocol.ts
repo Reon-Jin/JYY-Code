@@ -70,6 +70,7 @@ import {
   WorkspaceCleanupService,
   type CleanupRecord,
 } from "./workspace-cleanup"
+import { isWorkspaceQuotaError } from "./workspace-budget"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -245,6 +246,8 @@ function dispatchWorkspaceMetadata(
     baseline_manifest_hash: workspace.baseline_manifest_hash ?? null,
     baseline_manifest_size: workspace.baseline_manifest_size ?? null,
     baseline_manifest_file_count: workspace.baseline_manifest_file_count ?? null,
+    baseline_id: workspace.baseline_id ?? null,
+    source_manifest_hash: workspace.source_manifest_hash ?? null,
     source_revision: workspace.source_revision ?? null,
   }
 }
@@ -1698,6 +1701,22 @@ export class PlanProtocol {
         })
       }
       if (prepared.size) {
+        if (this.childWorkspace) {
+          try {
+            await this.childWorkspace.preflight(
+              [...prepared.values()].flatMap((item) => (item.reservation ? [item.reservation] : [])),
+            )
+          } catch (error) {
+            if (isWorkspaceQuotaError(error))
+              throw new PlanProtocolError({
+                code: ERROR_CODES.WORKSPACE_QUOTA_EXCEEDED,
+                message: error.message,
+                hint: "降低本次并发 snapshot task 数量或先清理已完成 workspace 后重试；不会留下 staging 目录。",
+                retryable: true,
+              })
+            if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error
+          }
+        }
         const result = await this.write(ctx, (latest) => {
           if (!latest)
             throw new PlanProtocolError({

@@ -27,7 +27,7 @@ import type { LaunchSnapshot } from "@/agent/subagent-profile"
 import { PlanProtocolError, planFilePath, readPlanFileSync } from "./schema"
 import { RuntimeEvent } from "./runtime-event"
 import { Blackboard } from "./blackboard"
-import { ChildWorkspace, worktreeAdapter } from "./child-workspace"
+import { ChildWorkspace, worktreeAdapter, type SnapshotLimits } from "./child-workspace"
 import { terminateChild, type ChildTerminationRequest } from "./child-termination"
 import { InstanceStore } from "@/project/instance-store"
 import * as Log from "@jyycode-ai/core/util/log"
@@ -41,6 +41,10 @@ export function childWorkspaceFor(input: {
   projectInfo?: Project.Info
   worktree?: Worktree.Interface
   bridge: EffectBridgeShape
+  snapshotLimits?: Partial<SnapshotLimits>
+  snapshotExclude?: readonly string[]
+  snapshotInclude?: readonly string[]
+  workspaceBudget?: { softLimitBytes?: number; hardLimitBytes?: number }
 }) {
   const projectInfo = input.projectInfo
   if (!projectInfo || (projectInfo.vcs === "git" && !input.worktree)) return undefined
@@ -54,6 +58,10 @@ export function childWorkspaceFor(input: {
     ...(isGit && input.worktree
       ? { worktree: worktreeAdapter({ service: input.worktree, run: input.bridge.promise }) }
       : {}),
+    ...(input.snapshotLimits ? { snapshotLimits: input.snapshotLimits } : {}),
+    ...(input.snapshotExclude ? { snapshotExclude: input.snapshotExclude } : {}),
+    ...(input.snapshotInclude ? { snapshotInclude: input.snapshotInclude } : {}),
+    ...(input.workspaceBudget ? { workspaceBudget: input.workspaceBudget } : {}),
   })
 }
 
@@ -1132,13 +1140,40 @@ export const DispatchDispatchTool = Tool.define(
         Effect.gen(function* () {
           const bridge = yield* EffectBridge.make()
           const session = yield* getSession(sessions, ctx.sessionID)
+          const runtimeConfig = yield* Effect.promise(() => bridge.promise(config.get()))
           const projectService = yield* Effect.serviceOption(Project.Service)
           const worktreeService = yield* Effect.serviceOption(Worktree.Service)
           const worktree = Option.getOrUndefined(worktreeService)
           const projectInfo = Option.isSome(projectService)
             ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
             : undefined
-          const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
+          const childWorkspace = childWorkspaceFor({
+            session,
+            projectInfo,
+            worktree,
+            bridge,
+            snapshotLimits: runtimeConfig.snapshot_limits
+              ? {
+                  ...(runtimeConfig.snapshot_limits.max_file_bytes !== undefined
+                    ? { maxFileBytes: runtimeConfig.snapshot_limits.max_file_bytes }
+                    : {}),
+                  ...(runtimeConfig.snapshot_limits.max_total_bytes !== undefined
+                    ? { maxTotalBytes: runtimeConfig.snapshot_limits.max_total_bytes }
+                    : {}),
+                  ...(runtimeConfig.snapshot_limits.max_file_count !== undefined
+                    ? { maxFileCount: runtimeConfig.snapshot_limits.max_file_count }
+                    : {}),
+                }
+              : undefined,
+            snapshotExclude: runtimeConfig.snapshot_limits?.exclude,
+            snapshotInclude: runtimeConfig.snapshot_limits?.include,
+            workspaceBudget: runtimeConfig.snapshot_limits
+              ? {
+                  softLimitBytes: runtimeConfig.snapshot_limits.runtime_soft_limit_bytes,
+                  hardLimitBytes: runtimeConfig.snapshot_limits.runtime_hard_limit_bytes,
+                }
+              : undefined,
+          })
           const leaseStore = workspaceLeaseStoreFor({ projectInfo })
           if (
             childWorkspace?.capability() === "snapshot" &&
@@ -1160,8 +1195,7 @@ export const DispatchDispatchTool = Tool.define(
             childWorkspace,
             disposeDirectory,
             leaseStore,
-            profiles: async () =>
-              enabledProfiles(resolveProfiles((await bridge.promise(config.get())).subagents?.profiles)),
+            profiles: async () => enabledProfiles(resolveProfiles(runtimeConfig.subagents?.profiles)),
           })
           const result = yield* Effect.promise(() => protocol.dispatch(protocolContext(session, ctx), input))
           // A failed dispatch still settles the task as rejected and records

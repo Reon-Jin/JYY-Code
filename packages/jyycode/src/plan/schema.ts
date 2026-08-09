@@ -16,6 +16,7 @@ export const ERROR_CODES = {
   STEP_TASKS_EMPTY: "STEP_TASKS_EMPTY",
   PLAN_FINALIZED: "PLAN_FINALIZED",
   BLACKBOARD_UNREAD: "BLACKBOARD_UNREAD",
+  WORKSPACE_QUOTA_EXCEEDED: "WORKSPACE_QUOTA_EXCEEDED",
 } as const
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
@@ -78,6 +79,8 @@ export type WorkspaceBaseline = {
   baseline_manifest_hash?: string | null
   baseline_manifest_size?: number | null
   baseline_manifest_file_count?: number | null
+  baseline_id?: string | null
+  source_manifest_hash?: string | null
   source_revision?: string | null
 }
 
@@ -339,12 +342,17 @@ function isValidMergeConflict(value: unknown): value is MergeConflictSummary {
 
 function isValidCleanupRecord(value: unknown): value is CleanupRecord {
   if (!isRecord(value)) return false
-  if (!["pending", "stopping", "deleting", "failed", "quarantined", "completed"].includes(String(value.state))) return false
+  if (!["pending", "stopping", "deleting", "failed", "quarantined", "completed"].includes(String(value.state)))
+    return false
   if (!Number.isSafeInteger(value.attempts) || Number(value.attempts) < 0) return false
   if (!validDateTime(value.updated_at)) return false
   if (value.next_retry_at !== undefined && !validDateTime(value.next_retry_at)) return false
   if (value.last_error !== undefined) {
-    if (!isRecord(value.last_error) || !nonEmptyString(value.last_error.phase) || !nonEmptyString(value.last_error.message))
+    if (
+      !isRecord(value.last_error) ||
+      !nonEmptyString(value.last_error.phase) ||
+      !nonEmptyString(value.last_error.message)
+    )
       return false
     if (value.last_error.code !== undefined && !nonEmptyString(value.last_error.code)) return false
   }
@@ -365,7 +373,9 @@ function isValidMerge(value: unknown): value is MergeRecord {
     (value.completed_at === null || validDateTime(value.completed_at)) &&
     (value.target_fingerprint === null || nonEmptyString(value.target_fingerprint)) &&
     ["not_started", "pending", "completed", "failed"].includes(String(value.cleanup)) &&
-    (value.journal_directory === undefined || value.journal_directory === null || nonEmptyString(value.journal_directory)) &&
+    (value.journal_directory === undefined ||
+      value.journal_directory === null ||
+      nonEmptyString(value.journal_directory)) &&
     (value.error === undefined || nonEmptyString(value.error)) &&
     (value.cleanup_error === undefined || nonEmptyString(value.cleanup_error)) &&
     (value.cleanup_record === undefined || isValidCleanupRecord(value.cleanup_record))
@@ -531,15 +541,34 @@ function isValidDispatch(value: unknown): value is DispatchRecord {
     (isRecord(workspace) &&
       ["worktree", "snapshot", "shared_compat"].includes(String(workspace.mode)) &&
       nonEmptyString(workspace.root) &&
-    (workspace.directory === null || nonEmptyString(workspace.directory)) &&
-    (workspace.created_at === null || validDateTime(workspace.created_at)) &&
+      (workspace.directory === null || nonEmptyString(workspace.directory)) &&
+      (workspace.created_at === null || validDateTime(workspace.created_at)) &&
       ["on_success", "on_cancel", "retain_on_failure"].includes(String(workspace.cleanup)) &&
-      (workspace.baseline_directory === undefined || workspace.baseline_directory === null || nonEmptyString(workspace.baseline_directory)) &&
-      (workspace.baseline_manifest_path === undefined || workspace.baseline_manifest_path === null || nonEmptyString(workspace.baseline_manifest_path)) &&
-      (workspace.baseline_manifest_hash === undefined || workspace.baseline_manifest_hash === null || nonEmptyString(workspace.baseline_manifest_hash)) &&
-      (workspace.baseline_manifest_size === undefined || workspace.baseline_manifest_size === null || (Number.isSafeInteger(workspace.baseline_manifest_size) && Number(workspace.baseline_manifest_size) >= 0)) &&
-      (workspace.baseline_manifest_file_count === undefined || workspace.baseline_manifest_file_count === null || (Number.isSafeInteger(workspace.baseline_manifest_file_count) && Number(workspace.baseline_manifest_file_count) >= 0)) &&
-      (workspace.source_revision === undefined || workspace.source_revision === null || nonEmptyString(workspace.source_revision)))
+      (workspace.baseline_directory === undefined ||
+        workspace.baseline_directory === null ||
+        nonEmptyString(workspace.baseline_directory)) &&
+      (workspace.baseline_manifest_path === undefined ||
+        workspace.baseline_manifest_path === null ||
+        nonEmptyString(workspace.baseline_manifest_path)) &&
+      (workspace.baseline_manifest_hash === undefined ||
+        workspace.baseline_manifest_hash === null ||
+        nonEmptyString(workspace.baseline_manifest_hash)) &&
+      (workspace.baseline_manifest_size === undefined ||
+        workspace.baseline_manifest_size === null ||
+        (Number.isSafeInteger(workspace.baseline_manifest_size) && Number(workspace.baseline_manifest_size) >= 0)) &&
+      (workspace.baseline_manifest_file_count === undefined ||
+        workspace.baseline_manifest_file_count === null ||
+        (Number.isSafeInteger(workspace.baseline_manifest_file_count) &&
+          Number(workspace.baseline_manifest_file_count) >= 0)) &&
+      (workspace.baseline_id === undefined ||
+        workspace.baseline_id === null ||
+        nonEmptyString(workspace.baseline_id)) &&
+      (workspace.source_manifest_hash === undefined ||
+        workspace.source_manifest_hash === null ||
+        nonEmptyString(workspace.source_manifest_hash)) &&
+      (workspace.source_revision === undefined ||
+        workspace.source_revision === null ||
+        nonEmptyString(workspace.source_revision)))
   return (
     /^run__[A-Za-z0-9_-]+__s[1-9]\d*_t[1-9]\d*$/.test(String(value.run_id)) &&
     nonEmptyString(value.child_session_id) &&
@@ -548,7 +577,8 @@ function isValidDispatch(value: unknown): value is DispatchRecord {
     validRole &&
     validLaunch &&
     validWorkspace &&
-    (value.lifecycle === undefined || ["reserved", "child_created", "starting", "running", "settled"].includes(String(value.lifecycle)))
+    (value.lifecycle === undefined ||
+      ["reserved", "child_created", "starting", "running", "settled"].includes(String(value.lifecycle)))
   )
 }
 
@@ -599,11 +629,7 @@ export function normalizePlanFile(value: unknown): unknown {
           if (isRecord(normalizedTask.merge) && normalizedTask.merge.cleanup_record === undefined) {
             const merge = normalizedTask.merge
             const state =
-              merge.cleanup === "completed"
-                ? "completed"
-                : merge.cleanup === "failed"
-                  ? "failed"
-                  : "pending"
+              merge.cleanup === "completed" ? "completed" : merge.cleanup === "failed" ? "failed" : "pending"
             normalizedTask.merge = {
               ...merge,
               cleanup_record: {
@@ -644,9 +670,7 @@ export function isStepComplete(step: PlanStep, workspace: string): boolean {
     return (
       step.tasks.length > 0 &&
       step.tasks.every(
-        (task) =>
-          task.status === "approved" &&
-          (!task.dispatch?.workspace || mergeStatus(task) === "merged"),
+        (task) => task.status === "approved" && (!task.dispatch?.workspace || mergeStatus(task) === "merged"),
       )
     )
   if (step.tasks.length < 2 || step.tasks.length > 3 || step.tasks.some((task) => task.mode !== "candidate"))

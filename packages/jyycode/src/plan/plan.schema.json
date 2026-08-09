@@ -45,7 +45,10 @@
         "status": { "enum": ["pending", "dispatched", "running", "reported", "approved", "rejected", "dismissed"] },
         "dispatch": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/dispatch" }] },
         "report": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/report" }] },
-        "merge": { "$ref": "#/$defs/merge", "description": "Durable integration state for standard isolated Tasks; file contents stay in runtime sidecars." },
+        "merge": {
+          "$ref": "#/$defs/merge",
+          "description": "Durable integration state for standard isolated Tasks; file contents stay in runtime sidecars."
+        },
         "reopen_reason": { "type": "string", "minLength": 1 }
       }
     },
@@ -74,12 +77,37 @@
         "directory": { "type": ["string", "null"] },
         "created_at": { "type": ["string", "null"], "format": "date-time" },
         "cleanup": { "enum": ["on_success", "on_cancel", "retain_on_failure"] },
-        "baseline_directory": { "type": ["string", "null"], "description": "Immutable dispatch baseline sidecar owned by the recorded runtime root." },
-        "baseline_manifest_path": { "type": ["string", "null"], "description": "Durable path to the immutable child snapshot manifest." },
+        "baseline_directory": {
+          "type": ["string", "null"],
+          "description": "Immutable dispatch baseline sidecar owned by the recorded runtime root."
+        },
+        "baseline_manifest_path": {
+          "type": ["string", "null"],
+          "description": "Durable path to the immutable child snapshot manifest."
+        },
         "baseline_manifest_hash": { "type": ["string", "null"], "description": "Digest of the baseline manifest." },
-        "baseline_manifest_size": { "type": ["integer", "null"], "minimum": 0, "description": "Total source bytes represented by the baseline manifest." },
-        "baseline_manifest_file_count": { "type": ["integer", "null"], "minimum": 0, "description": "File count represented by the baseline manifest." },
-        "source_revision": { "type": ["string", "null"], "description": "Optional source revision captured at dispatch." }
+        "baseline_manifest_size": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Total source bytes represented by the baseline manifest."
+        },
+        "baseline_manifest_file_count": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "File count represented by the baseline manifest."
+        },
+        "baseline_id": {
+          "type": ["string", "null"],
+          "description": "Shared immutable baseline identifier for this dispatch batch."
+        },
+        "source_manifest_hash": {
+          "type": ["string", "null"],
+          "description": "Hash of the source snapshot manifest used for the baseline."
+        },
+        "source_revision": {
+          "type": ["string", "null"],
+          "description": "Optional source revision captured at dispatch."
+        }
       }
     },
     "profileSnapshot": {
@@ -132,17 +160,43 @@
     "merge": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "attempt", "applied_paths", "conflicts", "started_at", "completed_at", "target_fingerprint", "cleanup"],
+      "required": [
+        "status",
+        "attempt",
+        "applied_paths",
+        "conflicts",
+        "started_at",
+        "completed_at",
+        "target_fingerprint",
+        "cleanup"
+      ],
       "properties": {
-        "status": { "enum": ["not_started", "pending", "running", "merged", "conflict", "failed"], "description": "Integration lifecycle; approved isolated Tasks are complete only at merged." },
+        "status": {
+          "enum": ["not_started", "pending", "running", "merged", "conflict", "failed"],
+          "description": "Integration lifecycle; approved isolated Tasks are complete only at merged."
+        },
         "attempt": { "type": "integer", "minimum": 0, "description": "Monotonic Merge.apply attempt number." },
-        "applied_paths": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Canonical relative paths applied to the parent." },
-        "conflicts": { "type": "array", "items": { "$ref": "#/$defs/mergeConflict" }, "description": "Bounded conflict summaries without file contents." },
+        "applied_paths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Canonical relative paths applied to the parent."
+        },
+        "conflicts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/mergeConflict" },
+          "description": "Bounded conflict summaries without file contents."
+        },
         "started_at": { "type": ["string", "null"], "format": "date-time" },
         "completed_at": { "type": ["string", "null"], "format": "date-time" },
         "target_fingerprint": { "type": ["string", "null"] },
-        "cleanup": { "enum": ["not_started", "pending", "completed", "failed"], "description": "Child/baseline cleanup state after durable merge success." },
-        "journal_directory": { "type": ["string", "null"], "description": "Exact runtime sidecar directory containing the recoverable merge journal." },
+        "cleanup": {
+          "enum": ["not_started", "pending", "completed", "failed"],
+          "description": "Child/baseline cleanup state after durable merge success."
+        },
+        "journal_directory": {
+          "type": ["string", "null"],
+          "description": "Exact runtime sidecar directory containing the recoverable merge journal."
+        },
         "error": { "type": "string", "minLength": 1 },
         "cleanup_error": { "type": "string", "minLength": 1 },
         "cleanup_record": { "$ref": "#/$defs/cleanupRecord" }

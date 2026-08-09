@@ -200,6 +200,19 @@ export const Info = Schema.Struct({
     description:
       "Enable or disable snapshot tracking. When false, filesystem snapshots are not recorded and undoing or reverting will not undo/redo file changes. Defaults to true.",
   }),
+  snapshot_limits: Schema.optional(
+    Schema.Struct({
+      max_file_bytes: Schema.optional(PositiveInt),
+      max_total_bytes: Schema.optional(PositiveInt),
+      max_file_count: Schema.optional(PositiveInt),
+      runtime_soft_limit_bytes: Schema.optional(PositiveInt),
+      runtime_hard_limit_bytes: Schema.optional(PositiveInt),
+      exclude: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+      include: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+    }),
+  ).annotate({
+    description: "Streaming child snapshot limits and safe exclusion overrides",
+  }),
   // User-facing plugin config is stored as Specs; provenance gets attached later while configs are merged.
   plugin: Schema.optional(Schema.mutable(Schema.Array(ConfigPlugin.Spec))),
   share: Schema.optional(Schema.Literals(["manual", "auto", "disabled"])).annotate({

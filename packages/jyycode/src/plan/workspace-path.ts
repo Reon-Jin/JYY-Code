@@ -54,12 +54,15 @@ export function assertWorkspaceIdentity(input: {
     input.actual.taskId !== input.expected.taskId ||
     (input.expected.name !== undefined && input.actual.name !== input.expected.name)
   )
-    throw new WorkspacePathError("workspace metadata identity does not match the cleanup request", "PATH_IDENTITY_MISMATCH")
+    throw new WorkspacePathError(
+      "workspace metadata identity does not match the cleanup request",
+      "PATH_IDENTITY_MISMATCH",
+    )
 }
 
 export function assertManifestIdentity(
   value: unknown,
-  expected: { rootSessionId: string; taskId: string; name?: string },
+  expected: { rootSessionId: string; taskId: string; name?: string; baselineId?: string | null },
 ) {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new WorkspacePathError("baseline manifest identity is missing", "PATH_IDENTITY_MISMATCH")
@@ -67,9 +70,13 @@ export function assertManifestIdentity(
   if (
     manifest.root_session_id !== expected.rootSessionId ||
     manifest.task_id !== expected.taskId ||
-    (expected.name !== undefined && manifest.name !== expected.name)
+    (expected.name !== undefined && manifest.name !== expected.name) ||
+    (expected.baselineId !== undefined && manifest.baseline_id !== expected.baselineId)
   )
-    throw new WorkspacePathError("baseline manifest identity does not match the cleanup request", "PATH_IDENTITY_MISMATCH")
+    throw new WorkspacePathError(
+      "baseline manifest identity does not match the cleanup request",
+      "PATH_IDENTITY_MISMATCH",
+    )
 }
 
 export * as WorkspacePath from "./workspace-path"
