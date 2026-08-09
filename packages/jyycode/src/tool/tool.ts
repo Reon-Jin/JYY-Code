@@ -6,6 +6,8 @@ import type { SessionID, MessageID } from "../session/schema"
 import * as Truncate from "./truncate"
 import { Agent } from "@/agent/agent"
 import type { SkillAccessScope } from "@/skill"
+import type { Deadline } from "@/execution/deadline"
+import type { ExecutionBudget, OperationClass } from "@/execution/budget"
 
 interface Metadata {
   [key: string]: any
@@ -32,6 +34,16 @@ export class InvalidArgumentsError extends Schema.TaggedErrorClass<InvalidArgume
   }
 }
 
+export class ExecutionTimeoutError extends Error {
+  readonly code = "TOOL_TIMEOUT"
+  readonly operationClass = "generic_tool" as const
+
+  constructor(readonly tool: string, readonly effectiveMs: number) {
+    super(`tool ${tool} exceeded its ${effectiveMs}ms execution budget`)
+    this.name = "ExecutionTimeoutError"
+  }
+}
+
 export type Context<M extends Metadata = Metadata> = {
   sessionID: SessionID
   messageID: MessageID
@@ -39,6 +51,13 @@ export type Context<M extends Metadata = Metadata> = {
   /** Filesystem-enforced skill visibility for the current session. */
   skillScope?: SkillAccessScope
   abort: AbortSignal
+  /** Shared absolute execution deadline for non-interactive tool work. */
+  deadline?: Deadline
+  /** Effective budget resolved from the parent/session/tool policy. */
+  budget?: ExecutionBudget
+  /** Remaining monotonic milliseconds at the point the tool observes it. */
+  remaining?: () => number
+  operationClass?: OperationClass
   callID?: string
   extra?: { [key: string]: unknown }
   messages: MessageV2.WithParts[]

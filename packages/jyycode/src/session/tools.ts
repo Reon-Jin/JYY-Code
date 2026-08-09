@@ -25,6 +25,8 @@ import { ToolTelemetry } from "@/tool/telemetry"
 import { CatalogSearch } from "@/tool/catalog-search"
 import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
 import { Skill } from "@/skill"
+import { budgetFor } from "@/execution/budget"
+import { combineAbortSignals } from "@/execution/deadline"
 import { planFilePath, readPlanFileSync, type CandidateDiscussionPhase } from "@/plan/schema"
 import {
   isSubagentCandidateToolID,
@@ -487,9 +489,17 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const bus = yield* Bus.Service
   let schemaBytes = 0
 
-  const context = (args: Record<string, unknown>, options: ToolExecutionOptions): Tool.Context => ({
+  const context = (
+    args: Record<string, unknown>,
+    options: ToolExecutionOptions,
+    budget: ReturnType<typeof budgetFor>,
+  ): Tool.Context => ({
     sessionID: input.session.id,
-    abort: options.abortSignal!,
+    abort: combineAbortSignals(options.abortSignal, budget.deadline.signal(options.abortSignal)),
+    budget,
+    deadline: budget.deadline,
+    remaining: () => budget.remaining(),
+    operationClass: budget.operationClass,
     messageID: input.processor.message.id,
     callID: options.toolCallId,
     skillScope: Skill.scopeForSession(input.session, input.agent),
@@ -571,7 +581,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
         const executeTool = () =>
           run.promise(
             Effect.gen(function* () {
-              const ctx = context(args, options)
+              const budget = budgetFor("generic_tool")
+              const ctx = context(args, options, budget)
               const started = Date.now()
               const refreshRequested = ctx.extra?.toolCatalogRefreshRequested
               if (typeof refreshRequested === "function" && refreshRequested()) {
@@ -603,6 +614,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
                 }
                 return output
               }).pipe(
+                Effect.timeoutOrElse({
+                  duration: budget.effectiveMs,
+                  orElse: () => Effect.fail(new Tool.ExecutionTimeoutError(item.id, budget.effectiveMs)),
+                }),
                 Effect.matchCauseEffect({
                   onSuccess: (output) =>
                     ToolTelemetry.executionCompleted(bus, {
