@@ -11,6 +11,7 @@ import { Instruction } from "../session/instruction"
 import { isPdfAttachment, sniffAttachmentMime } from "@/util/media"
 import { resolveUserPath } from "@/util/filesystem"
 import { Reference } from "@/reference/reference"
+import { ContentLimits, readBoundedBytes } from "./content-limits"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -266,7 +267,11 @@ export const ReadTool = Tool.define(
       const isImage = SUPPORTED_IMAGE_MIMES.has(mime)
 
       if (isImage || isPdfAttachment(mime)) {
-        const bytes = yield* fs.readFile(filepath)
+        const bytes = yield* readBoundedBytes(
+          fs.stream(filepath),
+          ContentLimits.localAttachmentBytes,
+          `local attachment ${filepath}`,
+        )
         const filename = path.basename(filepath)
         const msg = isPdfAttachment(mime)
           ? `PDF read successfully: ${filename}`

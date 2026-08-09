@@ -20,6 +20,7 @@ import { disposeAllInstances, provideInstance, TestInstance, tmpdirScoped } from
 import { testEffect } from "../lib/effect"
 import { Reference } from "@/reference/reference"
 import { RepositoryCache } from "@/reference/repository-cache"
+import { ContentLimits } from "@/tool/content-limits"
 
 const FIXTURES_DIR = path.join(import.meta.dir, "fixtures")
 
@@ -610,6 +611,27 @@ describe("tool.read truncation", () => {
       expect(result.attachments?.[0]).not.toHaveProperty("id")
       expect(result.attachments?.[0]).not.toHaveProperty("sessionID")
       expect(result.attachments?.[0]).not.toHaveProperty("messageID")
+    }),
+  )
+
+  it.live("rejects oversized local image and PDF attachments before base64 encoding", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const oversized = new Uint8Array(ContentLimits.localAttachmentBytes + 1)
+      oversized.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      const pdf = new Uint8Array(ContentLimits.localAttachmentBytes + 1)
+      pdf.set([0x25, 0x50, 0x44, 0x46, 0x2d])
+
+      for (const [filename, bytes] of [
+        ["oversized.png", oversized],
+        ["oversized.pdf", pdf],
+      ] as const) {
+        const filepath = path.join(dir, filename)
+        yield* put(filepath, bytes)
+        const exit = yield* exec(dir, { filePath: filepath }).pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("content limit")
+      }
     }),
   )
 

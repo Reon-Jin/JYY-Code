@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Cause, Effect, Exit, Layer } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 import { Agent } from "../../src/agent/agent"
 import { Truncate } from "@/tool/truncate"
@@ -7,6 +7,7 @@ import { WebFetchTool } from "../../src/tool/webfetch"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { Tool } from "@/tool/tool"
 import { testEffect } from "../lib/effect"
+import { ContentLimits } from "../../src/tool/content-limits"
 
 const it = testEffect(Layer.mergeAll(FetchHttpClient.layer, Truncate.defaultLayer, Agent.defaultLayer))
 
@@ -109,5 +110,55 @@ describe("tool.webfetch", () => {
           expect(result.attachments).toBeUndefined()
         }),
     ),
+  )
+
+  it.instance("bounds chunked responses without relying on Content-Length", () =>
+    withFetch(
+      () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array(ContentLimits.webResponseBytes))
+              controller.enqueue(new Uint8Array(1))
+              controller.close()
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/plain" } },
+        ),
+      (url) =>
+        Effect.gen(function* () {
+          const exit = yield* exec({ url: new URL("/chunked.txt", url).toString(), format: "text" }).pipe(Effect.exit)
+          expect(Exit.isFailure(exit)).toBe(true)
+          if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("content limit")
+        }),
+    ),
+  )
+
+  it.instance("rejects an oversized response even with a misleading Content-Length", () =>
+    withFetch(
+      () =>
+        new Response(new Uint8Array(ContentLimits.webResponseBytes + 1), {
+          status: 200,
+          headers: { "content-type": "text/plain", "content-length": "1" },
+        }),
+      (url) =>
+        Effect.gen(function* () {
+          const exit = yield* exec({ url: new URL("/false-length.txt", url).toString(), format: "text" }).pipe(
+            Effect.exit,
+          )
+          expect(Exit.isFailure(exit)).toBe(true)
+          if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("content limit")
+        }),
+    ),
+  )
+
+  it.instance("rejects non-positive and non-finite timeouts before asking for permission", () =>
+    Effect.gen(function* () {
+      for (const timeout of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+        const exit = yield* exec({ url: "https://example.com", format: "text", timeout }).pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("timeout")
+      }
+    }),
   )
 })

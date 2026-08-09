@@ -5,8 +5,8 @@ import * as Tool from "./tool"
 import TurndownService from "turndown"
 import DESCRIPTION from "./webfetch.txt"
 import { isImageAttachment } from "@/util/media"
+import { ContentLimitError, ContentLimits, readBoundedBytes } from "./content-limits"
 
-const MAX_RESPONSE_SIZE = 5 * 1024 * 1024 // 5MB
 const DEFAULT_TIMEOUT = 30 * 1000 // 30 seconds
 const MAX_TIMEOUT = 120 * 1000 // 2 minutes
 
@@ -42,6 +42,14 @@ export const WebFetchTool = Tool.define(
             throw new Error("URL must start with http:// or https://")
           }
 
+          const timeoutSeconds = params.timeout ?? DEFAULT_TIMEOUT / 1000
+          if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
+            throw new Tool.InvalidArgumentsError({
+              tool: "webfetch",
+              detail: "timeout must be a finite positive number of seconds",
+            })
+          }
+
           yield* ctx.ask({
             permission: "webfetch",
             patterns: [params.url],
@@ -53,7 +61,7 @@ export const WebFetchTool = Tool.define(
             },
           })
 
-          const timeout = Math.min((params.timeout ?? DEFAULT_TIMEOUT / 1000) * 1000, MAX_TIMEOUT)
+          const timeout = Math.min(timeoutSeconds * 1000, MAX_TIMEOUT)
 
           // Build Accept header based on requested format with q parameters for fallbacks
           let acceptHeader = "*/*"
@@ -98,23 +106,25 @@ export const WebFetchTool = Tool.define(
             Effect.timeoutOrElse({ duration: timeout, orElse: () => Effect.die(new Error("Request timed out")) }),
           )
 
-          // Check content length
+          // Reject declared oversize bodies before opening the response stream.
           const contentLength = response.headers["content-length"]
-          if (contentLength && parseInt(contentLength) > MAX_RESPONSE_SIZE) {
-            throw new Error("Response too large (exceeds 5MB limit)")
+          const declaredLength = contentLength ? Number.parseInt(contentLength, 10) : Number.NaN
+          if (Number.isFinite(declaredLength) && declaredLength > ContentLimits.webResponseBytes) {
+            throw new ContentLimitError({
+              resource: "web response",
+              limit: ContentLimits.webResponseBytes,
+              actual: declaredLength,
+            })
           }
 
-          const arrayBuffer = yield* response.arrayBuffer
-          if (arrayBuffer.byteLength > MAX_RESPONSE_SIZE) {
-            throw new Error("Response too large (exceeds 5MB limit)")
-          }
+          const bytes = yield* readBoundedBytes(response.stream, ContentLimits.webResponseBytes, "web response")
 
           const contentType = response.headers["content-type"] || ""
           const mime = contentType.split(";")[0]?.trim().toLowerCase() || ""
           const title = `${params.url} (${contentType})`
 
           if (isImageAttachment(mime)) {
-            const base64Content = Buffer.from(arrayBuffer).toString("base64")
+            const base64Content = Buffer.from(bytes).toString("base64")
             return {
               title,
               output: "Image fetched successfully",
@@ -129,7 +139,7 @@ export const WebFetchTool = Tool.define(
             }
           }
 
-          const content = new TextDecoder().decode(arrayBuffer)
+          const content = new TextDecoder().decode(bytes)
 
           // Handle content based on requested format and actual content type
           switch (params.format) {

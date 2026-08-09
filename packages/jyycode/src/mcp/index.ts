@@ -32,6 +32,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { Tool as JYYTool } from "@/tool/tool"
+import { ContentLimits, ensureBase64WithinLimit } from "@/tool/content-limits"
 
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
@@ -238,6 +239,9 @@ function convertMcpToolDef(
         for (const contentItem of result.content as any[]) {
           if (contentItem.type === "text") textParts.push(contentItem.text)
           else if (contentItem.type === "image") {
+            yield* ensureBase64WithinLimit(contentItem.data, ContentLimits.mcpAttachmentBytes, "MCP image").pipe(
+              Effect.orDie,
+            )
             attachments.push({
               type: "file",
               mime: contentItem.mimeType,
@@ -247,6 +251,9 @@ function convertMcpToolDef(
             const { resource } = contentItem
             if ("text" in resource && resource.text) textParts.push(resource.text)
             if ("blob" in resource && resource.blob) {
+              yield* ensureBase64WithinLimit(resource.blob, ContentLimits.mcpAttachmentBytes, "MCP resource blob").pipe(
+                Effect.orDie,
+              )
               attachments.push({
                 type: "file",
                 mime: resource.mimeType ?? "application/octet-stream",

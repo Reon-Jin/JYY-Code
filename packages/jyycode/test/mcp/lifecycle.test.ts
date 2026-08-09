@@ -1,6 +1,9 @@
 import { expect, mock, beforeEach } from "bun:test"
 import { Cause, Effect, Exit } from "effect"
 import type { MCP as MCPNS } from "../../src/mcp/index"
+import { ContentLimits } from "../../src/tool/content-limits"
+import type { Tool } from "../../src/tool/tool"
+import { MessageID, SessionID } from "../../src/session/schema"
 import { testEffect } from "../lib/effect"
 
 // --- Mock infrastructure ---
@@ -18,6 +21,7 @@ interface MockClientState {
   resources: Array<{ name: string; uri: string; description?: string }>
   closed: boolean
   notificationHandlers: Map<unknown, (...args: any[]) => any>
+  callToolResult?: { content: any[]; metadata?: Record<string, unknown> }
 }
 
 const clientStates = new Map<string, MockClientState>()
@@ -161,6 +165,10 @@ void mock.module("@modelcontextprotocol/sdk/client/index.js", () => ({
       return { resources: this._state?.resources ?? [] }
     }
 
+    async callTool() {
+      return this._state?.callToolResult ?? { content: [] }
+    }
+
     async close() {
       if (this._state) this._state.closed = true
     }
@@ -248,6 +256,60 @@ it.instance(
             risk: "medium",
           },
         })
+      }),
+    ),
+  { config: { mcp: {} } },
+)
+
+it.instance(
+  "rejects oversized MCP image and blob attachments before creating data URLs",
+  () =>
+    MCP.Service.use((mcp: MCPNS.Interface) =>
+      Effect.gen(function* () {
+        lastCreatedClientName = "attachment-server"
+        const serverState = getOrCreateClientState("attachment-server")
+        serverState.tools = [{ name: "get_attachment", inputSchema: { type: "object", properties: {} } }]
+
+        yield* mcp.add("attachment-server", {
+          type: "local",
+          command: ["echo", "test"],
+        })
+
+        const def = (yield* mcp.toolDefs()).find((item) => item.id.includes("get_attachment"))
+        expect(def).toBeDefined()
+        const ctx: Tool.Context = {
+          sessionID: SessionID.make("ses_mcp_attachment"),
+          messageID: MessageID.make("msg_mcp_attachment"),
+          callID: "call_mcp_attachment",
+          agent: "build",
+          abort: AbortSignal.any([]),
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        }
+
+        serverState.callToolResult = {
+          content: [{ type: "image", mimeType: "image/png", data: "A".repeat(Math.ceil((ContentLimits.mcpAttachmentBytes + 1) * 4 / 3)) }],
+        }
+        let exit = yield* def!.execute({}, ctx).pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("MCP image")
+
+        serverState.callToolResult = {
+          content: [
+            {
+              type: "resource",
+              resource: {
+                uri: "file:///oversized.bin",
+                mimeType: "application/octet-stream",
+                blob: "A".repeat(Math.ceil((ContentLimits.mcpAttachmentBytes + 1) * 4 / 3)),
+              },
+            },
+          ],
+        }
+        exit = yield* def!.execute({}, ctx).pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("MCP resource blob")
       }),
     ),
   { config: { mcp: {} } },
