@@ -28,6 +28,7 @@ import { MessageError } from "./message-error"
 import { AuthError, OutputLengthError } from "./message-error"
 import { CompactionCheckpointSchema } from "./compaction-checkpoint"
 import { BlobStore } from "@/storage/blob"
+import { decodeStoredJSONRow, isDecoded } from "./row-decoder"
 export { AuthError, OutputLengthError } from "./message-error"
 
 /** Error shape thrown by Bun's fetch() when gzip/br decompression fails mid-stream */
@@ -621,6 +622,28 @@ const part = (row: typeof PartTable.$inferSelect) =>
     messageID: row.message_id,
   }) as Part
 
+const safeInfo = (row: typeof MessageTable.$inferSelect) =>
+  decodeStoredJSONRow({
+    table: "message",
+    id: row.id,
+    data: row.data,
+    decode: (value) => ({ ...(value as Record<string, unknown>), id: row.id, sessionID: row.session_id }) as Info,
+  })
+
+const safePart = (row: typeof PartTable.$inferSelect) =>
+  decodeStoredJSONRow({
+    table: "part",
+    id: row.id,
+    data: row.data,
+    decode: (value) =>
+      ({
+        ...(value as Record<string, unknown>),
+        id: row.id,
+        sessionID: row.session_id,
+        messageID: row.message_id,
+      }) as Part,
+  })
+
 const older = (row: Cursor) =>
   or(lt(MessageTable.time_created, row.time), and(eq(MessageTable.time_created, row.time), lt(MessageTable.id, row.id)))
 
@@ -637,17 +660,22 @@ const hydrate = Effect.fn("MessageV2.hydrate")(function* (rows: (typeof MessageT
         .all(),
     )
     for (const row of partRows) {
-      const next = part(row)
+      const decoded = safePart(row)
+      if (!isDecoded(decoded)) continue
+      const next = decoded.value
       const list = partByMessage.get(row.message_id)
       if (list) list.push(next)
       else partByMessage.set(row.message_id, [next])
     }
   }
 
-  return rows.map((row) => ({
-    info: info(row),
-    parts: partByMessage.get(row.id) ?? [],
-  }))
+  const result: WithParts[] = []
+  for (const row of rows) {
+    const decoded = safeInfo(row)
+    if (!isDecoded(decoded)) continue
+    result.push({ info: decoded.value, parts: partByMessage.get(row.id) ?? [] })
+  }
+  return result
 })
 
 function providerMeta(metadata: Record<string, any> | undefined) {
