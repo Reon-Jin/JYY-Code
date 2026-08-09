@@ -8,6 +8,7 @@ import { SessionID, MessageID } from "../../src/session/schema"
 import { Tool } from "@/tool/tool"
 import { testEffect } from "../lib/effect"
 import { ContentLimits } from "../../src/tool/content-limits"
+import { assertUrlAllowed } from "../../src/tool/url-policy"
 
 const it = testEffect(Layer.mergeAll(FetchHttpClient.layer, Truncate.defaultLayer, Agent.defaultLayer))
 
@@ -32,11 +33,15 @@ const withFetch = <A, E, R>(
     (server) => Effect.sync(() => server.stop(true)),
   )
 
-const exec = Effect.fn("WebFetchToolTest.exec")(function* (args: Tool.InferParameters<typeof WebFetchTool>) {
+const execWithContext = Effect.fn("WebFetchToolTest.execWithContext")(function* (
+  args: Tool.InferParameters<typeof WebFetchTool>,
+  next: Tool.Context,
+) {
   const info = yield* WebFetchTool
   const tool = yield* info.init()
-  return yield* tool.execute(args, ctx)
+  return yield* tool.execute(args, next)
 })
+const exec = (args: Tool.InferParameters<typeof WebFetchTool>) => execWithContext(args, ctx)
 
 describe("tool.webfetch", () => {
   it.instance("returns image responses as file attachments", () =>
@@ -160,5 +165,87 @@ describe("tool.webfetch", () => {
         if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("timeout")
       }
     }),
+  )
+
+  it.instance("blocks loopback, private, link-local, metadata, and local IPv6 addresses", () =>
+    Effect.gen(function* () {
+      const hosts = [
+        "127.0.0.1",
+        "10.0.0.1",
+        "172.16.0.1",
+        "192.168.1.1",
+        "169.254.169.254",
+        "[::1]",
+        "[fc00::1]",
+        "[fe80::1]",
+        "[::ffff:127.0.0.1]",
+        "2130706433",
+        "0x7f000001",
+      ]
+
+      for (const host of hosts) {
+        const exit = yield* Effect.tryPromise(() =>
+          assertUrlAllowed(`http://${host}/`, { resolve: async () => [new URL(`http://${host}/`).hostname] }),
+        ).pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+      }
+    }),
+  )
+
+  it.instance("rejects DNS results when any resolved address is private", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.tryPromise(() =>
+        assertUrlAllowed("https://mixed.example/", {
+          resolve: async () => ["93.184.216.34", "10.0.0.8"],
+        }),
+      ).pipe(Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+    }),
+  )
+
+  it.instance("rechecks the URL policy before following a redirect", () =>
+    withFetch(
+      () => new Response(null, { status: 302, headers: { location: "http://127.0.0.1:1/private" } }),
+      (url) =>
+        Effect.gen(function* () {
+          let privateRequests = 0
+          const next: Tool.Context = {
+            ...ctx,
+            ask: (request) => {
+              if (request.permission === "network_private") {
+                privateRequests++
+                if (privateRequests > 1) return Effect.die(new Error("private origin denied"))
+              }
+              return Effect.void
+            },
+          }
+          const exit = yield* execWithContext(
+            { url: new URL("/redirect", url).toString(), format: "text" },
+            next,
+          ).pipe(Effect.exit)
+          expect(Exit.isFailure(exit)).toBe(true)
+          expect(privateRequests).toBe(2)
+        }),
+    ),
+  )
+
+  it.instance("caps redirect chains at five hops", () =>
+    withFetch(
+      (request) => {
+        const hop = Number(new URL(request.url).searchParams.get("hop") ?? "0")
+        return new Response(null, {
+          status: 302,
+          headers: { location: `/redirect?hop=${hop + 1}` },
+        })
+      },
+      (url) =>
+        Effect.gen(function* () {
+          const exit = yield* exec({ url: new URL("/redirect?hop=0", url).toString(), format: "text" }).pipe(
+            Effect.exit,
+          )
+          expect(Exit.isFailure(exit)).toBe(true)
+          if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("Too many redirects")
+        }),
+    ),
   )
 })

@@ -1,11 +1,12 @@
-import { Effect, Schema } from "effect"
-import { HttpClient, HttpClientRequest } from "effect/unstable/http"
+import { Effect, Schema, Stream } from "effect"
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { Parser } from "htmlparser2"
 import * as Tool from "./tool"
 import TurndownService from "turndown"
 import DESCRIPTION from "./webfetch.txt"
 import { isImageAttachment } from "@/util/media"
 import { ContentLimitError, ContentLimits, readBoundedBytes } from "./content-limits"
+import { assertUrlAllowedEffect, UrlPolicyError } from "./url-policy"
 
 const DEFAULT_TIMEOUT = 30 * 1000 // 30 seconds
 const MAX_TIMEOUT = 120 * 1000 // 2 minutes
@@ -25,7 +26,6 @@ export const WebFetchTool = Tool.define(
   "webfetch",
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient
-    const httpOk = HttpClient.filterStatusOk(http)
 
     return {
       description: DESCRIPTION,
@@ -87,24 +87,58 @@ export const WebFetchTool = Tool.define(
             "Accept-Language": "en-US,en;q=0.9",
           }
 
-          const request = HttpClientRequest.get(params.url).pipe(HttpClientRequest.setHeaders(headers))
+          const authorizeUrl = (input: string) =>
+            assertUrlAllowedEffect(input).pipe(
+              Effect.catchIf(
+                (error) => error instanceof UrlPolicyError && Boolean(error.address),
+                (error) =>
+                  ctx
+                    .ask({
+                      permission: "network_private",
+                      patterns: [new URL(input).origin],
+                      always: [new URL(input).origin],
+                      metadata: { url: input, address: error.address },
+                    })
+                    .pipe(Effect.andThen(assertUrlAllowedEffect(input, { allowPrivate: true }))),
+              ),
+            )
 
-          // Retry with honest UA if blocked by Cloudflare bot detection (TLS fingerprint mismatch)
-          const response = yield* httpOk.execute(request).pipe(
-            Effect.catchIf(
-              (err) =>
-                err.reason._tag === "StatusCodeError" &&
-                err.reason.response.status === 403 &&
-                err.reason.response.headers["cf-mitigated"] === "challenge",
-              () =>
-                httpOk.execute(
-                  HttpClientRequest.get(params.url).pipe(
-                    HttpClientRequest.setHeaders({ ...headers, "User-Agent": "jyycode" }),
-                  ),
-                ),
-            ),
+          const executeRequest = (input: string, requestHeaders: Record<string, string>) =>
+            http
+              .execute(HttpClientRequest.get(input).pipe(HttpClientRequest.setHeaders(requestHeaders)))
+              .pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }))
+
+          const fetched = yield* Effect.gen(function* () {
+            let current = params.url
+            for (let redirects = 0; ; redirects++) {
+              const currentUrl = yield* authorizeUrl(current)
+              let response = yield* executeRequest(currentUrl.toString(), headers)
+
+              // Retry with honest UA if blocked by Cloudflare bot detection (TLS fingerprint mismatch).
+              if (response.status === 403 && response.headers["cf-mitigated"] === "challenge") {
+                response = yield* executeRequest(currentUrl.toString(), { ...headers, "User-Agent": "jyycode" })
+              }
+
+              if (response.status >= 300 && response.status < 400) {
+                if (redirects >= 5) throw new Error("Too many redirects (maximum 5)")
+                const location = response.headers["location"]
+                if (!location) throw new Error("Redirect response did not include a Location header")
+                yield* response.stream.pipe(Stream.runDrain).pipe(Effect.ignore)
+                current = new URL(location, currentUrl).toString()
+                continue
+              }
+
+              if (response.status < 200 || response.status >= 300) {
+                throw new Error(`Request failed with status ${response.status}`)
+              }
+
+              return { response, currentUrl }
+            }
+          }).pipe(
             Effect.timeoutOrElse({ duration: timeout, orElse: () => Effect.die(new Error("Request timed out")) }),
           )
+
+          const { response, currentUrl } = fetched
 
           // Reject declared oversize bodies before opening the response stream.
           const contentLength = response.headers["content-length"]
@@ -121,7 +155,7 @@ export const WebFetchTool = Tool.define(
 
           const contentType = response.headers["content-type"] || ""
           const mime = contentType.split(";")[0]?.trim().toLowerCase() || ""
-          const title = `${params.url} (${contentType})`
+          const title = `${currentUrl} (${contentType})`
 
           if (isImageAttachment(mime)) {
             const base64Content = Buffer.from(bytes).toString("base64")
