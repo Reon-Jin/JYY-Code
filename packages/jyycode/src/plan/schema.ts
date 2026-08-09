@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import type { LaunchSnapshot, ProfileSnapshot } from "@/agent/subagent-profile"
+import type { CleanupRecord } from "./workspace-cleanup"
 
 export const ERROR_CODES = {
   SCHEMA_VALIDATION: "SCHEMA_VALIDATION",
@@ -68,6 +69,7 @@ export type MergeRecord = {
   journal_directory?: string | null
   error?: string
   cleanup_error?: string
+  cleanup_record?: CleanupRecord
 }
 
 export type WorkspaceBaseline = {
@@ -335,6 +337,20 @@ function isValidMergeConflict(value: unknown): value is MergeConflictSummary {
   )
 }
 
+function isValidCleanupRecord(value: unknown): value is CleanupRecord {
+  if (!isRecord(value)) return false
+  if (!["pending", "stopping", "deleting", "failed", "quarantined", "completed"].includes(String(value.state))) return false
+  if (!Number.isSafeInteger(value.attempts) || Number(value.attempts) < 0) return false
+  if (!validDateTime(value.updated_at)) return false
+  if (value.next_retry_at !== undefined && !validDateTime(value.next_retry_at)) return false
+  if (value.last_error !== undefined) {
+    if (!isRecord(value.last_error) || !nonEmptyString(value.last_error.phase) || !nonEmptyString(value.last_error.message))
+      return false
+    if (value.last_error.code !== undefined && !nonEmptyString(value.last_error.code)) return false
+  }
+  return true
+}
+
 function isValidMerge(value: unknown): value is MergeRecord {
   if (!isRecord(value)) return false
   return (
@@ -351,7 +367,8 @@ function isValidMerge(value: unknown): value is MergeRecord {
     ["not_started", "pending", "completed", "failed"].includes(String(value.cleanup)) &&
     (value.journal_directory === undefined || value.journal_directory === null || nonEmptyString(value.journal_directory)) &&
     (value.error === undefined || nonEmptyString(value.error)) &&
-    (value.cleanup_error === undefined || nonEmptyString(value.cleanup_error))
+    (value.cleanup_error === undefined || nonEmptyString(value.cleanup_error)) &&
+    (value.cleanup_record === undefined || isValidCleanupRecord(value.cleanup_record))
   )
 }
 
@@ -573,9 +590,39 @@ export function normalizePlanFile(value: unknown): unknown {
       if (!isRecord(step) || !Array.isArray(step.tasks)) return step
       return {
         ...step,
-        tasks: step.tasks.map((task) =>
-          isRecord(task) && task.mode === undefined ? { ...task, mode: "standard" } : task,
-        ),
+        tasks: step.tasks.map((task) => {
+          if (!isRecord(task)) return task
+          const normalizedTask: Record<string, unknown> = {
+            ...task,
+            ...(task.mode === undefined ? { mode: "standard" } : {}),
+          }
+          if (isRecord(normalizedTask.merge) && normalizedTask.merge.cleanup_record === undefined) {
+            const merge = normalizedTask.merge
+            const state =
+              merge.cleanup === "completed"
+                ? "completed"
+                : merge.cleanup === "failed"
+                  ? "failed"
+                  : "pending"
+            normalizedTask.merge = {
+              ...merge,
+              cleanup_record: {
+                state,
+                attempts: 0,
+                updated_at:
+                  typeof merge.completed_at === "string"
+                    ? merge.completed_at
+                    : typeof normalized.updated_at === "string"
+                      ? normalized.updated_at
+                      : new Date(0).toISOString(),
+                ...(typeof merge.cleanup_error === "string"
+                  ? { last_error: { phase: "legacy", message: merge.cleanup_error } }
+                  : {}),
+              },
+            }
+          }
+          return normalizedTask
+        }),
       }
     })
   }

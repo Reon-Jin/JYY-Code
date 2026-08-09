@@ -6,6 +6,12 @@ import { PlanInbox, defaultPlanInbox } from "./events"
 import { childTerminationRequest, type ChildController } from "./protocol"
 import { ChildWorkspace } from "./child-workspace"
 import {
+  cleanupRecordFromLegacy,
+  legacyCleanupStatus,
+  WorkspaceCleanupService,
+  type CleanupRecord,
+} from "./workspace-cleanup"
+import {
   applyWorkspaceMerge,
   removeMergeJournal,
   workspaceFingerprint,
@@ -45,6 +51,7 @@ export type RecoveryOptions = {
   isChildActive?: (sessionId: string) => Promise<boolean>
   resume?: (input: RecoveryResumeInput) => Promise<{ childSessionId?: string; started: boolean }>
   observe?: (observation: RecoveryObservation) => void
+  workspaceCleanup?: WorkspaceCleanupService
 }
 
 function nowIso(now: () => number) {
@@ -77,6 +84,7 @@ export class PlanRecovery {
   private readonly isChildActive: (sessionId: string) => Promise<boolean>
   private readonly resume?: RecoveryOptions["resume"]
   private readonly observe?: RecoveryOptions["observe"]
+  private readonly workspaceCleanup: WorkspaceCleanupService
 
   constructor(options: RecoveryOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot)
@@ -89,6 +97,7 @@ export class PlanRecovery {
     this.isChildActive = options.isChildActive ?? (async () => false)
     this.resume = options.resume
     this.observe = options.observe
+    this.workspaceCleanup = options.workspaceCleanup ?? new WorkspaceCleanupService()
   }
 
   private record(observation: Omit<RecoveryObservation, "sessionId"> & { sessionId?: string }) {
@@ -119,30 +128,58 @@ export class PlanRecovery {
     })
   }
 
-  private async reject(sessionId: string, task: PlanTask, reason: string, result: RecoveryResult) {
-    const childSessionId = task.dispatch?.child_session_id
-    const workspaceDirectory = task.dispatch?.workspace?.directory
-    const cleanupErrors: string[] = []
-    let childStopped = !childSessionId
-    try {
-      if (childSessionId && !this.children) throw new Error("child termination coordinator unavailable")
-      if (childSessionId && this.children) {
-        const termination = await this.children.terminate(
-          childSessionId,
-          childTerminationRequest(task.dispatch?.workspace),
+  private async cleanupRejectedWorkspace(sessionId: string, task: PlanTask) {
+    const workspace = task.dispatch?.workspace
+    if (!workspace) {
+      if (!task.dispatch?.child_session_id) return undefined
+      if (!this.children) throw new Error("child termination coordinator unavailable")
+      const result = await this.children.terminate(task.dispatch.child_session_id)
+      return result?.state === "stop_failed" ? `${result.phase}: ${result.message}` : undefined
+    }
+    const result = await this.workspaceCleanup.run({
+      rootSessionId: sessionId,
+      taskId: task.id,
+      workspaceDirectory: workspace.directory,
+      record:
+        task.merge?.cleanup_record ??
+        cleanupRecordFromLegacy(task.merge?.cleanup, task.merge?.cleanup_error, this.now),
+      now: this.now,
+      deleteWorkspace: workspace.mode !== "shared_compat",
+      stop: async () => {
+        if (!task.dispatch?.child_session_id || !this.children) return
+        return this.children.terminate(
+          task.dispatch.child_session_id,
+          childTerminationRequest(workspace),
         )
-        if (termination?.state === "stop_failed")
-          cleanupErrors.push(`child cleanup: ${termination.phase}: ${termination.message}`)
-        else childStopped = true
-      }
+      },
+      remove: async () => {
+        if (!this.childWorkspace) throw new Error("child workspace manager unavailable")
+        const reservation = this.childWorkspace.reserve(sessionId, task.id)
+        const loaded = this.childWorkspace.load({ ...reservation, ...workspace, name: reservation.name })
+        if (!loaded) {
+          const paths = [workspace.directory, workspace.baseline_directory, workspace.baseline_manifest_path]
+            .filter((value): value is string => Boolean(value))
+            .map((value) => path.resolve(value))
+          if (paths.every((value) => !fs.existsSync(value))) return true
+          throw new Error("recorded child workspace could not be reconstructed")
+        }
+        await this.childWorkspace.remove(loaded.directory)
+        return true
+      },
+      persist: (record) => this.persistCleanupRecord(sessionId, task.id, record),
+    })
+    return result.record.state === "failed" || result.record.state === "quarantined"
+      ? result.record.last_error?.message ?? result.record.state
+      : undefined
+  }
+
+  private async reject(sessionId: string, task: PlanTask, reason: string, result: RecoveryResult) {
+    const cleanupErrors: string[] = []
+    try {
+      const error = await this.cleanupRejectedWorkspace(sessionId, task)
+      if (error) cleanupErrors.push(`workspace cleanup: ${error}`)
     } catch (error) {
       cleanupErrors.push(`child cleanup: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    try {
-      if (childStopped && workspaceDirectory && this.childWorkspace && task.dispatch?.workspace?.mode !== "shared_compat")
-        await this.childWorkspace.remove(workspaceDirectory)
-    } catch (error) {
-      cleanupErrors.push(`workspace cleanup: ${error instanceof Error ? error.message : String(error)}`)
     }
     try {
       await this.update(sessionId, task.id, (current) => {
@@ -165,6 +202,16 @@ export class PlanRecovery {
     })
   }
 
+  private async persistCleanupRecord(sessionId: string, taskId: string, record: CleanupRecord) {
+    await this.update(sessionId, taskId, (current) => {
+      if (!current.merge) return
+      current.merge.cleanup_record = structuredClone(record)
+      current.merge.cleanup = legacyCleanupStatus(record)
+      if (record.last_error) current.merge.cleanup_error = record.last_error.message
+      else if (record.state === "completed") current.merge.cleanup_error = undefined
+    })
+  }
+
   private async cleanupMergeWorkspace(sessionId: string, task: PlanTask) {
     const workspace = task.dispatch?.workspace
     if (!workspace || workspace.mode === "shared_compat") return
@@ -180,10 +227,10 @@ export class PlanRecovery {
       !pathWithin(runtimeRoot, baselineDirectory)
     )
       throw new Error("recorded merge workspace is outside the owning runtime root")
-    if (!fs.existsSync(childDirectory) || !fs.existsSync(baselineDirectory))
-      throw new Error("recorded merge workspace is missing")
-    const canonicalChild = fs.realpathSync.native(childDirectory)
-    const canonicalBaseline = fs.realpathSync.native(baselineDirectory)
+    const canonicalChild = fs.existsSync(childDirectory) ? fs.realpathSync.native(childDirectory) : childDirectory
+    const canonicalBaseline = fs.existsSync(baselineDirectory)
+      ? fs.realpathSync.native(baselineDirectory)
+      : baselineDirectory
     if (
       !pathWithin(runtimeRoot, canonicalChild) ||
       !pathWithin(runtimeRoot, canonicalBaseline) ||
@@ -191,19 +238,48 @@ export class PlanRecovery {
     )
       throw new Error("recorded merge workspace resolves outside the owning runtime root")
     const reservation = this.childWorkspace.reserve(sessionId, task.id)
-    const loaded = this.childWorkspace.load({
-      ...reservation,
-      ...workspace,
+    const result = await this.workspaceCleanup.run({
       rootSessionId: sessionId,
       taskId: task.id,
-      name: reservation.name,
-      directory: canonicalChild,
-      baseline_directory: canonicalBaseline,
+      workspaceDirectory: canonicalChild,
+      record:
+        task.merge?.cleanup_record ??
+        cleanupRecordFromLegacy(task.merge?.cleanup, task.merge?.cleanup_error, this.now),
+      now: this.now,
+      stop: async () => {
+        if (!this.children) return
+        if (!task.dispatch?.child_session_id) return
+        return this.children.terminate(
+          task.dispatch.child_session_id,
+          childTerminationRequest(workspace),
+        )
+      },
+      remove: async () => {
+        const loaded = this.childWorkspace?.load({
+          ...reservation,
+          ...workspace,
+          rootSessionId: sessionId,
+          taskId: task.id,
+          name: reservation.name,
+          directory: canonicalChild,
+          baseline_directory: canonicalBaseline,
+        })
+        if (!loaded) {
+          const paths = [childDirectory, baselineDirectory, workspace.baseline_manifest_path]
+            .filter((value): value is string => Boolean(value))
+            .map((value) => path.resolve(value))
+          if (paths.every((value) => !fs.existsSync(value))) return true
+          throw new Error("recorded child workspace could not be reconstructed")
+        }
+        await this.childWorkspace!.remove(loaded.directory)
+        if (task.merge?.journal_directory) removeMergeJournal(task.merge.journal_directory, runtimeRoot)
+        return true
+      },
+      persist: (record) => this.persistCleanupRecord(sessionId, task.id, record),
     })
-    if (!loaded || path.resolve(loaded.directory) !== path.resolve(childDirectory))
-      throw new Error("recorded child workspace could not be reconstructed")
-    await this.childWorkspace.remove(loaded.directory)
-    if (task.merge?.journal_directory) removeMergeJournal(task.merge.journal_directory, runtimeRoot)
+    if (result.record.state === "failed" || result.record.state === "quarantined")
+      throw new Error(`${result.record.last_error?.phase ?? "cleanup"}: ${result.record.last_error?.message ?? result.record.state}`)
+    return result
   }
 
   private async recordMergeFailure(sessionId: string, taskId: string, reason: string, result: RecoveryResult) {

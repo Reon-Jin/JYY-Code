@@ -24,6 +24,9 @@ function isGeneratedWorkspace(name: string) {
 
 function preserveTaskWorkspace(task: PlanTask) {
   const merge = task.merge
+  const mergedCleanupCompleted =
+    merge?.status === "merged" && (merge.cleanup_record?.state === "completed" || merge.cleanup === "completed")
+  if (mergedCleanupCompleted) return false
   return (
     task.status === "dispatched" ||
     task.status === "running" ||

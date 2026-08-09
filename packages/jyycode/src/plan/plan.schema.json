@@ -144,7 +144,29 @@
         "cleanup": { "enum": ["not_started", "pending", "completed", "failed"], "description": "Child/baseline cleanup state after durable merge success." },
         "journal_directory": { "type": ["string", "null"], "description": "Exact runtime sidecar directory containing the recoverable merge journal." },
         "error": { "type": "string", "minLength": 1 },
-        "cleanup_error": { "type": "string", "minLength": 1 }
+        "cleanup_error": { "type": "string", "minLength": 1 },
+        "cleanup_record": { "$ref": "#/$defs/cleanupRecord" }
+      }
+    },
+    "cleanupRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "attempts", "updated_at"],
+      "properties": {
+        "state": { "enum": ["pending", "stopping", "deleting", "failed", "quarantined", "completed"] },
+        "attempts": { "type": "integer", "minimum": 0 },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "next_retry_at": { "type": "string", "format": "date-time" },
+        "last_error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["phase", "message"],
+          "properties": {
+            "phase": { "type": "string", "minLength": 1 },
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string", "minLength": 1 }
+          }
+        }
       }
     },
     "mergeConflict": {

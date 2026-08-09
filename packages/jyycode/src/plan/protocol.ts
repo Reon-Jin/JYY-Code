@@ -64,6 +64,12 @@ import {
   type WorkspaceMergeTransactionResult,
 } from "./workspace-merge"
 import type { ChildTerminationRequest, ChildTerminationResult } from "./child-termination"
+import {
+  cleanupRecordFromLegacy,
+  legacyCleanupStatus,
+  WorkspaceCleanupService,
+  type CleanupRecord,
+} from "./workspace-cleanup"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -212,6 +218,7 @@ type ProtocolOptions = {
   profiles?: () => Promise<readonly SubagentProfile[]>
   candidateBoard?: CandidateBoardController
   childWorkspace?: ChildWorkspace
+  workspaceCleanup?: WorkspaceCleanupService
 }
 
 type WriteResult<T extends object> = { result: T; plan: PlanFile }
@@ -954,6 +961,7 @@ export class PlanProtocol {
   private readonly beforeReport?: (ctx: PlanExecutionContext) => Promise<void>
   private readonly beforeStepAdvance?: (ctx: PlanExecutionContext) => Promise<void>
   private readonly profiles: () => Promise<readonly SubagentProfile[]>
+  private readonly workspaceCleanup: WorkspaceCleanupService
   private readonly reportAttempts = sharedReportAttempts
   private readonly activities = sharedActivities
   private readonly activityEvents = sharedActivityEvents
@@ -971,6 +979,7 @@ export class PlanProtocol {
     this.beforeReport = options.beforeReport
     this.beforeStepAdvance = options.beforeStepAdvance
     this.profiles = options.profiles ?? (() => Promise.resolve(defaultProfiles()))
+    this.workspaceCleanup = options.workspaceCleanup ?? new WorkspaceCleanupService()
   }
 
   private publish(event: Parameters<PlanEventHub["publish"]>[0]) {
@@ -1126,77 +1135,105 @@ export class PlanProtocol {
     })
   }
 
-  private async cleanupTaskWorkspace(ctx: PlanExecutionContext, taskId: string) {
+  private async persistCleanupRecord(ctx: PlanExecutionContext, taskId: string, record: CleanupRecord) {
+    await this.write(ctx, (latest) => {
+      if (!latest) throw new Error("plan missing while recording workspace cleanup")
+      const next = clonePlan(latest)
+      const target = next.steps.flatMap((step) => step.tasks).find((item) => item.id === taskId)
+      if (!target) throw new Error(`task not found while recording workspace cleanup: ${taskId}`)
+      const merge = target.merge ? structuredClone(target.merge) : emptyMergeRecord("pending")
+      merge.cleanup_record = structuredClone(record)
+      merge.cleanup = legacyCleanupStatus(record)
+      if (record.last_error) merge.cleanup_error = record.last_error.message
+      else if (record.state === "completed") merge.cleanup_error = undefined
+      target.merge = merge
+      next.revision++
+      next.updated_at = nowIso(this.now)
+      return {
+        mutate(targetPlan) {
+          Object.assign(targetPlan, next)
+        },
+        result: { updated: true },
+      }
+    })
+  }
+
+  private async cleanupTaskWorkspace(
+    ctx: PlanExecutionContext,
+    taskId: string,
+    override?: { childSessionId?: string; workspace?: DispatchRecord["workspace"] },
+  ) {
     const plan = this.store.read(this.path(ctx))
     const task = plan?.steps.flatMap((step) => step.tasks).find((item) => item.id === taskId)
-    const workspace = task?.dispatch?.workspace
-    if (!task || !workspace) return [] as string[]
-    const errors: string[] = []
-    let childStopped = false
-    try {
-      if (!task.dispatch?.child_session_id) throw new Error("recorded child session is missing")
-      if (!this.children) throw new Error("child termination coordinator unavailable")
-      const result = await this.children.terminate(
-        task.dispatch.child_session_id,
-        childTerminationRequest(workspace),
-      )
-      const failure = terminationFailure(result)
-      if (failure) errors.push(`child cleanup: ${failure}`)
-      else childStopped = true
-    } catch (error) {
-      errors.push(`child cleanup: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    if (childStopped && workspace.mode !== "shared_compat") {
+    const workspace = override?.workspace ?? task?.dispatch?.workspace
+    if (!task) return [] as string[]
+    const childSessionId =
+      override && Object.prototype.hasOwnProperty.call(override, "childSessionId")
+        ? override.childSessionId
+        : task.dispatch?.child_session_id
+    if (!workspace) {
+      if (!childSessionId) return []
+      if (!this.children) return ["child cleanup: child termination coordinator unavailable"]
       try {
+        const result = await this.children.terminate(childSessionId)
+        const failure = terminationFailure(result)
+        return failure ? [failure] : []
+      } catch (error) {
+        return [error instanceof Error ? error.message : String(error)]
+      }
+    }
+    const result = await this.workspaceCleanup.run({
+      rootSessionId: ctx.sessionId,
+      taskId,
+      workspaceDirectory: workspace.directory,
+      record:
+        task.merge?.cleanup_record ??
+        cleanupRecordFromLegacy(task.merge?.cleanup, task.merge?.cleanup_error, this.now),
+      now: this.now,
+      deleteWorkspace: workspace.mode !== "shared_compat",
+      stop: async () => {
+        if (!childSessionId) throw new Error("recorded child session is missing")
+        if (!this.children) throw new Error("child termination coordinator unavailable")
+        return this.children.terminate(childSessionId, childTerminationRequest(workspace))
+      },
+      remove: async () => {
         if (!this.childWorkspace) throw new Error("child workspace manager unavailable")
         const loaded = this.recordedWorkspace(ctx, task)
-        if (!loaded) throw new Error("recorded child workspace is missing")
+        if (!loaded) {
+          const childExists = workspace.directory ? fs.existsSync(path.resolve(workspace.directory)) : false
+          const baselineExists = workspace.baseline_directory
+            ? fs.existsSync(path.resolve(workspace.baseline_directory))
+            : false
+          const manifestExists = workspace.baseline_manifest_path
+            ? fs.existsSync(path.resolve(workspace.baseline_manifest_path))
+            : false
+          if (!childExists && !baselineExists && !manifestExists) return true
+          throw new Error("recorded child workspace is missing")
+        }
         await this.childWorkspace.remove(loaded.directory)
-      } catch (error) {
-        errors.push(`workspace cleanup: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
-    try {
-      const journalDirectory = task.merge?.journal_directory
-      const runtimeRoot = workspace.baseline_directory
-        ? path.dirname(path.resolve(workspace.baseline_directory))
-        : undefined
-      if (journalDirectory && runtimeRoot) removeMergeJournal(journalDirectory, runtimeRoot)
-    } catch (error) {
-      errors.push(`merge journal cleanup: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    if (errors.length) {
-      try {
-        await this.write(ctx, (latest) => {
-          if (!latest) throw new Error("plan missing while recording cleanup failure")
-          const next = clonePlan(latest)
-          const target = next.steps.flatMap((step) => step.tasks).find((item) => item.id === taskId)
-          if (target?.merge) {
-            target.merge.cleanup = "failed"
-            target.merge.cleanup_error = errors.join("; ")
-          }
-          next.revision++
-          next.updated_at = nowIso(this.now)
-          return {
-            mutate(planTarget) {
-              Object.assign(planTarget, next)
-            },
-            result: { updated: true },
-          }
-        })
-      } catch (error) {
-        errors.push(`record cleanup failure: ${error instanceof Error ? error.message : String(error)}`)
-      }
+        const journalDirectory = task.merge?.journal_directory
+        const runtimeRoot = workspace.baseline_directory
+          ? path.dirname(path.resolve(workspace.baseline_directory))
+          : undefined
+        if (journalDirectory && runtimeRoot) removeMergeJournal(journalDirectory, runtimeRoot)
+        return true
+      },
+      persist: (record) => this.persistCleanupRecord(ctx, taskId, record),
+    })
+    if (result.record.state === "failed" || result.record.state === "quarantined") {
+      const error = result.record.last_error
+      const message = `Task ${taskId} cleanup failed: ${error?.phase ?? "cleanup"}: ${error?.message ?? result.record.state}`
       this.inbox.add({
         session_id: ctx.sessionId,
         task_id: taskId,
         run_id: task.dispatch?.run_id,
         kind: "runtime_error",
-        message: `Task ${taskId} cleanup failed: ${errors.join("; ")}`,
-        suggested_actions: ["read Inbox", "inspect the recorded workspace before redispatching"],
+        message,
+        suggested_actions: ["read Inbox", "retry cleanup after inspecting the recorded workspace"],
       })
+      return [message]
     }
-    return errors
+    return []
   }
 
   private async failDispatch(
@@ -1214,27 +1251,10 @@ export class PlanProtocol {
     } catch {
       // Keep the original failure visible in Inbox even if the recovery write races another writer.
     }
-    const cleanupErrors: string[] = []
-    let childStopped = false
-    if (input.childSessionId && this.children) {
-      try {
-        const result = await this.children.terminate(input.childSessionId, childTerminationRequest(input.workspace))
-        const failure = terminationFailure(result)
-        if (failure) cleanupErrors.push(`child cleanup: ${failure}`)
-        else childStopped = true
-      } catch (error) {
-        cleanupErrors.push(`child cleanup: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    } else if (input.childSessionId) {
-      cleanupErrors.push("child cleanup: child termination coordinator unavailable")
-    }
-    if (childStopped && input.workspace?.mode !== "shared_compat" && input.workspace?.directory && this.childWorkspace) {
-      try {
-        await this.childWorkspace.remove(input.workspace.directory)
-      } catch (error) {
-        cleanupErrors.push(`workspace cleanup: ${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
+    const cleanupErrors = await this.cleanupTaskWorkspace(ctx, input.taskId, {
+      childSessionId: input.childSessionId,
+      workspace: input.workspace,
+    })
     this.metric(ctx.sessionId, {
       metric: "dispatch",
       phase: "cleanup",
@@ -1905,44 +1925,13 @@ export class PlanProtocol {
         }
       })
       const termination_errors: Array<{ taskId: string; child_session_id: string; message: string }> = []
-      const stoppedChildren = new Set<string>()
-      if (this.children) {
-        for (const target of result.result.toTerminate) {
-          try {
-            const termination = await this.children.terminate(
-              target.child_session_id,
-              childTerminationRequest(target.workspace),
-            )
-            const failure = terminationFailure(termination)
-            if (failure) termination_errors.push({ ...target, message: failure })
-            else stoppedChildren.add(target.child_session_id)
-          } catch (error) {
-            termination_errors.push({
-              ...target,
-              message: error instanceof Error ? error.message : String(error),
-            })
-          }
-        }
-      } else if (result.result.toTerminate.length > 0) {
-        for (const target of result.result.toTerminate)
-          termination_errors.push({ ...target, message: "child termination coordinator unavailable" })
-      }
-      if (this.childWorkspace) {
-        for (const target of result.result.toTerminate) {
-          if (target.workspace?.mode === "shared_compat" || !target.workspace?.directory) continue
-          // Workspace deletion is contingent on the coordinator's successful
-          // result. Never delete a workspace after a stop_failed result.
-          if (!stoppedChildren.has(target.child_session_id)) continue
-          try {
-            await this.childWorkspace.remove(target.workspace.directory)
-          } catch (error) {
-            termination_errors.push({
-              taskId: target.taskId,
-              child_session_id: target.child_session_id,
-              message: `workspace cleanup: ${error instanceof Error ? error.message : String(error)}`,
-            })
-          }
-        }
+      for (const target of result.result.toTerminate) {
+        const errors = await this.cleanupTaskWorkspace(ctx, target.taskId, {
+          childSessionId: target.child_session_id,
+          workspace: target.workspace,
+        })
+        for (const message of errors)
+          termination_errors.push({ taskId: target.taskId, child_session_id: target.child_session_id, message })
       }
       return {
         ok: true,
@@ -2506,6 +2495,8 @@ export class PlanProtocol {
         base_path?: string
       }>
       cleanup: string
+      cleanup_attempts?: number
+      cleanup_next_retry_at?: string
       next_action_hint: string
     }>
   > {
@@ -2550,14 +2541,26 @@ export class PlanProtocol {
           hint: "redispatch the task before merging it",
         })
       if (mergeStatus(task) === "merged") {
+        let cleanupErrors: string[] = []
+        if (task.dispatch.workspace?.mode !== "shared_compat" && task.merge?.cleanup !== "completed") {
+          cleanupErrors = await this.cleanupTaskWorkspace(ctx, task.id)
+        }
+        const latest = this.store.read(this.path(ctx))
+        const latestTask = latest?.steps.flatMap((item) => item.tasks).find((item) => item.id === task.id)
+        const cleanupRecord = latestTask?.merge?.cleanup_record
         return {
           ok: true,
           status: "already_merged",
           task_id: task.id,
           applied_paths: task.merge?.applied_paths ?? [],
           conflicts: task.merge?.conflicts ?? [],
-          cleanup: task.merge?.cleanup ?? "completed",
-          next_action_hint: "merge already completed; continue with the current Step",
+          cleanup: latestTask?.merge?.cleanup ?? task.merge?.cleanup ?? "completed",
+          ...(cleanupRecord ? { cleanup_attempts: cleanupRecord.attempts } : {}),
+          ...(cleanupRecord?.next_retry_at ? { cleanup_next_retry_at: cleanupRecord.next_retry_at } : {}),
+          next_action_hint:
+            cleanupErrors.length > 0
+              ? "merge is already applied; cleanup failed and is retryable after inspecting the recorded workspace"
+              : "merge already completed; continue with the current Step",
         }
       }
       const workspace = task.dispatch.workspace
@@ -2819,6 +2822,7 @@ export class PlanProtocol {
       }
       const after = this.store.read(this.path(ctx))
       const mergedTask = after?.steps.flatMap((item) => item.tasks).find((item) => item.id === task.id)
+      const cleanupRecord = mergedTask?.merge?.cleanup_record
       const status = transaction.status === "already_merged" ? "already_merged" : finalStatus
       this.metric(ctx.sessionId, {
         metric: "merge",
@@ -2834,6 +2838,8 @@ export class PlanProtocol {
         applied_paths: transaction.applied_paths,
         conflicts: boundedConflicts,
         cleanup: mergedTask?.merge?.cleanup ?? "not_started",
+        ...(cleanupRecord ? { cleanup_attempts: cleanupRecord.attempts } : {}),
+        ...(cleanupRecord?.next_retry_at ? { cleanup_next_retry_at: cleanupRecord.next_retry_at } : {}),
         next_action_hint:
           status === "conflict"
             ? "inspect the conflict paths, edit main_path when needed, then retry Merge.apply with resolutions[{path,use:'main'|'child'}]"

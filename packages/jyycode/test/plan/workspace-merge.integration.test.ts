@@ -42,7 +42,7 @@ function integrationInput() {
   }
 }
 
-async function runIntegration(vcs: "git" | "none") {
+async function runIntegration(vcs: "git" | "none", failCleanupOnce = false) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `jyycode-merge-${vcs}-integration-`))
   const runtime = fs.mkdtempSync(path.join(os.tmpdir(), `jyycode-merge-${vcs}-runtime-`))
   let childRoot = ""
@@ -80,6 +80,17 @@ async function runIntegration(vcs: "git" | "none") {
       runtimeRoot: runtime,
       ...(worktree ? { worktree } : {}),
     })
+    if (failCleanupOnce) {
+      const remove = childWorkspace.remove.bind(childWorkspace)
+      let injected = false
+      childWorkspace.remove = async (directory) => {
+        if (!injected) {
+          injected = true
+          throw Object.assign(new Error("workspace is temporarily busy"), { code: "EBUSY" })
+        }
+        return remove(directory)
+      }
+    }
     const protocol = new PlanProtocol({
       childWorkspace,
       children: {
@@ -123,7 +134,19 @@ async function runIntegration(vcs: "git" | "none") {
     ).toMatchObject({ ok: true })
 
     const merged = await protocol.merge(context(root), { task_id: "s1_t1" })
-    expect(merged).toMatchObject({ ok: true, status: "merged", cleanup: "completed" })
+    if (failCleanupOnce) {
+      expect(merged).toMatchObject({ ok: true, status: "merged", cleanup: "failed", cleanup_attempts: 1 })
+      expect(fs.existsSync(childRoot)).toBe(true)
+      const retried = await protocol.merge(context(root), { task_id: "s1_t1" })
+      expect(retried).toMatchObject({
+        ok: true,
+        status: "already_merged",
+        cleanup: "completed",
+        cleanup_attempts: 2,
+      })
+    } else {
+      expect(merged).toMatchObject({ ok: true, status: "merged", cleanup: "completed" })
+    }
     expect(fs.readFileSync(path.join(root, "src", "merged.ts"), "utf8")).toBe("export const merged = true\n")
     expect(fs.readFileSync(path.join(root, "dirty.txt"), "utf8")).toBe("parent-only edit\n")
     expect(fs.existsSync(childRoot)).toBe(false)
@@ -164,5 +187,9 @@ describe("unified workspace merge integration", () => {
 
   it("runs the complete real Git Worktree flow from a dirty parent", async () => {
     await runIntegration("git")
+  })
+
+  it("retries cleanup after an already-applied merge without repeating the merge", async () => {
+    await runIntegration("none", true)
   })
 })
