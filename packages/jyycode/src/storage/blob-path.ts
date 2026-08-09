@@ -39,6 +39,11 @@ export function blobTempPath(name: string, dataRoot = Global.Path.data) {
   return path.join(blobTempRoot(dataRoot), name)
 }
 
+export function blobLeasePath(digest: string, dataRoot = Global.Path.data) {
+  if (!isBlobDigest(digest)) throw new Error(`Invalid blob digest: ${digest}`)
+  return blobTempPath(`${digest}.lease`, dataRoot)
+}
+
 export function parseDataURL(value: string): { mime: string; bytes: Uint8Array } | undefined {
   const match = value.match(/^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/s)
   if (!match) return undefined

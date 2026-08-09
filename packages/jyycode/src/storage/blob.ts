@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from "effect"
 import { Global } from "@jyycode-ai/core/global"
 import { Database } from "@/storage/db"
+import { eq } from "drizzle-orm"
 import { BlobRefTable, BlobTable } from "./blob.sql"
 import {
   blobPath,
@@ -47,6 +48,12 @@ export type BlobRecord = {
   readonly verifiedAt: number
   readonly path: string
   readonly url: string
+}
+
+export type BlobDescriptor = {
+  readonly digest: string
+  readonly size: number
+  readonly mime: string
 }
 
 export type PutInput = {
@@ -193,6 +200,29 @@ export class BlobStore {
     return `data:${mime};base64,${Buffer.from(await this.readURL(url)).toString("base64")}`
   }
 
+  async describeURL(url: string, mime: string): Promise<BlobDescriptor> {
+    const data = parseDataURL(url)
+    if (data) {
+      return {
+        digest: crypto.createHash("sha256").update(data.bytes).digest("hex"),
+        size: data.bytes.byteLength,
+        mime,
+      }
+    }
+    const blobDigest = parseBlobURL(url)
+    if (blobDigest) {
+      const verified = await digestFile(blobPath(blobDigest, this.root))
+      if (verified.digest !== blobDigest) throw new BlobIntegrityError(`Blob digest mismatch for ${blobDigest}`)
+      return { digest: blobDigest, size: verified.size, mime }
+    }
+    const file = parseFileURL(url)
+    if (file) {
+      const verified = await digestFile(path.resolve(file))
+      return { digest: verified.digest, size: verified.size, mime }
+    }
+    throw new BlobIntegrityError(`Unsupported attachment URL: ${url.slice(0, 80)}`)
+  }
+
   async persistMetadata(record: BlobRecord) {
     await Effect.runPromise(this.persistMetadataEffect(record))
   }
@@ -247,6 +277,60 @@ export class BlobStore {
       yield* metadata
       yield* reference
     })
+  }
+
+  syncReferencesEffect(
+    partID: string,
+    references: readonly { slot: string; record: BlobRecord }[],
+  ): Effect.Effect<void, never, never> {
+    return Database.withTransaction((db) =>
+      Effect.gen(function* () {
+        const previous = yield* db
+          .select({ digest: BlobRefTable.digest })
+          .from(BlobRefTable)
+          .where(eq(BlobRefTable.part_id, partID))
+          .all()
+        yield* db.delete(BlobRefTable).where(eq(BlobRefTable.part_id, partID)).run()
+        const removedAt = Date.now()
+        for (const item of previous) {
+          yield* db
+            .update(BlobTable)
+            .set({ last_ref_removed_at: removedAt })
+            .where(eq(BlobTable.digest, item.digest))
+            .run()
+        }
+        for (const { slot, record } of references) {
+          yield* db
+            .insert(BlobTable)
+            .values({
+              digest: record.digest,
+              size: record.size,
+              mime: record.mime,
+              created_at: record.createdAt,
+              verified_at: record.verifiedAt,
+              last_ref_removed_at: null,
+            })
+            .onConflictDoUpdate({
+              target: BlobTable.digest,
+              set: {
+                size: record.size,
+                mime: record.mime,
+                verified_at: record.verifiedAt,
+                last_ref_removed_at: null,
+              },
+            })
+            .run()
+          yield* db
+            .insert(BlobRefTable)
+            .values({ part_id: partID, slot, digest: record.digest, created_at: Date.now() })
+            .onConflictDoUpdate({
+              target: [BlobRefTable.part_id, BlobRefTable.slot],
+              set: { digest: record.digest },
+            })
+            .run()
+        }
+      }),
+    ) as Effect.Effect<void, never, never>
   }
 
   private async recordForBlob(digest: string, mime: string): Promise<BlobRecord> {
@@ -315,18 +399,19 @@ export function makeService(root = Global.Path.data): Interface {
     normalizePart: (part) => Effect.tryPromise(() => store.normalizePart(part)),
     attachPart: (part, records) =>
       Effect.gen(function* () {
+        const references: Array<{ slot: string; record: BlobRecord }> = []
         if (part.type === "file") {
           const digest = parseBlobURL(part.url)
           const record = digest ? records.find((item) => item.digest === digest) : undefined
-          if (record) yield* store.attachReferenceEffect({ partID: part.id, slot: "file", record })
-          return
+          if (record) references.push({ slot: "file", record })
+        } else if (part.type === "tool" && part.state.status === "completed") {
+          for (const [index, attachment] of (part.state.attachments ?? []).entries()) {
+            const digest = parseBlobURL(attachment.url)
+            const record = digest ? records.find((item) => item.digest === digest) : undefined
+            if (record) references.push({ slot: `tool:${index}`, record })
+          }
         }
-        if (part.type !== "tool" || part.state.status !== "completed") return
-        for (const [index, attachment] of (part.state.attachments ?? []).entries()) {
-          const digest = parseBlobURL(attachment.url)
-          const record = digest ? records.find((item) => item.digest === digest) : undefined
-          if (record) yield* store.attachReferenceEffect({ partID: part.id, slot: `tool:${index}`, record })
-        }
+        yield* store.syncReferencesEffect(part.id, references)
       }),
   })
 }

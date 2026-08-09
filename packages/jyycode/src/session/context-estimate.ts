@@ -1,6 +1,8 @@
 import { Token } from "@/util/token"
 import { isMedia } from "@/util/media"
 import type { MessageV2 } from "./message-v2"
+import { blobPath, parseBlobURL, parseFileURL } from "@/storage/blob-path"
+import { statSync } from "node:fs"
 
 const MESSAGE_OVERHEAD_TOKENS = 8
 const MEDIA_TOKEN_PER_64KB = 512
@@ -37,6 +39,16 @@ function dataUrlBytes(url: string) {
   const base64 = url.slice(index + marker.length)
   const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0
   return Math.max(0, Math.floor((base64.length * 3) / 4) - padding)
+}
+
+function attachmentBytes(url: string) {
+  const inline = dataUrlBytes(url)
+  if (inline > 0) return inline
+  const digest = parseBlobURL(url)
+  if (digest) return statSync(blobPath(digest), { throwIfNoEntry: false })?.size ?? 0
+  const file = parseFileURL(url)
+  if (file) return statSync(file, { throwIfNoEntry: false })?.size ?? 0
+  return 0
 }
 
 function estimateMediaTokens(bytes: number) {
@@ -93,7 +105,7 @@ export function estimateContextTokens(
 
       if (part.type === "file") {
         if (isMedia(part.mime)) {
-          const bytes = dataUrlBytes(part.url)
+          const bytes = attachmentBytes(part.url)
           mediaBytes += bytes
           mediaTokens += estimateMediaTokens(bytes)
         } else {
@@ -107,7 +119,7 @@ export function estimateContextTokens(
         toolArgumentTokens += addText(stringify(part.state.input))
         for (const attachment of part.state.attachments ?? []) {
           if (!isMedia(attachment.mime)) continue
-          const bytes = dataUrlBytes(attachment.url)
+          const bytes = attachmentBytes(attachment.url)
           mediaBytes += bytes
           mediaTokens += estimateMediaTokens(bytes)
         }

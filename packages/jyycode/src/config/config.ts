@@ -354,6 +354,9 @@ export const Info = Schema.Struct({
       micro_compact_max_chars: Schema.optional(CompactionMaxChars).annotate({
         description: "Maximum characters to keep from micro-compacted tool results (default: 8000).",
       }),
+      prune_preview_chars: Schema.optional(CompactionMaxChars).annotate({
+        description: "Maximum characters retained as an audit preview when old tool payloads are pruned (default: 4096).",
+      }),
       reactive_compact: Schema.optional(Schema.Boolean).annotate({
         description: "Enable emergency compaction on prompt-too-long API errors (default: true).",
       }),

@@ -664,12 +664,16 @@ export const layer: Layer.Layer<
     const updatePart = <T extends MessageV2.Part>(part: T): Effect.Effect<T> =>
       Effect.gen(function* () {
         const normalized = yield* blobs.normalizePart(part).pipe(Effect.orDie)
-        yield* sync.run(MessageV2.Event.PartUpdated, {
-          sessionID: part.sessionID,
-          part: structuredClone(normalized.part),
-          time: Date.now(),
-        })
-        yield* blobs.attachPart(normalized.part, normalized.records).pipe(Effect.catchCause(() => Effect.void))
+        yield* Database.withTransaction(() =>
+          Effect.gen(function* () {
+            yield* sync.run(MessageV2.Event.PartUpdated, {
+              sessionID: part.sessionID,
+              part: structuredClone(normalized.part),
+              time: Date.now(),
+            })
+            yield* blobs.attachPart(normalized.part, normalized.records)
+          }),
+        )
         return normalized.part as T
       }).pipe(Effect.withSpan("Session.updatePart"))
 

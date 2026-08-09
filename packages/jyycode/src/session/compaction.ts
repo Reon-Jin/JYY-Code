@@ -56,6 +56,7 @@ import {
   updateCheckpoint,
   type CompactionCheckpoint,
 } from "./compaction-checkpoint"
+import { pruneToolPart } from "./payload-pruner"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -453,6 +454,15 @@ export const layer = Layer.effect(
         .messages({ sessionID: input.sessionID })
         .pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed(undefined)))
       if (!msgs) return
+      const currentSession = yield* session
+        .get(input.sessionID)
+        .pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed(undefined)))
+      if (!currentSession) return
+      const revertBoundaryIndex = currentSession.revert
+        ? msgs.findIndex((message) => message.info.id === currentSession.revert?.messageID)
+        : -1
+      if (currentSession.revert && revertBoundaryIndex < 0) return
+      const previewChars = cfg.compaction?.prune_preview_chars
 
       let total = 0
       let pruned = 0
@@ -461,6 +471,10 @@ export const layer = Layer.effect(
 
       loop: for (let msgIndex = msgs.length - 1; msgIndex >= 0; msgIndex--) {
         const msg = msgs[msgIndex]
+        if (revertBoundaryIndex >= 0) {
+          if (msgIndex > revertBoundaryIndex) continue
+          break loop
+        }
         if (msg.info.role === "user") turns++
         if (turns < 2) continue
         if (msg.info.role === "assistant" && msg.info.summary) break loop
@@ -482,8 +496,9 @@ export const layer = Layer.effect(
       if (pruned > PRUNE_MINIMUM) {
         for (const part of toPrune) {
           if (part.state.status === "completed") {
-            part.state.time.compacted = Date.now()
-            yield* session.updatePart(part)
+            yield* session.updatePart(
+              yield* Effect.promise(() => pruneToolPart(part, { previewChars })),
+            )
           }
         }
         log.info("pruned", { count: toPrune.length })

@@ -267,6 +267,19 @@ export const ToolStateRunning = Schema.Struct({
 }).annotate({ identifier: "ToolStateRunning" })
 export type ToolStateRunning = Types.DeepMutable<Schema.Schema.Type<typeof ToolStateRunning>>
 
+export const CompactedToolPayload = Schema.Struct({
+  version: Schema.Literal(1),
+  input: Schema.Struct({ sha256: Schema.String, bytes: NonNegativeInt }),
+  output: Schema.Struct({ sha256: Schema.String, bytes: NonNegativeInt }),
+  attachments: Schema.Struct({
+    count: NonNegativeInt,
+    bytes: NonNegativeInt,
+    sha256: Schema.Array(Schema.String),
+  }),
+  preview: Schema.String,
+}).annotate({ identifier: "CompactedToolPayload" })
+export type CompactedToolPayload = Types.DeepMutable<Schema.Schema.Type<typeof CompactedToolPayload>>
+
 export const ToolStateCompleted = Schema.Struct({
   status: Schema.Literal("completed"),
   input: Schema.Record(Schema.String, Schema.Any),
@@ -279,6 +292,7 @@ export const ToolStateCompleted = Schema.Struct({
     compacted: Schema.optional(NonNegativeInt),
   }),
   attachments: Schema.optional(Schema.Array(FilePart)),
+  compactedPayload: Schema.optional(CompactedToolPayload),
 }).annotate({ identifier: "ToolStateCompleted" })
 export type ToolStateCompleted = Types.DeepMutable<Schema.Schema.Type<typeof ToolStateCompleted>>
 
