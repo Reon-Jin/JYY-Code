@@ -3,7 +3,8 @@ import path from "node:path"
 import type { PlanFile, PlanTask } from "./schema"
 import { readPlanFileSync } from "./schema"
 
-const CHILD_WORKSPACE_PATTERN = /^jyycode-[A-Za-z0-9_-]+-[A-Za-z0-9_-]+-[a-f0-9]{12}(?:\.baseline|\.manifest\.json)?$/
+const CHILD_WORKSPACE_PATTERN =
+  /^jyycode-[A-Za-z0-9_-]+-[A-Za-z0-9_-]+-[a-f0-9]{12}(?:\.baseline|\.manifest\.json|\.lease\.json)?$/
 const MERGE_JOURNAL_PATTERN = /^\.jyycode-merge-[a-f0-9]{16}$/
 
 export type StartupWorkspaceCleanupResult = {
@@ -43,7 +44,11 @@ function preserveTaskWorkspace(task: PlanTask) {
 function addPath(set: Set<string>, root: string, value: string | null | undefined) {
   if (!value) return
   const resolved = path.resolve(value)
-  if (pathWithin(root, resolved) && resolved !== path.resolve(root)) set.add(resolved)
+  if (pathWithin(root, resolved) && resolved !== path.resolve(root)) {
+    set.add(resolved)
+    if (path.basename(resolved).startsWith("jyycode-") && !resolved.endsWith(".json"))
+      set.add(path.join(path.dirname(resolved), `${path.basename(resolved)}.lease.json`))
+  }
 }
 
 function activePathsFromPlan(plan: PlanFile, runtimeRoot: string) {

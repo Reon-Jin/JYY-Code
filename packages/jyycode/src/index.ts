@@ -48,8 +48,10 @@ import { eq } from "drizzle-orm"
 import { ProjectID } from "./project/schema"
 import { SessionTable } from "./session/session.sql"
 import { cleanupStartupPlanWorkspaces } from "./plan/startup-cleanup"
+import { WorkspaceSweeper } from "./plan/workspace-sweeper"
 
 const processMetadata = ensureProcessMetadata("main")
+let planWorkspaceSweeper: WorkspaceSweeper | undefined
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -194,6 +196,9 @@ const cli = yargs(args)
           failures: cleanup.failures.length,
         })
       }
+      planWorkspaceSweeper = new WorkspaceSweeper({
+        runtimeRoot: path.join(Global.Path.data, "plan-workspaces", "global"),
+      }).start()
     } catch (error) {
       Log.Default.warn("plan workspace startup cleanup skipped", {
         error: errorMessage(error),
@@ -296,6 +301,7 @@ try {
   const forceExit = setTimeout(() => process.exit(process.exitCode || 0), 500)
   forceExit.unref()
   // Allow the event loop to drain naturally if possible.
+  planWorkspaceSweeper?.stop()
   if (process.exitCode && process.exitCode !== 0) {
     process.exit(process.exitCode)
   }

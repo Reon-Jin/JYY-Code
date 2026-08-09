@@ -31,6 +31,8 @@ import { ChildWorkspace, worktreeAdapter } from "./child-workspace"
 import { terminateChild, type ChildTerminationRequest } from "./child-termination"
 import { InstanceStore } from "@/project/instance-store"
 import * as Log from "@jyycode-ai/core/util/log"
+import { canDispatchSnapshot } from "./workspace-sweeper"
+import { removeWorkspaceLeaseFile, WorkspaceLeaseStore } from "./workspace-lease"
 
 const log = Log.create({ service: "plan" })
 
@@ -53,6 +55,20 @@ export function childWorkspaceFor(input: {
       ? { worktree: worktreeAdapter({ service: input.worktree, run: input.bridge.promise }) }
       : {}),
   })
+}
+
+function workspaceRuntimeRoot(input: { projectInfo?: Project.Info }) {
+  if (!input.projectInfo) return undefined
+  return path.join(
+    Global.Path.data,
+    input.projectInfo.vcs === "git" ? "worktree" : "plan-workspaces",
+    String(input.projectInfo.id),
+  )
+}
+
+function workspaceLeaseStoreFor(input: { projectInfo?: Project.Info }) {
+  const runtimeRoot = workspaceRuntimeRoot(input)
+  return runtimeRoot ? new WorkspaceLeaseStore({ runtimeRoot }) : undefined
 }
 
 const Empty = Schema.Struct({})
@@ -656,6 +672,7 @@ function protocolFor(
     candidateBoard?: Blackboard.Interface
     childWorkspace?: ChildWorkspace
     disposeDirectory?: (directory: string) => Promise<void>
+    leaseStore?: WorkspaceLeaseStore
   },
 ) {
   let protocol: PlanProtocol
@@ -683,12 +700,40 @@ function protocolFor(
                 : parent.directory,
           }),
         )
+        if (input.workspace?.directory && input.workspace.mode !== "shared_compat" && runtime.leaseStore) {
+          runtime.leaseStore.create({
+            workspace_directory: input.workspace.directory,
+            root_session_id: input.parentSessionId,
+            task_id: input.taskId,
+            run_id: input.brief.run_id,
+            session_id: child.id,
+          })
+        }
         return child.id
       },
       async start(input) {
         if (!runtime.promptOps) return
         const ops = runtime.promptOps
         registerChildRun(input.childSessionId, input.brief.run_id)
+        const heartbeat =
+          input.workspace?.directory && input.workspace.mode !== "shared_compat" && runtime.leaseStore
+            ? setInterval(() => {
+                try {
+                  runtime.leaseStore!.heartbeat(input.workspace!.directory!, { sessionId: input.childSessionId })
+                } catch {
+                  // A missing lease is safe to observe; the sweeper will still
+                  // require Session/Plan checks before reclaiming the workspace.
+                }
+              }, 30_000)
+            : undefined
+        if (heartbeat && typeof heartbeat === "object" && "unref" in heartbeat) heartbeat.unref()
+        const releaseLease = () => {
+          if (heartbeat) clearInterval(heartbeat)
+          if (input.workspace?.directory && input.workspace.mode !== "shared_compat") {
+            if (runtime.leaseStore) runtime.leaseStore.remove(input.workspace.directory)
+            else removeWorkspaceLeaseFile(input.workspace.directory)
+          }
+        }
         // Align the task with its child run once the loop terminates. The
         // loop can also end without an Effect failure — tool errors, the
         // repeated-turn guard, or the empty-response guard all finish the
@@ -696,6 +741,7 @@ function protocolFor(
         // otherwise leave its task in running forever.
         const settleAndNotify = (message?: string) =>
           Effect.gen(function* () {
+            releaseLease()
             // A user-driven steer/terminate endpoint marks an intent before
             // cancelling this run and owns the resulting settle, Inbox entry,
             // and parent wakeup itself. Skip the automatic path so the main
@@ -757,7 +803,7 @@ function protocolFor(
         const run = runtime.bridge.promise
         if (!runtime.promptOps) throw new Error("Plan runtime requires promptOps for child termination")
         if (!runtime.disposeDirectory) throw new Error("Plan runtime requires instanceStore for child termination")
-        return terminateChild(
+        const result = await terminateChild(
           { sessionId, request },
           {
             markIntent: () => {
@@ -771,6 +817,11 @@ function protocolFor(
             archive: () => run(sessions.setArchived({ sessionID: sessionId as SessionID, time: Date.now() })),
           },
         )
+        if (request?.workspace?.directory && result?.state === "stopped") {
+          if (runtime.leaseStore) runtime.leaseStore.remove(request.workspace.directory)
+          else removeWorkspaceLeaseFile(request.workspace.directory)
+        }
+        return result
       },
     },
     beforeReport: runtime.beforeReport,
@@ -1032,6 +1083,7 @@ export const PlanUpdateTool = Tool.define(
             ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
             : undefined
           const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
+          const leaseStore = workspaceLeaseStoreFor({ projectInfo })
           const disposeDirectory = (directory: string) =>
             bridge.promise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
           const protocol = protocolFor(sessions, bus, {
@@ -1049,6 +1101,7 @@ export const PlanUpdateTool = Tool.define(
             },
             childWorkspace,
             disposeDirectory,
+            leaseStore,
           })
           const result = yield* Effect.promise(() => protocol.update(protocolContext(session, ctx), input))
           if (result.ok) requestToolCatalogRefresh(ctx)
@@ -1086,6 +1139,19 @@ export const DispatchDispatchTool = Tool.define(
             ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
             : undefined
           const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
+          const leaseStore = workspaceLeaseStoreFor({ projectInfo })
+          if (
+            childWorkspace?.capability() === "snapshot" &&
+            leaseStore &&
+            !(yield* Effect.promise(() => canDispatchSnapshot(leaseStore.runtimeRoot)))
+          ) {
+            throw new PlanProtocolError({
+              code: "DISPATCH_UNAVAILABLE",
+              message: "runtime workspace hard limit reached; snapshot dispatch is temporarily refused",
+              hint: "清理已完成或失败的 workspace 后重试，active lease 不会被自动删除。",
+              retryable: true,
+            })
+          }
           const disposeDirectory = (directory: string) =>
             bridge.promise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
           const protocol = protocolFor(sessions, bus, {
@@ -1093,6 +1159,7 @@ export const DispatchDispatchTool = Tool.define(
             promptOps: promptOps(ctx),
             childWorkspace,
             disposeDirectory,
+            leaseStore,
             profiles: async () =>
               enabledProfiles(resolveProfiles((await bridge.promise(config.get())).subagents?.profiles)),
           })
@@ -1168,6 +1235,7 @@ export const DispatchCancelTool = Tool.define(
             ? yield* Effect.promise(() => bridge.promise(projectService.value.get(session.projectID)))
             : undefined
           const childWorkspace = childWorkspaceFor({ session, projectInfo, worktree, bridge })
+          const leaseStore = workspaceLeaseStoreFor({ projectInfo })
           const disposeDirectory = (directory: string) =>
             bridge.promise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
           const protocol = protocolFor(sessions, bus, {
@@ -1175,6 +1243,7 @@ export const DispatchCancelTool = Tool.define(
             promptOps: promptOps(ctx),
             childWorkspace,
             disposeDirectory,
+            leaseStore,
           })
           const result = yield* Effect.promise(() => protocol.cancel(protocolContext(session, ctx), input.taskIds))
           if (result.ok) requestToolCatalogRefresh(ctx)
@@ -1347,6 +1416,7 @@ export const ReportTool = Tool.define(
             },
           })
           const result = yield* Effect.promise(() => protocol.report(protocolContext(session, ctx), input))
+          if (result.ok) removeWorkspaceLeaseFile(session.directory)
           if (result.ok) requestToolCatalogRefresh(ctx)
           const effectiveRunId = runId(ctx)
           const parentSessionId = effectiveRunId ? parentSessionIdForRunId(effectiveRunId) : undefined

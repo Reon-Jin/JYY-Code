@@ -1187,8 +1187,7 @@ export class PlanProtocol {
       taskId,
       workspaceDirectory: workspace.directory,
       record:
-        task.merge?.cleanup_record ??
-        cleanupRecordFromLegacy(task.merge?.cleanup, task.merge?.cleanup_error, this.now),
+        task.merge?.cleanup_record ?? cleanupRecordFromLegacy(task.merge?.cleanup, task.merge?.cleanup_error, this.now),
       now: this.now,
       deleteWorkspace: workspace.mode !== "shared_compat",
       stop: async () => {
@@ -1218,6 +1217,10 @@ export class PlanProtocol {
         if (journalDirectory && runtimeRoot) removeMergeJournal(journalDirectory, runtimeRoot)
         return true
       },
+      // Keep one protocol invocation one cleanup attempt. A transient failure
+      // is persisted and the next explicit cleanup/merge or the online
+      // sweeper performs the bounded lock retry without repeating the merge.
+      retryDelaysMs: [],
       persist: (record) => this.persistCleanupRecord(ctx, taskId, record),
     })
     if (result.record.state === "failed" || result.record.state === "quarantined") {

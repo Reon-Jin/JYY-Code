@@ -346,6 +346,20 @@ export const Info = Schema.Struct({
       }),
     }),
   ),
+  workspace_cleanup: Schema.optional(
+    Schema.Struct({
+      success_retention_minutes: Schema.optional(PositiveInt),
+      retained_failure_hours: Schema.optional(PositiveInt),
+      quarantine_days: Schema.optional(PositiveInt),
+      orphan_grace_hours: Schema.optional(PositiveInt),
+      runtime_soft_limit_bytes: Schema.optional(PositiveInt),
+      runtime_hard_limit_bytes: Schema.optional(PositiveInt),
+      terminal_reference_max: Schema.optional(PositiveInt),
+      sweep_interval_minutes: Schema.optional(PositiveInt),
+    }),
+  ).annotate({
+    description: "Retention, orphan-recovery, and runtime disk-watermark policy for plan workspaces",
+  }),
   experimental: Schema.optional(
     Schema.Struct({
       disable_paste_summary: Schema.optional(Schema.Boolean),
