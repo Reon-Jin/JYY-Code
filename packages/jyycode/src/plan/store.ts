@@ -5,6 +5,7 @@ import { PlanProtocolError, ERROR_CODES, type PlanFile, assertPlanFile, clonePla
 export const WAIT_TIMEOUT_MS = 10_000
 export const AGING_MS = 30_000
 export const STALE_LOCK_MS = 10_000
+export const CORRUPT_LOCK_GRACE_MS = 1_000
 export const REPORT_RETRY_MAX = 2
 
 export type Priority = "high" | "normal"
@@ -44,6 +45,7 @@ type PlanStoreOptions = {
   waitTimeoutMs?: number
   agingMs?: number
   staleLockMs?: number
+  corruptLockGraceMs?: number
   pollMs?: number
   now?: () => number
   pid?: number
@@ -113,6 +115,7 @@ export class PlanStore {
   private readonly waitTimeoutMs: number
   private readonly agingMs: number
   private readonly staleLockMs: number
+  private readonly corruptLockGraceMs: number
   private readonly pollMs: number
   private readonly now: () => number
   private readonly pid: number
@@ -122,6 +125,7 @@ export class PlanStore {
     this.waitTimeoutMs = options.waitTimeoutMs ?? WAIT_TIMEOUT_MS
     this.agingMs = options.agingMs ?? AGING_MS
     this.staleLockMs = options.staleLockMs ?? STALE_LOCK_MS
+    this.corruptLockGraceMs = options.corruptLockGraceMs ?? CORRUPT_LOCK_GRACE_MS
     this.pollMs = options.pollMs ?? 10
     this.now = options.now ?? Date.now
     this.pid = options.pid ?? process.pid
@@ -257,9 +261,13 @@ export class PlanStore {
           holder,
           acquired_at: new Date(this.now()).toISOString(),
         }
-        fs.writeFileSync(fd, JSON.stringify(value))
-        fs.fsyncSync(fd)
-        fs.closeSync(fd)
+        const payload = JSON.stringify(value)
+        try {
+          fs.writeFileSync(fd, payload)
+          fs.fsyncSync(fd)
+        } finally {
+          fs.closeSync(fd)
+        }
         return value
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
@@ -276,15 +284,48 @@ export class PlanStore {
     try {
       value = JSON.parse(fs.readFileSync(lockPath, "utf8"))
     } catch {
+      if (!this.corruptLockIsOld(lockPath)) return
+      this.quarantineLock(lockPath)
+      return
+    }
+    if (!this.validLockValue(value)) {
+      if (this.corruptLockIsOld(lockPath)) this.quarantineLock(lockPath)
       return
     }
     if (!isLockStale(value, this.now(), this.staleLockMs)) return
     const pid = lockPid(value)
     if (pid !== undefined && this.isProcessAlive(pid)) return
+    this.quarantineLock(lockPath)
+  }
+
+  private validLockValue(value: unknown): value is { pid: number; holder: string; acquired_at: string } {
+    if (!value || typeof value !== "object") return false
+    const record = value as Record<string, unknown>
+    return (
+      lockPid(value) !== undefined &&
+      typeof record.holder === "string" &&
+      record.holder.length > 0 &&
+      typeof record.acquired_at === "string" &&
+      Number.isFinite(Date.parse(record.acquired_at))
+    )
+  }
+
+  private corruptLockIsOld(lockPath: string) {
     try {
-      fs.unlinkSync(lockPath)
+      const age = this.now() - fs.statSync(lockPath).mtimeMs
+      return age >= this.staleLockMs + this.corruptLockGraceMs
     } catch {
-      // Another process won the race to reclaim it.
+      return false
+    }
+  }
+
+  private quarantineLock(lockPath: string) {
+    const quarantinePath = `${lockPath}.quarantine.${this.pid}.${this.now()}.${Math.random().toString(16).slice(2)}`
+    try {
+      fs.renameSync(lockPath, quarantinePath)
+      fs.rmSync(quarantinePath, { force: true })
+    } catch {
+      // Another process won the race to quarantine it, or the lock vanished.
     }
   }
 

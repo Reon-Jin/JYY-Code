@@ -48,7 +48,12 @@ import {
 import { projectPlanSnapshot, type ActivityState, type PlanSnapshot } from "./snapshot"
 import { PlanStore, REPORT_RETRY_MAX, defaultPlanStore, type WriteOutcome } from "./store"
 import { assertInside, assertOutputArtifact, resolveInside } from "./path-guard"
-import { ChildWorkspace, type WorkspaceHandle, type WorkspaceReservation } from "./child-workspace"
+import {
+  ChildWorkspace,
+  DEFAULT_SNAPSHOT_LIMITS,
+  type WorkspaceHandle,
+  type WorkspaceReservation,
+} from "./child-workspace"
 import { markPlanSessionActive } from "./recovery"
 import { runtimeMetricPayload, type RuntimeMetricInput } from "./runtime-event"
 import {
@@ -225,7 +230,10 @@ function dispatchWorkspaceMetadata(
     created_at: workspace.created_at,
     cleanup: workspace.cleanup,
     baseline_directory: workspace.baseline_directory ?? null,
+    baseline_manifest_path: workspace.baseline_manifest_path ?? null,
     baseline_manifest_hash: workspace.baseline_manifest_hash ?? null,
+    baseline_manifest_size: workspace.baseline_manifest_size ?? null,
+    baseline_manifest_file_count: workspace.baseline_manifest_file_count ?? null,
     source_revision: workspace.source_revision ?? null,
   }
 }
@@ -2511,6 +2519,7 @@ export class PlanProtocol {
 
       let baseDirectory: string | undefined
       let childDirectory: string | undefined
+      let childManifest: import("./child-workspace").BaselineManifestEntry[] | undefined
       let journalDirectory: string | null = null
       if (workspace.mode === "shared_compat") {
         if (!workspace.directory || path.resolve(workspace.directory) !== mainRoot)
@@ -2523,6 +2532,7 @@ export class PlanProtocol {
         const loaded = this.recordedWorkspace(ctx, task)
         baseDirectory = loaded?.baseline_directory ?? workspace.baseline_directory ?? undefined
         childDirectory = loaded?.directory ?? workspace.directory ?? undefined
+        childManifest = loaded?.baseline_manifest
         if (!baseDirectory || !childDirectory)
           throw new PlanProtocolError({
             code: ERROR_CODES.INVALID_STATE,
@@ -2564,6 +2574,7 @@ export class PlanProtocol {
           main: mainRoot,
           child: childDirectory!,
           paths: value.paths,
+          ...(childManifest ? { childManifest, childLimits: DEFAULT_SNAPSHOT_LIMITS } : {}),
         })
         const currentConflicts = new Map(preflight.conflicts.map((conflict) => [conflict.path, conflict]))
         for (const resolution of value.resolutions ?? []) {
@@ -2636,6 +2647,7 @@ export class PlanProtocol {
           child: childDirectory!,
           paths: value.paths,
           resolutions: value.resolutions,
+          ...(childManifest ? { childManifest, childLimits: DEFAULT_SNAPSHOT_LIMITS } : {}),
           journal_directory: journalDirectory!,
         })
       }

@@ -75,7 +75,10 @@
         "created_at": { "type": ["string", "null"], "format": "date-time" },
         "cleanup": { "enum": ["on_success", "on_cancel", "retain_on_failure"] },
         "baseline_directory": { "type": ["string", "null"], "description": "Immutable dispatch baseline sidecar owned by the recorded runtime root." },
+        "baseline_manifest_path": { "type": ["string", "null"], "description": "Durable path to the immutable child snapshot manifest." },
         "baseline_manifest_hash": { "type": ["string", "null"], "description": "Digest of the baseline manifest." },
+        "baseline_manifest_size": { "type": ["integer", "null"], "minimum": 0, "description": "Total source bytes represented by the baseline manifest." },
+        "baseline_manifest_file_count": { "type": ["integer", "null"], "minimum": 0, "description": "File count represented by the baseline manifest." },
         "source_revision": { "type": ["string", "null"], "description": "Optional source revision captured at dispatch." }
       }
     },

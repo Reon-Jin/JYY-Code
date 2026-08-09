@@ -1,6 +1,12 @@
 import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
+import {
+  DEFAULT_SNAPSHOT_LIMITS,
+  isSnapshotPathAllowed,
+  type BaselineManifestEntry,
+  type SnapshotLimits,
+} from "./child-workspace"
 import type { MergeConflictKind, MergeConflictSummary, MergeResolution } from "./schema"
 
 const INTERNAL_NAMES = new Set([".git", ".jyycode"])
@@ -12,6 +18,8 @@ export type WorkspaceMergeInput = {
   child: string
   paths?: string[]
   resolutions?: MergeResolution[]
+  childManifest?: BaselineManifestEntry[]
+  childLimits?: SnapshotLimits
 }
 
 export type MergeApplyEntry = {
@@ -146,21 +154,50 @@ function assertSafeLink(root: string, pathname: string) {
   return target
 }
 
-function scanWorkspace(root: string, current = root, output = new Map<string, FileEntry>()) {
+type ScanOptions = {
+  childSnapshot?: boolean
+  limits?: SnapshotLimits
+  state?: { totalBytes: number; fileCount: number }
+}
+
+function scanWorkspace(root: string, current = root, output = new Map<string, FileEntry>(), options: ScanOptions = {}) {
+  const state = options.state ?? { totalBytes: 0, fileCount: 0 }
   for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
     if (INTERNAL_NAMES.has(entry.name)) continue
     const pathname = path.join(current, entry.name)
     const relative = canonicalRelative(path.relative(root, pathname), "workspace path")
     if (entry.isDirectory()) {
-      scanWorkspace(root, pathname, output)
+      if (options.childSnapshot && !isSnapshotPathAllowed(relative, true)) continue
+      scanWorkspace(root, pathname, output, { ...options, state })
       continue
     }
+    if (options.childSnapshot && !isSnapshotPathAllowed(relative)) continue
     if (entry.isSymbolicLink()) {
       const link = assertSafeLink(root, pathname)
+      const size = Buffer.byteLength(link)
+      if (options.limits) {
+        if (size > options.limits.maxFileBytes) fail(`child merge file exceeds the per-file limit: ${relative}`)
+        state.totalBytes += size
+        state.fileCount++
+        if (state.totalBytes > options.limits.maxTotalBytes)
+          fail("child merge exceeds the total-byte limit; narrow the task scope")
+        if (state.fileCount > options.limits.maxFileCount)
+          fail("child merge exceeds the file-count limit; narrow the task scope")
+      }
       output.set(relative, { path: relative, kind: "symlink", link, hash: hashText(link) })
       continue
     }
     if (!entry.isFile()) fail(`unsupported workspace entry: ${relative}`)
+    if (options.limits) {
+      const size = fs.statSync(pathname).size
+      if (size > options.limits.maxFileBytes) fail(`child merge file exceeds the per-file limit: ${relative}`)
+      state.totalBytes += size
+      state.fileCount++
+      if (state.totalBytes > options.limits.maxTotalBytes)
+        fail("child merge exceeds the total-byte limit; narrow the task scope")
+      if (state.fileCount > options.limits.maxFileCount)
+        fail("child merge exceeds the file-count limit; narrow the task scope")
+    }
     const bytes = new Uint8Array(fs.readFileSync(pathname))
     const text = isTextBytes(bytes) ? Buffer.from(bytes).toString("utf8") : undefined
     output.set(relative, {
@@ -337,7 +374,19 @@ export function planWorkspaceMerge(input: WorkspaceMergeInput): MergePlan {
   }
   const base = scanWorkspace(roots.base)
   const main = scanWorkspace(roots.main)
-  const child = scanWorkspace(roots.child)
+  const child = scanWorkspace(roots.child, roots.child, new Map(), {
+    childSnapshot: input.childManifest !== undefined,
+    limits: input.childLimits ?? (input.childManifest !== undefined ? DEFAULT_SNAPSHOT_LIMITS : undefined),
+  })
+  if (input.childManifest) {
+    for (const entry of input.childManifest) {
+      const relative = entry.relative_path.replaceAll("\\", "/")
+      const baseline = base.get(relative)
+      const expected = entry.mode === "symlink" ? hashText(entry.hash) : entry.hash
+      if (!baseline || baseline.kind !== entry.mode || baseline.hash !== expected)
+        fail(`baseline manifest does not match the recorded snapshot: ${relative}`)
+    }
+  }
   const allPaths = [...new Set([...base.keys(), ...main.keys(), ...child.keys()])]
     .filter((relative) => inScope(relative, scopes))
     .sort((left, right) => left.localeCompare(right))

@@ -3,7 +3,7 @@ import path from "node:path"
 import type { PlanFile, PlanTask } from "./schema"
 import { readPlanFileSync } from "./schema"
 
-const CHILD_WORKSPACE_PATTERN = /^jyycode-[A-Za-z0-9_-]+-[A-Za-z0-9_-]+-[a-f0-9]{12}(?:\.baseline)?$/
+const CHILD_WORKSPACE_PATTERN = /^jyycode-[A-Za-z0-9_-]+-[A-Za-z0-9_-]+-[a-f0-9]{12}(?:\.baseline|\.manifest\.json)?$/
 const MERGE_JOURNAL_PATTERN = /^\.jyycode-merge-[a-f0-9]{16}$/
 
 export type StartupWorkspaceCleanupResult = {
@@ -49,6 +49,7 @@ function activePathsFromPlan(plan: PlanFile, runtimeRoot: string) {
     if (!preserveTaskWorkspace(task)) continue
     addPath(active, runtimeRoot, task.dispatch?.workspace?.directory)
     addPath(active, runtimeRoot, task.dispatch?.workspace?.baseline_directory)
+    addPath(active, runtimeRoot, task.dispatch?.workspace?.baseline_manifest_path)
     addPath(active, runtimeRoot, task.merge?.journal_directory)
   }
   return active

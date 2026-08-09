@@ -156,6 +156,59 @@ describe("PlanStore recovery", () => {
     }
   })
 
+  it("reclaims stale corrupt locks only after the grace period", async () => {
+    for (const malformed of ["", '{"pid":', "not-json", "{}"]) {
+      const value = fixture()
+      try {
+        const store = new PlanStore({ pid: 41005 })
+        await seed(store, value.planPath)
+        const lockPath = `${value.planPath}.lock`
+        fs.writeFileSync(lockPath, malformed)
+        const waitingStore = new PlanStore({
+          waitTimeoutMs: 25,
+          pollMs: 1,
+          staleLockMs: 5,
+          corruptLockGraceMs: 200,
+          pid: 41006,
+        })
+        await expect(update(waitingStore, value.planPath, 2)).rejects.toMatchObject({ code: "REVISION_CONFLICT" })
+        expect(fs.existsSync(lockPath)).toBe(true)
+
+        const old = new Date(Date.now() - 2_000)
+        fs.utimesSync(lockPath, old, old)
+        await expect(update(waitingStore, value.planPath, 2)).resolves.toBe(2)
+        expect(fs.existsSync(lockPath)).toBe(false)
+        expect(store.read(value.planPath)?.revision).toBe(2)
+      } finally {
+        value.cleanup()
+      }
+    }
+  })
+
+  it("writes one complete owner record and quarantines stale locks", async () => {
+    const value = fixture()
+    try {
+      const store = new PlanStore({ pid: 41007 })
+      const pending = update(store, value.planPath, 1)
+      await expect(pending).resolves.toBe(1)
+      expect(fs.readdirSync(value.root).some((entry) => entry.includes("quarantine"))).toBe(false)
+      const lockPath = `${value.planPath}.lock`
+      fs.writeFileSync(lockPath, JSON.stringify({ pid: 49999, holder: "dead", acquired_at: new Date(0).toISOString() }))
+      const waitingStore = new PlanStore({
+        waitTimeoutMs: 100,
+        pollMs: 1,
+        staleLockMs: 1,
+        pid: 41008,
+        isProcessAlive: () => false,
+      })
+      await expect(update(waitingStore, value.planPath, 2)).resolves.toBe(2)
+      expect(fs.existsSync(lockPath)).toBe(false)
+      expect(fs.readdirSync(value.root).some((entry) => entry.includes("quarantine"))).toBe(false)
+    } finally {
+      value.cleanup()
+    }
+  })
+
   it("selects a complete crash-left temporary file for the next read and write", async () => {
     const value = fixture()
     try {

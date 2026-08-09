@@ -72,7 +72,10 @@ export type MergeRecord = {
 
 export type WorkspaceBaseline = {
   baseline_directory?: string | null
+  baseline_manifest_path?: string | null
   baseline_manifest_hash?: string | null
+  baseline_manifest_size?: number | null
+  baseline_manifest_file_count?: number | null
   source_revision?: string | null
 }
 
@@ -515,7 +518,10 @@ function isValidDispatch(value: unknown): value is DispatchRecord {
     (workspace.created_at === null || validDateTime(workspace.created_at)) &&
       ["on_success", "on_cancel", "retain_on_failure"].includes(String(workspace.cleanup)) &&
       (workspace.baseline_directory === undefined || workspace.baseline_directory === null || nonEmptyString(workspace.baseline_directory)) &&
+      (workspace.baseline_manifest_path === undefined || workspace.baseline_manifest_path === null || nonEmptyString(workspace.baseline_manifest_path)) &&
       (workspace.baseline_manifest_hash === undefined || workspace.baseline_manifest_hash === null || nonEmptyString(workspace.baseline_manifest_hash)) &&
+      (workspace.baseline_manifest_size === undefined || workspace.baseline_manifest_size === null || (Number.isSafeInteger(workspace.baseline_manifest_size) && Number(workspace.baseline_manifest_size) >= 0)) &&
+      (workspace.baseline_manifest_file_count === undefined || workspace.baseline_manifest_file_count === null || (Number.isSafeInteger(workspace.baseline_manifest_file_count) && Number(workspace.baseline_manifest_file_count) >= 0)) &&
       (workspace.source_revision === undefined || workspace.source_revision === null || nonEmptyString(workspace.source_revision)))
   return (
     /^run__[A-Za-z0-9_-]+__s[1-9]\d*_t[1-9]\d*$/.test(String(value.run_id)) &&
