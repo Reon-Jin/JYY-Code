@@ -273,7 +273,11 @@ export function Composer(props: ComposerProps) {
     void controller.terminate().catch(() => {})
   }
 
-  onCleanup(() => clearTimeout(confirmTerminateTimer))
+  onCleanup(() => {
+    clearTimeout(confirmTerminateTimer)
+    queue.dispose({ clear: true })
+    void controller.dispose({ cancelSession: true })
+  })
 
   async function guide(id: string) {
     if (guiding() || props.disabled) return

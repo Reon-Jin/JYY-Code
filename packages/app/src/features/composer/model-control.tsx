@@ -33,16 +33,38 @@ function variantsFor(model: ModelSelection, models: readonly CatalogModel[]) {
   return variants
 }
 
-function modelOptions(value: ModelSelection, models: readonly CatalogModel[]) {
-  const options = models.map((model) => ({
-    value: modelKey(model),
-    label: `${model.providerName} · ${model.modelName}`,
-    model: { providerID: model.providerID, modelID: model.modelID } satisfies ModelSelection,
-  }))
-  if (!options.some((option) => option.value === modelKey(value))) {
-    options.unshift({ value: modelKey(value), label: modelLabel(value, models), model: value })
-  }
-  return options
+function createModelOptions(models: () => readonly CatalogModel[], value: () => ModelSelection) {
+  const optionByKey = new Map<string, { value: string; label: string; model: ModelSelection }>()
+  const fallbackByKey = new Map<string, { value: string; label: string; model: ModelSelection }>()
+  const catalogOptions = createMemo(() =>
+    models().map((model) => {
+      const value = modelKey(model)
+      const label = `${model.providerName} · ${model.modelName}`
+      const previous = optionByKey.get(value)
+      if (previous?.label === label) return previous
+      const option = {
+        value,
+        label,
+        model: { providerID: model.providerID, modelID: model.modelID } satisfies ModelSelection,
+      }
+      optionByKey.set(value, option)
+      return option
+    }),
+  )
+
+  return createMemo(() => {
+    const current = value()
+    const options = catalogOptions()
+    const key = modelKey(current)
+    if (options.some((option) => option.value === key)) return options
+
+    let fallback = fallbackByKey.get(key)
+    if (!fallback) {
+      fallback = { value: key, label: modelLabel(current, models()), model: current }
+      fallbackByKey.set(key, fallback)
+    }
+    return [fallback, ...options]
+  })
 }
 
 function ModelFields(props: {
@@ -51,6 +73,9 @@ function ModelFields(props: {
   disabled?: boolean
   onChange: (model: ModelSelection) => void
 }) {
+  const options = createModelOptions(() => props.models, () => props.value)
+  const variants = createMemo(() => variantsFor(props.value, props.models))
+
   function changeModel(value: string) {
     const selected = props.models.find((model) => modelKey(model) === value)
     if (!selected) return
@@ -75,7 +100,7 @@ function ModelFields(props: {
           disabled={props.disabled}
           onChange={(event) => changeModel(event.currentTarget.value)}
         >
-          <For each={modelOptions(props.value, props.models)}>
+          <For each={options()}>
             {(option) => <option value={option.value}>{option.label}</option>}
           </For>
         </select>
@@ -89,7 +114,7 @@ function ModelFields(props: {
           onChange={(event) => changeVariant(event.currentTarget.value)}
         >
           <option value="">{variantLabel(undefined)}</option>
-          <For each={variantsFor(props.value, props.models)}>
+          <For each={variants()}>
             {(variant) => <option value={variant}>{variantLabel(variant)}</option>}
           </For>
         </select>

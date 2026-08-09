@@ -69,4 +69,20 @@ describe("createComposerQueue", () => {
     queue.move("queued_3", "queued_2", true)
     expect(queue.items().map((item) => item.text)).toEqual(["first", "second", "third"])
   })
+
+  it("releases an empty channel when its owner unmounts", () => {
+    const store = createComposerQueueStore()
+    const queue = createComposerQueue({ directory: "C:\\work", sessionID: "ses_1", store })
+    queue.dispose()
+    expect(store.size).toBe(0)
+  })
+
+  it("clears queued work when an owner is explicitly disposed", () => {
+    const store = createComposerQueueStore()
+    const queue = createComposerQueue({ directory: "C:\\work", sessionID: "ses_1", store })
+    queue.enqueue({ text: "discard", agent: "build", model, attachments: [] })
+    queue.dispose({ clear: true })
+    expect(queue.items()).toEqual([])
+    expect(store.size).toBe(0)
+  })
 })

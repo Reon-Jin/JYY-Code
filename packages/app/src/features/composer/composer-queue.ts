@@ -13,6 +13,7 @@ export type QueuedPrompt = {
 type QueueChannel = {
   items: Accessor<readonly QueuedPrompt[]>
   setItems: Setter<readonly QueuedPrompt[]>
+  owners: number
 }
 
 export type ComposerQueueStore = Map<string, QueueChannel>
@@ -41,21 +42,26 @@ export function createComposerQueue(input: {
   let channel = store.get(key)
   if (!channel) {
     const [items, setItems] = createSignal<readonly QueuedPrompt[]>([])
-    channel = { items, setItems }
+    channel = { items, setItems, owners: 0 }
     store.set(key, channel)
   }
+  channel.owners += 1
+  let disposed = false
 
   function enqueue(value: Omit<QueuedPrompt, "id">) {
+    if (disposed) return undefined
     const item = { ...value, id: (input.createID ?? defaultID)() }
     channel!.setItems((items) => [...items, item])
     return item
   }
 
   function remove(id: string) {
+    if (disposed) return
     channel!.setItems((items) => items.filter((item) => item.id !== id))
   }
 
   function move(id: string, targetID: string, after = false) {
+    if (disposed) return
     if (id === targetID) return
     channel!.setItems((items) => {
       const item = items.find((entry) => entry.id === id)
@@ -70,10 +76,19 @@ export function createComposerQueue(input: {
   }
 
   function shift() {
+    if (disposed) return undefined
     const first = channel!.items()[0]
     if (first) channel!.setItems((items) => items.slice(1))
     return first
   }
 
-  return { items: channel.items, enqueue, remove, move, shift }
+  function dispose(options: { clear?: boolean } = {}) {
+    if (disposed) return
+    disposed = true
+    channel!.owners = Math.max(0, channel!.owners - 1)
+    if (options.clear && channel!.owners === 0) channel!.setItems([])
+    if (channel!.owners === 0 && channel!.items().length === 0 && store.get(key) === channel) store.delete(key)
+  }
+
+  return { items: channel.items, enqueue, remove, move, shift, dispose }
 }

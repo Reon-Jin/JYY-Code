@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { DesktopBridge } from "./platform/types"
 import { defaultDesktopSettings } from "./features/settings/settings-preferences"
 import { App } from "./app"
+import { createFakeDesktop } from "./test/fake-desktop"
+import { createFakeJyycode } from "./test/fake-jyycode"
+import type { ProjectWorkspaceLoader } from "./routes"
+import { withConsoleErrorCapture } from "./test/diagnostics"
 
 function bridgeWith(bootstrap: DesktopBridge["bootstrap"]): DesktopBridge {
   return {
@@ -103,5 +107,28 @@ describe("App", () => {
 
     expect(bridge.restartBackend).toHaveBeenCalledOnce()
     expect(await screen.findByRole("heading", { name: "JYYCode" })).toBeVisible()
+  })
+
+  it("shows a recoverable error when the workspace chunk fails", async () => {
+    await withConsoleErrorCapture(async () => {
+      const user = userEvent.setup()
+      const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_route" } })
+      const backend = createFakeJyycode(desktop.directory)
+      backend.addSession({ id: "ses_route", slug: "route", title: "Route Session" })
+      vi.stubGlobal("fetch", backend.fetch)
+      const loader = vi
+        .fn<ProjectWorkspaceLoader>()
+        .mockRejectedValueOnce(new Error("workspace chunk failed"))
+        .mockResolvedValueOnce({
+          default: () => <div data-testid="workspace-ready">Workspace ready</div>,
+        })
+
+      render(() => <App bridge={desktop.bridge} workspaceLoader={loader} />)
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("工作区加载失败：workspace chunk failed")
+      await user.click(screen.getByRole("button", { name: "重试加载工作区" }))
+      expect(await screen.findByTestId("workspace-ready")).toHaveTextContent("Workspace ready")
+      expect(loader).toHaveBeenCalledTimes(2)
+    })
   })
 })

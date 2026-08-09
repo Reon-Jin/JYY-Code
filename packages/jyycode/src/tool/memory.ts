@@ -141,13 +141,15 @@ export const MemoryTool = Tool.define(
 
           return yield* Effect.fail(new Error(`Unknown action: ${params.action}`))
         }).pipe(
-          Effect.catch((error) =>
-            Effect.succeed({
-              title: "Memory error",
+          Effect.catch((error) => {
+            const message = error instanceof Error ? error.message : String(error)
+            const summary = message.split("\n", 1)[0]!.slice(0, 96)
+            return Effect.succeed({
+              title: `Memory error: ${summary}`,
               metadata: { file: undefined, status: "error", truncated: false },
-              output: error instanceof Error ? error.message : String(error),
-            }),
-          ),
+              output: message,
+            })
+          }),
         ),
     }
   }),

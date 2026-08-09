@@ -9,34 +9,45 @@ import { createLifecycleController } from "./features/lifecycle/lifecycle-contro
 import { StartupLoading } from "./features/lifecycle/startup-loading"
 import { DesktopBridgeProvider, useDesktopBridge } from "./platform/context"
 import type { DesktopBootstrap, DesktopBridge } from "./platform/types"
-import { AppRoutes } from "./routes"
+import { AppRoutes, type ProjectWorkspaceLoader } from "./routes"
 import { I18nProvider } from "./i18n/i18n-context"
 import { createDesktopNotifications } from "./features/notifications/desktop-notifications"
 import { runDesktopUpdater } from "./features/settings/desktop-updater"
 import { SoundEffectsHost } from "./features/sound-effects/sound-effects-host"
+import { scheduleUIPerformanceReport, startUIPerformanceMonitor } from "./performance/ui-performance"
 
 export type AppProps = {
   bridge?: DesktopBridge
+  workspaceLoader?: ProjectWorkspaceLoader
 }
 
-function ProjectApplication(props: { bootstrap: DesktopBootstrap; controller: ProjectController; route: string }) {
+function ProjectApplication(props: {
+  bootstrap: DesktopBootstrap
+  controller: ProjectController
+  route: string
+  workspaceLoader?: ProjectWorkspaceLoader
+}) {
   const target = `#${props.route}`
   if (window.location.hash !== target) {
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${target}`)
+    window.dispatchEvent(new Event("hashchange"))
   }
   return (
     <ProjectProvider controller={props.controller}>
-      <AppRoutes bootstrap={props.bootstrap} />
+      <AppRoutes bootstrap={props.bootstrap} workspaceLoader={props.workspaceLoader} />
     </ProjectProvider>
   )
 }
 
-function DesktopApplication() {
+function DesktopApplication(props: { workspaceLoader?: ProjectWorkspaceLoader }) {
   const bridge = useDesktopBridge()
   const lifecycle = createLifecycleController({ bridge })
   const notifications = createDesktopNotifications({ bridge, settings: lifecycle.settings })
+  const stopPerformanceMonitor = startUIPerformanceMonitor()
   onCleanup(() => notifications.dispose())
+  onCleanup(stopPerformanceMonitor)
   onMount(() => {
+    scheduleUIPerformanceReport()
     void lifecycle
       .start()
       .then(async () => {
@@ -77,7 +88,12 @@ function DesktopApplication() {
             {(bootstrap) => (
               <Show when={lifecycle.projects()} keyed fallback={<StartupLoading phase="booting" />}>
                 {(projects) => (
-                  <ProjectApplication bootstrap={bootstrap} controller={projects} route={lifecycle.route()} />
+                  <ProjectApplication
+                    bootstrap={bootstrap}
+                    controller={projects}
+                    route={lifecycle.route()}
+                    workspaceLoader={props.workspaceLoader}
+                  />
                 )}
               </Show>
             )}
@@ -108,7 +124,7 @@ export function App(props: AppProps) {
     >
       <DesktopBridgeProvider bridge={props.bridge}>
         <I18nProvider>
-          <DesktopApplication />
+        <DesktopApplication workspaceLoader={props.workspaceLoader} />
         </I18nProvider>
       </DesktopBridgeProvider>
     </ErrorBoundary>

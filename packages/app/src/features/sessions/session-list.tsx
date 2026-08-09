@@ -1,6 +1,6 @@
 import { tr } from "../../i18n/i18n-context"
 import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
-import { For, Show } from "solid-js"
+import { createSignal, For, onCleanup, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
@@ -11,6 +11,7 @@ export type SessionListProps = {
   statuses: Record<string, SessionStatus>
   activeSessionID?: string
   archived: boolean
+  now?: number
   loading?: boolean
   error?: string
   disabled?: boolean
@@ -28,6 +29,11 @@ export function sortRootSessions(sessions: readonly Session[]) {
 }
 
 export function SessionList(props: SessionListProps) {
+  const [localNow, setLocalNow] = createSignal(Date.now())
+  const clock = props.now === undefined ? window.setInterval(() => setLocalNow(Date.now()), 60_000) : undefined
+  onCleanup(() => {
+    if (clock !== undefined) window.clearInterval(clock)
+  })
   const sorted = () =>
     sortRootSessions(props.sessions).filter((session) =>
       props.archived ? session.time.archived !== undefined : session.time.archived === undefined,
@@ -56,6 +62,7 @@ export function SessionList(props: SessionListProps) {
                     status={props.statuses[session.id]}
                     active={props.activeSessionID === session.id}
                     archived={props.archived}
+                    now={props.now ?? localNow()}
                     disabled={props.disabled}
                     onNavigate={props.onNavigate}
                     onRename={props.onRename}

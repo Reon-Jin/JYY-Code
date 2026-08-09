@@ -10,9 +10,42 @@ const markdown = new Marked(markedKatex({ throwOnError: false, nonStandard: true
     html: () => "",
   },
 })
+const streamingMarkdown = new Marked({
+  renderer: {
+    html: () => "",
+  },
+})
 
-export function renderMarkdown(source: string) {
-  const html = markdown.parse(source, { async: false }) as string
+export type MarkdownRenderMode = "complete" | "streaming"
+
+const MARKDOWN_CACHE_LIMIT = 64
+const renderedCache = new Map<string, string>()
+
+function cachedResult(key: string) {
+  const value = renderedCache.get(key)
+  if (value === undefined) return undefined
+  renderedCache.delete(key)
+  renderedCache.set(key, value)
+  return value
+}
+
+function rememberResult(key: string, value: string) {
+  renderedCache.delete(key)
+  renderedCache.set(key, value)
+  while (renderedCache.size > MARKDOWN_CACHE_LIMIT) renderedCache.delete(renderedCache.keys().next().value!)
+}
+
+export function clearMarkdownCache() {
+  renderedCache.clear()
+}
+
+export function renderMarkdown(source: string, mode: MarkdownRenderMode = "complete") {
+  const cacheKey = `${mode}\u0000${source}`
+  const previous = cachedResult(cacheKey)
+  if (previous !== undefined) return previous
+
+  const parser = mode === "streaming" ? streamingMarkdown : markdown
+  const html = parser.parse(source, { async: false }) as string
   const sanitized = DOMPurify.sanitize(html, {
     USE_PROFILES: { html: true, mathMl: true },
     FORBID_TAGS: ["style", "iframe", "object", "embed", "form"],
@@ -30,5 +63,7 @@ export function renderMarkdown(source: string) {
     link.removeAttribute("href")
   }
 
-  return template.innerHTML
+  const result = template.innerHTML
+  rememberResult(cacheKey, result)
+  return result
 }

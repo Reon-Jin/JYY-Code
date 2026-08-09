@@ -165,7 +165,14 @@ function parseEntryObject(scope: Scope, value: unknown, index: number): MemoryEn
   if (scope === "memory") {
     assertExactFields(
       entry,
-      ["sessionID", ...(entry.projectID === undefined ? [] : ["projectID"]), "importance", "date", "keywords", "content"],
+      [
+        "sessionID",
+        ...(entry.projectID === undefined ? [] : ["projectID"]),
+        "importance",
+        "date",
+        "keywords",
+        "content",
+      ],
       `memory entry ${index}`,
     )
     return normalizeEntry({

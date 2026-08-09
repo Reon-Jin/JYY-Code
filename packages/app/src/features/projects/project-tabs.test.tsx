@@ -118,6 +118,27 @@ describe("ProjectTabs", () => {
     expect(onReorder).toHaveBeenCalledWith(current.directory, other.directory, "before")
   })
 
+  it("uses keyed pending state for project navigation without a global query lock", () => {
+    const current = opened("C:\\work\\pending-current")
+    const other = opened("C:\\work\\pending-other")
+    render(() => (
+      <ProjectTabs
+        projects={[current, other]}
+        activeDirectory={current.directory}
+        queryClient={createDesktopQueryClient()}
+        pendingActions={new Set(["project.switch"])}
+        onSelect={vi.fn()}
+        onOpen={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={vi.fn()}
+      />
+    ))
+
+    expect(document.querySelectorAll(".project-tab__select")[0]).toBeDisabled()
+    expect(document.querySelector(".project-tabs__open")).toBeDisabled()
+    expect(document.querySelectorAll(".project-tab__close")[0]).toHaveAttribute("aria-busy", "true")
+  })
+
   it("renders compact open-project tabs, running state, and direct selection", async () => {
     const current = opened("C:\\work\\demo")
     const other = opened("C:\\work\\other", true)

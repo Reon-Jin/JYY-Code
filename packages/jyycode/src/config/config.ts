@@ -376,6 +376,16 @@ export const Info = Schema.Struct({
   ).annotate({
     description: "Retention, orphan-recovery, and runtime disk-watermark policy for plan workspaces",
   }),
+  storage: Schema.optional(
+    Schema.Struct({
+      terminal_child_ttl_days: Schema.optional(PositiveInt),
+      blob_grace_hours: Schema.optional(PositiveInt),
+      warning_bytes: Schema.optional(PositiveInt),
+      warning_session_bytes: Schema.optional(PositiveInt),
+    }),
+  ).annotate({
+    description: "Session-storage reporting and retention hints; hard safety limits remain code-defined",
+  }),
   execution_budget: Schema.optional(
     Schema.Record(
       Schema.String,

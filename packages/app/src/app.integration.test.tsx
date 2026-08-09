@@ -435,7 +435,7 @@ describe("desktop GUI journey", () => {
     )
     expect(screen.getByRole("textbox", { name: "发送黑板消息…" })).toBeVisible()
 
-    const mode = screen.getByRole("switch", { name: "多智能体" })
+    const mode = await screen.findByRole("switch", { name: "多智能体" })
     await user.click(mode)
     await waitFor(() => expect(mode).toHaveAttribute("aria-checked", "false"))
 
@@ -495,7 +495,7 @@ describe("desktop GUI journey", () => {
     render(() => <App bridge={desktop.bridge} />)
 
     expect(await screen.findByRole("heading", { name: "Root Session" }, { timeout: 5_000 })).toBeVisible()
-    const mode = screen.getByRole("switch", { name: "多智能体" })
+    const mode = await screen.findByRole("switch", { name: "多智能体" })
     expect(mode).toHaveAttribute("aria-checked", "false")
     expect(backend.sessions[0]).not.toHaveProperty("multiAgent")
     await user.click(mode)

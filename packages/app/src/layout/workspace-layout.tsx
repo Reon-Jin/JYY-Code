@@ -3,7 +3,20 @@ import type { Session, SessionStatus, VcsFileDiff } from "@jyycode-ai/sdk/v2/cli
 import { A, useBeforeLeave, useNavigate } from "@solidjs/router"
 import { createQuery } from "@tanstack/solid-query"
 import { ArrowLeft, House, PanelLeftClose, PanelLeftOpen, Plus, Radio, Settings } from "lucide-solid"
-import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  ErrorBoundary,
+  For,
+  lazy,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+  Suspense,
+  type JSX,
+} from "solid-js"
 import { Button, IconButton } from "../components/ui/button"
 import { InlineError } from "../components/ui/inline-error"
 import { useData } from "../data/context"
@@ -46,7 +59,7 @@ import {
 } from "../features/workspace-inspector/inspector-preferences"
 import { WorkspaceInspector } from "../features/workspace-inspector/workspace-inspector"
 import { SubagentProfilesPanel } from "../features/subagents/subagent-profiles-panel"
-import { FilePreview } from "../features/files/file-preview"
+import type { FilePreviewProps } from "../features/files/file-preview"
 import { type FileOpenEvent } from "../features/files/file-tree"
 import { permissionQueryOptions, questionQueryOptions, selectActiveRequest } from "../features/requests/request-query"
 import { createSessionApi, sessionQueryOptions } from "../features/sessions/session-api"
@@ -65,6 +78,58 @@ type FileScope = {
   sessionID?: string
 }
 
+let filePreviewModulePromise: Promise<typeof import("../features/files/file-preview")> | undefined
+
+function loadFilePreviewModule() {
+  filePreviewModulePromise ??= import("../features/files/file-preview").catch((cause) => {
+    filePreviewModulePromise = undefined
+    throw cause
+  })
+  return filePreviewModulePromise
+}
+
+function FilePreviewAttempt(props: FilePreviewProps) {
+  const Preview = lazy(async () => ({ default: (await loadFilePreviewModule()).FilePreview }))
+  return <Preview {...props} />
+}
+
+function RecoverableFilePreview(props: FilePreviewProps) {
+  const [attempt, setAttempt] = createSignal(0)
+  const retry = (reset: () => void) => {
+    reset()
+    setAttempt((value) => value + 1)
+  }
+
+  return (
+    <For each={[attempt()]}>
+      {() => (
+        <ErrorBoundary
+          fallback={(cause, reset) => (
+            <div class="file-preview__state file-preview__state--module-error" role="alert">
+              <InlineError
+                message={cause instanceof Error && cause.message ? cause.message : tr("files.unable-to-load")}
+              />
+              <Button size="small" variant="secondary" onClick={() => retry(reset)}>
+                {tr("files.retry")}
+              </Button>
+            </div>
+          )}
+        >
+          <Suspense
+            fallback={
+              <div class="file-preview__state file-preview__state--module-loading" role="status" aria-busy="true">
+                <span>{tr("files.loading-preview")}</span>
+              </div>
+            }
+          >
+            <FilePreviewAttempt {...props} />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+    </For>
+  )
+}
+
 export type WorkspaceLayoutViewProps = {
   projectName: string
   projectDirectory: string
@@ -74,7 +139,7 @@ export type WorkspaceLayoutViewProps = {
   archivedSessions: readonly Session[]
   statuses: Record<string, SessionStatus>
   conversation?: ConversationSnapshot
-  compaction?: CompactionStatus
+  compaction?: CompactionStatus | null
   activeSession?: Session
   activeSessionID?: string
   selectedRootSessionID?: string
@@ -95,6 +160,7 @@ export type WorkspaceLayoutViewProps = {
   inspectorWidth?: number
   multiAgentEnabled?: boolean
   childRole?: string
+  pendingActions?: ReadonlySet<string>
   busy?: boolean
   onRetryActive?: () => void
   onRetryArchived?: () => void
@@ -185,6 +251,9 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
   const listLoading = () => (filter() === "active" ? props.activeLoading : props.archivedLoading)
   const listError = () => (filter() === "active" ? props.activeError : props.archivedError)
   const retry = () => (filter() === "active" ? props.onRetryActive : props.onRetryArchived)
+  const pending = (key: string) => props.pendingActions?.has(key) === true
+  const projectNavigationPending = () =>
+    Boolean(props.busy) || pending("project.return") || pending("project.switch")
   const childRole = () => {
     const sessionAgent = selected()?.agent
     if (props.childRole) return props.childRole
@@ -198,7 +267,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
 
   onMount(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (props.busy) return
+      if (projectNavigationPending()) return
       const projects = props.openProjectDirectories ?? []
       const activeIndex = projects.findIndex(
         (directory) => normalizeDirectory(directory) === normalizeDirectory(props.projectDirectory),
@@ -238,7 +307,8 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
           <IconButton
             label={tr("layout.return-to-project-home-page")}
             variant="secondary"
-            disabled={props.busy}
+            loading={pending("project.return")}
+            disabled={projectNavigationPending()}
             onClick={() => void props.onReturnHome()}
           >
             <House aria-hidden="true" />
@@ -246,7 +316,12 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
         </header>
 
         <div class="workspace-rail__toolbar">
-          <Button class="workspace-new-session" disabled={props.busy} onClick={() => void props.onCreate()}>
+          <Button
+            class="workspace-new-session"
+            loading={pending("session.create")}
+            disabled={projectNavigationPending()}
+            onClick={() => void props.onCreate()}
+          >
             <Plus aria-hidden="true" />
             {tr("sessions.new-session")}
           </Button>
@@ -267,7 +342,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
           archived={filter() === "archived"}
           loading={listLoading()}
           error={listError()}
-          disabled={props.busy}
+          disabled={projectNavigationPending()}
           onRetry={retry()}
           onNavigate={closeNarrowRail}
           onRename={props.onRename}
@@ -323,7 +398,10 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
             <Show
               when={props.activeSessionID}
               fallback={
-                <SessionEmpty disabled={props.busy || props.activeLoading} onCreate={() => void props.onCreate()} />
+                <SessionEmpty
+                  disabled={projectNavigationPending() || pending("session.create") || props.activeLoading}
+                  onCreate={() => void props.onCreate()}
+                />
               }
             >
               <section class="workspace-conversation" aria-labelledby="workspace-session-title">
@@ -385,20 +463,37 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const projects = useProjects()
   const navigate = useNavigate()
   const [operationError, setOperationError] = createSignal<string>()
-  const [busy, setBusy] = createSignal(false)
+  const [pendingActions, setPendingActions] = createSignal<ReadonlySet<string>>(new Set())
   const [selectedAgent, setSelectedAgent] = createSignal<string>()
   const [selectedModel, setSelectedModel] = createSignal<ModelSelection>()
   const [activeFilePath, setActiveFilePath] = createSignal<string>()
   const [activeFileChange, setActiveFileChange] = createSignal<VcsFileDiff>()
   const [selectedFileScope, setSelectedFileScope] = createSignal<FileScope>()
   const [fileDirty, setFileDirty] = createSignal(false)
+  const [catalogEnabled, setCatalogEnabled] = createSignal(false)
   const [inspectorPreferences, setInspectorPreferences] = createSignal<InspectorPreferences>(
     loadInspectorPreferences(data.directory()),
   )
+
+  async function runPending(key: string, operation: () => Promise<void>) {
+    if (pendingActions().has(key)) return
+    setPendingActions((current) => new Set(current).add(key))
+    try {
+      await operation()
+    } finally {
+      setPendingActions((current) => {
+        const next = new Set(current)
+        next.delete(key)
+        return next
+      })
+    }
+  }
   onMount(() => {
+    const frame = requestAnimationFrame(() => setCatalogEnabled(true))
     projects
       .loadRecentProjects()
       .catch((cause) => setOperationError(errorMessage(cause, tr("projects.unable-to-read-recent-items"))))
+    onCleanup(() => cancelAnimationFrame(frame))
   })
   const api = createMemo(() =>
     createSessionApi({ client: data.client(), directory: data.directory(), queryClient: data.queryClient() }),
@@ -409,10 +504,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   )
   const archivedQuery = createQuery(
     () => ({ queryKey: keys.sessions(data.directory(), true), queryFn: () => api().list(true) }),
-    data.queryClient,
-  )
-  const allSessionsQuery = createQuery(
-    () => ({ queryKey: keys.sessionsAll(data.directory()), queryFn: () => api().listAll() }),
     data.queryClient,
   )
   const sessionQuery = createQuery(
@@ -442,10 +533,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }),
     data.queryClient,
   )
-  const compactionQuery = createQuery<CompactionStatus | undefined, Error, CompactionStatus | undefined>(
+  const compactionQuery = createQuery<CompactionStatus | null, Error, CompactionStatus | null>(
     () => ({
       queryKey: keys.compaction(data.directory(), props.activeSessionID ?? ""),
-      queryFn: () => undefined,
+      queryFn: async () => null,
+      initialData: null,
       enabled: Boolean(props.activeSessionID),
       staleTime: Number.POSITIVE_INFINITY,
       refetchOnMount: false,
@@ -477,6 +569,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           directory: data.directory(),
           preference: loadComposerPreference(),
         }),
+      enabled: catalogEnabled() && Boolean(props.activeSessionID),
     }),
     data.queryClient,
   )
@@ -616,7 +709,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     )?.contextWindow
     return composerUsageMetrics({
       session,
-      sessions: allSessionsQuery.data ?? [session],
+      sessions: [...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])],
       messages: conversationQuery.data?.messages ?? [],
       contextWindow,
     })
@@ -656,74 +749,83 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   }
 
   async function createNewSession() {
-    setBusy(true)
-    setOperationError(undefined)
-    try {
-      const session = await api().create({})
-      navigate(`/session/${encodeURIComponent(session.id)}`)
-    } catch (cause) {
-      setOperationError(errorMessage(cause, tr("layout.unable-to-create-session")))
-    } finally {
-      setBusy(false)
-    }
+    await runPending("session.create", async () => {
+      setOperationError(undefined)
+      try {
+        const session = await api().create({})
+        navigate(`/session/${encodeURIComponent(session.id)}`)
+      } catch (cause) {
+        setOperationError(errorMessage(cause, tr("layout.unable-to-create-session")))
+      }
+    })
   }
 
   async function returnHome() {
-    setBusy(true)
-    setOperationError(undefined)
-    try {
-      await projects.returnToProjectSelection()
-      navigate("/")
-    } catch (cause) {
-      setOperationError(errorMessage(cause, tr("layout.unable-to-return-to-project-home-page")))
-    } finally {
-      setBusy(false)
-    }
+    await runPending("project.return", async () => {
+      setOperationError(undefined)
+      try {
+        await projects.returnToProjectSelection()
+        navigate("/")
+      } catch (cause) {
+        setOperationError(errorMessage(cause, tr("layout.unable-to-return-to-project-home-page")))
+      }
+    })
   }
 
   async function switchProject(directory?: string) {
-    setBusy(true)
-    setOperationError(undefined)
-    try {
-      const opened = directory ? await projects.openProject(directory) : await projects.chooseAndOpenProject()
-      if (opened) {
-        const sessionID = projects.sessionFor(opened.directory)
-        navigate(sessionID ? `/session/${encodeURIComponent(sessionID)}` : "/workspace")
+    await runPending("project.switch", async () => {
+      setOperationError(undefined)
+      try {
+        const opened = directory ? await projects.openProject(directory) : await projects.chooseAndOpenProject()
+        if (opened) {
+          const sessionID = projects.sessionFor(opened.directory)
+          navigate(sessionID ? `/session/${encodeURIComponent(sessionID)}` : "/workspace")
+        }
+      } catch (cause) {
+        setOperationError(errorMessage(cause, tr("projects.unable-to-open-project")))
       }
-    } catch (cause) {
-      setOperationError(errorMessage(cause, tr("projects.unable-to-open-project")))
-    } finally {
-      setBusy(false)
-    }
+    })
   }
 
   async function closeProject(directory: string) {
-    const closingActive = normalizeDirectory(directory) === normalizeDirectory(data.directory())
-    const next = projects.closeProject(directory)
-    if (!closingActive) return
-    if (!next) {
-      await projects.returnToProjectSelection()
-      navigate("/")
-      return
-    }
-    const sessionID = projects.sessionFor(next.directory)
-    navigate(sessionID ? `/session/${encodeURIComponent(sessionID)}` : "/workspace")
+    await runPending(`project.close:${normalizeDirectory(directory)}`, async () => {
+      const closingActive = normalizeDirectory(directory) === normalizeDirectory(data.directory())
+      const next = projects.closeProject(directory)
+      if (!closingActive) return
+      if (!next) {
+        try {
+          await projects.returnToProjectSelection()
+          navigate("/")
+        } catch (cause) {
+          setOperationError(errorMessage(cause, tr("layout.unable-to-return-to-project-home-page")))
+        }
+        return
+      }
+      const sessionID = projects.sessionFor(next.directory)
+      navigate(sessionID ? `/session/${encodeURIComponent(sessionID)}` : "/workspace")
+    })
   }
 
   async function rename(sessionID: string, title: string) {
-    await api().rename(sessionID, title)
+    await runPending(`session.rename:${sessionID}`, async () => {
+      await api().rename(sessionID, title)
+    })
   }
 
   async function archive(sessionID: string) {
-    const next = nextActive(sessionID)
-    await api().archive(sessionID)
-    if (props.activeSessionID === sessionID) navigate(next ? `/session/${encodeURIComponent(next.id)}` : "/")
+    await runPending(`session.archive:${sessionID}`, async () => {
+      const next = nextActive(sessionID)
+      await api().archive(sessionID)
+      if (props.activeSessionID === sessionID) navigate(next ? `/session/${encodeURIComponent(next.id)}` : "/")
+    })
   }
 
   async function remove(sessionID: string) {
-    const next = nextActive(sessionID)
-    await api().remove(sessionID)
-    if (props.activeSessionID === sessionID) navigate(next ? `/session/${encodeURIComponent(next.id)}` : "/")
+    await runPending(`session.delete:${sessionID}`, async () => {
+      const next = nextActive(sessionID)
+      await api().remove(sessionID)
+      if (props.activeSessionID === sessionID) navigate(next ? `/session/${encodeURIComponent(next.id)}` : "/")
+    })
   }
 
   function changeAgent(agent: string) {
@@ -859,7 +961,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       filePreview={
         <Show when={activeFilePath()} keyed>
           {(path) => (
-            <FilePreview
+            <RecoverableFilePreview
               directory={activeFileScope().directory}
               workspaceID={activeFileScope().workspaceID}
               sessionID={activeFileScope().sessionID}
@@ -876,7 +978,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           projects={projects.openProjects()}
           activeDirectory={data.directory()}
           queryClient={data.queryClient()}
-          disabled={busy()}
+          pendingActions={pendingActions()}
           onSelect={(directory) => void switchProject(directory)}
           onOpen={() => void switchProject()}
           onClose={(directory) => void closeProject(directory)}
@@ -1071,7 +1173,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           }
         />
       }
-      busy={busy()}
+      pendingActions={pendingActions()}
       onRetryActive={() => void activeQuery.refetch()}
       onRetryArchived={() => void archivedQuery.refetch()}
       onRetryConversation={() => void conversationQuery.refetch()}

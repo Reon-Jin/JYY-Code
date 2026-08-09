@@ -81,6 +81,35 @@ describe("WorkspaceLayoutView settings entry", () => {
     expect(screen.queryByRole("heading", { name: "Active Session" })).not.toBeInTheDocument()
   })
 
+  it("shows keyed session-create feedback without disabling project return", () => {
+    render(() => (
+      <MemoryRouter>
+        <Route
+          path="/*all"
+          component={() => (
+            <WorkspaceLayoutView
+              projectName="demo"
+              projectDirectory={session.directory}
+              connection="connected"
+              activeSessions={[session]}
+              archivedSessions={[]}
+              statuses={{}}
+              pendingActions={new Set(["session.create"])}
+              onReturnHome={vi.fn(async () => undefined)}
+              onCreate={vi.fn(async () => undefined)}
+              onRename={vi.fn(async () => undefined)}
+              onArchive={vi.fn(async () => undefined)}
+              onDelete={vi.fn(async () => undefined)}
+            />
+          )}
+        />
+      </MemoryRouter>
+    ))
+
+    expect(document.querySelector(".workspace-new-session")).toHaveAttribute("aria-busy", "true")
+    expect(document.querySelector(".workspace-project button")).not.toBeDisabled()
+  })
+
   it("switches projects with Tab on the conversation canvas and Ctrl+1-9 globally", () => {
     const switchProject = vi.fn(async () => undefined)
     render(() => (

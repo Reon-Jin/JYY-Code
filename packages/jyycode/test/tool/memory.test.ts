@@ -71,6 +71,48 @@ it.live("memory tool read returns the selected store without mutation", () =>
   }),
 )
 
+it.live("memory tool canonicalizes extra task separators during replace", () =>
+  Effect.gen(function* () {
+    const root = yield* tmpdirScoped()
+    cleanup.push(root)
+    const sessionLayer = Layer.mock(Session.Service)({
+      get: (id) => Effect.succeed({ id, parentID: undefined } as Session.Info),
+      messages: () => Effect.succeed([]),
+    })
+    const layer = Memory.layerWithDirectory(root).pipe(
+      Layer.provide(Layer.merge(AppFileSystem.defaultLayer, sessionLayer)),
+    )
+    const value = yield* Effect.gen(function* () {
+      const memory = yield* Memory.Service
+      yield* memory.upsertTaskMemory({
+        sessionID: ctx.sessionID,
+        importance: 7,
+        keywords: ["3D游戏"],
+        content: "当前任务：制作3D游戏；进展：原始",
+      })
+      const info = yield* MemoryTool
+      const tool = yield* info.init()
+      const result = yield* provideInstance(root)(
+        tool.execute(
+          {
+            action: "replace",
+            target: "memory",
+            old_text: "当前任务：制作3D游戏",
+            content: "当前任务：制作3D游戏；进展：完成地形；天气；战斗；经验：合并；验证",
+          },
+          ctx,
+        ),
+      )
+      const output = yield* memory.read({ sessionID: ctx.sessionID, scope: "memory" })
+      return { result, output }
+    }).pipe(Effect.provide(layer))
+
+    expect(value.result.output).toContain("Memory replaced")
+    expect(value.output).toContain("完成地形、天气、战斗")
+    expect(value.output).toContain("经验：合并、验证")
+  }),
+)
+
 it.live("memory tool returns input errors without defecting", () =>
   Effect.gen(function* () {
     const root = yield* tmpdirScoped()
@@ -89,6 +131,7 @@ it.live("memory tool returns input errors without defecting", () =>
     }).pipe(Effect.provide(layer))
 
     expect(result.metadata?.status).toBe("error")
+    expect(result.title).toContain("Memory error: content is required")
     expect(result.output).toContain("content is required")
   }),
 )

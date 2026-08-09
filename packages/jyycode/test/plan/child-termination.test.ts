@@ -44,8 +44,12 @@ describe("child termination coordinator", () => {
           events.push("status")
           return { type: "idle" }
         },
-        disposeDirectory: async () => events.push("dispose"),
-        archive: async () => events.push("archive"),
+        disposeDirectory: async () => {
+          events.push("dispose")
+        },
+        archive: async () => {
+          events.push("archive")
+        },
       },
       { cancelTimeoutMs: 5, idleTimeoutMs: 5, disposeTimeoutMs: 5, archiveTimeoutMs: 5 },
     )
@@ -60,13 +64,19 @@ describe("child termination coordinator", () => {
     const result = await terminateChild(
       { sessionId: "ses_busy", request: { workspace: { mode: "snapshot", directory: "C:/runtime/child" } } },
       {
-        cancel: async () => events.push("cancel"),
+        cancel: async () => {
+          events.push("cancel")
+        },
         status: async () => {
           events.push("status")
           return { type: "busy" }
         },
-        disposeDirectory: async () => events.push("dispose"),
-        archive: async () => events.push("archive"),
+        disposeDirectory: async () => {
+          events.push("dispose")
+        },
+        archive: async () => {
+          events.push("archive")
+        },
       },
       { cancelTimeoutMs: 20, idleTimeoutMs: 5, pollIntervalMs: 1 },
     )

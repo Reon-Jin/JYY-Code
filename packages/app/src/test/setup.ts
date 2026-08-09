@@ -1,4 +1,37 @@
 import "@testing-library/jest-dom/vitest"
+import { vi } from "vitest"
+
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "scrollTo", {
+    configurable: true,
+    writable: true,
+    value: vi.fn(),
+  })
+  Object.defineProperty(window, "requestAnimationFrame", {
+    configurable: true,
+    writable: true,
+    value: (callback: FrameRequestCallback) =>
+      window.setTimeout(() => callback(performance.now()), 0) as unknown as number,
+  })
+  Object.defineProperty(window, "cancelAnimationFrame", {
+    configurable: true,
+    writable: true,
+    value: (handle: number) => window.clearTimeout(handle),
+  })
+}
+
+if (typeof ResizeObserver === "undefined") {
+  class TestResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    writable: true,
+    value: TestResizeObserver,
+  })
+}
 
 // jsdom ships no canvas 2D context; provide a minimal stub so the
 // ThinkingOrb canvases render in tests without "Not implemented" noise.

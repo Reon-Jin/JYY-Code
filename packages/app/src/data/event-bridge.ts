@@ -375,12 +375,17 @@ export class EventBridge {
   }
 
   abort() {
+    if (this.#abort.signal.aborted) return
     this.#abort.abort()
     if (this.#frame !== undefined) {
       ;(this.#options.cancelFrame ?? cancelFrame)(this.#frame)
       this.#frame = undefined
     }
     this.#queue.length = 0
+    this.#seenEventIDs.clear()
+    this.#partTypes.clear()
+    this.#reconnectAttempt = 0
+    this.#wasDisconnected = false
   }
 
   async #run() {
@@ -409,6 +414,7 @@ export class EventBridge {
   }
 
   #enqueue(event: GlobalEvent) {
+    if (this.#abort.signal.aborted) return
     const eventID = event.payload.id
     if (this.#seenEventIDs.has(eventID)) return
     this.#seenEventIDs.add(eventID)
@@ -427,6 +433,7 @@ export class EventBridge {
   }
 
   async #flushNow() {
+    if (this.#abort.signal.aborted) return
     if (this.#frame !== undefined) {
       ;(this.#options.cancelFrame ?? cancelFrame)(this.#frame)
       this.#frame = undefined
@@ -444,7 +451,9 @@ export class EventBridge {
     const invalidatedVcs = new Set<string>()
 
     for (const event of events) {
+      if (this.#abort.signal.aborted) return
       for (const action of routeEvent(this.#options.directory, event)) {
+        if (this.#abort.signal.aborted) return
         publishNotificationAction(action)
         if (action.kind === "part.upsert") {
           this.#partTypes.set(action.part.id, action.part.type)
@@ -458,6 +467,7 @@ export class EventBridge {
         }
         if (action.kind === "server.connected") {
           await this.#connected()
+          if (this.#abort.signal.aborted) return
           continue
         }
         if (action.kind === "status.set" && action.status.type === "idle") {
@@ -488,6 +498,7 @@ export class EventBridge {
     }
 
     for (const [sessionID, conversationEvents] of conversations) {
+      if (this.#abort.signal.aborted) return
       const queryKey = keys.messages(this.#options.directory, sessionID)
       let current = this.#options.queryClient.getQueryData<ConversationSnapshot>(queryKey)
       const hadNoSnapshot = !isConversationSnapshot(current)
@@ -500,6 +511,7 @@ export class EventBridge {
       if (hadNoSnapshot || (!current.needsRefetch && patched.needsRefetch)) this.#invalidate(queryKey)
     }
 
+    if (this.#abort.signal.aborted) return
     for (const sessionID of changedPlans) this.#invalidate(keys.plan(this.#options.directory, sessionID))
     for (const rootSessionID of changedBlackboards) {
       this.#invalidate(keys.blackboard(this.#options.directory, rootSessionID))

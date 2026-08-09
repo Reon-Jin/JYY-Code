@@ -34,14 +34,39 @@ export class InvalidArgumentsError extends Schema.TaggedErrorClass<InvalidArgume
   }
 }
 
+export type ToolExecutionPhase = "plugin_before" | "execute" | "plugin_after" | "abort" | "unknown"
+
+export type ToolTerminationResult = "not_applicable" | "aborted" | "completed" | "kill_failed"
+
 export class ExecutionTimeoutError extends Error {
   readonly code = "TOOL_TIMEOUT"
   readonly operationClass = "generic_tool" as const
 
-  constructor(readonly tool: string, readonly effectiveMs: number) {
+  readonly requestedMs: number | undefined
+  readonly elapsedMs: number | undefined
+  readonly phase: ToolExecutionPhase
+  readonly terminationResult: ToolTerminationResult
+
+  constructor(
+    readonly tool: string,
+    effectiveMs: number,
+    options: {
+      requestedMs?: number
+      elapsedMs?: number
+      phase?: ToolExecutionPhase
+      terminationResult?: ToolTerminationResult
+    } = {},
+  ) {
     super(`tool ${tool} exceeded its ${effectiveMs}ms execution budget`)
     this.name = "ExecutionTimeoutError"
+    this.effectiveMs = effectiveMs
+    this.requestedMs = options.requestedMs
+    this.elapsedMs = options.elapsedMs
+    this.phase = options.phase ?? "unknown"
+    this.terminationResult = options.terminationResult ?? "not_applicable"
   }
+
+  readonly effectiveMs: number
 }
 
 export type Context<M extends Metadata = Metadata> = {

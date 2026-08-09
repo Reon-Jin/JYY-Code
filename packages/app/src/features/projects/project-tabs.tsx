@@ -42,6 +42,7 @@ export type ProjectTabsProps = {
   projects: readonly OpenedProject[]
   activeDirectory: string
   queryClient: QueryClient
+  pendingActions?: ReadonlySet<string>
   disabled?: boolean
   onSelect: (directory: string) => void
   onOpen: () => void
@@ -58,6 +59,9 @@ function ProjectTab(props: {
   project: OpenedProject
   active: boolean
   queryClient: QueryClient
+  status?: Record<string, SessionStatus>
+  selectDisabled?: boolean
+  closeDisabled?: boolean
   disabled?: boolean
   onSelect: () => void
   onClose: () => void
@@ -75,28 +79,26 @@ function ProjectTab(props: {
   const status = createQuery(
     () => ({
       queryKey: keys.status(props.project.directory),
-      queryFn: async () => {
-        const result = await props.project.client.session.status(
-          { directory: props.project.directory },
-          { throwOnError: true },
-        )
-        const next = (result.data ?? {}) as Record<string, SessionStatus>
-        statusCache.set(statusKey(), next)
-        return next
-      },
+      queryFn: async () => statusCache.get(statusKey()) ?? {},
       initialData: statusCache.get(statusKey()),
-      refetchInterval: 3_000,
-      refetchIntervalInBackground: true,
+      enabled: false,
+      staleTime: Number.POSITIVE_INFINITY,
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
     }),
     () => props.queryClient,
   )
   const running = createMemo(
-    () => Object.values(status.data ?? {}).filter((item) => item.type === "busy" || item.type === "retry").length,
+    () =>
+      Object.values(status.data ?? props.status ?? statusCache.get(statusKey()) ?? {}).filter(
+        (item) => item.type === "busy" || item.type === "retry",
+      ).length,
   )
   let previousRunning: number | undefined
 
   createEffect(() => {
-    const current = status.data
+    const current = status.data ?? props.status
     if (!current) return
     for (const transition of projectStatusTransitions(notificationStatuses, current)) {
       publishDesktopNotificationEvent({
@@ -145,7 +147,8 @@ function ProjectTab(props: {
         aria-selected={props.active}
         aria-label={tr("projects.switch-to-project", { name: projectName(props.project) })}
         data-state={state()}
-        disabled={props.disabled}
+        disabled={props.selectDisabled}
+        aria-busy={props.selectDisabled ? "true" : undefined}
         onPointerDown={props.onPointerDown}
         onPointerMove={props.onPointerMove}
         onPointerUp={props.onPointerUp}
@@ -169,7 +172,8 @@ function ProjectTab(props: {
         type="button"
         class="project-tab__close"
         aria-label={tr("projects.close-project", { name: projectName(props.project) })}
-        disabled={props.disabled}
+        disabled={props.closeDisabled}
+        aria-busy={props.closeDisabled ? "true" : undefined}
         onClick={props.onClose}
       >
         <X aria-hidden="true" />
@@ -179,6 +183,7 @@ function ProjectTab(props: {
 }
 
 export function ProjectTabs(props: ProjectTabsProps) {
+  const [statuses, setStatuses] = createSignal<Record<string, Record<string, SessionStatus>>>({})
   const [dragging, setDragging] = createSignal<string>()
   const [dropTarget, setDropTarget] = createSignal<{
     directory: string
@@ -203,6 +208,65 @@ export function ProjectTabs(props: ProjectTabsProps) {
       }
     | undefined
   let suppressSelectionTimer: ReturnType<typeof setTimeout> | undefined
+  let statusPollTimer: number | undefined
+  let statusPollGeneration = 0
+
+  function clearStatusPoll() {
+    if (statusPollTimer !== undefined) {
+      window.clearTimeout(statusPollTimer)
+      statusPollTimer = undefined
+    }
+  }
+
+  async function pollProjectStatuses() {
+    clearStatusPoll()
+    const generation = ++statusPollGeneration
+    const projects = props.projects
+    if (document.visibilityState === "hidden" || projects.length === 0) return
+
+    const results = await Promise.allSettled(
+      projects.map(async (project) => {
+        const result = await project.client.session.status(
+          { directory: project.directory },
+          { throwOnError: true },
+        )
+        return { project, status: (result.data ?? {}) as Record<string, SessionStatus> }
+      }),
+    )
+    if (generation !== statusPollGeneration) return
+
+    for (const result of results) {
+      if (result.status !== "fulfilled") continue
+      const key = normalizeDirectory(result.value.project.directory)
+      statusCache.set(key, result.value.status)
+      props.queryClient.setQueryData(keys.status(result.value.project.directory), result.value.status)
+    }
+    setStatuses((current) => {
+      const next = { ...current }
+      for (const result of results) {
+        if (result.status !== "fulfilled") continue
+        next[normalizeDirectory(result.value.project.directory)] = result.value.status
+      }
+      return next
+    })
+    statusPollTimer = window.setTimeout(() => void pollProjectStatuses(), 3_000)
+  }
+
+  function handleVisibilityChange() {
+    if (document.visibilityState === "hidden") {
+      statusPollGeneration += 1
+      clearStatusPoll()
+    }
+    else void pollProjectStatuses()
+  }
+
+  createEffect(() => {
+    props.projects.map((project) => project.directory).join("\u0000")
+    props.activeDirectory
+    void pollProjectStatuses()
+  })
+
+  window.addEventListener("visibilitychange", handleVisibilityChange)
 
   function clearDrag() {
     setDragging(undefined)
@@ -265,7 +329,14 @@ export function ProjectTabs(props: ProjectTabsProps) {
   }
 
   function startPointerDrag(sourceDirectory: string, event: PointerEvent) {
-    if (props.disabled || event.button !== 0 || !event.isPrimary) return
+    if (
+      props.disabled ||
+      props.pendingActions?.has("project.switch") === true ||
+      props.pendingActions?.has("project.return") === true ||
+      event.button !== 0 ||
+      !event.isPrimary
+    )
+      return
     const source = event.currentTarget as HTMLButtonElement
     source.setPointerCapture?.(event.pointerId)
     const list = source.closest<HTMLElement>(".project-tabs__list")
@@ -329,6 +400,9 @@ export function ProjectTabs(props: ProjectTabsProps) {
   }
 
   onCleanup(() => {
+    statusPollGeneration += 1
+    clearStatusPoll()
+    window.removeEventListener("visibilitychange", handleVisibilityChange)
     pointerDrag = undefined
     if (suppressSelectionTimer !== undefined) clearTimeout(suppressSelectionTimer)
   })
@@ -342,6 +416,17 @@ export function ProjectTabs(props: ProjectTabsProps) {
               project={project}
               active={normalizeDirectory(project.directory) === normalizeDirectory(props.activeDirectory)}
               queryClient={props.queryClient}
+              status={statuses()[normalizeDirectory(project.directory)] ?? statusCache.get(normalizeDirectory(project.directory))}
+              selectDisabled={
+                props.disabled ||
+                props.pendingActions?.has("project.switch") === true ||
+                props.pendingActions?.has("project.return") === true
+              }
+              closeDisabled={
+                props.disabled ||
+                props.pendingActions?.has("project.switch") === true ||
+                props.pendingActions?.has(`project.close:${normalizeDirectory(project.directory)}`) === true
+              }
               disabled={props.disabled}
               onSelect={() => {
                 if (consumeSuppressedSelection()) return
@@ -362,7 +447,16 @@ export function ProjectTabs(props: ProjectTabsProps) {
           type="button"
           class="project-tabs__open"
           aria-label={tr("projects.open-directory")}
-          disabled={props.disabled}
+          disabled={
+            props.disabled ||
+            props.pendingActions?.has("project.switch") === true ||
+            props.pendingActions?.has("project.return") === true
+          }
+          aria-busy={
+            props.pendingActions?.has("project.switch") === true || props.pendingActions?.has("project.return") === true
+              ? "true"
+              : undefined
+          }
           onClick={props.onOpen}
         >
           <Plus aria-hidden="true" />

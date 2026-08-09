@@ -172,6 +172,22 @@ describe("WorkspaceInspectorView", () => {
     expect(screen.queryByRole("group", { name: "方案" })).not.toBeInTheDocument()
   })
 
+  it("closes the narrow drawer from the scrim and restores activity-button focus", async () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true }) as MediaQueryList),
+    })
+    const user = userEvent.setup()
+    render(() => <InspectorHarness />)
+
+    const trigger = document.querySelector<HTMLButtonElement>(".workspace-activity-button")!
+    await user.click(trigger)
+    await user.click(document.querySelector<HTMLButtonElement>(".workspace-drawer-scrim")!)
+
+    expect(screen.queryByRole("group", { name: "鏂规" })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
   it("keeps badge text out of the icon button accessible name", () => {
     render(() => <InspectorHarness badge="3 running" />)
 

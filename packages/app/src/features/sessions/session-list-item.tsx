@@ -2,7 +2,7 @@ import { tr } from "../../i18n/i18n-context"
 import type { Session, SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { A } from "@solidjs/router"
 import { Circle, Clock3 } from "lucide-solid"
-import { createEffect, createSignal, onCleanup, Show } from "solid-js"
+import { createEffect, createSignal, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { errorMessage } from "../projects/project-controller"
@@ -36,6 +36,7 @@ export type SessionListItemProps = {
   status?: SessionStatus
   active: boolean
   archived: boolean
+  now: number
   disabled?: boolean
   onNavigate?: () => void
   onRename: (sessionID: string, title: string) => Promise<void>
@@ -44,15 +45,11 @@ export type SessionListItemProps = {
 }
 
 export function SessionListItem(props: SessionListItemProps) {
-  const [now, setNow] = createSignal(Date.now())
   const [editing, setEditing] = createSignal(false)
   const [title, setTitle] = createSignal(props.session.title)
   const [saving, setSaving] = createSignal(false)
   const [error, setError] = createSignal<string>()
   let input: HTMLInputElement | undefined
-
-  const clock = window.setInterval(() => setNow(Date.now()), 60_000)
-  onCleanup(() => window.clearInterval(clock))
 
   createEffect(() => {
     if (!editing()) setTitle(props.session.title)
@@ -145,7 +142,7 @@ export function SessionListItem(props: SessionListItemProps) {
             </span>
             <span>
               <Clock3 aria-hidden="true" />
-              {relativeSessionTime(props.session.time.created, now())}
+              {relativeSessionTime(props.session.time.created, props.now)}
             </span>
           </span>
         </A>

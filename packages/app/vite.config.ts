@@ -13,6 +13,11 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    // Asset classification and budgets live in scripts/check-bundle-budget.ts;
+    // Vite's single generic warning would incorrectly treat lazy viewers as
+    // startup resources.
+    chunkSizeWarningLimit: 1_600,
+    reportCompressedSize: false,
   },
   server: {
     host: "127.0.0.1",

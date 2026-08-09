@@ -52,13 +52,25 @@ export type WorkspaceInspectorViewProps = {
 
 export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
   let stack: HTMLDivElement | undefined
+  let lastActivityTrigger: HTMLButtonElement | undefined
 
   const update = (change: Partial<InspectorPreferences>) =>
     props.onPreferencesChange({ ...props.preferences, ...change })
 
-  const selectPane = (next: InspectorPane) => {
+  const closeNarrowDrawer = () => {
+    const trigger = lastActivityTrigger
+    update({ panes: [], ratios: [] })
+    if (isNarrow()) queueMicrotask(() => trigger?.focus())
+  }
+
+  const selectPane = (next: InspectorPane, trigger?: HTMLButtonElement) => {
     const index = props.preferences.panes.indexOf(next)
     if (index >= 0) {
+      if (isNarrow()) {
+        lastActivityTrigger = trigger ?? lastActivityTrigger
+        closeNarrowDrawer()
+        return
+      }
       const panes = props.preferences.panes.filter((pane) => pane !== next)
       const ratios = props.preferences.ratios.filter((_, ratioIndex) => ratioIndex !== index)
       update({ panes, ratios: normalizeInspectorRatios(panes.length, ratios) })
@@ -149,7 +161,7 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
   function keydown(event: KeyboardEvent) {
     if (event.key !== "Escape" || props.preferences.panes.length === 0 || !isNarrow()) return
     playSoundEffect("panel-close")
-    update({ panes: [], ratios: [] })
+    closeNarrowDrawer()
   }
 
   onMount(() => window.addEventListener("keydown", keydown))
@@ -165,7 +177,10 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
         variant="ghost"
         aria-controls={active() ? "workspace-drawer" : undefined}
         aria-pressed={active()}
-        onClick={() => selectPane(buttonProps.pane)}
+        onClick={(event) => {
+          lastActivityTrigger = event.currentTarget
+          selectPane(buttonProps.pane, event.currentTarget)
+        }}
       >
         {buttonProps.icon}
         <Show when={buttonProps.badge !== undefined}>
@@ -192,11 +207,17 @@ export function WorkspaceInspectorView(props: WorkspaceInspectorViewProps) {
           class="workspace-drawer-scrim"
           data-sound-effect="panel-close"
           aria-label={tr("workspace-inspector.close-the-taskbar-page")}
-          onClick={() => update({ panes: [], ratios: [] })}
+          onClick={closeNarrowDrawer}
         />
       </Show>
       <Show when={props.preferences.panes.length > 0}>
-        <div id="workspace-drawer" class="workspace-drawer">
+        <div
+          id="workspace-drawer"
+          class="workspace-drawer"
+          role={isNarrow() ? "dialog" : undefined}
+          aria-modal={isNarrow() ? "true" : undefined}
+          aria-label={isNarrow() ? tr("workspace-inspector.taskbar-page") : undefined}
+        >
           <div
             class="workspace-drawer__width-handle"
             role="separator"

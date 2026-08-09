@@ -38,6 +38,16 @@ function isVisiblePart(part: Part, message: ConversationMessage) {
   )
 }
 
+const visiblePartsByMessage = new WeakMap<ConversationMessage, readonly Part[]>()
+
+function visibleParts(message: ConversationMessage) {
+  const cached = visiblePartsByMessage.get(message)
+  if (cached) return cached
+  const parts = message.parts.filter((part) => isVisiblePart(part, message))
+  visiblePartsByMessage.set(message, parts)
+  return parts
+}
+
 /**
  * Converts transport messages into user-facing response blocks. Internal-only
  * messages disappear, and streaming assistant steps from the same Agent become
@@ -47,8 +57,8 @@ export function presentConversationMessages(messages: readonly ConversationMessa
   const presented: PresentedConversationMessage[] = []
 
   for (const message of messages) {
-    const visibleParts = message.parts.filter((part) => isVisiblePart(part, message))
-    if (visibleParts.length === 0) continue
+    const parts = visibleParts(message)
+    if (parts.length === 0) continue
 
     const previous = presented.at(-1)
     const canMerge =
@@ -57,12 +67,12 @@ export function presentConversationMessages(messages: readonly ConversationMessa
       (previous.info.agent ?? previous.info.mode) === (message.info.agent ?? message.info.mode)
 
     if (canMerge) {
-      appendPresentedParts(previous.groups, visibleParts)
+      appendPresentedParts(previous.groups, parts)
       continue
     }
 
     const groups: PresentedMessageGroup[] = []
-    appendPresentedParts(groups, visibleParts)
+    appendPresentedParts(groups, parts)
     presented.push({ info: message.info, groups })
   }
 

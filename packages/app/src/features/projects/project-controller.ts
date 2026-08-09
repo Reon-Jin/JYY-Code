@@ -91,11 +91,18 @@ export function createProjectController(input: ProjectControllerInput) {
   }
 
   async function persistRecent(directory: string) {
-    const current = await loadRecentProjects()
-    const next = touchRecentProject(current, directory, now())
-    await input.bridge.saveRecentProjects(next)
-    setRecentProjects(next)
-    return next
+    try {
+      const current = await loadRecentProjects()
+      const next = touchRecentProject(current, directory, now())
+      await input.bridge.saveRecentProjects(next)
+      setRecentProjects(next)
+      return next
+    } catch (cause) {
+      // Recent-location persistence is a convenience cache. Keep the project
+      // open and let the caller surface the non-blocking diagnostic.
+      console.warn("Unable to persist recent project location", cause)
+      throw cause
+    }
   }
 
   async function openProject(directory: string): Promise<OpenedProject> {
@@ -119,13 +126,18 @@ export function createProjectController(input: ProjectControllerInput) {
     }
 
     const opened = { directory, info: result.data, client }
-    await persistRecent(directory)
-    markUnavailable(directory, false)
     setOpenProjects((current) => {
       const key = pathKey(directory)
       return current.some((project) => pathKey(project.directory) === key) ? current : [...current, opened]
     })
     setActiveProject(opened)
+    markUnavailable(directory, false)
+    try {
+      await persistRecent(directory)
+    } catch {
+      // The visible project state is already committed. Persistence can be
+      // retried by a later open without rolling the user back to loading.
+    }
     return opened
   }
 
@@ -194,8 +206,13 @@ export function createProjectController(input: ProjectControllerInput) {
   }
 
   async function returnToProjectSelection() {
-    await input.bridge.saveLastLocation({})
     setActiveProject(undefined)
+    try {
+      await input.bridge.saveLastLocation({})
+    } catch (cause) {
+      console.warn("Unable to clear the recent project location", cause)
+      throw cause
+    }
   }
 
   async function removeRecentProject(directory: string) {

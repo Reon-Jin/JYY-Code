@@ -27,6 +27,26 @@ jobs:
       - name: Test Desktop UI
         run: bun run --cwd packages/app test
 
+      - name: Typecheck Desktop UI
+        run: bun run --cwd packages/app typecheck
+
+      - name: Build Desktop UI
+        run: bun run --cwd packages/app build
+
+      - name: Enforce Desktop UI budgets
+        run: bun run --cwd packages/app budget
+
+      - name: Upload Desktop UI diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-ui-diagnostics
+          if-no-files-found: warn
+          path: |
+            packages/app/dist/performance-summary.json
+            packages/app/test-results/**
+            packages/app/screenshots/**
+
       - name: Test Desktop release scripts
         run: bun run --cwd packages/desktop test
 

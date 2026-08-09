@@ -181,4 +181,20 @@ describe("createComposerController", () => {
     const restored = setup(draftStore).controller
     expect(restored.draft()).toBe("continue after restart")
   })
+
+  it("disposes an unfinished request, cancels the session, and suppresses late updates", async () => {
+    const draftStore = new Map<string, string>()
+    const { client, controller } = setup(draftStore)
+    const pending = deferred()
+    client.session.promptAsync.mockImplementationOnce(() => pending.promise.then(() => ({ data: undefined })))
+
+    const request = controller.send("cancel me")
+    await controller.dispose({ cancelSession: true })
+    expect(client.session.abort).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
+
+    pending.resolve()
+    await request
+    expect(controller.draft()).toBe("cancel me")
+    expect(controller.sending()).toBe(true)
+  })
 })

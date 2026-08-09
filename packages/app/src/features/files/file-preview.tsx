@@ -4,7 +4,18 @@ import { createQuery } from "@tanstack/solid-query"
 import { ArrowLeft, Eye, File as FileIcon, Pencil, RefreshCw } from "lucide-solid"
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist/types/src/display/api"
-import { createContext, createEffect, createMemo, createSignal, onCleanup, Show, useContext, type JSX } from "solid-js"
+import {
+  createContext,
+  createEffect,
+  createMemo,
+  createSignal,
+  lazy,
+  onCleanup,
+  Show,
+  Suspense,
+  useContext,
+  type JSX,
+} from "solid-js"
 import { Button } from "../../components/ui/button"
 import { InlineError } from "../../components/ui/inline-error"
 import { Spinner } from "../../components/ui/spinner"
@@ -12,10 +23,9 @@ import { useData } from "../../data/context"
 import { tr } from "../../i18n/i18n-context"
 import { createFileApi, fileContentQueryOptions } from "./file-query"
 import { isDeletedChange, isEditableText, previewKind, type PreviewKind } from "./file-types"
-import { FileEditor } from "./file-editor"
-import { SpreadsheetEditor } from "./spreadsheet-editor"
 import { oldContentFromUnifiedDiff } from "../changes/unified-diff"
 import { renderMarkdown } from "../conversation/markdown"
+import { completeUIPerformanceStage } from "../../performance/ui-performance"
 import "./file-preview.css"
 
 export const MAX_PREVIEW_BYTES = 25 * 1024 * 1024
@@ -23,6 +33,9 @@ export const MAX_DOCUMENT_PREVIEW_BYTES = 256 * 1024 * 1024
 export const PREVIEW_ZOOM_MIN = 0.5
 export const PREVIEW_ZOOM_MAX = 4
 const PDF_BASE_SCALE = 1.35
+
+const LazyFileEditor = lazy(async () => ({ default: (await import("./file-editor")).FileEditor }))
+const LazySpreadsheetEditor = lazy(async () => ({ default: (await import("./spreadsheet-editor")).SpreadsheetEditor }))
 
 type FileSaveInput = {
   content: string
@@ -150,15 +163,15 @@ function PreviewHeader(props: { path: string; onClose?: () => void; toolbar?: JS
 
 function PdfPreview(props: { content: FileContent }) {
   let host: HTMLDivElement | undefined
+  let viewportHost: HTMLDivElement | undefined
   const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
   const [message, setMessage] = createSignal<string>()
   const [zoom, setZoom] = createSignal(1)
   const [documentVersion, setDocumentVersion] = createSignal(0)
   let documentProxy: PDFDocumentProxy | undefined
   let loadingTask: PDFDocumentLoadingTask | undefined
-  let activeRenderTask: { cancel: () => void } | undefined
-  let renderRequest = 0
   let loadGeneration = 0
+  const pageRenderTasks = new Map<number, { cancel: () => void }>()
   const encodedContent = createMemo(() => (props.content.encoding === "base64" ? props.content.content : undefined))
 
   const onWheel = (event: WheelEvent) => {
@@ -175,9 +188,8 @@ function PdfPreview(props: { content: FileContent }) {
     let currentDocument: PDFDocumentProxy | undefined
     const generation = ++loadGeneration
     documentProxy = undefined
-    activeRenderTask?.cancel()
-    activeRenderTask = undefined
-    renderRequest += 1
+    for (const task of pageRenderTasks.values()) task.cancel()
+    pageRenderTasks.clear()
     host.replaceChildren()
     setState("loading")
     setMessage(undefined)
@@ -208,9 +220,8 @@ function PdfPreview(props: { content: FileContent }) {
     onCleanup(() => {
       cancelled = true
       loadGeneration += 1
-      renderRequest += 1
-      activeRenderTask?.cancel()
-      activeRenderTask = undefined
+      for (const task of pageRenderTasks.values()) task.cancel()
+      pageRenderTasks.clear()
       host?.replaceChildren()
       void currentLoadingTask?.destroy()
       void currentDocument?.destroy()
@@ -224,23 +235,30 @@ function PdfPreview(props: { content: FileContent }) {
     documentVersion()
     const currentDocument = documentProxy
     const currentHost = host
+    const currentViewport = viewportHost
     const generation = loadGeneration
-    if (!currentDocument || !currentHost) return
+    if (!currentDocument || !currentHost || !currentViewport) return
 
-    activeRenderTask?.cancel()
-    activeRenderTask = undefined
-    const request = ++renderRequest
-    const isCurrent = () => generation === loadGeneration && request === renderRequest
+    for (const task of pageRenderTasks.values()) task.cancel()
+    pageRenderTasks.clear()
+    currentHost.replaceChildren()
+    setState("loading")
+    setMessage(undefined)
 
-    const renderAtZoom = async () => {
-      const pages = window.document.createDocumentFragment()
-      for (let pageNumber = 1; pageNumber <= currentDocument.numPages; pageNumber += 1) {
-        if (!isCurrent()) return
+    const slots: HTMLDivElement[] = []
+    const renderedPages = new Set<number>()
+    const isCurrent = () => generation === loadGeneration && documentProxy === currentDocument
+
+    const renderPage = async (pageNumber: number, slot: HTMLDivElement) => {
+      if (!isCurrent() || renderedPages.has(pageNumber)) return
+      renderedPages.add(pageNumber)
+      try {
         const page = await currentDocument.getPage(pageNumber)
         if (!isCurrent()) return
-        const viewport = page.getViewport({ scale: PDF_BASE_SCALE * targetZoom })
+        const pageViewport = page.getViewport({ scale: PDF_BASE_SCALE * targetZoom })
         const outputScale = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1
-        const metrics = pdfCanvasMetrics(viewport, outputScale)
+        const metrics = pdfCanvasMetrics(pageViewport, outputScale)
+        slot.style.minHeight = `${metrics.cssHeight + 24}px`
         const canvas = window.document.createElement("canvas")
         canvas.width = metrics.width
         canvas.height = metrics.height
@@ -249,31 +267,69 @@ function PdfPreview(props: { content: FileContent }) {
         canvas.className = "file-preview__pdf-page"
         const context = canvas.getContext("2d")
         if (!context) throw new Error(tr("files.render-failed"))
-        pages.append(canvas)
+        slot.replaceChildren(canvas)
         const renderTask = page.render({
           canvasContext: context,
-          viewport,
+          viewport: pageViewport,
           transform: metrics.outputScale === 1 ? undefined : [metrics.outputScale, 0, 0, metrics.outputScale, 0, 0],
         })
-        activeRenderTask = renderTask
-        try {
-          await renderTask.promise
-        } catch (cause) {
-          if (!isCurrent()) return
-          throw cause
-        } finally {
-          if (activeRenderTask === renderTask) activeRenderTask = undefined
-        }
+        pageRenderTasks.set(pageNumber, renderTask)
+        await renderTask.promise
+        if (isCurrent()) setState("ready")
+      } catch (cause) {
+        if (!isCurrent()) return
+        setMessage(errorText(cause))
+        setState("error")
+      } finally {
+        pageRenderTasks.delete(pageNumber)
       }
-      if (!isCurrent()) return
-      currentHost.replaceChildren(pages)
-      setState("ready")
     }
 
-    void renderAtZoom().catch((cause) => {
-      if (!isCurrent()) return
-      setMessage(errorText(cause))
-      setState("error")
+    const renderVisiblePages = () => {
+      const top = Math.max(0, currentViewport.scrollTop - currentViewport.clientHeight * 2)
+      const bottom = currentViewport.scrollTop + currentViewport.clientHeight * 3
+      for (let index = 0; index < slots.length; index += 1) {
+        const slot = slots[index]!
+        if (slot.offsetTop + slot.offsetHeight < top || slot.offsetTop > bottom) continue
+        void renderPage(index + 1, slot)
+      }
+    }
+
+    for (let pageNumber = 1; pageNumber <= currentDocument.numPages; pageNumber += 1) {
+      const slot = window.document.createElement("div")
+      slot.className = "file-preview__pdf-page-slot"
+      slot.style.minHeight = "1100px"
+      currentHost.append(slot)
+      slots.push(slot)
+    }
+
+    const Observer = typeof window.IntersectionObserver === "function" ? window.IntersectionObserver : undefined
+    const observer = Observer
+      ? new Observer(
+          (entries) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) continue
+              const pageNumber = Number((entry.target as HTMLElement).dataset.page)
+              const slot = entry.target as HTMLDivElement
+              if (pageNumber > 0) void renderPage(pageNumber, slot)
+            }
+          },
+          { root: currentViewport, rootMargin: "1200px 0px" },
+        )
+      : undefined
+
+    slots.forEach((slot, index) => {
+      slot.dataset.page = String(index + 1)
+      observer?.observe(slot)
+    })
+    currentViewport.addEventListener("scroll", renderVisiblePages, { passive: true })
+    renderVisiblePages()
+
+    onCleanup(() => {
+      currentViewport.removeEventListener("scroll", renderVisiblePages)
+      observer?.disconnect()
+      for (const task of pageRenderTasks.values()) task.cancel()
+      pageRenderTasks.clear()
     })
   })
 
@@ -289,7 +345,7 @@ function PdfPreview(props: { content: FileContent }) {
           <InlineError message={message() ?? tr("files.render-failed")} />
         </div>
       </Show>
-      <div class="file-preview__document-viewport" onWheel={onWheel}>
+      <div ref={viewportHost} class="file-preview__document-viewport" onWheel={onWheel}>
         <div ref={host} class="file-preview__document-host" />
       </div>
     </div>
@@ -564,6 +620,13 @@ export function FilePreview(props: FilePreviewProps) {
     return { type: "text", content: value, revision: `deleted:${props.path}` }
   })
   const displayedContent = createMemo(() => historicalContent() ?? query.data)
+  let previewMarkedReady = false
+  createEffect(() => {
+    if (!previewMarkedReady && displayedContent()) {
+      previewMarkedReady = true
+      completeUIPerformanceStage("first-file-preview-ready")
+    }
+  })
 
   const updateDirty = (value: boolean) => {
     setDirty(value)
@@ -648,43 +711,47 @@ export function FilePreview(props: FilePreviewProps) {
   )
 
   const editor = (content: FileContent) => (
-    <FileEditor
-      path={props.path}
-      content={draft()}
-      revision={draftRevision() || content.revision}
-      saving={saving()}
-      error={saveError()}
-      readOnly={deleted()}
-      onSave={deleted() ? undefined : save}
-      onDirtyChange={updateDirty}
-      onExternalChange={() => setConflict(true)}
-      onContentChange={setDraft}
-      resetToken={resetToken()}
-      onClose={props.onClose}
-      toolbar={kind() === "markdown" || kind() === "html" ? textPreviewToolbar : undefined}
-      initialDirty={dirty()}
-    />
+    <Suspense fallback={<p class="file-preview__state" role="status">{tr("files.loading")}</p>}>
+      <LazyFileEditor
+        path={props.path}
+        content={draft()}
+        revision={draftRevision() || content.revision}
+        saving={saving()}
+        error={saveError()}
+        readOnly={deleted()}
+        onSave={deleted() ? undefined : save}
+        onDirtyChange={updateDirty}
+        onExternalChange={() => setConflict(true)}
+        onContentChange={setDraft}
+        resetToken={resetToken()}
+        onClose={props.onClose}
+        toolbar={kind() === "markdown" || kind() === "html" ? textPreviewToolbar : undefined}
+        initialDirty={dirty()}
+      />
+    </Suspense>
   )
 
   const spreadsheetEditor = (content: FileContent) => (
-    <SpreadsheetEditor
-      path={props.path}
-      content={draft()}
-      encoding={draftEncoding()}
-      revision={draftRevision() || content.revision}
-      saving={saving()}
-      error={saveError()}
-      readOnly={deleted()}
-      onSave={deleted() ? undefined : save}
-      onDirtyChange={updateDirty}
-      onExternalChange={() => setConflict(true)}
-      onContentChange={(value, encoding) => {
-        setDraft(value)
-        setDraftEncoding(encoding)
-      }}
-      resetToken={resetToken()}
-      onClose={props.onClose}
-    />
+    <Suspense fallback={<p class="file-preview__state" role="status">{tr("files.loading")}</p>}>
+      <LazySpreadsheetEditor
+        path={props.path}
+        content={draft()}
+        encoding={draftEncoding()}
+        revision={draftRevision() || content.revision}
+        saving={saving()}
+        error={saveError()}
+        readOnly={deleted()}
+        onSave={deleted() ? undefined : save}
+        onDirtyChange={updateDirty}
+        onExternalChange={() => setConflict(true)}
+        onContentChange={(value, encoding) => {
+          setDraft(value)
+          setDraftEncoding(encoding)
+        }}
+        resetToken={resetToken()}
+        onClose={props.onClose}
+      />
+    </Suspense>
   )
 
   return (

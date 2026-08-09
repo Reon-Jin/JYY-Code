@@ -207,7 +207,8 @@ describe("FilePreview", () => {
     const editor = await screen.findByRole("textbox")
     editor.focus()
     await user.keyboard("{Control>}a{/Control}")
-    await user.keyboard('<h1>Draft</h1><script>alert("unsafe")</script>')
+    await user.paste('<h1>Draft</h1><script>alert("unsafe")</script>')
+    await waitFor(() => expect(editor).toHaveTextContent('<h1>Draft</h1><script>alert("unsafe")</script>'))
     await screen.getByRole("button", { name: "预览 HTML" }).click()
 
     const frame = await screen.findByTitle("index.html")

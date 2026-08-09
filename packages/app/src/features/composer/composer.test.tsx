@@ -65,6 +65,7 @@ function renderComposer(input?: {
   agents?: Agent[]
   models?: CatalogModel[]
   usage?: ComposerProps["usage"]
+  queryClient?: ReturnType<typeof createDesktopQueryClient>
   skills?: Array<{ name: string; description?: string; location: string; content: string }>
 }) {
   const client = {
@@ -85,10 +86,10 @@ function renderComposer(input?: {
     },
   }
   const [status, setStatus] = createSignal<SessionStatus>(input?.status ?? { type: "idle" })
-  render(() => (
+  const view = render(() => (
     <Composer
       client={client as never}
-      queryClient={createDesktopQueryClient()}
+      queryClient={input?.queryClient ?? createDesktopQueryClient()}
       directory={directory}
       sessionID={sessionID}
       agents={input?.agents ?? agents}
@@ -113,10 +114,11 @@ function renderComposer(input?: {
       queueStore={createComposerQueueStore()}
     />
   ))
-  return Object.assign(client, { setStatus })
+  return Object.assign(client, { setStatus, unmount: view.unmount })
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   cleanup()
   vi.restoreAllMocks()
   desktopDropHandler = undefined
@@ -142,6 +144,21 @@ beforeEach(() => {
 })
 
 describe("Composer", () => {
+  it("mounts and unmounts repeatedly without retaining composer timers", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] })
+    const queryClient = createDesktopQueryClient()
+    const baseline = vi.getTimerCount()
+    const instances: Array<{ unmount: () => void }> = []
+    for (let index = 0; index < 100; index += 1) {
+      const instance = renderComposer({ minimal: true, queryClient })
+      instances.push(instance)
+      instance.unmount()
+    }
+    expect(vi.getTimerCount() - baseline).toBeLessThanOrEqual(1)
+    queryClient.clear()
+    expect(vi.getTimerCount()).toBe(baseline)
+  })
+
   it("keeps a child steering action visible while its assignment is running", async () => {
     const user = userEvent.setup()
     const client = renderComposer({ minimal: true, childSteering: true, status: { type: "busy" } })

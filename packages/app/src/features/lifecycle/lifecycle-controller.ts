@@ -9,6 +9,7 @@ import {
   type OpenedProject,
   type ProjectController,
 } from "../projects/project-controller"
+import { beginUIPerformanceStage, completeUIPerformanceStage } from "../../performance/ui-performance"
 
 export type LifecyclePhase = "booting" | "backendReady" | "projectLoading" | "ready" | "failed"
 
@@ -89,6 +90,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
   }
 
   async function boot(allowRecovery: boolean) {
+    beginUIPerformanceStage("startup-bootstrap")
     setPhase("booting")
     setFailure(undefined)
     setRoute("/")
@@ -101,6 +103,7 @@ export function createLifecycleController(input: LifecycleControllerInput) {
         input.bootstrapTimeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS,
         tr("lifecycle.backend-start-timeout"),
       )
+      completeUIPerformanceStage("startup-bootstrap")
     } catch (cause) {
       setBootstrap(undefined)
       setProjects(undefined)

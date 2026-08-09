@@ -156,6 +156,12 @@
   min-width: max-content;
 }
 
+.file-preview__pdf-page-slot {
+  display: grid;
+  place-items: start center;
+  min-width: max-content;
+}
+
 .file-preview__document-viewport .file-preview__zoom-surface {
   min-width: max-content;
 }

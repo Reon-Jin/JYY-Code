@@ -157,6 +157,8 @@
 
 .workspace-drawer-scrim {
   display: none;
+  cursor: default;
+  touch-action: none;
 }
 
 @media (max-width: 960px) {
@@ -166,6 +168,8 @@
     inset: 0 44px 0 auto;
     width: min(var(--workspace-inspector-width, 420px), calc(100vw - 44px));
     box-shadow: -12px 0 32px rgb(0 0 0 / 24%);
+    min-width: 0;
+    pointer-events: auto;
   }
 
   .workspace-drawer__width-handle {
@@ -187,5 +191,6 @@
     border: 0;
     padding: 0;
     background: var(--color-overlay);
+    pointer-events: auto;
   }
 }

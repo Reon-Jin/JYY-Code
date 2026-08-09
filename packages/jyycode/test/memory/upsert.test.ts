@@ -379,6 +379,26 @@ describe("structured memory upserts", () => {
     ).rejects.toThrow('expected "当前任务：<goal>；进展：<progress>；[经验：<lesson>]"')
   })
 
+  test("normalizes extra separators inside task summaries", async () => {
+    const { run, entries } = fixture()
+
+    const result = await run(
+      Memory.Service.use((memory) =>
+        memory.upsertTaskMemory({
+          sessionID: firstSession,
+          importance: 7,
+          keywords: ["3D游戏"],
+          content: "当前任务：制作3D游戏；进展：完成地形；天气；战斗；经验：合并；验证",
+        }),
+      ),
+    )
+
+    expect(result.status).toBe("written")
+    expect((entries("memory")[0] as Memory.TaskMemoryEntry).content).toBe(
+      "当前任务：制作3D游戏；进展：完成地形、天气、战斗；经验：合并、验证",
+    )
+  })
+
   test("keeps enough room for a session-wide summary while bounding each section", async () => {
     const { run } = fixture()
     const goal = "甲".repeat(120)

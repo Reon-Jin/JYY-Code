@@ -1165,5 +1165,41 @@ describe("event routing", () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(vi.getTimerCount()).toBe(0)
   })
+
+  it("drops queued events and does not write cache after provider abort", async () => {
+    const queryClient = createDesktopQueryClient()
+    let scheduled: FrameRequestCallback | undefined
+    let cancelled: FrameRequestCallback | undefined
+    const event = vi.fn(async (options: { signal: AbortSignal }) => ({
+      stream: (async function* () {
+        yield {
+          directory: "C:\\a",
+          payload: { id: "late_session", type: "session.created", properties: { info: session } },
+        } as GlobalEvent
+        await new Promise<void>((resolve) => options.signal.addEventListener("abort", () => resolve(), { once: true }))
+      })(),
+    }))
+    const bridge = new EventBridge({
+      client: { global: { event } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: () => {
+        cancelled = scheduled
+        scheduled = undefined
+      },
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeDefined())
+    bridge.abort()
+    cancelled?.(0)
+    await Promise.resolve()
+
+    expect(queryClient.getQueryData(keys.sessions("C:\\a"))).toBeUndefined()
+  })
 })
 // @ts-nocheck

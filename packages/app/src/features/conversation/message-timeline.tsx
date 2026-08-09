@@ -16,31 +16,74 @@ import {
   type PresentedMessageGroup,
 } from "./message-presentation"
 import "./conversation.css"
+import { completeUIPerformanceStage } from "../../performance/ui-performance"
 
 type Goal = NonNullable<Session["goal"]>
 
 export type MessageTimelineProps = {
   messages: readonly ConversationMessage[]
   goal?: Goal
-  compaction?: CompactionStatus
+  compaction?: CompactionStatus | null
   loading?: boolean
   error?: string
   onRetry?: () => void
 }
 
-function messageSignature(messages: readonly ConversationMessage[]) {
-  return messages
-    .map(
-      (message) =>
-        `${message.info.id}:${message.parts
-          .map((part) => {
-            if (part.type === "text" || part.type === "reasoning") return `${part.id}:${part.text.length}`
-            if (part.type === "tool") return `${part.id}:${part.state.status}`
-            return part.id
-          })
-          .join(",")}`,
-    )
-    .join("|")
+const messageSignatures = new WeakMap<object, string>()
+
+function messageSignatureFor(message: ConversationMessage) {
+  const cached = messageSignatures.get(message)
+  if (cached !== undefined) return cached
+  const signature = `${message.info.id}:${message.parts
+    .map((part) => {
+      if (part.type === "text" || part.type === "reasoning") return `${part.id}:${part.text.length}`
+      if (part.type === "tool") return `${part.id}:${part.state.status}`
+      return part.id
+    })
+    .join(",")}`
+  messageSignatures.set(message, signature)
+  return signature
+}
+
+function createMessageSignatureTracker() {
+  let previousMessages: readonly ConversationMessage[] | undefined
+  let previousEntries: string[] = []
+  let previousValue = ""
+
+  return (messages: readonly ConversationMessage[]) => {
+    if (messages === previousMessages) return previousValue
+
+    let stableLength = 0
+    if (previousMessages && previousMessages.length > 0) {
+      const previousLength = previousMessages.length
+      const lastPrevious = previousMessages[previousLength - 1]
+      // Conversation snapshots append messages or replace the latest message
+      // while it streams. Keep the unchanged prefix without rescanning it.
+      if (messages.length >= previousLength && messages[previousLength - 1] === lastPrevious) {
+        stableLength = previousLength
+      } else if (
+        messages.length === previousLength &&
+        previousLength > 1 &&
+        messages[previousLength - 2] === previousMessages[previousLength - 2]
+      ) {
+        stableLength = previousLength - 1
+      } else {
+        const commonLength = Math.min(messages.length, previousLength)
+        while (stableLength < commonLength && messages[stableLength] === previousMessages[stableLength]) {
+          stableLength += 1
+        }
+      }
+    }
+
+    const entries = previousEntries.slice(0, stableLength)
+    for (let index = stableLength; index < messages.length; index += 1) {
+      entries[index] = messageSignatureFor(messages[index]!)
+    }
+    previousMessages = messages
+    previousEntries = entries
+    previousValue = entries.join("|")
+    return previousValue
+  }
 }
 
 function GoalTimelineMarker(props: { marker: "start" | "end"; showOrb?: boolean }) {
@@ -58,7 +101,7 @@ function GoalTimelineMarker(props: { marker: "start" | "end"; showOrb?: boolean 
   )
 }
 
-function CompactionIndicator(props: { status?: CompactionStatus }) {
+function CompactionIndicator(props: { status?: CompactionStatus | null }) {
   const [visible, setVisible] = createSignal(true)
   createEffect(() => {
     if (props.status?.status !== "done") {
@@ -164,12 +207,14 @@ function PresentedMessageView(props: {
 
 export function MessageTimeline(props: MessageTimelineProps) {
   const [hasNewMessages, setHasNewMessages] = createSignal(false)
+  let conversationPainted = false
   const goalStatus = createMemo(() => props.goal?.status)
   const goalStartedAt = createMemo(() => props.goal?.startedAt)
   const goalCompletedAt = createMemo(() => props.goal?.completedAt)
+  const signatureFor = createMessageSignatureTracker()
   const signature = createMemo(
     () =>
-      `${messageSignature(props.messages)}|goal:${goalStatus() ?? ""}:${goalStartedAt() ?? ""}:${
+      `${signatureFor(props.messages)}|goal:${goalStatus() ?? ""}:${goalStartedAt() ?? ""}:${
         goalCompletedAt() ?? ""
       }`,
   )
@@ -185,13 +230,22 @@ export function MessageTimeline(props: MessageTimelineProps) {
   const pendingActivityKeys = createMemo(() => {
     const groups = presentedMessages().flatMap((message) => message.groups)
     const keys = new Set<string>()
-    for (let i = 0; i < groups.length; i++) {
+    let hasFormalContentAfter = false
+    for (let i = groups.length - 1; i >= 0; i -= 1) {
       const group = groups[i]!
-      if (group.type !== "activity") continue
-      const hasFormalContentAfter = groups.slice(i + 1).some((next) => next.type === "content")
+      if (group.type === "content") {
+        hasFormalContentAfter = true
+        continue
+      }
       if (!hasFormalContentAfter) keys.add(groupKey(group))
     }
     return keys
+  })
+  createEffect(() => {
+    if (!conversationPainted && props.messages.length > 0) {
+      conversationPainted = true
+      completeUIPerformanceStage("first-conversation-paint")
+    }
   })
   let viewport: HTMLDivElement | undefined
   let pinnedToBottom = true
