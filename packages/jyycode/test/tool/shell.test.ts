@@ -78,6 +78,10 @@ const quote = (text: string) => `"${text}"`
 const squote = (text: string) => `'${text}'`
 const projectRoot = path.join(__dirname, "../..")
 const bin = quote(process.execPath.replaceAll("\\", "/"))
+const longRunningCommand =
+  process.platform === "win32"
+    ? 'Write-Output "started"; Start-Sleep -Seconds 60'
+    : "echo started && sleep 60"
 const bash = (() => {
   const shell = Shell.acceptable()
   if (Shell.name(shell) === "bash") return shell
@@ -1067,7 +1071,7 @@ describe("tool.shell abort", () => {
         projectRoot,
         Effect.gen(function* () {
           const result = yield* run({
-            command: `echo started && sleep 60`,
+            command: longRunningCommand,
             description: "Timeout test",
             timeout: 500,
           })
@@ -1086,7 +1090,7 @@ describe("tool.shell abort", () => {
         projectRoot,
         Effect.gen(function* () {
           const result = yield* run({
-            command: `echo started && sleep 60`,
+            command: longRunningCommand,
             description: "Default timeout test",
           })
           expect(result.output).toContain("started")

@@ -134,6 +134,26 @@ describe("tool.assertExternalDirectory", () => {
     )
 
     it.instance(
+      "preserves an absolute path drive instead of remounting it on the workspace drive",
+      () =>
+        Effect.gen(function* () {
+          const { requests, ctx } = makeCtx()
+          const outerTmp = yield* tmpdirScoped()
+          const target = path.join(outerTmp, "outside.txt")
+          const currentDrive = path.parse(target).root.slice(0, 1).toUpperCase()
+          const otherDrive = currentDrive === "C" ? "D:" : "C:"
+          const foreignTarget = `${otherDrive}${target.slice(path.parse(target).root.length - 1)}`
+
+          yield* assertExternalDirectoryEffect(ctx, foreignTarget)
+
+          const req = requests.find((r) => r.permission === "external_directory")
+          expect(req).toBeDefined()
+          expect(req!.patterns[0]).toMatch(new RegExp(`^${otherDrive.replace(":", "\\:")}\\\\`, "i"))
+        }),
+      { git: true },
+    )
+
+    it.instance(
       "uses drive root glob for root files",
       () =>
         Effect.gen(function* () {

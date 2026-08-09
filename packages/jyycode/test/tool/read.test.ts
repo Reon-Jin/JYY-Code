@@ -202,6 +202,23 @@ describe("tool.read external_directory permission", () => {
         expect(read!.patterns).toEqual([path.relative(dir, full(target))])
       }),
     )
+
+    it.live("does not remount an absolute path onto the workspace drive", () =>
+      Effect.gen(function* () {
+        const dir = yield* tmpdirScoped({ git: true })
+        const target = path.join(dir, "test.txt")
+        const actualDrive = path.parse(target).root.slice(0, 1).toUpperCase()
+        const otherDrive = actualDrive === "C" ? "D:" : "C:"
+        const foreignTarget = `${otherDrive}${target.slice(path.parse(target).root.length - 1)}`
+        const { items, next } = asks()
+
+        yield* exec(dir, { filePath: foreignTarget }, next).pipe(Effect.exit)
+
+        const ext = items.find((item) => item.permission === "external_directory")
+        expect(ext).toBeDefined()
+        expect(ext!.patterns[0]!.slice(0, 2).toUpperCase()).toBe(otherDrive)
+      }),
+    )
   }
 
   it.live("uses worktree-relative path for read permission so user rules match like edit/write", () =>
