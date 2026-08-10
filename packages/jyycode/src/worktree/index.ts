@@ -175,7 +175,7 @@ export const layer: Layer.Layer<
         Effect.succeed({
           code: 1,
           text: "",
-          stderr: e instanceof Error ? e.message : String(e),
+          stderr: errorMessage(e),
         } satisfies GitResult),
       ),
     )

@@ -284,7 +284,7 @@ export const layerWithDirectory = (directory: string, options: { legacyDirectory
         const exists = yield* fs.existsSafe(target).pipe(Effect.orDie)
         const targetText = (yield* fs.readFileStringSafe(target).pipe(Effect.orDie))?.trim()
         let needsLegacy = !exists || !targetText
-        if (!needsLegacy && !workspaceRoot && legacyDirectory) {
+        if (!needsLegacy && !workspaceRoot && legacyDirectory && targetText) {
           const current = yield* Effect.try({ try: () => parseExperienceStore(targetText), catch: asError })
           needsLegacy = current.entries.length === 0
         }
