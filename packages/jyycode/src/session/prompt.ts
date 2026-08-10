@@ -78,7 +78,7 @@ import { Memory } from "@/memory/memory"
 import { Blackboard } from "@/plan/blackboard"
 import { Skill } from "@/skill"
 import { childBudgetFor, markChildBudgetFailure } from "@/plan/protocol"
-import { DEFAULT_AGENT_MAX_STEPS } from "@/config/agent"
+import { MAX_AGENT_STEPS } from "@/config/agent"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1761,7 +1761,7 @@ export const layer = Layer.effect(
             yield* bus.publish(Session.Event.Error, { sessionID, error: error.toObject() })
             throw error
           }
-          const maxSteps = childBudget?.max_steps ?? (session.parentID !== undefined ? agent.steps ?? DEFAULT_AGENT_MAX_STEPS : agent.steps ?? Infinity)
+          const maxSteps = childBudget?.max_steps ?? (session.parentID !== undefined ? MAX_AGENT_STEPS : agent.steps ?? Infinity)
           const isLastStep = step >= maxSteps
           msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
             Effect.provideService(RuntimeFlags.Service, flags),
@@ -1968,7 +1968,7 @@ export const layer = Layer.effect(
             )
 
             const [env, instructions] = yield* Effect.all([
-              sys.environment(model),
+              sys.environment(model, { child: session.parentID !== undefined }),
               instruction.system().pipe(Effect.orDie),
             ])
             const system = [
@@ -2039,8 +2039,24 @@ export const layer = Layer.effect(
               }
             }
             const format = lastUser.format ?? { type: "text" as const }
+            // A delegated standard task must still submit its result at the
+            // budget boundary. The generic max-step message forbids every
+            // tool, including Report, which can turn completed filesystem work
+            // into a false failure. Reserve the final model turn for Report.
+            const finalChildReportStep =
+              childBudget !== undefined && session.parentID !== undefined && isLastStep && tools.Report !== undefined
+            if (finalChildReportStep) {
+              const report = tools.Report
+              for (const name of Object.keys(tools)) delete tools[name]
+              tools.Report = report
+              system.push(
+                "## Final child budget step\nThis is your final execution step. Do not do more exploratory work. Call Report now with an honest done, partial, or failed status and real artifacts.",
+              )
+            }
             if (!requiredPlanTool && format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
-            const toolChoice = requiredPlanTool
+            const toolChoice = finalChildReportStep
+              ? { type: "tool" as const, toolName: "Report" }
+              : requiredPlanTool
               ? { type: "tool" as const, toolName: requiredPlanTool }
               : format.type === "json_schema"
                 ? ("required" as const)
@@ -2143,7 +2159,10 @@ export const layer = Layer.effect(
               sessionID,
               parentSessionID: session.parentID,
               system,
-              messages: [...modelMsgs, ...(isLastStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : [])],
+              messages: [
+                ...modelMsgs,
+                ...(isLastStep && !finalChildReportStep ? [{ role: "assistant" as const, content: MAX_STEPS }] : []),
+              ],
               tools,
               model,
               toolChoice,

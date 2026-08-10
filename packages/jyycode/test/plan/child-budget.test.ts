@@ -35,7 +35,7 @@ function planInput() {
 }
 
 describe("child execution budgets", () => {
-  it("uses finite defaults and propagates the smallest parent deadline", () => {
+  it("uses a fixed maximum step budget and propagates the smallest parent deadline", () => {
     const now = Date.parse("2026-08-09T00:00:00.000Z")
     const budget = resolveChildBudget({
       now,
@@ -47,7 +47,7 @@ describe("child execution budgets", () => {
       },
     })
 
-    expect(budget.max_steps).toBe(7)
+    expect(budget.max_steps).toBe(1024)
     expect(Date.parse(budget.deadline_at)).toBe(now + 5_000)
     expect(budget.no_progress_steps).toBe(3)
     expect(budget.source).toBe("parent")
@@ -55,15 +55,16 @@ describe("child execution budgets", () => {
     const defaults = resolveChildBudget({ now })
     expect(Number.isFinite(defaults.max_steps)).toBe(true)
     expect(Number.isFinite(Date.parse(defaults.deadline_at))).toBe(true)
-    expect(defaults.max_steps).toBe(60)
+    expect(defaults.max_steps).toBe(1024)
     expect(defaults.no_progress_steps).toBe(8)
 
     const modelOverrides = resolveChildBudget({
       now,
-      role: { steps: 2, no_progress_steps: 2, timeout_ms: 2_000 } as never,
-      task: { max_steps: 2, no_progress_steps: 2, timeout_ms: 1_000 } as never,
+      role: { no_progress_steps: 2 },
+      task: { no_progress_steps: 2 },
     })
     expect(Date.parse(modelOverrides.deadline_at)).toBe(now + DEFAULT_AGENT_DEADLINE_MS)
+    expect(modelOverrides.max_steps).toBe(1024)
     expect(modelOverrides.source).toBe("profile")
   })
 
@@ -99,10 +100,10 @@ describe("child execution budgets", () => {
     const stored = await protocol.read({ workspaceRoot: root, sessionId: "ses_main", mode: "multi" })
     if (!stored.ok || !stored.plan) return
     const firstDispatch = stored.plan.steps[0]!.tasks[0]!.dispatch!
-    expect(firstDispatch.max_steps).toBe(60)
+    expect(firstDispatch.max_steps).toBe(1024)
     expect(firstDispatch.no_progress_steps).toBe(8)
     expect(firstDispatch.source).toBe("default")
-    expect(firstDispatch.budget).toMatchObject({ max_steps: 60, no_progress_steps: 8, source: "default" })
+    expect(firstDispatch.budget).toMatchObject({ max_steps: 1024, no_progress_steps: 8, source: "default" })
 
     await protocol.cancel({ workspaceRoot: root, sessionId: "ses_main", mode: "multi" }, ["s1_t1"])
     profiles = [
@@ -125,7 +126,7 @@ describe("child execution budgets", () => {
     const retried = await protocol.read({ workspaceRoot: root, sessionId: "ses_main", mode: "multi" })
     if (!retried.ok || !retried.plan) return
     const retryDispatch = retried.plan.steps[0]!.tasks[0]!.dispatch!
-    expect(retryDispatch.max_steps).toBe(3)
+    expect(retryDispatch.max_steps).toBe(1024)
     expect(retryDispatch.no_progress_steps).toBe(2)
     expect(retryDispatch.source).toBe("profile")
     expect(Date.parse(retryDispatch.deadline_at ?? "")).toBe(now + DEFAULT_AGENT_DEADLINE_MS)

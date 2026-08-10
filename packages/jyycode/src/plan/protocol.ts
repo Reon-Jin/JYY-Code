@@ -76,7 +76,6 @@ import {
 import { isWorkspaceQuotaError } from "./workspace-budget"
 import {
   DEFAULT_AGENT_DEADLINE_MS,
-  DEFAULT_AGENT_MAX_STEPS,
   DEFAULT_AGENT_NO_PROGRESS_STEPS,
   MAX_AGENT_DEADLINE_MS,
   MAX_AGENT_NO_PROGRESS_STEPS,
@@ -113,6 +112,8 @@ export type ChildStartInput = {
 export type ChildController = {
   create(input: ChildStartInput): Promise<string>
   start(input: ChildStartInput): Promise<void>
+  /** Continue a rejected task in its existing child session when supported. */
+  resume?(input: ChildStartInput): Promise<void>
   // `void` is retained for embedded legacy controllers; the production
   // controller always returns ChildTerminationResult and never uses this
   // compatibility path for cleanup decisions.
@@ -148,7 +149,7 @@ export type DispatchBrief = {
   goal: string
   done_criteria: string
   task_instructions?: string
-  /** Absolute working directory shared with the parent agent; every relative path in the brief resolves against it. */
+  /** Absolute child working directory; every relative path in the brief resolves against it. */
   workspace_root: string
   /** Absolute path resolved against workspace_root at dispatch time. */
   output_path: string
@@ -178,25 +179,56 @@ export type DispatchBrief = {
   review_feedback_history?: Array<{ review_feedback: string; issues: string[] }>
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+/**
+ * A plan is authored by the parent, so its free-text fields can accidentally
+ * contain parent-root paths. Rewrite every spelling of that root before the
+ * brief crosses the child-session boundary. This preserves the useful relative
+ * intent while making the isolated child workspace authoritative.
+ */
+function rebaseChildText(value: string, parentRoot: string, childRoot: string) {
+  const parent = path.resolve(parentRoot)
+  const variants = [...new Set([parent, parent.replaceAll("\\", "/"), parent.replaceAll("/", "\\")])].sort(
+    (left, right) => right.length - left.length,
+  )
+  return variants.reduce(
+    (text, variant) => text.replace(new RegExp(`${escapeRegExp(variant)}(?=$|[\\\\/])`, "gi"), childRoot),
+    value,
+  )
+}
+
+function rebaseChildValue(value: unknown, parentRoot: string, childRoot: string): unknown {
+  if (typeof value === "string") return rebaseChildText(value, parentRoot, childRoot)
+  if (Array.isArray(value)) return value.map((item) => rebaseChildValue(item, parentRoot, childRoot))
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, rebaseChildValue(item, parentRoot, childRoot)]),
+    )
+  return value
+}
+
+function rebaseBriefForChild(brief: DispatchBrief, parentRoot: string, childRoot: string): DispatchBrief {
+  return rebaseChildValue(brief, parentRoot, childRoot) as DispatchBrief
+}
+
 export type ChildBudgetSnapshot = DispatchBudget
 
 export type ChildBudgetResolutionInput = {
   now?: number
-  role?: Partial<Pick<LaunchSnapshot, "steps" | "no_progress_steps">>
-  task?: Pick<PlanTask, "max_steps" | "no_progress_steps">
+  role?: Partial<Pick<LaunchSnapshot, "no_progress_steps">>
+  task?: Pick<PlanTask, "no_progress_steps">
   parent?: Partial<DispatchBudget>
 }
 
 /** Resolve a finite child budget once, before a dispatch is persisted. */
 export function resolveChildBudget(input: ChildBudgetResolutionInput = {}): ChildBudgetSnapshot {
   const now = input.now ?? Date.now()
-  const candidates: Array<{ value: number; source: DispatchBudgetSource }> = [
-    { value: DEFAULT_AGENT_MAX_STEPS, source: "default" },
-  ]
-  if (input.role?.steps !== undefined) candidates.push({ value: input.role.steps, source: "profile" })
-  if (input.task?.max_steps !== undefined) candidates.push({ value: input.task.max_steps, source: "plan" })
-  if (input.parent?.max_steps !== undefined) candidates.push({ value: input.parent.max_steps, source: "parent" })
-  const maxStepsCandidate = candidates.reduce((left, right) => (right.value < left.value ? right : left))
+  // Child execution always receives the full bounded tool-loop allowance.
+  // No plan- or profile-level max_steps control is exposed to the main Agent.
+  const max_steps = MAX_AGENT_STEPS
 
   const deadlineCandidates: Array<{ value: number; source: DispatchBudgetSource }> = [
     { value: DEFAULT_AGENT_DEADLINE_MS, source: "default" },
@@ -222,14 +254,12 @@ export function resolveChildBudget(input: ChildBudgetResolutionInput = {}): Chil
     noProgressCandidates.push({ value: input.parent.no_progress_steps, source: "parent" })
   const noProgressCandidate = noProgressCandidates.reduce((left, right) => (right.value < left.value ? right : left))
 
-  const max_steps = Math.max(1, Math.min(MAX_AGENT_STEPS, Math.floor(maxStepsCandidate.value)))
   const deadlineMs = Math.max(0, Math.min(MAX_AGENT_DEADLINE_MS, Math.floor(deadlineCandidate.value)))
   const no_progress_steps = Math.max(
     1,
     Math.min(MAX_AGENT_NO_PROGRESS_STEPS, Math.floor(noProgressCandidate.value)),
   )
   const selectedSources = new Set([
-    maxStepsCandidate.source,
     deadlineCandidate.source,
     noProgressCandidate.source,
   ])
@@ -526,7 +556,6 @@ function validateCreateInput(input: unknown): asserts input is CreatePlanInput {
           "done_criteria",
           "instructions",
           "output_path",
-          "max_steps",
           "no_progress_steps",
           "mode",
         ],
@@ -539,7 +568,7 @@ function validateCreateInput(input: unknown): asserts input is CreatePlanInput {
         inputError(`steps[${index}].tasks[${taskIndex}].instructions must be non-empty`)
       if (task.output_path !== undefined && !asString(task.output_path))
         inputError(`steps[${index}].tasks[${taskIndex}].output_path must be non-empty`)
-      for (const field of ["max_steps", "no_progress_steps"] as const) {
+      for (const field of ["no_progress_steps"] as const) {
         if (
           task[field] !== undefined &&
           (!Number.isSafeInteger(task[field]) || Number(task[field]) < 1)
@@ -731,7 +760,6 @@ function createTask(input: CreateTaskInput, id: string, workspaceRoot?: string, 
     goal: requiredText(input.goal, "task.goal"),
     done_criteria: requiredText(input.done_criteria, "task.done_criteria"),
     ...(input.instructions ? { instructions: requiredText(input.instructions, "task.instructions") } : {}),
-    ...(input.max_steps !== undefined ? { max_steps: Math.min(MAX_AGENT_STEPS, input.max_steps) } : {}),
     ...(input.no_progress_steps !== undefined
       ? { no_progress_steps: Math.min(MAX_AGENT_NO_PROGRESS_STEPS, input.no_progress_steps) }
       : {}),
@@ -899,11 +927,10 @@ function applyOp(
       if (op.fields.done_criteria !== undefined)
         task.done_criteria = requiredText(op.fields.done_criteria, "done_criteria")
       if (op.fields.instructions !== undefined) task.instructions = requiredText(op.fields.instructions, "instructions")
-      for (const field of ["max_steps", "no_progress_steps"] as const) {
+      for (const field of ["no_progress_steps"] as const) {
         const value = op.fields[field]
         if (value !== undefined && (!Number.isSafeInteger(value) || Number(value) < 1))
           inputError(`${field} must be a positive safe integer`)
-        if (field === "max_steps" && value !== undefined) task.max_steps = Math.min(MAX_AGENT_STEPS, value)
         if (field === "no_progress_steps" && value !== undefined)
           task.no_progress_steps = Math.min(MAX_AGENT_NO_PROGRESS_STEPS, value)
       }
@@ -1663,17 +1690,27 @@ export class PlanProtocol {
       const retryGroups = new Map<string, string[]>()
       for (const review of result.result.reviewed ?? []) {
         if (review.result !== "rejected") continue
-        const cleanupErrors = await this.cleanupTaskWorkspace(ctx, review.taskId)
-        if (cleanupErrors.length) {
-          autoRetryFailed.push({
-            taskIds: [review.taskId],
-            role: "unknown",
-            message: `workspace cleanup failed: ${cleanupErrors.join("; ")}`,
-          })
-          continue
-        }
         const latest = this.store.read(this.path(ctx))
         const task = latest?.steps.flatMap((step) => step.tasks).find((item) => item.id === review.taskId)
+        // A review rejection is a continuation request, not a new task. Keep
+        // the child session and its workspace alive when the runtime can
+        // append a prompt to the existing session. Legacy controllers without
+        // resume support retain the old cleanup-and-recreate behavior.
+        const canResume =
+          this.children?.resume !== undefined &&
+          typeof task?.dispatch?.child_session_id === "string" &&
+          Boolean(task.report?.review_feedback?.trim())
+        if (!canResume) {
+          const cleanupErrors = await this.cleanupTaskWorkspace(ctx, review.taskId)
+          if (cleanupErrors.length) {
+            autoRetryFailed.push({
+              taskIds: [review.taskId],
+              role: "unknown",
+              message: `workspace cleanup failed: ${cleanupErrors.join("; ")}`,
+            })
+            continue
+          }
+        }
         const role = task?.dispatch?.role?.id
         if (!role || task.mode === "candidate") {
           autoRetrySkipped.push(review.taskId)
@@ -1781,6 +1818,8 @@ export class PlanProtocol {
           brief: DispatchBrief
           role: LaunchSnapshot
           reservation?: WorkspaceReservation
+          workspace?: WorkspaceHandle
+          resume: boolean
         }
       >()
       const needsRole = targets.some(({ task }) => task.status !== "dispatched" && task.status !== "running")
@@ -1809,15 +1848,33 @@ export class PlanProtocol {
             "派发型任务必须提供 output_path 与 done_criteria",
           )
         if (!role) throw new Error("Dispatch_dispatch role resolution failed")
-        // Anchor every dispatched path at the workspace root: the child session
-        // shares the parent's working directory, so the brief carries only
-        // absolute paths and relative paths can never drift to process.cwd().
+        const resume =
+          task.status === "rejected" &&
+          typeof task.dispatch?.child_session_id === "string" &&
+          Boolean(task.report?.review_feedback?.trim()) &&
+          this.children?.resume !== undefined
+        const existingWorkspace = resume ? this.recordedWorkspace(ctx, task) : undefined
+        if (
+          resume &&
+          task.dispatch?.workspace &&
+          task.dispatch.workspace.mode !== "shared_compat" &&
+          this.childWorkspace &&
+          !existingWorkspace
+        ) {
+          throw new PlanProtocolError({
+            code: ERROR_CODES.DISPATCH_UNAVAILABLE,
+            message: `Task ${task.id} child workspace is missing; the original child session cannot continue`,
+            hint: "Preserve the child workspace before retrying. If it was already removed, repair the task and dispatch a new child explicitly.",
+          })
+        }
+        // Anchor output at the parent root before creating the child workspace.
+        // The child brief is rebased to its isolated workspace below.
         const outputPath = resolveWorkspacePath(ctx.workspaceRoot, task.output_path!, `任务 ${task.id} 的 output_path`)
         // A retry is a new run, even when the task id is unchanged. Keeping
         // the attempt identity in both records prevents late reports or
         // watchers from attaching to a newer retry.
         const runId = `run__${ctx.sessionId}__${task.id}__${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`
-        const childSessionId = `child_${ctx.sessionId}_${task.id}`
+        const childSessionId = resume ? task.dispatch!.child_session_id : `child_${ctx.sessionId}_${task.id}`
         const budget = resolveChildBudget({
           now: this.now(),
           role,
@@ -1864,7 +1921,7 @@ export class PlanProtocol {
             : {}),
         }
         const launch = launchSnapshot(role)
-        const reservation = this.childWorkspace?.reserve(ctx.sessionId, task.id)
+        const reservation = resume ? undefined : this.childWorkspace?.reserve(ctx.sessionId, task.id)
         this.metric(ctx.sessionId, {
           metric: "dispatch",
           phase: "reservation",
@@ -1881,13 +1938,19 @@ export class PlanProtocol {
             launch,
             ...(reservation
               ? { workspace: dispatchWorkspaceMetadata(reservation), lifecycle: "reserved" as const }
-              : {}),
+              : existingWorkspace
+                ? { workspace: dispatchWorkspaceMetadata(existingWorkspace), lifecycle: "reserved" as const }
+                : task.dispatch?.workspace
+                  ? { workspace: task.dispatch.workspace, lifecycle: "reserved" as const }
+                  : {}),
             ...budget,
             budget,
           },
           brief,
           role: launch,
           reservation,
+          workspace: existingWorkspace,
+          resume,
         })
       }
       if (prepared.size) {
@@ -1939,7 +2002,7 @@ export class PlanProtocol {
         const launchResults = await Promise.allSettled(
           [...prepared].map(async ([taskId, item]) => {
             let actualChild: string | undefined
-            let workspaceHandle: WorkspaceHandle | undefined
+            let workspaceHandle: WorkspaceHandle | undefined = item.workspace
             try {
               if (item.reservation && this.childWorkspace) {
                 workspaceHandle = await this.childWorkspace.create(item.reservation)
@@ -1956,16 +2019,21 @@ export class PlanProtocol {
                 })
               }
               if (this.children) {
-                const childBrief = workspaceHandle
-                  ? {
-                      ...item.brief,
-                      workspace_root: workspaceHandle.directory,
+                const childDirectory = workspaceHandle?.directory ?? (item.resume ? item.dispatch.workspace?.directory : undefined)
+                const childBrief = childDirectory
+                  ? rebaseBriefForChild(
+                      {
+                        ...item.brief,
+                      workspace_root: childDirectory,
                       output_path: resolveInside(
-                        workspaceHandle.directory,
+                        childDirectory,
                         path.relative(ctx.workspaceRoot, item.brief.output_path),
                         `浠诲姟 ${taskId} 鐨?child output_path`,
                       ),
-                    }
+                      },
+                      ctx.workspaceRoot,
+                      childDirectory,
+                    )
                   : item.brief
                 const childInput: ChildStartInput = {
                   parentSessionId: ctx.sessionId,
@@ -1976,27 +2044,40 @@ export class PlanProtocol {
                   agentDepth: childAgentDepth,
                   workspace: workspaceHandle ? dispatchWorkspaceMetadata(workspaceHandle) : item.dispatch.workspace,
                 }
-                const createdChild = await this.children.create(childInput)
-                actualChild = createdChild
-                this.metric(ctx.sessionId, {
-                  metric: "dispatch",
-                  phase: "create",
-                  outcome: "created",
-                  duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
-                })
-                registerChildRun(createdChild, item.dispatch.run_id, ctx.workspaceRoot)
-                await this.updateDispatchLifecycle(ctx, taskId, {
-                  child_session_id: createdChild,
-                  lifecycle: "child_created",
-                })
-                childInput.childSessionId = createdChild
-                await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "starting" })
-                await this.children.start(childInput)
+                actualChild = item.resume ? item.dispatch.child_session_id : undefined
+                if (item.resume && this.children.resume) {
+                  this.metric(ctx.sessionId, {
+                    metric: "dispatch",
+                    phase: "resume",
+                    outcome: "reused",
+                    duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
+                  })
+                  registerChildRun(item.dispatch.child_session_id, item.dispatch.run_id, ctx.workspaceRoot)
+                  await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "starting" })
+                  await this.children.resume(childInput)
+                } else {
+                  const createdChild = await this.children.create(childInput)
+                  actualChild = createdChild
+                  this.metric(ctx.sessionId, {
+                    metric: "dispatch",
+                    phase: "create",
+                    outcome: "created",
+                    duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
+                  })
+                  registerChildRun(createdChild, item.dispatch.run_id, ctx.workspaceRoot)
+                  await this.updateDispatchLifecycle(ctx, taskId, {
+                    child_session_id: createdChild,
+                    lifecycle: "child_created",
+                  })
+                  childInput.childSessionId = createdChild
+                  await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "starting" })
+                  await this.children.start(childInput)
+                }
                 await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
                 this.metric(ctx.sessionId, {
                   metric: "dispatch",
                   phase: "start",
-                  outcome: "started",
+                  outcome: item.resume ? "resumed" : "started",
                   duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
                 })
               } else if (!this.childWorkspace) {

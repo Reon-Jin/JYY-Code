@@ -178,7 +178,6 @@ export type CreateTaskInput = {
   done_criteria: string
   instructions?: string
   output_path?: string
-  max_steps?: number
   no_progress_steps?: number
   mode?: PlanTaskMode
 }
@@ -214,7 +213,6 @@ export type PlanUpdateOp =
           | "done_criteria"
           | "instructions"
           | "output_path"
-          | "max_steps"
           | "no_progress_steps"
         >
       >

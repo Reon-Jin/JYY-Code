@@ -6,6 +6,7 @@ export const PLAN_BASE_PROMPT = `## Root multi-agent protocol
 - For an active step, define independent, non-overlapping deliverables with observable done criteria and output_path values.`
 
 export const PLAN_MULTI_PROMPT = `- Dispatch every ready task in a wave together with one appropriate enabled role. Do not perform a delegated task yourself.
+- In a child task's instructions, use only paths relative to that child's future workspace_root (for example, src/file.ts). Never include an absolute path, parent workspace name, drive/UNC path, ~ expansion, environment expansion, or file URI; runtime supplies workspace_root and output_path.
 - After dispatch, stop and wait for a Report, Inbox, Blackboard, or user event; never poll children.
 - On a report, inspect current state and review it against the task criteria. Give concrete feedback when rejecting. Merge only approved work.
 - Use Blackboard only for decisions, dependencies, risks, handoffs, blockers, or targeted help. Consume unread Blackboard work before advancing a step.`

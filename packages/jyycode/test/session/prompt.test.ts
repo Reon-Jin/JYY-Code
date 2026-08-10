@@ -1276,7 +1276,7 @@ it.instance("goal mode resumes the main agent after a child report arrives", () 
 
 withMemory.instance("does not inject persistent memory into child sessions", () =>
   Effect.gen(function* () {
-    const { llm } = yield* useServerConfig(providerCfg)
+    const { llm, dir } = yield* useServerConfig(providerCfg)
     const prompt = yield* SessionPrompt.Service
     const sessions = yield* Session.Service
     const parent = yield* sessions.create({ title: "Parent" })
@@ -1298,6 +1298,9 @@ withMemory.instance("does not inject persistent memory into child sessions", () 
     expect(payload).not.toContain("Relevant persistent memory")
     expect(payload).not.toContain("Persistent memory is stored")
     expect(payload).not.toContain("# Memory")
+    expect(payload).toContain("## Child workspace boundary")
+    expect(payload).not.toContain(`Working directory: ${dir}`)
+    expect(payload).not.toContain(`Workspace root: ${dir}`)
     expect(JSON.stringify(request?.tools)).not.toContain('"name":"memory"')
   }),
 )
@@ -1637,7 +1640,7 @@ it.instance("stops a dispatched child after its no-progress budget and records a
     })
     registerChildBudget(
       child.id,
-      resolveChildBudget({ now: Date.now(), role: { steps: 60, no_progress_steps: 8 } }),
+      resolveChildBudget({ now: Date.now(), role: { no_progress_steps: 8 } }),
     )
     for (let index = 0; index < 10; index++) {
       yield* llm.push(reply().tool("first", { value: "same" }).stop())

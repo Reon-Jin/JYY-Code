@@ -631,7 +631,7 @@ describe("file-backed plan protocol", () => {
     expect(fs.existsSync(planFilePath(root, "ses_main"))).toBe(false)
   })
 
-  it("rejects caller-supplied child timeouts in create and update inputs", async () => {
+  it("rejects caller-supplied child execution limits in create and update inputs", async () => {
     const root = workspace()
     const protocol = new PlanProtocol({ store: new PlanStore() })
     const forgedCreate = {
@@ -639,7 +639,7 @@ describe("file-backed plan protocol", () => {
       steps: [
         {
           ...createInput().steps[0],
-          tasks: [{ ...createInput().steps[0]!.tasks![0], timeout_ms: 900_000 }],
+          tasks: [{ ...createInput().steps[0]!.tasks![0], timeout_ms: 900_000, max_steps: 1 }],
         },
         createInput().steps[1],
       ],
@@ -656,7 +656,7 @@ describe("file-backed plan protocol", () => {
           op: "edit_task",
           stepId: "s1",
           taskId: "s1_t1",
-          fields: { timeout_ms: 900_000 },
+          fields: { timeout_ms: 900_000, max_steps: 1 },
         },
       ],
     } as never)
@@ -1413,7 +1413,13 @@ describe("file-backed plan protocol", () => {
         },
       })
       const root = hardeningContext(fixture.root)
-      await protocol.create(root, hardeningPlanInput("out/result.md"))
+      const plan = hardeningPlanInput("out/result.md")
+      const task = plan.steps[0]?.tasks?.[0]
+      if (!task) throw new Error("hardening fixture is missing its task")
+      task.instructions = `Create ${fixture.root.replaceAll("\\", "/")}/out/result.md with the requested result.`
+      task.goal = `Produce a result under ${fixture.root}/out.`
+      task.done_criteria = `${fixture.root}/out/result.md exists.`
+      await protocol.create(root, plan)
       const dispatched = await protocol.dispatch(root, { taskIds: ["s1_t1"], role: "general" })
       expect(dispatched.ok).toBe(true)
       if (!dispatched.ok || !createdInput) return
@@ -1423,6 +1429,9 @@ describe("file-backed plan protocol", () => {
       if (!workspaceDirectory) return
       expect(createdInput.brief.workspace_root).toBe(workspaceDirectory)
       expect(createdInput.brief.output_path).toBe(path.join(workspaceDirectory, "out", "result.md"))
+      expect(JSON.stringify(createdInput.brief)).not.toContain(fixture.root)
+      expect(createdInput.brief.task_instructions).toContain(workspaceDirectory)
+      expect(createdInput.brief.task_instructions).toContain("out/result.md")
 
       fs.mkdirSync(path.dirname(createdInput.brief.output_path), { recursive: true })
       fs.writeFileSync(createdInput.brief.output_path, "child result")
@@ -1762,6 +1771,8 @@ describe("file-backed plan protocol", () => {
     })
     expect(multiAgentPrompt).toContain("Root multi-agent protocol")
     expect(multiAgentPrompt).toContain("Dispatch every ready task")
+    expect(multiAgentPrompt).toContain("only paths relative to that child's future workspace_root")
+    expect(multiAgentPrompt).toContain("Never include an absolute path")
     expect(multiAgentPrompt).toContain("never poll children")
     expect(multiAgentPrompt).toContain("Merge only approved work")
     expect(multiAgentPrompt).toContain("Blackboard only for decisions")

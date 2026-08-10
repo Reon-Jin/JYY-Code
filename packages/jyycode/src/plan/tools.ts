@@ -21,9 +21,11 @@ import {
   clearChildBudget,
   takeChildBudgetFailure,
   runIdForChildSession,
+  planRootForRunId,
   markChildRunIntent,
   takeChildRunIntent,
   type DispatchBrief,
+  type ChildStartInput,
   type PlanExecutionContext,
 } from "./protocol"
 import type { LaunchSnapshot } from "@/agent/subagent-profile"
@@ -104,9 +106,12 @@ const taskInputSchema: JSONSchema7 = {
     title: nonEmptyStringSchema,
     goal: nonEmptyStringSchema,
     done_criteria: nonEmptyStringSchema,
-    instructions: nonEmptyStringSchema,
+    instructions: {
+      ...nonEmptyStringSchema,
+      description:
+        "Child-facing instructions. Refer to files only with paths relative to the child's workspace_root (for example src/file.ts); never include absolute, parent-workspace, drive/UNC, home-expanded, environment-expanded, or file:// paths.",
+    },
     output_path: nonEmptyStringSchema,
-    max_steps: positiveIntegerSchema,
     no_progress_steps: positiveIntegerSchema,
     mode: {
       enum: ["standard", "candidate"],
@@ -236,7 +241,6 @@ const updateOps: JSONSchema7[] = [
           done_criteria: nonEmptyStringSchema,
           instructions: nonEmptyStringSchema,
           output_path: nonEmptyStringSchema,
-          max_steps: positiveIntegerSchema,
           no_progress_steps: positiveIntegerSchema,
         },
       },
@@ -737,6 +741,116 @@ function protocolFor(
   },
 ) {
   let protocol: PlanProtocol
+  const runChild = (input: ChildStartInput, continuation: boolean) => {
+    if (!runtime.promptOps) return
+    const ops = runtime.promptOps
+    registerChildRun(input.childSessionId, input.brief.run_id)
+    if (input.brief.budget) registerChildBudget(input.childSessionId, input.brief.budget)
+    if (continuation && input.workspace?.directory && input.workspace.mode !== "shared_compat" && runtime.leaseStore) {
+      runtime.leaseStore.create({
+        workspace_directory: input.workspace.directory,
+        root_session_id: input.parentSessionId,
+        task_id: input.taskId,
+        run_id: input.brief.run_id,
+        session_id: input.childSessionId,
+      })
+    }
+    const heartbeat =
+      input.workspace?.directory && input.workspace.mode !== "shared_compat" && runtime.leaseStore
+        ? setInterval(() => {
+            try {
+              runtime.leaseStore!.heartbeat(input.workspace!.directory!, { sessionId: input.childSessionId })
+            } catch {
+              // A missing lease is safe to observe; the sweeper still checks
+              // Session/Plan liveness before reclaiming the workspace.
+            }
+          }, 30_000)
+        : undefined
+    if (heartbeat && typeof heartbeat === "object" && "unref" in heartbeat) heartbeat.unref()
+    const releaseLease = () => {
+      if (heartbeat) clearInterval(heartbeat)
+      if (input.workspace?.directory && input.workspace.mode !== "shared_compat") {
+        if (runtime.leaseStore) runtime.leaseStore.remove(input.workspace.directory)
+        else removeWorkspaceLeaseFile(input.workspace.directory)
+      }
+    }
+    const settleAndNotify = (message?: string) =>
+      Effect.gen(function* () {
+        releaseLease()
+        if (takeChildRunIntent(input.childSessionId)) return
+        const budgetFailure = takeChildBudgetFailure(input.childSessionId)
+        const outcome = yield* Effect.promise(() =>
+          protocol.settleChildExit({
+            workspaceRoot: planRootForRunId(input.brief.run_id) ?? input.brief.workspace_root,
+            parentSessionId: input.parentSessionId,
+            childSessionId: input.childSessionId,
+            taskId: input.taskId,
+            runId: input.brief.run_id,
+          }),
+        ).pipe(Effect.orElseSucceed(() => ({ settled: false, reason: "settle_failed" })))
+        if (message === undefined && !budgetFailure && !outcome.settled) return
+        const failureMessage =
+          budgetFailure === "MAX_STEPS_BUDGET_EXCEEDED"
+            ? "Child reached its step budget before submitting Report; this is not a wall-clock timeout."
+            : budgetFailure === "DEADLINE_BUDGET_EXCEEDED"
+              ? "Child exceeded its wall-clock execution deadline before submitting Report."
+              : budgetFailure === "NO_PROGRESS_BUDGET_EXCEEDED"
+                ? "Child stopped after exhausting its no-progress budget before submitting Report."
+                : budgetFailure
+                  ? `Child execution stopped: ${budgetFailure}.`
+                  : undefined
+        protocol.inbox.add({
+          session_id: input.parentSessionId,
+          task_id: input.taskId,
+          run_id: input.brief.run_id,
+          kind: "runtime_error",
+          message: message ?? failureMessage ?? `Child stopped without Report for task ${input.taskId}.`,
+          suggested_actions: ["Read Inbox", "repair the task and redispatch it"],
+        })
+        yield* ops
+          .wake({
+            sessionID: input.parentSessionId as SessionID,
+            kind: "plan_child_runtime_error",
+            text: `Child ${input.childSessionId} stopped while executing ${input.taskId}; inspect Plan and Inbox.`,
+          })
+          .pipe(Effect.ignore)
+      })
+    runtime.bridge.fork(
+      Effect.gen(function* () {
+        if (continuation) {
+          const retryPrompt = childRetryPrompt(input.brief)
+          if (!retryPrompt) throw new Error("A continued child task requires review feedback")
+          yield* ops.prompt({
+            sessionID: input.childSessionId as SessionID,
+            agent: profileAgentName(input.role.id),
+            noReply: true,
+            parts: [{ type: "text", text: retryPrompt }],
+          })
+        } else {
+          // Persist the visible initial task before entering the model loop.
+          yield* ops.prompt({
+            sessionID: input.childSessionId as SessionID,
+            agent: profileAgentName(input.role.id),
+            noReply: true,
+            parts: childLaunchParts(input.brief, input.role),
+          })
+          for (const retryPrompt of childRetryPrompts(input.brief)) {
+            yield* ops.prompt({
+              sessionID: input.childSessionId as SessionID,
+              agent: profileAgentName(input.role.id),
+              noReply: true,
+              parts: [{ type: "text", text: retryPrompt }],
+            })
+          }
+        }
+        yield* ops.loop({ sessionID: input.childSessionId as SessionID })
+      }).pipe(
+        Effect.catchCause((cause) => settleAndNotify(`Child start or execution failed: ${Cause.pretty(cause)}`)),
+        Effect.flatMap(() => settleAndNotify()),
+        Effect.ensuring(Effect.sync(() => clearChildBudget(input.childSessionId))),
+      ),
+    )
+  }
   protocol = new PlanProtocol({
     eventSink: (event) => {
       runtime.bridge.fork(bus.publish(RuntimeEvent, event).pipe(Effect.ignore))
@@ -773,105 +887,11 @@ function protocolFor(
         return child.id
       },
       async start(input) {
-        if (!runtime.promptOps) return
-        const ops = runtime.promptOps
-        registerChildRun(input.childSessionId, input.brief.run_id)
-        if (input.brief.budget) registerChildBudget(input.childSessionId, input.brief.budget)
-        const heartbeat =
-          input.workspace?.directory && input.workspace.mode !== "shared_compat" && runtime.leaseStore
-            ? setInterval(() => {
-                try {
-                  runtime.leaseStore!.heartbeat(input.workspace!.directory!, { sessionId: input.childSessionId })
-                } catch {
-                  // A missing lease is safe to observe; the sweeper will still
-                  // require Session/Plan checks before reclaiming the workspace.
-                }
-              }, 30_000)
-            : undefined
-        if (heartbeat && typeof heartbeat === "object" && "unref" in heartbeat) heartbeat.unref()
-        const releaseLease = () => {
-          if (heartbeat) clearInterval(heartbeat)
-          if (input.workspace?.directory && input.workspace.mode !== "shared_compat") {
-            if (runtime.leaseStore) runtime.leaseStore.remove(input.workspace.directory)
-            else removeWorkspaceLeaseFile(input.workspace.directory)
-          }
-        }
-        // Align the task with its child run once the loop terminates. The
-        // loop can also end without an Effect failure — tool errors, the
-        // repeated-turn guard, or the empty-response guard all finish the
-        // turn "normally" — and a child that stops without Report would
-        // otherwise leave its task in running forever.
-        const settleAndNotify = (message?: string) =>
-          Effect.gen(function* () {
-            releaseLease()
-            // A user-driven steer/terminate endpoint marks an intent before
-            // cancelling this run and owns the resulting settle, Inbox entry,
-            // and parent wakeup itself. Skip the automatic path so the main
-            // agent never sees a bogus "child stopped without Report" entry
-            // for an intentional interruption.
-            if (takeChildRunIntent(input.childSessionId)) return
-            const budgetFailure = takeChildBudgetFailure(input.childSessionId)
-            const outcome = yield* Effect.promise(() =>
-              protocol.settleChildExit({
-                workspaceRoot: input.brief.workspace_root,
-                parentSessionId: input.parentSessionId,
-                childSessionId: input.childSessionId,
-                taskId: input.taskId,
-                runId: input.brief.run_id,
-              }),
-            ).pipe(Effect.orElseSucceed(() => ({ settled: false, reason: "settle_failed" })))
-            // A clean exit only needs a notification when it actually parked
-            // the task; children that already reported and candidate children
-            // waiting on a checkpoint ended their turn on purpose.
-            if (message === undefined && !budgetFailure && !outcome.settled) return
-            const failureMessage = budgetFailure ? `Child execution stopped: ${budgetFailure}.` : undefined
-            protocol.inbox.add({
-              session_id: input.parentSessionId,
-              task_id: input.taskId,
-              run_id: input.brief.run_id,
-              kind: "runtime_error",
-              message:
-                message ??
-                failureMessage ??
-                `子 Agent 未提交 Report 即停止运行：任务 ${input.taskId} 已标记为需要修改，可修正后重新派发或取消。`,
-              suggested_actions: ["读取 Inbox 查看错误", "取消任务并修正后重新派发"],
-            })
-            yield* ops
-              .wake({
-                sessionID: input.parentSessionId as SessionID,
-                kind: "plan_child_runtime_error",
-                text: `子 Agent ${input.childSessionId} 执行 ${input.taskId} 时停止运行，任务状态已同步更新。先调用 Plan_read，再处理 Inbox。`,
-              })
-              .pipe(Effect.ignore)
-          })
-        runtime.bridge.fork(
-          Effect.gen(function* () {
-            // Persist the visible user prompt before starting the model loop. A
-            // single fire-and-forget prompt could let the child run race its
-            // first message, leaving some child sessions with no initial task.
-            yield* ops.prompt({
-              sessionID: input.childSessionId as SessionID,
-              agent: profileAgentName(input.role.id),
-              noReply: true,
-              parts: childLaunchParts(input.brief, input.role),
-            })
-            for (const retryPrompt of childRetryPrompts(input.brief)) {
-              yield* ops.prompt({
-                sessionID: input.childSessionId as SessionID,
-                agent: profileAgentName(input.role.id),
-                noReply: true,
-                parts: [{ type: "text", text: retryPrompt }],
-              })
-            }
-            yield* ops.loop({ sessionID: input.childSessionId as SessionID })
-          }).pipe(
-            Effect.catchCause((cause) => settleAndNotify(`子 Agent 启动或执行失败：${Cause.pretty(cause)}`)),
-            // Runs after clean exits and after the recovered failure above;
-            // the second call is a no-op when the task was already settled.
-            Effect.flatMap(() => settleAndNotify()),
-            Effect.ensuring(Effect.sync(() => clearChildBudget(input.childSessionId))),
-          ),
-        )
+        runChild(input, false)
+        return
+      },
+      async resume(input) {
+        runChild(input, true)
       },
       async terminate(sessionId, request?: ChildTerminationRequest) {
         const run = runtime.bridge.promise

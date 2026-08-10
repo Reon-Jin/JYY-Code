@@ -21,7 +21,7 @@ export const RUNTIME_CONTRACT = [
 ].join("\n")
 
 export interface Interface {
-  readonly environment: (model: Provider.Model) => Effect.Effect<string[]>
+  readonly environment: (model: Provider.Model, input?: { child?: boolean }) => Effect.Effect<string[]>
   readonly skills: (agent: Agent.Info, scope?: Skill.SkillAccessScope) => Effect.Effect<string | undefined>
 }
 
@@ -33,14 +33,20 @@ export const layer = Layer.effect(
     const skill = yield* Skill.Service
 
     return Service.of({
-      environment: Effect.fn("SystemPrompt.environment")(function* (model: Provider.Model) {
+      environment: Effect.fn("SystemPrompt.environment")(function* (model: Provider.Model, input?: { child?: boolean }) {
         const ctx = yield* InstanceState.context
+        const workspace = input?.child
+          ? [
+              "## Child workspace boundary",
+              "- Your only filesystem boundary is workspace_root in the dispatch brief.",
+              "- Do not infer, request, or access the parent Agent's workspace. Resolve every task path from workspace_root.",
+            ]
+          : [`Working directory: ${ctx.directory}`, `Workspace root: ${ctx.worktree}`]
         return [
           [
             "## Runtime context",
             `Model: ${model.providerID}/${model.api.id}`,
-            `Working directory: ${ctx.directory}`,
-            `Workspace root: ${ctx.worktree}`,
+            ...workspace,
             `Git repository: ${ctx.project.vcs === "git" ? "yes" : "no"}`,
             RUNTIME_CONTRACT,
           ].join("\n"),
