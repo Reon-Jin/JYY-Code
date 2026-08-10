@@ -1,4 +1,5 @@
 import type { FileContent, VcsFileDiff } from "@jyycode-ai/sdk/v2/client"
+import { PDFDocument } from "pdf-lib"
 import * as XLSX from "xlsx"
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
@@ -278,6 +279,42 @@ describe("FilePreview", () => {
 
     expect(await screen.findByRole("tab", { name: "Summary" })).toHaveAttribute("aria-selected", "true")
     expect(screen.getByRole("tab", { name: "Details" })).toBeVisible()
+  })
+
+  it("shows editing, two-page, and selection controls for PDF previews", async () => {
+    const backend = createFakeJyycode(directory)
+    const document = await PDFDocument.create()
+    document.addPage([240, 320])
+    backend.fileContents.set("manual.pdf", {
+      type: "text",
+      content: Buffer.from(await document.save()).toString("base64"),
+      encoding: "base64",
+      mimeType: "application/pdf",
+      revision: "revision-pdf",
+    })
+    vi.spyOn(globalThis, "fetch").mockImplementation(backend.fetch)
+    const desktop = createFakeDesktop({ settings: { ...defaultDesktopSettings, locale: "en-US" } })
+
+    render(() => (
+      <DesktopBridgeProvider bridge={desktop.bridge}>
+        <I18nProvider>
+          <DataProvider
+            bootstrap={{ baseUrl: "http://desktop.test", username: "jyycode", password: "secret" }}
+            generation={0}
+            directory={directory}
+          >
+            <FilePreview directory={directory} path="manual.pdf" />
+          </DataProvider>
+        </I18nProvider>
+      </DesktopBridgeProvider>
+    ))
+
+    expect(await screen.findByRole("button", { name: "PDF pen" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "PDF line" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Two-page view" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Select PDF content" })).toBeVisible()
+    await screen.getByRole("button", { name: "PDF pen" }).click()
+    expect(screen.getByRole("slider", { name: "Stroke width" })).toHaveValue("3")
   })
 })
 

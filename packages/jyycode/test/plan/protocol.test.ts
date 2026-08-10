@@ -1784,6 +1784,9 @@ describe("file-backed plan protocol", () => {
     expect(childPrompt).toContain("Candidate child 严格按阶段")
     expect(childPrompt).toContain("只用 Candidate_submit 提交独立 proposal")
     expect(childPrompt).not.toContain("Blackboard.reply")
+    expect(childPrompt).toContain("Write the requested artifact first")
+    expect(childPrompt).not.toContain("Plan_create")
+    expect(childPrompt).not.toContain("Dispatch_dispatch")
   })
 
   it("prioritizes main writes, ages normal writes, times out, and reclaims stale locks", async () => {

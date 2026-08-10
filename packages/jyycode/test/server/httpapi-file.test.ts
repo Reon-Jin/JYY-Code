@@ -164,4 +164,27 @@ describe("file HttpApi", () => {
     expect(saved.status).toBe(200)
     expect(await Bun.file(path.join(tmp.path, "report.xlsx")).arrayBuffer()).toEqual(after.buffer)
   })
+
+  test("writes scoped base64 PDF content", async () => {
+    await using tmp = await tmpdir({ git: false })
+    const before = Buffer.from("%PDF-1.4 before")
+    const after = Buffer.from("%PDF-1.4 after")
+    await Bun.write(path.join(tmp.path, "annotated.pdf"), before)
+
+    const current = await request(FilePaths.content, tmp.path, { path: "annotated.pdf" })
+    const currentBody = await current.json()
+    const saved = await request(FilePaths.content, tmp.path, undefined, {
+      method: "PUT",
+      body: JSON.stringify({
+        path: "annotated.pdf",
+        content: after.toString("base64"),
+        encoding: "base64",
+        revision: currentBody.revision,
+      }),
+      headers: { "content-type": "application/json" },
+    })
+
+    expect(saved.status).toBe(200)
+    expect(await Bun.file(path.join(tmp.path, "annotated.pdf")).arrayBuffer()).toEqual(after.buffer)
+  })
 })

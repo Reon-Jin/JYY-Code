@@ -27,8 +27,15 @@ function renderTree(backend: ReturnType<typeof createFakeJyycode>, onOpenFile = 
 }
 
 describe("FileTree", () => {
-  it("loads the root, hides hidden/ignored nodes, and lazy-loads directories", async () => {
+  it("loads the root, hides generated nodes, shows gitignored files, and lazy-loads directories", async () => {
     const backend = createFakeJyycode(directory)
+    backend.fileNodes[""]?.push({
+      name: "ignored.log",
+      path: "ignored.log",
+      absolute: `${directory}\\ignored.log`,
+      type: "file",
+      ignored: true,
+    })
     const onOpenFile = renderTree(backend)
     const user = userEvent.setup()
 
@@ -39,6 +46,7 @@ describe("FileTree", () => {
     )
     expect(screen.getByRole("treeitem", { name: "README.md" })).toBeVisible()
     expect(screen.queryByRole("treeitem", { name: ".gitignore" })).not.toBeInTheDocument()
+    expect(screen.getByRole("treeitem", { name: "ignored.log" })).toBeVisible()
     expect(screen.queryByRole("treeitem", { name: "dist" })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "src" }))

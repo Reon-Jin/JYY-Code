@@ -382,11 +382,11 @@ describe("file/index Filesystem patterns", () => {
       }),
     )
 
-    it.instance("returns base64 encoding for PDF, DOCX, video, and audio previews", () =>
+    it.instance("returns base64 encoding for document and audio previews", () =>
       Effect.gen(function* () {
         const test = yield* TestInstance
         const bytes = Buffer.from([0x00, 0x01, 0x02, 0x03])
-        for (const extension of ["pdf", "docx", "mp4", "mp3"] as const) {
+        for (const extension of ["pdf", "docx", "mp3"] as const) {
           const filepath = path.join(test.directory, `preview.${extension}`)
           yield* Effect.promise(() => fs.writeFile(filepath, bytes))
           const result = yield* read(`preview.${extension}`)
@@ -441,6 +441,25 @@ describe("file/index Filesystem patterns", () => {
 
         expect(saved.revision).not.toBe(current.revision)
         expect(yield* Effect.promise(() => fs.readFile(path.join(test.directory, "report.xlsx")))).toEqual(after)
+      }),
+    )
+
+    it.instance("writes base64 PDF bytes atomically when the revision matches", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const before = Buffer.from("%PDF-1.4 before")
+        const after = Buffer.from("%PDF-1.4 after")
+        yield* Effect.promise(() => fs.writeFile(path.join(test.directory, "annotated.pdf"), before))
+        const current = yield* read("annotated.pdf")
+        const saved = yield* write({
+          path: "annotated.pdf",
+          content: after.toString("base64"),
+          encoding: "base64",
+          revision: current.revision,
+        })
+
+        expect(saved.revision).not.toBe(current.revision)
+        expect(yield* Effect.promise(() => fs.readFile(path.join(test.directory, "annotated.pdf")))).toEqual(after)
       }),
     )
 

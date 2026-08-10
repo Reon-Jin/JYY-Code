@@ -47,6 +47,7 @@
     "marked": "catalog:",
     "marked-katex-extension": "catalog:",
     "pdfjs-dist": "catalog:",
+    "pdf-lib": "^1.17.1",
     "solid-js": "catalog:",
     "xlsx": "0.18.5"
   },

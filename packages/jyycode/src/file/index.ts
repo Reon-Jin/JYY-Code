@@ -724,9 +724,10 @@ export const layer = Layer.effect(
       }
 
       const mimeType = AppFileSystem.mimeType(full)
-      const binarySpreadsheet = input.encoding === "base64" && spreadsheetBinary.has(ext(input.path))
-      if (input.encoding === "base64" && !binarySpreadsheet) {
-        return yield* new UnsupportedWriteError({ message: "Base64 writes are only supported for spreadsheet files" })
+      const extension = ext(input.path)
+      const binaryDocument = input.encoding === "base64" && (spreadsheetBinary.has(extension) || extension === "pdf")
+      if (input.encoding === "base64" && !binaryDocument) {
+        return yield* new UnsupportedWriteError({ message: "Base64 writes are only supported for spreadsheet and PDF files" })
       }
       const isMedia =
         isBinaryByExtension(input.path) ||
@@ -734,7 +735,7 @@ export const layer = Layer.effect(
         isImage(mimeType) ||
         mimeType.startsWith("audio/") ||
         mimeType.startsWith("video/")
-      if (binarySpreadsheet) {
+      if (binaryDocument) {
         let bytes: Uint8Array
         try {
           if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(input.content)) {
@@ -742,10 +743,16 @@ export const layer = Layer.effect(
           }
           bytes = Uint8Array.from(Buffer.from(input.content, "base64"))
         } catch {
-          return yield* new UnsupportedWriteError({ message: "Spreadsheet content must be valid base64" })
+          return yield* new UnsupportedWriteError({ message: "Binary document content must be valid base64" })
         }
-        if (bytes.byteLength > maxPreviewBytes) {
-          return yield* new TooLargeError({ message: "Spreadsheet files larger than 25 MiB cannot be edited" })
+        const binaryLimit = extension === "pdf" ? maxDocumentPreviewBytes : maxPreviewBytes
+        if (bytes.byteLength > binaryLimit) {
+          return yield* new TooLargeError({
+            message:
+              extension === "pdf"
+                ? "PDF files larger than 256 MiB cannot be edited"
+                : "Spreadsheet files larger than 25 MiB cannot be edited",
+          })
         }
 
         const exists = yield* appFs.existsSafe(full)

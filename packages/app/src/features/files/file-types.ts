@@ -104,6 +104,7 @@ const extension = (file: string) => {
 }
 
 const pathParts = (file: string) => file.replaceAll("\\", "/").split("/").filter(Boolean)
+const workspaceExcludedDirectories = new Set(["node_modules", "dist", "build", "coverage"])
 
 export function previewKind(file: string): PreviewKind {
   const ext = extension(file)
@@ -133,9 +134,10 @@ export function isEditableText(file: string): boolean {
 export function isHiddenFileNode(
   node: string | { name?: string; path: string; type?: "file" | "directory"; ignored?: boolean },
 ): boolean {
-  if (typeof node !== "string" && node.ignored === true) return true
   const file = typeof node === "string" ? node : node.path || node.name || ""
-  return pathParts(file).some((part) => part.startsWith(".") && part.length > 1)
+  return pathParts(file).some(
+    (part) => (part.startsWith(".") && part.length > 1) || workspaceExcludedDirectories.has(part),
+  )
 }
 
 export function isDeletedChange(change: { status?: string; type?: string } | null | undefined): boolean {
