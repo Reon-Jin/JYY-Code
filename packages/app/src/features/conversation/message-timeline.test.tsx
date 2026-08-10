@@ -518,7 +518,12 @@ describe("MessageTimeline", () => {
   it("does not render a goal end marker for a cancelled run", () => {
     render(() => (
       <MessageTimeline
-        messages={[conversation([{ id: "part_cancelled", sessionID, messageID: info.id, type: "text", text: "cancelled" }])]}
+        messages={[
+          conversation(
+            [{ id: "part_cancelled", sessionID, messageID: info.id, type: "text", text: "cancelled" }],
+            { ...info, time: { created: 20 } },
+          ),
+        ]}
         goal={{
           condition: "cancelled goal",
           status: "cancelled",
@@ -532,6 +537,56 @@ describe("MessageTimeline", () => {
 
     expect(document.querySelector('.goal-timeline-marker[data-marker="start"]')).toBeInTheDocument()
     expect(document.querySelector('.goal-timeline-marker[data-marker="end"]')).not.toBeInTheDocument()
+  })
+
+  it("does not render toggles that never reached a message", () => {
+    render(() => (
+      <MessageTimeline
+        messages={[conversation([{ id: "part_before_goal", sessionID, messageID: info.id, type: "text", text: "before" }])]}
+        goal={{
+          condition: "latest cancelled goal",
+          status: "cancelled",
+          startedAt: 30,
+          updatedAt: 40,
+          completedAt: 40,
+          maxTurns: 30,
+          history: [
+            { condition: "first cancelled goal", status: "cancelled", startedAt: 10, completedAt: 20 },
+            { condition: "second cancelled goal", status: "cancelled", startedAt: 20, completedAt: 25 },
+          ],
+        }}
+      />
+    ))
+
+    expect(document.querySelectorAll(".goal-timeline-marker")).toHaveLength(0)
+  })
+
+  it("associates one following message with only the latest repeated toggle", () => {
+    render(() => (
+      <MessageTimeline
+        messages={[
+          conversation(
+            [{ id: "part_after_toggles", sessionID, messageID: info.id, type: "text", text: "after toggles" }],
+            { ...info, time: { created: 50 } },
+          ),
+        ]}
+        goal={{
+          condition: "latest cancelled goal",
+          status: "cancelled",
+          startedAt: 30,
+          updatedAt: 40,
+          completedAt: 40,
+          maxTurns: 30,
+          history: [
+            { condition: "first cancelled goal", status: "cancelled", startedAt: 10, completedAt: 20 },
+            { condition: "second cancelled goal", status: "cancelled", startedAt: 20, completedAt: 25 },
+          ],
+        }}
+      />
+    ))
+
+    const markers = [...document.querySelectorAll<HTMLElement>(".goal-timeline-marker")]
+    expect(markers.map((marker) => marker.dataset.marker)).toEqual(["start"])
   })
 
   it("shows compaction progress and completion indicators", () => {

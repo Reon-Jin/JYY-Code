@@ -939,7 +939,7 @@ it.instance("cancelling a dispatched task forces the next turn to redispatch", (
         ],
       }),
     )
-    yield* Effect.promise(() => defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }))
+    const dispatched = yield* Effect.promise(() => defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }))
     yield* prompt.prompt({
       sessionID: chat.id,
       agent: "build",
@@ -1236,9 +1236,10 @@ it.instance("goal mode resumes the main agent after a child report arrives", () 
         ],
       }),
     )
-    yield* Effect.promise(() => defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }))
+    const dispatched = yield* Effect.promise(() => defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }))
+    if (!dispatched.ok) throw new Error(dispatched.error.message)
     yield* writeText(path.join(chat.directory, "result.md"), "done")
-    const runId = `run__${chat.id}__s1_t1`
+    const runId = dispatched.dispatched[0]!.run_id
     const report = yield* Effect.promise(() =>
       defaultPlanProtocol.report(
         { workspaceRoot: chat.directory, sessionId: chat.id, mode: "multi", runId },

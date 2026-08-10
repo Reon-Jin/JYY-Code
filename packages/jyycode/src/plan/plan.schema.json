@@ -246,7 +246,19 @@
         "artifacts": { "type": "array", "items": { "type": "string" } },
         "issues": { "type": "array", "items": { "type": "string" } },
         "reported_at": { "type": "string", "format": "date-time" },
-        "review_feedback": { "type": ["string", "null"] }
+        "review_feedback": { "type": ["string", "null"] },
+        "review_feedback_history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["review_feedback", "issues"],
+            "properties": {
+              "review_feedback": { "type": "string", "minLength": 1 },
+              "issues": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
       }
     }
   }

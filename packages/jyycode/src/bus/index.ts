@@ -64,7 +64,10 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const state = yield* InstanceState.make<State>(
       Effect.fn("Bus.state")(function* (ctx) {
-        const wildcard = yield* PubSub.unbounded<Payload>()
+        // The bus carries notifications only. Durable interaction state is
+        // reconciled from its store after reconnect, so the live channel must
+        // stay bounded instead of retaining a slow subscriber's backlog.
+        const wildcard = yield* PubSub.sliding<Payload>({ capacity: 1024, replay: 64 })
         const typed = new Map<string, PubSub.PubSub<Payload>>()
 
         yield* Effect.addFinalizer(() =>
@@ -90,7 +93,8 @@ export const layer = Layer.effect(
       return Effect.gen(function* () {
         let ps = state.typed.get(def.type)
         if (!ps) {
-          ps = yield* PubSub.unbounded<Payload>()
+          const durable = /permission|question|terminal|cleanup|kill|disposed/i.test(def.type)
+          ps = yield* PubSub.sliding<Payload>({ capacity: durable ? 1024 : 256, replay: 64 })
           state.typed.set(def.type, ps)
         }
         return ps as unknown as PubSub.PubSub<Payload<D>>

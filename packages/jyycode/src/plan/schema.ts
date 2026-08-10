@@ -126,6 +126,7 @@ export type ReportRecord = {
   issues: string[]
   reported_at: string
   review_feedback: string | null
+  review_feedback_history?: Array<{ review_feedback: string; issues: string[] }>
 }
 
 export type PlanTask = {
@@ -654,7 +655,16 @@ function isValidReport(value: unknown): value is ReportRecord {
     Array.isArray(value.issues) &&
     value.issues.every((item) => typeof item === "string") &&
     validDateTime(value.reported_at) &&
-    (value.review_feedback === null || typeof value.review_feedback === "string")
+    (value.review_feedback === null || typeof value.review_feedback === "string") &&
+    (value.review_feedback_history === undefined ||
+      (Array.isArray(value.review_feedback_history) &&
+        value.review_feedback_history.every(
+          (item) =>
+            isRecord(item) &&
+            nonEmptyString(item.review_feedback) &&
+            Array.isArray(item.issues) &&
+            item.issues.every((issue) => typeof issue === "string"),
+        )))
   )
 }
 

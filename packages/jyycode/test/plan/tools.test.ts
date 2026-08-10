@@ -114,7 +114,8 @@ describe("plan runtime event bridge", () => {
       expect(brief).toContain("write the notes")
       expect(brief).toContain("## Working Directory")
       expect(brief).toContain("/workspace")
-      expect(brief).toContain("隔离副本")
+      expect(brief).toContain("隔离 worktree")
+      expect(brief).toContain("shared_compat")
       expect(brief).not.toContain("与主 Agent 一致")
       expect(brief).not.toContain("task_instructions")
       expect(brief).not.toContain("output_path")
@@ -188,10 +189,53 @@ describe("plan runtime event bridge", () => {
       expect(parts[0]?.text).toContain("write the notes")
       expect(parts[0]?.text).toContain("## Role Instructions")
       expect(parts[0]?.text).toContain("Use a careful implementation.")
-      expect(parts[1]?.text).toContain("隔离副本")
+      expect(parts[1]?.text).toContain("隔离 worktree")
+      expect(parts[1]?.text).toContain("shared_compat")
+      expect(parts[1]?.text).toContain("Standard execution")
+      expect(parts[1]?.text).not.toContain("Candidate execution")
       expect(parts[1]?.text).not.toContain("与主 Agent 一致")
       expect(parts[0]?.synthetic).toBeUndefined()
       expect(parts[1]?.synthetic).toBe(true)
+    }),
+  )
+
+  it.effect("uses the candidate protocol instead of Report in candidate launch metadata", () =>
+    Effect.sync(() => {
+      const parts = childLaunchParts(
+        {
+          run_id: "run__ses_root__s1_t1",
+          task_title: "Compare approaches",
+          goal: "compare two approaches",
+          done_criteria: "submit a proposal",
+          workspace_root: "/workspace",
+          output_path: "/workspace/.jyycode/plan/candidates/ses_root/s1/s1_t1/proposal.md",
+          mode: "candidate",
+          step_context: {
+            plan_goal: "Choose an approach",
+            step_id: "s1",
+            step_title: "Compare",
+            step_goal: "Compare approaches",
+            step_done_criteria: "Select one approach",
+          },
+          report_format: "Report(...)",
+          step_directory: [],
+        },
+        {
+          id: "worker",
+          name: "Worker",
+          description: "Worker",
+          prompt: "Compare carefully.",
+          avatar: "bot",
+        },
+      )
+
+      expect(parts[1]?.text).toContain("Candidate execution")
+      expect(parts[1]?.text).toContain("Candidate_submit")
+      expect(parts[1]?.text).toContain("Blackboard_Reply")
+      expect(parts[1]?.text).toContain("运行时会把 proposal 写入 `output_path`")
+      expect(parts[1]?.text).not.toContain("再调用 `Report`")
+      expect(parts[1]?.text).not.toContain("Standard execution")
+      expect(parts[1]?.text).not.toContain("先把产出写入 `output_path`")
     }),
   )
 

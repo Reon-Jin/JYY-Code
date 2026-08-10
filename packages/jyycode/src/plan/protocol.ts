@@ -174,6 +174,7 @@ export type DispatchBrief = {
   }>
   blackboard_summary?: Array<{ id: string; kind: string; summary: string; task_ids: string[] }>
   previous_feedback?: { review_feedback: string; issues: string[] }
+  review_feedback_history?: Array<{ review_feedback: string; issues: string[] }>
 }
 
 export type ChildBudgetSnapshot = DispatchBudget
@@ -995,8 +996,14 @@ function applyOp(
       }
       if (op.decision === "reject" && !asString(op.feedback)) inputError("reject 必须提供 feedback")
       task.status = op.decision === "approve" ? "approved" : "rejected"
-      if (task.report)
-        task.report.review_feedback = op.decision === "reject" ? asString(op.feedback) : task.report.review_feedback
+      if (task.report && op.decision === "reject") {
+        const reviewFeedback = asString(op.feedback)
+        task.report.review_feedback = reviewFeedback
+        task.report.review_feedback_history = [
+          ...(task.report.review_feedback_history ?? []),
+          { review_feedback: reviewFeedback, issues: [...task.report.issues] },
+        ]
+      }
       reviewed.push({ taskId: task.id, result: op.decision === "approve" ? "approved" : "rejected" })
       return
     }
@@ -1843,6 +1850,14 @@ export class PlanProtocol {
           ...(task.report?.review_feedback
             ? { previous_feedback: { review_feedback: task.report.review_feedback, issues: task.report.issues } }
             : {}),
+          ...(task.report?.review_feedback_history?.length
+            ? {
+                review_feedback_history: task.report.review_feedback_history.map((item) => ({
+                  review_feedback: item.review_feedback,
+                  issues: [...item.issues],
+                })),
+              }
+            : {}),
         }
         const launch = launchSnapshot(role)
         const reservation = this.childWorkspace?.reserve(ctx.sessionId, task.id)
@@ -2421,6 +2436,9 @@ export class PlanProtocol {
           issues: [],
           reported_at: nowIso(this.now),
           review_feedback: task.report?.review_feedback ?? null,
+          ...(task.report?.review_feedback_history
+            ? { review_feedback_history: [...task.report.review_feedback_history] }
+            : {}),
         }
         task.status = "reported"
         next.revision++
@@ -2583,6 +2601,9 @@ export class PlanProtocol {
             issues,
             reported_at: nowIso(this.now),
             review_feedback: target.report?.review_feedback ?? null,
+            ...(target.report?.review_feedback_history
+              ? { review_feedback_history: [...target.report.review_feedback_history] }
+              : {}),
           }
           target.report = report
           target.status = shouldRejectPrecheck ? "rejected" : "reported"

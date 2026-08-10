@@ -390,7 +390,7 @@ export const MERGE_APPLY_INPUT_SCHEMA: JSONSchema7 = {
 }
 
 export const MERGE_APPLY_DESCRIPTION =
-  "主 Agent 在 review_task(approve) 后调用 Merge.apply({task_id}) 集成隔离 Task；正常调用只需 task_id。若返回 conflict，先检查 main_path 并编辑父 workspace，再用 resolutions:[{path,use:'main'|'child'}] 重试。工具只合并安全的非重叠变更，不附带文件内容或 secrets。"
+  "主 Agent 在 review_task(approve) 后调用 Merge_apply({task_id}) 集成隔离 Task；正常调用只需 task_id。若返回 conflict，先检查 main_path 并编辑父 workspace，再用 resolutions:[{path,use:'main'|'child'}] 重试。工具只合并安全的非重叠变更，不附带文件内容或 secrets。"
 
 const inboxSchema: JSONSchema7 = {
   type: "object",
@@ -539,7 +539,7 @@ export function childTaskBrief(brief: DispatchBrief, role?: Pick<LaunchSnapshot,
     "",
     "## Working Directory",
     brief.workspace_root,
-    "这是当前子任务的工作目录，通常是主 Agent 工作区的隔离副本，不保证与主 Agent 使用同一目录。所有相对路径都相对于此目录解析；不要在此目录之外读写文件。",
+    "这是当前子任务的工作目录，可能是隔离 worktree、隔离 snapshot，也可能是显式 shared_compat。不要根据目录名称猜测关系；所有相对路径都相对于此目录解析，禁止在其外读写文件。",
   ]
   if (brief.previous_feedback) {
     parts.push(
@@ -558,25 +558,39 @@ export function childTaskBrief(brief: DispatchBrief, role?: Pick<LaunchSnapshot,
 }
 
 /** Full dispatch metadata is delivered in a synthetic message part. */
+function childInitialBrief(brief: DispatchBrief) {
+  const initialBrief = { ...brief }
+  delete initialBrief.previous_feedback
+  delete initialBrief.review_feedback_history
+  return initialBrief
+}
+
 function childInternalTaskBrief(brief: DispatchBrief) {
-  const standard = [
+  // Review feedback is delivered as a separate user prompt on retries. Keep
+  // it out of the initial dispatch metadata so the child can distinguish the
+  // original assignment from the revision request.
+  const initialBrief = childInitialBrief(brief)
+  const common = [
     "## 主 Agent 派发的任务简报",
     "",
     "```json",
-    JSON.stringify(brief, null, 2),
+    JSON.stringify(initialBrief, null, 2),
     "```",
     "",
-    "请严格按简报执行：先写入 `output_path`，再调用 `Report`；不要创建或输出父方案。",
-    "`workspace_root` 是当前子任务的工作目录，通常是主 Agent 工作区的隔离副本；`output_path` 已是基于它解析好的绝对路径。简报或指令中出现的其他相对路径一律相对于 `workspace_root` 解析，禁止在工作目录之外读写文件。",
+    "不要创建或输出父方案。`workspace_root` 是当前子任务的工作目录，可能是隔离 worktree、隔离 snapshot，也可能是显式 shared_compat；`output_path` 已基于它解析为绝对路径。简报或指令中的相对路径一律相对于 `workspace_root`，禁止在其外读写文件。",
   ].join("\n")
-  if (brief.mode !== "candidate") return standard
+  if (brief.mode !== "candidate")
+    return [
+      common,
+      "## Standard execution",
+      "先把产出写入 `output_path`，再调用 `Report`；status=done 时 artifacts 必须列出真实存在的文件。",
+    ].join("\n\n")
   return [
-    standard,
-    "",
+    common,
     "## Candidate execution",
-    "This is a candidate task. Use Candidate_declare once, then read peer declarations with Blackboard and reply directly to every other candidate before Candidate_ready.",
-    "After the root calls Candidate_begin, work independently. Write only the isolated proposal described by this brief and submit it with Candidate_submit; do not call Report or use Blackboard during running.",
-  ].join("\n")
+    "这是 candidate Task：先调用 Candidate_declare 一次；进入 cross_review 后用 Blackboard 读取并用 Blackboard_Reply 回复每个其他候选，再调用 Candidate_ready。",
+    "主 Agent 调用 Candidate_begin 后独立完成方案，只调用 Candidate_submit 提交 proposal；不要调用 Report 或在 running 阶段调用 Blackboard，也不要用文件工具手写提案，运行时会把 proposal 写入 `output_path`。",
+  ].join("\n\n")
 }
 
 export const BLACKBOARD_REPLY_INPUT_SCHEMA: JSONSchema7 = {
@@ -667,9 +681,39 @@ export function childLaunchPrompt(brief: DispatchBrief, role: LaunchSnapshot) {
   ].join("\n\n")
 }
 
-export function childLaunchParts(brief: DispatchBrief, role: LaunchSnapshot) {
+type RetryFeedback = { review_feedback: string; issues: string[] }
+
+function formatRetryPrompt(feedback: RetryFeedback) {
   return [
-    { type: "text" as const, text: childTaskBrief(brief, role) },
+    "## Revision Request",
+    "The main Agent rejected the previous report. Apply this feedback to the existing work, then resubmit the corrected result with Report.",
+    "",
+    feedback.review_feedback.trim(),
+    ...(feedback.issues.length > 0
+      ? ["", "Reported issues:", ...feedback.issues.map((issue) => `- ${issue.trim()}`)]
+      : []),
+  ].join("\n")
+}
+
+/** User-visible prompts sent after the initial task prompt, one per review round. */
+export function childRetryPrompts(brief: DispatchBrief) {
+  const history = brief.review_feedback_history?.length
+    ? brief.review_feedback_history
+    : brief.previous_feedback
+      ? [brief.previous_feedback]
+      : []
+  return history.map(formatRetryPrompt)
+}
+
+/** The latest retry prompt, retained as a convenient single-round helper. */
+export function childRetryPrompt(brief: DispatchBrief) {
+  return childRetryPrompts(brief).at(-1)
+}
+
+export function childLaunchParts(brief: DispatchBrief, role: LaunchSnapshot) {
+  const initialBrief = childInitialBrief(brief)
+  return [
+    { type: "text" as const, text: childTaskBrief(initialBrief, role) },
     {
       type: "text" as const,
       text: childLaunchPrompt(brief, role),
@@ -813,6 +857,14 @@ function protocolFor(
               noReply: true,
               parts: childLaunchParts(input.brief, input.role),
             })
+            for (const retryPrompt of childRetryPrompts(input.brief)) {
+              yield* ops.prompt({
+                sessionID: input.childSessionId as SessionID,
+                agent: profileAgentName(input.role.id),
+                noReply: true,
+                parts: [{ type: "text", text: retryPrompt }],
+              })
+            }
             yield* ops.loop({ sessionID: input.childSessionId as SessionID })
           }).pipe(
             Effect.catchCause((cause) => settleAndNotify(`子 Agent 启动或执行失败：${Cause.pretty(cause)}`)),

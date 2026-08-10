@@ -98,9 +98,16 @@ function goalRuns(goal?: Goal) {
   return goal ? [...(goal.history ?? []), goal] : []
 }
 
-function startMarkerMessageIndex(messages: readonly PresentedConversationMessage[], startedAt: number) {
-  const index = messages.findIndex((message) => message.info.time.created >= startedAt)
-  return index === -1 ? messages.length - 1 : index
+function startMarkerMessageIndex(
+  messages: readonly PresentedConversationMessage[],
+  startedAt: number,
+  nextStartedAt?: number,
+) {
+  const index = messages.findIndex((message) => {
+    const created = message.info.time.created
+    return created >= startedAt && (nextStartedAt === undefined || created < nextStartedAt)
+  })
+  return index === -1 ? undefined : index
 }
 
 function endMarkerMessageIndex(messages: readonly PresentedConversationMessage[], completedAt: number) {
@@ -120,16 +127,24 @@ function goalTimelineMarkers(
   const markers: GoalTimelineMarkerEvent[] = []
 
   for (const [runIndex, run] of runs.entries()) {
-    if (run.startedAt !== undefined) {
+    const nextStartedAt = runs[runIndex + 1]?.startedAt
+    const startedAt = run.startedAt
+    const startMessageIndex =
+      startedAt === undefined ? undefined : startMarkerMessageIndex(messages, startedAt, nextStartedAt)
+    if (startedAt !== undefined && startMessageIndex !== undefined) {
       markers.push({
         marker: "start",
-        messageIndex: startMarkerMessageIndex(messages, run.startedAt),
-        time: run.startedAt,
+        messageIndex: startMessageIndex,
+        time: startedAt,
         showOrb: runIndex === runs.length - 1 && run.status === "running",
         key: `goal:${runIndex}:start`,
       })
     }
-    if ((run.status === "done" || run.status === "failed") && run.completedAt !== undefined) {
+    if (
+      startMessageIndex !== undefined &&
+      (run.status === "done" || run.status === "failed") &&
+      run.completedAt !== undefined
+    ) {
       markers.push({
         marker: "end",
         messageIndex: endMarkerMessageIndex(messages, run.completedAt),

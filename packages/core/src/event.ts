@@ -94,7 +94,10 @@ export class Service extends Context.Service<Service, Interface>()("@jyycode/Eve
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const all = yield* PubSub.unbounded<Payload>()
+    // Streams are a notification channel, not the durable event store. Keep
+    // every subscriber bounded and let sequence numbers expose an overflow
+    // gap; durable state is replayed from its owning store.
+    const all = yield* PubSub.sliding<Payload>({ capacity: 1024, replay: 64 })
     const typed = new Map<string, PubSub.PubSub<Payload>>()
     const syncHandlers = new Array<Sync>()
     let sequence = 0
@@ -104,7 +107,8 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         const existing = typed.get(definition.type)
         if (existing) return existing
-        const pubsub = yield* PubSub.unbounded<Payload>()
+        const durable = /permission|question|terminal|cleanup|kill|disposed/i.test(definition.type)
+        const pubsub = yield* PubSub.sliding<Payload>({ capacity: durable ? 1024 : 256, replay: 64 })
         typed.set(definition.type, pubsub)
         return pubsub
       })
