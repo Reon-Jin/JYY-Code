@@ -53,6 +53,8 @@ describe("multi-agent review retry prompts", () => {
     expect(prompts[0]).toContain("Add the missing API examples.")
     expect(prompts[1]).toContain("Also cover the pagination edge case.")
     expect(childRetryPrompt(brief())).toContain("Also cover the pagination edge case.")
+    expect(childRetryPrompt(brief())).toContain("run__ses_root__s1_t1")
+    expect(childRetryPrompt(brief())).toContain("Do not reuse the run_id from the original dispatch brief")
   })
 
   it("keeps all review feedback out of the initial task prompt and metadata", () => {

@@ -964,6 +964,92 @@ it.instance("cancelling a dispatched task forces the next turn to redispatch", (
   }),
 )
 
+it.instance("skips duplicate Plan_create calls after the first attempt in one response", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Duplicate plan creation",
+      multiAgent: true,
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "create the requested three-stage task" }],
+    })
+
+    const validCreate = {
+      title: "Three-stage task",
+      goal: "complete the requested task in order",
+      steps: [
+        {
+          title: "Create source",
+          goal: "create 1.txt",
+          done_criteria: "1.txt exists",
+          tasks: [
+            {
+              title: "Create 1.txt",
+              goal: "write 123 to 1.txt",
+              done_criteria: "1.txt contains 123",
+              output_path: "1.txt",
+            },
+          ],
+        },
+        { title: "Copy and review", goal: "create 2.txt and 3.txt", done_criteria: "both files are reviewed" },
+        { title: "Aggregate", goal: "create ans.txt", done_criteria: "ans.txt contains all source contents" },
+      ],
+    }
+    const invalidCreate = {
+      ...validCreate,
+      steps: [
+        validCreate.steps[0],
+        {
+          ...validCreate.steps[1],
+          tasks: [
+            {
+              title: "Create 2.txt",
+              goal: "copy 1.txt",
+              done_criteria: "2.txt contains the copied content",
+              output_path: "2.txt",
+            },
+          ],
+        },
+        validCreate.steps[2],
+      ],
+    }
+
+    yield* llm.tool("Plan_read", {})
+    yield* llm.push(reply().tool("Plan_create", invalidCreate).tool("Plan_create", validCreate))
+    yield* llm.text("The plan creation attempt was recorded; continue from the next protocol turn.")
+    yield* prompt.loop({ sessionID: chat.id })
+
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const toolParts = messages
+      .flatMap((message) => message.parts)
+      .filter((part): part is MessageV2.ToolPart => part.type === "tool")
+    const failedTools = toolParts.filter((part) => part.state.status === "error")
+    expect(failedTools).toHaveLength(0)
+    expect(
+      toolParts.some(
+        (part) =>
+          part.tool === "Plan_create" &&
+          part.state.status === "completed" &&
+          part.state.metadata?.skipped === true,
+      ),
+    ).toBe(true)
+    const planExists = yield* Effect.promise(() =>
+      fs.access(path.join(chat.directory, ".jyycode", "plan", chat.id, "plan.json")).then(
+        () => true,
+        () => false,
+      ),
+    )
+    expect(planExists).toBe(false)
+  }),
+)
+
 it.instance("does not execute stale protocol mutations from one batched response", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)

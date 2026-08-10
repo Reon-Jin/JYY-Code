@@ -456,6 +456,32 @@ describe("model-facing plan tool names", () => {
           steps: [
             {
               id: "s1",
+              tasks: [
+                {
+                  id: "s1_t1",
+                  status: "rejected",
+                  done_criteria: "write notes",
+                  output_path: "notes.md",
+                  dispatch: { child_session_id: "child_s1_t1" },
+                  report: { review_feedback: "Add examples" },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toBe("Dispatch_dispatch")
+    expect(
+      requiredPlanTool({
+        root: true,
+        multiAgent: true,
+        step: 3,
+        planExists: true,
+        plan: {
+          current_step: "s1",
+          steps: [
+            {
+              id: "s1",
               tasks: [{ id: "s1_t1", status: "pending", done_criteria: "write notes", output_path: null }],
             },
           ],

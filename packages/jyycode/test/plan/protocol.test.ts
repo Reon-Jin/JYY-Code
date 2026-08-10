@@ -766,9 +766,9 @@ describe("file-backed plan protocol", () => {
     expect(dispatched.ok).toBe(true)
     if (!dispatched.ok) return
     expect(dispatched.dispatched[0]?.idempotent).toBe(false)
-    // Dispatch remains visible as dispatched until the child has actually
-    // started; the lifecycle record advances independently of task status.
-    expect(statusAtStart).toBe("dispatched")
+    // The task is reportable before the child starts so an immediate Report
+    // cannot race the lifecycle transition.
+    expect(statusAtStart).toBe("running")
     const runId = dispatched.dispatched[0]!.run_id
     const report = await protocol.report(
       { ...context(root, "single", "child_ses_main_s1_t1"), runId },
@@ -1771,6 +1771,11 @@ describe("file-backed plan protocol", () => {
     })
     expect(multiAgentPrompt).toContain("Root multi-agent protocol")
     expect(multiAgentPrompt).toContain("Dispatch every ready task")
+    expect(multiAgentPrompt).toContain("Create the plan exactly once")
+    expect(multiAgentPrompt).toContain("Later steps must be skeletons")
+    expect(multiAgentPrompt).toContain("never retry Plan_create in the same turn")
+    expect(multiAgentPrompt).toContain("call Dispatch_dispatch directly to continue the existing child session")
+    expect(multiAgentPrompt).toContain("Do not call reopen_task for this revision path")
     expect(multiAgentPrompt).toContain("only paths relative to that child's future workspace_root")
     expect(multiAgentPrompt).toContain("Never include an absolute path")
     expect(multiAgentPrompt).toContain("never poll children")

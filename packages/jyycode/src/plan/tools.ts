@@ -150,7 +150,7 @@ export const PLAN_CREATE_INPUT_SCHEMA: JSONSchema7 = {
       minItems: 2,
       items: stepInputSchema,
       description:
-        "Only steps[0] may contain Task details at creation. Put all currently parallel-ready standard Tasks (target 3-10, max 20) into steps[0].tasks; prefer splitting into more Tasks and dispatching more subagents. Later active Steps are expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group.",
+        "Call Plan_create exactly once after Plan_read confirms that no plan exists. Only steps[0] may contain Task details at creation. Put all currently parallel-ready standard Tasks (target 3-10, max 20) into steps[0].tasks; prefer splitting into more Tasks and dispatching more subagents. Later active Steps must be skeletons and are expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group. After this call returns, stop issuing protocol writes until the next model turn.",
     },
   },
 }
@@ -685,10 +685,12 @@ export function childLaunchPrompt(brief: DispatchBrief, role: LaunchSnapshot) {
 
 type RetryFeedback = { review_feedback: string; issues: string[] }
 
-function formatRetryPrompt(feedback: RetryFeedback) {
+function formatRetryPrompt(feedback: RetryFeedback, runId: string) {
   return [
     "## Revision Request",
     "The main Agent rejected the previous report. Apply this feedback to the existing work, then resubmit the corrected result with Report.",
+    `Use this exact current dispatch run_id in the next Report: ${runId}`,
+    "Do not reuse the run_id from the original dispatch brief.",
     "",
     feedback.review_feedback.trim(),
     ...(feedback.issues.length > 0
@@ -704,7 +706,7 @@ export function childRetryPrompts(brief: DispatchBrief) {
     : brief.previous_feedback
       ? [brief.previous_feedback]
       : []
-  return history.map(formatRetryPrompt)
+  return history.map((feedback) => formatRetryPrompt(feedback, brief.run_id))
 }
 
 /** The latest retry prompt, retained as a convenient single-round helper. */
@@ -1141,8 +1143,12 @@ export const PlanCreateTool = Tool.define(
           const bridge = yield* EffectBridge.make()
           const protocol = protocolFor(sessions, bus, { bridge })
           const session = yield* getSession(sessions, ctx.sessionID)
+          // Plan_create is a one-time protocol write. Mark the catalog stale
+          // before execution so every later Plan_create emitted in the same
+          // provider response is settled as a skipped call, even when the
+          // first attempt returns a validation error.
+          requestToolCatalogRefresh(ctx)
           const result = yield* Effect.promise(() => protocol.create(protocolContext(session, ctx), input))
-          if (result.ok) requestToolCatalogRefresh(ctx)
           return jsonResult("Plan.create", result)
         }),
     }
@@ -1213,6 +1219,7 @@ export const DispatchDispatchTool = Tool.define(
     const config = yield* Config.Service
     return {
       description: "Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; this tool has no timeout control. " +
+        "Rejected tasks with review feedback continue the existing child session; do not reopen them first. " +
         "在多智能体模式把 pending/rejected 任务派给指定角色。必须选择一个当前启用的 role；如果 taskIds 中包含 candidate Task，必须在一次调用中包含该 Step 的全部 2-3 个候选 ID。",
       parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String), role: Schema.String }),
       jsonSchema: DISPATCH_INPUT_SCHEMA,

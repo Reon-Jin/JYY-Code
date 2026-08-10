@@ -214,7 +214,14 @@ type PlanToolGateState = {
   steps: Array<{
     id: string
     candidate_discussion?: { phase?: string }
-    tasks: Array<{ id: string; status: string; done_criteria: string; output_path: string | null }>
+    tasks: Array<{
+      id: string
+      status: string
+      done_criteria: string
+      output_path: string | null
+      dispatch?: { child_session_id?: string | null } | null
+      report?: { review_feedback?: string | null } | null
+    }>
   }>
 }
 
@@ -222,6 +229,10 @@ function pendingDispatchTasks(plan: PlanToolGateState | undefined) {
   if (!plan?.current_step) return []
   const currentStep = plan.steps.find((step) => step.id === plan.current_step)
   return currentStep?.tasks.filter((task) => task.status === "pending" || task.status === "rejected") ?? []
+}
+
+function hasReviewContinuation(task: PlanToolGateState["steps"][number]["tasks"][number]) {
+  return Boolean(task.dispatch?.child_session_id && task.report?.review_feedback?.trim())
 }
 
 /**
@@ -443,10 +454,15 @@ export function requiredPlanTool(input: {
       ? input.plan.steps.find((step) => step.id === input.plan?.current_step)
       : undefined
     if (currentStep && currentStep.tasks.length === 0) return "Plan_update"
-    // A rejected task needs an explicit recovery turn before it can be
-    // dispatched again. Keeping it in the dispatch gate makes an unchanged
-    // failed call repeat forever when the model retries the same arguments.
-    if (currentStep?.tasks.some((task) => task.status === "rejected")) return "Plan_update"
+    const rejected = currentStep?.tasks.filter((task) => task.status === "rejected") ?? []
+    // Review rejections already contain an actionable correction and retain
+    // the original child session. They must go straight to Dispatch_dispatch;
+    // forcing Plan_update here contradicts the returned protocol hint and can
+    // make the root alternate forever between Plan_update and a gated dispatch.
+    if (rejected.length > 0 && rejected.every(hasReviewContinuation)) return "Dispatch_dispatch"
+    // Runtime failures or malformed rejected tasks still need an explicit
+    // recovery edit/reopen before dispatching them again.
+    if (rejected.length > 0) return "Plan_update"
     const pending = pendingDispatchTasks(input.plan)
     if (pending.length > 0)
       return pending.every(

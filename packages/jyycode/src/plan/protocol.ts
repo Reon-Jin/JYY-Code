@@ -630,6 +630,16 @@ function taskCounts(plan: PlanFile) {
   return counts
 }
 
+/**
+ * A rejected report with a recorded child session is a revision request, not
+ * a fresh task. Keep this predicate in one place so the hint, reopen recovery,
+ * and dispatch path cannot disagree about whether the conversation is
+ * resumable.
+ */
+function hasReviewContinuation(task: Pick<PlanTask, "dispatch" | "report"> | undefined) {
+  return Boolean(task?.dispatch?.child_session_id && task.report?.review_feedback?.trim())
+}
+
 function nextActionHint(plan: PlanFile, inboxPending: number) {
   if (inboxPending > 0) return `有 ${inboxPending} 个异常待处理：先处理 Inbox`
   const current = plan.current_step ? plan.steps.find((step) => step.id === plan.current_step) : undefined
@@ -660,6 +670,9 @@ function nextActionHint(plan: PlanFile, inboxPending: number) {
   const reported = plan.steps.flatMap((step) => step.tasks).filter((task) => task.status === "reported")
   if (reported.length) return `有 ${reported.length} 个任务待审核：${reported.map((task) => task.id).join("、")}`
   const rejected = current.tasks.filter((task) => task.status === "rejected")
+  const resumableRejected = rejected.filter((task) => hasReviewContinuation(task))
+  if (resumableRejected.length)
+    return `${current.id} 有 ${resumableRejected.length} 个任务收到审查反馈；请直接调用 Dispatch_dispatch 继续原有 Agent session，不要调用 reopen_task（reopen_task 会丢失首轮上下文）`
   if (rejected.length)
     return `${current.id} 有 ${rejected.length} 个 rejected 任务；请先用 Plan_update(reopen_task/edit_task) 修复后再 Dispatch_dispatch`
   const pending = current.tasks.filter((task) => task.status === "pending")
@@ -968,10 +981,21 @@ function applyOp(
           message: `任务 ${task.id} 当前为 ${task.status}，不可 reopen_task`,
           hint: "只有已汇报或已审核的终态任务可以显式 reopen_task",
         })
+      const reason = requiredText(op.reason, "reason")
+      // A model may follow an older hint and reopen a review rejection before
+      // dispatching it again. Preserve the report, feedback history, and child
+      // session in that case so the next Dispatch_dispatch can still resume
+      // the same conversation. Reopen remains a true reset for every other
+      // terminal state and for runtime failures without review feedback.
+      if (task.status === "rejected" && hasReviewContinuation(task)) {
+        task.status = "pending"
+        task.reopen_reason = reason
+        return
+      }
       task.status = "pending"
       task.dispatch = null
       task.report = null
-      task.reopen_reason = requiredText(op.reason, "reason")
+      task.reopen_reason = reason
       return
     }
     case "set_task_status": {
@@ -1698,8 +1722,7 @@ export class PlanProtocol {
         // resume support retain the old cleanup-and-recreate behavior.
         const canResume =
           this.children?.resume !== undefined &&
-          typeof task?.dispatch?.child_session_id === "string" &&
-          Boolean(task.report?.review_feedback?.trim())
+          hasReviewContinuation(task)
         if (!canResume) {
           const cleanupErrors = await this.cleanupTaskWorkspace(ctx, review.taskId)
           if (cleanupErrors.length) {
@@ -1849,9 +1872,8 @@ export class PlanProtocol {
           )
         if (!role) throw new Error("Dispatch_dispatch role resolution failed")
         const resume =
-          task.status === "rejected" &&
-          typeof task.dispatch?.child_session_id === "string" &&
-          Boolean(task.report?.review_feedback?.trim()) &&
+          (task.status === "rejected" || task.status === "pending") &&
+          hasReviewContinuation(task) &&
           this.children?.resume !== undefined
         const existingWorkspace = resume ? this.recordedWorkspace(ctx, task) : undefined
         if (
@@ -2053,7 +2075,11 @@ export class PlanProtocol {
                     duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
                   })
                   registerChildRun(item.dispatch.child_session_id, item.dispatch.run_id, ctx.workspaceRoot)
-                  await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "starting" })
+                  // Mark the task running before resuming the child. The
+                  // resumed session can submit Report immediately; leaving it
+                  // in dispatched/rejected until resume returns creates a
+                  // race where a valid Report is rejected as stale.
+                  await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
                   await this.children.resume(childInput)
                 } else {
                   const createdChild = await this.children.create(childInput)
@@ -2070,10 +2096,11 @@ export class PlanProtocol {
                     lifecycle: "child_created",
                   })
                   childInput.childSessionId = createdChild
-                  await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "starting" })
+                  // The child may report synchronously from its first loop,
+                  // so publish the reportable running state before starting it.
+                  await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
                   await this.children.start(childInput)
                 }
-                await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
                 this.metric(ctx.sessionId, {
                   metric: "dispatch",
                   phase: "start",
