@@ -137,6 +137,7 @@ function failedRemoves(...chunks: string[]) {
 export interface Interface {
   readonly makeWorktreeInfo: (options?: { name?: string; detached?: boolean }) => Effect.Effect<Info, Error>
   readonly createFromInfo: (info: Info, startCommand?: string) => Effect.Effect<void, Error>
+  readonly createFromInfoWithoutBoot: (info: Info) => Effect.Effect<void, Error>
   readonly create: (input?: CreateInput) => Effect.Effect<Info, Error>
   readonly list: () => Effect.Effect<(Omit<Info, "branch"> & { branch?: string })[], Error>
   readonly remove: (input: RemoveInput) => Effect.Effect<boolean, Error>
@@ -234,7 +235,9 @@ export const layer: Layer.Layer<
         })
       }
 
-      yield* project.addSandbox(ctx.project.id, info.directory).pipe(Effect.catch(() => Effect.void))
+      // Sandbox registration is metadata only; a stale or isolated project
+      // store must not make the worktree itself fail to create.
+      yield* project.addSandbox(ctx.project.id, info.directory).pipe(Effect.catchCause(() => Effect.void))
     })
 
     const boot = Effect.fnUntraced(function* (info: Info, startCommand?: string) {
@@ -293,6 +296,10 @@ export const layer: Layer.Layer<
         Effect.catchCause((cause) => Effect.sync(() => log.error("worktree bootstrap failed", { cause }))),
         Effect.forkIn(scope),
       )
+    })
+
+    const createFromInfoWithoutBoot = Effect.fn("Worktree.createFromInfoWithoutBoot")(function* (info: Info) {
+      yield* setup(info)
     })
 
     const create = Effect.fn("Worktree.create")(function* (input?: CreateInput) {
@@ -624,7 +631,7 @@ export const layer: Layer.Layer<
       return true
     })
 
-    return Service.of({ makeWorktreeInfo, createFromInfo, create, list, remove, reset })
+    return Service.of({ makeWorktreeInfo, createFromInfo, createFromInfoWithoutBoot, create, list, remove, reset })
   }),
 )
 

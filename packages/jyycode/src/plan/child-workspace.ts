@@ -71,17 +71,19 @@ export type ChangeSetEntry = {
 export interface WorktreeAdapter {
   makeWorktreeInfo(input: { name: string; detached: true }): Promise<{ name: string; directory: string }>
   createFromInfo(info: { name: string; directory: string }): Promise<void>
+  createFromInfoWithoutBoot?(info: { name: string; directory: string }): Promise<void>
   remove(directory: string): Promise<boolean>
 }
 
 /** Bridge the Effect Worktree service into the promise-based workspace manager. */
 export function worktreeAdapter(input: {
-  service: Pick<Worktree.Interface, "makeWorktreeInfo" | "createFromInfo" | "remove">
+  service: Pick<Worktree.Interface, "makeWorktreeInfo" | "createFromInfo" | "createFromInfoWithoutBoot" | "remove">
   run<A, E>(effect: Effect.Effect<A, E>): Promise<A>
 }): WorktreeAdapter {
   return {
     makeWorktreeInfo: (options) => input.run(input.service.makeWorktreeInfo(options)),
     createFromInfo: (info) => input.run(input.service.createFromInfo(info)),
+    createFromInfoWithoutBoot: (info) => input.run(input.service.createFromInfoWithoutBoot(info)),
     remove: (directory) => input.run(input.service.remove({ directory })),
   }
 }
@@ -301,6 +303,28 @@ function snapshotManifest(root: string, vcs: "git" | "none", limits: SnapshotLim
     })
   }
   return manifest
+}
+
+async function buildSourceManifest(
+  root: string,
+  vcs: "git" | "none",
+  runtimeRoot: string,
+  limits: SnapshotLimits,
+  exclude: readonly string[],
+  include: readonly string[],
+): Promise<SnapshotManifest> {
+  if (vcs === "git") {
+    const entries = snapshotManifest(root, vcs, limits)
+    return {
+      version: 1,
+      source_root: path.resolve(root),
+      source_manifest_hash: hashManifest(entries),
+      entries,
+      file_count: entries.length,
+      total_bytes: manifestSize(entries),
+    }
+  }
+  return buildSnapshotManifest({ root, runtimeRoot, limits, exclude, include })
 }
 
 function manifestSize(manifest: BaselineManifestEntry[]) {
@@ -543,34 +567,40 @@ export class ChildWorkspace {
       if (this.pendingManifestUses === 0) this.pendingManifest = undefined
       return manifest
     }
-    return buildSnapshotManifest({
-      root: this.project.root,
-      runtimeRoot: this.runtimeRoot,
-      limits: this.snapshotLimits,
-      exclude: this.snapshotExclude,
-      include: this.snapshotInclude,
-    })
+    return buildSourceManifest(
+      this.project.root,
+      this.project.vcs,
+      this.runtimeRoot,
+      this.snapshotLimits,
+      this.snapshotExclude,
+      this.snapshotInclude,
+    )
   }
 
   async preflight(reservations: readonly WorkspaceReservation[]) {
-    const snapshots = reservations.filter((reservation) => reservation.mode === "snapshot")
-    if (snapshots.length === 0) return undefined
-    const manifest = await buildSnapshotManifest({
-      root: this.project.root,
-      runtimeRoot: this.runtimeRoot,
-      limits: this.snapshotLimits,
-      exclude: this.snapshotExclude,
-      include: this.snapshotInclude,
-    })
-    const budget = await preflightWorkspaceBudget({
-      runtimeRoot: this.runtimeRoot,
-      manifest,
-      taskCount: snapshots.length,
-      ...this.workspaceBudget,
-    })
+    const isolated = reservations.filter((reservation) => reservation.mode !== "shared_compat")
+    if (isolated.length === 0) return undefined
+    const snapshots = isolated.filter((reservation) => reservation.mode === "snapshot")
+    const manifest = await buildSourceManifest(
+      this.project.root,
+      this.project.vcs,
+      this.runtimeRoot,
+      this.snapshotLimits,
+      this.snapshotExclude,
+      this.snapshotInclude,
+    )
+    const budget =
+      snapshots.length > 0
+        ? await preflightWorkspaceBudget({
+            runtimeRoot: this.runtimeRoot,
+            manifest,
+            taskCount: snapshots.length,
+            ...this.workspaceBudget,
+          })
+        : undefined
     this.pendingManifest = manifest
-    this.pendingManifestUses = snapshots.length
-    return { manifest, budget }
+    this.pendingManifestUses = isolated.length
+    return { manifest, ...(budget ? { budget } : {}) }
   }
 
   private async ensureSharedBaseline(manifest: SnapshotManifest) {
@@ -666,7 +696,7 @@ export class ChildWorkspace {
         }
       }
 
-      const sourceManifest = reservation.mode === "snapshot" ? await this.sourceManifest() : undefined
+      const sourceManifest = await this.sourceManifest()
       const baselineManifest =
         sourceManifest?.entries ?? snapshotManifest(this.project.root, this.project.vcs, this.snapshotLimits)
       const shared = sourceManifest ? await this.ensureSharedBaseline(sourceManifest) : undefined
@@ -694,7 +724,11 @@ export class ChildWorkspace {
           throw new ChildWorkspaceError("Worktree directory 必须位于 runtime workspace 根目录", {
             directory: info.directory,
           })
-        await this.worktree.createFromInfo(info)
+        // The normal Worktree service starts a background reset/bootstrap after
+        // creation. Child workspaces must be populated first; otherwise that
+        // reset races the copy of the parent's dirty snapshot.
+        if (this.worktree.createFromInfoWithoutBoot) await this.worktree.createFromInfoWithoutBoot(info)
+        else await this.worktree.createFromInfo(info)
         if (path.resolve(info.directory) !== directory && fs.existsSync(directory))
           throw new ChildWorkspaceError("Worktree adapter 返回了与 reservation 不同的 directory", {
             directory: info.directory,

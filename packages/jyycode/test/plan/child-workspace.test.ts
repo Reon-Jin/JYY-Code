@@ -30,11 +30,16 @@ describe("ChildWorkspace", () => {
     const root = tempDirectory("jyycode-child-git-")
     const runtime = tempDirectory("jyycode-child-runtime-")
     fs.writeFileSync(path.join(root, "README.md"), "parent base")
-    const calls: { info?: { name: string; directory: string; detached?: boolean }; created: number; removed: number } =
-      {
-        created: 0,
-        removed: 0,
-      }
+    const calls: {
+      info?: { name: string; directory: string; detached?: boolean }
+      created: number
+      skippedBoot: number
+      removed: number
+    } = {
+      created: 0,
+      skippedBoot: 0,
+      removed: 0,
+    }
     const adapter: WorktreeAdapter = {
       async makeWorktreeInfo(input) {
         const directory = path.join(runtime, input.name)
@@ -43,6 +48,11 @@ describe("ChildWorkspace", () => {
       },
       async createFromInfo(info) {
         calls.created++
+        fs.mkdirSync(info.directory, { recursive: true })
+        fs.writeFileSync(path.join(info.directory, "README.md"), "adapter base")
+      },
+      async createFromInfoWithoutBoot(info) {
+        calls.skippedBoot++
         fs.mkdirSync(info.directory, { recursive: true })
         fs.writeFileSync(path.join(info.directory, "README.md"), "adapter base")
       },
@@ -57,13 +67,43 @@ describe("ChildWorkspace", () => {
     const first = await manager.create(reservation)
     const second = await manager.create(reservation)
     expect(calls.info).toMatchObject({ name: reservation.name, detached: true })
-    expect(calls.created).toBe(1)
+    expect(calls.created).toBe(0)
+    expect(calls.skippedBoot).toBe(1)
     expect(first.directory).toBe(second.directory)
     expect(first.baseline_manifest).toEqual([
       { relative_path: "README.md", hash: expect.any(String), size: 11, mode: "file" },
     ])
     await manager.remove(first.directory)
     expect(calls.removed).toBe(1)
+  })
+
+  it("reuses one Git baseline across a dispatch batch", async () => {
+    const root = tempDirectory("jyycode-child-git-batch-")
+    const runtime = tempDirectory("jyycode-child-git-batch-runtime-")
+    fs.writeFileSync(path.join(root, "README.md"), "parent base")
+    let created = 0
+    const adapter: WorktreeAdapter = {
+      async makeWorktreeInfo(input) {
+        return { name: input.name, directory: path.join(runtime, input.name) }
+      },
+      async createFromInfo(info) {
+        created++
+        fs.mkdirSync(path.join(info.directory, ".git"), { recursive: true })
+      },
+      async remove(directory) {
+        fs.rmSync(directory, { recursive: true, force: true })
+        return true
+      },
+    }
+    const manager = new ChildWorkspace({ project: { root, vcs: "git" }, runtimeRoot: runtime, worktree: adapter })
+    const reservations = ["s1_t1", "s1_t2"].map((taskId) => manager.reserve("ses_root", taskId))
+
+    await manager.preflight(reservations)
+    const children = await Promise.all(reservations.map((reservation) => manager.create(reservation)))
+
+    expect(created).toBe(2)
+    expect(new Set(children.map((child) => child.baseline_directory)).size).toBe(1)
+    expect(children[0]?.baseline_manifest_hash).toBe(children[1]?.baseline_manifest_hash)
   })
 
   it("snapshots non-Git projects and produces scoped baseline-relative changes", async () => {

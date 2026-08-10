@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
-import { applyWorkspaceMerge } from "../../src/plan/workspace-merge"
+import { applyWorkspaceMerge, prepareWorkspaceMerge } from "../../src/plan/workspace-merge"
 import { createMergeWorkspaceFixture } from "./hardening-fixtures"
 
 function writeFile(root: string, relative: string, content: string) {
@@ -37,6 +37,25 @@ describe("workspace merge transaction", () => {
       expect(result.status).toBe("merged")
       expect(fs.readFileSync(path.join(fixture.parent, "src", "child.ts"), "utf8")).toBe("child\n")
       expect(fs.existsSync(path.join(fixture.root, "runtime", "merge-journal"))).toBe(true)
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it("reuses merge preflight data for transactional apply", () => {
+    const fixture = createMergeWorkspaceFixture()
+    try {
+      writeFile(fixture.baseline, "src/child.ts", "base\n")
+      fs.cpSync(fixture.baseline, fixture.parent, { recursive: true })
+      fs.cpSync(fixture.baseline, fixture.child, { recursive: true })
+      writeFile(fixture.child, "src/child.ts", "child\n")
+
+      const mergeInput = input(fixture)
+      const prepared = prepareWorkspaceMerge(mergeInput)
+      const result = applyWorkspaceMerge(mergeInput, {}, prepared)
+
+      expect(result.status).toBe("merged")
+      expect(fs.readFileSync(path.join(fixture.parent, "src", "child.ts"), "utf8")).toBe("child\n")
     } finally {
       fixture.cleanup()
     }

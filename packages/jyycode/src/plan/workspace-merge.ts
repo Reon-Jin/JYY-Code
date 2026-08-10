@@ -38,6 +38,14 @@ export type MergePlan = {
   conflicts: MergeConflictSummary[]
 }
 
+export type WorkspaceMergePreparation = {
+  roots: { base: string; main: string; child: string }
+  base: Map<string, FileEntry>
+  main: Map<string, FileEntry>
+  child: Map<string, FileEntry>
+  plan: MergePlan
+}
+
 export type WorkspaceMergeTransactionInput = WorkspaceMergeInput & {
   journal_directory: string
 }
@@ -58,7 +66,7 @@ export type WorkspaceMergeTransactionResult = {
   error?: string
 }
 
-type FileEntry = {
+export type FileEntry = {
   path: string
   kind: "file" | "symlink"
   hash: string
@@ -358,7 +366,7 @@ function inScope(relative: string, scopes: string[]) {
   return scopes.length === 0 || scopes.some((scope) => relative === scope || relative.startsWith(`${scope}/`))
 }
 
-export function planWorkspaceMerge(input: WorkspaceMergeInput): MergePlan {
+export function prepareWorkspaceMerge(input: WorkspaceMergeInput): WorkspaceMergePreparation {
   const roots = {
     base: canonicalRoot(input.base, "base"),
     main: canonicalRoot(input.main, "main"),
@@ -442,7 +450,49 @@ export function planWorkspaceMerge(input: WorkspaceMergeInput): MergePlan {
   result.keep = [...new Set(result.keep)].sort((left, right) => left.localeCompare(right))
   result.delete = [...new Set(result.delete)].sort((left, right) => left.localeCompare(right))
   result.conflicts.sort((left, right) => left.path.localeCompare(right.path))
+  return { roots, base, main, child, plan: result }
+}
+
+function resolvePreparedPlan(
+  prepared: WorkspaceMergePreparation,
+  resolutions: readonly MergeResolution[] | undefined,
+): MergePlan {
+  if (!resolutions?.length) return prepared.plan
+
+  const result: MergePlan = {
+    apply: [...prepared.plan.apply],
+    keep: [...prepared.plan.keep],
+    delete: [...prepared.plan.delete],
+    conflicts: [...prepared.plan.conflicts],
+  }
+  const conflictPaths = new Set(result.conflicts.map((conflict) => conflict.path))
+  const seen = new Set<string>()
+  for (const resolution of resolutions) {
+    const relative = canonicalRelative(resolution.path, "resolution path")
+    if (resolution.use !== "main" && resolution.use !== "child") fail(`invalid resolution for ${relative}`)
+    if (seen.has(relative)) fail(`duplicate resolution for ${relative}`)
+    seen.add(relative)
+    if (!conflictPaths.has(relative)) fail(`resolution does not name an unresolved conflict: ${relative}`)
+
+    const mainEntry = prepared.main.get(relative)
+    const childEntry = prepared.child.get(relative)
+    result.conflicts = result.conflicts.filter((conflict) => conflict.path !== relative)
+    if (resolution.use === "main") {
+      if (mainEntry) result.keep.push(relative)
+      else result.delete.push(relative)
+    } else if (childEntry) result.apply.push(applyEntryFrom(childEntry, "child")!)
+    else result.delete.push(relative)
+  }
+
+  result.apply.sort((left, right) => left.path.localeCompare(right.path))
+  result.keep = [...new Set(result.keep)].sort((left, right) => left.localeCompare(right))
+  result.delete = [...new Set(result.delete)].sort((left, right) => left.localeCompare(right))
+  result.conflicts.sort((left, right) => left.path.localeCompare(right.path))
   return result
+}
+
+export function planWorkspaceMerge(input: WorkspaceMergeInput): MergePlan {
+  return prepareWorkspaceMerge(input).plan
 }
 
 type JournalItem = {
@@ -659,6 +709,7 @@ export function workspaceFingerprint(root: string) {
 export function applyWorkspaceMerge(
   input: WorkspaceMergeTransactionInput,
   options: WorkspaceMergeTransactionOptions = {},
+  prepared?: WorkspaceMergePreparation,
 ): WorkspaceMergeTransactionResult {
   const roots = {
     base: canonicalRoot(input.base, "base"),
@@ -732,9 +783,16 @@ export function applyWorkspaceMerge(
 
   fs.rmSync(stageRoot, { recursive: true, force: true })
   fs.rmSync(backupRoot, { recursive: true, force: true })
-  const mainEntries = scanWorkspace(roots.main)
+  const reusable =
+    prepared &&
+    prepared.roots.base === roots.base &&
+    prepared.roots.main === roots.main &&
+    prepared.roots.child === roots.child
+      ? { ...prepared, plan: resolvePreparedPlan(prepared, input.resolutions) }
+      : prepareWorkspaceMerge(input)
+  const mainEntries = reusable.main
   const targetFingerprint = fingerprintEntries(mainEntries)
-  const plan = planWorkspaceMerge({ ...input, base: roots.base, main: roots.main, child: roots.child })
+  const plan = reusable.plan
   const journal: MergeJournal = {
     version: 1,
     status: "running",

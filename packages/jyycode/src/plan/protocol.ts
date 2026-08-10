@@ -60,9 +60,10 @@ import { markPlanSessionActive } from "./recovery"
 import { runtimeMetricPayload, type RuntimeMetricInput } from "./runtime-event"
 import {
   applyWorkspaceMerge,
-  planWorkspaceMerge,
+  prepareWorkspaceMerge,
   removeMergeJournal,
   workspaceFingerprint,
+  type WorkspaceMergePreparation,
   type WorkspaceMergeTransactionResult,
 } from "./workspace-merge"
 import type { ChildTerminationRequest, ChildTerminationResult } from "./child-termination"
@@ -2847,15 +2848,16 @@ export class PlanProtocol {
       if (workspace.mode === "shared_compat" && (value.paths?.length || value.resolutions?.length))
         inputError("paths and resolutions require an isolated task workspace")
 
+      let preflight: WorkspaceMergePreparation | undefined
       if (workspace.mode !== "shared_compat") {
-        const preflight = planWorkspaceMerge({
+        preflight = prepareWorkspaceMerge({
           base: baseDirectory!,
           main: mainRoot,
           child: childDirectory!,
           paths: value.paths,
           ...(childManifest ? { childManifest, childLimits: DEFAULT_SNAPSHOT_LIMITS } : {}),
         })
-        const currentConflicts = new Map(preflight.conflicts.map((conflict) => [conflict.path, conflict]))
+        const currentConflicts = new Map(preflight.plan.conflicts.map((conflict) => [conflict.path, conflict]))
         for (const resolution of value.resolutions ?? []) {
           const current = currentConflicts.get(resolution.path)
           if (!current) inputError(`resolution does not name an unresolved conflict: ${resolution.path}`)
@@ -2920,15 +2922,19 @@ export class PlanProtocol {
           target_fingerprint: workspaceFingerprint(mainRoot),
         }
       } else {
-        transaction = applyWorkspaceMerge({
-          base: baseDirectory!,
-          main: mainRoot,
-          child: childDirectory!,
-          paths: value.paths,
-          resolutions: value.resolutions,
-          ...(childManifest ? { childManifest, childLimits: DEFAULT_SNAPSHOT_LIMITS } : {}),
-          journal_directory: journalDirectory!,
-        })
+        transaction = applyWorkspaceMerge(
+          {
+            base: baseDirectory!,
+            main: mainRoot,
+            child: childDirectory!,
+            paths: value.paths,
+            resolutions: value.resolutions,
+            ...(childManifest ? { childManifest, childLimits: DEFAULT_SNAPSHOT_LIMITS } : {}),
+            journal_directory: journalDirectory!,
+          },
+          {},
+          preflight,
+        )
       }
 
       const boundedConflicts = transaction.conflicts.slice(0, 50)
