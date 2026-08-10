@@ -491,6 +491,26 @@ type State = {
   deps: Fiber.Fiber<void>[]
 }
 
+export const DEFAULT_CONFIG_DEPENDENCY_WAIT_TIMEOUT_MS = 10_000
+
+/**
+ * Dependency installation is intentionally detached from config loading, but
+ * plugin/tool discovery must never turn those background jobs back into an
+ * unbounded request gate.
+ */
+export function waitForDependencyFibers(
+  deps: readonly Fiber.Fiber<void>[],
+  timeoutMs = DEFAULT_CONFIG_DEPENDENCY_WAIT_TIMEOUT_MS,
+): Effect.Effect<boolean> {
+  return Effect.forEach(deps, Fiber.join, { concurrency: "unbounded" }).pipe(
+    Effect.as(true),
+    Effect.timeoutOrElse({
+      duration: Duration.millis(timeoutMs),
+      orElse: () => Effect.succeed(false),
+    }),
+  )
+}
+
 export interface Interface {
   readonly get: () => Effect.Effect<Info>
   readonly getGlobal: () => Effect.Effect<Info>
@@ -938,9 +958,13 @@ export const layer = Layer.effect(
     })
 
     const waitForDependencies = Effect.fn("Config.waitForDependencies")(function* () {
-      yield* InstanceState.useEffect(state, (s) =>
-        Effect.forEach(s.deps, Fiber.join, { concurrency: "unbounded" }).pipe(Effect.asVoid),
-      )
+      const result = yield* InstanceState.use(state, (s) => waitForDependencyFibers(s.deps))
+      if (!result) {
+        const count = yield* InstanceState.use(state, (s) => s.deps.length)
+        yield* Effect.logWarning("dependency installation is still running; continuing with degraded plugin/tool loading").pipe(
+          Effect.annotateLogs({ count, timeoutMs: DEFAULT_CONFIG_DEPENDENCY_WAIT_TIMEOUT_MS }),
+        )
+      }
     })
 
     const update = Effect.fn("Config.update")(function* (config: Info) {

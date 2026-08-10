@@ -48,6 +48,11 @@ export const DEFAULT_MCP_IDLE_TIMEOUT = 60_000
 export const MAX_MCP_IDLE_TIMEOUT = 120_000
 export const DEFAULT_MCP_TOTAL_TIMEOUT = 300_000
 export const MAX_MCP_TOTAL_TIMEOUT = 600_000
+// Tool discovery is an optional dependency of the UI catalog and the agent
+// prompt. It must not inherit the multi-minute budget intended for an actual
+// MCP tool invocation, otherwise a temporarily unreachable server blocks the
+// whole workspace surface.
+export const DEFAULT_MCP_DISCOVERY_TIMEOUT = 15_000
 const MCP_CLOSE_GRACE_MS = 3_000
 
 export interface McpTimeouts {
@@ -64,6 +69,11 @@ export interface McpTimeoutInput {
 export interface McpTimeoutDefaults {
   readonly idleMs?: number
   readonly totalMs?: number
+}
+
+export function resolveMcpDiscoveryTimeouts(timeouts: McpTimeouts, maxMs = DEFAULT_MCP_DISCOVERY_TIMEOUT): McpTimeouts {
+  const totalMs = Math.max(1, Math.min(timeouts.totalMs, maxMs))
+  return { idleMs: Math.min(timeouts.idleMs, totalMs), totalMs }
 }
 
 export function resolveMcpTimeouts(input: McpTimeoutInput = {}, defaults: McpTimeoutDefaults = {}): McpTimeouts {
@@ -586,7 +596,7 @@ export const layer = Layer.effect(
         },
       ]
 
-      const timeouts = yield* timeoutsFor(mcp)
+      const timeouts = resolveMcpDiscoveryTimeouts(yield* timeoutsFor(mcp))
       const deadlineAt = Date.now() + timeouts.totalMs
       let lastStatus: Status | undefined
 
@@ -675,7 +685,7 @@ export const layer = Layer.effect(
         log.debug("mcp stderr", report)
       })
 
-      const timeouts = yield* timeoutsFor(mcp)
+      const timeouts = resolveMcpDiscoveryTimeouts(yield* timeoutsFor(mcp))
       return yield* connectTransport(transport, timeouts, key).pipe(
         Effect.map((client): { client: MCPClient | undefined; status: Status } => ({
           client,
@@ -697,7 +707,7 @@ export const layer = Layer.effect(
 
       log.info("found", { key, type: mcp.type })
 
-      const timeouts = yield* timeoutsFor(mcp)
+      const timeouts = resolveMcpDiscoveryTimeouts(yield* timeoutsFor(mcp))
       const { client: mcpClient, status } =
         mcp.type === "remote"
           ? yield* connectRemote(key, mcp as ConfigMCP.Info & { type: "remote" })

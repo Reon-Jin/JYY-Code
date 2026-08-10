@@ -234,12 +234,20 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
     const profileViews = Effect.fn("InstanceHttpApi.subagentProfileViews")(function* (
       resolved: ReturnType<typeof resolveProfiles>,
     ) {
-      const result = []
-      for (const profile of resolved) {
-        const skills = yield* roleSkillManagement.list(profile.id).pipe(Effect.mapError(mapSubagentError))
-        result.push({ ...profile, skills })
-      }
-      return result
+      // Role skill scans are independent. Running them sequentially made the
+      // sidebar latency grow linearly with the number of configured roles and
+      // allowed one slow filesystem scan to hold every role behind it.
+      return yield* Effect.forEach(
+        resolved,
+        (profile) =>
+          roleSkillManagement
+            .list(profile.id)
+            .pipe(
+              Effect.map((skills) => ({ ...profile, skills })),
+              Effect.mapError(mapSubagentError),
+            ),
+        { concurrency: "unbounded" },
+      )
     })
 
     const getSubagents = Effect.fn("InstanceHttpApi.subagentsList")(function* () {

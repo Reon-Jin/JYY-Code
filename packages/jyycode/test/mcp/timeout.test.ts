@@ -1,10 +1,12 @@
 import { expect, test } from "bun:test"
 import {
   DEFAULT_MCP_IDLE_TIMEOUT,
+  DEFAULT_MCP_DISCOVERY_TIMEOUT,
   DEFAULT_MCP_TOTAL_TIMEOUT,
   MAX_MCP_IDLE_TIMEOUT,
   MAX_MCP_TOTAL_TIMEOUT,
   mcpRequestOptions,
+  resolveMcpDiscoveryTimeouts,
   resolveMcpTimeouts,
   withMcpRequest,
 } from "../../src/mcp/index"
@@ -34,6 +36,14 @@ test("MCP SDK options reset idle timeout on progress but retain an absolute tota
     signal: controller.signal,
     onprogress,
   })
+})
+
+test("MCP discovery uses a short budget without changing tool-call timeouts", () => {
+  expect(resolveMcpDiscoveryTimeouts({ idleMs: DEFAULT_MCP_IDLE_TIMEOUT, totalMs: DEFAULT_MCP_TOTAL_TIMEOUT })).toEqual({
+    idleMs: DEFAULT_MCP_DISCOVERY_TIMEOUT,
+    totalMs: DEFAULT_MCP_DISCOVERY_TIMEOUT,
+  })
+  expect(resolveMcpDiscoveryTimeouts({ idleMs: 100, totalMs: 200 }, 1_000)).toEqual({ idleMs: 100, totalMs: 200 })
 })
 
 test("MCP total deadline aborts a silent request and releases its transport/request", async () => {
