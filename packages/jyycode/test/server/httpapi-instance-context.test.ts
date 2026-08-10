@@ -1,7 +1,13 @@
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { describe, expect } from "bun:test"
 import { Effect, Fiber, Layer } from "effect"
-import { HttpClient, HttpClientRequest, HttpRouter, HttpServerResponse } from "effect/unstable/http"
+import {
+  HttpClient,
+  HttpClientRequest,
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http"
 import * as Socket from "effect/unstable/socket/Socket"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
@@ -13,7 +19,10 @@ import { InstanceRef, WorkspaceRef } from "../../src/effect/instance-ref"
 import { InstanceLayer } from "../../src/project/instance-layer"
 import { Project } from "../../src/project/project"
 import { disposeMiddleware, markInstanceForDisposal } from "../../src/server/routes/instance/httpapi/lifecycle"
-import { instanceRouterMiddleware } from "../../src/server/routes/instance/httpapi/middleware/instance-context"
+import {
+  instanceRouterMiddleware,
+  shouldUseFastInstanceLoad,
+} from "../../src/server/routes/instance/httpapi/middleware/instance-context"
 import { workspaceRouterMiddleware } from "../../src/server/routes/instance/httpapi/middleware/workspace-routing"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdirScoped } from "../fixture/fixture"
@@ -116,6 +125,19 @@ const serveDisposeProbe = () =>
   ).pipe(Layer.build)
 
 describe("HttpApi instance context middleware", () => {
+  it.live("selects fast context only for read-only catalog and file paths", () =>
+    Effect.sync(() => {
+      const request = (method: string, url: string) => ({ method, url }) as HttpServerRequest.HttpServerRequest
+
+      expect(shouldUseFastInstanceLoad(request("GET", "/file?directory=project"))).toBe(true)
+      expect(shouldUseFastInstanceLoad(request("GET", "/api/subagents?directory=project"))).toBe(true)
+      expect(shouldUseFastInstanceLoad(request("GET", "/api/agent?directory=project"))).toBe(true)
+      expect(shouldUseFastInstanceLoad(request("POST", "/subagents?directory=project"))).toBe(false)
+      expect(shouldUseFastInstanceLoad(request("GET", "/api/tool/ids?directory=project"))).toBe(false)
+      expect(shouldUseFastInstanceLoad(request("GET", "/api/session?directory=project"))).toBe(false)
+    }),
+  )
+
   it.live("provides instance context from the routed directory", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped({ git: true })

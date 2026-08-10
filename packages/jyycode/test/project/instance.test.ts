@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
-import { Deferred, Effect, Fiber, Layer } from "effect"
+import { Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import { InstanceRef } from "../../src/effect/instance-ref"
 import { registerDisposer } from "../../src/effect/instance-registry"
 import { InstanceBootstrap } from "../../src/project/bootstrap-service"
@@ -115,6 +115,32 @@ describe("InstanceStore", () => {
       const [firstCtx, secondCtx] = yield* Effect.all([Fiber.join(first), Fiber.join(second)])
       expect(secondCtx).toBe(firstCtx)
       expect(initialized).toBe(1)
+    }),
+  )
+
+  it.live("fast load publishes context before full bootstrap completes", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped({ git: true })
+      const store = yield* InstanceStore.Service
+      const started = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+
+      yield* setBootstrap(
+        Effect.gen(function* () {
+          yield* Deferred.succeed(started, undefined)
+          yield* Deferred.await(release)
+        }),
+      )
+
+      const fast = yield* store.loadFast({ directory: dir })
+      yield* Deferred.await(started)
+
+      const full = yield* store.load({ directory: dir }).pipe(Effect.forkScoped)
+      const pending = yield* Fiber.join(full).pipe(Effect.timeout("25 millis"), Effect.exit)
+      expect(Exit.isFailure(pending)).toBe(true)
+
+      yield* Deferred.succeed(release, undefined)
+      expect(yield* Fiber.join(full)).toBe(fast)
     }),
   )
 

@@ -17,6 +17,8 @@ export interface LoadInput {
 
 export interface Interface {
   readonly load: (input: LoadInput) => Effect.Effect<InstanceContext>
+  /** Resolve the instance context without waiting for optional bootstrap work. */
+  readonly loadFast: (input: LoadInput) => Effect.Effect<InstanceContext>
   readonly reload: (input: LoadInput) => Effect.Effect<InstanceContext>
   readonly dispose: (ctx: InstanceContext) => Effect.Effect<void>
   /** Dispose only an already-cached instance; never boots a missing directory. */
@@ -30,6 +32,9 @@ export class Service extends Context.Service<Service, Interface>()("@jyycode/Ins
 export const use = serviceUse(Service)
 
 interface Entry {
+  /** Completes as soon as project/worktree context is available. */
+  readonly context: Deferred.Deferred<InstanceContext>
+  /** Completes only after the normal instance bootstrap contract finishes. */
   readonly deferred: Deferred.Deferred<InstanceContext>
 }
 
@@ -41,25 +46,23 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
     const scope = yield* Scope.Scope
     const cache = new Map<string, Entry>()
 
-    const boot = (input: LoadInput & { directory: string }) =>
+    const resolveContext = (input: LoadInput & { directory: string }): Effect.Effect<InstanceContext> =>
       Effect.gen(function* () {
-        const ctx: InstanceContext =
-          input.project && input.worktree
-            ? {
-                directory: input.directory,
-                worktree: input.worktree,
-                project: input.project,
-              }
-            : yield* project.fromDirectory(input.directory).pipe(
-                Effect.map((result) => ({
-                  directory: input.directory,
-                  worktree: result.sandbox,
-                  project: result.project,
-                })),
-              )
-        yield* bootstrap.run.pipe(Effect.provideService(InstanceRef, ctx))
-        return ctx
-      }).pipe(Effect.withSpan("InstanceStore.boot"))
+        if (input.project && input.worktree) {
+          return {
+            directory: input.directory,
+            worktree: input.worktree,
+            project: input.project,
+          } satisfies InstanceContext
+        }
+        return yield* project.fromDirectory(input.directory).pipe(
+          Effect.map((result) => ({
+            directory: input.directory,
+            worktree: result.sandbox,
+            project: result.project,
+          })),
+        )
+      }).pipe(Effect.withSpan("InstanceStore.resolveContext"))
 
     const removeEntry = (directory: string, entry: Entry) =>
       Effect.sync(() => {
@@ -70,10 +73,21 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
 
     const completeLoad = (directory: string, input: LoadInput, entry: Entry) =>
       Effect.gen(function* () {
-        const exit = yield* Effect.exit(boot({ ...input, directory }))
+        const contextExit = yield* Effect.exit(resolveContext({ ...input, directory }))
+        yield* Deferred.done(entry.context, contextExit).pipe(Effect.asVoid)
+        if (Exit.isFailure(contextExit)) {
+          yield* removeEntry(directory, entry)
+          yield* Deferred.done(entry.deferred, contextExit).pipe(Effect.asVoid)
+          return
+        }
+
+        const ctx = contextExit.value
+        const exit = yield* Effect.exit(
+          bootstrap.run.pipe(Effect.provideService(InstanceRef, ctx), Effect.as(ctx)),
+        )
         if (Exit.isFailure(exit)) yield* removeEntry(directory, entry)
         yield* Deferred.done(entry.deferred, exit).pipe(Effect.asVoid)
-      })
+      }).pipe(Effect.withSpan("InstanceStore.boot"))
 
     const emitDisposed = (input: { directory: string; project?: string }) =>
       Effect.sync(() =>
@@ -111,7 +125,10 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
           const existing = cache.get(directory)
           if (existing) return yield* restore(Deferred.await(existing.deferred))
 
-          const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext>() }
+          const entry: Entry = {
+            context: Deferred.makeUnsafe<InstanceContext>(),
+            deferred: Deferred.makeUnsafe<InstanceContext>(),
+          }
           cache.set(directory, entry)
           yield* Effect.gen(function* () {
             yield* Effect.logInfo("creating instance").pipe(Effect.annotateLogs("directory", directory))
@@ -122,12 +139,36 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
       ).pipe(Effect.withSpan("InstanceStore.load"))
     }
 
+    const loadFast = (input: LoadInput): Effect.Effect<InstanceContext> => {
+      const directory = AppFileSystem.resolve(input.directory)
+      return Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const existing = cache.get(directory)
+          if (existing) return yield* restore(Deferred.await(existing.context))
+
+          const entry: Entry = {
+            context: Deferred.makeUnsafe<InstanceContext>(),
+            deferred: Deferred.makeUnsafe<InstanceContext>(),
+          }
+          cache.set(directory, entry)
+          yield* Effect.gen(function* () {
+            yield* Effect.logInfo("creating fast instance context").pipe(Effect.annotateLogs("directory", directory))
+            yield* completeLoad(directory, input, entry)
+          }).pipe(Effect.forkIn(scope, { startImmediately: true }))
+          return yield* restore(Deferred.await(entry.context))
+        }),
+      ).pipe(Effect.withSpan("InstanceStore.loadFast"))
+    }
+
     const reload = (input: LoadInput): Effect.Effect<InstanceContext> => {
       const directory = AppFileSystem.resolve(input.directory)
       return Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const previous = cache.get(directory)
-          const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext>() }
+          const entry: Entry = {
+            context: Deferred.makeUnsafe<InstanceContext>(),
+            deferred: Deferred.makeUnsafe<InstanceContext>(),
+          }
           cache.set(directory, entry)
           yield* Effect.gen(function* () {
             yield* Effect.logInfo("reloading instance").pipe(Effect.annotateLogs("directory", directory))
@@ -200,6 +241,7 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
 
     return Service.of({
       load,
+      loadFast,
       reload,
       dispose,
       disposeDirectory,

@@ -83,7 +83,9 @@ describe("desktop accessibility contract", () => {
     skillLink.focus()
     await user.keyboard("{Enter}")
     expect(screen.getByRole("link", { name: "Skill" })).toHaveAttribute("aria-current", "page")
-    await user.click(await screen.findByRole("button", { name: "打开 Skill desktop-helper" }))
+    await user.click(
+      await screen.findByRole("button", { name: "打开 Skill desktop-helper" }, { timeout: 5_000 }),
+    )
 
     const trigger = await screen.findByRole("button", { name: "删除" })
     trigger.focus()

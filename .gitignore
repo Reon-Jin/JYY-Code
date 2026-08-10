@@ -59,3 +59,5 @@ tsconfig.tsbuildinfo
 /.pnpm-store
 /.jyycode/plan
 /docs
+/paper
+texput.log
