@@ -7,25 +7,21 @@ import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
-import { Memory } from "@/memory/memory"
 
-// Single unified base prompt for every model — no per-vendor variants.
+// Single unified base prompt for every interactive model; no per-vendor variants.
 export function provider() {
   return [PROMPT]
 }
 
-const MEMORY_RULES = [
-  `Persistent memory JSON files live in ${Memory.DIRECTORY}: MEMORY.json (one task-state entry per session; snapshots also list other sessions' task entries in the same project as read-only context), USER.json (stable user facts), and EXPERIENCE.json (success/failure/lesson rules shared across all projects).`,
-  "Task memory is updated automatically by the runtime twice per turn — never call the memory tool for these routine updates; use it only when the user explicitly asks to manage memories.",
-  "To inspect what is remembered, call the memory tool with action=read (target=memory or target=user); for past lessons call context_read with action=experience. Do not read the JSON files directly with file tools.",
-  "Only this session's task entry (owner=self) is yours to update. Other sessions' task entries (owner=peer) are context only: never treat them as your current task or modify them.",
-  "Task state uses the format 当前任务：<goal>；进展：<progress>；[经验：<lesson>] with limits goal ≤120, progress ≤160, 经验 ≤160 Unicode chars. Write 经验 only when this turn produced a durable success or failure lesson; never write 下一步.",
-  "Before retrying a failed step or starting a similar task, use context_read with action=experience to check past lessons.",
-  "Never store secrets or credentials, and never create .md files in the memory directory. Snapshot budgets: task ≤400 chars, user ≤1200 chars, at most 10 matching experiences ≤1200 chars. Subagents are read-only.",
+export const RUNTIME_CONTRACT = [
+  "## Context and memory",
+  "- Task state is updated by the runtime. Do not manage persistent memory unless the user explicitly asks.",
+  "- For exact details outside the current context, use context_read; before retrying a similar failure, use context_read(action=experience).",
+  "- Only the root session may change persistent memory. Other sessions' memory is read-only context. Never read memory files directly.",
 ].join("\n")
 
 export interface Interface {
-  readonly environment: (model: Provider.Model, options?: { includeMemory?: boolean }) => Effect.Effect<string[]>
+  readonly environment: (model: Provider.Model) => Effect.Effect<string[]>
   readonly skills: (agent: Agent.Info, scope?: Skill.SkillAccessScope) => Effect.Effect<string | undefined>
 }
 
@@ -37,22 +33,16 @@ export const layer = Layer.effect(
     const skill = yield* Skill.Service
 
     return Service.of({
-      environment: Effect.fn("SystemPrompt.environment")(function* (
-        model: Provider.Model,
-        options?: { includeMemory?: boolean },
-      ) {
+      environment: Effect.fn("SystemPrompt.environment")(function* (model: Provider.Model) {
         const ctx = yield* InstanceState.context
         return [
           [
-            `You are JYYCode, a personal AI assistant powered by the model ${model.providerID}/${model.api.id}.`,
-            `<env>`,
+            "## Runtime context",
+            `Model: ${model.providerID}/${model.api.id}`,
             `Working directory: ${ctx.directory}`,
             `Workspace root: ${ctx.worktree}`,
-            `Git repo: ${ctx.project.vcs === "git" ? "yes" : "no"}`,
-            `Platform: ${process.platform}`,
-            `Date: ${new Date().toDateString()}`,
-            `</env>`,
-            ...(options?.includeMemory === false ? [] : ["", MEMORY_RULES]),
+            `Git repository: ${ctx.project.vcs === "git" ? "yes" : "no"}`,
+            RUNTIME_CONTRACT,
           ].join("\n"),
         ]
       }),

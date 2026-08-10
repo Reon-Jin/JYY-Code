@@ -1920,9 +1920,9 @@ export const layer = Layer.effect(
             }
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-            // Environment is session-static context: inject it only during the
-            // session's first turn instead of paying its token cost on every
-            // request. The root skill catalog is not injected here — the skill
+            // Runtime context is injected on every request so workspace and
+            // memory ownership rules remain available after the first turn.
+            // The root skill catalog remains first-turn-only because the skill
             // tool description already lists it on every request.
             // Profile-backed child sessions additionally get their role skill
             // catalog injected below on the first turn, because the dispatch
@@ -1968,9 +1968,7 @@ export const layer = Layer.effect(
             )
 
             const [env, instructions] = yield* Effect.all([
-              firstSessionTurn
-                ? sys.environment(model, { includeMemory: canUsePersistentMemory })
-                : Effect.succeed([] as string[]),
+              sys.environment(model),
               instruction.system().pipe(Effect.orDie),
             ])
             const system = [

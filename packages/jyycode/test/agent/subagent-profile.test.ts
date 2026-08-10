@@ -45,6 +45,15 @@ it("returns fresh copies of the built-in defaults", () => {
   )
 })
 
+it("keeps built-in role prompts focused on domain expertise", () => {
+  for (const profile of builtinProfiles) {
+    expect(profile.prompt.length).toBeLessThanOrEqual(900)
+    expect(profile.prompt).not.toContain("Plan_")
+    expect(profile.prompt).not.toContain("Dispatch_")
+    expect(profile.prompt).not.toContain("MEMORY.json")
+  }
+})
+
 it("accepts custom profiles and resolves them by stable id", () => {
   const profiles = resolveProfiles([defaultGeneralProfile, customProfile])
   expect(profiles).toEqual([defaultGeneralProfile, customProfile])

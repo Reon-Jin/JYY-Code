@@ -16,6 +16,17 @@ import type { ToolChoice } from "./tool-choice"
 import { isForcedToolChoice } from "./tool-choice"
 
 const USER_AGENT = `jyycode/${InstallationVersion}`
+const INTERNAL_PROMPT_ONLY_AGENTS = new Set(["compaction", "summary", "title"])
+
+export function usesCanonicalBasePolicy(agent: Pick<Agent.Info, "name">) {
+  return !INTERNAL_PROMPT_ONLY_AGENTS.has(agent.name)
+}
+
+export function composeAgentSystemPrompt(agent: Pick<Agent.Info, "name" | "mode" | "prompt">) {
+  const prompt = agent.prompt?.trim()
+  if (!usesCanonicalBasePolicy(agent)) return prompt ?? SystemPrompt.provider().join("\n")
+  return [...SystemPrompt.provider(), ...(prompt ? [prompt] : [])].join("\n")
+}
 
 type PrepareInput = {
   readonly user: MessageV2.User
@@ -58,7 +69,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
   const isOpenaiOauth = input.provider.id === "openai" && input.auth?.type === "oauth"
   const system = [
     [
-      ...(input.agent.prompt ? [input.agent.prompt] : SystemPrompt.provider()),
+      composeAgentSystemPrompt(input.agent),
       ...input.system,
       ...(input.user.system ? [input.user.system] : []),
     ]

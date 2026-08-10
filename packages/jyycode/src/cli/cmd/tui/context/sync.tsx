@@ -126,6 +126,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const kv = useKV()
 
     const fullSyncedSessions = new Set<string>()
+    const syncingSessions = new Map<string, { promise: Promise<void>; token: object }>()
+    let syncEpoch = 0
     function sessionListQuery(): { scope?: "project"; path?: string } {
       if (!kv.get("session_directory_filter_enabled", true)) return { scope: "project" }
       if (!project.data.instance.path.worktree || !project.data.instance.path.directory) return { scope: "project" }
@@ -161,6 +163,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     event.subscribe((event, { workspace }) => {
       switch (event.type) {
         case "server.instance.disposed":
+          syncEpoch += 1
+          fullSyncedSessions.clear()
+          syncingSessions.clear()
           void bootstrap()
           break
         case "permission.replied": {
@@ -557,30 +562,49 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         },
         async sync(sessionID: string) {
           if (fullSyncedSessions.has(sessionID)) return
-          const [session, messages, todo, diff, context] = await Promise.all([
-            sdk.client.session.get({ sessionID }, { throwOnError: true }),
-            sdk.client.session.messages({ sessionID, limit: 100 }),
-            sdk.client.session.todo({ sessionID }),
-            sdk.client.session.diff({ sessionID }),
-            fetchSessionContext(sessionID),
-          ])
-          setStore(
-            produce((draft) => {
-              const match = Binary.search(draft.session, sessionID, (s) => s.id)
-              if (match.found) draft.session[match.index] = session.data!
-              if (!match.found) draft.session.splice(match.index, 0, session.data!)
-              draft.todo[sessionID] = todo.data ?? []
-              const infos: (typeof draft.message)[string] = []
-              for (const message of messages.data ?? []) {
-                infos.push(message.info)
-                draft.part[message.info.id] = message.parts
-              }
-              draft.message[sessionID] = infos
-              draft.session_diff[sessionID] = diff.data ?? []
-              draft.session_context[sessionID] = context
-            }),
-          )
-          fullSyncedSessions.add(sessionID)
+          const existing = syncingSessions.get(sessionID)?.promise
+          if (existing) return existing
+
+          const epoch = syncEpoch
+          const token = {}
+          const request = (async () => {
+            try {
+              const [session, messages, todo, diff, context] = await Promise.all([
+                sdk.client.session.get({ sessionID }, { throwOnError: true }),
+                sdk.client.session.messages({ sessionID, limit: 100 }),
+                sdk.client.session.todo({ sessionID }),
+                sdk.client.session.diff({ sessionID }),
+                fetchSessionContext(sessionID),
+              ])
+
+              // A non-throwing SDK request returns `data: undefined` on HTTP
+              // errors. Never turn that transient failure into an empty
+              // conversation or cache it as a successful sync.
+              if (messages.data === undefined || epoch !== syncEpoch) return
+
+              setStore(
+                produce((draft) => {
+                  const match = Binary.search(draft.session, sessionID, (s) => s.id)
+                  if (match.found) draft.session[match.index] = session.data!
+                  if (!match.found) draft.session.splice(match.index, 0, session.data!)
+                  draft.todo[sessionID] = todo.data ?? []
+                  const infos: (typeof draft.message)[string] = []
+                  for (const message of messages.data) {
+                    infos.push(message.info)
+                    draft.part[message.info.id] = message.parts
+                  }
+                  draft.message[sessionID] = infos
+                  draft.session_diff[sessionID] = diff.data ?? []
+                  draft.session_context[sessionID] = context
+                }),
+              )
+              fullSyncedSessions.add(sessionID)
+            } finally {
+              if (syncingSessions.get(sessionID)?.token === token) syncingSessions.delete(sessionID)
+            }
+          })()
+          syncingSessions.set(sessionID, { promise: request, token })
+          return request
         },
       },
       bootstrap,

@@ -1326,6 +1326,8 @@ withSnapshotMemory.instance("injects the persistent memory snapshot on the first
     const inputs = yield* llm.inputs
     expect(JSON.stringify(inputs[0])).toContain("PERSISTENT MEMORY SNAPSHOT")
     expect(JSON.stringify(inputs[1])).toContain("PERSISTENT MEMORY SNAPSHOT")
+    expect(JSON.stringify(inputs[0])).toContain("## Runtime context")
+    expect(JSON.stringify(inputs[1])).toContain("Only the root session may change persistent memory")
   }),
 )
 
@@ -3246,6 +3248,7 @@ it.instance("profile subagent child session gets role skills in the skill tool a
       const payload = JSON.stringify(body)
       expect(payload).toContain("你的专属技能")
       expect(payload).toContain("docx 文档处理技能")
+      expect(payload).toContain("Runtime permissions, visible tools")
     }).pipe(Effect.ensuring(Effect.promise(() => fs.rm(roleRoot, { recursive: true, force: true }))))
   }),
 )

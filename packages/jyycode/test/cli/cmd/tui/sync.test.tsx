@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 import { Global } from "@jyycode-ai/core/global"
 import { tmpdir } from "../../../fixture/fixture"
-import { mount, wait } from "./sync-fixture"
+import { directory, json, mount, wait } from "./sync-fixture"
 import type { GlobalEvent } from "@jyycode-ai/sdk/v2"
 
 function branchEvent(branch: string, workspace?: string): GlobalEvent {
@@ -62,6 +62,68 @@ describe("tui sync", () => {
       await wait(() => sync.data.vcs?.branch === "feature")
 
       expect(sync.data.vcs?.branch).toBe("feature")
+    } finally {
+      app.renderer.destroy()
+      Global.Path.state = previous
+    }
+  })
+
+  test("refreshes session data after the server instance is disposed", async () => {
+    const previous = Global.Path.state
+    await using tmp = await tmpdir()
+    Global.Path.state = tmp.path
+    await Bun.write(`${tmp.path}/kv.json`, "{}")
+
+    const sessionID = "ses_disposed"
+    const sessionPayload = {
+      id: sessionID,
+      title: "disposed",
+      time: { created: 0, updated: 0 },
+      version: "1.14.42",
+      directory,
+      project_id: "proj_test",
+    }
+    let messageRequests = 0
+    const { app, emit, sync } = await mount((url) => {
+      if (url.pathname === `/session/${sessionID}`) return json(sessionPayload)
+      if (url.pathname === `/session/${sessionID}/message`) {
+        messageRequests += 1
+        return json([
+          {
+            info: {
+              id: messageRequests === 1 ? "msg_before_dispose" : "msg_after_dispose",
+              sessionID,
+              role: "user",
+              time: { created: messageRequests },
+            },
+            parts: [],
+          },
+        ])
+      }
+      if (url.pathname === `/session/${sessionID}/todo`) return json([])
+      if (url.pathname === `/session/${sessionID}/diff`) return json([])
+      if (url.pathname === `/session/${sessionID}/context`) return json({})
+      if (url.pathname === "/session") return json([sessionPayload])
+      return undefined
+    })
+
+    try {
+      await sync.session.sync(sessionID)
+      expect(messageRequests).toBe(1)
+
+      emit({
+        directory,
+        project: "proj_test",
+        payload: {
+          id: "evt_disposed",
+          type: "server.instance.disposed",
+          properties: { directory },
+        },
+      })
+      await sync.session.sync(sessionID)
+
+      expect(messageRequests).toBe(2)
+      expect(sync.data.message[sessionID]?.map((message) => message.id)).toEqual(["msg_after_dispose"])
     } finally {
       app.renderer.destroy()
       Global.Path.state = previous
