@@ -9,6 +9,7 @@ export const PLAN_BASE_PROMPT = `# 主 Agent 方案协议
 `
 
 export const PLAN_MULTI_PROMPT = `# 主 Agent 多智能体协议
+- Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes. Do not set timeout_ms in Plan_create or Plan_update; the main Agent has no permission to change it.
 - 只派发当前 active Step 的 pending/rejected Task；不要亲自执行已委派 Task。先拆分互不阻塞的交付物、模块、调查或验证；通常形成 3-10 个 standard Task（最多 20 个），但不要制造重复 Task。
 - 每个 standard Task 必须有不重叠的交付物、可判定的 done_criteria 和工作区内的 output_path。一次 Dispatch_dispatch 批量派发当前 wave 的全部 ready Task；一次调用只用一个启用的 role。
 - 当前 Step 没有 Task 时，用一次 Plan_update 展开；Dispatch_dispatch 只能使用当前 active Step 的真实 taskId，不能派发未来阶段。

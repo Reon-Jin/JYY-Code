@@ -15,6 +15,7 @@ import { Provider } from "../../src/provider/provider"
 import { Skill } from "../../src/skill"
 import { Truncate } from "../../src/tool/truncate"
 import { defaultGeneralProfile, profileAgentName } from "../../src/agent/subagent-profile"
+import { DEFAULT_AGENT_DEADLINE_MS } from "../../src/config/agent"
 
 const agentLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
   Agent.layer.pipe(
@@ -146,6 +147,7 @@ it.instance(
       expect(review?.options.subagentToolIDs).toEqual(["read", "edit", "plugin_custom"])
       expect(review?.name).toBe(profileAgentName("role_review"))
       expect(review?.description).toBe("Reviews implementation changes.")
+      expect(review?.deadlineMs).toBe(DEFAULT_AGENT_DEADLINE_MS)
       expect(review?.prompt).toBeUndefined()
       expect(review?.model).toBeUndefined()
     }),
@@ -161,6 +163,7 @@ it.instance(
             prompt: "Review the delegated task carefully.",
             avatar: "bug",
             tools: ["read", "edit", "plugin_custom"],
+            timeout_ms: 2_000,
             enabled: true,
           },
         ],

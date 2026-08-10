@@ -631,6 +631,39 @@ describe("file-backed plan protocol", () => {
     expect(fs.existsSync(planFilePath(root, "ses_main"))).toBe(false)
   })
 
+  it("rejects caller-supplied child timeouts in create and update inputs", async () => {
+    const root = workspace()
+    const protocol = new PlanProtocol({ store: new PlanStore() })
+    const forgedCreate = {
+      ...createInput(),
+      steps: [
+        {
+          ...createInput().steps[0],
+          tasks: [{ ...createInput().steps[0]!.tasks![0], timeout_ms: 900_000 }],
+        },
+        createInput().steps[1],
+      ],
+    }
+    const createResult = await protocol.create(context(root), forgedCreate as never)
+    expect(createResult.ok).toBe(false)
+    if (!createResult.ok) expect(createResult.error.code).toBe("SCHEMA_VALIDATION")
+
+    expect((await protocol.create(context(root), createInput())).ok).toBe(true)
+    const updateResult = await protocol.update(context(root), {
+      revision: 1,
+      ops: [
+        {
+          op: "edit_task",
+          stepId: "s1",
+          taskId: "s1_t1",
+          fields: { timeout_ms: 900_000 },
+        },
+      ],
+    } as never)
+    expect(updateResult.ok).toBe(false)
+    if (!updateResult.ok) expect(updateResult.error.code).toBe("SCHEMA_VALIDATION")
+  })
+
   it("applies all update ops atomically and maintains current_step", async () => {
     const root = workspace()
     const protocol = new PlanProtocol({ store: new PlanStore() })
@@ -1127,9 +1160,11 @@ describe("file-backed plan protocol", () => {
     const legacy = structuredClone(read.plan) as PlanFile
     delete legacy.steps[0]!.tasks[0]!.mode
     delete legacy.steps[0]!.tasks[0]!.merge
+    legacy.steps[0]!.tasks[0]!.timeout_ms = 900_000
     const normalized = normalizePlanFile(legacy) as PlanFile
     expect(normalized.steps[0]?.tasks[0]?.mode).toBe("standard")
     expect(normalized.steps[0]?.tasks[0]?.merge).toBeUndefined()
+    expect(normalized.steps[0]?.tasks[0]?.timeout_ms).toBeUndefined()
     expect(fs.readFileSync(planFilePath(root, "ses_main"), "utf8")).not.toContain('"merge"')
 
     const task = normalized.steps[0]!.tasks[0]!
@@ -1738,6 +1773,8 @@ describe("file-backed plan protocol", () => {
     expect(multiAgentPrompt).not.toContain("Blackboard.reply")
     expect(multiAgentPrompt).not.toContain("Merge.apply")
     expect(multiAgentPrompt).toContain("output_path")
+    expect(multiAgentPrompt).toContain("fixed at 30 minutes")
+    expect(multiAgentPrompt).toContain("main Agent has no permission")
     expect(multiAgentPrompt).toContain("reviewer")
     expect(planSystemPrompt({ child: false, multiAgent: true, profiles: [] })).toContain("No enabled sub-agent roles")
     expect(multiAgentPrompt).not.toContain("重新派发时工具会自动带入 previous_feedback")

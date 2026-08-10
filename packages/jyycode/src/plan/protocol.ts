@@ -181,8 +181,8 @@ export type ChildBudgetSnapshot = DispatchBudget
 
 export type ChildBudgetResolutionInput = {
   now?: number
-  role?: Partial<Pick<LaunchSnapshot, "steps" | "timeout_ms" | "no_progress_steps">>
-  task?: Pick<PlanTask, "max_steps" | "timeout_ms" | "no_progress_steps">
+  role?: Partial<Pick<LaunchSnapshot, "steps" | "no_progress_steps">>
+  task?: Pick<PlanTask, "max_steps" | "no_progress_steps">
   parent?: Partial<DispatchBudget>
 }
 
@@ -200,8 +200,10 @@ export function resolveChildBudget(input: ChildBudgetResolutionInput = {}): Chil
   const deadlineCandidates: Array<{ value: number; source: DispatchBudgetSource }> = [
     { value: DEFAULT_AGENT_DEADLINE_MS, source: "default" },
   ]
-  if (input.role?.timeout_ms !== undefined) deadlineCandidates.push({ value: input.role.timeout_ms, source: "profile" })
-  if (input.task?.timeout_ms !== undefined) deadlineCandidates.push({ value: input.task.timeout_ms, source: "plan" })
+  // The child wall-clock budget is runtime-owned. Profiles and plan authors
+  // may tune step-based safeguards, but they cannot shorten or extend this
+  // 30-minute dispatch deadline. A parent deadline remains an internal
+  // safety bound for nested execution.
   if (input.parent?.deadline_at !== undefined) {
     const parentRemaining = Date.parse(input.parent.deadline_at) - now
     if (Number.isFinite(parentRemaining)) deadlineCandidates.push({ value: Math.max(0, parentRemaining), source: "parent" })
@@ -524,7 +526,6 @@ function validateCreateInput(input: unknown): asserts input is CreatePlanInput {
           "instructions",
           "output_path",
           "max_steps",
-          "timeout_ms",
           "no_progress_steps",
           "mode",
         ],
@@ -537,7 +538,7 @@ function validateCreateInput(input: unknown): asserts input is CreatePlanInput {
         inputError(`steps[${index}].tasks[${taskIndex}].instructions must be non-empty`)
       if (task.output_path !== undefined && !asString(task.output_path))
         inputError(`steps[${index}].tasks[${taskIndex}].output_path must be non-empty`)
-      for (const field of ["max_steps", "timeout_ms", "no_progress_steps"] as const) {
+      for (const field of ["max_steps", "no_progress_steps"] as const) {
         if (
           task[field] !== undefined &&
           (!Number.isSafeInteger(task[field]) || Number(task[field]) < 1)
@@ -570,6 +571,10 @@ function validateUpdateInput(input: unknown): asserts input is PlanUpdateInput {
   for (const [index, rawOp] of (value.ops as unknown[]).entries()) {
     if (!rawOp || typeof rawOp !== "object" || Array.isArray(rawOp)) inputError(`ops[${index}] 必须是对象`)
     const op = rawOp as Record<string, unknown>
+    if (op.op === "add_task" && op.task && typeof op.task === "object" && !Array.isArray(op.task) && "timeout_ms" in op.task)
+      inputError(`ops[${index}].task.timeout_ms is runtime-owned and cannot be set`)
+    if (op.op === "edit_task" && op.fields && typeof op.fields === "object" && !Array.isArray(op.fields) && "timeout_ms" in op.fields)
+      inputError(`ops[${index}].fields.timeout_ms is runtime-owned and cannot be set`)
     if (op.op === "review_task" && op.decision === "reject" && !asString(op.feedback))
       inputError(`ops[${index}] reject 必须提供 feedback`, "补充具体的验收缺口后重试")
     if (op.op === "reopen_task" && !asString(op.reason))
@@ -726,7 +731,6 @@ function createTask(input: CreateTaskInput, id: string, workspaceRoot?: string, 
     done_criteria: requiredText(input.done_criteria, "task.done_criteria"),
     ...(input.instructions ? { instructions: requiredText(input.instructions, "task.instructions") } : {}),
     ...(input.max_steps !== undefined ? { max_steps: Math.min(MAX_AGENT_STEPS, input.max_steps) } : {}),
-    ...(input.timeout_ms !== undefined ? { timeout_ms: Math.min(MAX_AGENT_DEADLINE_MS, input.timeout_ms) } : {}),
     ...(input.no_progress_steps !== undefined
       ? { no_progress_steps: Math.min(MAX_AGENT_NO_PROGRESS_STEPS, input.no_progress_steps) }
       : {}),
@@ -894,12 +898,11 @@ function applyOp(
       if (op.fields.done_criteria !== undefined)
         task.done_criteria = requiredText(op.fields.done_criteria, "done_criteria")
       if (op.fields.instructions !== undefined) task.instructions = requiredText(op.fields.instructions, "instructions")
-      for (const field of ["max_steps", "timeout_ms", "no_progress_steps"] as const) {
+      for (const field of ["max_steps", "no_progress_steps"] as const) {
         const value = op.fields[field]
         if (value !== undefined && (!Number.isSafeInteger(value) || Number(value) < 1))
           inputError(`${field} must be a positive safe integer`)
         if (field === "max_steps" && value !== undefined) task.max_steps = Math.min(MAX_AGENT_STEPS, value)
-        if (field === "timeout_ms" && value !== undefined) task.timeout_ms = Math.min(MAX_AGENT_DEADLINE_MS, value)
         if (field === "no_progress_steps" && value !== undefined)
           task.no_progress_steps = Math.min(MAX_AGENT_NO_PROGRESS_STEPS, value)
       }

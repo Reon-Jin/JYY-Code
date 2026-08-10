@@ -576,6 +576,7 @@ describe("model-facing plan tool names", () => {
     ).properties.tasks
     expect(taskProperties.description).toContain("2-3 candidate Tasks")
     expect(taskProperties.items.properties).toHaveProperty("instructions")
+    expect(taskProperties.items.properties).not.toHaveProperty("timeout_ms")
     expect((taskProperties.items.properties as { mode?: { description?: string } }).mode?.description).toContain(
       "exactly 2-3",
     )
@@ -604,6 +605,10 @@ describe("model-facing plan tool names", () => {
           (operation as { properties?: { op?: { const?: string } } }).properties?.op?.const === "review_task",
       ),
     ).toMatchObject({ then: { required: ["feedback"] } })
+    const editTask = operations.find(
+      (operation) => (operation as { properties?: { op?: { const?: string } } }).properties?.op?.const === "edit_task",
+    ) as { properties?: { fields?: { properties?: object } } } | undefined
+    expect(editTask?.properties?.fields?.properties ?? {}).not.toHaveProperty("timeout_ms")
   })
 
   it("builds child launches from the frozen role snapshot", () => {

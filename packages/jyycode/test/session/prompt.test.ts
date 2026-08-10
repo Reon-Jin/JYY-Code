@@ -1635,7 +1635,7 @@ it.instance("stops a dispatched child after its no-progress budget and records a
     })
     registerChildBudget(
       child.id,
-      resolveChildBudget({ now: Date.now(), role: { steps: 60, no_progress_steps: 8, timeout_ms: 30_000 } }),
+      resolveChildBudget({ now: Date.now(), role: { steps: 60, no_progress_steps: 8 } }),
     )
     for (let index = 0; index < 10; index++) {
       yield* llm.push(reply().tool("first", { value: "same" }).stop())

@@ -3,6 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
 import { defaultGeneralProfile } from "../../src/agent/subagent-profile"
+import { DEFAULT_AGENT_DEADLINE_MS } from "../../src/config/agent"
 import { PlanProtocol, resolveChildBudget } from "../../src/plan/protocol"
 import { PlanStore } from "../../src/plan/store"
 
@@ -56,6 +57,14 @@ describe("child execution budgets", () => {
     expect(Number.isFinite(Date.parse(defaults.deadline_at))).toBe(true)
     expect(defaults.max_steps).toBe(60)
     expect(defaults.no_progress_steps).toBe(8)
+
+    const modelOverrides = resolveChildBudget({
+      now,
+      role: { steps: 2, no_progress_steps: 2, timeout_ms: 2_000 } as never,
+      task: { max_steps: 2, no_progress_steps: 2, timeout_ms: 1_000 } as never,
+    })
+    expect(Date.parse(modelOverrides.deadline_at)).toBe(now + DEFAULT_AGENT_DEADLINE_MS)
+    expect(modelOverrides.source).toBe("profile")
   })
 
   it("persists an immutable dispatch snapshot and creates a fresh retry run", async () => {
@@ -119,6 +128,7 @@ describe("child execution budgets", () => {
     expect(retryDispatch.max_steps).toBe(3)
     expect(retryDispatch.no_progress_steps).toBe(2)
     expect(retryDispatch.source).toBe("profile")
+    expect(Date.parse(retryDispatch.deadline_at ?? "")).toBe(now + DEFAULT_AGENT_DEADLINE_MS)
     expect(retryDispatch.deadline_at).not.toBe(firstDispatch.deadline_at)
   })
 })

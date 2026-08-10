@@ -242,10 +242,7 @@ export const layer = Layer.effect(
             profile.steps ?? subagentConfig?.max_steps ?? DEFAULT_AGENT_MAX_STEPS,
             MAX_AGENT_STEPS,
           )
-          const profileDeadline = Math.min(
-            profile.timeout_ms ?? subagentConfig?.timeout_ms ?? DEFAULT_AGENT_DEADLINE_MS,
-            MAX_AGENT_DEADLINE_MS,
-          )
+          const profileDeadline = DEFAULT_AGENT_DEADLINE_MS
           const profileNoProgress = Math.min(
             profile.no_progress_steps ?? subagentConfig?.no_progress_steps ?? DEFAULT_AGENT_NO_PROGRESS_STEPS,
             MAX_AGENT_NO_PROGRESS_STEPS,
@@ -294,7 +291,7 @@ export const layer = Layer.effect(
           item.hidden = value.hidden ?? item.hidden
           item.name = value.name ?? item.name
           item.steps = value.steps === undefined ? item.steps : Math.min(value.steps, MAX_AGENT_STEPS)
-          if (value.timeout_ms !== undefined) {
+          if (value.timeout_ms !== undefined && item.mode !== "subagent") {
             item.deadlineMs = Math.min(value.timeout_ms, MAX_AGENT_DEADLINE_MS)
           }
           if (value.no_progress_steps !== undefined) {
@@ -302,7 +299,7 @@ export const layer = Layer.effect(
           }
           if (item.mode === "subagent") {
             item.steps ??= DEFAULT_AGENT_MAX_STEPS
-            item.deadlineMs ??= DEFAULT_AGENT_DEADLINE_MS
+            item.deadlineMs = DEFAULT_AGENT_DEADLINE_MS
             item.noProgressSteps ??= DEFAULT_AGENT_NO_PROGRESS_STEPS
           }
           item.options = mergeDeep(item.options, value.options ?? {})

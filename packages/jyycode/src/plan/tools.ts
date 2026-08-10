@@ -107,7 +107,6 @@ const taskInputSchema: JSONSchema7 = {
     instructions: nonEmptyStringSchema,
     output_path: nonEmptyStringSchema,
     max_steps: positiveIntegerSchema,
-    timeout_ms: positiveIntegerSchema,
     no_progress_steps: positiveIntegerSchema,
     mode: {
       enum: ["standard", "candidate"],
@@ -238,7 +237,6 @@ const updateOps: JSONSchema7[] = [
           instructions: nonEmptyStringSchema,
           output_path: nonEmptyStringSchema,
           max_steps: positiveIntegerSchema,
-          timeout_ms: positiveIntegerSchema,
           no_progress_steps: positiveIntegerSchema,
         },
       },
@@ -1108,7 +1106,7 @@ export const PlanCreateTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description:
+      description: "Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; do not include timeout_ms. " +
         "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan_update 展开。按可并行性检查拆分，默认放 3-10 个可并行的 standard Task（上限 20 个）；能拆就拆，优先多派子 Agent。需要候选比较时，在 Plan_create 或后续 clean active Step 的一次 Plan_update 中完整放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
       parameters: AnyObject,
       jsonSchema: PLAN_CREATE_INPUT_SCHEMA,
@@ -1137,7 +1135,7 @@ export const PlanUpdateTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description:
+      description: "Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; timeout_ms is not accepted. " +
         "以 revision 乐观锁原子修改方案、展开标准任务、推进单智能体状态或审核子 Agent 汇报。后续 active Step 可在一次调用中用 2-3 个 candidate add_task 初始化候选组；不能向已有 candidate Step 追加或混入 standard Task。",
       parameters: AnyObject,
       jsonSchema: PLAN_UPDATE_INPUT_SCHEMA,
@@ -1194,7 +1192,7 @@ export const DispatchDispatchTool = Tool.define(
     const bus = yield* Bus.Service
     const config = yield* Config.Service
     return {
-      description:
+      description: "Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; this tool has no timeout control. " +
         "在多智能体模式把 pending/rejected 任务派给指定角色。必须选择一个当前启用的 role；如果 taskIds 中包含 candidate Task，必须在一次调用中包含该 Step 的全部 2-3 个候选 ID。",
       parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String), role: Schema.String }),
       jsonSchema: DISPATCH_INPUT_SCHEMA,

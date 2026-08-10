@@ -137,7 +137,7 @@ export type PlanTask = {
   /** Detailed execution context carried into the dispatched child brief. */
   instructions?: string
   output_path: string | null
-  /** Optional per-task child execution caps, snapshotted at dispatch time. */
+  /** Legacy persisted field; new plans cannot set it and runtime ignores it. */
   max_steps?: number
   timeout_ms?: number
   no_progress_steps?: number
@@ -179,7 +179,6 @@ export type CreateTaskInput = {
   instructions?: string
   output_path?: string
   max_steps?: number
-  timeout_ms?: number
   no_progress_steps?: number
   mode?: PlanTaskMode
 }
@@ -216,7 +215,6 @@ export type PlanUpdateOp =
           | "instructions"
           | "output_path"
           | "max_steps"
-          | "timeout_ms"
           | "no_progress_steps"
         >
       >
@@ -507,7 +505,6 @@ export function validatePlanFile(value: unknown): string[] {
           "instructions",
           "output_path",
           "max_steps",
-          "timeout_ms",
           "no_progress_steps",
           "mode",
           "status",
@@ -530,8 +527,6 @@ export function validatePlanFile(value: unknown): string[] {
           errors.push(errorAt(`${taskPrefix}.reopen_reason`, "must be a non-empty string when provided"))
         if (rawTask.max_steps !== undefined && (!Number.isSafeInteger(rawTask.max_steps) || Number(rawTask.max_steps) < 1))
           errors.push(errorAt(`${taskPrefix}.max_steps`, "must be a positive safe integer when provided"))
-        if (rawTask.timeout_ms !== undefined && (!Number.isSafeInteger(rawTask.timeout_ms) || Number(rawTask.timeout_ms) < 1))
-          errors.push(errorAt(`${taskPrefix}.timeout_ms`, "must be a positive safe integer when provided"))
         if (
           rawTask.no_progress_steps !== undefined &&
           (!Number.isSafeInteger(rawTask.no_progress_steps) || Number(rawTask.no_progress_steps) < 1)
@@ -698,6 +693,10 @@ export function normalizePlanFile(value: unknown): unknown {
             ...task,
             ...(task.mode === undefined ? { mode: "standard" } : {}),
           }
+          // Plans written before timeout ownership moved to the runtime may
+          // still contain this field. Keep them readable, but never carry it
+          // into the active plan model or a new dispatch.
+          delete normalizedTask.timeout_ms
           if (isRecord(normalizedTask.merge) && normalizedTask.merge.cleanup_record === undefined) {
             const merge = normalizedTask.merge
             const state =
