@@ -1,3 +1,4 @@
+import type { JyycodeClient } from "@jyycode-ai/sdk/v2/client"
 import { describe, expect, it, vi } from "vitest"
 import { PDFDocument } from "pdf-lib"
 import { PDF_TRANSLATION_MAX_CHARS, flattenPdfAnnotations, pdfPageRows, pdfTranslationTarget, translatePdfText } from "./pdf-preview"
@@ -15,19 +16,61 @@ describe("PDF preview helpers", () => {
     expect(pdfPageRows(5, "spread")).toEqual([[1, 2], [3, 4], [5]])
   })
 
-  it("translates selections up to 5,000 characters in API-safe chunks", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = new URL(input.toString())
-      return new Response(JSON.stringify([[[url.searchParams.get("q")]]]))
-    })
-    const source = "a".repeat(PDF_TRANSLATION_MAX_CHARS + 1)
-
-    expect((await translatePdfText(source)).replaceAll(" ", "")).toBe("a".repeat(PDF_TRANSLATION_MAX_CHARS))
-    expect(fetchMock).toHaveBeenCalledTimes(Math.ceil(PDF_TRANSLATION_MAX_CHARS / 450))
-    for (const [input] of fetchMock.mock.calls) {
-      expect(new URL(input.toString()).searchParams.get("q")?.length).toBeLessThanOrEqual(450)
-      expect(new URL(input.toString()).searchParams.get("tl")).toBe("zh-CN")
+  it("translates with the active configured model and cleans up the transient session", async () => {
+    const session = {
+      get: vi.fn().mockResolvedValue({
+        data: { id: "ses_parent", agent: "build", model: { id: "deepseek-v4-flash", providerID: "deepseek" } },
+      }),
+      create: vi.fn().mockResolvedValue({ data: { id: "ses_translation" } }),
+      prompt: vi.fn().mockResolvedValue({ data: { parts: [{ type: "text", text: "translated text" }] } }),
+      abort: vi.fn().mockResolvedValue({ data: true }),
+      delete: vi.fn().mockResolvedValue({ data: true }),
     }
+    const source = "a".repeat(PDF_TRANSLATION_MAX_CHARS + 1)
+    const client = { session } as unknown as Pick<JyycodeClient, "session">
+
+    expect(await translatePdfText({ client, directory: "D:/repo", sessionID: "ses_parent", text: source })).toBe(
+      "translated text",
+    )
+    expect(session.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentID: "ses_parent",
+        agent: "build",
+        model: { id: "deepseek-v4-flash", providerID: "deepseek" },
+        permission: [{ permission: "*", pattern: "*", action: "deny" }],
+      }),
+      { throwOnError: true },
+    )
+    expect(session.prompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionID: "ses_translation",
+        model: { providerID: "deepseek", modelID: "deepseek-v4-flash" },
+        tools: {},
+        parts: [{ type: "text", text: "a".repeat(PDF_TRANSLATION_MAX_CHARS) }],
+      }),
+      { throwOnError: true },
+    )
+    expect(session.delete).toHaveBeenCalledWith(
+      { directory: "D:/repo", sessionID: "ses_translation" },
+      { throwOnError: true },
+    )
+  })
+
+  it("deletes the transient translation session after a model failure", async () => {
+    const failure = new Error("model unavailable")
+    const session = {
+      get: vi.fn().mockResolvedValue({ data: { id: "ses_parent" } }),
+      create: vi.fn().mockResolvedValue({ data: { id: "ses_translation" } }),
+      prompt: vi.fn().mockRejectedValue(failure),
+      abort: vi.fn().mockResolvedValue({ data: true }),
+      delete: vi.fn().mockResolvedValue({ data: true }),
+    }
+    const client = { session } as unknown as Pick<JyycodeClient, "session">
+
+    await expect(translatePdfText({ client, directory: "D:/repo", sessionID: "ses_parent", text: "source" })).rejects.toBe(
+      failure,
+    )
+    expect(session.delete).toHaveBeenCalledOnce()
   })
 
   it("flattens pen and shape annotations into a valid PDF", async () => {

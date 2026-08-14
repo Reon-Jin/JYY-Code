@@ -238,7 +238,8 @@
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(190px, 260px);
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .file-preview__document-viewport {
@@ -413,14 +414,44 @@
 
 .file-preview__pdf-translation {
   display: grid;
-  align-content: start;
-  gap: var(--space-3);
-  overflow: auto;
-  border-left: 1px solid var(--color-border);
-  padding: var(--space-4);
+  max-height: clamp(132px, 22vh, 220px);
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-3) var(--space-3);
   background: var(--color-panel);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
+}
+
+.file-preview__pdf-translation-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.file-preview__pdf-translation-header .ui-button {
+  width: 28px;
+  height: 28px;
+}
+
+.file-preview__pdf-translation-header svg,
+.file-preview__pdf-translation-error svg {
+  width: 14px;
+  height: 14px;
+}
+
+.file-preview__pdf-translation-body {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: var(--space-4);
+  overflow: hidden;
+  padding-top: var(--space-1);
 }
 
 .file-preview__pdf-translation h2,
@@ -434,12 +465,27 @@
 }
 
 .file-preview__pdf-selection {
-  max-height: 9em;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
   border-left: 2px solid var(--color-accent);
   padding-left: var(--space-2);
   color: var(--color-text);
   white-space: pre-wrap;
+}
+
+.file-preview__pdf-translation-result {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  color: var(--color-text);
+  white-space: pre-wrap;
+}
+
+.file-preview__pdf-translation-error {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
 }
 
 .file-preview__pdf-error {

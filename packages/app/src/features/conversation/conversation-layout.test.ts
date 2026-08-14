@@ -40,6 +40,19 @@ describe("conversation layout CSS", () => {
     )
   })
 
+  it("keeps PDF translation in a compact bottom drawer instead of a fixed sidebar", () => {
+    expect(filePreviewCSS).toMatch(
+      /\.file-preview__pdf-workspace\s*\{[^}]*grid-template-rows:\s*minmax\(0, 1fr\) auto;/s,
+    )
+    expect(filePreviewCSS).not.toMatch(
+      /\.file-preview__pdf-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(190px, 260px\);/s,
+    )
+    expect(filePreviewCSS).toMatch(/\.file-preview__pdf-translation\s*\{[^}]*max-height:\s*clamp\(/s)
+    expect(filePreviewCSS).toMatch(
+      /\.file-preview__pdf-translation-body\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1\.2fr\);/s,
+    )
+  })
+
   it("points activity chevrons down while expanded and up while collapsed", () => {
     expect(conversationCSS).toMatch(/\.reasoning-part__toggle svg:last-child\s*\{[^}]*transform:\s*rotate\(180deg\);/s)
     expect(conversationCSS).toMatch(/\.reasoning-part__toggle svg\[data-expanded="true"\]\s*\{[^}]*transform:\s*none;/s)

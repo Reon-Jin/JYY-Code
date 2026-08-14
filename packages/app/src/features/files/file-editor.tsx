@@ -199,6 +199,12 @@ export function FileEditor(props: FileEditorProps) {
       parent: host,
     })
     setViewReady(true)
+
+    if (typeof ResizeObserver !== "undefined") {
+      const resizeObserver = new ResizeObserver(() => view?.requestMeasure())
+      resizeObserver.observe(host)
+      onCleanup(() => resizeObserver.disconnect())
+    }
   })
 
   createEffect(() => {

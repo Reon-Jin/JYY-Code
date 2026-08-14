@@ -1,3 +1,5 @@
+import type { JyycodeClient } from "@jyycode-ai/sdk/v2/client"
+
 export type PdfLayout = "single" | "spread"
 
 export type PdfAnnotationTool = "pen" | "text" | "line" | "rectangle" | "ellipse"
@@ -18,7 +20,15 @@ export type PdfAnnotation = {
 }
 
 export const PDF_TRANSLATION_MAX_CHARS = 5000
-const PDF_TRANSLATION_CHUNK_CHARS = 450
+
+export type PdfTranslationInput = {
+  client: Pick<JyycodeClient, "session">
+  directory: string
+  workspaceID?: string
+  sessionID?: string
+  text: string
+  signal?: AbortSignal
+}
 
 export function pdfTranslationTarget(text: string) {
   const containsHan = /\p{Script=Han}/u.test(text)
@@ -36,27 +46,81 @@ export function pdfPageRows(pageCount: number, layout: PdfLayout): number[][] {
   }, [])
 }
 
-export async function translatePdfText(text: string, signal?: AbortSignal): Promise<string> {
-  const source = text.trim().slice(0, PDF_TRANSLATION_MAX_CHARS)
+function translationSystem(target: ReturnType<typeof pdfTranslationTarget>) {
+  const language = target === "en" ? "English" : "Simplified Chinese"
+  return [
+    "You are a translation engine.",
+    `Translate the user's source text into ${language}.`,
+    "Preserve technical terminology, formulas, citations, paragraph breaks, and list structure.",
+    "Return only the translated text. Do not explain, summarize, quote the source, or use Markdown fences.",
+  ].join(" ")
+}
+
+export async function translatePdfText(input: PdfTranslationInput): Promise<string> {
+  const source = input.text.trim().slice(0, PDF_TRANSLATION_MAX_CHARS)
   if (!source) return ""
   const target = pdfTranslationTarget(source)
-  const chunks = source.match(new RegExp(`.{1,${PDF_TRANSLATION_CHUNK_CHARS}}`, "gs")) ?? []
-  const translations: string[] = []
-  for (const chunk of chunks) {
-      const url = new URL("https://translate.googleapis.com/translate_a/single")
-      url.searchParams.set("client", "gtx")
-      url.searchParams.set("sl", target === "en" ? "zh-CN" : "auto")
-      url.searchParams.set("tl", target)
-      url.searchParams.set("dt", "t")
-      url.searchParams.set("q", chunk)
-      const response = await fetch(url, { signal })
-      if (!response.ok) throw new Error(`Translation request failed (${response.status})`)
-      const payload = (await response.json()) as Array<Array<[string?]>>
-      const translation = payload[0]?.map((segment) => segment[0] ?? "").join("").trim()
-      if (!translation) throw new Error("Translation response was empty")
-      translations.push(translation)
+  const query = {
+    directory: input.directory,
+    ...(input.workspaceID ? { workspace: input.workspaceID } : {}),
   }
-  return translations.join(" ")
+  const requestOptions = input.signal
+    ? { throwOnError: true as const, signal: input.signal }
+    : { throwOnError: true as const }
+  let transientSessionID: string | undefined
+
+  try {
+    const parent = input.sessionID
+      ? await input.client.session.get(
+          { ...query, sessionID: input.sessionID },
+          requestOptions,
+        )
+      : undefined
+    const created = await input.client.session.create(
+      {
+        ...query,
+        ...(input.workspaceID ? { workspaceID: input.workspaceID } : {}),
+        ...(input.sessionID ? { parentID: input.sessionID } : {}),
+        ...(parent?.data?.agent ? { agent: parent.data.agent } : {}),
+        ...(parent?.data?.model ? { model: parent.data.model } : {}),
+        title: "PDF translation",
+        multiAgent: false,
+        permission: [{ permission: "*", pattern: "*", action: "deny" }],
+      },
+      requestOptions,
+    )
+    transientSessionID = created.data?.id
+    if (!transientSessionID) throw new Error("Translation session could not be created")
+
+    const response = await input.client.session.prompt(
+      {
+        ...query,
+        sessionID: transientSessionID,
+        ...(parent?.data?.agent ? { agent: parent.data.agent } : {}),
+        ...(parent?.data?.model
+          ? { model: { providerID: parent.data.model.providerID, modelID: parent.data.model.id } }
+          : {}),
+        system: translationSystem(target),
+        tools: {},
+        parts: [{ type: "text", text: source }],
+      },
+      requestOptions,
+    )
+    const translation = response.data?.parts
+      .flatMap((part) => (part.type === "text" && !part.ignored ? [part.text] : []))
+      .join("")
+      .trim()
+    if (!translation) throw new Error("Translation response was empty")
+    return translation
+  } finally {
+    if (transientSessionID) {
+      const session = { ...query, sessionID: transientSessionID }
+      if (input.signal?.aborted) {
+        await input.client.session.abort(session, { throwOnError: true }).catch(() => undefined)
+      }
+      await input.client.session.delete(session, { throwOnError: true }).catch(() => undefined)
+    }
+  }
 }
 
 export function base64FromBytes(bytes: Uint8Array) {

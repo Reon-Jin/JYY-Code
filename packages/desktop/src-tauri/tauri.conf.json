@@ -24,7 +24,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:*; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; worker-src 'self' blob:"
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:*; img-src 'self' http://127.0.0.1:* data: blob:; media-src 'self' http://127.0.0.1:* data: blob:; style-src 'self' http://127.0.0.1:* data: blob: 'unsafe-inline'; font-src 'self' http://127.0.0.1:* data: blob:; script-src 'self' http://127.0.0.1:* blob:; frame-src 'self' http://127.0.0.1:* data: blob:; worker-src 'self' http://127.0.0.1:* blob:",
+      "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
   "bundle": {

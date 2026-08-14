@@ -19,6 +19,7 @@ import {
   Square,
   Type,
   Undo2,
+  X,
 } from "lucide-solid"
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 import pdfjsModuleSrc from "pdfjs-dist/build/pdf.min.mjs?url"
@@ -201,6 +202,7 @@ type PdfPreviewProps = {
   revision: string
   saving?: boolean
   error?: string
+  onTranslate: (text: string, signal?: AbortSignal) => Promise<string>
   onSave?: (input: FileSaveInput) => Promise<void>
   onDirtyChange?: (dirty: boolean) => void
 }
@@ -304,6 +306,7 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
   let host: HTMLDivElement | undefined
   let viewportHost: HTMLDivElement | undefined
   let translationAbort: AbortController | undefined
+  let translationTimer: number | undefined
   let gesture: PdfPointerGesture | undefined
   const overlayHosts = new Map<number, SVGSVGElement>()
   const [state, setState] = createSignal<"loading" | "ready" | "error">("loading")
@@ -397,13 +400,61 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
     setDraftAnnotation(undefined)
   }
 
-  const clearTranslation = () => {
+  const cancelPendingTranslation = () => {
+    if (translationTimer !== undefined) window.clearTimeout(translationTimer)
+    translationTimer = undefined
     translationAbort?.abort()
     translationAbort = undefined
+  }
+
+  const clearTranslation = () => {
+    cancelPendingTranslation()
     setSelectedText("")
     setTranslation("")
     setTranslationError(undefined)
     setTranslating(false)
+  }
+
+  const requestTranslation = (value: string, delay = 0) => {
+    const text = value.trim()
+    if (!text) {
+      clearTranslation()
+      return
+    }
+
+    cancelPendingTranslation()
+    setSelectedText(text)
+    setTranslation("")
+    setTranslationError(undefined)
+    setTranslating(true)
+
+    const run = () => {
+      translationTimer = undefined
+      const controller = new AbortController()
+      translationAbort = controller
+      void props.onTranslate(text, controller.signal)
+        .then((translated) => {
+          if (translationAbort !== controller) return
+          setTranslation(translated)
+        })
+        .catch(() => {
+          if (controller.signal.aborted || translationAbort !== controller) return
+          setTranslationError(tr("files.pdf-translation-failed"))
+        })
+        .finally(() => {
+          if (translationAbort !== controller) return
+          translationAbort = undefined
+          setTranslating(false)
+        })
+    }
+
+    if (delay > 0) translationTimer = window.setTimeout(run, delay)
+    else run()
+  }
+
+  const closeTranslation = () => {
+    window.getSelection()?.removeAllRanges()
+    clearTranslation()
   }
 
   const onWheel = (event: WheelEvent) => {
@@ -667,30 +718,12 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
         return
       }
 
-      translationAbort?.abort()
-      const controller = new AbortController()
-      translationAbort = controller
-      setSelectedText(text)
-      setTranslation("")
-      setTranslationError(undefined)
-      setTranslating(true)
-      void translatePdfText(text, controller.signal)
-        .then((value) => {
-          if (translationAbort !== controller) return
-          setTranslation(value)
-        })
-        .catch((cause) => {
-          if (controller.signal.aborted || translationAbort !== controller) return
-          setTranslationError(errorText(cause))
-        })
-        .finally(() => {
-          if (translationAbort === controller) setTranslating(false)
-        })
+      requestTranslation(text, 220)
     }
     document.addEventListener("selectionchange", onSelectionChange)
     onCleanup(() => {
       document.removeEventListener("selectionchange", onSelectionChange)
-      translationAbort?.abort()
+      cancelPendingTranslation()
     })
   })
 
@@ -722,7 +755,7 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
     let cancelled = false
     let currentLoadingTask: PDFDocumentLoadingTask | undefined
     let currentDocument: PDFDocumentProxy | undefined
-    const generation = ++loadGeneration
+    loadGeneration += 1
     documentProxy = undefined
     overlayHosts.clear()
     for (const task of pageRenderTasks.values()) task.cancel()
@@ -1009,20 +1042,45 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
         <div ref={viewportHost} class="file-preview__document-viewport" onWheel={onWheel}>
           <div ref={host} class="file-preview__document-host" />
         </div>
-        <aside class="file-preview__pdf-translation" aria-live="polite">
-          <h2>{tr("files.pdf-translation")}</h2>
-          <Show
-            when={selectedText()}
-            fallback={<p>{tr("files.pdf-translation-empty")}</p>}
-          >
-            <p class="file-preview__pdf-selection">{selectedText()}</p>
-            <Show when={translating()}>
-              <p><Spinner /> {tr("files.pdf-translating")}</p>
-            </Show>
-            <Show when={translation()}><p>{translation()}</p></Show>
-            <Show when={translationError()}><InlineError message={translationError()!} /></Show>
-          </Show>
-        </aside>
+        <Show when={selectedText()}>
+          <aside class="file-preview__pdf-translation">
+            <header class="file-preview__pdf-translation-header">
+              <h2>{tr("files.pdf-translation")}</h2>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label={tr("files.pdf-close-translation")}
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={closeTranslation}
+              >
+                <X aria-hidden="true" />
+              </Button>
+            </header>
+            <div class="file-preview__pdf-translation-body">
+              <p class="file-preview__pdf-selection">{selectedText()}</p>
+              <div class="file-preview__pdf-translation-result" aria-live="polite">
+                <Show when={translating()}>
+                  <p><Spinner /> {tr("files.pdf-translating")}</p>
+                </Show>
+                <Show when={translation()}><p>{translation()}</p></Show>
+                <Show when={translationError()}>
+                  <div class="file-preview__pdf-translation-error">
+                    <InlineError message={translationError()!} />
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      onPointerDown={(event) => event.preventDefault()}
+                      onClick={() => requestTranslation(selectedText())}
+                    >
+                      <RefreshCw aria-hidden="true" />
+                      {tr("files.retry")}
+                    </Button>
+                  </div>
+                </Show>
+              </div>
+            </div>
+          </aside>
+        </Show>
       </div>
     </div>
   )
@@ -1103,8 +1161,10 @@ function BinaryDocumentPreview(
   return props.kind === "pdf" ? <PdfWorkspacePreview {...props} /> : <DocxPreview content={props.content} />
 }
 
-function htmlWithPreviewBase(source: string, baseUrl: string) {
-  const zoomScript = `<script>(() => { window.addEventListener("wheel", (event) => { if (!event.ctrlKey) return; event.preventDefault(); parent.postMessage({ type: "jyycode-html-preview-zoom", deltaY: event.deltaY }, "*"); }, { passive: false }); })();</script>`
+function htmlWithPreviewBase(source: string, baseUrl: string, zoomScriptUrl?: string) {
+  const zoomScript = zoomScriptUrl
+    ? `<script src="${zoomScriptUrl.replaceAll('"', "&quot;")}"></script>`
+    : `<script>(() => { window.addEventListener("wheel", (event) => { if (!event.ctrlKey) return; event.preventDefault(); parent.postMessage({ type: "jyycode-html-preview-zoom", deltaY: event.deltaY }, "*"); }, { passive: false }); })();</script>`
   const runtime = `${/<base\b/i.test(source) ? "" : `<base href="${baseUrl.replaceAll('"', "&quot;")}">`}${zoomScript}`
   const head = /<head\b[^>]*>/i.exec(source)
   if (!head || head.index === undefined) return `${runtime}${source}`
@@ -1112,11 +1172,72 @@ function htmlWithPreviewBase(source: string, baseUrl: string) {
   return `${source.slice(0, insertAt)}${runtime}${source.slice(insertAt)}`
 }
 
+function isJavaScriptType(type: string | undefined) {
+  if (!type) return true
+  return ["application/javascript", "application/ecmascript", "text/javascript", "text/ecmascript", "module"].includes(
+    type.trim().toLowerCase(),
+  )
+}
+
+function externalizeInlineHtmlScripts(source: string) {
+  const urls: string[] = []
+  if (typeof URL.createObjectURL !== "function") return { source, urls }
+
+  const next = source.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (full, attributes: string, body: string) => {
+    if (!body.trim() || /\bsrc\s*=/i.test(attributes)) return full
+    const type = /\btype\s*=\s*["']([^"']+)["']/i.exec(attributes)?.[1]
+    if (!isJavaScriptType(type)) return full
+    const url = URL.createObjectURL(new Blob([body], { type: "text/javascript" }))
+    urls.push(url)
+    return `<script${attributes} src="${url}"></script>`
+  })
+  return { source: next, urls }
+}
+
 function HtmlPreview(props: { source: string; path: string; previewUrl: string }) {
   const adjustZoom = useContext(ZoomContext)
+  const [src, setSrc] = createSignal<string>()
+  const [srcdoc, setSrcdoc] = createSignal<string>()
   let frame: HTMLIFrameElement | undefined
+  let documentUrl: string | undefined
+  let zoomScriptUrl: string | undefined
+  let scriptUrls: string[] = []
   const baseUrl = () => new URL(".", props.previewUrl).toString()
-  const html = () => htmlWithPreviewBase(props.source, baseUrl())
+
+  createEffect(() => {
+    const source = props.source
+    const base = baseUrl()
+    const useBlobDocument =
+      typeof window !== "undefined" &&
+      "__TAURI_INTERNALS__" in window &&
+      typeof URL.createObjectURL === "function"
+    const externalized = useBlobDocument ? externalizeInlineHtmlScripts(source) : { source, urls: [] as string[] }
+    scriptUrls.forEach((url) => URL.revokeObjectURL(url))
+    scriptUrls = externalized.urls
+    if (zoomScriptUrl) URL.revokeObjectURL(zoomScriptUrl)
+    zoomScriptUrl = undefined
+    if (useBlobDocument) {
+      zoomScriptUrl = URL.createObjectURL(
+        new Blob(
+          [
+            `window.addEventListener("wheel", (event) => { if (!event.ctrlKey) return; event.preventDefault(); parent.postMessage({ type: "jyycode-html-preview-zoom", deltaY: event.deltaY }, "*"); }, { passive: false });`,
+          ],
+          { type: "text/javascript" },
+        ),
+      )
+    }
+    const html = htmlWithPreviewBase(externalized.source, base, zoomScriptUrl)
+
+    if (documentUrl) URL.revokeObjectURL(documentUrl)
+    if (useBlobDocument) {
+      documentUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }))
+      setSrc(documentUrl)
+      setSrcdoc(undefined)
+    } else {
+      setSrc(undefined)
+      setSrcdoc(html)
+    }
+  })
 
   createEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -1127,6 +1248,12 @@ function HtmlPreview(props: { source: string; path: string; previewUrl: string }
     onCleanup(() => window.removeEventListener("message", onMessage))
   })
 
+  onCleanup(() => {
+    if (documentUrl) URL.revokeObjectURL(documentUrl)
+    if (zoomScriptUrl) URL.revokeObjectURL(zoomScriptUrl)
+    scriptUrls.forEach((url) => URL.revokeObjectURL(url))
+  })
+
   return (
     <iframe
       ref={frame}
@@ -1134,7 +1261,8 @@ function HtmlPreview(props: { source: string; path: string; previewUrl: string }
       title={props.path}
       sandbox="allow-scripts allow-forms allow-modals"
       referrerPolicy="no-referrer"
-      srcdoc={html()}
+      src={src()}
+      srcdoc={srcdoc()}
     />
   )
 }
@@ -1547,6 +1675,16 @@ export function FilePreview(props: FilePreviewProps) {
                       revision={content().revision}
                       saving={saving()}
                       error={saveError()}
+                      onTranslate={(text, signal) =>
+                        translatePdfText({
+                          client: data.client(),
+                          directory: props.directory,
+                          workspaceID: props.workspaceID,
+                          sessionID: props.sessionID,
+                          text,
+                          signal,
+                        })
+                      }
                       onSave={deleted() ? undefined : save}
                       onDirtyChange={updateDirty}
                     />
