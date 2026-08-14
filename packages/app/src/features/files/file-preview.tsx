@@ -21,6 +21,7 @@ import {
   Undo2,
 } from "lucide-solid"
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url"
+import pdfjsModuleSrc from "pdfjs-dist/build/pdf.min.mjs?url"
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from "pdfjs-dist/types/src/display/api"
 import {
   createContext,
@@ -142,6 +143,11 @@ function pdfAssetUrl(directory: "cmaps" | "standard_fonts") {
   return new URL(`${import.meta.env.BASE_URL}pdfjs/${directory}/`, document.baseURI).toString()
 }
 
+function bundledAssetUrl(asset: string) {
+  if (typeof document === "undefined") return asset
+  return new URL(asset, document.baseURI).toString()
+}
+
 const ZoomContext = createContext<(deltaY: number) => void>()
 
 function ZoomSurface(props: { class?: string; dataKind?: string; children: JSX.Element }) {
@@ -175,7 +181,7 @@ function PreviewHeader(props: { path: string; onClose?: () => void; toolbar?: JS
       <Show when={props.onClose}>
         <Button class="file-preview__back" size="small" variant="ghost" onClick={props.onClose}>
           <ArrowLeft aria-hidden="true" />
-          {tr("files.back-to-session")}
+          {tr("files.back-to-files")}
         </Button>
       </Show>
       <FileIcon aria-hidden="true" />
@@ -727,7 +733,7 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
     const load = async () => {
       if (!data?.byteLength || data.byteLength > MAX_DOCUMENT_PREVIEW_BYTES) throw new Error(tr("files.binary-too-large"))
       const pdfjs = await import("pdfjs-dist")
-      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc
+      pdfjs.GlobalWorkerOptions.workerSrc = bundledAssetUrl(pdfWorkerSrc)
       currentLoadingTask = pdfjs.getDocument({
         data,
         cMapUrl: pdfAssetUrl("cmaps"),
@@ -1159,7 +1165,7 @@ function PptxPreview(props: { content: FileContent }) {
         {
           fitMode: "contain",
           listOptions: { windowed: true, initialSlides: 4, batchSize: 4 },
-          pdfjs: false,
+          pdfjs: { moduleUrl: bundledAssetUrl(pdfjsModuleSrc), workerUrl: bundledAssetUrl(pdfWorkerSrc) },
           renderMode: "list",
           zipLimits: RECOMMENDED_ZIP_LIMITS,
         },

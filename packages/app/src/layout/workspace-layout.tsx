@@ -54,6 +54,7 @@ import { PermissionBar } from "../features/requests/permission-bar"
 import { QuestionPanel } from "../features/requests/question-panel"
 import {
   loadInspectorPreferences,
+  normalizeInspectorRatios,
   saveInspectorPreferences,
   type InspectorPreferences,
 } from "../features/workspace-inspector/inspector-preferences"
@@ -154,8 +155,6 @@ export type WorkspaceLayoutViewProps = {
   requestArea?: JSX.Element
   composer?: JSX.Element
   inspector?: JSX.Element
-  filePreview?: JSX.Element
-  filePreviewOpen?: boolean
   inspectorOpen?: boolean
   inspectorWidth?: number
   multiAgentEnabled?: boolean
@@ -165,6 +164,7 @@ export type WorkspaceLayoutViewProps = {
   onRetryActive?: () => void
   onRetryArchived?: () => void
   onRetryConversation?: () => void
+  onShowArchived?: () => void
   onReturnHome: () => Promise<void>
   onSwitchProject?: (directory: string) => Promise<void>
   onCreate: () => Promise<void>
@@ -252,8 +252,7 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
   const listError = () => (filter() === "active" ? props.activeError : props.archivedError)
   const retry = () => (filter() === "active" ? props.onRetryActive : props.onRetryArchived)
   const pending = (key: string) => props.pendingActions?.has(key) === true
-  const projectNavigationPending = () =>
-    Boolean(props.busy) || pending("project.return") || pending("project.switch")
+  const projectNavigationPending = () => Boolean(props.busy) || pending("project.return") || pending("project.switch")
   const childRole = () => {
     const sessionAgent = selected()?.agent
     if (props.childRole) return props.childRole
@@ -329,7 +328,14 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
             <button type="button" aria-pressed={filter() === "active"} onClick={() => setFilter("active")}>
               {tr("layout.activity")} <span>{rootActiveSessions().length}</span>
             </button>
-            <button type="button" aria-pressed={filter() === "archived"} onClick={() => setFilter("archived")}>
+            <button
+              type="button"
+              aria-pressed={filter() === "archived"}
+              onClick={() => {
+                setFilter("archived")
+                props.onShowArchived?.()
+              }}
+            >
               {tr("sessions.archive")} <span>{rootArchivedSessions().length}</span>
             </button>
           </div>
@@ -393,63 +399,52 @@ export function WorkspaceLayoutView(props: WorkspaceLayoutViewProps) {
       >
         <Show when={props.operationError}>{(message) => <InlineError message={message()} />}</Show>
         <Show
-          when={props.filePreviewOpen}
+          when={props.activeSessionID}
           fallback={
-            <Show
-              when={props.activeSessionID}
-              fallback={
-                <SessionEmpty
-                  disabled={projectNavigationPending() || pending("session.create") || props.activeLoading}
-                  onCreate={() => void props.onCreate()}
-                />
-              }
-            >
-              <section class="workspace-conversation" aria-labelledby="workspace-session-title">
-                <header class="workspace-conversation__header">
-                  <Show
-                    when={selected()?.parentID}
-                    fallback={
-                      <span class="workspace-conversation__context">
-                        {props.multiAgentEnabled ? tr("layout.multi-agent-model") : tr("layout.single-agent-mode")}
-                      </span>
-                    }
-                  >
-                    <div class="workspace-conversation__child-context">
-                      <button
-                        type="button"
-                        onClick={props.onReturnToRoot}
-                        aria-label={tr("layout.return-to-main-session")}
-                      >
-                        <ArrowLeft aria-hidden="true" />
-                        {tr("layout.return-to-main-session")}
-                      </button>
-                      <span>
-                        {tr("layout.subagent")} {capitalize(childRole())}
-                      </span>
-                    </div>
-                  </Show>
-                  <h1 id="workspace-session-title">{selected()?.title ?? "Session"}</h1>
-                </header>
-                <Show when={props.connection === "connected" ? undefined : props.connection} keyed>
-                  {(state) => <ReconnectBanner state={state} />}
-                </Show>
-                <MessageTimeline
-                  messages={props.conversation?.messages ?? []}
-                  goal={selected()?.goal}
-                  compaction={props.compaction}
-                  loading={props.conversationLoading}
-                  error={props.conversationError}
-                  onRetry={props.onRetryConversation}
-                />
-                <div class="workspace-conversation__footer">
-                  {props.requestArea}
-                  {props.composer}
-                </div>
-              </section>
-            </Show>
+            <SessionEmpty
+              disabled={projectNavigationPending() || pending("session.create") || props.activeLoading}
+              onCreate={() => void props.onCreate()}
+            />
           }
         >
-          <section class="workspace-file-preview">{props.filePreview}</section>
+          <section class="workspace-conversation" aria-labelledby="workspace-session-title">
+            <header class="workspace-conversation__header">
+              <Show
+                when={selected()?.parentID}
+                fallback={
+                  <span class="workspace-conversation__context">
+                    {props.multiAgentEnabled ? tr("layout.multi-agent-model") : tr("layout.single-agent-mode")}
+                  </span>
+                }
+              >
+                <div class="workspace-conversation__child-context">
+                  <button type="button" onClick={props.onReturnToRoot} aria-label={tr("layout.return-to-main-session")}>
+                    <ArrowLeft aria-hidden="true" />
+                    {tr("layout.return-to-main-session")}
+                  </button>
+                  <span>
+                    {tr("layout.subagent")} {capitalize(childRole())}
+                  </span>
+                </div>
+              </Show>
+              <h1 id="workspace-session-title">{selected()?.title ?? "Session"}</h1>
+            </header>
+            <Show when={props.connection === "connected" ? undefined : props.connection} keyed>
+              {(state) => <ReconnectBanner state={state} />}
+            </Show>
+            <MessageTimeline
+              messages={props.conversation?.messages ?? []}
+              goal={selected()?.goal}
+              compaction={props.compaction}
+              loading={props.conversationLoading}
+              error={props.conversationError}
+              onRetry={props.onRetryConversation}
+            />
+            <div class="workspace-conversation__footer">
+              {props.requestArea}
+              {props.composer}
+            </div>
+          </section>
         </Show>
       </main>
       {props.inspector}
@@ -471,6 +466,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const [selectedFileScope, setSelectedFileScope] = createSignal<FileScope>()
   const [fileDirty, setFileDirty] = createSignal(false)
   const [catalogEnabled, setCatalogEnabled] = createSignal(false)
+  const [archiveRequested, setArchiveRequested] = createSignal(false)
   const [inspectorPreferences, setInspectorPreferences] = createSignal<InspectorPreferences>(
     loadInspectorPreferences(data.directory()),
   )
@@ -503,7 +499,14 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     data.queryClient,
   )
   const archivedQuery = createQuery(
-    () => ({ queryKey: keys.sessions(data.directory(), true), queryFn: () => api().list(true) }),
+    () => ({
+      queryKey: keys.sessions(data.directory(), true),
+      queryFn: () => api().list(true),
+      // Archived sessions are not needed to render the active workspace. Load
+      // them only when the user opens the archive view, or when an active child
+      // needs its archived root session for context.
+      enabled: archiveRequested(),
+    }),
     data.queryClient,
   )
   const sessionQuery = createQuery(
@@ -574,6 +577,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     data.queryClient,
   )
   const activeSession = createMemo(() => sessionQuery.data)
+  createEffect(() => {
+    if (activeSession()?.parentID) setArchiveRequested(true)
+  })
   const parentSessionID = createMemo(() => activeSession()?.parentID)
   const rootSessionID = createMemo(() => parentSessionID() ?? activeSession()?.id)
   const rootSession = createMemo(() => {
@@ -627,6 +633,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         setActiveFileChange(undefined)
         setSelectedFileScope(undefined)
         setFileDirty(false)
+        setArchiveRequested(false)
       },
     ),
   )
@@ -660,6 +667,12 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const childTaskRunning = createMemo(() => {
     const task = activeChildTask()
     return task?.status === "running"
+  })
+  const childSteering = createMemo(() => {
+    if (!isChildSession()) return false
+    const sessionID = activeSession()?.id
+    const status = sessionID ? statusQuery.data?.[sessionID] : undefined
+    return childTaskRunning() || (status !== undefined && status.type !== "idle")
   })
   const planBadge = createMemo(() => {
     const snapshot = planSnapshot()
@@ -842,6 +855,13 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return !fileDirty() || typeof window === "undefined" || window.confirm(tr("files.unsaved"))
   }
 
+  function ensureFilesPane() {
+    const current = inspectorPreferences()
+    if (current.panes.includes("files")) return
+    const panes: InspectorPreferences["panes"] = [...current.panes, "files"]
+    updateInspectorPreferences({ ...current, panes, ratios: normalizeInspectorRatios(panes.length, current.ratios) })
+  }
+
   function openFile(event: FileOpenEvent) {
     const fallbackScope: FileScope = {
       directory: activeSessionFileDirectory(),
@@ -862,9 +882,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       currentScope.workspaceID === nextScope.workspaceID &&
       currentScope.sessionID === nextScope.sessionID
     if (activeFilePath() === event.path && activeFileChange() === event.change && sameScope) {
+      ensureFilesPane()
       return
     }
     if (!canLeaveFile()) return
+    ensureFilesPane()
     if (activeFilePath() === event.path) {
       setActiveFileChange(event.change)
       setSelectedFileScope(nextScope)
@@ -909,7 +931,10 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   })
   let persistedLocation = ""
   createEffect(() => {
-    if (activeQuery.isPending || archivedQuery.isPending || activeQuery.error || archivedQuery.error) return
+    // Location persistence only depends on the active session and project
+    // list. An optional archive fetch must never delay restoring the user's
+    // last location.
+    if (activeQuery.isPending || activeQuery.error) return
     const sessionID = props.activeSessionID
     if (sessionID && sessionQuery.data?.id !== sessionID) return
     if (sessionID) projects.rememberSession(data.directory(), sessionID)
@@ -956,23 +981,8 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           ? errorMessage(conversationQuery.error, tr("layout.unable-to-load-session-message"))
           : undefined
       }
+      onShowArchived={() => setArchiveRequested(true)}
       operationError={operationError()}
-      filePreviewOpen={Boolean(activeFilePath())}
-      filePreview={
-        <Show when={activeFilePath()} keyed>
-          {(path) => (
-            <RecoverableFilePreview
-              directory={activeFileScope().directory}
-              workspaceID={activeFileScope().workspaceID}
-              sessionID={activeFileScope().sessionID}
-              path={path}
-              change={activeFileChange()}
-              onClose={closeFile}
-              onDirtyChange={setFileDirty}
-            />
-          )}
-        </Show>
-      }
       projectTabs={
         <ProjectTabs
           projects={projects.openProjects()}
@@ -1063,7 +1073,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     selectedModel={composerModel()!}
                     status={statusQuery.data?.[sessionID] ?? { type: "idle" }}
                     requestPending={Boolean(activeRequest())}
-                    childSteering={isChildSession() && childTaskRunning()}
+                    childSteering={childSteering()}
                     disabled={data.connection() !== "connected"}
                     identityLocked={isChildSession()}
                     minimal={isChildSession()}
@@ -1139,6 +1149,19 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
           fileDirectory={activeSessionFileDirectory()}
           fileWorkspaceID={activeSessionFileWorkspaceID()}
           fileSessionID={activeSession()?.id}
+          files={
+            activeFilePath() ? (
+              <RecoverableFilePreview
+                directory={activeFileScope().directory}
+                workspaceID={activeFileScope().workspaceID}
+                sessionID={activeFileScope().sessionID}
+                path={activeFilePath()!}
+                change={activeFileChange()}
+                onClose={closeFile}
+                onDirtyChange={setFileDirty}
+              />
+            ) : undefined
+          }
           preferences={inspectorPreferences()}
           onPreferencesChange={updateInspectorPreferences}
           onOpenFile={openFile}

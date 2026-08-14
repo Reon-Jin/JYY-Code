@@ -41,7 +41,10 @@ function sortByID<T extends { id: string }>(values: readonly T[]) {
   return [...values].sort((left, right) => left.id.localeCompare(right.id))
 }
 
-function compareMessages(left: Pick<ConversationMessage["info"], "id" | "time">, right: Pick<ConversationMessage["info"], "id" | "time">) {
+function compareMessages(
+  left: Pick<ConversationMessage["info"], "id" | "time">,
+  right: Pick<ConversationMessage["info"], "id" | "time">,
+) {
   const leftTime = left.time?.created ?? 0
   const rightTime = right.time?.created ?? 0
   if (leftTime !== rightTime) return leftTime < rightTime ? -1 : 1
@@ -71,9 +74,22 @@ function locate<T>(values: readonly T[], id: string, idOf: (value: T) => string)
   return { index: low, found: low < values.length && idOf(values[low]!) === id }
 }
 
-function locateMessage(messages: ConversationSnapshot["messages"], id: string) {
-  const index = messages.findIndex((message) => message.info.id === id)
-  return { index, found: index >= 0 }
+type MessageIndex = Map<string, number>
+
+function createMessageIndex(messages: ConversationSnapshot["messages"]): MessageIndex {
+  return new Map(messages.map((message, index) => [message.info.id, index]))
+}
+
+function locateMessage(messages: ConversationSnapshot["messages"], id: string, index?: MessageIndex) {
+  if (index) {
+    const position = index.get(id)
+    return {
+      index: position ?? -1,
+      found: position !== undefined && messages[position]?.info.id === id,
+    }
+  }
+  const position = messages.findIndex((message) => message.info.id === id)
+  return { index: position, found: position >= 0 }
 }
 
 function eventSessionID(event: GlobalEvent) {
@@ -108,8 +124,9 @@ function updatePart(
   messageID: string,
   partID: string,
   update: (part: Part) => Part | undefined,
+  messageIndex?: MessageIndex,
 ) {
-  const messageLocation = locateMessage(snapshot.messages, messageID)
+  const messageLocation = locateMessage(snapshot.messages, messageID, messageIndex)
   if (!messageLocation.found) return missingTarget(snapshot, eventID)
   const message = snapshot.messages[messageLocation.index]!
   const partLocation = locate(message.parts, partID, (part) => part.id)
@@ -124,7 +141,11 @@ function updatePart(
   return remember(snapshot, eventID, { messages })
 }
 
-export function applyConversationEvent(snapshot: ConversationSnapshot, event: GlobalEvent): ConversationSnapshot {
+function applyConversationEventWithIndex(
+  snapshot: ConversationSnapshot,
+  event: GlobalEvent,
+  messageIndex?: MessageIndex,
+): ConversationSnapshot {
   const sessionID = eventSessionID(event)
   if (!sessionID || sessionID !== snapshot.sessionID) return snapshot
   const eventID = event.payload.id
@@ -133,18 +154,22 @@ export function applyConversationEvent(snapshot: ConversationSnapshot, event: Gl
   switch (event.payload.type) {
     case "message.updated": {
       const messages = [...snapshot.messages]
-      const location = locateMessage(messages, event.payload.properties.info.id)
+      const location = locateMessage(messages, event.payload.properties.info.id, messageIndex)
       if (location.found) {
         const current = messages[location.index]!
         messages[location.index] = { ...current, info: event.payload.properties.info }
       } else {
         const entry = { info: event.payload.properties.info, parts: [] }
-        messages.splice(lowerBound(messages, entry, (left, right) => compareMessages(left.info, right.info)), 0, entry)
+        messages.splice(
+          lowerBound(messages, entry, (left, right) => compareMessages(left.info, right.info)),
+          0,
+          entry,
+        )
       }
       return remember(snapshot, eventID, { messages })
     }
     case "message.removed": {
-      const location = locateMessage(snapshot.messages, event.payload.properties.messageID)
+      const location = locateMessage(snapshot.messages, event.payload.properties.messageID, messageIndex)
       if (!location.found) return missingTarget(snapshot, eventID)
       const messages = [...snapshot.messages]
       messages.splice(location.index, 1)
@@ -152,7 +177,7 @@ export function applyConversationEvent(snapshot: ConversationSnapshot, event: Gl
     }
     case "message.part.updated": {
       const part = event.payload.properties.part
-      const messageLocation = locateMessage(snapshot.messages, part.messageID)
+      const messageLocation = locateMessage(snapshot.messages, part.messageID, messageIndex)
       if (!messageLocation.found) return missingTarget(snapshot, eventID)
       const message = snapshot.messages[messageLocation.index]!
       const parts = [...message.parts]
@@ -165,16 +190,23 @@ export function applyConversationEvent(snapshot: ConversationSnapshot, event: Gl
     }
     case "message.part.delta": {
       const { messageID, partID, field, delta } = event.payload.properties
-      return updatePart(snapshot, eventID, messageID, partID, (part) => {
-        const record = part as unknown as Record<string, unknown>
-        const value = record[field]
-        if (typeof value !== "string" || typeof delta !== "string") return undefined
-        return { ...part, [field]: value + delta } as Part
-      })
+      return updatePart(
+        snapshot,
+        eventID,
+        messageID,
+        partID,
+        (part) => {
+          const record = part as unknown as Record<string, unknown>
+          const value = record[field]
+          if (typeof value !== "string" || typeof delta !== "string") return undefined
+          return { ...part, [field]: value + delta } as Part
+        },
+        messageIndex,
+      )
     }
     case "message.part.removed": {
       const { messageID, partID } = event.payload.properties
-      const messageLocation = locateMessage(snapshot.messages, messageID)
+      const messageLocation = locateMessage(snapshot.messages, messageID, messageIndex)
       if (!messageLocation.found) return missingTarget(snapshot, eventID)
       const message = snapshot.messages[messageLocation.index]!
       const partLocation = locate(message.parts, partID, (part) => part.id)
@@ -190,8 +222,12 @@ export function applyConversationEvent(snapshot: ConversationSnapshot, event: Gl
   }
 }
 
+export function applyConversationEvent(snapshot: ConversationSnapshot, event: GlobalEvent): ConversationSnapshot {
+  return applyConversationEventWithIndex(snapshot, event)
+}
+
 export function applyConversationEvents(snapshot: ConversationSnapshot, events: readonly GlobalEvent[]) {
-  return [...events]
+  const ordered = [...events]
     .map((event, index) => ({ event, index }))
     .sort((left, right) => {
       const leftID = String(left.event.payload.id ?? "")
@@ -199,5 +235,20 @@ export function applyConversationEvents(snapshot: ConversationSnapshot, events: 
       if (leftID !== rightID) return leftID < rightID ? -1 : 1
       return left.index - right.index
     })
-    .reduce((current, item) => applyConversationEvent(current, item.event), snapshot)
+
+  let current = snapshot
+  let messageIndex = createMessageIndex(snapshot.messages)
+  for (const item of ordered) {
+    const previousMessages = current.messages
+    current = applyConversationEventWithIndex(current, item.event, messageIndex)
+    if (current.messages === previousMessages) continue
+
+    // Part deltas replace message/part arrays but never change message
+    // positions. Message insertion/removal can shift every later position, so
+    // rebuild the index only for those less frequent structural events.
+    if (!item.event.payload.type.startsWith("message.part.")) {
+      messageIndex = createMessageIndex(current.messages)
+    }
+  }
+  return current
 }

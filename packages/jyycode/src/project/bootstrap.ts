@@ -47,7 +47,11 @@ export const layer = Layer.effect(
       yield* Effect.forEach(
         [reference, lsp, shareNext, format, file, fileWatcher, vcs, snapshot, project],
         (s) => s.init().pipe(Effect.catchCause((cause) => Effect.logWarning("init failed", { cause }))),
-        { concurrency: "unbounded", discard: true },
+        // These initializers share the same project directory and several of
+        // them start disk/git watchers. Unbounded fan-out makes a cold project
+        // compete with its first HTTP requests for file descriptors, CPU and
+        // the storage queue. Keep startup parallel, but bounded.
+        { concurrency: 4, discard: true },
       ).pipe(Effect.withSpan("InstanceBootstrap.init"))
     }).pipe(Effect.withSpan("InstanceBootstrap"))
 

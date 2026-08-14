@@ -66,8 +66,9 @@ describe("candidate plan model", () => {
         },
       },
     })
-    const context = (sessionId = "ses_main", runId?: string) => ({
-      workspaceRoot: root,
+    const context = (sessionId = "ses_main", runId?: string, workspaceRoot = root) => ({
+      workspaceRoot,
+      planRoot: root,
       sessionId,
       mode: "multi" as const,
       ...(runId ? { runId } : {}),
@@ -110,11 +111,14 @@ describe("candidate plan model", () => {
     expect(await protocol.dispatch(context(), { taskIds: ["s1_t1", "s1_t2"], role: "general" })).toMatchObject({
       ok: false,
     })
-    expect(await protocol.dispatch(context(), { taskIds: taskIDs, role: "general" })).toMatchObject({ ok: true })
+    const dispatched = await protocol.dispatch(context(), { taskIds: taskIDs, role: "general" })
+    expect(dispatched).toMatchObject({ ok: true })
+    if (!dispatched.ok) throw new Error("candidate dispatch failed")
+    const runs = new Map(dispatched.dispatched.map((item) => [item.taskId, item]))
 
     for (const taskID of taskIDs) {
-      const childID = `child_ses_main_${taskID}`
-      const runID = `run__ses_main__${taskID}`
+      const childID = runs.get(taskID)!.child_session_id
+      const runID = runs.get(taskID)!.run_id
       expect(
         await protocol.candidateDeclare(context(childID, runID), {
           approach: taskID,
@@ -128,16 +132,16 @@ describe("candidate plan model", () => {
       for (const peerTaskID of taskIDs) if (peerTaskID !== taskID) peerReplies.get(taskID)!.add(peerTaskID)
     }
     for (const taskID of taskIDs) {
-      const childID = `child_ses_main_${taskID}`
-      const runID = `run__ses_main__${taskID}`
+      const childID = runs.get(taskID)!.child_session_id
+      const runID = runs.get(taskID)!.run_id
       expect(await protocol.candidateReady(context(childID, runID))).toMatchObject({ ok: true })
     }
     expect(await protocol.candidateBegin(context())).toMatchObject({ ok: true, phase: "running" })
     for (const taskID of taskIDs) {
-      const childID = `child_ses_main_${taskID}`
-      const runID = `run__ses_main__${taskID}`
+      const childID = runs.get(taskID)!.child_session_id
+      const runID = runs.get(taskID)!.run_id
       expect(
-        await protocol.candidateSubmit(context(childID, runID), {
+        await protocol.candidateSubmit(context(childID, runID, path.join(root, "isolated-child")), {
           run_id: runID,
           status: "done",
           summary: `proposal ${taskID}`,
@@ -239,8 +243,12 @@ describe("candidate plan model", () => {
       ],
     })
     expect(created).toMatchObject({ ok: true })
-    expect(await protocol.dispatch(context(), { taskIds: taskIDs, role: "general" })).toMatchObject({ ok: true })
-    const child = context("child_ses_invalid_s1_t1", "run__ses_invalid__s1_t1")
+    const dispatched = await protocol.dispatch(context(), { taskIds: taskIDs, role: "general" })
+    expect(dispatched).toMatchObject({ ok: true })
+    if (!dispatched.ok) throw new Error("invalid-transition dispatch failed")
+    const runs = new Map(dispatched.dispatched.map((item) => [item.taskId, item]))
+    const firstRun = runs.get("s1_t1")!
+    const child = context(firstRun.child_session_id, firstRun.run_id)
     const before = await protocol.read(context())
     if (!before.ok || !before.plan) throw new Error("invalid-transition plan was not created")
     expect(await protocol.candidateReady(child)).toMatchObject({ ok: false })
@@ -274,8 +282,8 @@ describe("candidate plan model", () => {
     )
 
     for (const taskID of taskIDs) {
-      const childID = `child_ses_invalid_${taskID}`
-      const runID = `run__ses_invalid__${taskID}`
+      const childID = runs.get(taskID)!.child_session_id
+      const runID = runs.get(taskID)!.run_id
       expect(
         await protocol.candidateDeclare(context(childID, runID), {
           approach: taskID,
@@ -291,9 +299,8 @@ describe("candidate plan model", () => {
     expect(afterMissingReply.plan.revision).toBe(before.plan.revision + 1)
     coverage = true
     expect(await protocol.candidateReady(child)).toMatchObject({ ok: true })
-    expect(await protocol.candidateReady(context("child_ses_invalid_s1_t2", "run__ses_invalid__s1_t2"))).toMatchObject({
-      ok: true,
-    })
+    const secondRun = runs.get("s1_t2")!
+    expect(await protocol.candidateReady(context(secondRun.child_session_id, secondRun.run_id))).toMatchObject({ ok: true })
     expect(await protocol.candidateBegin(context())).toMatchObject({ ok: true, phase: "running" })
 
     const synthesis = path.join(root, "synthesis.md")
@@ -307,8 +314,8 @@ describe("candidate plan model", () => {
       }),
     ).toMatchObject({ ok: true })
     expect(
-      await protocol.candidateSubmit(context("child_ses_invalid_s1_t2", "run__ses_invalid__s1_t2"), {
-        run_id: "run__ses_invalid__s1_t2",
+      await protocol.candidateSubmit(context(secondRun.child_session_id, secondRun.run_id), {
+        run_id: secondRun.run_id,
         status: "done",
         summary: "done",
         proposal: "# done",

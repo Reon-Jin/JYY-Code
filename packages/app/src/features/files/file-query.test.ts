@@ -96,18 +96,18 @@ describe("file queries", () => {
     )
   })
 
-  it("always refreshes directory listings and open file contents on mount/focus", () => {
+  it("uses cache freshness and watcher invalidation instead of polling on mount/focus", () => {
     expect(fileListQueryOptions({ client: {} as never, directory: "C:\\work\\demo" })).toMatchObject({
-      refetchOnMount: "always",
-      refetchOnWindowFocus: "always",
+      refetchOnMount: true,
+      refetchOnWindowFocus: false,
     })
     expect(fileContentQueryOptions({ client: {} as never, directory: "C:\\work\\demo" })).toMatchObject({
       refetchInterval: false,
-      refetchOnMount: "always",
-      refetchOnWindowFocus: "always",
+      refetchOnMount: true,
+      refetchOnWindowFocus: false,
     })
     expect(
       fileContentQueryOptions({ client: {} as never, directory: "C:\\work\\demo", live: true }).refetchInterval,
-    ).toBe(1_000)
+    ).toBe(false)
   })
 })

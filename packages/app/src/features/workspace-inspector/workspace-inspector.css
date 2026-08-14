@@ -29,6 +29,10 @@
   height: 100%;
 }
 
+.workspace-drawer__pane > .file-preview .file-preview__header {
+  padding-inline-start: var(--space-3);
+}
+
 .workspace-drawer__width-handle {
   position: absolute;
   z-index: 5;

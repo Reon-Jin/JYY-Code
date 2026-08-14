@@ -165,13 +165,11 @@ export function createComposerController(input: ComposerControllerInput) {
         const sessionID = resolve(input.sessionID)
         const agent = selection?.agent ?? resolve(input.agent)
         const model = selection?.model ?? resolve(input.model)
-        const interruptPrompt = (
-          input.client.session as typeof input.client.session & {
-            interruptPrompt?: (parameters: unknown, options?: { throwOnError: boolean }) => Promise<unknown>
-          }
-        ).interruptPrompt
-        if (!interruptPrompt) throw new Error("This server does not support interrupting a child assignment")
-        await interruptPrompt(
+        const session = input.client.session as typeof input.client.session & {
+          interruptPrompt?: (parameters: unknown, options?: { throwOnError: boolean }) => Promise<unknown>
+        }
+        if (!session.interruptPrompt) throw new Error("This server does not support interrupting a child assignment")
+        await session.interruptPrompt(
           {
             directory,
             sessionID,

@@ -37,6 +37,8 @@ The lifecycle makes partial child creation visible. Recovery can therefore make 
 - reject a dead or expired run and create an Inbox entry;
 - leave an already reported or terminal task settled and unchanged.
 
+An isolated child has two roots during recovery: its recorded workspace directory and the root plan directory. Re-established child run metadata carries the plan root explicitly, so Report/candidate state lookup does not accidentally read a plan from the child worktree. The workspace root remains the authority for ordinary child artifacts and merge cleanup.
+
 The root session executes startup reconciliation once per process/workspace/session key. In-process plan activity is marked so a dispatch created by the current process is not mistaken for a pre-existing crash on the next turn. Runtime event subscriptions remain process-local; durable event and Inbox records are used for replay and inspection.
 
 ## Observability

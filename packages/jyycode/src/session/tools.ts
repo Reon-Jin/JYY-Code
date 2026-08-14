@@ -30,6 +30,7 @@ import { budgetFor, DEFAULT_BUDGETS, type BudgetConfig } from "@/execution/budge
 import type { ExecutionBudget } from "@/execution/budget"
 import { combineAbortSignals } from "@/execution/deadline"
 import { planFilePath, readPlanFileSync, type CandidateDiscussionPhase } from "@/plan/schema"
+import { planRootForRunId, runIdForChildSession } from "@/plan/protocol"
 import {
   isSubagentCandidateToolID,
   isSubagentForbiddenToolID,
@@ -413,9 +414,10 @@ export type CandidateToolGateState = {
  */
 export function candidateToolGateState(
   session: Pick<Session.Info, "id" | "parentID" | "directory">,
+  options: { planRoot?: string } = {},
 ): CandidateToolGateState | undefined {
   if (session.parentID === undefined) return undefined
-  const plan = readPlanFileSync(planFilePath(session.directory, session.parentID))
+  const plan = readPlanFileSync(planFilePath(options.planRoot ?? session.directory, session.parentID))
   if (!plan) return undefined
   for (const step of plan.steps) {
     const discussion = step.candidate_discussion
@@ -549,6 +551,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
       bypassAgentCheck: input.bypassAgentCheck,
       promptOps: input.promptOps,
       ...(input.promptOps.agentRunID ? { agentRunID: input.promptOps.agentRunID } : {}),
+      ...(parentPlanRoot ? { planRoot: parentPlanRoot } : {}),
       requestToolCatalogRefresh: () => input.processor.requestToolCatalogRefresh?.(),
       toolCatalogRefreshRequested: () => input.processor.toolCatalogRefreshRequested?.() === true,
     },
@@ -878,7 +881,9 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     })
   }
 
-  const candidateGate = candidateToolGateState(input.session)
+  const childRunID = input.session.parentID ? runIdForChildSession(input.session.id) : undefined
+  const parentPlanRoot = childRunID ? planRootForRunId(childRunID) : undefined
+  const candidateGate = candidateToolGateState(input.session, parentPlanRoot ? { planRoot: parentPlanRoot } : undefined)
   const roleToolIDs = subagentRoleToolIDs(input.agent, input.session, candidateGate)
   const allowedToolIDs = intersectToolIDs(roleToolIDs, candidatePhaseToolIDs(candidateGate, roleToolIDs))
   const registryDefs = yield* registry.tools({

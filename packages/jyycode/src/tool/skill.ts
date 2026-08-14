@@ -42,7 +42,17 @@ export const SkillTool = Tool.define(
           const dir = info.origin === "built_in" ? undefined : path.dirname(info.location)
           const base = dir ? pathToFileURL(dir).href : `builtin://${info.name}`
           const files = dir
-            ? yield* rg.files({ cwd: dir, follow: false, hidden: true, signal: ctx.abort }).pipe(
+            ? yield* rg.files({
+                cwd: dir,
+                follow: false,
+                hidden: true,
+                // The directory was resolved by Skill.Service and permission
+                // was granted above. It is a scoped runtime-owned resource
+                // directory, so the global .jyycode exclusion must not hide
+                // the skill's scripts and references.
+                allowRuntime: true,
+                signal: ctx.abort,
+              }).pipe(
                 Stream.filter((file) => !file.includes("SKILL.md")),
                 Stream.map((file) => path.resolve(dir, file)),
                 Stream.take(10),

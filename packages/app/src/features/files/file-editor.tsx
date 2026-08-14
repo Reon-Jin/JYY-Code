@@ -132,6 +132,7 @@ export function FileEditor(props: FileEditorProps) {
   let lastDirty = Boolean(props.initialDirty)
   const [dirty, setDirty] = createSignal(Boolean(props.initialDirty))
   const [localError, setLocalError] = createSignal<string>()
+  const [viewReady, setViewReady] = createSignal(false)
   const language = new Compartment()
   const readOnly = new Compartment()
   const editable = new Compartment()
@@ -197,9 +198,11 @@ export function FileEditor(props: FileEditorProps) {
       }),
       parent: host,
     })
+    setViewReady(true)
   })
 
   createEffect(() => {
+    viewReady()
     const path = props.path
     const content = props.content
     const isReadOnly = Boolean(props.readOnly)
@@ -245,7 +248,7 @@ export function FileEditor(props: FileEditorProps) {
         <Show when={props.onClose}>
           <Button class="file-editor__back" size="small" variant="ghost" onClick={props.onClose}>
             <ChevronLeft aria-hidden="true" />
-            {tr("files.back-to-session")}
+            {tr("files.back-to-files")}
           </Button>
         </Show>
         <code class="file-editor__path">{props.path}</code>

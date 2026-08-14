@@ -613,8 +613,11 @@ export class EventBridge {
       case "status.set": {
         const queryKey = keys.status(directory)
         const status = this.#options.queryClient.getQueryData<Record<string, SessionStatus>>(queryKey)
-        if (status) this.#options.queryClient.setQueryData(queryKey, { ...status, [action.sessionID]: action.status })
-        else this.#invalidate(queryKey)
+        this.#options.queryClient.setQueryData(queryKey, { ...(status ?? {}), [action.sessionID]: action.status })
+        // The event can beat the initial status request. Keep the UI
+        // responsive with the event value, then refresh to recover any other
+        // session statuses that were not present in this first event.
+        if (!status) this.#invalidate(queryKey)
         break
       }
       case "permission.upsert":

@@ -643,7 +643,7 @@ describe("desktop GUI journey", () => {
             {
               id: "s1_t1",
               title: "Implement",
-              status: "running",
+              status: "dispatched",
               role: { id: "worker", name: "Worker", description: "Implementation work", avatar: "code" },
               child: { session_id: "ses_child", elapsed_sec: 1 },
             },
@@ -688,7 +688,18 @@ describe("desktop GUI journey", () => {
     expect(screen.queryByRole("button", { name: "配置模型" })).not.toBeInTheDocument()
     expect(screen.getByText("child command")).toBeVisible()
     expect(screen.queryByText("sibling command")).not.toBeInTheDocument()
+    await waitFor(() => expect(backend.requests.some((request) => request.path === "/session/status")).toBe(true))
+    backend.emit({
+      id: "child_busy",
+      type: "session.status",
+      properties: { sessionID: "ses_child", status: { type: "busy" } },
+    })
     expect(await screen.findByRole("button", { name: "发送并中断" })).toBeVisible()
+    await user.type(screen.getByRole("textbox", { name: "消息" }), "continue with the blocker")
+    await user.click(screen.getByRole("button", { name: "发送并中断" }))
+    await waitFor(() =>
+      expect(backend.requests.some((request) => request.path === "/session/ses_child/interrupt-prompt")).toBe(true),
+    )
     await user.click(screen.getByRole("button", { name: "仅本次允许" }))
     await waitFor(() => expect(backend.permissions.some((permission) => permission.id === "per_child")).toBe(false))
     await waitFor(() =>

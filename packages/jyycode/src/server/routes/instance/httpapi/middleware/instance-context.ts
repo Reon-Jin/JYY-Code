@@ -32,6 +32,7 @@ export function shouldUseFastInstanceLoad(request: HttpServerRequest.HttpServerR
   return (
     path === "/agent" ||
     path === "/subagents" ||
+    path === "/project/current" ||
     path === "/file" ||
     path.startsWith("/file/") ||
     path === "/find" ||

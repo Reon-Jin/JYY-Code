@@ -8,7 +8,7 @@ import {
   saveInspectorPreferences,
   type InspectorPane,
 } from "./inspector-preferences"
-import { WorkspaceInspectorView } from "./workspace-inspector"
+import { WorkspaceInspector, WorkspaceInspectorView } from "./workspace-inspector"
 
 beforeEach(() => localStorage.clear())
 afterEach(() => {
@@ -268,5 +268,24 @@ describe("WorkspaceInspectorView", () => {
     expect(release).toHaveBeenCalledWith(7)
     expect(onPreferencesChange).toHaveBeenCalledWith({ panes: ["plan"], ratios: [1], width: 960 })
     expect(container.querySelector(".workspace-shell")).not.toHaveAttribute("data-inspector-resizing")
+  })
+})
+
+describe("WorkspaceInspector", () => {
+  it("uses supplied Files content instead of mounting the file tree", () => {
+    render(() => (
+      <WorkspaceInspector
+        directory="C:\\work\\demo"
+        preferences={{ panes: ["files"], ratios: [1], width: 420 }}
+        onPreferencesChange={vi.fn()}
+        plan={<div>plan content</div>}
+        blackboard={<div>blackboard content</div>}
+        subagents={<div>subagents content</div>}
+        files={<div>file preview content</div>}
+      />
+    ))
+
+    expect(screen.getByRole("group", { name: "文件" })).toHaveTextContent("file preview content")
+    expect(screen.queryByRole("tree")).not.toBeInTheDocument()
   })
 })

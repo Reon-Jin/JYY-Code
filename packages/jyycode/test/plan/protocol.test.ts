@@ -1427,6 +1427,7 @@ describe("file-backed plan protocol", () => {
       expect(createdInput.workspace?.mode).toBe("snapshot")
       expect(workspaceDirectory).toBeTruthy()
       if (!workspaceDirectory) return
+      expect(createdInput.planRoot).toBe(fixture.root)
       expect(createdInput.brief.workspace_root).toBe(workspaceDirectory)
       expect(createdInput.brief.output_path).toBe(path.join(workspaceDirectory, "out", "result.md"))
       expect(JSON.stringify(createdInput.brief)).not.toContain(fixture.root)

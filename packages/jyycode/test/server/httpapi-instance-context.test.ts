@@ -125,14 +125,18 @@ const serveDisposeProbe = () =>
   ).pipe(Layer.build)
 
 describe("HttpApi instance context middleware", () => {
-  it.live("selects fast context only for read-only catalog and file paths", () =>
+  it.live("selects fast context for read-only project, catalog, and file paths", () =>
     Effect.sync(() => {
       const request = (method: string, url: string) => ({ method, url }) as HttpServerRequest.HttpServerRequest
 
       expect(shouldUseFastInstanceLoad(request("GET", "/file?directory=project"))).toBe(true)
+      expect(shouldUseFastInstanceLoad(request("GET", "/project/current?directory=project"))).toBe(true)
+      expect(shouldUseFastInstanceLoad(request("GET", "/api/project/current?directory=project"))).toBe(true)
       expect(shouldUseFastInstanceLoad(request("GET", "/api/subagents?directory=project"))).toBe(true)
       expect(shouldUseFastInstanceLoad(request("GET", "/api/agent?directory=project"))).toBe(true)
       expect(shouldUseFastInstanceLoad(request("POST", "/subagents?directory=project"))).toBe(false)
+      expect(shouldUseFastInstanceLoad(request("POST", "/project/git/init?directory=project"))).toBe(false)
+      expect(shouldUseFastInstanceLoad(request("PATCH", "/project/project-id?directory=project"))).toBe(false)
       expect(shouldUseFastInstanceLoad(request("GET", "/api/tool/ids?directory=project"))).toBe(false)
       expect(shouldUseFastInstanceLoad(request("GET", "/api/session?directory=project"))).toBe(false)
     }),

@@ -57,7 +57,7 @@
       "additionalProperties": false,
       "required": ["run_id", "child_session_id", "dispatched_at", "cancelled_at"],
       "properties": {
-        "run_id": { "type": "string", "pattern": "^run__[A-Za-z0-9_-]+__s[1-9]\\d*_t[1-9]\\d*$" },
+        "run_id": { "type": "string", "pattern": "^run__[A-Za-z0-9_-]+__s[1-9]\\d*_t[1-9]\\d*(?:__[A-Za-z0-9_-]+)?$" },
         "child_session_id": { "type": "string", "minLength": 1 },
         "dispatched_at": { "type": "string", "format": "date-time" },
         "cancelled_at": { "type": ["string", "null"], "format": "date-time" },

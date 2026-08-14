@@ -81,9 +81,9 @@ type ChildTaskRef = {
  * still expecting work from the child (dispatched/running, not cancelled)
  * qualify; anything else means the run is already accounted for.
  */
-function activePlanTaskForChild(child: Session.Info): ChildTaskRef | undefined {
+function activePlanTaskForChild(child: Session.Info, planRoot = child.directory): ChildTaskRef | undefined {
   if (!child.parentID) return undefined
-  const plan = readPlanFileSync(planFilePath(child.directory, child.parentID))
+  const plan = readPlanFileSync(planFilePath(planRoot, child.parentID))
   if (!plan) return undefined
   for (const step of plan.steps) {
     for (const task of step.tasks) {
@@ -95,7 +95,7 @@ function activePlanTaskForChild(child: Session.Info): ChildTaskRef | undefined {
         childSessionId: child.id,
         taskId: task.id,
         runId: dispatch.run_id,
-        workspaceRoot: child.directory,
+        workspaceRoot: planRoot,
       }
     }
   }
@@ -516,7 +516,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       const child = yield* requireSession(ctx.params.sessionID)
-      const ref = activePlanTaskForChild(child)
+      const parent = child.parentID ? yield* requireSession(child.parentID) : undefined
+      const ref = activePlanTaskForChild(child, parent?.directory)
       // Mark the steer intent before cancelling so the dispatch watcher skips
       // its automatic "child exited" settle for this intentional interruption.
       const intent = ref ? markChildRunIntent(child.id, "steer") : undefined
@@ -551,7 +552,8 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
 
     const terminate = Effect.fn("SessionHttpApi.terminate")(function* (ctx: { params: { sessionID: SessionID } }) {
       const child = yield* requireSession(ctx.params.sessionID)
-      const ref = activePlanTaskForChild(child)
+      const parent = child.parentID ? yield* requireSession(child.parentID) : undefined
+      const ref = activePlanTaskForChild(child, parent?.directory)
       let intentSeq: number | undefined
       const termination = yield* Effect.tryPromise({
         try: () =>

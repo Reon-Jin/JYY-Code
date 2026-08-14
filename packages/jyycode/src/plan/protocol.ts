@@ -88,6 +88,8 @@ export type ExecutionMode = "single" | "multi"
 
 export type PlanExecutionContext = {
   workspaceRoot: string
+  /** Runtime-injected parent plan directory; distinct from an isolated child workspace. */
+  planRoot?: string
   sessionId: string
   mode: ExecutionMode
   /** Runtime-injected from Session.Info; never accepted from dispatch input. */
@@ -106,6 +108,8 @@ export type ChildStartInput = {
   role: LaunchSnapshot
   /** Derived by dispatch from the parent context. */
   agentDepth: number
+  /** Parent plan directory; child workspace paths must not replace it. */
+  planRoot?: string
   workspace?: DispatchRecord["workspace"]
 }
 
@@ -1207,7 +1211,7 @@ export class PlanProtocol {
   }
 
   private path(ctx: PlanExecutionContext, sessionId = ctx.sessionId) {
-    return planFilePath((ctx.runId && planRootForRunId(ctx.runId)) ?? ctx.workspaceRoot, sessionId)
+    return planFilePath(ctx.planRoot ?? (ctx.runId && planRootForRunId(ctx.runId)) ?? ctx.workspaceRoot, sessionId)
   }
 
   private async resolveProfile(id: string) {
@@ -2064,6 +2068,7 @@ export class PlanProtocol {
                   brief: childBrief,
                   role: item.role,
                   agentDepth: childAgentDepth,
+                  planRoot: ctx.workspaceRoot,
                   workspace: workspaceHandle ? dispatchWorkspaceMetadata(workspaceHandle) : item.dispatch.workspace,
                 }
                 actualChild = item.resume ? item.dispatch.child_session_id : undefined
@@ -2509,9 +2514,10 @@ export class PlanProtocol {
           message: "candidate 缺少隔离提案路径",
           hint: "重新创建 candidate task",
         })
-      const absolutePath = resolveInside(ctx.workspaceRoot, proposalPath, "candidate proposal")
+      const protocolRoot = ctx.planRoot ?? planRootForRunId(ctx.runId) ?? ctx.workspaceRoot
+      const absolutePath = resolveInside(protocolRoot, proposalPath, "candidate proposal")
       const expectedRoot = resolveInside(
-        ctx.workspaceRoot,
+        protocolRoot,
         path.join(".jyycode", "plan", state.parsed.parentSessionId, "candidates", state.step.id, state.task.id),
         "candidate output root",
       )

@@ -61,13 +61,13 @@ describe("FilePreview", () => {
       workspace: "wrk_child",
       path: "src/app.tsx",
     })
-    screen.getByRole("button", { name: "返回会话" }).click()
+    screen.getByRole("button", { name: "返回文件" }).click()
     expect(onClose).toHaveBeenCalledOnce()
   })
 
   it.each([
-    { locale: "zh-CN" as const, back: "返回会话", preview: "预览 Markdown", edit: "编辑 Markdown" },
-    { locale: "en-US" as const, back: "Back to session", preview: "Preview Markdown", edit: "Edit Markdown" },
+    { locale: "zh-CN" as const, back: "返回文件", preview: "预览 Markdown", edit: "编辑 Markdown" },
+    { locale: "en-US" as const, back: "Back to files", preview: "Preview Markdown", edit: "Edit Markdown" },
   ])("follows the selected $locale locale for preview controls", async ({ locale, back, preview, edit }) => {
     const backend = createFakeJyycode(directory)
     backend.fileContents.set("README.md", {
@@ -92,7 +92,7 @@ describe("FilePreview", () => {
       </DesktopBridgeProvider>
     ))
 
-    await screen.findByRole("textbox")
+    expect(await screen.findByRole("textbox")).toHaveTextContent("# Hello")
     expect(screen.getByRole("button", { name: back })).toBeVisible()
     await screen.getByRole("button", { name: preview }).click()
     expect(await screen.findByRole("button", { name: edit })).toBeVisible()

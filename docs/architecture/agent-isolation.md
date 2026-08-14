@@ -14,6 +14,8 @@ Workspace names are deterministic for a root session and Task. The persisted Dis
 
 Standard Task `output_path` values are resolved against the parent workspace root before dispatch. A child brief carries the resolved workspace and output path for the child workspace. Reports must reference existing artifacts inside the Task output subtree; absolute paths, traversal, symlinks, and look-alike directory escapes are rejected.
 
+The parent plan root is a separate runtime boundary from the child workspace. Child-facing plan tools receive that root through runtime metadata and use it only for plan state, run lookup, and candidate protocol files; ordinary filesystem tools and standard Report artifacts remain constrained to the child workspace. Candidate proposal files are the intentional exception: `Candidate_submit` writes only the candidate's runtime-assigned `proposal.md` below the parent plan's candidate directory, never an arbitrary parent-worktree path.
+
 Candidate Tasks use their own proposal path under the plan directory and submit with `Candidate_submit`. They do not write to the parent worktree during isolated execution.
 
 ## Merge contract

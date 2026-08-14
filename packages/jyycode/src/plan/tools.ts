@@ -29,7 +29,7 @@ import {
   type PlanExecutionContext,
 } from "./protocol"
 import type { LaunchSnapshot } from "@/agent/subagent-profile"
-import { PlanProtocolError, planFilePath, readPlanFileSync } from "./schema"
+import { PlanProtocolError, planFilePath, readPlanFileSync, RUN_ID_PATTERN } from "./schema"
 import { RuntimeEvent } from "./runtime-event"
 import { Blackboard } from "./blackboard"
 import { ChildWorkspace, worktreeAdapter, type SnapshotLimits } from "./child-workspace"
@@ -97,6 +97,8 @@ const nonEmptyStringSchema: JSONSchema7 = { type: "string", minLength: 1 }
 const positiveIntegerSchema: JSONSchema7 = { type: "integer", minimum: 1 }
 const stepIdSchema: JSONSchema7 = { type: "string", pattern: "^s[1-9]\\d*$" }
 const taskIdSchema: JSONSchema7 = { type: "string", pattern: "^s[1-9]\\d*_t[1-9]\\d*$" }
+const DECOMPOSITION_GUIDANCE =
+  "Before planning a medium/large request, check independent deliverables, modules/files, research questions, verification surfaces, and role expertise. Aim for 4-8 ready independent Tasks per wave (hard maximum 20); if fewer are justified, state the dependency or indivisibility reason in the plan or task instructions. Batch same-role IDs in one dispatch and use separate waves for different roles or dependencies."
 
 const taskInputSchema: JSONSchema7 = {
   type: "object",
@@ -133,7 +135,7 @@ const stepInputSchema: JSONSchema7 = {
       type: "array",
       items: taskInputSchema,
       description:
-        "Declare 3-10 independent parallel standard Tasks here (max 20); split every independent deliverable, module, investigation, or verification layer into its own Task, and prefer dispatching more subagents over merging work. For a candidate Step, include exactly 2-3 candidate Tasks together. The initial Step may declare them in Plan_create; a later clean active Step may initialize them with one Plan_update containing 2-3 candidate add_task operations.",
+        `${DECOMPOSITION_GUIDANCE} For a candidate Step, include exactly 2-3 candidate Tasks together. The initial Step may declare them in Plan_create; a later clean active Step may initialize them with one Plan_update containing 2-3 candidate add_task operations.`,
     },
   },
 }
@@ -150,7 +152,7 @@ export const PLAN_CREATE_INPUT_SCHEMA: JSONSchema7 = {
       minItems: 2,
       items: stepInputSchema,
       description:
-        "Call Plan_create exactly once after Plan_read confirms that no plan exists. Only steps[0] may contain Task details at creation. Put all currently parallel-ready standard Tasks (target 3-10, max 20) into steps[0].tasks; prefer splitting into more Tasks and dispatching more subagents. Later active Steps must be skeletons and are expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group. After this call returns, stop issuing protocol writes until the next model turn.",
+        `Call Plan_create exactly once after Plan_read confirms that no plan exists. Only steps[0] may contain Task details at creation. ${DECOMPOSITION_GUIDANCE} Later active Steps must be skeletons and are expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group. After this call returns, stop issuing protocol writes until the next model turn.`,
     },
   },
 }
@@ -331,7 +333,7 @@ export const DISPATCH_INPUT_SCHEMA: JSONSchema7 = {
       maxItems: 20,
       items: taskIdSchema,
       description:
-        "Pass every ready standard Task ID from the current wave in this one call (max 20); never split a wave into batches. For a candidate Step, pass every candidate Task ID from the same Step in this one call; never dispatch candidates individually.",
+        `Pass every ready standard Task ID from the current wave in this one call (max 20); never split a wave into batches. ${DECOMPOSITION_GUIDANCE} For a candidate Step, pass every candidate Task ID from the same Step in this one call; never dispatch candidates individually.`,
     },
     role: { type: "string", minLength: 1, description: "Use an enabled role such as general." },
   },
@@ -349,7 +351,7 @@ const reportSchema: JSONSchema7 = {
   additionalProperties: false,
   required: ["run_id", "status", "summary"],
   properties: {
-    run_id: { type: "string", pattern: "^run__[A-Za-z0-9_-]+__s[1-9]\\d*_t[1-9]\\d*$" },
+    run_id: { type: "string", pattern: RUN_ID_PATTERN },
     status: { enum: ["done", "partial", "failed"] },
     summary: { type: "string", minLength: 1 },
     artifacts: { type: "array", items: nonEmptyStringSchema },
@@ -414,9 +416,9 @@ export const BLACKBOARD_INPUT_SCHEMA: JSONSchema7 = {
   },
 }
 
-function persistedRunId(session: Session.Info) {
+function persistedRunId(session: Session.Info, planRoot?: string) {
   const rootID = session.parentID ?? session.id
-  const plan = readPlanFileSync(planFilePath(session.directory, rootID))
+  const plan = readPlanFileSync(planFilePath(planRoot ?? session.directory, rootID))
   return plan?.steps.flatMap((step) => step.tasks).find((task) => task.dispatch?.child_session_id === session.id)
     ?.dispatch?.run_id
 }
@@ -427,14 +429,16 @@ function runId(ctx: Tool.Context, session?: Session.Info) {
     ctx.extra?.runID,
     ctx.extra?.agentRunID,
     runIdForChildSession(ctx.sessionID),
-    session ? persistedRunId(session) : undefined,
+    session ? persistedRunId(session, typeof ctx.extra?.planRoot === "string" ? ctx.extra.planRoot : undefined) : undefined,
   ]
   return candidates.find((value): value is string => typeof value === "string" && value.length > 0)
 }
 
 function protocolContext(session: Session.Info, ctx: Tool.Context): PlanExecutionContext {
+  const planRoot = typeof ctx.extra?.planRoot === "string" ? ctx.extra.planRoot : undefined
   return {
     workspaceRoot: session.directory,
+    ...(planRoot ? { planRoot } : {}),
     sessionId: session.id,
     mode: session.multiAgent === true ? "multi" : "single",
     agentDepth: session.agentDepth ?? 0,
@@ -519,9 +523,9 @@ function drainProtocolWakeups(
   return Effect.void
 }
 
-function candidateChildSessionIDs(session: Session.Info) {
+function candidateChildSessionIDs(session: Session.Info, planRoot?: string) {
   const rootID = session.parentID ?? session.id
-  const plan = readPlanFileSync(planFilePath(session.directory, rootID))
+  const plan = readPlanFileSync(planFilePath(planRoot ?? session.directory, rootID))
   return (
     plan?.steps
       .flatMap((step) => step.tasks)
@@ -624,7 +628,7 @@ const candidateSubmitSchema: JSONSchema7 = {
   additionalProperties: false,
   required: ["run_id", "status", "summary", "proposal"],
   properties: {
-    run_id: { type: "string", pattern: "^run__[A-Za-z0-9_-]+__s[1-9]\\d*_t[1-9]\\d*$" },
+    run_id: { type: "string", pattern: RUN_ID_PATTERN },
     status: { enum: ["done", "partial", "failed"] },
     summary: nonEmptyStringSchema,
     proposal: nonEmptyStringSchema,
@@ -746,7 +750,7 @@ function protocolFor(
   const runChild = (input: ChildStartInput, continuation: boolean) => {
     if (!runtime.promptOps) return
     const ops = runtime.promptOps
-    registerChildRun(input.childSessionId, input.brief.run_id)
+    registerChildRun(input.childSessionId, input.brief.run_id, input.planRoot)
     if (input.brief.budget) registerChildBudget(input.childSessionId, input.brief.budget)
     if (continuation && input.workspace?.directory && input.workspace.mode !== "shared_compat" && runtime.leaseStore) {
       runtime.leaseStore.create({
@@ -783,7 +787,7 @@ function protocolFor(
         const budgetFailure = takeChildBudgetFailure(input.childSessionId)
         const outcome = yield* Effect.promise(() =>
           protocol.settleChildExit({
-            workspaceRoot: planRootForRunId(input.brief.run_id) ?? input.brief.workspace_root,
+            workspaceRoot: input.planRoot ?? planRootForRunId(input.brief.run_id) ?? input.brief.workspace_root,
             parentSessionId: input.parentSessionId,
             childSessionId: input.childSessionId,
             taskId: input.taskId,
@@ -1128,8 +1132,8 @@ export const PlanCreateTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description: "Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; do not include timeout_ms. " +
-        "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan_update 展开。按可并行性检查拆分，默认放 3-10 个可并行的 standard Task（上限 20 个）；能拆就拆，优先多派子 Agent。需要候选比较时，在 Plan_create 或后续 clean active Step 的一次 Plan_update 中完整放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
+      description: DECOMPOSITION_GUIDANCE + " Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; do not include timeout_ms. " +
+        "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan_update 展开。按可并行性检查拆分，默认放 4-8 个可并行的 standard Task（上限 20 个）；能拆就拆，优先多派子 Agent。需要候选比较时，在 Plan_create 或后续 clean active Step 的一次 Plan_update 中完整放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
       parameters: AnyObject,
       jsonSchema: PLAN_CREATE_INPUT_SCHEMA,
       catalog: {
@@ -1161,7 +1165,7 @@ export const PlanUpdateTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description: "Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; timeout_ms is not accepted. " +
+      description: DECOMPOSITION_GUIDANCE + " Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; timeout_ms is not accepted. " +
         "以 revision 乐观锁原子修改方案、展开标准任务、推进单智能体状态或审核子 Agent 汇报。后续 active Step 可在一次调用中用 2-3 个 candidate add_task 初始化候选组；不能向已有 candidate Step 追加或混入 standard Task。",
       parameters: AnyObject,
       jsonSchema: PLAN_UPDATE_INPUT_SCHEMA,
@@ -1218,7 +1222,7 @@ export const DispatchDispatchTool = Tool.define(
     const bus = yield* Bus.Service
     const config = yield* Config.Service
     return {
-      description: "Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; this tool has no timeout control. " +
+      description: DECOMPOSITION_GUIDANCE + " Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; this tool has no timeout control. " +
         "Rejected tasks with review feedback continue the existing child session; do not reopen them first. " +
         "在多智能体模式把 pending/rejected 任务派给指定角色。必须选择一个当前启用的 role；如果 taskIds 中包含 candidate Task，必须在一次调用中包含该 Step 的全部 2-3 个候选 ID。",
       parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String), role: Schema.String }),
@@ -1404,7 +1408,13 @@ export const CandidateDeclareTool = Tool.define(
           const protocol = protocolFor(sessions, bus, { bridge, candidateBoard: board })
           const result = yield* Effect.promise(() => protocol.candidateDeclare(protocolContext(session, ctx), input))
           if (result.ok) requestToolCatalogRefresh(ctx)
-          yield* drainProtocolWakeups(protocol, ops, bridge, candidateChildSessionIDs(session), session.id)
+          yield* drainProtocolWakeups(
+            protocol,
+            ops,
+            bridge,
+            candidateChildSessionIDs(session, typeof ctx.extra?.planRoot === "string" ? ctx.extra.planRoot : undefined),
+            session.id,
+          )
           return jsonResult("Candidate.declare", result)
         }).pipe(Effect.provide(Blackboard.defaultLayer)),
     }
@@ -1465,7 +1475,12 @@ export const CandidateBeginTool = Tool.define(
           const protocol = protocolFor(sessions, bus, { bridge })
           const result = yield* Effect.promise(() => protocol.candidateBegin(protocolContext(session, ctx), {}))
           if (result.ok) requestToolCatalogRefresh(ctx)
-          yield* drainProtocolWakeups(protocol, ops, bridge, candidateChildSessionIDs(session))
+          yield* drainProtocolWakeups(
+            protocol,
+            ops,
+            bridge,
+            candidateChildSessionIDs(session, typeof ctx.extra?.planRoot === "string" ? ctx.extra.planRoot : undefined),
+          )
           return jsonResult("Candidate.begin", result)
         }),
     }

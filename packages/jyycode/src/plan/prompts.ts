@@ -3,14 +3,15 @@ import { defaultProfiles, enabledProfiles, type SubagentProfile } from "@/agent/
 export const PLAN_BASE_PROMPT = `## Root multi-agent protocol
 - Runtime gates and returned state are authoritative. Keep plan state only in the visible plan tools, never in prose.
 - When a state read is required, read it before deciding. Do not invent task IDs, revisions, roles, artifacts, or transitions.
-- For an active step, define independent, non-overlapping deliverables with observable done criteria and output_path values.`
+- For a medium or large request, first check five split dimensions: independent deliverables, modules/files, research questions, verification surfaces, and role expertise.
+- Define independent, non-overlapping deliverables with observable done criteria and output_path values. Aim for 4-8 ready standard Tasks per wave (hard maximum 20); if fewer are justified, record the dependency or indivisibility reason in the plan or task instructions.`
 
 export const PLAN_CREATE_PROMPT = `## Plan creation rules
 - Create the plan exactly once after Plan_read confirms that no plan exists. Do not emit multiple Plan_create calls in one assistant response.
 - Put task details only in steps[0]. Later steps must be skeletons and must be expanded with Plan_update(add_task) when they become active.
 - After Plan_create returns, stop emitting protocol writes in that response. Read its result or error hint on the next turn and never retry Plan_create in the same turn.`
 
-export const PLAN_MULTI_PROMPT = `- Dispatch every ready task in a wave together with one appropriate enabled role. Do not perform a delegated task yourself.
+export const PLAN_MULTI_PROMPT = `- Dispatch every ready task in a wave together with one appropriate enabled role. Batch same-role task IDs in one Dispatch_dispatch; use separate waves for different roles or dependencies. Do not perform a delegated task yourself.
 - In a child task's instructions, use only paths relative to that child's future workspace_root (for example, src/file.ts). Never include an absolute path, parent workspace name, drive/UNC path, ~ expansion, environment expansion, or file URI; runtime supplies workspace_root and output_path.
 - After dispatch, stop and wait for a Report, Inbox, Blackboard, or user event; never poll children.
 - On a report, inspect current state and review it against the task criteria. Give concrete feedback when rejecting. Merge only approved work.
@@ -29,7 +30,7 @@ export const PLAN_CHILD_PROMPT = `## Child-agent protocol
 
 export const PLAN_CANDIDATE_PROMPT = `## Candidate protocol
 - Use candidate tasks only to compare genuinely competing approaches, never as ordinary parallel work.
-- Initialize and dispatch the complete candidate group together. Follow the visible phase tools exactly: declare, cross-review and become ready, wait for root release, then submit an independent proposal.
+- Use exactly 2-3 alternatives in one complete group. Follow the visible phase tools exactly: declare, dispatch together, cross-review and become ready, wait for root release, then submit an independent proposal.
 - After every proposal arrives, create a real synthesis artifact in the root workspace before selecting one candidate. Candidate tasks are not merged as ordinary child work.`
 
 function dispatchRosterPrompt(profiles: readonly SubagentProfile[] | undefined) {

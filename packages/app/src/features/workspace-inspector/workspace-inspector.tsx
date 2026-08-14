@@ -285,6 +285,7 @@ export function WorkspaceInspector(props: {
   fileDirectory?: string
   fileWorkspaceID?: string
   fileSessionID?: string
+  files?: JSX.Element
   preferences: InspectorPreferences
   onPreferencesChange: (preferences: InspectorPreferences) => void
   onOpenFile?: (event: FileOpenEvent) => void
@@ -321,12 +322,19 @@ export function WorkspaceInspector(props: {
         />
       }
       files={
-        <FileTree
-          directory={props.fileDirectory ?? props.directory}
-          workspaceID={props.fileWorkspaceID ?? props.workspaceID}
-          sessionID={props.fileSessionID ?? props.sessionID}
-          onOpenFile={props.onOpenFile}
-        />
+        <Show
+          when={props.files}
+          fallback={
+            <FileTree
+              directory={props.fileDirectory ?? props.directory}
+              workspaceID={props.fileWorkspaceID ?? props.workspaceID}
+              sessionID={props.fileSessionID ?? props.sessionID}
+              onOpenFile={props.onOpenFile}
+            />
+          }
+        >
+          {(files) => files()}
+        </Show>
       }
       planBadge={props.planBadge}
       blackboardBadge={props.blackboardBadge}

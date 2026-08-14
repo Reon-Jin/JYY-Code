@@ -301,7 +301,7 @@ export function SpreadsheetEditor(props: SpreadsheetEditorProps) {
         <Show when={props.onClose}>
           <Button class="spreadsheet-editor__back" size="small" variant="ghost" onClick={props.onClose}>
             <ChevronLeft aria-hidden="true" />
-            {tr("files.back-to-session")}
+            {tr("files.back-to-files")}
           </Button>
         </Show>
         <FileIcon aria-hidden="true" />

@@ -2,6 +2,7 @@ import type { Session } from "@jyycode-ai/sdk/v2/client"
 import { MemoryRouter, Route } from "@solidjs/router"
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { WorkspaceInspectorView } from "../features/workspace-inspector/workspace-inspector"
 import { projectShortcutIndex, WorkspaceLayoutView } from "./workspace-layout"
 
 const session: Session = {
@@ -49,7 +50,7 @@ describe("WorkspaceLayoutView settings entry", () => {
     )
   })
 
-  it("replaces the conversation with the shared file preview workspace", () => {
+  it("keeps the conversation visible while the preview is hosted in the Files pane", () => {
     render(() => (
       <MemoryRouter>
         <Route
@@ -64,8 +65,15 @@ describe("WorkspaceLayoutView settings entry", () => {
               statuses={{}}
               activeSession={session}
               activeSessionID={session.id}
-              filePreviewOpen
-              filePreview={<div>file preview content</div>}
+              inspector={
+                <WorkspaceInspectorView
+                  preferences={{ panes: ["files"], ratios: [1], width: 420 }}
+                  onPreferencesChange={vi.fn()}
+                  plan={<div>plan content</div>}
+                  changes={<div>changes content</div>}
+                  files={<div>file preview content</div>}
+                />
+              }
               onReturnHome={vi.fn(async () => undefined)}
               onCreate={vi.fn(async () => undefined)}
               onRename={vi.fn(async () => undefined)}
@@ -78,7 +86,8 @@ describe("WorkspaceLayoutView settings entry", () => {
     ))
 
     expect(screen.getByText("file preview content")).toBeVisible()
-    expect(screen.queryByRole("heading", { name: "Active Session" })).not.toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Active Session" })).toBeVisible()
+    expect(screen.getByRole("group", { name: "文件" })).toContainElement(screen.getByText("file preview content"))
   })
 
   it("shows keyed session-create feedback without disabling project return", () => {
@@ -108,6 +117,36 @@ describe("WorkspaceLayoutView settings entry", () => {
 
     expect(document.querySelector(".workspace-new-session")).toHaveAttribute("aria-busy", "true")
     expect(document.querySelector(".workspace-project button")).not.toBeDisabled()
+  })
+
+  it("requests archived sessions only when the archive filter is opened", () => {
+    const onShowArchived = vi.fn()
+    render(() => (
+      <MemoryRouter>
+        <Route
+          path="/*all"
+          component={() => (
+            <WorkspaceLayoutView
+              projectName="demo"
+              projectDirectory={session.directory}
+              connection="connected"
+              activeSessions={[session]}
+              archivedSessions={[]}
+              statuses={{}}
+              onShowArchived={onShowArchived}
+              onReturnHome={vi.fn(async () => undefined)}
+              onCreate={vi.fn(async () => undefined)}
+              onRename={vi.fn(async () => undefined)}
+              onArchive={vi.fn(async () => undefined)}
+              onDelete={vi.fn(async () => undefined)}
+            />
+          )}
+        />
+      </MemoryRouter>
+    ))
+
+    fireEvent.click(screen.getByRole("button", { name: /归档/ }))
+    expect(onShowArchived).toHaveBeenCalledOnce()
   })
 
   it("switches projects with Tab on the conversation canvas and Ctrl+1-9 globally", () => {

@@ -44,8 +44,8 @@ export function fileListQueryOptions(input: FileQueryInput) {
   return {
     queryKey: keys.fileList(input.directory, input.workspaceID, input.sessionID, input.relativePath),
     queryFn: ({ signal }: { signal: AbortSignal }) => loadFileList({ ...input, signal }),
-    refetchOnMount: "always",
-    refetchOnWindowFocus: "always",
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
   } as const
 }
 
@@ -59,9 +59,11 @@ export function fileContentQueryOptions(input: FileQueryInput) {
   return {
     queryKey: keys.fileContent(input.directory, input.workspaceID, input.sessionID, input.relativePath),
     queryFn: ({ signal }: { signal: AbortSignal }) => loadFileContent({ ...input, signal }),
-    refetchInterval: input.live ? 1_000 : false,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: "always",
+    // FileWatcher events invalidate this exact query key. Polling the complete
+    // file every second turns a passive preview into a continuous disk/CPU load.
+    refetchInterval: false,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
   } as const
 }
 

@@ -3,8 +3,9 @@ import { serviceUse } from "@/effect/service-use"
 import { InstanceState } from "@/effect/instance-state"
 
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
+import { Bus } from "@/bus"
 import { Git } from "@/git"
-import { Effect, Layer, Context, Schema, Scope } from "effect"
+import { Deferred, Effect, Layer, Context, Option, Schema, Scope } from "effect"
 import * as Stream from "effect/Stream"
 import { formatPatch, structuredPatch } from "diff"
 import fuzzysort from "fuzzysort"
@@ -15,6 +16,7 @@ import { containsPath } from "../project/instance-context"
 import * as Log from "@jyycode-ai/core/util/log"
 import { Protected } from "./protected"
 import { Ripgrep } from "./ripgrep"
+import { FileWatcher } from "./watcher"
 import { NonNegativeInt, type DeepMutable } from "@jyycode-ai/core/schema"
 import { createHash, randomUUID } from "node:crypto"
 import { stat as statFile } from "node:fs/promises"
@@ -79,19 +81,25 @@ export class UnsafePathError extends Schema.TaggedErrorClass<UnsafePathError>()(
   message: Schema.String,
 }) {}
 
-export class UnsupportedWriteError extends Schema.TaggedErrorClass<UnsupportedWriteError>()("FileUnsupportedWriteError", {
-  message: Schema.String,
-}) {}
+export class UnsupportedWriteError extends Schema.TaggedErrorClass<UnsupportedWriteError>()(
+  "FileUnsupportedWriteError",
+  {
+    message: Schema.String,
+  },
+) {}
 
 export class TooLargeError extends Schema.TaggedErrorClass<TooLargeError>()("FileTooLargeError", {
   message: Schema.String,
 }) {}
 
-export class RevisionConflictError extends Schema.TaggedErrorClass<RevisionConflictError>()("FileRevisionConflictError", {
-  message: Schema.String,
-  expectedRevision: Schema.optional(Schema.String),
-  currentRevision: Schema.String,
-}) {}
+export class RevisionConflictError extends Schema.TaggedErrorClass<RevisionConflictError>()(
+  "FileRevisionConflictError",
+  {
+    message: Schema.String,
+    expectedRevision: Schema.optional(Schema.String),
+    currentRevision: Schema.String,
+  },
+) {}
 
 export type WriteError = UnsafePathError | UnsupportedWriteError | TooLargeError | RevisionConflictError
 
@@ -345,7 +353,20 @@ const maxPreviewBytes = 25 * 1024 * 1024
 const maxDocumentPreviewBytes = 256 * 1024 * 1024
 
 const hashBytes = (bytes: Uint8Array | undefined) =>
-  createHash("sha256").update(bytes ? Buffer.from(bytes) : Buffer.alloc(0)).digest("hex")
+  createHash("sha256")
+    .update(bytes ? Buffer.from(bytes) : Buffer.alloc(0))
+    .digest("hex")
+
+const metadataFor = Effect.fn("File.metadata")(function* (full: string) {
+  return yield* Effect.promise(async () => {
+    try {
+      const info = await statFile(full)
+      return { size: info.size, mtimeMs: info.mtimeMs, mode: info.mode }
+    } catch {
+      return undefined
+    }
+  })
+})
 
 const makeRevision = (
   relativePath: string,
@@ -392,6 +413,9 @@ const sortHiddenLast = (items: string[], prefer: boolean) => {
 
 interface State {
   cache: Entry
+  scan?: Deferred.Deferred<void, never>
+  scanGeneration: number
+  unsubscribe: () => void
 }
 
 export interface Interface {
@@ -421,16 +445,27 @@ export const layer = Layer.effect(
     const scope = yield* Scope.Scope
 
     const state = yield* InstanceState.make<State>(
-      Effect.fn("File.state")(() =>
-        Effect.succeed({
+      Effect.fn("File.state")(function* () {
+        const value: State = {
           cache: { files: [], dirs: [] } as Entry,
-        }),
-      ),
+          scanGeneration: 0,
+          unsubscribe: () => {},
+        }
+        const bus = yield* Effect.serviceOption(Bus.Service)
+        if (Option.isSome(bus)) {
+          value.unsubscribe = yield* bus.value.subscribeCallback(FileWatcher.Event.Updated, () => {
+            value.scan = undefined
+            value.scanGeneration += 1
+          })
+        }
+        return value
+      }),
+      { onInvalidate: (value) => Effect.sync(value.unsubscribe) },
     )
 
     const scan = Effect.fn("File.scan")(function* () {
       const ctx = yield* InstanceState.context
-      if (ctx.directory === path.parse(ctx.directory).root) return
+      if (ctx.directory === path.parse(ctx.directory).root) return { files: [], dirs: [] } satisfies Entry
       const isGlobalHome = ctx.directory === Global.Path.home && ctx.project.id === "global"
       const next: Entry = { files: [], dirs: [] }
 
@@ -478,38 +513,45 @@ export const layer = Layer.effect(
         }
       }
 
-      const s = yield* InstanceState.get(state)
-      s.cache = next
+      return next
     })
 
-    let cachedScan = yield* Effect.cached(scan().pipe(Effect.catchCause(() => Effect.void)))
+    const startScan = Effect.fn("File.startScan")(function* () {
+      const s = yield* InstanceState.get(state)
+      if (s.scan) return s.scan
+
+      const done = yield* Deferred.make<void>()
+      s.scan = done
+      const generation = s.scanGeneration
+      yield* scan().pipe(
+        Effect.tap((next) =>
+          Effect.sync(() => {
+            if (s.scanGeneration === generation) s.cache = next
+          }),
+        ),
+        Effect.catchCause(() => Effect.void),
+        Effect.flatMap(() => Deferred.succeed(done, void 0)),
+      )
+      return done
+    })
 
     const ensure = Effect.fn("File.ensure")(function* () {
-      yield* cachedScan
-      cachedScan = yield* Effect.cached(scan().pipe(Effect.catchCause(() => Effect.void)))
+      const done = yield* startScan()
+      yield* Deferred.await(done)
     })
 
     const gitText = Effect.fnUntraced(function* (args: string[]) {
       return (yield* git.run(args, { cwd: (yield* InstanceState.context).directory })).text()
     })
 
-    const revisionFor = Effect.fn("File.revision")(function* (
-      full: string,
-      relativePath: string,
-      bytes?: Uint8Array,
-    ) {
-      const metadata = yield* Effect.promise(async () => {
-        try {
-          const info = await statFile(full)
-          return { size: info.size, mtimeMs: info.mtimeMs, mode: info.mode }
-        } catch {
-          return undefined
-        }
-      })
+    const revisionFor = Effect.fn("File.revision")(function* (full: string, relativePath: string, bytes?: Uint8Array) {
+      const metadata = yield* metadataFor(full)
       return makeRevision(relativePath, metadata, bytes)
     })
 
     const init = Effect.fn("File.init")(function* () {
+      const s = yield* InstanceState.get(state)
+      s.scan = undefined
       yield* ensure().pipe(Effect.forkIn(scope))
     })
 
@@ -616,20 +658,13 @@ export const layer = Layer.effect(
       const media =
         !knownText &&
         (isImageByExtension(file) ||
-        previewBinary.has(ext(file)) ||
-        isImage(mimeType) ||
-        mimeType.startsWith("audio/") ||
-        mimeType.startsWith("video/"))
+          previewBinary.has(ext(file)) ||
+          isImage(mimeType) ||
+          mimeType.startsWith("audio/") ||
+          mimeType.startsWith("video/"))
 
       if (media) {
-        const metadata = yield* Effect.promise(async () => {
-          try {
-            const info = await statFile(full)
-            return { size: info.size, mtimeMs: info.mtimeMs, mode: info.mode }
-          } catch {
-            return undefined
-          }
-        })
+        const metadata = yield* metadataFor(full)
         if (mimeType.startsWith("video/")) {
           return {
             type: "binary" as const,
@@ -638,7 +673,10 @@ export const layer = Layer.effect(
             revision: makeRevision(file, metadata, undefined),
           }
         }
-        const previewLimit = ext(file) === "pdf" || ext(file) === "docx" || ext(file) === "pptx" ? maxDocumentPreviewBytes : maxPreviewBytes
+        const previewLimit =
+          ext(file) === "pdf" || ext(file) === "docx" || ext(file) === "pptx"
+            ? maxDocumentPreviewBytes
+            : maxPreviewBytes
         if ((metadata?.size ?? 0) > previewLimit) {
           return {
             type: "binary" as const,
@@ -665,6 +703,11 @@ export const layer = Layer.effect(
 
       if (encode && !isImage(mimeType)) {
         return { type: "binary" as const, content: "", mimeType, revision: yield* revisionFor(full, file) }
+      }
+
+      const metadata = yield* metadataFor(full)
+      if ((metadata?.size ?? 0) > maxTextBytes) {
+        return { type: "binary" as const, content: "", mimeType, revision: makeRevision(file, metadata, undefined) }
       }
 
       if (encode) {
@@ -727,7 +770,9 @@ export const layer = Layer.effect(
       const extension = ext(input.path)
       const binaryDocument = input.encoding === "base64" && (spreadsheetBinary.has(extension) || extension === "pdf")
       if (input.encoding === "base64" && !binaryDocument) {
-        return yield* new UnsupportedWriteError({ message: "Base64 writes are only supported for spreadsheet and PDF files" })
+        return yield* new UnsupportedWriteError({
+          message: "Base64 writes are only supported for spreadsheet and PDF files",
+        })
       }
       const isMedia =
         isBinaryByExtension(input.path) ||

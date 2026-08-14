@@ -30,6 +30,8 @@ import {
   PLAN_TOOL_IDS,
   resolveChildModel,
 } from "../../src/plan/tools"
+import { RUN_ID_PATTERN } from "../../src/plan/schema"
+import { planSystemPrompt } from "../../src/plan/prompts"
 import { Provider } from "../../src/provider/provider"
 import { Effect } from "effect"
 
@@ -156,11 +158,12 @@ describe("model-facing plan tool names", () => {
         updated_at: new Date().toISOString(),
       }),
     )
+    const childWorkspace = path.join(workspace, "isolated-child")
     const gate = candidateToolGateState({
       id: "candidate-child" as never,
       parentID: rootSession as never,
-      directory: workspace,
-    })
+      directory: childWorkspace,
+    }, { planRoot: workspace })
     expect(gate?.phase).toBe("running")
     expect([...gate!.allowedToolIDs]).toEqual(
       expect.arrayContaining(["read", "glob", "grep", "webfetch", "websearch", "skill", "Candidate.submit"]),
@@ -176,16 +179,16 @@ describe("model-facing plan tool names", () => {
     const declaringGate = candidateToolGateState({
       id: "candidate-child" as never,
       parentID: rootSession as never,
-      directory: workspace,
-    })
+      directory: childWorkspace,
+    }, { planRoot: workspace })
     expect([...declaringGate!.allowedToolIDs]).toEqual(["Candidate.declare"])
     persisted.steps[0]!.candidate_discussion.phase = "cross_review"
     fs.writeFileSync(persistedPath, JSON.stringify(persisted))
     const reviewGate = candidateToolGateState({
       id: "candidate-child" as never,
       parentID: rootSession as never,
-      directory: workspace,
-    })
+      directory: childWorkspace,
+    }, { planRoot: workspace })
     expect([...reviewGate!.allowedToolIDs]).toEqual(["Blackboard", "Blackboard.reply", "Candidate.ready"])
     fs.rmSync(workspace, { recursive: true, force: true })
   })
@@ -587,6 +590,8 @@ describe("model-facing plan tool names", () => {
   })
 
   it("publishes complete nested schemas for progressive plans and all update operations", () => {
+    expect(new RegExp(`^${RUN_ID_PATTERN}$`).test("run__ses_main__s1_t1__retry123")).toBe(true)
+    expect(new RegExp(`^${RUN_ID_PATTERN}$`).test("run__ses_main__s1_t1")).toBe(true)
     expect(DISPATCH_INPUT_SCHEMA.required).toEqual(["taskIds", "role"])
     expect(DISPATCH_INPUT_SCHEMA.properties?.role).toMatchObject({ type: "string", minLength: 1 })
     expect(DISPATCH_INPUT_SCHEMA.properties?.taskIds).toMatchObject({
@@ -596,6 +601,7 @@ describe("model-facing plan tool names", () => {
     expect((PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { description?: string }).description).toContain(
       "one complete 2-3 candidate Task group",
     )
+    expect((PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { description?: string }).description).toContain("4-8")
     expect(createSteps.items).toMatchObject({
       required: ["title", "goal", "done_criteria"],
       properties: { tasks: { items: { required: ["title", "goal", "done_criteria"] } } },
@@ -638,6 +644,15 @@ describe("model-facing plan tool names", () => {
       (operation) => (operation as { properties?: { op?: { const?: string } } }).properties?.op?.const === "edit_task",
     ) as { properties?: { fields?: { properties?: object } } } | undefined
     expect(editTask?.properties?.fields?.properties ?? {}).not.toHaveProperty("timeout_ms")
+  })
+
+  it("gives the main Agent concrete decomposition and candidate lifecycle rules", () => {
+    const prompt = planSystemPrompt({ child: false, multiAgent: true })
+    expect(prompt).toContain("independent deliverables")
+    expect(prompt).toContain("verification surfaces")
+    expect(prompt).toContain("4-8")
+    expect(prompt).toContain("same-role")
+    expect(prompt).toContain("synthesis artifact")
   })
 
   it("builds child launches from the frozen role snapshot", () => {

@@ -23,6 +23,13 @@ export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
 export type PlanStatus = "draft" | "active" | "done"
 export type StepStatus = "pending" | "active" | "done"
 export type PlanTaskMode = "standard" | "candidate"
+
+/**
+ * Model-facing and durable run IDs share this grammar. Dispatch appends a
+ * short attempt suffix so retries cannot be confused with a late report from
+ * the previous attempt.
+ */
+export const RUN_ID_PATTERN = "^run__[A-Za-z0-9_-]+__s[1-9]\\d*_t[1-9]\\d*(?:__[A-Za-z0-9_-]+)?$"
 export type TaskStatus = "pending" | "dispatched" | "running" | "reported" | "approved" | "rejected" | "dismissed"
 export type ReportStatus = "done" | "partial" | "failed"
 export type CandidateDiscussionPhase = "declaring" | "cross_review" | "awaiting_main" | "running"
@@ -609,7 +616,7 @@ function isValidDispatch(value: unknown): value is DispatchRecord {
         workspace.source_revision === null ||
         nonEmptyString(workspace.source_revision)))
   return (
-    /^run__[A-Za-z0-9_-]+__s[1-9]\d*_t[1-9]\d*(?:__[A-Za-z0-9_-]+)?$/.test(String(value.run_id)) &&
+    new RegExp(RUN_ID_PATTERN).test(String(value.run_id)) &&
     nonEmptyString(value.child_session_id) &&
     validDateTime(value.dispatched_at) &&
     (value.cancelled_at === null || validDateTime(value.cancelled_at)) &&
