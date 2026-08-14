@@ -300,6 +300,17 @@ export const layer: Layer.Layer<
 
     const createFromInfoWithoutBoot = Effect.fn("Worktree.createFromInfoWithoutBoot")(function* (info: Info) {
       yield* setup(info)
+
+      // `git worktree add --no-checkout` deliberately leaves the per-worktree
+      // index empty. Child workspaces populate files from the parent's
+      // snapshot instead of running the normal boot reset, so initialize the
+      // index here while leaving the working tree untouched.
+      const indexed = yield* git(["reset", "--mixed", "HEAD"], { cwd: info.directory })
+      if (indexed.code !== 0) {
+        return yield* new CreateFailedError({
+          message: indexed.stderr || indexed.text || "Failed to initialize git worktree index",
+        })
+      }
     })
 
     const create = Effect.fn("Worktree.create")(function* (input?: CreateInput) {

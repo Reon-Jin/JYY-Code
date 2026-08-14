@@ -96,6 +96,18 @@ IMPORTANT:
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured JSON output. You MUST use the StructuredOutput tool to provide your final response as a JSON object. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the JSON schema.`
 
+function failedPlanCreatePart(part: MessageV2.Part) {
+  if (part.type !== "tool" || part.tool !== "Plan_create" || part.metadata?.providerExecuted) return false
+  if (part.state.status === "error") return true
+  if (part.state.status !== "completed" || part.state.metadata?.skipped === true) return false
+  try {
+    const output = JSON.parse(part.state.output) as { ok?: unknown }
+    return output.ok === false
+  } catch {
+    return false
+  }
+}
+
 export async function retryMemoryJsonOutput(
   generate: (prompt: string) => Promise<unknown>,
   prompt: string,
@@ -1512,6 +1524,10 @@ export const layer = Layer.effect(
             (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
           )
           const lastAssistantInfo = lastAssistantMsg?.info.role === "assistant" ? lastAssistantMsg.info : undefined
+          const planCreateFailed =
+            lastAssistantInfo !== undefined &&
+            MessageV2.compareChronological(lastAssistantInfo, lastUser) > 0 &&
+            (lastAssistantMsg?.parts.some(failedPlanCreatePart) ?? false)
           // Some providers return "stop" while a non-provider tool result still
           // needs to be replayed to the model.
           // Skip provider-executed tool parts �?those were fully handled within the
@@ -1883,6 +1899,7 @@ export const layer = Layer.effect(
               step,
               blackboardUnread,
               planExists: planState?.ok ? planState.plan !== null : undefined,
+              planCreateFailed,
               plan: planState?.ok ? (planState.plan ?? undefined) : undefined,
               workspaceRoot: session.directory,
             })

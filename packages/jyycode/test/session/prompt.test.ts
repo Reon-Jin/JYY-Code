@@ -1050,6 +1050,94 @@ it.instance("skips duplicate Plan_create calls after the first attempt in one re
   }),
 )
 
+it.instance("requires Plan_read before retrying a failed Plan_create", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Plan creation recovery",
+      multiAgent: true,
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "create a multi-stage plan" }],
+    })
+
+    yield* llm.tool("Plan_read", {})
+    yield* llm.tool("Plan_create", {
+      title: "Invalid plan",
+      goal: "this must be repaired",
+      steps: [
+        {
+          title: "Work",
+          goal: "do the work",
+          done_criteria: "the work is complete",
+          tasks: [
+            {
+              title: "Task",
+              goal: "produce the result",
+              done_criteria: "result.md exists",
+              output_path: "result.md",
+              timeout_ms: 30_000,
+            },
+          ],
+        },
+        { title: "Review", goal: "review the result", done_criteria: "the result is accepted" },
+      ],
+    })
+    yield* llm.tool("Plan_read", {})
+    yield* llm.tool("Plan_create", {
+      title: "Recovered plan",
+      goal: "complete the requested work",
+      steps: [
+        {
+          title: "Work",
+          goal: "do the work",
+          done_criteria: "the work is complete",
+          tasks: [
+            {
+              title: "Task",
+              goal: "produce the result",
+              done_criteria: "result.md exists",
+              output_path: "result.md",
+            },
+          ],
+        },
+        { title: "Review", goal: "review the result", done_criteria: "the result is accepted" },
+      ],
+    })
+    yield* llm.text("Recovered plan created.")
+
+    yield* prompt.loop({ sessionID: chat.id })
+
+    const inputs = yield* llm.inputs
+    expect(inputs[2]?.tool_choice).toEqual({ type: "function", function: { name: "Plan_read" } })
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const planCreates = messages
+      .flatMap((message) => message.parts)
+      .filter((part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "Plan_create")
+    expect(planCreates).toHaveLength(2)
+    expect(
+      planCreates.filter(
+        (part) =>
+          part.state.status === "error" ||
+          (part.state.status === "completed" && JSON.parse(part.state.output).ok === false),
+      ),
+    ).toHaveLength(1)
+    expect(
+      JSON.parse(
+        yield* Effect.promise(() =>
+          Bun.file(path.join(chat.directory, ".jyycode", "plan", chat.id, "plan.json")).text(),
+        ),
+      ).title,
+    ).toBe("Recovered plan")
+  }),
+)
+
 it.instance("does not execute stale protocol mutations from one batched response", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)

@@ -424,6 +424,9 @@ describe("model-facing plan tool names", () => {
       "Blackboard",
     )
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 2, planExists: false })).toBe("Plan_create")
+    expect(requiredPlanTool({ root: true, multiAgent: true, step: 2, planExists: false, planCreateFailed: true })).toBe(
+      "Plan_read",
+    )
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 3, planExists: true })).toBeUndefined()
     expect(
       requiredPlanTool({

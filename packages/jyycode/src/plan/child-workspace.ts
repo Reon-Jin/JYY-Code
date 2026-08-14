@@ -464,23 +464,32 @@ function copyTree(source: string, target: string, root = source) {
   }
 }
 
-function copyManifest(source: string, target: string, manifest: BaselineManifestEntry[]) {
-  if (!fs.existsSync(target)) fs.mkdirSync(target, { recursive: true })
-  for (const item of manifest) {
-    const sourcePath = path.join(source, item.relative_path)
-    const targetPath = path.join(target, item.relative_path)
-    fs.mkdirSync(path.dirname(targetPath), { recursive: true })
-    if (item.mode === "symlink") {
-      const link = assertSafeSymlink(source, sourcePath)
-      if (fs.existsSync(targetPath) || fs.lstatSync(targetPath, { throwIfNoEntry: false }))
-        fs.rmSync(targetPath, { recursive: true, force: true })
-      try {
-        fs.symlinkSync(link, targetPath)
-      } catch (error) {
-        throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), { directory: targetPath })
-      }
-    } else fs.copyFileSync(sourcePath, targetPath)
+async function copyManifest(source: string, target: string, manifest: BaselineManifestEntry[]) {
+  await fs.promises.mkdir(target, { recursive: true })
+  let next = 0
+  const worker = async () => {
+    while (true) {
+      const index = next++
+      const item = manifest[index]
+      if (!item) return
+      const sourcePath = path.join(source, item.relative_path)
+      const targetPath = path.join(target, item.relative_path)
+      await fs.promises.mkdir(path.dirname(targetPath), { recursive: true })
+      if (item.mode === "symlink") {
+        const link = assertSafeSymlink(source, sourcePath)
+        if (fs.existsSync(targetPath) || fs.lstatSync(targetPath, { throwIfNoEntry: false }))
+          fs.rmSync(targetPath, { recursive: true, force: true })
+        try {
+          await fs.promises.symlink(link, targetPath)
+        } catch (error) {
+          throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), {
+            directory: targetPath,
+          })
+        }
+      } else await fs.promises.copyFile(sourcePath, targetPath)
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(8, Math.max(1, manifest.length)) }, () => worker()))
 }
 
 function clearTreeExceptGit(directory: string, preserveGit = true) {
@@ -620,7 +629,7 @@ export class ChildWorkspace {
         let published = false
         try {
           fs.mkdirSync(staging, { recursive: true })
-          copyManifest(this.project.root, staging, manifest.entries)
+          await copyManifest(this.project.root, staging, manifest.entries)
           fs.writeFileSync(path.join(staging, "source.json"), JSON.stringify(manifest), "utf8")
           fs.renameSync(staging, directory)
           published = true
@@ -705,7 +714,7 @@ export class ChildWorkspace {
       if (!shared) {
         fs.mkdirSync(effectiveBaselineDirectory, { recursive: true })
         clearTreeExceptGit(effectiveBaselineDirectory, false)
-        copyManifest(this.project.root, effectiveBaselineDirectory, baselineManifest)
+        await copyManifest(this.project.root, effectiveBaselineDirectory, baselineManifest)
       }
       const baselineManifestHash = shared?.manifest.source_manifest_hash ?? hashManifest(baselineManifest)
       const baselineManifestPath = manifestPath(this.runtimeRoot, reservation.name)
@@ -735,7 +744,7 @@ export class ChildWorkspace {
           })
         const worktreeDirectory = path.resolve(info.directory)
         clearTreeExceptGit(worktreeDirectory)
-        copyManifest(effectiveBaselineDirectory, worktreeDirectory, baselineManifest)
+        await copyManifest(effectiveBaselineDirectory, worktreeDirectory, baselineManifest)
         const handle: WorkspaceHandle = {
           ...reservation,
           directory: worktreeDirectory,
@@ -755,7 +764,7 @@ export class ChildWorkspace {
       } else {
         if (!fs.existsSync(directory)) fs.mkdirSync(directory, { recursive: true })
         clearTreeExceptGit(directory, false)
-        copyManifest(effectiveBaselineDirectory, directory, baselineManifest)
+        await copyManifest(effectiveBaselineDirectory, directory, baselineManifest)
       }
       const canonical = fs.existsSync(directory) ? fs.realpathSync.native(directory) : directory
       const handle: WorkspaceHandle = {

@@ -178,6 +178,26 @@ describe("Worktree", () => {
         }),
       { git: true },
     )
+
+    it.instance(
+      "initializes the child worktree index without booting project scripts",
+      () =>
+        Effect.gen(function* () {
+          const test = yield* TestInstance
+          const svc = yield* Worktree.Service
+          yield* Effect.promise(() => Bun.write(path.join(test.directory, "tracked.txt"), "base\n"))
+          yield* git(test.directory, ["add", "tracked.txt"])
+          yield* git(test.directory, ["commit", "-m", "tracked"])
+
+          const info = yield* svc.makeWorktreeInfo({ name: "child-index-test", detached: true })
+          yield* svc.createFromInfoWithoutBoot(info)
+
+          const files = yield* git(info.directory, ["ls-files", "-z"])
+          expect(files.split("\0")).toContain("tracked.txt")
+          yield* svc.remove({ directory: info.directory })
+        }),
+      { git: true },
+    )
   })
 
   describe("create + remove lifecycle", () => {

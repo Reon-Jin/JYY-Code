@@ -1,4 +1,5 @@
 import crypto from "node:crypto"
+import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import {
@@ -166,6 +167,15 @@ type ScanOptions = {
   childSnapshot?: boolean
   limits?: SnapshotLimits
   state?: { totalBytes: number; fileCount: number }
+  paths?: ReadonlySet<string>
+}
+
+function selectedPath(relative: string, paths: ReadonlySet<string> | undefined) {
+  if (!paths) return true
+  if (paths.has(relative)) return true
+  const prefix = `${relative}/`
+  for (const candidate of paths) if (candidate.startsWith(prefix)) return true
+  return false
 }
 
 function scanWorkspace(root: string, current = root, output = new Map<string, FileEntry>(), options: ScanOptions = {}) {
@@ -174,6 +184,7 @@ function scanWorkspace(root: string, current = root, output = new Map<string, Fi
     if (INTERNAL_NAMES.has(entry.name)) continue
     const pathname = path.join(current, entry.name)
     const relative = canonicalRelative(path.relative(root, pathname), "workspace path")
+    if (!selectedPath(relative, options.paths)) continue
     if (entry.isDirectory()) {
       if (options.childSnapshot && !isSnapshotPathAllowed(relative, true)) continue
       scanWorkspace(root, pathname, output, { ...options, state })
@@ -217,6 +228,83 @@ function scanWorkspace(root: string, current = root, output = new Map<string, Fi
     })
   }
   return output
+}
+
+function gitOutput(root: string, args: string[]) {
+  try {
+    return execFileSync("git", ["-c", "core.autocrlf=false", "-c", "core.fsmonitor=false", ...args], {
+      cwd: root,
+      encoding: "buffer",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).toString("utf8")
+  } catch {
+    return undefined
+  }
+}
+
+function safeGitPath(value: string) {
+  const normalized = value.replaceAll("\\", "/")
+  if (normalized.split("/").some((part) => INTERNAL_NAMES.has(part))) return undefined
+  return canonicalRelative(normalized, "git path")
+}
+
+function gitPaths(root: string, args: string[]) {
+  const output = gitOutput(root, args)
+  if (output === undefined) return undefined
+  return new Set(
+    output
+      .split("\0")
+      .filter(Boolean)
+      .flatMap((value) => safeGitPath(value) ?? []),
+  )
+}
+
+function gitStatusPaths(root: string) {
+  const output = gitOutput(root, ["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", "."])
+  if (output === undefined) return undefined
+  return new Set(
+    output
+      .split("\0")
+      .filter(Boolean)
+      .flatMap((value) => safeGitPath(value.slice(3)) ?? []),
+  )
+}
+
+function gitHead(root: string) {
+  const value = gitOutput(root, ["rev-parse", "HEAD"])?.trim()
+  return value || undefined
+}
+
+function gitCommittedDiffPaths(root: string, base: string, head: string) {
+  return gitPaths(root, ["diff", "--name-only", "--no-renames", "-z", base, head, "--", "."])
+}
+
+function optimizedGitMergePaths(input: WorkspaceMergeInput, roots: { base: string; main: string; child: string }) {
+  if (!input.childManifest || !fs.existsSync(path.join(roots.child, ".git"))) return undefined
+  const mainStatus = gitStatusPaths(roots.main)
+  const childStatus = gitStatusPaths(roots.child)
+  const tracked = gitPaths(roots.main, ["ls-files", "-z", "--cached", "--", "."])
+  if (!mainStatus || !childStatus || !tracked) return undefined
+
+  const paths = new Set([...mainStatus, ...childStatus])
+  const mainHead = gitHead(roots.main)
+  const childHead = gitHead(roots.child)
+  if (mainHead && childHead && mainHead !== childHead) {
+    const committed = gitCommittedDiffPaths(roots.child, mainHead, childHead)
+    if (!committed) return undefined
+    for (const relative of committed) paths.add(relative)
+  }
+
+  // Git status cannot report deletion of a file that was untracked in the
+  // parent snapshot. Keep those baseline paths in the candidate set so the
+  // three-way merge can still detect that deletion.
+  for (const entry of input.childManifest) {
+    const relative = entry.relative_path.replaceAll("\\", "/")
+    if (!tracked.has(relative)) paths.add(relative)
+  }
+
+  const scopes = (input.paths ?? []).map((value) => canonicalRelative(value, "paths entry"))
+  return new Set([...paths].filter((relative) => inScope(relative, scopes)))
 }
 
 function sameEntry(left: FileEntry | undefined, right: FileEntry | undefined) {
@@ -380,15 +468,19 @@ export function prepareWorkspaceMerge(input: WorkspaceMergeInput): WorkspaceMerg
     if (resolutions.has(relative)) fail(`duplicate resolution for ${relative}`)
     resolutions.set(relative, { path: relative, use: resolution.use })
   }
-  const base = scanWorkspace(roots.base)
-  const main = scanWorkspace(roots.main)
+  const mergePaths = optimizedGitMergePaths(input, roots)
+  const scanOptions = mergePaths ? { paths: mergePaths } : undefined
+  const base = scanWorkspace(roots.base, roots.base, new Map(), scanOptions)
+  const main = scanWorkspace(roots.main, roots.main, new Map(), scanOptions)
   const child = scanWorkspace(roots.child, roots.child, new Map(), {
+    ...(scanOptions ?? {}),
     childSnapshot: input.childManifest !== undefined,
     limits: input.childLimits ?? (input.childManifest !== undefined ? DEFAULT_SNAPSHOT_LIMITS : undefined),
   })
   if (input.childManifest) {
     for (const entry of input.childManifest) {
       const relative = entry.relative_path.replaceAll("\\", "/")
+      if (mergePaths && !mergePaths.has(relative)) continue
       const baseline = base.get(relative)
       const expected = entry.mode === "symlink" ? hashText(entry.hash) : entry.hash
       if (!baseline || baseline.kind !== entry.mode || baseline.hash !== expected)

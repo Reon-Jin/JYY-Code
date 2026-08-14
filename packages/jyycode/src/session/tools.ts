@@ -442,13 +442,15 @@ export function requiredPlanTool(input: {
   step: number
   blackboardUnread?: number
   planExists?: boolean
+  /** A previous Plan_create call failed; force a fresh state read before retrying. */
+  planCreateFailed?: boolean
   plan?: PlanToolGateState
   workspaceRoot?: string
 }) {
   if (!input.root) return undefined
   if ((input.blackboardUnread ?? 0) > 0) return "Blackboard"
   if (input.step === 1) return "Plan_read"
-  if (input.multiAgent && input.planExists === false) return "Plan_create"
+  if (input.multiAgent && input.planExists === false) return input.planCreateFailed ? "Plan_read" : "Plan_create"
   if (input.multiAgent) {
     const currentStep = input.plan?.current_step
       ? input.plan.steps.find((step) => step.id === input.plan?.current_step)
