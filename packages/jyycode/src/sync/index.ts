@@ -474,7 +474,11 @@ const process = Effect.fnUntraced(function* <Def extends Definition>(
       // so these writes participate in the Effect-owned native transaction.
       yield* Effect.sync(() => Database.legacyQuery((db) => projector(db, event.data, event)))
 
-      if (options.persistEvent && options.experimentalWorkspaces) {
+      // EventV2 session events are durable regardless of the legacy workspace
+      // feature flag. The sequence row is the allocator for the next event,
+      // so skipping it would make every EventV2 publish reuse seq 0.
+      const persistEvent = options.persistEvent && (options.experimentalWorkspaces || def.type.startsWith("session."))
+      if (persistEvent) {
         yield* tx
           .insert(EventSequenceTable)
           .values({

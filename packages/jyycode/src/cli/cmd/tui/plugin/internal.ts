@@ -8,11 +8,9 @@ import SidebarFiles from "../feature-plugins/sidebar/files"
 import SidebarFooter from "../feature-plugins/sidebar/footer"
 import PluginManager from "../feature-plugins/system/plugins"
 import Notifications from "../feature-plugins/system/notifications"
-import SessionV2Debug from "../feature-plugins/system/session-v2"
 import WhichKey from "../feature-plugins/system/which-key"
 import DiffViewer from "../feature-plugins/system/diff-viewer"
 import type { TuiPlugin, TuiPluginModule } from "@jyycode-ai/plugin/tui"
-import type { RuntimeFlags } from "@/effect/runtime-flags"
 
 export type InternalTuiPlugin = Omit<TuiPluginModule, "id"> & {
   id: string
@@ -20,7 +18,7 @@ export type InternalTuiPlugin = Omit<TuiPluginModule, "id"> & {
   enabled?: boolean
 }
 
-export function internalTuiPlugins(flags: Pick<RuntimeFlags.Info, "experimentalEventSystem">): InternalTuiPlugin[] {
+export function internalTuiPlugins(): InternalTuiPlugin[] {
   return [
     HomeFooter,
     HomeTips,
@@ -34,6 +32,5 @@ export function internalTuiPlugins(flags: Pick<RuntimeFlags.Info, "experimentalE
     PluginManager,
     WhichKey,
     DiffViewer,
-    ...(flags.experimentalEventSystem ? [SessionV2Debug] : []),
   ]
 }

@@ -1096,7 +1096,7 @@ async function load(input: { api: Api; config: TuiConfig.Resolved; dispose?: () 
       log.info("skipping external tui plugins in pure mode", { count: config.plugin_origins.length })
     }
 
-    for (const item of internalTuiPlugins(flags)) {
+    for (const item of internalTuiPlugins()) {
       log.info("loading internal tui plugin", { id: item.id })
       const entry = loadInternalPlugin(item)
       const meta = createMeta(entry.source, entry.spec, entry.target, undefined, entry.id)

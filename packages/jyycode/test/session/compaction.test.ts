@@ -30,7 +30,7 @@ import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { TestConfig } from "../fixture/config"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventRuntime } from "@/event-runtime"
 import { LLMEvent, Usage } from "@jyycode-ai/llm"
 
 void Log.init({ print: false })
@@ -233,8 +233,8 @@ const deps = Layer.mergeAll(
   Bus.layer,
   Config.defaultLayer,
   SyncEvent.defaultLayer,
-  RuntimeFlags.layer({ experimentalEventSystem: true }),
-  EventV2Bridge.defaultLayer,
+  RuntimeFlags.layer(),
+  EventRuntime.defaultLayer,
 )
 
 const env = Layer.mergeAll(
@@ -267,7 +267,7 @@ function compactionProcessLayer(options?: CompactionProcessOptions) {
     ? SessionProcessorModule.SessionProcessor.layer.pipe(
         Layer.provide(summary),
         Layer.provide(Image.defaultLayer),
-        Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
+        Layer.provide(RuntimeFlags.layer()),
         Layer.provide(status),
       )
     : layer(options?.result ?? "continue")
@@ -283,8 +283,8 @@ function compactionProcessLayer(options?: CompactionProcessOptions) {
     Layer.provide(bus),
     Layer.provide(options?.config ?? Config.defaultLayer),
     Layer.provide(SyncEvent.defaultLayer),
-    Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
-    Layer.provide(EventV2Bridge.defaultLayer),
+    Layer.provide(RuntimeFlags.layer()),
+    Layer.provide(EventRuntime.defaultLayer),
   )
 }
 

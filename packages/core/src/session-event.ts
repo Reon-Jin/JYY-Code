@@ -97,6 +97,55 @@ export namespace Request {
   export type Prepared = typeof Prepared.Type
 }
 
+/**
+ * Compatibility write envelopes for the legacy MessageV2 API shape. They are
+ * EventV2 facts; the legacy message/part tables are only projections of these
+ * events while older clients are still supported.
+ */
+export namespace Legacy {
+  export const MessageUpdated = EventV2.define({
+    type: "session.next.message.updated",
+    ...options,
+    schema: {
+      ...Base,
+      info: Schema.Unknown,
+    },
+  })
+  export type MessageUpdated = typeof MessageUpdated.Type
+
+  export const MessageRemoved = EventV2.define({
+    type: "session.next.message.removed",
+    ...options,
+    schema: {
+      ...Base,
+      messageID: Schema.String,
+    },
+  })
+  export type MessageRemoved = typeof MessageRemoved.Type
+
+  export const PartUpdated = EventV2.define({
+    type: "session.next.message.part.updated",
+    ...options,
+    schema: {
+      ...Base,
+      part: Schema.Unknown,
+      time: Schema.Finite,
+    },
+  })
+  export type PartUpdated = typeof PartUpdated.Type
+
+  export const PartRemoved = EventV2.define({
+    type: "session.next.message.part.removed",
+    ...options,
+    schema: {
+      ...Base,
+      messageID: Schema.String,
+      partID: Schema.String,
+    },
+  })
+  export type PartRemoved = typeof PartRemoved.Type
+}
+
 export namespace Shell {
   export const Started = EventV2.define({
     type: "session.next.shell.started",
@@ -390,6 +439,10 @@ export const All = Schema.Union(
     Prompted,
     Synthetic,
     Request.Prepared,
+    Legacy.MessageUpdated,
+    Legacy.MessageRemoved,
+    Legacy.PartUpdated,
+    Legacy.PartRemoved,
     Shell.Started,
     Shell.Ended,
     Step.Started,

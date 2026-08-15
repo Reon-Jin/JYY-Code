@@ -49,7 +49,7 @@ import { InstanceState } from "@/effect/instance-state"
 import type { TaskPromptOps } from "./tools"
 import { SessionRunState } from "./run-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventRuntime } from "@/event-runtime"
 import { SessionEvent } from "@jyycode-ai/core/session-event"
 import { ModelV2 } from "@jyycode-ai/core/model"
 import { ProviderV2 } from "@jyycode-ai/core/provider"
@@ -174,7 +174,7 @@ export const layer = Layer.effect(
     const sys = yield* SystemPrompt.Service
     const llm = yield* LLM.Service
     const references = yield* Reference.Service
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventRuntime.Service
     const flags = yield* RuntimeFlags.Service
     const blackboard = Option.getOrUndefined(yield* Effect.serviceOption(Blackboard.Service))
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
@@ -618,14 +618,12 @@ export const layer = Layer.effect(
               },
             }
             yield* sessions.updatePart(part)
-            if (flags.experimentalEventSystem) {
-              yield* events.publish(SessionEvent.Shell.Started, {
-                sessionID: input.sessionID,
-                timestamp: DateTime.makeUnsafe(started),
-                callID: part.callID,
-                command: input.command,
-              })
-            }
+            yield* events.publish(SessionEvent.Shell.Started, {
+              sessionID: input.sessionID,
+              timestamp: DateTime.makeUnsafe(started),
+              callID: part.callID,
+              command: input.command,
+            })
             return { msg, part, cwd: ctx.directory }
           }).pipe(Effect.ensuring(markReady))
 
@@ -643,14 +641,12 @@ export const layer = Layer.effect(
                 output += "\n\n" + ["<metadata>", "User aborted the command", "</metadata>"].join("\n")
               }
               const completed = Date.now()
-              if (flags.experimentalEventSystem) {
-                yield* events.publish(SessionEvent.Shell.Ended, {
-                  sessionID: input.sessionID,
-                  timestamp: DateTime.makeUnsafe(completed),
-                  callID: part.callID,
-                  output,
-                })
-              }
+              yield* events.publish(SessionEvent.Shell.Ended, {
+                sessionID: input.sessionID,
+                timestamp: DateTime.makeUnsafe(completed),
+                callID: part.callID,
+                output,
+              })
               if (!msg.time.completed) {
                 msg.time.completed = completed
                 yield* sessions.updateMessage(msg)
@@ -1270,28 +1266,22 @@ export const layer = Layer.effect(
           })
         }
       }
-      // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
-      if (flags.experimentalEventSystem) {
-        yield* events.publish(SessionEvent.Prompted, {
+      yield* events.publish(SessionEvent.Prompted, {
+        sessionID: input.sessionID,
+        timestamp: DateTime.makeUnsafe(info.time.created),
+        prompt: {
+          text: nextPrompt.text.join("\n"),
+          files: nextPrompt.files,
+          agents: nextPrompt.agents,
+          references: nextPrompt.references,
+        },
+      })
+      for (const text of nextPrompt.synthetic) {
+        yield* events.publish(SessionEvent.Synthetic, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(info.time.created),
-          prompt: {
-            text: nextPrompt.text.join("\n"),
-            files: nextPrompt.files,
-            agents: nextPrompt.agents,
-            references: nextPrompt.references,
-          },
+          text,
         })
-      }
-      for (const text of nextPrompt.synthetic) {
-        // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
-        if (flags.experimentalEventSystem) {
-          yield* events.publish(SessionEvent.Synthetic, {
-            sessionID: input.sessionID,
-            timestamp: DateTime.makeUnsafe(info.time.created),
-            text,
-          })
-        }
       }
 
       return { info, parts }
@@ -2121,7 +2111,7 @@ export const layer = Layer.effect(
                     previousSummary: undefined,
                   })
                   .pipe(Effect.catch(() => Effect.succeed(false)))
-                if (digestDue && flags.experimentalEventSystem) {
+                if (digestDue) {
                   yield* events
                     .publish(SessionEvent.Compaction.Started, {
                       sessionID,
@@ -2142,7 +2132,7 @@ export const layer = Layer.effect(
                   .pipe(
                     Effect.ignore,
                     Effect.ensuring(
-                      digestDue && flags.experimentalEventSystem
+                      digestDue
                         ? events
                             .publish(SessionEvent.Compaction.Ended, {
                               sessionID,
@@ -2310,7 +2300,7 @@ export const layer = Layer.effect(
                     previousSummary: summary,
                   })
                   .pipe(Effect.catch(() => Effect.succeed(false)))
-                if (digestDue && flags.experimentalEventSystem) {
+                if (digestDue) {
                   yield* events
                     .publish(SessionEvent.Compaction.Started, {
                       sessionID,
@@ -2334,7 +2324,7 @@ export const layer = Layer.effect(
                       slog.warn("episodic digest failed; will retry on next trigger", { cause: Cause.pretty(cause) }),
                     ),
                     Effect.ensuring(
-                      digestDue && flags.experimentalEventSystem
+                      digestDue
                         ? events
                             .publish(SessionEvent.Compaction.Ended, {
                               sessionID,
@@ -2617,7 +2607,7 @@ export const defaultLayer = Layer.suspend(() =>
     ),
     Layer.provide(
       Layer.mergeAll(
-        EventV2Bridge.defaultLayer,
+        EventRuntime.defaultLayer,
         Agent.defaultLayer,
         SystemPrompt.defaultLayer,
         LLM.defaultLayer,

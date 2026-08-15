@@ -30,7 +30,7 @@ import { isTruncatedToolCall } from "./llm/tool-call"
 import type { ToolChoice } from "./llm/tool-choice"
 import { LLMTrace } from "@/dev/llm-trace"
 import * as BlobStore from "@/storage/blob"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventRuntime } from "@/event-runtime"
 import { SessionEvent } from "@jyycode-ai/core/session-event"
 import { ModelV2 } from "@jyycode-ai/core/model"
 import { ProviderV2 } from "@jyycode-ai/core/provider"
@@ -80,6 +80,8 @@ const live: Layer.Layer<
   | Permission.Service
   | LLMClientService
   | RuntimeFlags.Service
+  | BlobStore.Service
+  | EventRuntime.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -90,8 +92,8 @@ const live: Layer.Layer<
     const perm = yield* Permission.Service
     const llmClient = yield* LLMClient.Service
     const flags = yield* RuntimeFlags.Service
-    const blobStore = Option.getOrUndefined(yield* Effect.serviceOption(BlobStore.Service))
-    const events = Option.getOrUndefined(yield* Effect.serviceOption(EventV2Bridge.Service))
+    const blobStore = yield* BlobStore.Service
+    const events = yield* EventRuntime.Service
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       const l = log
@@ -133,7 +135,6 @@ const live: Layer.Layer<
         prepared.messageTransformOptions,
       )
       const persistRequestEnvelope = Effect.fn("LLM.persistRequestEnvelope")(function* (runtime: "ai-sdk" | "native") {
-        if (!flags.experimentalEventSystem || !blobStore || !events) return
         const artifact = createRequestEnvelope({
           sessionID: SessionID.make(input.sessionID),
           stepID: input.stepID ?? input.user.id,
@@ -495,7 +496,11 @@ const live: Layer.Layer<
   }),
 )
 
-export const layer = live.pipe(Layer.provide(Permission.defaultLayer))
+export const layer = live.pipe(
+  Layer.provide(Permission.defaultLayer),
+  Layer.provide(BlobStore.defaultLayer),
+  Layer.provide(EventRuntime.defaultLayer),
+)
 
 export const defaultLayer = Layer.suspend(() =>
   layer.pipe(
@@ -507,8 +512,6 @@ export const defaultLayer = Layer.suspend(() =>
       LLMClient.layer.pipe(Layer.provide(Layer.mergeAll(RequestExecutor.defaultLayer, WebSocketExecutor.layer))),
     ),
     Layer.provide(RuntimeFlags.defaultLayer),
-    Layer.provide(BlobStore.defaultLayer),
-    Layer.provide(EventV2Bridge.defaultLayer),
   ),
 )
 

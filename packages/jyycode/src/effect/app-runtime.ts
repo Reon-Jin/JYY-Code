@@ -56,7 +56,7 @@ import { memoMap } from "@jyycode-ai/core/effect/memo-map"
 import { DataMigration } from "@/data-migration"
 import { BackgroundJob } from "@/background/job"
 import { BackgroundProcess } from "@/process/job"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventRuntime } from "@/event-runtime"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@/storage/db"
 
@@ -114,7 +114,7 @@ export const AppLayer = Layer.mergeAll(
   ShareNext.defaultLayer,
   SessionShare.defaultLayer,
   SyncEvent.defaultLayer,
-  EventV2Bridge.defaultLayer,
+  EventRuntime.defaultLayer,
   DataMigration.defaultLayer,
 ).pipe(Layer.provideMerge(InstanceLayer.layer), Layer.provideMerge(Observability.layer))
 

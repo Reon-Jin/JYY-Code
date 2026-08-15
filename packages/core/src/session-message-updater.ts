@@ -128,6 +128,10 @@ export function update<Result>(adapter: Adapter<Result>, event: SessionEvent.Eve
         }),
       )
     },
+    "session.next.message.updated": () => {},
+    "session.next.message.removed": () => {},
+    "session.next.message.part.updated": () => {},
+    "session.next.message.part.removed": () => {},
     "session.next.synthetic": (event) => {
       adapter.appendMessage(
         new SessionMessage.Synthetic({

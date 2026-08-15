@@ -44,7 +44,7 @@ import { Ripgrep } from "@/file/ripgrep"
 import { Format } from "@/format"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventRuntime } from "@/event-runtime"
 import { EpisodicMemory } from "@/memory/episodic"
 import * as BlobStore from "@/storage/blob"
 import { blobURL } from "@/storage/blob-path"
@@ -118,7 +118,7 @@ const run = SessionRunState.layer.pipe(Layer.provide(status))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
 
 const makePrompt = () => {
-  const runtimeFlags = RuntimeFlags.layer({ experimentalEventSystem: true })
+  const runtimeFlags = RuntimeFlags.layer()
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -137,7 +137,7 @@ const makePrompt = () => {
     BackgroundProcess.defaultLayer,
     status,
     SyncEvent.defaultLayer,
-    EventV2Bridge.defaultLayer,
+    EventRuntime.defaultLayer,
   ).pipe(Layer.provideMerge(infra))
   const question = Question.layer.pipe(Layer.provideMerge(deps))
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))

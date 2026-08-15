@@ -59,7 +59,7 @@ import { awaitWithTimeout, pollWithTimeout, testEffect } from "../lib/effect"
 import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventRuntime } from "@/event-runtime"
 import {
   clearChildBudget,
   defaultPlanProtocol,
@@ -265,7 +265,6 @@ function makePrompt(input?: {
   bashDefaultTimeoutMs?: number
 }) {
   const runtimeFlags = RuntimeFlags.layer({
-    experimentalEventSystem: true,
     ...(input?.bashDefaultTimeoutMs !== undefined ? { bashDefaultTimeoutMs: input.bashDefaultTimeoutMs } : {}),
   })
   const deps = Layer.mergeAll(
@@ -286,7 +285,7 @@ function makePrompt(input?: {
     BackgroundProcess.defaultLayer,
     status,
     SyncEvent.defaultLayer,
-    EventV2Bridge.defaultLayer,
+    EventRuntime.defaultLayer,
   ).pipe(Layer.provideMerge(infra))
   const question = Question.layer.pipe(Layer.provideMerge(deps))
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))

@@ -5,10 +5,13 @@ import { SessionMessageUpdater } from "@jyycode-ai/core/session-message-updater"
 import { SessionEvent } from "@jyycode-ai/core/session-event"
 import * as DateTime from "effect/DateTime"
 import { SyncEvent } from "@/sync"
-import { EventV2Bridge } from "@/event-v2-bridge"
-import { SessionMessageTable, SessionTable } from "./session.sql"
-import type { SessionID } from "./schema"
+import { EventRuntime } from "@/event-runtime"
+import { MessageTable, PartTable, SessionMessageTable, SessionTable } from "./session.sql"
+import { MessageV2 } from "./message-v2"
+import { MessageID, PartID, SessionID } from "./schema"
 import { Schema } from "effect"
+
+const toSyncDefinition = EventRuntime.toSyncDefinition
 
 const decodeMessage = Schema.decodeUnknownSync(SessionMessage.Message)
 type SessionMessageData = NonNullable<(typeof SessionMessageTable.$inferInsert)["data"]>
@@ -121,7 +124,36 @@ function update(db: Database.TxOrDb, event: SessionEvent.Event) {
 }
 
 export default [
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.AgentSwitched), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Legacy.MessageUpdated), (db, data) => {
+    const info = data.info as MessageV2.Info
+    const { id, sessionID, ...rest } = info
+    db.insert(MessageTable)
+      .values({ id, session_id: sessionID, time_created: info.time.created, data: rest })
+      .onConflictDoUpdate({ target: MessageTable.id, set: { data: rest } })
+      .run()
+  }),
+  SyncEvent.project(toSyncDefinition(SessionEvent.Legacy.MessageRemoved), (db, data) => {
+    db.delete(PartTable)
+      .where(and(eq(PartTable.message_id, MessageID.make(data.messageID)), eq(PartTable.session_id, SessionID.make(data.sessionID))))
+      .run()
+    db.delete(MessageTable)
+      .where(and(eq(MessageTable.id, MessageID.make(data.messageID)), eq(MessageTable.session_id, SessionID.make(data.sessionID))))
+      .run()
+  }),
+  SyncEvent.project(toSyncDefinition(SessionEvent.Legacy.PartUpdated), (db, data) => {
+    const part = data.part as MessageV2.Part
+    const { id, messageID, sessionID, ...rest } = part
+    db.insert(PartTable)
+      .values({ id, message_id: messageID, session_id: sessionID, time_created: data.time, data: rest })
+      .onConflictDoUpdate({ target: PartTable.id, set: { data: rest } })
+      .run()
+  }),
+  SyncEvent.project(toSyncDefinition(SessionEvent.Legacy.PartRemoved), (db, data) => {
+    db.delete(PartTable)
+      .where(and(eq(PartTable.id, PartID.make(data.partID)), eq(PartTable.session_id, SessionID.make(data.sessionID))))
+      .run()
+  }),
+  SyncEvent.project(toSyncDefinition(SessionEvent.AgentSwitched), (db, data, event) => {
     db.update(SessionTable)
       .set({
         agent: data.agent,
@@ -131,7 +163,7 @@ export default [
       .run()
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.agent.switched", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.ModelSwitched), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.ModelSwitched), (db, data, event) => {
     db.update(SessionTable)
       .set({
         model: data.model,
@@ -141,69 +173,69 @@ export default [
       .run()
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.model.switched", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Prompted), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Prompted), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.prompted", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Synthetic), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Synthetic), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.synthetic", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Request.Prepared), () => {}),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Shell.Started), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Request.Prepared), () => {}),
+  SyncEvent.project(toSyncDefinition(SessionEvent.Shell.Started), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.shell.started", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Shell.Ended), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Shell.Ended), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.shell.ended", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Step.Started), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Step.Started), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.step.started", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Step.Ended), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Step.Ended), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.step.ended", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Step.Failed), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Step.Failed), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.step.failed", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Text.Started), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Text.Started), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.text.started", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Text.Delta), () => {}),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Text.Ended), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Text.Delta), () => {}),
+  SyncEvent.project(toSyncDefinition(SessionEvent.Text.Ended), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.text.ended", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Tool.Input.Started), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Tool.Input.Started), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.tool.input.started", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Tool.Input.Delta), () => {}),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Tool.Input.Ended), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Tool.Input.Delta), () => {}),
+  SyncEvent.project(toSyncDefinition(SessionEvent.Tool.Input.Ended), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.tool.input.ended", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Tool.Called), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Tool.Called), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.tool.called", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Tool.Progress), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Tool.Progress), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.tool.progress", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Tool.Success), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Tool.Success), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.tool.success", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Tool.Failed), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Tool.Failed), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.tool.failed", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Reasoning.Started), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Reasoning.Started), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.reasoning.started", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Reasoning.Delta), () => {}),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Reasoning.Ended), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Reasoning.Delta), () => {}),
+  SyncEvent.project(toSyncDefinition(SessionEvent.Reasoning.Ended), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.reasoning.ended", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Retried), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Retried), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.retried", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Compaction.Started), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Compaction.Started), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.compaction.started", data })
   }),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Compaction.Delta), () => {}),
-  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Compaction.Ended), (db, data, event) => {
+  SyncEvent.project(toSyncDefinition(SessionEvent.Compaction.Delta), () => {}),
+  SyncEvent.project(toSyncDefinition(SessionEvent.Compaction.Ended), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.compaction.ended", data })
   }),
 ]

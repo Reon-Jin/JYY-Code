@@ -23,6 +23,8 @@ import { lt } from "drizzle-orm"
 import { or } from "drizzle-orm"
 import { sql } from "drizzle-orm"
 import { SyncEvent } from "../sync"
+import { EventRuntime } from "@/event-runtime"
+import { SessionEvent } from "@jyycode-ai/core/session-event"
 import type { SQL } from "drizzle-orm"
 import { PartTable, SessionTable } from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
@@ -41,6 +43,7 @@ import type { Provider } from "@/provider/provider"
 import { Permission } from "@/permission"
 import { Global } from "@jyycode-ai/core/global"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
+import * as DateTime from "effect/DateTime"
 import { NonNegativeInt, optionalOmitUndefined } from "@jyycode-ai/core/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { makeService as makeBlobService } from "@/storage/blob"
@@ -558,7 +561,11 @@ const db = Database.query
 export const layer: Layer.Layer<
   Service,
   never,
-  BackgroundJob.Service | Bus.Service | Storage.Service | SyncEvent.Service | RuntimeFlags.Service
+  BackgroundJob.Service |
+    Bus.Service |
+    Storage.Service |
+    SyncEvent.Service |
+    RuntimeFlags.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -566,6 +573,7 @@ export const layer: Layer.Layer<
     const bus = yield* Bus.Service
     const storage = yield* Storage.Service
     const sync = yield* SyncEvent.Service
+    const events = yield* EventRuntime.Service
     const flags = yield* RuntimeFlags.Service
     const backgroundProcess = yield* Effect.serviceOption(BackgroundProcess.Service)
     const blobs = makeBlobService()
@@ -684,7 +692,11 @@ export const layer: Layer.Layer<
 
     const updateMessage = <T extends MessageV2.Info>(msg: T): Effect.Effect<T> =>
       Effect.gen(function* () {
-        yield* sync.run(MessageV2.Event.Updated, { sessionID: msg.sessionID, info: msg })
+        yield* events.publish(SessionEvent.Legacy.MessageUpdated, {
+          sessionID: msg.sessionID,
+          info: structuredClone(msg),
+          timestamp: DateTime.makeUnsafe(Date.now()),
+        })
         return msg
       }).pipe(Effect.withSpan("Session.updateMessage"))
 
@@ -693,10 +705,11 @@ export const layer: Layer.Layer<
         const normalized = yield* blobs.normalizePart(part).pipe(Effect.orDie)
         yield* Database.withTransaction(() =>
           Effect.gen(function* () {
-            yield* sync.run(MessageV2.Event.PartUpdated, {
+            yield* events.publish(SessionEvent.Legacy.PartUpdated, {
               sessionID: part.sessionID,
               part: structuredClone(normalized.part),
               time: Date.now(),
+              timestamp: DateTime.makeUnsafe(Date.now()),
             })
             yield* blobs.attachPart(normalized.part, normalized.records)
           }),
@@ -907,9 +920,10 @@ export const layer: Layer.Layer<
       sessionID: SessionID
       messageID: MessageID
     }) {
-      yield* sync.run(MessageV2.Event.Removed, {
+      yield* events.publish(SessionEvent.Legacy.MessageRemoved, {
         sessionID: input.sessionID,
         messageID: input.messageID,
+        timestamp: DateTime.makeUnsafe(Date.now()),
       })
       return input.messageID
     })
@@ -919,10 +933,11 @@ export const layer: Layer.Layer<
       messageID: MessageID
       partID: PartID
     }) {
-      yield* sync.run(MessageV2.Event.PartRemoved, {
+      yield* events.publish(SessionEvent.Legacy.PartRemoved, {
         sessionID: input.sessionID,
         messageID: input.messageID,
         partID: input.partID,
+        timestamp: DateTime.makeUnsafe(Date.now()),
       })
       return input.partID
     })
@@ -981,7 +996,7 @@ export const layer: Layer.Layer<
       findMessage,
     })
   }),
-)
+).pipe(Layer.provide(EventRuntime.defaultLayer))
 
 export const defaultLayer = layer.pipe(
   Layer.provide(BackgroundJob.defaultLayer),

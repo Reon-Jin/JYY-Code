@@ -44,7 +44,7 @@ import {
 } from "./reactive-compact"
 import { serviceUse } from "@/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventRuntime } from "@/event-runtime"
 import { SessionEvent } from "@jyycode-ai/core/session-event"
 import { estimateContextTokens, type ContextBudgetInput, type ContextEstimate } from "./context-estimate"
 import {
@@ -357,7 +357,7 @@ export const layer = Layer.effect(
     const plugin = yield* Plugin.Service
     const processors = yield* SessionProcessor.Service
     const provider = yield* Provider.Service
-    const events = yield* EventV2Bridge.Service
+    const events = yield* EventRuntime.Service
     const flags = yield* RuntimeFlags.Service
 
     const isOverflow = Effect.fn("SessionCompaction.isOverflow")(function* (input: {
@@ -795,7 +795,7 @@ export const layer = Layer.effect(
         // so it must not emit a successful `Compaction.Ended` event. The
         // failure is counted by `failedAutoCompactions` so the auto-compaction
         // circuit opens after repeated empty summaries.
-        if (summary && flags.experimentalEventSystem) {
+        if (summary) {
           yield* events.publish(SessionEvent.Compaction.Ended, {
             sessionID: input.sessionID,
             timestamp: DateTime.makeUnsafe(Date.now()),
@@ -1045,13 +1045,11 @@ export const layer = Layer.effect(
         overflow: input.overflow,
         checkpoint,
       })
-      if (flags.experimentalEventSystem) {
-        yield* events.publish(SessionEvent.Compaction.Started, {
-          sessionID: input.sessionID,
-          timestamp: DateTime.makeUnsafe(Date.now()),
-          reason: input.auto ? "auto" : "manual",
-        })
-      }
+      yield* events.publish(SessionEvent.Compaction.Started, {
+        sessionID: input.sessionID,
+        timestamp: DateTime.makeUnsafe(Date.now()),
+        reason: input.auto ? "auto" : "manual",
+      })
       return true
     })
 
@@ -1080,7 +1078,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Bus.layer),
     Layer.provide(Config.defaultLayer),
     Layer.provide(RuntimeFlags.defaultLayer),
-    Layer.provide(EventV2Bridge.defaultLayer),
+    Layer.provide(EventRuntime.defaultLayer),
   ),
 )
 

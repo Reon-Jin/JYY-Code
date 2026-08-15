@@ -63,7 +63,7 @@ import { Reference } from "../../src/reference/reference"
 import { RepositoryCache } from "../../src/reference/repository-cache"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventRuntime } from "@/event-runtime"
 
 void Log.init({ print: false })
 
@@ -134,7 +134,7 @@ function makeHttp() {
     BackgroundProcess.defaultLayer,
     status,
     SyncEvent.defaultLayer,
-    EventV2Bridge.defaultLayer,
+    EventRuntime.defaultLayer,
   ).pipe(Layer.provideMerge(infra))
   const question = Question.layer.pipe(Layer.provideMerge(deps))
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))
@@ -147,7 +147,7 @@ function makeHttp() {
     Layer.provide(Reference.defaultLayer),
     Layer.provide(Ripgrep.defaultLayer),
     Layer.provide(Format.defaultLayer),
-    Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
+    Layer.provide(RuntimeFlags.layer()),
     Layer.provideMerge(todo),
     Layer.provideMerge(question),
     Layer.provideMerge(deps),
@@ -156,11 +156,11 @@ function makeHttp() {
   const proc = SessionProcessor.layer.pipe(
     Layer.provide(SessionSummary.defaultLayer),
     Layer.provide(Image.defaultLayer),
-    Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
+    Layer.provide(RuntimeFlags.layer()),
     Layer.provideMerge(deps),
   )
   const compact = SessionCompaction.layer.pipe(
-    Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
+    Layer.provide(RuntimeFlags.layer()),
     Layer.provideMerge(proc),
     Layer.provideMerge(deps),
   )
@@ -179,7 +179,7 @@ function makeHttp() {
       Layer.provideMerge(trunc),
       Layer.provide(Instruction.defaultLayer),
       Layer.provide(SystemPrompt.defaultLayer),
-      Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
+      Layer.provide(RuntimeFlags.layer()),
       Layer.provideMerge(deps),
     ),
   )

@@ -45,7 +45,7 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { SessionShare } from "@/share/session"
 import { ShareNext } from "@/share/share-next"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventRuntime } from "@/event-runtime"
 import { BackgroundProcess } from "@/process/job"
 import { Skill } from "@/skill"
 import { SkillManagement } from "@/skill/management"
@@ -236,7 +236,7 @@ export function createRoutes(
       ShareNext.defaultLayer,
       Snapshot.defaultLayer,
       SyncEvent.defaultLayer,
-      EventV2Bridge.defaultLayer,
+      EventRuntime.defaultLayer,
       Skill.defaultLayer,
       SkillManagement.defaultLayer,
       RoleSkillManagement.defaultLayer,
