@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "workspaceSeed": { "files": [] },
+  "sessionInput": { "scenario": "compaction", "prompt": "compact this conversation" },
+  "modelReplies": [{ "type": "text", "text": "## Goal\n- Preserve the conversation summary\n\n## Progress\n- Done" }],
+  "expected": {
+    "requestEnvelopes": [{ "scenario": "compaction", "requestCount": 1 }],
+    "messages": [{ "assistantCount": 1, "finalRole": "assistant" }],
+    "events": [
+      "session.next.compaction.started",
+      "session.next.request.prepared",
+      "session.next.compaction.ended"
+    ],
+    "files": []
+  },
+  "terminalStatus": { "type": "idle" }
+}

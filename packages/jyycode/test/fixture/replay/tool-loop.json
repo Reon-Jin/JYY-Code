@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "workspaceSeed": { "files": [] },
+  "sessionInput": { "scenario": "tool-loop", "prompt": "use a tool then answer" },
+  "modelReplies": [
+    { "type": "tool", "name": "glob", "input": { "pattern": "**/*" } },
+    { "type": "text", "text": "tool complete" }
+  ],
+  "expected": {
+    "requestEnvelopes": [{ "scenario": "tool-loop", "requestCount": 2 }],
+    "messages": [{ "assistantCount": 2, "finalRole": "assistant" }],
+    "events": [
+      "session.next.request.prepared",
+      "session.next.step.started",
+      "session.next.tool.called",
+      "session.next.step.ended",
+      "session.next.request.prepared",
+      "session.next.step.started",
+      "session.next.step.ended"
+    ],
+    "files": []
+  },
+  "terminalStatus": { "type": "idle" }
+}

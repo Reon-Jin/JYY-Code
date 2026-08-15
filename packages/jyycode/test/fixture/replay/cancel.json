@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "workspaceSeed": { "files": [] },
+  "sessionInput": { "scenario": "cancel", "prompt": "cancel a running request" },
+  "modelReplies": [{ "type": "hang" }],
+  "expected": {
+    "requestEnvelopes": [{ "scenario": "cancel", "requestCount": 1 }],
+    "messages": [{ "assistantCount": 1, "finalRole": "assistant" }],
+    "events": ["session.next.prompted", "session.next.request.prepared"],
+    "files": []
+  },
+  "terminalStatus": { "type": "idle" }
+}

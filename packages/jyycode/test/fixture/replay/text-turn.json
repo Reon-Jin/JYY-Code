@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "workspaceSeed": { "files": [] },
+  "sessionInput": { "scenario": "text", "prompt": "say hello" },
+  "modelReplies": [{ "type": "text", "text": "hello from replay" }],
+  "expected": {
+    "requestEnvelopes": [{ "scenario": "text", "requestCount": 1 }],
+    "messages": [{ "assistantCount": 1, "finalRole": "assistant" }],
+    "events": [
+      "session.next.prompted",
+      "session.next.request.prepared",
+      "session.next.step.started",
+      "session.next.text.ended",
+      "session.next.step.ended"
+    ],
+    "files": []
+  },
+  "terminalStatus": { "type": "idle" }
+}

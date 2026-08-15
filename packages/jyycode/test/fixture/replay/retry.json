@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "workspaceSeed": { "files": [] },
+  "sessionInput": { "scenario": "retry", "prompt": "recover after a transient provider error" },
+  "modelReplies": [
+    { "type": "error", "status": 500, "body": { "error": { "message": "temporary" } } },
+    { "type": "text", "text": "recovered" }
+  ],
+  "expected": {
+    "requestEnvelopes": [{ "scenario": "retry", "requestCount": 2 }],
+    "messages": [{ "assistantCount": 1, "finalRole": "assistant" }],
+    "events": [
+      "session.next.request.prepared",
+      "session.next.retried",
+      "session.next.request.prepared",
+      "session.next.step.started",
+      "session.next.text.ended",
+      "session.next.step.ended"
+    ],
+    "files": []
+  },
+  "terminalStatus": { "type": "idle" }
+}
