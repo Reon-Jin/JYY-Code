@@ -12,6 +12,7 @@ export const RuntimeEvent = BusEvent.define(
       "check_point",
       "user_message",
       "runtime.metric",
+      "child.recovery",
     ]),
     session_id: Schema.String,
     revision: Schema.optional(Schema.Number),

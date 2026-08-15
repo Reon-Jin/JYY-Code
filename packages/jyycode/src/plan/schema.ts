@@ -118,6 +118,8 @@ export type DispatchRecord = {
   launch?: LaunchSnapshot
   workspace?: DispatchWorkspace
   lifecycle?: DispatchLifecycle
+  /** Durable child activation generation used by owner CAS. */
+  activation_generation?: number
   /** Immutable execution budget captured when this run was dispatched. */
   max_steps?: number
   deadline_at?: string
@@ -625,6 +627,8 @@ function isValidDispatch(value: unknown): value is DispatchRecord {
     validWorkspace &&
     (value.lifecycle === undefined ||
       ["reserved", "child_created", "starting", "running", "settled"].includes(String(value.lifecycle)))
+    && (value.activation_generation === undefined ||
+      (Number.isSafeInteger(value.activation_generation) && Number(value.activation_generation) >= 1))
     && (value.max_steps === undefined || (Number.isSafeInteger(value.max_steps) && Number(value.max_steps) >= 1))
     && (value.deadline_at === undefined || validDateTime(value.deadline_at))
     && (value.no_progress_steps === undefined || (Number.isSafeInteger(value.no_progress_steps) && Number(value.no_progress_steps) >= 1))

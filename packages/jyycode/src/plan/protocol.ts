@@ -83,6 +83,11 @@ import {
 } from "@/config/agent"
 import { budgetFor, type ExecutionBudget } from "@/execution/budget"
 import { assertCanSpawnSubagent, SubagentDepthError } from "@/agent/subagent-depth"
+import {
+  activationOwnerId,
+  defaultPlanActivationStore,
+  type PlanActivationStore,
+} from "./activation"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -372,6 +377,8 @@ type ProtocolOptions = {
   candidateBoard?: CandidateBoardController
   childWorkspace?: ChildWorkspace
   workspaceCleanup?: WorkspaceCleanupService
+  activation?: PlanActivationStore
+  ownerId?: string
 }
 
 type WriteResult<T extends object> = { result: T; plan: PlanFile }
@@ -1176,6 +1183,8 @@ export class PlanProtocol {
   private readonly beforeStepAdvance?: (ctx: PlanExecutionContext) => Promise<void>
   private readonly profiles: () => Promise<readonly SubagentProfile[]>
   private readonly workspaceCleanup: WorkspaceCleanupService
+  private readonly activation: PlanActivationStore
+  private readonly ownerId: string
   private readonly reportAttempts = sharedReportAttempts
   private readonly activities = sharedActivities
   private readonly activityEvents = sharedActivityEvents
@@ -1194,6 +1203,8 @@ export class PlanProtocol {
     this.beforeStepAdvance = options.beforeStepAdvance
     this.profiles = options.profiles ?? (() => Promise.resolve(defaultProfiles()))
     this.workspaceCleanup = options.workspaceCleanup ?? new WorkspaceCleanupService()
+    this.activation = options.activation ?? defaultPlanActivationStore
+    this.ownerId = options.ownerId ?? activationOwnerId()
   }
 
   private publish(event: Parameters<PlanEventHub["publish"]>[0]) {
@@ -1303,6 +1314,7 @@ export class PlanProtocol {
       status?: TaskStatus
       child_session_id?: string
       workspace?: DispatchRecord["workspace"]
+      activation_generation?: number
     },
   ) {
     await this.write(ctx, (latest) => {
@@ -1323,6 +1335,7 @@ export class PlanProtocol {
       if (input.lifecycle !== undefined) task.dispatch.lifecycle = input.lifecycle
       if (input.child_session_id !== undefined) task.dispatch.child_session_id = input.child_session_id
       if (input.workspace !== undefined) task.dispatch.workspace = input.workspace
+      if (input.activation_generation !== undefined) task.dispatch.activation_generation = input.activation_generation
       if (input.status !== undefined) task.status = input.status
       if ((task.mode ?? "standard") === "standard" && !task.merge) task.merge = emptyMergeRecord("pending")
       next.revision++
@@ -1333,6 +1346,63 @@ export class PlanProtocol {
         },
         result: { updated: true },
       }
+    })
+  }
+
+  private claimChildActivation(ctx: PlanExecutionContext, input: { taskId: string; childSessionId: string; runId: string }) {
+    return this.activation.claim({
+      session_id: input.childSessionId,
+      parent_session_id: ctx.sessionId,
+      task_id: input.taskId,
+      run_id: input.runId,
+      owner_id: this.ownerId,
+      now: this.now(),
+    })
+  }
+
+  private async transitionTaskActivation(
+    task: PlanTask,
+    state: "starting" | "running" | "draining" | "settled",
+    childSessionId = task.dispatch?.child_session_id,
+  ) {
+    const generation = task.dispatch?.activation_generation
+    if (!generation || !childSessionId) return undefined
+    return this.activation.transition({
+      session_id: childSessionId,
+      owner_id: this.ownerId,
+      generation,
+      state,
+      now: this.now(),
+    })
+  }
+
+  private async settleTaskActivation(
+    task: PlanTask,
+    childSessionId = task.dispatch?.child_session_id,
+  ) {
+    return this.transitionTaskActivation(task, "settled", childSessionId)
+  }
+
+  private workspaceRemovalGuard(childSessionId?: string) {
+    if (!childSessionId) return undefined
+    return {
+      reason: "child activation has not settled; preserve workspace for recovery",
+      canRemove: () => {
+        const activation = this.activation.get(childSessionId)
+        return !activation || activation.state === "settled"
+      },
+    }
+  }
+
+  private async renewTaskActivation(task: PlanTask) {
+    const generation = task.dispatch?.activation_generation
+    const childSessionId = task.dispatch?.child_session_id
+    if (!generation || !childSessionId) return undefined
+    return this.activation.renew({
+      session_id: childSessionId,
+      owner_id: this.ownerId,
+      generation,
+      now: this.now(),
     })
   }
 
@@ -1391,6 +1461,7 @@ export class PlanProtocol {
       try {
         const result = await this.children.terminate(childSessionId)
         const failure = terminationFailure(result)
+        if (!failure) await this.settleTaskActivation(task, childSessionId)
         return failure ? [failure] : []
       } catch (error) {
         return [error instanceof Error ? error.message : String(error)]
@@ -1407,7 +1478,10 @@ export class PlanProtocol {
       stop: async () => {
         if (!childSessionId) throw new Error("recorded child session is missing")
         if (!this.children) throw new Error("child termination coordinator unavailable")
-        return this.children.terminate(childSessionId, childTerminationRequest(workspace))
+        const result = await this.children.terminate(childSessionId, childTerminationRequest(workspace))
+        const failure = terminationFailure(result)
+        if (!failure) await this.settleTaskActivation(task, childSessionId)
+        return result
       },
       remove: async () => {
         if (!this.childWorkspace) throw new Error("child workspace manager unavailable")
@@ -1423,7 +1497,7 @@ export class PlanProtocol {
           if (!childExists && !baselineExists && !manifestExists) return true
           throw new Error("recorded child workspace is missing")
         }
-        await this.childWorkspace.remove(loaded.directory)
+        await this.childWorkspace.remove(loaded.directory, this.workspaceRemovalGuard(childSessionId))
         const journalDirectory = task.merge?.journal_directory
         const runtimeRoot = workspace.baseline_directory
           ? path.dirname(path.resolve(workspace.baseline_directory))
@@ -2079,13 +2153,36 @@ export class PlanProtocol {
                     outcome: "reused",
                     duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
                   })
+                  const activation = this.claimChildActivation(ctx, {
+                    taskId,
+                    childSessionId: item.dispatch.child_session_id,
+                    runId: item.dispatch.run_id,
+                  })
+                  this.activation.transition({
+                    session_id: activation.session_id,
+                    owner_id: this.ownerId,
+                    generation: activation.generation,
+                    state: "starting",
+                    now: this.now(),
+                  })
                   registerChildRun(item.dispatch.child_session_id, item.dispatch.run_id, ctx.workspaceRoot)
                   // Mark the task running before resuming the child. The
                   // resumed session can submit Report immediately; leaving it
                   // in dispatched/rejected until resume returns creates a
                   // race where a valid Report is rejected as stale.
-                  await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
+                  await this.updateDispatchLifecycle(ctx, taskId, {
+                    lifecycle: "running",
+                    status: "running",
+                    activation_generation: activation.generation,
+                  })
                   await this.children.resume(childInput)
+                  this.activation.transition({
+                    session_id: activation.session_id,
+                    owner_id: this.ownerId,
+                    generation: activation.generation,
+                    state: "running",
+                    now: this.now(),
+                  })
                 } else {
                   const createdChild = await this.children.create(childInput)
                   actualChild = createdChild
@@ -2096,15 +2193,35 @@ export class PlanProtocol {
                     duration_ms: Math.max(0, this.now() - Date.parse(item.dispatch.dispatched_at)),
                   })
                   registerChildRun(createdChild, item.dispatch.run_id, ctx.workspaceRoot)
+                  const activation = this.claimChildActivation(ctx, {
+                    taskId,
+                    childSessionId: createdChild,
+                    runId: item.dispatch.run_id,
+                  })
+                  this.activation.transition({
+                    session_id: activation.session_id,
+                    owner_id: this.ownerId,
+                    generation: activation.generation,
+                    state: "starting",
+                    now: this.now(),
+                  })
                   await this.updateDispatchLifecycle(ctx, taskId, {
                     child_session_id: createdChild,
                     lifecycle: "child_created",
+                    activation_generation: activation.generation,
                   })
                   childInput.childSessionId = createdChild
                   // The child may report synchronously from its first loop,
                   // so publish the reportable running state before starting it.
                   await this.updateDispatchLifecycle(ctx, taskId, { lifecycle: "running", status: "running" })
                   await this.children.start(childInput)
+                  this.activation.transition({
+                    session_id: activation.session_id,
+                    owner_id: this.ownerId,
+                    generation: activation.generation,
+                    state: "running",
+                    now: this.now(),
+                  })
                 }
                 this.metric(ctx.sessionId, {
                   metric: "dispatch",
@@ -2195,6 +2312,12 @@ export class PlanProtocol {
           })
         return task
       })
+      // Fence the owner before changing the durable parent plan. A stale
+      // process must not be able to turn a newer owner's child back to
+      // pending even if it still has an old cancel request in flight.
+      for (const task of targets) {
+        if (task.dispatch?.cancelled_at === null) await this.renewTaskActivation(task)
+      }
       const result = await this.write(ctx, (latest) => {
         if (!latest)
           throw new PlanProtocolError({
@@ -2252,6 +2375,9 @@ export class PlanProtocol {
       })
       const termination_errors: Array<{ taskId: string; child_session_id: string; message: string }> = []
       for (const target of result.result.toTerminate) {
+        const current = this.store.read(this.path(ctx))
+        const task = current?.steps.flatMap((step) => step.tasks).find((item) => item.id === target.taskId)
+        if (task) await this.transitionTaskActivation(task, "draining", target.child_session_id)
         const errors = await this.cleanupTaskWorkspace(ctx, target.taskId, {
           childSessionId: target.child_session_id,
           workspace: target.workspace,
@@ -2878,6 +3004,7 @@ export class PlanProtocol {
         if (task.dispatch.workspace?.mode !== "shared_compat" && task.merge?.cleanup !== "completed") {
           cleanupErrors = await this.cleanupTaskWorkspace(ctx, task.id)
         }
+        if (cleanupErrors.length === 0) await this.settleTaskActivation(task)
         const latest = this.store.read(this.path(ctx))
         const latestTask = latest?.steps.flatMap((item) => item.tasks).find((item) => item.id === task.id)
         const cleanupRecord = latestTask?.merge?.cleanup_record
@@ -2896,6 +3023,7 @@ export class PlanProtocol {
               : "merge already completed; continue with the current Step",
         }
       }
+      await this.renewTaskActivation(task)
       const workspace = task.dispatch.workspace
       if (!workspace)
         throw new PlanProtocolError({
@@ -3128,6 +3256,7 @@ export class PlanProtocol {
           }
         })
       }
+      if (finalStatus === "merged") await this.settleTaskActivation(task)
       if (finalStatus === "conflict") {
         const conflictKey = boundedConflicts
           .map((conflict) => `${conflict.path}:${conflict.kind}:${conflict.fingerprint}`)
@@ -3272,6 +3401,16 @@ export class PlanProtocol {
     }
     const probe = classify(this.store.read(this.path(ctx)))
     if (probe !== "settle") return { settled: false, reason: probe }
+    const currentPlan = this.store.read(this.path(ctx))
+    const currentTask = currentPlan?.steps.flatMap((step) => step.tasks).find((item) => item.id === input.taskId)
+    const activation = this.activation.get(input.childSessionId)
+    if (
+      activation &&
+      currentTask?.dispatch?.activation_generation !== undefined &&
+      (activation.owner_id !== this.ownerId || activation.generation !== currentTask.dispatch.activation_generation)
+    )
+      return { settled: false, reason: "activation_stale" }
+    if (currentTask && activation) await this.settleTaskActivation(currentTask, input.childSessionId)
     // Record the terminal activity before write() publishes its snapshot, so
     // the plan panel stops presenting the dead child as actively running.
     const map = this.activities.get(input.parentSessionId) ?? new Map<string, ActivityState>()

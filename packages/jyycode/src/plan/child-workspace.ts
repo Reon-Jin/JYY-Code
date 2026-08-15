@@ -113,6 +113,12 @@ type ChildWorkspaceOptions = {
   workspaceBudget?: { softLimitBytes?: number; hardLimitBytes?: number }
 }
 
+export type WorkspaceRemovalGuard = {
+  /** Return true only after the durable child activation has settled. */
+  canRemove: () => boolean | Promise<boolean>
+  reason?: string
+}
+
 function safeToken(value: string) {
   const readable = value.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "")
   return readable.slice(0, 32) || "session"
@@ -959,7 +965,12 @@ export class ChildWorkspace {
     return false
   }
 
-  async remove(directory: string) {
+  async remove(directory: string, guard?: WorkspaceRemovalGuard) {
+    if (guard && !(await guard.canRemove()))
+      throw new ChildWorkspaceError(guard.reason ?? "拒绝清理仍由活动 child 使用的 workspace", {
+        directory,
+        recoverable: true,
+      })
     let canonical: string
     try {
       canonical = assertRuntimePath({

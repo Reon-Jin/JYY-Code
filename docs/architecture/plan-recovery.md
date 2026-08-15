@@ -30,6 +30,8 @@ Dispatch metadata records the lifecycle independently of the task status:
 reserved -> child_created -> starting -> running -> settled
 ```
 
+The lifecycle is paired with a durable activation lease. `session_id` identifies the child across restarts; `owner_id` identifies the current runtime process, and `generation` is the CAS fence. A process may renew or transition only when both owner and generation match. After `lease_expires_at`, recovery may claim the child with `generation + 1` and records a `child.recovery` event. The previous owner cannot continue execution after that fence changes.
+
 The lifecycle makes partial child creation visible. Recovery can therefore make one of four safe decisions:
 
 - continue a `running` child when its session is still active;
@@ -40,6 +42,19 @@ The lifecycle makes partial child creation visible. Recovery can therefore make 
 An isolated child has two roots during recovery: its recorded workspace directory and the root plan directory. Re-established child run metadata carries the plan root explicitly, so Report/candidate state lookup does not accidentally read a plan from the child worktree. The workspace root remains the authority for ordinary child artifacts and merge cleanup.
 
 The root session executes startup reconciliation once per process/workspace/session key. In-process plan activity is marked so a dispatch created by the current process is not mistaken for a pre-existing crash on the next turn. Runtime event subscriptions remain process-local; durable event and Inbox records are used for replay and inspection.
+
+Cold start reports durable plan/activation rows separately from live runtime activation. Recovery never treats the presence of `plan.json` or a `plan_activation` row as proof that a model loop is live. A non-expired lease is preserved to avoid double execution; an expired lease is taken over, fenced, and either resumed or rejected after the child liveness check.
+
+## Parent shutdown ordering
+
+Parent shutdown is a child-first barrier:
+
+```text
+stop dispatch -> mark children draining -> terminate and settle children
+              -> flush merge journals -> clean workspaces -> parent terminal
+```
+
+No new dispatch is accepted after the first barrier. Workspace cleanup runs only after child termination has reached its idle/archive contract, so a child cannot write into a directory while its parent removes it.
 
 ## Observability
 

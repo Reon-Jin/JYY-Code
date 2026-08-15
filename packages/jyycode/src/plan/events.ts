@@ -9,6 +9,7 @@ export type PlanEventType =
   | "check_point"
   | "user_message"
   | "runtime.metric"
+  | "child.recovery"
 
 export type PlanEvent = {
   seq: number
@@ -29,7 +30,7 @@ export function validatePlanEvent(value: unknown): string[] {
     if (!(field in event)) errors.push(`event.${field}: is required`)
   if (!Number.isInteger(event.seq) || Number(event.seq) < 0) errors.push("event.seq: must be an integer >= 0")
   if (
-    !["plan.updated", "child.activity", "report_arrived", "check_point", "user_message", "runtime.metric"].includes(
+    !["plan.updated", "child.activity", "report_arrived", "check_point", "user_message", "runtime.metric", "child.recovery"].includes(
       String(event.type),
     )
   )

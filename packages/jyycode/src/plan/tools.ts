@@ -38,6 +38,7 @@ import { InstanceStore } from "@/project/instance-store"
 import * as Log from "@jyycode-ai/core/util/log"
 import { canDispatchSnapshot } from "./workspace-sweeper"
 import { removeWorkspaceLeaseFile, WorkspaceLeaseStore } from "./workspace-lease"
+import { activationOwnerId, defaultPlanActivationStore } from "./activation"
 
 const log = Log.create({ service: "plan" })
 
@@ -752,6 +753,24 @@ function protocolFor(
     const ops = runtime.promptOps
     registerChildRun(input.childSessionId, input.brief.run_id, input.planRoot)
     if (input.brief.budget) registerChildBudget(input.childSessionId, input.brief.budget)
+    const activation = defaultPlanActivationStore.get(input.childSessionId)
+    const activationHeartbeat =
+      activation && activation.owner_id === activationOwnerId()
+        ? setInterval(() => {
+            try {
+              defaultPlanActivationStore.renew({
+                session_id: input.childSessionId,
+                owner_id: activationOwnerId(),
+                generation: activation.generation,
+              })
+            } catch {
+              // A generation mismatch means recovery has taken ownership; the
+              // old loop must not extend its lease or mutate the child plan.
+            }
+          }, 10_000)
+        : undefined
+    if (activationHeartbeat && typeof activationHeartbeat === "object" && "unref" in activationHeartbeat)
+      activationHeartbeat.unref()
     if (continuation && input.workspace?.directory && input.workspace.mode !== "shared_compat" && runtime.leaseStore) {
       runtime.leaseStore.create({
         workspace_directory: input.workspace.directory,
@@ -775,6 +794,7 @@ function protocolFor(
     if (heartbeat && typeof heartbeat === "object" && "unref" in heartbeat) heartbeat.unref()
     const releaseLease = () => {
       if (heartbeat) clearInterval(heartbeat)
+      if (activationHeartbeat) clearInterval(activationHeartbeat)
       if (input.workspace?.directory && input.workspace.mode !== "shared_compat") {
         if (runtime.leaseStore) runtime.leaseStore.remove(input.workspace.directory)
         else removeWorkspaceLeaseFile(input.workspace.directory)

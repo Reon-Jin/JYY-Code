@@ -17,6 +17,7 @@ import {
   workspaceFingerprint,
   type WorkspaceMergeTransactionResult,
 } from "./workspace-merge"
+import { activationOwnerId, defaultPlanActivationStore, PlanActivationStore } from "./activation"
 
 export type RecoveryResult = {
   sessionId: string
@@ -37,7 +38,7 @@ export type RecoveryResumeInput = {
   sessionId: string
   task: PlanTask
   dispatch: DispatchRecord
-  phase: "reserved" | "child_created" | "starting"
+  phase: "reserved" | "child_created" | "starting" | "running"
 }
 
 export type RecoveryOptions = {
@@ -52,6 +53,8 @@ export type RecoveryOptions = {
   resume?: (input: RecoveryResumeInput) => Promise<{ childSessionId?: string; started: boolean }>
   observe?: (observation: RecoveryObservation) => void
   workspaceCleanup?: WorkspaceCleanupService
+  activation?: PlanActivationStore
+  ownerId?: string
 }
 
 function nowIso(now: () => number) {
@@ -85,6 +88,8 @@ export class PlanRecovery {
   private readonly resume?: RecoveryOptions["resume"]
   private readonly observe?: RecoveryOptions["observe"]
   private readonly workspaceCleanup: WorkspaceCleanupService
+  private readonly activation: PlanActivationStore
+  private readonly ownerId: string
 
   constructor(options: RecoveryOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot)
@@ -98,6 +103,8 @@ export class PlanRecovery {
     this.resume = options.resume
     this.observe = options.observe
     this.workspaceCleanup = options.workspaceCleanup ?? new WorkspaceCleanupService()
+    this.activation = options.activation ?? defaultPlanActivationStore
+    this.ownerId = options.ownerId ?? activationOwnerId()
   }
 
   private record(observation: Omit<RecoveryObservation, "sessionId"> & { sessionId?: string }) {
@@ -128,12 +135,35 @@ export class PlanRecovery {
     })
   }
 
+  private async settleActivation(task: PlanTask, childSessionId = task.dispatch?.child_session_id) {
+    const generation = task.dispatch?.activation_generation
+    if (!generation || !childSessionId) return
+    return this.activation.settle({
+      session_id: childSessionId,
+      owner_id: this.ownerId,
+      generation,
+      now: this.now(),
+    })
+  }
+
+  private workspaceRemovalGuard(childSessionId?: string) {
+    if (!childSessionId) return undefined
+    return {
+      reason: "child activation has not settled; preserve workspace for recovery",
+      canRemove: () => {
+        const activation = this.activation.get(childSessionId)
+        return !activation || activation.state === "settled"
+      },
+    }
+  }
+
   private async cleanupRejectedWorkspace(sessionId: string, task: PlanTask) {
     const workspace = task.dispatch?.workspace
     if (!workspace) {
       if (!task.dispatch?.child_session_id) return undefined
       if (!this.children) throw new Error("child termination coordinator unavailable")
       const result = await this.children.terminate(task.dispatch.child_session_id)
+      if (result?.state !== "stop_failed") await this.settleActivation(task)
       return result?.state === "stop_failed" ? `${result.phase}: ${result.message}` : undefined
     }
     const result = await this.workspaceCleanup.run({
@@ -147,10 +177,12 @@ export class PlanRecovery {
       deleteWorkspace: workspace.mode !== "shared_compat",
       stop: async () => {
         if (!task.dispatch?.child_session_id || !this.children) return
-        return this.children.terminate(
+        const result = await this.children.terminate(
           task.dispatch.child_session_id,
           childTerminationRequest(workspace),
         )
+        if (result?.state !== "stop_failed") await this.settleActivation(task)
+        return result
       },
       remove: async () => {
         if (!this.childWorkspace) throw new Error("child workspace manager unavailable")
@@ -163,7 +195,7 @@ export class PlanRecovery {
           if (paths.every((value) => !fs.existsSync(value))) return true
           throw new Error("recorded child workspace could not be reconstructed")
         }
-        await this.childWorkspace.remove(loaded.directory)
+        await this.childWorkspace.remove(loaded.directory, this.workspaceRemovalGuard(task.dispatch?.child_session_id))
         return true
       },
       persist: (record) => this.persistCleanupRecord(sessionId, task.id, record),
@@ -237,6 +269,10 @@ export class PlanRecovery {
       canonicalChild === canonicalBaseline
     )
       throw new Error("recorded merge workspace resolves outside the owning runtime root")
+    // A reported/approved task has no useful work left in the child loop. If
+    // recovery starts without a child controller, settle the durable
+    // activation before allowing merge cleanup to remove its workspace.
+    if (!(await this.isChildActive(task.dispatch?.child_session_id ?? ""))) await this.settleActivation(task)
     const reservation = this.childWorkspace.reserve(sessionId, task.id)
     const result = await this.workspaceCleanup.run({
       rootSessionId: sessionId,
@@ -249,10 +285,12 @@ export class PlanRecovery {
       stop: async () => {
         if (!this.children) return
         if (!task.dispatch?.child_session_id) return
-        return this.children.terminate(
+        const result = await this.children.terminate(
           task.dispatch.child_session_id,
           childTerminationRequest(workspace),
         )
+        if (result?.state !== "stop_failed") await this.settleActivation(task)
+        return result
       },
       remove: async () => {
         const loaded = this.childWorkspace?.load({
@@ -271,7 +309,7 @@ export class PlanRecovery {
           if (paths.every((value) => !fs.existsSync(value))) return true
           throw new Error("recorded child workspace could not be reconstructed")
         }
-        await this.childWorkspace!.remove(loaded.directory)
+        await this.childWorkspace!.remove(loaded.directory, this.workspaceRemovalGuard(task.dispatch?.child_session_id))
         if (task.merge?.journal_directory) removeMergeJournal(task.merge.journal_directory, runtimeRoot)
         return true
       },
@@ -516,6 +554,71 @@ export class PlanRecovery {
         continue
       }
       if (lifecycle === "running") {
+        const activation = this.activation.get(dispatch.child_session_id)
+        if (activation) {
+          if (activation.state === "settled") {
+            await this.reject(rootSessionId, task, "durable child activation is already settled", result)
+            continue
+          }
+          if (activation.lease_expires_at > this.now()) {
+            // A durable live lease is evidence that another process may still
+            // own the child. Do not start a second loop during cold start.
+            result.continued.push(task.id)
+            this.record({ sessionId: rootSessionId, taskId: task.id, phase: "reconcile", outcome: "continued" })
+            continue
+          }
+          try {
+            const takeover = this.activation.takeover({
+              session_id: dispatch.child_session_id,
+              owner_id: this.ownerId,
+              now: this.now(),
+              reason: "owner_lease_expired",
+            })
+            await this.update(rootSessionId, task.id, (current) => {
+              if (!current.dispatch) return
+              current.dispatch.activation_generation = takeover.generation
+              current.dispatch.lifecycle = "starting"
+            })
+            const active = await this.isChildActive(dispatch.child_session_id)
+            if (active) {
+              this.activation.transition({
+                session_id: takeover.session_id,
+                owner_id: this.ownerId,
+                generation: takeover.generation,
+                state: "running",
+                now: this.now(),
+              })
+              result.continued.push(task.id)
+              this.record({ sessionId: rootSessionId, taskId: task.id, phase: "reconcile", outcome: "continued" })
+              continue
+            }
+            if (this.resume) {
+              const resumed = await this.resume({ sessionId: rootSessionId, task, dispatch, phase: "running" })
+              if (resumed.started) {
+                this.activation.transition({
+                  session_id: takeover.session_id,
+                  owner_id: this.ownerId,
+                  generation: takeover.generation,
+                  state: "running",
+                  now: this.now(),
+                })
+                await this.update(rootSessionId, task.id, (current) => {
+                  if (!current.dispatch) return
+                  if (resumed.childSessionId) current.dispatch.child_session_id = resumed.childSessionId
+                  current.dispatch.lifecycle = "running"
+                  current.status = "running"
+                })
+                result.continued.push(task.id)
+                this.record({ sessionId: rootSessionId, taskId: task.id, phase: "resume", outcome: "continued" })
+                continue
+              }
+            }
+          } catch (error) {
+            result.errors.push(`${task.id}: activation takeover failed: ${error instanceof Error ? error.message : String(error)}`)
+          }
+          await this.reject(rootSessionId, task, "child owner lease expired and the child is no longer active", result)
+          continue
+        }
         if (await this.isChildActive(dispatch.child_session_id)) {
           result.continued.push(task.id)
           this.record({ sessionId: rootSessionId, taskId: task.id, phase: "reconcile", outcome: "continued" })

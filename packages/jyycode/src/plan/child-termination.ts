@@ -31,6 +31,34 @@ export type ChildTerminationOperations = {
   markIntent?: () => void
 }
 
+export type ChildShutdownChild = {
+  sessionId: string
+  request?: ChildTerminationRequest
+}
+
+export type ChildShutdownInput = {
+  children: readonly ChildShutdownChild[]
+  stopDispatch: () => void
+  markDraining: (sessionId: string) => void | Promise<void>
+  terminateChild: (sessionId: string, request?: ChildTerminationRequest) => Promise<unknown>
+  flushMergeJournals: () => Promise<void>
+  cleanupWorkspaces: () => Promise<void>
+  markParentTerminal: () => Promise<void>
+}
+
+/**
+ * Parent shutdown is a durable ordering contract: no workspace or parent
+ * terminal state may be written while a child can still mutate its journal.
+ */
+export async function shutdownChildrenFirst(input: ChildShutdownInput) {
+  input.stopDispatch()
+  for (const child of input.children) await input.markDraining(child.sessionId)
+  for (const child of input.children) await input.terminateChild(child.sessionId, child.request)
+  await input.flushMergeJournals()
+  await input.cleanupWorkspaces()
+  await input.markParentTerminal()
+}
+
 export type ChildTerminationOptions = {
   cancelTimeoutMs?: number
   idleTimeoutMs?: number

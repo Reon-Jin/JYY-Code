@@ -10,6 +10,12 @@ Each standard dispatched Task receives a workspace capability selected from the 
 
 Workspace names are deterministic for a root session and Task. The persisted Dispatch record includes the mode, root, directory, creation time, cleanup policy, and lifecycle; the workspace manager keeps a baseline manifest for snapshot diffing. Paths are canonicalized and constrained to the intended workspace root.
 
+## Durable child identity and ownership
+
+The child session ID is the durable identity; a process runtime is only a live activation of that identity. `plan_activation` stores the parent session, task/run, `owner_id`, monotonically increasing `generation`, `lease_expires_at`, and activation state. Dispatch, resume, cancel, merge, and child-exit settlement carry the persisted generation and use owner-plus-generation CAS. A stale process therefore cannot renew, settle, or mutate a child after another process has taken it over, including an ABA-style release and reacquire sequence.
+
+The list/read surface exposes durable status and live activation separately. A durable row on cold start is not evidence that a child loop is running; live status requires a current lease and an observed live owner. Expired takeover increments generation and writes a `child.recovery` event containing only bounded ownership metadata.
+
 ## Artifact rules
 
 Standard Task `output_path` values are resolved against the parent workspace root before dispatch. A child brief carries the resolved workspace and output path for the child workspace. Reports must reference existing artifacts inside the Task output subtree; absolute paths, traversal, symlinks, and look-alike directory escapes are rejected.
@@ -41,3 +47,5 @@ The runtime compares the immutable dispatch baseline, the current parent workspa
 Worktree and snapshot metadata are retained in the plan so cleanup can be targeted to the exact directory. Cancellation, child-start failure, and recovery rejection attempt to terminate the child and remove the recorded isolated workspace. Cleanup failures are surfaced in Inbox and runtime metrics rather than silently deleting an unrelated directory. `shared_compat` points at the project root and is never removed by workspace cleanup.
 
 When investigating a failed Task, preserve the recorded Worktree or snapshot until its artifacts and diff have been reviewed. Remove it only through the recorded Dispatch metadata or the recovery runbook; do not use a broad recursive delete against the runtime root.
+
+Workspace removal is guarded by the durable activation state. Child termination must settle the activation before the workspace manager removes the child directory or baseline. A failed cancel/idle/archive phase leaves the activation and workspace recoverable.
