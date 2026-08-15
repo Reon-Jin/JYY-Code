@@ -15,6 +15,11 @@ export type Definition<Type extends string = string, DataSchema extends Schema.T
   readonly type: Type
   readonly version?: number
   readonly aggregate?: string
+  /**
+   * Future event definitions may be safely skipped by a projection that does
+   * not understand them. Durable events remain strict by default.
+   */
+  readonly ignorable?: boolean
   readonly data: DataSchema
 }
 
@@ -25,6 +30,7 @@ export type Payload<D extends Definition = Definition> = {
   readonly type: D["type"]
   readonly data: Data<D>
   readonly version?: number
+  readonly ignorable?: boolean
   readonly location?: Location.Ref
   readonly metadata?: Record<string, unknown>
   readonly sequence?: number
@@ -40,6 +46,7 @@ export function define<const Type extends string, Fields extends Schema.Struct.F
   readonly type: Type
   readonly version?: number
   readonly aggregate?: string
+  readonly ignorable?: boolean
   readonly schema: Fields
 }): Schema.Schema<Payload<Definition<Type, Schema.Struct<Fields>>>> & Definition<Type, Schema.Struct<Fields>> {
   const Data = Schema.Struct(input.schema)
@@ -59,6 +66,7 @@ export function define<const Type extends string, Fields extends Schema.Struct.F
     type: input.type,
     ...(input.version === undefined ? {} : { version: input.version }),
     ...(input.aggregate === undefined ? {} : { aggregate: input.aggregate }),
+    ...(input.ignorable === undefined ? {} : { ignorable: input.ignorable }),
     data: Data,
   })
   registry.set(input.type, definition)

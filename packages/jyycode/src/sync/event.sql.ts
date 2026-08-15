@@ -13,5 +13,6 @@ export const EventTable = sqliteTable("event", {
     .references(() => EventSequenceTable.aggregate_id, { onDelete: "cascade" }),
   seq: integer().notNull(),
   type: text().notNull(),
+  ignorable: integer({ mode: "boolean" }).notNull().default(false),
   data: text({ mode: "json" }).$type<Record<string, unknown>>().notNull(),
 })

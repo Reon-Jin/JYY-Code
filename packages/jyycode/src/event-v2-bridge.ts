@@ -16,6 +16,7 @@ export function toSyncDefinition<D extends EventV2.Definition>(definition: D) {
     type: definition.type,
     version: definition.version,
     aggregate: definition.aggregate,
+    ignorable: definition.ignorable,
     schema: definition.data,
     properties: definition.data,
   }

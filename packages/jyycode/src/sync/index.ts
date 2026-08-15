@@ -16,6 +16,18 @@ import { serviceUse } from "@/effect/service-use"
 import { InstanceState } from "@/effect/instance-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EffectBridge } from "@/effect/bridge"
+import {
+  SESSION_PROJECTOR,
+  SESSION_PROJECTOR_VERSION,
+  readWatermark,
+  readWatermarkEffect,
+  writeWatermark,
+  writeWatermarkEffect,
+  ensureProjectionSchema,
+} from "@/session/projection"
+import { SessionMessageTable } from "@/session/session.sql"
+import { SessionProjectionTable } from "@/session/projection.sql"
+import { SessionID } from "@/session/schema"
 
 // Keep `Event["data"]` mutable because projectors mutate the persisted shape
 // when writing to the database. Bus payloads (`Properties`) stay readonly —
@@ -29,6 +41,7 @@ export type Definition<
   type: Type
   version: number
   aggregate: string
+  ignorable?: boolean
   schema: Schema
   // Bus event payload schema. Defaults to `schema` unless `busSchema` was
   // passed at definition time (see `session.updated`, whose projector
@@ -40,6 +53,8 @@ export type Event<Def extends Definition = Definition> = {
   id: string
   seq: number
   aggregateID: string
+  type?: string
+  ignorable?: boolean
   data: DeepMutable<EffectSchema.Schema.Type<Def["schema"]>>
 }
 
@@ -61,6 +76,11 @@ export interface Interface {
     events: SerializedEvent[],
     options?: { publish: boolean; ownerID?: string },
   ) => Effect.Effect<string | undefined>
+  readonly rebuild: (input: {
+    aggregateID: string
+    events?: SerializedEvent[]
+    ownerID?: string
+  }) => Effect.Effect<void>
   readonly remove: (aggregateID: string) => Effect.Effect<void>
   readonly claim: (aggregateID: string, ownerID: string) => Effect.Effect<void>
 }
@@ -73,8 +93,9 @@ export const layer = Layer.effect(Service)(
     const bus = yield* ProjectBus.Service
 
     const replay: Interface["replay"] = Effect.fn("SyncEvent.replay")(function* (event, options) {
+      ensureProjectionSchema()
       const def = registry.get(event.type)
-      if (!def) {
+      if (!def && event.ignorable !== true) {
         throw new Error(`Unknown event type: ${event.type}`)
       }
 
@@ -86,7 +107,11 @@ export const layer = Layer.effect(Service)(
           .get(),
       )
 
-      const latest = row?.seq ?? -1
+      const projection = yield* Database.query((db) =>
+        readWatermarkEffect(db, { aggregateID: event.aggregateID, projector: SESSION_PROJECTOR }),
+      )
+      const isSessionEvent = def?.aggregate === "sessionID" || event.type.startsWith("session.")
+      const latest = isSessionEvent ? (projection?.seq ?? -1) : (row?.seq ?? -1)
       if (event.seq <= latest) return
 
       if (row?.ownerID && row.ownerID !== options?.ownerID) {
@@ -100,7 +125,47 @@ export const layer = Layer.effect(Service)(
         )
       }
 
+      if (!def) {
+        yield* Database.withTransaction((tx) =>
+          Effect.gen(function* () {
+            if (flags.experimentalWorkspaces) {
+              yield* tx
+                .insert(EventSequenceTable)
+                .values({ aggregate_id: event.aggregateID, seq: event.seq, owner_id: options?.ownerID })
+                .onConflictDoUpdate({
+                  target: EventSequenceTable.aggregate_id,
+                  set: { seq: event.seq },
+                })
+                .run()
+              yield* tx
+                .insert(EventTable)
+                .values({
+                  id: event.id,
+                  seq: event.seq,
+                  aggregate_id: event.aggregateID,
+                  type: event.type,
+                  ignorable: true,
+                  data: event.data as Record<string, unknown>,
+                })
+                .onConflictDoNothing({ target: EventTable.id })
+                .run()
+            }
+            if (event.type.startsWith("session.")) {
+              yield* writeWatermarkEffect(tx, { aggregateID: event.aggregateID, seq: event.seq })
+            }
+          }),
+        )
+        return
+      }
+
       const publish = !!options?.publish
+      const existing = yield* Database.query((db) =>
+        db
+          .select({ id: EventTable.id })
+          .from(EventTable)
+          .where(eq(EventTable.id, event.id))
+          .get(),
+      )
       // Bridge captures handler-fiber refs (InstanceRef/WorkspaceRef) and the
       // full Effect context, so the forked publish + GlobalBus emit run with
       // the right state without a per-call attachWith.
@@ -111,6 +176,7 @@ export const layer = Layer.effect(Service)(
         publish,
         ownerID: options?.ownerID,
         experimentalWorkspaces: flags.experimentalWorkspaces,
+        persistEvent: !existing,
       })
     })
 
@@ -134,6 +200,7 @@ export const layer = Layer.effect(Service)(
     })
 
     const run: Interface["run"] = Effect.fn("SyncEvent.run")(function* (def, data, options) {
+      ensureProjectionSchema()
       const agg = (data as Record<string, string>)[def.aggregate]
       // This should never happen: we've enforced it via typescript in
       // the definition
@@ -162,8 +229,14 @@ export const layer = Layer.effect(Service)(
               .get()
             const seq = row?.seq != null ? row.seq + 1 : 0
 
-            const event = { id, seq, aggregateID: agg, data }
-            yield* process(def, event, { bus, bridge, publish, experimentalWorkspaces: flags.experimentalWorkspaces })
+            const event = { id, seq, aggregateID: agg, data, ignorable: def.ignorable }
+            yield* process(def, event, {
+              bus,
+              bridge,
+              publish,
+              experimentalWorkspaces: flags.experimentalWorkspaces,
+              persistEvent: true,
+            })
           }),
         {
           behavior: "immediate",
@@ -176,6 +249,63 @@ export const layer = Layer.effect(Service)(
         Effect.gen(function* () {
           yield* tx.delete(EventSequenceTable).where(eq(EventSequenceTable.aggregate_id, aggregateID)).run()
           yield* tx.delete(EventTable).where(eq(EventTable.aggregate_id, aggregateID)).run()
+        }),
+      )
+    })
+
+    const rebuild: Interface["rebuild"] = Effect.fn("SyncEvent.rebuild")(function* (input) {
+      ensureProjectionSchema()
+      const source =
+        input.events ??
+        (yield* Database.query((db) =>
+          db
+            .select()
+            .from(EventTable)
+            .where(eq(EventTable.aggregate_id, input.aggregateID))
+            .orderBy(EventTable.seq)
+            .all(),
+        )).map((row) => ({
+          id: row.id,
+          seq: row.seq,
+          aggregateID: row.aggregate_id,
+          type: row.type,
+          ignorable: row.ignorable,
+          data: row.data,
+        }))
+
+      const bridge = yield* EffectBridge.make()
+      yield* Database.withTransaction((tx) =>
+        Effect.gen(function* () {
+          yield* tx
+            .delete(SessionMessageTable)
+            .where(eq(SessionMessageTable.session_id, SessionID.make(input.aggregateID)))
+            .run()
+          yield* tx
+            .delete(SessionProjectionTable)
+            .where(eq(SessionProjectionTable.aggregate_id, input.aggregateID))
+            .run()
+
+          for (const event of source) {
+            const def = registry.get(event.type)
+            if (!def && event.ignorable !== true) throw new Error(`Unknown event type: ${event.type}`)
+            if (!def) {
+              yield* writeWatermarkEffect(tx, {
+                aggregateID: input.aggregateID,
+                seq: event.seq,
+                projectorVersion: SESSION_PROJECTOR_VERSION,
+              })
+              continue
+            }
+            yield* process(def, event, {
+              bus,
+              bridge,
+              publish: false,
+              ownerID: input.ownerID,
+              experimentalWorkspaces: false,
+              persistEvent: false,
+              force: true,
+            })
+          }
         }),
       )
     })
@@ -194,6 +324,7 @@ export const layer = Layer.effect(Service)(
       run,
       replay,
       replayAll,
+      rebuild,
       remove,
       claim,
     })
@@ -224,6 +355,7 @@ export function init(input: { projectors: Array<[Definition, ProjectorFunc]>; co
       type: entry.type,
       version: entry.version,
       aggregate: entry.aggregate,
+      ignorable: entry.ignorable,
       properties: entry.data,
       schema: entry.data,
     })
@@ -259,6 +391,7 @@ export function define<
   type: Type
   version: number
   aggregate: Agg
+  ignorable?: boolean
   schema: Schema
   busSchema?: BusSchema
 }): Definition<Type, Schema, BusSchema> {
@@ -270,6 +403,7 @@ export function define<
     type: input.type,
     version: input.version,
     aggregate: input.aggregate,
+    ignorable: input.ignorable,
     schema: input.schema,
     properties: (input.busSchema ?? input.schema) as BusSchema,
   }
@@ -300,6 +434,8 @@ const process = Effect.fnUntraced(function* <Def extends Definition>(
     publish: boolean
     ownerID?: string
     experimentalWorkspaces: boolean
+    persistEvent: boolean
+    force?: boolean
   },
 ) {
   if (projectors == null) {
@@ -308,18 +444,37 @@ const process = Effect.fnUntraced(function* <Def extends Definition>(
 
   const projector = projectors.get(versionedType(def.type, def.version))
   if (!projector) {
-    if (!def.type.includes("next")) throw new Error(`Projector not found for event: ${def.type}`)
+      if (def.ignorable === true) {
+        yield* Database.withTransaction((tx) =>
+        writeWatermarkEffect(tx, {
+            aggregateID: event.aggregateID,
+            seq: event.seq,
+            projectorVersion: SESSION_PROJECTOR_VERSION,
+          }),
+      )
+      return
+    }
+    if (def.type.startsWith("session.")) throw new Error(`Projector not found for event: ${def.type}`)
     return
   }
 
   yield* Database.withTransaction((tx) =>
     Effect.gen(function* () {
+      const eventType = event.type ?? def.type
+      if (!options.force && eventType.startsWith("session.")) {
+        const watermark = yield* readWatermarkEffect(tx, {
+          aggregateID: event.aggregateID,
+          projector: SESSION_PROJECTOR,
+        })
+        if (watermark && event.seq <= watermark.seq) return
+      }
+
       // Projectors remain synchronous while their generated shapes are shared
       // with legacy replay code. Both adapters use the same scoped connection,
       // so these writes participate in the Effect-owned native transaction.
       yield* Effect.sync(() => Database.legacyQuery((db) => projector(db, event.data, event)))
 
-      if (options.experimentalWorkspaces) {
+      if (options.persistEvent && options.experimentalWorkspaces) {
         yield* tx
           .insert(EventSequenceTable)
           .values({
@@ -339,9 +494,18 @@ const process = Effect.fnUntraced(function* <Def extends Definition>(
             seq: event.seq,
             aggregate_id: event.aggregateID,
             type: versionedType(def.type, def.version),
+            ignorable: def.ignorable ?? false,
             data: event.data as Record<string, unknown>,
           })
           .run()
+      }
+
+      if (eventType.startsWith("session.")) {
+        yield* writeWatermarkEffect(tx, {
+          aggregateID: event.aggregateID,
+          seq: event.seq,
+          projectorVersion: SESSION_PROJECTOR_VERSION,
+        })
       }
 
       yield* Database.afterCommit(
