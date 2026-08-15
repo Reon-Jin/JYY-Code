@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { PositiveInt } from "@jyycode-ai/core/schema"
+import { CredentialRef } from "@jyycode-ai/core/credential"
 import { ModelStatus } from "@/provider/model-status"
 
 export const Model = Schema.Struct({
@@ -73,13 +74,13 @@ export const Info = Schema.Struct({
   name: Schema.optional(Schema.String),
   env: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   id: Schema.optional(Schema.String),
+  credential: Schema.optional(CredentialRef),
   npm: Schema.optional(Schema.String),
   whitelist: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   blacklist: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   options: Schema.optional(
     Schema.StructWithRest(
       Schema.Struct({
-        apiKey: Schema.optional(Schema.String),
         baseURL: Schema.optional(Schema.String),
         enterpriseUrl: Schema.optional(Schema.String).annotate({
           description: "GitHub Enterprise URL for copilot authentication",

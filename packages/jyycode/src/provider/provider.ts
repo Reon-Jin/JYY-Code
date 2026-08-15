@@ -28,6 +28,7 @@ import * as ProviderTransform from "./transform"
 import { ModelID, ProviderID } from "./schema"
 import { ModelStatus } from "./model-status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { CredentialRef } from "@jyycode-ai/core/credential"
 
 const log = Log.create({ service: "provider" })
 
@@ -939,35 +940,56 @@ export const Info = Schema.Struct({
   name: Schema.String,
   source: Schema.Literals(["env", "config", "custom", "api"]),
   env: Schema.Array(Schema.String),
+  credential: Schema.optional(CredentialRef),
   key: optionalOmitUndefined(Schema.String),
   options: Schema.Record(Schema.String, Schema.Any),
   models: Schema.Record(Schema.String, Model),
 }).annotate({ identifier: "Provider" })
 export type Info = Types.DeepMutable<Schema.Schema.Type<typeof Info>>
 
+export const PublicInfo = Schema.Struct({
+  id: ProviderID,
+  name: Schema.String,
+  source: Schema.Literals(["env", "config", "custom", "api"]),
+  env: Schema.Array(Schema.String),
+  credential: Schema.optional(CredentialRef),
+  options: Schema.Record(Schema.String, Schema.Any),
+  models: Schema.Record(Schema.String, Model),
+}).annotate({ identifier: "PublicProvider" })
+export type PublicInfo = Types.DeepMutable<Schema.Schema.Type<typeof PublicInfo>>
+
 const DefaultModelIDs = Schema.Record(Schema.String, Schema.String)
 
 export const ListResult = Schema.Struct({
-  all: Schema.Array(Info),
+  all: Schema.Array(PublicInfo),
   default: DefaultModelIDs,
   connected: Schema.Array(Schema.String),
 })
 export type ListResult = Types.DeepMutable<Schema.Schema.Type<typeof ListResult>>
 
 export const ConfigProvidersResult = Schema.Struct({
-  providers: Schema.Array(Info),
+  providers: Schema.Array(PublicInfo),
   default: DefaultModelIDs,
 })
 export type ConfigProvidersResult = Types.DeepMutable<Schema.Schema.Type<typeof ConfigProvidersResult>>
 
-export function toPublicInfo(provider: Info): Info {
-  return JSON.parse(
-    JSON.stringify(provider, (_, value) => {
-      if (typeof value === "function" || typeof value === "symbol" || value === undefined) return undefined
-      if (typeof value === "bigint") return value.toString()
-      return value
-    }),
-  )
+export function toPublicInfo(provider: Info | PublicInfo): PublicInfo {
+  const secretKey = /^(?:api[-_]?key|access[-_]?token|refresh[-_]?token|token|key|secret|password)$/i
+  const secretHeader = /^(?:authorization|cookie|set-cookie|x-api-key|api-key)$/i
+  const redact = (value: unknown, key?: string): unknown => {
+    if (key === "key" || (key && secretKey.test(key))) return undefined
+    if (typeof value === "function" || typeof value === "symbol" || value === undefined) return undefined
+    if (typeof value === "bigint") return value.toString()
+    if (Array.isArray(value)) return value.map((item) => redact(item))
+    if (!value || typeof value !== "object") return value
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([childKey]) => !(key === "headers" && secretHeader.test(childKey)))
+        .map(([childKey, child]) => [childKey, redact(child, childKey)])
+        .filter((entry): entry is [string, unknown] => entry[1] !== undefined),
+    )
+  }
+  return JSON.parse(JSON.stringify(redact(provider)))
 }
 
 export function defaultModelIDs<T extends { models: Record<string, { id: string }> }>(providers: Record<string, T>) {
@@ -1244,8 +1266,17 @@ export const layer = Layer.effect(
         // load plugins first so config() hook runs before reading cfg.provider
         const plugins = yield* plugin.list()
 
-        // now read config providers - includes any modifications from plugin config() hook
+        // now read config providers - includes any modifications from plugin config() hook.
+        // Inline apiKey remains accepted during the compatibility window, but is
+        // deliberately not copied into the global auth store from this shared
+        // provider-listing path. Config/API serialization redacts it, while an
+        // explicit credential write can establish the durable reference.
         const configProviders = Object.entries(cfg.provider ?? {})
+        for (const [id, provider] of configProviders) {
+          if (typeof provider.options?.apiKey === "string" && provider.options.apiKey.length > 0) {
+            log.warn("Inline provider apiKey is deprecated; use a credential reference", { providerID: id })
+          }
+        }
         const disabled = new Set(cfg.disabled_providers ?? [])
         const enabled = cfg.enabled_providers ? new Set(cfg.enabled_providers) : null
 
@@ -1289,6 +1320,7 @@ export const layer = Layer.effect(
             id: ProviderID.make(providerID),
             name: provider.name ?? existing?.name ?? providerID,
             env: provider.env ?? existing?.env ?? [],
+            ...(provider.credential ? { credential: provider.credential } : {}),
             options: mergeDeep(existing?.options ?? {}, provider.options ?? {}),
             source: "config",
             models: existing?.models ?? {},
@@ -1397,6 +1429,7 @@ export const layer = Layer.effect(
           if (provider.type === "api") {
             mergeProvider(providerID, {
               source: "api",
+              credential: Auth.reference(id, provider),
               key: provider.key,
             })
           }
@@ -1448,6 +1481,7 @@ export const layer = Layer.effect(
           const partial: Partial<Info> = { source: "config" }
           if (provider.env) partial.env = provider.env
           if (provider.name) partial.name = provider.name
+          if (provider.credential) partial.credential = provider.credential
           if (provider.options) partial.options = provider.options
           mergeProvider(providerID, partial)
         }

@@ -11,6 +11,7 @@ import { tool as nativeTool, ToolFailure, type JsonSchema, type LLMEvent } from 
 import type { LLMClientShape } from "@jyycode-ai/llm/route"
 import { LLMNative } from "./native-request"
 import type { ToolChoice } from "./tool-choice"
+import type { CredentialRef } from "@jyycode-ai/core/credential"
 
 export type RuntimeStatus =
   | { readonly type: "supported"; readonly apiKey: string; readonly baseURL?: string }
@@ -23,6 +24,8 @@ type StreamInput = {
   readonly model: Provider.Model
   readonly provider: Provider.Info
   readonly auth: Auth.Info | undefined
+  readonly credential?: CredentialRef
+  readonly resolveCredential?: (ref: CredentialRef) => Promise<string>
   readonly llmClient: LLMClientShape
   readonly messages: ModelMessage[]
   readonly tools: Record<string, Tool>
@@ -36,12 +39,12 @@ type StreamInput = {
   readonly abort: AbortSignal
 }
 
-export function status(input: Pick<StreamInput, "model" | "provider" | "auth">): RuntimeStatus {
+export function status(input: Pick<StreamInput, "model" | "provider" | "auth" | "credential">): RuntimeStatus {
   return statusWithFetch(input, providerFetch(input))
 }
 
 function statusWithFetch(
-  input: Pick<StreamInput, "model" | "provider" | "auth">,
+  input: Pick<StreamInput, "model" | "provider" | "auth" | "credential">,
   fetch: typeof globalThis.fetch | undefined,
 ): RuntimeStatus {
   const providerID = input.model.providerID
@@ -55,11 +58,11 @@ function statusWithFetch(
   }
 
   const apiKey = typeof input.provider.options.apiKey === "string" ? input.provider.options.apiKey : input.provider.key
-  if (!apiKey) return { type: "unsupported", reason: "API key is not configured" }
+  if (!apiKey && !input.credential) return { type: "unsupported", reason: "API key is not configured" }
 
   return {
     type: "supported",
-    apiKey,
+    apiKey: apiKey ?? "",
     baseURL: typeof input.provider.options.baseURL === "string" ? input.provider.options.baseURL : undefined,
   }
 }
@@ -71,22 +74,33 @@ export function stream(input: StreamInput): StreamResult {
 
   // Integration point with @jyycode-ai/llm: native-request lowers session data
   // into an LLMRequest, then LLMClient handles route selection and transport.
-  const stream = input.llmClient.stream({
-    request: LLMNative.request({
-      model: input.model,
-      apiKey: current.apiKey,
-      baseURL: current.baseURL,
-      messages: ProviderTransform.message(input.messages, input.model, input.providerOptions ?? {}),
-      toolChoice: input.toolChoice,
-      temperature: input.temperature,
-      topP: input.topP,
-      topK: input.topK,
-      maxOutputTokens: input.maxOutputTokens,
-      providerOptions: ProviderTransform.providerOptions(input.model, input.providerOptions ?? {}),
-      headers: { ...providerHeaders(input.provider.options.headers), ...input.headers },
-    }),
-    tools: nativeTools(input.tools, input),
-  })
+  const makeStream = (apiKey: string) =>
+    input.llmClient.stream({
+      request: LLMNative.request({
+        model: input.model,
+        apiKey,
+        baseURL: current.baseURL,
+        messages: ProviderTransform.message(input.messages, input.model, input.providerOptions ?? {}),
+        toolChoice: input.toolChoice,
+        temperature: input.temperature,
+        topP: input.topP,
+        topK: input.topK,
+        maxOutputTokens: input.maxOutputTokens,
+        providerOptions: ProviderTransform.providerOptions(input.model, input.providerOptions ?? {}),
+        headers: { ...providerHeaders(input.provider.options.headers), ...input.headers },
+      }),
+      tools: nativeTools(input.tools, input),
+    })
+
+  // A credential reference is deliberately resolved inside the stream effect,
+  // immediately before transport construction. Rotation/removal therefore
+  // applies to the next model operation without rebuilding provider state.
+  const stream =
+    input.credential && input.resolveCredential
+      ? Stream.unwrap(
+          Effect.promise(() => input.resolveCredential!(input.credential!)).pipe(Effect.map((apiKey) => makeStream(apiKey))),
+        )
+      : makeStream(current.apiKey)
 
   return {
     ...current,

@@ -15,19 +15,19 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
     const authSvc = yield* Auth.Service
 
     const get = Effect.fn("ConfigHttpApi.get")(function* () {
-      return yield* configSvc.get()
+      return Config.toPublicInfo(yield* configSvc.get())
     })
 
     const update = Effect.fn("ConfigHttpApi.update")(function* (ctx) {
       yield* configSvc.update(ctx.payload)
       yield* markInstanceForDisposal(yield* InstanceState.context)
-      return ctx.payload
+      return Config.toPublicInfo(ctx.payload)
     })
 
     const providers = Effect.fn("ConfigHttpApi.providers")(function* () {
       const [available, credentials, config] = yield* Effect.all([
         providerSvc.list(),
-        authSvc.all().pipe(Effect.orDie),
+        authSvc.allPublic().pipe(Effect.orDie),
         configSvc.get(),
       ])
       const providers = explicitlySelectableProviders(

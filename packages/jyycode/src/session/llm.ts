@@ -36,6 +36,7 @@ import { ModelV2 } from "@jyycode-ai/core/model"
 import { ProviderV2 } from "@jyycode-ai/core/provider"
 import * as DateTime from "effect/DateTime"
 import { createRequestEnvelope } from "./request-envelope"
+import { Credential } from "@/auth/credential-service"
 
 export type { ToolChoice } from "./llm/tool-choice"
 
@@ -82,6 +83,7 @@ const live: Layer.Layer<
   | RuntimeFlags.Service
   | BlobStore.Service
   | EventRuntime.Service
+  | Credential.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -94,6 +96,7 @@ const live: Layer.Layer<
     const flags = yield* RuntimeFlags.Service
     const blobStore = yield* BlobStore.Service
     const events = yield* EventRuntime.Service
+    const credentials = yield* Credential.Service
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       const l = log
@@ -282,6 +285,8 @@ const live: Layer.Layer<
           model: input.model,
           provider: item,
           auth: info,
+          credential: item.credential ?? (info ? Auth.reference(input.model.providerID, info) : undefined),
+          resolveCredential: (ref) => Effect.runPromise(credentials.resolve(ref).pipe(Effect.orDie)),
           llmClient,
           messages: prepared.messages,
           tools: prepared.tools,
@@ -500,6 +505,7 @@ export const layer = live.pipe(
   Layer.provide(Permission.defaultLayer),
   Layer.provide(BlobStore.defaultLayer),
   Layer.provide(EventRuntime.defaultLayer),
+  Layer.provide(Credential.layer),
 )
 
 export const defaultLayer = Layer.suspend(() =>

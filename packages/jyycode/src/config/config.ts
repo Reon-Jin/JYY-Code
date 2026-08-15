@@ -577,6 +577,25 @@ export const ConfigDirectoryTypoError = NamedError.create("ConfigDirectoryTypoEr
   suggestion: Schema.String,
 })
 
+const SECRET_CONFIG_KEY = /^(?:api[-_]?key|access[-_]?token|refresh[-_]?token|token|key|secret|password)$/i
+
+/** Return a serialization-safe config view. Runtime config may still resolve credentials internally. */
+export function toPublicInfo(info: Info): Info {
+  const redact = (value: unknown, key?: string): unknown => {
+    if (key && SECRET_CONFIG_KEY.test(key)) return undefined
+    if (typeof value === "function" || typeof value === "symbol" || value === undefined) return undefined
+    if (typeof value === "bigint") return value.toString()
+    if (Array.isArray(value)) return value.map((item) => redact(item))
+    if (!value || typeof value !== "object") return value
+    return Object.fromEntries(
+      Object.entries(value)
+        .map(([childKey, child]) => [childKey, redact(child, childKey)])
+        .filter((entry): entry is [string, unknown] => entry[1] !== undefined),
+    )
+  }
+  return JSON.parse(JSON.stringify(redact(info)))
+}
+
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -941,6 +960,14 @@ export const layer = Layer.effect(
           result.compaction = { ...result.compaction, prune: false }
         }
 
+        for (const [providerID, provider] of Object.entries(result.provider ?? {})) {
+          if (typeof provider.options?.apiKey === "string" && provider.options.apiKey.length > 0) {
+            log.warn("Inline provider apiKey is deprecated; save credentials through the credential store", {
+              providerID,
+            })
+          }
+        }
+
         return {
           config: result,
           directories,
@@ -974,12 +1001,37 @@ export const layer = Layer.effect(
       }
     })
 
+    const migrateInlineCredentials = Effect.fn("Config.migrateInlineCredentials")(function* (config: Info) {
+      let next = config
+      for (const [providerID, provider] of Object.entries(config.provider ?? {})) {
+        const apiKey = provider.options?.apiKey
+        if (typeof apiKey !== "string" || apiKey.length === 0) continue
+        const credential = Auth.reference(providerID, { type: "api" })
+        yield* authSvc.set(providerID, { type: "api", key: apiKey }).pipe(Effect.orDie)
+        const { apiKey: _apiKey, ...options } = provider.options ?? {}
+        next = {
+          ...next,
+          provider: {
+            ...next.provider,
+            [providerID]: {
+              ...provider,
+              credential,
+              options,
+            },
+          },
+        }
+      }
+      return next
+    })
+
     const update = Effect.fn("Config.update")(function* (config: Info) {
       const dir = yield* InstanceState.directory
       const file = path.join(dir, "config.json")
       const existing = yield* loadFile(file)
+      const merged = mergeDeep(writable(existing), writable(config)) as Info
+      const migrated = yield* migrateInlineCredentials(merged)
       yield* fs
-        .writeFileString(file, JSON.stringify(mergeDeep(writable(existing), writable(config)), null, 2))
+        .writeFileString(file, JSON.stringify(writable(migrated), null, 2))
         .pipe(Effect.orDie)
     })
 

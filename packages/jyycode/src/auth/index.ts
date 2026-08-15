@@ -3,6 +3,7 @@ import { Effect, Layer, Record, Result, Schema, Context } from "effect"
 import { NonNegativeInt } from "@jyycode-ai/core/schema"
 import { Global } from "@jyycode-ai/core/global"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
+import { CredentialRef } from "@jyycode-ai/core/credential"
 
 export const OAUTH_DUMMY_KEY = "jyycode-oauth-dummy-key"
 
@@ -34,6 +35,30 @@ export class WellKnown extends Schema.Class<WellKnown>("WellKnownAuth")({
 export const Info = Schema.Union([Oauth, Api, WellKnown]).annotate({ discriminator: "type", identifier: "Auth" })
 export type Info = Schema.Schema.Type<typeof Info>
 
+export const PublicInfo = Schema.Struct({
+  providerID: Schema.String,
+  credentialID: Schema.String,
+  kind: Schema.Literals(["api", "oauth", "wellknown"]),
+}).annotate({ identifier: "CredentialReference" })
+export type PublicInfo = Schema.Schema.Type<typeof PublicInfo>
+
+export function reference(providerID: string, info: Pick<Info, "type">): CredentialRef {
+  return CredentialRef.make({
+    providerID,
+    credentialID: `${providerID}:${info.type}`,
+    kind: info.type,
+  })
+}
+
+export function toPublicInfo(providerID: string, info: Info): PublicInfo {
+  const ref = reference(providerID, info)
+  return {
+    providerID: ref.providerID,
+    credentialID: ref.credentialID,
+    kind: ref.kind,
+  }
+}
+
 export class AuthError extends Schema.TaggedErrorClass<AuthError>()("AuthError", {
   message: Schema.String,
   cause: Schema.optional(Schema.Defect),
@@ -42,6 +67,8 @@ export class AuthError extends Schema.TaggedErrorClass<AuthError>()("AuthError",
 export interface Interface {
   readonly get: (providerID: string) => Effect.Effect<Info | undefined, AuthError>
   readonly all: () => Effect.Effect<Record<string, Info>, AuthError>
+  readonly getPublic: (providerID: string) => Effect.Effect<PublicInfo | undefined, AuthError>
+  readonly allPublic: () => Effect.Effect<Record<string, PublicInfo>, AuthError>
   readonly set: (key: string, info: Info) => Effect.Effect<void, AuthError>
   readonly remove: (key: string) => Effect.Effect<void, AuthError>
 }
@@ -58,7 +85,7 @@ export const layer = Layer.effect(
       if (process.env.JYYCODE_AUTH_CONTENT) {
         try {
           return JSON.parse(process.env.JYYCODE_AUTH_CONTENT)
-        } catch (err) {}
+        } catch {}
       }
 
       const data = (yield* fsys.readJson(file).pipe(Effect.orElseSucceed(() => ({})))) as Record<string, unknown>
@@ -67,6 +94,21 @@ export const layer = Layer.effect(
 
     const get = Effect.fn("Auth.get")(function* (providerID: string) {
       return (yield* all())[providerID]
+    })
+
+    const getPublic = Effect.fn("Auth.getPublic")(function* (providerID: string) {
+      const info = yield* get(providerID)
+      return info ? toPublicInfo(providerID, info) : undefined
+    })
+
+    const allPublic = Effect.fn("Auth.allPublic")(function* () {
+      const data = yield* all()
+      return Object.fromEntries(
+        Object.entries(data).map(([providerID, info]) => [
+          providerID,
+          toPublicInfo(providerID, Schema.decodeUnknownSync(Info)(info)),
+        ]),
+      )
     })
 
     const set = Effect.fn("Auth.set")(function* (key: string, info: Info) {
@@ -87,7 +129,7 @@ export const layer = Layer.effect(
       yield* fsys.writeJson(file, data, 0o600).pipe(Effect.mapError(fail("Failed to write auth data")))
     })
 
-    return Service.of({ get, all, set, remove })
+    return Service.of({ get, all, getPublic, allPublic, set, remove })
   }),
 )
 
