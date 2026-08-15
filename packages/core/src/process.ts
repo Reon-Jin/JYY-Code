@@ -1,8 +1,13 @@
 import { Context, Duration, Effect, Fiber, Layer, Schema, Stream } from "effect"
 import type { PlatformError } from "effect/PlatformError"
+import type * as Scope from "effect/Scope"
 import { ChildProcess } from "effect/unstable/process"
-import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
+import { ChildProcessSpawner, type ChildProcessHandle } from "effect/unstable/process/ChildProcessSpawner"
 import { CrossSpawnSpawner } from "./cross-spawn-spawner"
+import type { ProcessSpec } from "./process-spec"
+import { terminateProcessTree, type TerminationOptions, type TerminationResult } from "./process-supervisor"
+
+export type { ProcessSpec } from "./process-spec"
 
 export class AppProcessError extends Schema.TaggedErrorClass<AppProcessError>()("AppProcessError", {
   command: Schema.String,
@@ -27,6 +32,12 @@ export interface RunStreamOptions {
   readonly maxErrorBytes?: number
 }
 
+export type ProcessInput = ChildProcess.Command | ProcessSpec
+
+export type AppProcessHandle = ChildProcessHandle & {
+  readonly terminate: (options?: TerminationOptions) => Effect.Effect<TerminationResult, AppProcessError>
+}
+
 export interface RunResult {
   readonly command: string
   readonly exitCode: number
@@ -36,10 +47,11 @@ export interface RunResult {
   readonly stderrTruncated: boolean
 }
 
-export type Interface = ChildProcessSpawner["Service"] & {
-  readonly run: (command: ChildProcess.Command, options?: RunOptions) => Effect.Effect<RunResult, AppProcessError>
+export type Interface = Omit<ChildProcessSpawner["Service"], "spawn"> & {
+  readonly spawn: (command: ProcessInput) => Effect.Effect<AppProcessHandle, PlatformError, Scope.Scope>
+  readonly run: (command: ProcessInput, options?: RunOptions) => Effect.Effect<RunResult, AppProcessError>
   readonly runStream: (
-    command: ChildProcess.Command,
+    command: ProcessInput,
     options?: RunStreamOptions,
   ) => Stream.Stream<string, AppProcessError>
 }
@@ -75,6 +87,67 @@ const describeCommand = (command: ChildProcess.Command): string => {
     return command.args.length ? `${command.command} ${command.args.join(" ")}` : command.command
   }
   return `${describeCommand(command.left)} | ${describeCommand(command.right)}`
+}
+
+const inheritedEnvironmentKeys = [
+  "PATH",
+  "Path",
+  "SystemRoot",
+  "WINDIR",
+  "ComSpec",
+  "PATHEXT",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "HOME",
+  "USERPROFILE",
+  "LANG",
+  "LC_ALL",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "ALL_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "all_proxy",
+] as const
+
+function environmentFor(spec: ProcessSpec): Record<string, string> {
+  const result: Record<string, string> = {}
+  if (spec.env.mode === "inherit-allowlist") {
+    for (const key of inheritedEnvironmentKeys) {
+      const value = process.env[key]
+      if (value !== undefined) result[key] = value
+    }
+  } else {
+    // PATH and the Windows loader roots are required to resolve a command;
+    // they are the only inherited values in scrubbed mode.
+    for (const key of ["PATH", "Path", "SystemRoot", "WINDIR", "ComSpec", "PATHEXT"] as const) {
+      const value = process.env[key]
+      if (value !== undefined) result[key] = value
+    }
+  }
+  Object.assign(result, spec.env.values ?? {})
+  return result
+}
+
+function normalizeInput(input: ProcessInput): { command: ChildProcess.Command; timeout?: Duration.Input } {
+  if ("env" in input && "output" in input) {
+    const options = {
+      cwd: input.cwd,
+      env: environmentFor(input),
+      extendEnv: false,
+      stdin: input.stdin === undefined ? (input.output === "inherit" ? "inherit" : undefined) : normalizeStdin(input.stdin),
+      stdout: input.output === "inherit" ? "inherit" : "pipe",
+      stderr: input.output === "inherit" ? "inherit" : "pipe",
+    }
+    return {
+      command: ChildProcess.make(input.command, [...input.args], options as ChildProcess.CommandOptions),
+      timeout: input.timeout,
+    }
+  }
+  return { command: input }
 }
 
 const wrapError = (description: string, cause: unknown): AppProcessError =>
@@ -131,11 +204,35 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner
 
+    const spawnProcess = Effect.fn("AppProcess.spawn")(function* (input: ProcessInput) {
+      const { command, timeout } = normalizeInput(input)
+      const handle = yield* spawner.spawn(command)
+      const terminate = (options?: TerminationOptions) =>
+        Effect.tryPromise({
+          try: () => terminateProcessTree(Number(handle.pid), options),
+          catch: (cause) => wrapError(describeCommand(command), cause),
+        })
+      const result = Object.assign(Object.create(Object.getPrototypeOf(handle)), handle, { terminate }) as AppProcessHandle
+      if (timeout !== undefined) {
+        yield* Effect.forkScoped(
+          Effect.sleep(timeout).pipe(
+            Effect.andThen(
+              Effect.gen(function* () {
+                if (yield* result.isRunning) yield* result.terminate().pipe(Effect.asVoid)
+              }),
+            ),
+            Effect.ignore,
+          ),
+        )
+      }
+      return result
+    })
+
     const runCommand = (command: ChildProcess.Command, options?: RunOptions) => {
       const description = describeCommand(command)
       const collect = Effect.scoped(
         Effect.gen(function* () {
-          const handle = yield* spawner.spawn(command)
+          const handle = yield* spawnProcess(command)
           const [stdout, stderr, exitCode] = yield* Effect.all(
             [
               collectStream(handle.stdout, options?.maxOutputBytes),
@@ -170,8 +267,14 @@ export const layer = Layer.effect(
       return aborted.pipe(Effect.catch((cause) => Effect.fail(wrapError(description, cause))))
     }
 
-    const run = Effect.fn("AppProcess.run")(function* (command: ChildProcess.Command, options?: RunOptions) {
-      if (options?.stdin === undefined) return yield* runCommand(command, options)
+    const run = Effect.fn("AppProcess.run")(function* (input: ProcessInput, options?: RunOptions) {
+      const normalized = normalizeInput(input)
+      const command = normalized.command
+      const effectiveOptions = {
+        ...options,
+        ...(options?.timeout === undefined && normalized.timeout !== undefined ? { timeout: normalized.timeout } : {}),
+      }
+      if (effectiveOptions.stdin === undefined) return yield* runCommand(command, effectiveOptions)
       if (command._tag !== "StandardCommand") {
         return yield* new AppProcessError({
           command: describeCommand(command),
@@ -180,20 +283,22 @@ export const layer = Layer.effect(
       }
       const next = ChildProcess.make(command.command, command.args, {
         ...command.options,
-        stdin: normalizeStdin(options.stdin),
+        stdin: normalizeStdin(effectiveOptions.stdin),
       })
-      return yield* runCommand(next, options)
+      return yield* runCommand(next, effectiveOptions)
     })
 
     const runStream = (
-      command: ChildProcess.Command,
+      input: ProcessInput,
       options?: RunStreamOptions,
     ): Stream.Stream<string, AppProcessError> => {
+      const normalized = normalizeInput(input)
+      const command = normalized.command
       const description = describeCommand(command)
       const okExitCodes = options?.okExitCodes
       const built: Stream.Stream<string, AppProcessError | PlatformError> = Stream.unwrap(
         Effect.gen(function* () {
-          const handle = yield* spawner.spawn(command)
+          const handle = yield* spawnProcess(input)
           const stderrFiber = yield* Effect.forkScoped(
             collectStream(handle.stderr, options?.maxErrorBytes).pipe(Effect.map((x) => x.buffer.toString("utf8"))),
           )
@@ -227,10 +332,11 @@ export const layer = Layer.effect(
           ),
         )
       }
-      if (options?.timeout !== undefined) {
+      const timeout = options?.timeout ?? normalized.timeout
+      if (timeout !== undefined) {
         bounded = bounded.pipe(
           Stream.interruptWhen(
-            Effect.sleep(options.timeout).pipe(
+            Effect.sleep(timeout).pipe(
               Effect.flatMap(() => Effect.fail(new AppProcessError({ command: description, cause: new Error("Timed out") }))),
             ),
           ),
@@ -239,7 +345,7 @@ export const layer = Layer.effect(
       return bounded
     }
 
-    return Service.of({ ...spawner, run, runStream })
+    return Service.of({ ...spawner, spawn: spawnProcess, run, runStream })
   }),
 )
 
