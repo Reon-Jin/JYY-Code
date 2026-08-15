@@ -1,5 +1,4 @@
 import crypto from "node:crypto"
-import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import {
@@ -9,6 +8,7 @@ import {
   type SnapshotLimits,
 } from "./child-workspace"
 import type { MergeConflictKind, MergeConflictSummary, MergeResolution } from "./schema"
+import { tryExecGitSync } from "./git-platform-adapter"
 
 const INTERNAL_NAMES = new Set([".git", ".jyycode"])
 const MAX_PATH_LENGTH = 4096
@@ -231,15 +231,7 @@ function scanWorkspace(root: string, current = root, output = new Map<string, Fi
 }
 
 function gitOutput(root: string, args: string[]) {
-  try {
-    return execFileSync("git", ["-c", "core.autocrlf=false", "-c", "core.fsmonitor=false", ...args], {
-      cwd: root,
-      encoding: "buffer",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).toString("utf8")
-  } catch {
-    return undefined
-  }
+  return tryExecGitSync(root, ["-c", "core.autocrlf=false", "-c", "core.fsmonitor=false", ...args])
 }
 
 function safeGitPath(value: string) {

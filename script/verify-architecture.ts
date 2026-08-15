@@ -16,21 +16,25 @@ export type VerifyArchitectureOptions = {
 }
 
 /**
- * These are deliberately file-level exceptions. Each entry is temporary and
- * names the migration that owns its removal; directory-wide exemptions are
- * not supported.
+ * These are deliberately file-level exceptions. They are permanent platform
+ * or compatibility boundaries; directory-wide exemptions are not supported.
  */
 export const DEFAULT_ALLOWLIST: Readonly<Record<string, string>> = {
   "packages/core/src/cross-spawn-spawner.ts": "platform adapter; permanent boundary",
   "packages/core/src/process-supervisor.ts": "platform adapter; permanent boundary",
   "packages/jyycode/src/pty/pty.bun.ts": "PTY platform adapter; permanent boundary",
   "packages/jyycode/src/pty/pty.node.ts": "PTY platform adapter; permanent boundary",
-  "packages/jyycode/src/cli/cmd/db.ts": "Task 10: migrate CLI database commands to AppProcess",
-  "packages/jyycode/src/cli/cmd/github.ts": "Task 10: migrate CLI GitHub commands to AppProcess",
-  "packages/jyycode/src/plan/child-workspace.ts": "Task 10: migrate workspace subprocesses to AppProcess",
-  "packages/jyycode/src/plan/workspace-merge.ts": "Task 10: migrate workspace subprocesses to AppProcess",
-  "packages/jyycode/src/util/process.ts": "platform compatibility adapter for legacy Promise-based callers; migrate consumers to AppProcess",
+  "packages/jyycode/src/plan/git-platform-adapter.ts":
+    "synchronous Git snapshot/merge platform adapter; replace when those transactions become Effect-native",
+  "packages/jyycode/src/util/process.ts": "legacy Promise process compatibility adapter; permanent boundary",
 }
+
+const LEGACY_MARKERS = [
+  { marker: ["TODO", "(v2)"].join(""), rule: "legacy-v2-marker" },
+  { marker: ["experimental", "EventSystem"].join(""), rule: "legacy-event-system-marker" },
+  { marker: ["event-v2", "-bridge"].join(""), rule: "legacy-event-bridge-marker" },
+  { marker: ["apiKey:", " Schema.optional", "(Schema.String)"].join(""), rule: "inline-credential-schema" },
+] as const
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"])
 const IMPORT_PATTERNS = [
@@ -114,6 +118,19 @@ export async function verifyArchitecture(options: VerifyArchitectureOptions = {}
     const sourcePackage = packageName(source)
     if (!sourcePackage || !isUnder(source, `packages/${sourcePackage}/src`)) continue
     const contents = await readFile(file, "utf8")
+
+    for (const legacy of LEGACY_MARKERS) {
+      if (!contents.includes(legacy.marker)) continue
+      violations.push(
+        violation(
+          source,
+          legacy.marker,
+          legacy.rule,
+          "Completed runtime migrations must not leave legacy marker names in product source.",
+          "Move the compatibility decoder to an explicit, reviewed boundary or remove the legacy marker.",
+        ),
+      )
+    }
 
     for (const specifier of importSpecifiers(contents)) {
       const target = packageTarget(rootDir, specifier, file)

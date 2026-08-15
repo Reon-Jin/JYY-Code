@@ -1,5 +1,4 @@
 import crypto from "node:crypto"
-import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { Effect } from "effect"
@@ -14,6 +13,7 @@ import {
   type SnapshotManifestLimits,
 } from "./snapshot-manifest"
 import { preflightWorkspaceBudget, type WorkspaceBudget } from "./workspace-budget"
+import { execGitSync } from "./git-platform-adapter"
 
 export type ChildWorkspaceMode = "worktree" | "snapshot" | "shared_compat"
 export type CleanupPolicy = "on_success" | "on_cancel" | "retain_on_failure"
@@ -233,7 +233,7 @@ function ignoredByRules(relative: string, directory: boolean, rules: IgnoreRule[
 }
 
 function gitPaths(root: string, args: string[]) {
-  const output = execFileSync("git", args, { cwd: root, encoding: "buffer", stdio: ["ignore", "pipe", "ignore"] })
+  const output = execGitSync(root, args)
   return output
     .toString("utf8")
     .split("\0")

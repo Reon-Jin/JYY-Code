@@ -1,5 +1,8 @@
 import type { Argv } from "yargs"
-import { spawn } from "child_process"
+import { Effect } from "effect"
+import { ChildProcess } from "effect/unstable/process"
+import { AppProcess } from "@jyycode-ai/core/process"
+import { AppRuntime } from "@/effect/app-runtime"
 import { Database } from "@/storage/db"
 import { drizzle } from "drizzle-orm/bun-sqlite"
 import { Database as BunDatabase } from "bun:sqlite"
@@ -150,10 +153,22 @@ const QueryCommand = cmd({
       db.close()
       return
     }
-    const child = spawn("sqlite3", [Database.getPath()], {
-      stdio: "inherit",
-    })
-    await new Promise((resolve) => child.on("close", resolve))
+    const exitCode = await AppRuntime.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const appProcess = yield* AppProcess.Service
+          const child = yield* appProcess.spawn(
+            ChildProcess.make("sqlite3", [Database.getPath()], {
+              stdin: "inherit",
+              stdout: "inherit",
+              stderr: "inherit",
+            }),
+          )
+          return yield* child.exitCode
+        }),
+      ),
+    )
+    if (exitCode !== 0) process.exitCode = exitCode
   },
 })
 

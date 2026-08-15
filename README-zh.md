@@ -81,15 +81,15 @@ JYY-Code 把"能并行的一律并行"写进了协议，而不是交给模型自
 
 开箱即是一支分工明确的团队，每个角色可独立配置**模型、思考深度、工具白名单与专属技能**：
 
-| 角色 | 专长 | 随附技能 |
-| --- | --- | --- |
-| **方案设计师 Planner** | 深度权衡利弊、产出高质量实施方案 | writing-plans |
-| **前端工程师** | 精美的 UI / 前端实现 | design、ui-ux-pro-max、efficiency、executing-plans |
-| **后端工程师** | 严谨可靠的后端代码 | efficiency、executing-plans |
-| **调查员** | 广泛的网络信息搜集与整理 | agent-reach（覆盖主流平台的细粒度搜索）、firecrawl MCP |
-| **office 高手** | Word / PPT / Excel / PDF 生成与处理 | docx、pptx、xlsx、pdf |
-| **图表师** | 各类图表绘制（中文无乱码） | chart、graph、chart-visualization、antv-s2-expert |
-| **General** | 通用委派执行 | — |
+| 角色                   | 专长                                | 随附技能                                               |
+| ---------------------- | ----------------------------------- | ------------------------------------------------------ |
+| **方案设计师 Planner** | 深度权衡利弊、产出高质量实施方案    | writing-plans                                          |
+| **前端工程师**         | 精美的 UI / 前端实现                | design、ui-ux-pro-max、efficiency、executing-plans     |
+| **后端工程师**         | 严谨可靠的后端代码                  | efficiency、executing-plans                            |
+| **调查员**             | 广泛的网络信息搜集与整理            | agent-reach（覆盖主流平台的细粒度搜索）、firecrawl MCP |
+| **office 高手**        | Word / PPT / Excel / PDF 生成与处理 | docx、pptx、xlsx、pdf                                  |
+| **图表师**             | 各类图表绘制（中文无乱码）          | chart、graph、chart-visualization、antv-s2-expert      |
+| **General**            | 通用委派执行                        | —                                                      |
 
 角色只是配置而非黑盒：你可以自由编辑、禁用、删除或新增角色，改动持久化到全局配置；项目级 `.jyycode/agent/` 还能放置团队专属 Agent 定义。
 
@@ -176,6 +176,14 @@ jyycode db status
 会话存储迁移应先复制数据库和存储根目录，再执行 `jyycode storage backfill --dry-run --json` 预览。正式迁移按批次限制执行，并保存时间水位和游标，支持中断后继续；请保留原始副本，并在恢复检查完成前不要启用 payload 清理或 blob 垃圾回收。完整的隔离目录压测命令见[会话存储运维文档](docs/operations/session-storage.md)。
 
 Multi-Agent 的计划文件位于项目 `.jyycode/plan/<root-session-id>/plan.json`。Git Worktree、非 Git 快照和显式共享兼容模式的清理策略以及崩溃恢复步骤见：[计划恢复架构](docs/architecture/plan-recovery.md)、[Agent 隔离架构](docs/architecture/agent-isolation.md) 和 [恢复运行手册](docs/operations/recovery-runbook.md)。
+
+运行时所有权与迁移文档：
+
+- [Session EventV2 单一事实源](docs/architecture/session-event-source.md)
+- [进程运行时](docs/architecture/process-runtime.md) 与 [凭据边界](docs/architecture/credentials.md)
+- [EventV2 发布迁移](docs/migrations/event-v2-single-source.md) 与 [凭据引用迁移](docs/migrations/credential-ref.md)
+
+源码门禁可运行 `bun run check:ci && bun run verify:generated`；压测配置与运行时预算见[测试与回放](docs/architecture/testing-and-replay.md)。
 
 ## 从源码开发
 

@@ -1,5 +1,4 @@
 import path from "path"
-import { exec } from "child_process"
 import { Filesystem } from "@/util/filesystem"
 import * as prompts from "@clack/prompts"
 import { map, pipe, sortBy, values } from "remeda"
@@ -34,6 +33,8 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { Process } from "@/util/process"
 import { parseGitHubRemote } from "@/util/repository"
 import { Effect } from "effect"
+import { ChildProcess } from "effect/unstable/process"
+import { AppProcess } from "@jyycode-ai/core/process"
 
 type GitHubAuthor = {
   login: string
@@ -197,6 +198,7 @@ export const GithubInstallCommand = effectCmd({
     const ctx = maybeCtx
     const modelsDev = yield* ModelsDev.Service
     const gitSvc = yield* Git.Service
+    const appProcess = yield* AppProcess.Service
     yield* Effect.promise(async () => {
       {
         UI.empty()
@@ -324,18 +326,28 @@ export const GithubInstallCommand = effectCmd({
 
           // Open browser
           const url = "https://github.com/apps/jyycode-agent"
-          const command =
+          const browserCommand =
             process.platform === "darwin"
-              ? `open "${url}"`
+              ? { command: "open", args: [url] }
               : process.platform === "win32"
-                ? `start "" "${url}"`
-                : `xdg-open "${url}"`
+                ? { command: "cmd.exe", args: ["/c", "start", "", url] }
+                : { command: "xdg-open", args: [url] }
 
-          exec(command, (error) => {
-            if (error) {
-              prompts.log.warn(`Could not open browser. Please visit: ${url}`)
-            }
-          })
+          const browserResult = await Effect.runPromise(
+            appProcess
+              .run(
+                ChildProcess.make(browserCommand.command, browserCommand.args, {
+                  stdin: "ignore",
+                  stdout: "ignore",
+                  stderr: "ignore",
+                  extendEnv: true,
+                }),
+              )
+              .pipe(Effect.catch(() => Effect.succeed(undefined))),
+          )
+          if (!browserResult || browserResult.exitCode !== 0) {
+            prompts.log.warn(`Could not open browser. Please visit: ${url}`)
+          }
 
           // Wait for installation
           s.message("Waiting for GitHub app to be installed")

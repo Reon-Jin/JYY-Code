@@ -76,15 +76,15 @@ For undecided route choices — technology selection, architecture, copy style �
 
 A well-staffed team out of the box; each role carries its own **model, thinking depth, tool whitelist, and dedicated skills**:
 
-| Role | Specialty | Bundled skills |
-| --- | --- | --- |
-| **Planner** | Deep trade-off analysis, high-quality implementation plans | writing-plans |
-| **Frontend Engineer** | Polished UI / frontend implementation | design, ui-ux-pro-max, efficiency, executing-plans |
-| **Backend Engineer** | Rigorous, reliable backend code | efficiency, executing-plans |
-| **Researcher** | Broad web investigation and synthesis | agent-reach (fine-grained search across major platforms), firecrawl MCP |
-| **Office Master** | Word / PowerPoint / Excel / PDF generation and processing | docx, pptx, xlsx, pdf |
-| **Charter** | All kinds of charts (garbled-free CJK rendering) | chart, graph, chart-visualization, antv-s2-expert |
-| **General** | General-purpose delegated execution | — |
+| Role                  | Specialty                                                  | Bundled skills                                                          |
+| --------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **Planner**           | Deep trade-off analysis, high-quality implementation plans | writing-plans                                                           |
+| **Frontend Engineer** | Polished UI / frontend implementation                      | design, ui-ux-pro-max, efficiency, executing-plans                      |
+| **Backend Engineer**  | Rigorous, reliable backend code                            | efficiency, executing-plans                                             |
+| **Researcher**        | Broad web investigation and synthesis                      | agent-reach (fine-grained search across major platforms), firecrawl MCP |
+| **Office Master**     | Word / PowerPoint / Excel / PDF generation and processing  | docx, pptx, xlsx, pdf                                                   |
+| **Charter**           | All kinds of charts (garbled-free CJK rendering)           | chart, graph, chart-visualization, antv-s2-expert                       |
+| **General**           | General-purpose delegated execution                        | —                                                                       |
 
 Roles are configuration, not a black box: edit, disable, delete, or add roles freely — changes persist to the global config, and project-level `.jyycode/agent/` holds team-specific agent definitions.
 
@@ -170,6 +170,14 @@ If sessions appear "lost", first confirm the current database with `jyycode db s
 Session-storage migrations are copy-first and resumable. Use `jyycode storage backfill --dry-run --json` before applying a bounded backfill; it records a timestamp watermark and cursor so interrupted runs can resume. Keep the database and blob root as a matched pair, retain the original copy for rollback, and defer payload pruning and blob garbage collection until recovery checks pass. The disposable-root soak command is documented in [session-storage operations](docs/operations/session-storage.md).
 
 Plan workspace cleanup is also inventory-first. Run `jyycode debug plan-workspaces inspect --project global --json` and the matching `cleanup --dry-run` before any quarantine apply; unknown directories and `kill_failed` results require manual review. See [plan workspace operations](docs/operations/plan-workspaces.md) for the backup and quarantine boundaries.
+
+Runtime ownership and migration references:
+
+- [Session EventV2 source of truth](docs/architecture/session-event-source.md)
+- [Process runtime](docs/architecture/process-runtime.md) and [credentials](docs/architecture/credentials.md)
+- [EventV2 rollout](docs/migrations/event-v2-single-source.md) and [credential references](docs/migrations/credential-ref.md)
+
+For source validation, run `bun run check:ci && bun run verify:generated`. Stress profiles and runtime budget gates are documented in [testing and replay](docs/architecture/testing-and-replay.md).
 
 ## Develop from Source
 

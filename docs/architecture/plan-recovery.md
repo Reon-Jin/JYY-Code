@@ -73,3 +73,23 @@ pending -> running -> merged -> cleanup completed
 `Merge.apply` writes a journal below the recorded runtime root before applying parent changes. On startup, recovery uses only the persisted baseline, child, journal, and workspace metadata: an interrupted `running` journal is resumed, an already-applied journal is settled idempotently, and a conflict preserves both sidecars for inspection. A successful merge is recorded before child/baseline cleanup begins. Cleanup failure leaves `merged` plus `cleanup: failed` and creates a bounded Inbox entry; it never rolls back already-integrated parent files.
 
 Recovery rejects a merge whose dispatch was cancelled or whose recorded paths no longer belong to the owning runtime root. It never scans the runtime directory to infer Task ownership and never attaches file contents to events, Inbox entries, or telemetry.
+
+## Ownership and rollback boundary
+
+Plan recovery separates four ownership classes:
+
+| Class | Owner | Rebuild/delete rule |
+| --- | --- | --- |
+| Durable source | `PlanStore`, activation store, and merge journal | Re-read the newest valid plan/sidecar; retain the event and journal history. Delete only after the retention policy and terminal cleanup contract permit it |
+| Projection | Inbox, recovery report, metrics, and workspace inventory | Recompute from durable plan/activation state; never use a projection to infer a live child |
+| Runtime activity | Child process, lease heartbeat, merge worker, and event subscription | Reconnect only after owner/generation validation; settle or fence stale activity before cleanup |
+| External extension | Git worktree adapter, filesystem, and model/tool ports | Recreate from recorded metadata or quarantine for review; it cannot rewrite the plan or claim another owner |
+
+For an old database or interrupted migration, make a matched copy of the
+database, WAL/SHM files, blob root, plan roots, and merge sidecars first. Run a
+dry-run inventory and replay/parity check against the copy. Validate row counts,
+contiguous watermarks, activation ownership, blob references, and the absence
+of live children before apply. If validation fails, keep the original intact
+and restore the copy or run the prior binary against its compatibility
+projection. Event logs and already-merged parent files are never destructively
+rolled back; rollback is a binary/database-copy choice.

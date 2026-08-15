@@ -77,4 +77,14 @@ describe("verifyArchitecture", () => {
 
     await expect(verifyArchitecture({ rootDir: root })).resolves.toEqual([])
   })
+
+  test("rejects completed migration markers in product source", async () => {
+    const root = await fixture({
+      "packages/jyycode/src/session/legacy.ts": `// ${["TODO", "(v2)"].join("")}: remove this bridge\n`,
+    })
+
+    const violations = await verifyArchitecture({ rootDir: root })
+
+    expect(violations).toEqual([expect.objectContaining({ rule: "legacy-v2-marker" })])
+  })
 })

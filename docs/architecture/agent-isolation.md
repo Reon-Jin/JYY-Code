@@ -49,3 +49,20 @@ Worktree and snapshot metadata are retained in the plan so cleanup can be target
 When investigating a failed Task, preserve the recorded Worktree or snapshot until its artifacts and diff have been reviewed. Remove it only through the recorded Dispatch metadata or the recovery runbook; do not use a broad recursive delete against the runtime root.
 
 Workspace removal is guarded by the durable activation state. Child termination must settle the activation before the workspace manager removes the child directory or baseline. A failed cancel/idle/archive phase leaves the activation and workspace recoverable.
+
+## Four ownership classes
+
+Isolation uses four different owners and does not collapse them into a single
+"workspace owner":
+
+| Class | Examples | Create/update | Rebuild/delete |
+| --- | --- | --- | --- |
+| Durable source | Plan JSON, dispatch record, activation row, merge journal | `PlanStore`, `PlanProtocol`, and `PlanActivationStore` serialize revisions and owner/generation fences | Recover from the recorded plan root and sidecars; delete only after terminal state and retention policy |
+| Projection | Inbox entries, runtime metrics, workspace inventory, session views | Projectors and inspectors derive bounded views from durable state | Recompute from plan/events; never use a projection as proof that a child is live |
+| Runtime activity | Child process, activation lease heartbeat, event subscription | The current runtime owner creates and renews it with CAS | Reacquire with a new generation or settle as failed; interrupt before workspace cleanup |
+| External extension | Git worktree adapter, model/tool adapter, SDK observer | Receives a narrow capability and reports results through protocol methods | Reconnect or recreate from durable metadata; cannot mutate the parent worktree or activation row directly |
+
+The durable child identity is the session ID. `owner_id` and `generation` fence
+the live activation, while the workspace manager owns only the recorded child
+directory and baseline. A projection or a process-local subscription may be
+discarded and rebuilt without changing the durable child identity.
