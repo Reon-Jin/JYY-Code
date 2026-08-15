@@ -36,6 +36,12 @@ jobs:
       - name: Test built product entrypoints
         run: bun run --cwd packages/jyycode test:built-smoke
 
+      - name: Test runtime stress gates
+        run: bun run test:stress
+
+      - name: Check runtime budgets
+        run: bun run check:runtime-budget
+
       - name: Test all workspaces
         run: bun run test:ci
 
@@ -51,7 +57,9 @@ jobs:
         with:
           name: product-test-junit
           if-no-files-found: warn
-          path: .artifacts/**/junit.xml
+          path: |
+            .artifacts/**/junit.xml
+            packages/jyycode/.artifacts/runtime-budget/**
 
   desktop:
     runs-on: ubuntu-latest

@@ -1,0 +1,43 @@
+name: nightly-runtime
+
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-stress:
+    name: runtime stress (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Run nightly runtime stress gates
+        run: bun run test:stress
+        env:
+          RUNTIME_STRESS_PROFILE: nightly
+
+      - name: Check nightly runtime budgets
+        run: bun run check:runtime-budget
+        env:
+          RUNTIME_STRESS_PROFILE: nightly
+
+      - name: Upload runtime diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-budget-${{ matrix.os }}
+          if-no-files-found: warn
+          path: packages/jyycode/.artifacts/runtime-budget/**

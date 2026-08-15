@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "profiles": {
+    "pr": {
+      "session_replay": [
+        {
+          "events": 500,
+          "duration_ms": 3,
+          "peak_rss_bytes": 284778496
+        }
+      ],
+      "process_cancel": {
+        "processes": 20,
+        "duration_ms": 284
+      },
+      "plan_recovery": {
+        "children": 4,
+        "duration_ms": 59
+      }
+    },
+    "nightly": {
+      "session_replay": [
+        {
+          "events": 5000,
+          "duration_ms": 17,
+          "peak_rss_bytes": 297967616
+        },
+        {
+          "events": 50000,
+          "duration_ms": 122,
+          "peak_rss_bytes": 390410240
+        }
+      ],
+      "process_cancel": {
+        "processes": 100,
+        "duration_ms": 2491
+      },
+      "plan_recovery": {
+        "children": 20,
+        "duration_ms": 127
+      }
+    }
+  }
+}
