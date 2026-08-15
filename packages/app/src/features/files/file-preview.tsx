@@ -1161,10 +1161,8 @@ function BinaryDocumentPreview(
   return props.kind === "pdf" ? <PdfWorkspacePreview {...props} /> : <DocxPreview content={props.content} />
 }
 
-function htmlWithPreviewBase(source: string, baseUrl: string, zoomScriptUrl?: string) {
-  const zoomScript = zoomScriptUrl
-    ? `<script src="${zoomScriptUrl.replaceAll('"', "&quot;")}"></script>`
-    : `<script>(() => { window.addEventListener("wheel", (event) => { if (!event.ctrlKey) return; event.preventDefault(); parent.postMessage({ type: "jyycode-html-preview-zoom", deltaY: event.deltaY }, "*"); }, { passive: false }); })();</script>`
+function htmlWithPreviewBase(source: string, baseUrl: string) {
+  const zoomScript = `<script>(() => { window.addEventListener("wheel", (event) => { if (!event.ctrlKey) return; event.preventDefault(); parent.postMessage({ type: "jyycode-html-preview-zoom", deltaY: event.deltaY }, "*"); }, { passive: false }); })();</script>`
   const runtime = `${/<base\b/i.test(source) ? "" : `<base href="${baseUrl.replaceAll('"', "&quot;")}">`}${zoomScript}`
   const head = /<head\b[^>]*>/i.exec(source)
   if (!head || head.index === undefined) return `${runtime}${source}`
@@ -1172,86 +1170,36 @@ function htmlWithPreviewBase(source: string, baseUrl: string, zoomScriptUrl?: st
   return `${source.slice(0, insertAt)}${runtime}${source.slice(insertAt)}`
 }
 
-function isJavaScriptType(type: string | undefined) {
-  if (!type) return true
-  return ["application/javascript", "application/ecmascript", "text/javascript", "text/ecmascript", "module"].includes(
-    type.trim().toLowerCase(),
-  )
-}
-
-function externalizeInlineHtmlScripts(source: string) {
-  const urls: string[] = []
-  if (typeof URL.createObjectURL !== "function") return { source, urls }
-
-  const next = source.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (full, attributes: string, body: string) => {
-    if (!body.trim() || /\bsrc\s*=/i.test(attributes)) return full
-    const type = /\btype\s*=\s*["']([^"']+)["']/i.exec(attributes)?.[1]
-    if (!isJavaScriptType(type)) return full
-    const url = URL.createObjectURL(new Blob([body], { type: "text/javascript" }))
-    urls.push(url)
-    return `<script${attributes} src="${url}"></script>`
-  })
-  return { source: next, urls }
-}
-
 function HtmlPreview(props: { source: string; path: string; previewUrl: string }) {
   const adjustZoom = useContext(ZoomContext)
-  const [src, setSrc] = createSignal<string>()
-  const [srcdoc, setSrcdoc] = createSignal<string>()
   let frame: HTMLIFrameElement | undefined
-  let documentUrl: string | undefined
-  let zoomScriptUrl: string | undefined
-  let scriptUrls: string[] = []
   const baseUrl = () => new URL(".", props.previewUrl).toString()
+  const hostUrl = () => {
+    const url = new URL(props.previewUrl)
+    url.searchParams.set("jyycode-preview-host", "1")
+    return url.toString()
+  }
+  const html = () => htmlWithPreviewBase(props.source, baseUrl())
+  const renderPreview = () => {
+    frame?.contentWindow?.postMessage({ type: "jyycode-html-preview-render", html: html() }, "*")
+  }
 
   createEffect(() => {
-    const source = props.source
-    const base = baseUrl()
-    const useBlobDocument =
-      typeof window !== "undefined" &&
-      "__TAURI_INTERNALS__" in window &&
-      typeof URL.createObjectURL === "function"
-    const externalized = useBlobDocument ? externalizeInlineHtmlScripts(source) : { source, urls: [] as string[] }
-    scriptUrls.forEach((url) => URL.revokeObjectURL(url))
-    scriptUrls = externalized.urls
-    if (zoomScriptUrl) URL.revokeObjectURL(zoomScriptUrl)
-    zoomScriptUrl = undefined
-    if (useBlobDocument) {
-      zoomScriptUrl = URL.createObjectURL(
-        new Blob(
-          [
-            `window.addEventListener("wheel", (event) => { if (!event.ctrlKey) return; event.preventDefault(); parent.postMessage({ type: "jyycode-html-preview-zoom", deltaY: event.deltaY }, "*"); }, { passive: false });`,
-          ],
-          { type: "text/javascript" },
-        ),
-      )
-    }
-    const html = htmlWithPreviewBase(externalized.source, base, zoomScriptUrl)
-
-    if (documentUrl) URL.revokeObjectURL(documentUrl)
-    if (useBlobDocument) {
-      documentUrl = URL.createObjectURL(new Blob([html], { type: "text/html" }))
-      setSrc(documentUrl)
-      setSrcdoc(undefined)
-    } else {
-      setSrc(undefined)
-      setSrcdoc(html)
-    }
+    html()
+    renderPreview()
   })
 
   createEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      if (event.source !== frame?.contentWindow || event.data?.type !== "jyycode-html-preview-zoom") return
-      adjustZoom?.(Number(event.data.deltaY))
+      if (event.source !== frame?.contentWindow) return
+      if (event.data?.type === "jyycode-html-preview-ready") {
+        renderPreview()
+        return
+      }
+      if (event.data?.type === "jyycode-html-preview-zoom") adjustZoom?.(Number(event.data.deltaY))
     }
     window.addEventListener("message", onMessage)
     onCleanup(() => window.removeEventListener("message", onMessage))
-  })
-
-  onCleanup(() => {
-    if (documentUrl) URL.revokeObjectURL(documentUrl)
-    if (zoomScriptUrl) URL.revokeObjectURL(zoomScriptUrl)
-    scriptUrls.forEach((url) => URL.revokeObjectURL(url))
   })
 
   return (
@@ -1261,8 +1209,8 @@ function HtmlPreview(props: { source: string; path: string; previewUrl: string }
       title={props.path}
       sandbox="allow-scripts allow-forms allow-modals"
       referrerPolicy="no-referrer"
-      src={src()}
-      srcdoc={srcdoc()}
+      src={hostUrl()}
+      onLoad={renderPreview}
     />
   )
 }

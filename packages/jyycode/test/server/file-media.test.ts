@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { parseFileByteRange } from "../../src/server/routes/instance/httpapi/handlers/file-media"
+import { htmlPreviewHostDocument, parseFileByteRange } from "../../src/server/routes/instance/httpapi/handlers/file-media"
 
 describe("file media byte ranges", () => {
   test("limits open-ended and suffix ranges to the streaming chunk size", () => {
@@ -12,5 +12,17 @@ describe("file media byte ranges", () => {
     expect(parseFileByteRange("items=0-10", 100)).toBeUndefined()
     expect(parseFileByteRange("bytes=100-101", 100)).toBeUndefined()
     expect(parseFileByteRange("bytes=5-2", 100)).toBeUndefined()
+  })
+})
+
+describe("HTML preview host", () => {
+  test("renders drafts inside a second sandbox and forwards zoom events", () => {
+    const html = htmlPreviewHostDocument()
+
+    expect(html).toContain('sandbox="allow-scripts allow-forms allow-modals"')
+    expect(html).toContain('data?.type === "jyycode-html-preview-render"')
+    expect(html).toContain("preview.srcdoc = data.html")
+    expect(html).toContain('data?.type === "jyycode-html-preview-zoom"')
+    expect(html).toContain('type: "jyycode-html-preview-ready"')
   })
 })

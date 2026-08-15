@@ -178,12 +178,22 @@ describe("FilePreview", () => {
 
     await screen.findByRole("textbox")
     await screen.getByRole("button", { name: "预览 HTML" }).click()
-    const frame = await screen.findByTitle("index.html")
+    const frame = (await screen.findByTitle("index.html")) as HTMLIFrameElement
     expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-forms allow-modals")
-    expect(frame.getAttribute("srcdoc")).toContain("<h1>Hello</h1>")
-    expect(frame.getAttribute("srcdoc")).toContain('<script>alert("unsafe")</script>')
-    expect(frame.getAttribute("srcdoc")).toContain("<base href=")
-    expect(frame.getAttribute("srcdoc")).toContain("jyycode-html-preview-zoom")
+    expect(frame.getAttribute("src")).toContain("jyycode-preview-host=1")
+    const postMessage = vi.spyOn(frame.contentWindow!, "postMessage")
+    window.dispatchEvent(
+      new MessageEvent("message", { source: frame.contentWindow, data: { type: "jyycode-html-preview-ready" } }),
+    )
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "jyycode-html-preview-render",
+        html: expect.stringContaining('<h1>Hello</h1><script>alert("unsafe")</script>'),
+      },
+      "*",
+    )
+    expect(postMessage.mock.calls.at(-1)?.[0].html).toContain("<base href=")
+    expect(postMessage.mock.calls.at(-1)?.[0].html).toContain("jyycode-html-preview-zoom")
   })
 
   it("switches HTML between editor and sanitized preview using the draft", async () => {
@@ -212,12 +222,20 @@ describe("FilePreview", () => {
     await waitFor(() => expect(editor).toHaveTextContent('<h1>Draft</h1><script>alert("unsafe")</script>'))
     await screen.getByRole("button", { name: "预览 HTML" }).click()
 
-    const frame = await screen.findByTitle("index.html")
+    const frame = (await screen.findByTitle("index.html")) as HTMLIFrameElement
     expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-forms allow-modals")
-    expect(frame.getAttribute("srcdoc")).toContain("<h1>Draft</h1>")
-    expect(frame.getAttribute("srcdoc")).toContain('<script>alert("unsafe")</script>')
-    expect(frame.getAttribute("srcdoc")).toContain("<base href=")
-    expect(frame.getAttribute("srcdoc")).toContain("jyycode-html-preview-zoom")
+    expect(frame.getAttribute("src")).toContain("jyycode-preview-host=1")
+    const postMessage = vi.spyOn(frame.contentWindow!, "postMessage")
+    window.dispatchEvent(
+      new MessageEvent("message", { source: frame.contentWindow, data: { type: "jyycode-html-preview-ready" } }),
+    )
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: "jyycode-html-preview-render",
+        html: expect.stringContaining('<h1>Draft</h1><script>alert("unsafe")</script>'),
+      },
+      "*",
+    )
     await screen.getByRole("button", { name: "编辑 HTML" }).click()
     await waitFor(() => expect(screen.getByRole("textbox")).toBeVisible())
   })

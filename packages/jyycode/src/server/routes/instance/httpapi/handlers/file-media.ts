@@ -8,6 +8,35 @@ import { open, stat } from "node:fs/promises"
 import path from "node:path"
 
 const MAX_RANGE_BYTES = 4 * 1024 * 1024
+const HTML_PREVIEW_HOST_QUERY = "jyycode-preview-host"
+
+export function htmlPreviewHostDocument() {
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <style>html,body,#preview{width:100%;height:100%;margin:0;border:0;overflow:hidden;background:white}</style>
+</head>
+<body>
+  <iframe id="preview" sandbox="allow-scripts allow-forms allow-modals" referrerpolicy="no-referrer"></iframe>
+  <script>
+    const preview = document.getElementById("preview");
+    window.addEventListener("message", (event) => {
+      const data = event.data;
+      if (event.source === parent && data?.type === "jyycode-html-preview-render" && typeof data.html === "string") {
+        preview.srcdoc = data.html;
+        return;
+      }
+      if (event.source === preview.contentWindow && data?.type === "jyycode-html-preview-zoom") {
+        parent.postMessage(data, "*");
+      }
+    });
+    parent.postMessage({ type: "jyycode-html-preview-ready" }, "*");
+  </script>
+</body>
+</html>`
+}
 
 export type FileByteRange = { start: number; end: number }
 
@@ -60,6 +89,17 @@ const serve = Effect.fn("FileHttpApi.media")(function* () {
     catch: () => new Error("File not found"),
   }).pipe(Effect.catch(() => Effect.succeed(undefined)))
   if (!metadata?.isFile()) return HttpServerResponse.empty({ status: 404 })
+
+  if (filePreview && url.searchParams.get(HTML_PREVIEW_HOST_QUERY) === "1") {
+    return HttpServerResponse.text(htmlPreviewHostDocument(), {
+      status: 200,
+      headers: new Headers({
+        "cache-control": "no-store",
+        "content-type": "text/html; charset=utf-8",
+        "x-content-type-options": "nosniff",
+      }),
+    })
+  }
 
   const headers = responseHeaders(fullPath, metadata.size, metadata.mtimeMs)
   if (filePreview) {
