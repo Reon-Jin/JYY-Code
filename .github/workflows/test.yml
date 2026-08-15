@@ -14,6 +14,39 @@ permissions:
   contents: read
 
 jobs:
+  product-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Verify architecture boundaries
+        run: bun run verify:architecture
+
+      - name: Verify generated SDK layout
+        run: bun run verify:generated
+
+      - name: Test all workspaces
+        run: bun run test:ci
+
+      - name: Test product runtime
+        run: bun run --cwd packages/jyycode test:ci
+
+      - name: Test product HTTP API
+        run: bun run --cwd packages/jyycode test:httpapi
+
+      - name: Upload test diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-test-junit
+          if-no-files-found: warn
+          path: .artifacts/**/junit.xml
+
   desktop:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -25,7 +58,7 @@ jobs:
         uses: ./.github/actions/setup-bun
 
       - name: Test Desktop UI
-        run: bun run --cwd packages/app test
+        run: bun run --cwd packages/app test:ci
 
       - name: Typecheck Desktop UI
         run: bun run --cwd packages/app typecheck

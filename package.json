@@ -12,6 +12,9 @@
     "turbo": "bun run --bun ./node_modules/turbo/bin/turbo",
     "typecheck": "bun turbo typecheck",
     "verify:architecture": "bun run script/verify-architecture.ts",
+    "verify:generated": "bun run script/verify-generated-sdk.ts",
+    "test:ci": "bun turbo test:ci",
+    "check:ci": "bun run lint && bun run typecheck && bun run verify:architecture && bun run verify:generated && bun run test:ci",
     "postinstall": "node ./script/postinstall.cjs",
     "prepare": "node ./script/prepare.cjs",
     "test": "echo 'do not run tests from root' && exit 1"
