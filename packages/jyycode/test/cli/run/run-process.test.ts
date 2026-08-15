@@ -14,7 +14,14 @@ describe("jyycode run (non-interactive subprocess)", () => {
     "exits 0 and writes the response to stdout on a successful prompt",
     ({ llm, jyycode }) =>
       Effect.gen(function* () {
-        yield* llm.text("hello from the test llm")
+        yield* llm.textMatch(
+          (hit) =>
+            hit.body.stream === true &&
+            Array.isArray(hit.body.tools) &&
+            hit.body.tools.length > 0 &&
+            JSON.stringify(hit.body).includes("say hi"),
+          "hello from the test llm",
+        )
         const result = yield* jyycode.run("say hi")
         jyycode.expectExit(result, 0)
         expect(result.stdout).toContain("hello from the test llm")

@@ -232,14 +232,32 @@ const redactRecordedBody = (body: string) =>
     .replace(/"safety_identifier"\s*:\s*"user-[^"]+"/g, '"safety_identifier":"user_redacted"')
     .replace(/"(access|access_token|refresh|refresh_token|accountId|account_id)"\s*:\s*"[^"]+"/g, '"$1":"redacted"')
 
+const RECORDED_PROMPT =
+  "Answer using tools when appropriate.\nUse the get_weather tool exactly once to look up Paris, then reply with exactly: Paris is sunny."
+
+const canonicalizeRecordedPrompt = (value: unknown): unknown => {
+  if (value === null || typeof value !== "object") return value
+  if (Array.isArray(value)) return value.map(canonicalizeRecordedPrompt)
+  const record = value as Record<string, unknown>
+  const next = Object.fromEntries(Object.entries(record).map(([key, item]) => [key, canonicalizeRecordedPrompt(item)]))
+  for (const key of ["instructions", "content", "text"]) {
+    if (typeof next[key] === "string" && next[key].includes("You are JYYCode,")) next[key] = RECORDED_PROMPT
+  }
+  return next
+}
+
 const recordingRedactor = Redactor.compose(
   Redactor.defaults({
     url: {
       transform: (url) => url.replace(/\/proxy\/connections\/[^/]+\/v1/, "/proxy/connections/{connection}/v1"),
     },
   }),
+  Redactor.body(canonicalizeRecordedPrompt),
   {
-    request: (snapshot) => ({ ...snapshot, body: redactRecordedBody(snapshot.body) }),
+    request: (snapshot) => {
+      const body = redactRecordedBody(snapshot.body)
+      return { ...snapshot, body }
+    },
     response: (snapshot) => ({ ...snapshot, body: redactRecordedBody(snapshot.body) }),
   },
 )
@@ -390,7 +408,7 @@ const driveToolLoop = (scenario: RecordedScenario) =>
     expect(toolCall).toBeDefined()
     expect(turn1.find(LLMEvent.is.toolResult)).toBeDefined()
     expect(toolCall!.name).toBe("get_weather")
-    expect(toolCall!.input).toMatchObject({ city: expect.stringMatching(/Paris/i) })
+    expect((toolCall!.input as { city?: unknown }).city).toEqual(expect.stringMatching(/Paris/i))
     expect(turn1.filter(LLMEvent.is.stepFinish)).toHaveLength(1)
 
     const turn2 = yield* collect({

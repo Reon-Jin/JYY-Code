@@ -20,7 +20,13 @@ import { effectCmd } from "../effect-cmd"
 import { ServerAuth } from "@/server/auth"
 import { EOL } from "os"
 import { Filesystem } from "@/util/filesystem"
-import { createJyycodeClient, type JyycodeClient, type ToolPart } from "@jyycode-ai/sdk/v2"
+import {
+  createJyycodeClient,
+  type JyycodeClient,
+  type Part,
+  type PermissionRequest,
+  type ToolPart,
+} from "@jyycode-ai/sdk/v2"
 import { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -465,6 +471,10 @@ export const RunCommand = effectCmd({
           multiAgent: args["multi-agent"] === true,
           permission: [...rules],
         })
+        if (result.error) {
+          UI.error(formatRunError(result.error))
+          process.exit(1)
+        }
         const id = result.data?.id
         if (!id) {
           return
@@ -648,21 +658,29 @@ export const RunCommand = effectCmd({
           let error: string | undefined
 
           for await (const event of events.stream) {
+            const type =
+              event.type === "session.next.message.updated"
+                ? "message.updated"
+                : event.type === "session.next.message.part.updated"
+                  ? "message.part.updated"
+                  : event.type
+            const properties = (event as unknown as { properties: Record<string, unknown> }).properties
             if (
-              event.type === "message.updated" &&
-              event.properties.sessionID === sessionID &&
-              event.properties.info.role === "assistant" &&
+              type === "message.updated" &&
+              properties.sessionID === sessionID &&
+              (properties.info as { role?: string } | undefined)?.role === "assistant" &&
               args.format !== "json" &&
               toggles.get("start") !== true
             ) {
+              const info = properties.info as { agent?: string; modelID?: string }
               UI.empty()
-              UI.println(`> ${event.properties.info.agent} · ${event.properties.info.modelID}`)
+              UI.println(`> ${info.agent} · ${info.modelID}`)
               UI.empty()
               toggles.set("start", true)
             }
 
-            if (event.type === "message.part.updated") {
-              const part = event.properties.part
+            if (type === "message.part.updated") {
+              const part = properties.part as Part
               if (part.sessionID !== sessionID) continue
 
               if (part.type === "tool" && (part.state.status === "completed" || part.state.status === "error")) {
@@ -722,28 +740,29 @@ export const RunCommand = effectCmd({
               }
             }
 
-            if (event.type === "session.error") {
-              const props = event.properties
+            if (type === "session.error") {
+              const props = properties
               if (props.sessionID !== sessionID || !props.error) continue
-              let err = String(props.error.name)
-              if ("data" in props.error && props.error.data && "message" in props.error.data) {
-                err = String(props.error.data.message)
+              const sessionError = props.error as { name?: unknown; data?: { message?: unknown } }
+              let err = String(sessionError.name)
+              if (sessionError.data?.message !== undefined) {
+                err = String(sessionError.data.message)
               }
               error = error ? error + EOL + err : err
-              if (emit("error", { error: props.error })) continue
+              if (emit("error", { error: sessionError })) continue
               UI.error(err)
             }
 
             if (
-              event.type === "session.status" &&
-              event.properties.sessionID === sessionID &&
-              event.properties.status.type === "idle"
+              type === "session.status" &&
+              properties.sessionID === sessionID &&
+              (properties.status as { type?: string }).type === "idle"
             ) {
               break
             }
 
-            if (event.type === "permission.asked") {
-              const permission = event.properties
+            if (type === "permission.asked") {
+              const permission = properties as unknown as PermissionRequest
               if (permission.sessionID !== sessionID) continue
 
               if (args["dangerously-skip-permissions"]) {
@@ -776,9 +795,10 @@ export const RunCommand = effectCmd({
 
         if (!args.interactive) {
           const events = await client.event.subscribe()
-          loop(client, events).catch((e) => {
+          const loopPromise = loop(client, events).catch((e) => {
             console.error(e)
-            process.exit(1)
+            process.exitCode = 1
+            return undefined
           })
 
           if (args.command) {
@@ -794,6 +814,7 @@ export const RunCommand = effectCmd({
               if (!emit("error", { error: result.error })) UI.error(formatRunError(result.error))
               process.exitCode = 1
             }
+            await loopPromise
             return
           }
 
@@ -809,6 +830,7 @@ export const RunCommand = effectCmd({
             if (!emit("error", { error: result.error })) UI.error(formatRunError(result.error))
             process.exitCode = 1
           }
+          await loopPromise
           return
         }
 

@@ -628,6 +628,31 @@ export const layer: Layer.Layer<
       }
       log.info("created", result)
 
+      // SessionTable has a foreign key to project. The HTTP/CLI path can
+      // reach Session.create with a context supplied by a caller that did not
+      // run Project.fromDirectory first, so make the referenced project row
+      // durable before publishing the session event.
+      yield* db((d) =>
+        d
+          .insert(ProjectTable)
+          .values({
+            id: ctx.project.id,
+            worktree: ctx.project.worktree,
+            vcs: ctx.project.vcs ?? null,
+            name: ctx.project.name,
+            icon_url: ctx.project.icon?.url,
+            icon_url_override: ctx.project.icon?.override,
+            icon_color: ctx.project.icon?.color,
+            time_created: ctx.project.time.created,
+            time_updated: ctx.project.time.updated,
+            time_initialized: ctx.project.time.initialized,
+            sandboxes: ctx.project.sandboxes,
+            commands: ctx.project.commands,
+          })
+          .onConflictDoNothing({ target: ProjectTable.id })
+          .run(),
+      )
+
       yield* sync.run(Event.Created, { sessionID: result.id, info: result })
 
       if (!flags.experimentalWorkspaces) {

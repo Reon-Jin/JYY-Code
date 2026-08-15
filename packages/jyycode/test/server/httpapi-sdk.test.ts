@@ -20,19 +20,20 @@ import { Session as SessionNs } from "@/session/session"
 import { errorMessage } from "../../src/util/error"
 import { TestLLMServer } from "../lib/llm-server"
 import path from "path"
+import { SessionEvent } from "@jyycode-ai/core/session-event"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, TestInstance, tmpdirScoped } from "../fixture/fixture"
-import { awaitWithTimeout, testEffect } from "../lib/effect"
+import { awaitWithTimeout, testEffect, testEffectShared } from "../lib/effect"
 import { testProviderConfig } from "../lib/test-provider"
 
 const noopBootstrap = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
-const it = testEffect(
-  Layer.mergeAll(
-    AppFileSystem.defaultLayer,
-    CrossSpawnSpawner.defaultLayer,
-    InstanceStore.defaultLayer.pipe(Layer.provide(noopBootstrap)),
-  ),
+const testLayer = Layer.mergeAll(
+  AppFileSystem.defaultLayer,
+  CrossSpawnSpawner.defaultLayer,
+  InstanceStore.defaultLayer.pipe(Layer.provide(noopBootstrap)),
 )
+const it = testEffect(testLayer)
+const itShared = testEffectShared(testLayer)
 
 const original = {
   JYYCODE_SERVER_PASSWORD: Flag.JYYCODE_SERVER_PASSWORD,
@@ -210,14 +211,24 @@ function httpapiInstance<A, E>(
   )
 }
 
-function serverPathParity<A, E>(name: string, scenario: (serverPath: ServerPath) => Effect.Effect<A, E, TestScope>) {
-  it.live(
+function serverPathParity<A, E>(
+  name: string,
+  scenario: (serverPath: ServerPath) => Effect.Effect<A, E, TestScope>,
+  shared = false,
+  paths: readonly ServerPath[] = ["default", "raw"],
+) {
+  ;(shared ? itShared : it).live(
     name,
     Effect.gen(function* () {
-      const standard = yield* scenario("default")
-      yield* resetState()
-      const raw = yield* scenario("raw")
-      expect(raw).toEqual(standard)
+      const [first, ...rest] = paths
+      if (!first) return
+      const standard = yield* scenario(first)
+      for (const serverPath of rest) {
+        yield* resetState()
+        const raw = yield* scenario(serverPath)
+        expect(raw).toEqual(standard)
+      }
+      return standard
     }),
     10_000,
   )
@@ -729,7 +740,7 @@ describe("HttpApi SDK", () => {
               Deferred.doneUnsafe(ready, Effect.void)
               continue
             }
-            if (type === MessageV2.Event.PartUpdated.type) {
+            if (type === SessionEvent.Legacy.PartUpdated.type) {
               Deferred.doneUnsafe(received, Effect.succeed(payload))
               return
             }
@@ -760,6 +771,7 @@ describe("HttpApi SDK", () => {
         return { type: record(event).type, partType: record(properties.part).type }
       }),
     ),
+    true,
   )
 
   serverPathParity("matches generated SDK prompt no-reply routes", (serverPath) =>
@@ -799,10 +811,15 @@ describe("HttpApi SDK", () => {
     ),
   )
 
-  serverPathParity("matches generated SDK prompt streaming through fake LLM", (serverPath) =>
+  const runFakeLlmPrompt = (serverPath: ServerPath) =>
     withFakeLlm(serverPath, ({ sdk, llm }) =>
       Effect.gen(function* () {
-        yield* llm.text("fake world", { usage: { input: 11, output: 7 } })
+        yield* llm.reset
+        yield* llm.textMatch(
+          (hit) => JSON.stringify(hit.body).includes("hello llm"),
+          "fake world",
+          { usage: { input: 11, output: 7 } },
+        )
         const session = yield* capture(() =>
           sdk.session.create({
             title: "llm prompt",
@@ -830,8 +847,10 @@ describe("HttpApi SDK", () => {
           userText: JSON.stringify(messages.data).includes("hello llm"),
         }
       }),
-    ),
-  )
+    )
+
+  serverPathParity("matches generated SDK prompt streaming through fake LLM (default)", runFakeLlmPrompt, false, ["default"])
+  serverPathParity("matches generated SDK prompt streaming through fake LLM (raw)", runFakeLlmPrompt, false, ["raw"])
 
   httpapi(
     "includes project skills in REST API prompt context",

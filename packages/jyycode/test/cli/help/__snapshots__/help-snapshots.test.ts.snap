@@ -103,6 +103,7 @@ Options:
       --variant                       model variant (provider-specific reasoning effort, e.g., high,
                                       max, minimal)                                         [string]
       --thinking                      show thinking blocks                                 [boolean]
+      --multi-agent                   enable Multi-Agent mode                              [boolean]
       --replay                        replay visible session history on interactive resume
                                                                           [boolean] [default: false]
       --replay-limit                  cap visible interactive replay to the newest N messages
@@ -121,19 +122,21 @@ exports[`jyycode CLI help-text snapshots every documented command emits stable h
 debugging and troubleshooting tools
 
 Commands:
-  jyycode debug config        show resolved configuration
-  jyycode debug lsp           LSP debugging utilities
-  jyycode debug rg            ripgrep debugging utilities
-  jyycode debug file          file system debugging utilities
-  jyycode debug scrap         list all known projects
-  jyycode debug skill         list all available skills
-  jyycode debug snapshot      snapshot debugging utilities
-  jyycode debug startup       print startup timing
-  jyycode debug agent <name>  show agent configuration details
-  jyycode debug v2            debug v2 catalog and built-in plugins
-  jyycode debug info          show debug information
-  jyycode debug paths         show global paths (data, config, cache, state)
-  jyycode debug wait          wait indefinitely (for debugging)
+  jyycode debug config           show resolved configuration
+  jyycode debug lsp              LSP debugging utilities
+  jyycode debug rg               ripgrep debugging utilities
+  jyycode debug file             file system debugging utilities
+  jyycode debug scrap            list all known projects
+  jyycode debug skill            list all available skills
+  jyycode debug snapshot         snapshot debugging utilities
+  jyycode debug startup          print startup timing
+  jyycode debug agent <name>     show agent configuration details
+  jyycode debug v2               debug v2 catalog and built-in plugins
+  jyycode debug storage          session storage diagnostics
+  jyycode debug plan-workspaces  inspect and safely migrate plan workspace storage
+  jyycode debug info             show debug information
+  jyycode debug paths            show global paths (data, config, cache, state)
+  jyycode debug wait             wait indefinitely (for debugging)
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -230,7 +233,8 @@ Options:
                                                                           [boolean] [default: false]
       --mdns-domain  custom domain name for mDNS service (default: jyycode.local)
                                                                  [string] [default: "jyycode.local"]
-      --cors         additional domains to allow for CORS                      [array] [default: []]"
+      --cors         additional domains to allow for CORS                      [array] [default: []]
+      --json         print a machine-readable server.ready event          [boolean] [default: false]"
 `;
 
 exports[`jyycode CLI help-text snapshots every documented command emits stable help text: jyycode web --help 1`] = `
@@ -361,8 +365,9 @@ exports[`jyycode CLI help-text snapshots every documented command emits stable h
 manage sessions
 
 Commands:
-  jyycode session list                list sessions
-  jyycode session delete <sessionID>  delete a session
+  jyycode session list                 list sessions
+  jyycode session delete <sessionID>   delete a session
+  jyycode session recover <sessionID>  inspect or copy a session through bounded compaction recovery
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -398,6 +403,7 @@ database tools
 Commands:
   jyycode db [query]     open an interactive sqlite3 shell or run a query                  [default]
   jyycode db path        print the database path
+  jyycode db status      show the active database and discovered channel databases
   jyycode db migrate     migrate JSON data to SQLite (merges with existing data)
 
 Positionals:
