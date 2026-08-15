@@ -11,6 +11,7 @@
     "lint": "oxlint",
     "turbo": "bun run --bun ./node_modules/turbo/bin/turbo",
     "typecheck": "bun turbo typecheck",
+    "verify:architecture": "bun run script/verify-architecture.ts",
     "postinstall": "node ./script/postinstall.cjs",
     "prepare": "node ./script/prepare.cjs",
     "test": "echo 'do not run tests from root' && exit 1"
