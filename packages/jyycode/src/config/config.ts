@@ -343,6 +343,9 @@ export const Info = Schema.Struct({
       max_bytes: Schema.optional(PositiveInt).annotate({
         description: "Maximum bytes of tool output before it is truncated and saved to disk (default: 51200)",
       }),
+      preview_bytes: Schema.optional(PositiveInt).annotate({
+        description: "Maximum UTF-8 bytes retained in model-visible compacted tool previews (default: 4096)",
+      }),
     }),
   ).annotate({
     description:
@@ -377,7 +380,11 @@ export const Info = Schema.Struct({
         description: "Maximum characters to keep from micro-compacted tool results (default: 8000).",
       }),
       prune_preview_chars: Schema.optional(CompactionMaxChars).annotate({
-        description: "Maximum characters retained as an audit preview when old tool payloads are pruned (default: 4096).",
+        description: "Deprecated compatibility alias for prune_preview_bytes.",
+      }),
+      prune_preview_bytes: Schema.optional(CompactionMaxChars).annotate({
+        description:
+          "Maximum UTF-8 bytes retained as an audit preview when old tool payloads are pruned (default: 4096).",
       }),
       reactive_compact: Schema.optional(Schema.Boolean).annotate({
         description: "Enable emergency compaction on prompt-too-long API errors (default: true).",
@@ -961,9 +968,9 @@ export const layer = Layer.effect(
       const result = yield* InstanceState.use(state, (s) => waitForDependencyFibers(s.deps))
       if (!result) {
         const count = yield* InstanceState.use(state, (s) => s.deps.length)
-        yield* Effect.logWarning("dependency installation is still running; continuing with degraded plugin/tool loading").pipe(
-          Effect.annotateLogs({ count, timeoutMs: DEFAULT_CONFIG_DEPENDENCY_WAIT_TIMEOUT_MS }),
-        )
+        yield* Effect.logWarning(
+          "dependency installation is still running; continuing with degraded plugin/tool loading",
+        ).pipe(Effect.annotateLogs({ count, timeoutMs: DEFAULT_CONFIG_DEPENDENCY_WAIT_TIMEOUT_MS }))
       }
     })
 

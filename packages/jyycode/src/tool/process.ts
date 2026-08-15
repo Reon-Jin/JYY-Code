@@ -59,6 +59,9 @@ type ProcessMetadata = {
   exit?: number | null
   outputPath?: string
   truncated: boolean
+  bytesSeen?: number
+  bytesRetained?: number
+  sha256?: string
 }
 
 function formatInfo(info: BackgroundProcess.Info) {
@@ -72,6 +75,9 @@ function formatInfo(info: BackgroundProcess.Info) {
     info.deadline_at !== undefined ? `<deadline_at>${info.deadline_at}</deadline_at>` : undefined,
     info.termination_reason ? `<termination_reason>${info.termination_reason}</termination_reason>` : undefined,
     info.outputPath ? `<outputPath>${info.outputPath}</outputPath>` : undefined,
+    info.bytesSeen !== undefined ? `<bytesSeen>${info.bytesSeen}</bytesSeen>` : undefined,
+    info.bytesRetained !== undefined ? `<bytesRetained>${info.bytesRetained}</bytesRetained>` : undefined,
+    info.sha256 ? `<sha256>${info.sha256}</sha256>` : undefined,
   ]
     .filter(Boolean)
     .join("\n")
@@ -199,11 +205,17 @@ export const ProcessTool = Tool.define(
               exit: result.info.exit,
               outputPath: result.info.outputPath,
               truncated: result.info.truncated ?? false,
+              bytesSeen: result.info.bytesSeen,
+              bytesRetained: result.info.bytesRetained,
+              sha256: result.info.sha256,
             }
+            const recovery = result.info.truncated
+              ? `\n\n[process output truncated: bytesSeen=${result.info.bytesSeen ?? 0} bytesRetained=${result.info.bytesRetained ?? 0} sha256=${result.info.sha256 ?? "unknown"}; use the outputPath above to recover the full output]`
+              : ""
             return {
               title: result.info.title ?? `Process ${params.id}`,
               metadata,
-              output: [formatInfo(result.info), "", result.output || "(no output)"].join("\n"),
+              output: [formatInfo(result.info), "", result.output || "(no output)", recovery].join("\n"),
             }
           }
 

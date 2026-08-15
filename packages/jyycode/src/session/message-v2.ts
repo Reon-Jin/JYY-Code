@@ -28,6 +28,7 @@ import { MessageError } from "./message-error"
 import { AuthError, OutputLengthError } from "./message-error"
 import { CompactionCheckpointSchema } from "./compaction-checkpoint"
 import { BlobStore } from "@/storage/blob"
+import { retainOutput } from "@jyycode-ai/core/output-retention"
 import { decodeStoredJSONRow, isDecoded } from "./row-decoder"
 export { AuthError, OutputLengthError } from "./message-error"
 
@@ -278,6 +279,8 @@ export const CompactedToolPayload = Schema.Struct({
     sha256: Schema.Array(Schema.String),
   }),
   preview: Schema.String,
+  blobRef: Schema.optional(Schema.String),
+  blobError: Schema.optional(Schema.String),
 }).annotate({ identifier: "CompactedToolPayload" })
 export type CompactedToolPayload = Types.DeepMutable<Schema.Schema.Type<typeof CompactedToolPayload>>
 
@@ -297,10 +300,11 @@ export const ToolStateCompleted = Schema.Struct({
 }).annotate({ identifier: "ToolStateCompleted" })
 export type ToolStateCompleted = Types.DeepMutable<Schema.Schema.Type<typeof ToolStateCompleted>>
 
-function truncateToolOutput(text: string, maxChars?: number) {
-  if (!maxChars || text.length <= maxChars) return text
-  const omitted = text.length - maxChars
-  return `${text.slice(0, maxChars)}\n[Tool output truncated for compaction: omitted ${omitted} chars]`
+async function truncateToolOutput(text: string, maxBytes?: number) {
+  if (!maxBytes || Buffer.byteLength(text, "utf8") <= maxBytes) return text
+  const retained = await retainOutput([text], { maxBytes, strategy: "head" })
+  const ref = text.match(/blob:sha256:[a-f0-9]{64}/)?.[0]
+  return `${retained.preview}\n[Tool output truncated for compaction: omitted ${retained.bytesSeen - retained.bytesRetained} bytes; sha256=${retained.sha256}${ref ? `; recover via ${ref}` : ""}]`
 }
 
 export const ToolStateError = Schema.Struct({
@@ -687,7 +691,7 @@ function providerMeta(metadata: Record<string, any> | undefined) {
 export const toModelMessagesEffect = Effect.fnUntraced(function* (
   input: WithParts[],
   model: Provider.Model,
-  options?: { stripMedia?: boolean; toolOutputMaxChars?: number },
+  options?: { stripMedia?: boolean; toolOutputMaxBytes?: number; toolOutputMaxChars?: number },
 ) {
   const result: UIMessage[] = []
   const blobs = new BlobStore()
@@ -853,9 +857,12 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         if (part.type === "tool") {
           toolNames.add(part.tool)
           if (part.state.status === "completed") {
+            const toolOutput = part.state.output
             const outputText = part.state.time.compacted
               ? "[Old tool result content cleared]"
-              : truncateToolOutput(part.state.output, options?.toolOutputMaxChars)
+              : yield* Effect.promise(() =>
+                  truncateToolOutput(toolOutput, options?.toolOutputMaxBytes ?? options?.toolOutputMaxChars),
+                )
             const attachments = part.state.time.compacted || options?.stripMedia ? [] : (part.state.attachments ?? [])
             const resolvedAttachments = yield* Effect.forEach(attachments, resolveAttachment, { concurrency: 1 })
 
@@ -981,7 +988,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
 export function toModelMessages(
   input: WithParts[],
   model: Provider.Model,
-  options?: { stripMedia?: boolean; toolOutputMaxChars?: number },
+  options?: { stripMedia?: boolean; toolOutputMaxBytes?: number; toolOutputMaxChars?: number },
 ): Promise<ModelMessage[]> {
   return Effect.runPromise(toModelMessagesEffect(input, model, options).pipe(Effect.provide(EffectLogger.layer)))
 }

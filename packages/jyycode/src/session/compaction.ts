@@ -71,7 +71,7 @@ export const Event = {
 
 export const PRUNE_MINIMUM = 20_000
 export const PRUNE_PROTECT = 40_000
-const TOOL_OUTPUT_MAX_CHARS = 2_000
+const TOOL_OUTPUT_MAX_BYTES = 2_000
 const PRUNE_PROTECTED_TOOLS = ["skill"]
 const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
@@ -79,7 +79,11 @@ const MAX_PRESERVE_RECENT_TOKENS = 8_000
 export const AUTO_FAILURE_LIMIT = 3
 
 export type RequestCompressionStage = "none" | "micro" | "reactive" | "full"
-export type RequestCompressionReason = "within_budget" | "micro_compacted" | "reactive_compacted" | "full_compaction_required"
+export type RequestCompressionReason =
+  | "within_budget"
+  | "micro_compacted"
+  | "reactive_compacted"
+  | "full_compaction_required"
 
 export type RequestPreparation = {
   messages: MessageV2.WithParts[]
@@ -315,9 +319,7 @@ export interface Interface {
   /** Apply the request-level compression chain before sending to a provider. */
   readonly prepareRequest: (input: ContextBudgetInput & { model: Provider.Model }) => Effect.Effect<RequestPreparation>
   /** Reactive compaction result with change statistics for telemetry and tests. */
-  readonly reactiveCompact: (input: {
-    messages: MessageV2.WithParts[]
-  }) => Effect.Effect<ReactiveCompactResult>
+  readonly reactiveCompact: (input: { messages: MessageV2.WithParts[] }) => Effect.Effect<ReactiveCompactResult>
   /** Detect if the conversation needs reactive (emergency) compaction. */
   readonly detectReactiveNeed: (input: {
     messages: MessageV2.WithParts[]
@@ -462,7 +464,8 @@ export const layer = Layer.effect(
         ? msgs.findIndex((message) => message.info.id === currentSession.revert?.messageID)
         : -1
       if (currentSession.revert && revertBoundaryIndex < 0) return
-      const previewChars = cfg.compaction?.prune_preview_chars
+      const previewBytes =
+        cfg.compaction?.prune_preview_bytes ?? cfg.tool_output?.preview_bytes ?? cfg.compaction?.prune_preview_chars
 
       let total = 0
       let pruned = 0
@@ -496,9 +499,7 @@ export const layer = Layer.effect(
       if (pruned > PRUNE_MINIMUM) {
         for (const part of toPrune) {
           if (part.state.status === "completed") {
-            yield* session.updatePart(
-              yield* Effect.promise(() => pruneToolPart(part, { previewChars })),
-            )
+            yield* session.updatePart(yield* Effect.promise(() => pruneToolPart(part, { previewBytes })))
           }
         }
         log.info("pruned", { count: toPrune.length })
@@ -588,7 +589,7 @@ export const layer = Layer.effect(
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
       const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {
         stripMedia: true,
-        toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
+        toolOutputMaxBytes: TOOL_OUTPUT_MAX_BYTES,
       })
       const ctx = yield* InstanceState.context
       const msg: MessageV2.Assistant = {
@@ -843,8 +844,7 @@ export const layer = Layer.effect(
       const result = structuredClone(input.messages)
       if (cfg.compaction?.micro_compact === false) return result
 
-      const maxChars =
-        cfg.compaction?.micro_compact_max_chars ?? input.maxChars ?? DEFAULT_MICRO_COMPACT_MAX_CHARS
+      const maxChars = cfg.compaction?.micro_compact_max_chars ?? input.maxChars ?? DEFAULT_MICRO_COMPACT_MAX_CHARS
       const savings = estimateMicroCompactSavings(result, maxChars)
       for (const msg of result) {
         for (const part of msg.parts) {
@@ -1000,8 +1000,8 @@ export const layer = Layer.effect(
       overflow?: boolean
     }) {
       const messages = yield* session
-          .messages({ sessionID: input.sessionID })
-          .pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed([])))
+        .messages({ sessionID: input.sessionID })
+        .pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed([])))
       if (input.auto) {
         const failures = failedAutoCompactions(messages)
         if (failures >= AUTO_FAILURE_LIMIT) {

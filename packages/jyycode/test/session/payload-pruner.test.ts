@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { pruneToolPart } from "../../src/session/payload-pruner"
+import { BlobStore } from "../../src/storage/blob"
 
 test("prunes completed tool payloads to bounded metadata and preview", async () => {
   const output = "x".repeat(5 * 1024 * 1024)
@@ -38,16 +39,24 @@ test("prunes completed tool payloads to bounded metadata and preview", async () 
   expect(pruned.state.input).toEqual({ __compacted: true })
   expect(pruned.state.metadata).toEqual({})
   expect(pruned.state.attachments).toBeUndefined()
-  expect(pruned.state.output).toHaveLength(128)
+  expect(pruned.state.output).toContain("[tool output truncated")
+  expect(pruned.state.output).toContain("blob:sha256:")
   expect(pruned.state.time.compacted).toBe(99)
-  expect(pruned.state.compactedPayload).toMatchObject({
-    version: 1,
-    input: { bytes: expect.any(Number), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
-    output: { bytes: Buffer.byteLength(output), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
-    attachments: { count: 1, bytes: attachmentBytes.byteLength },
-    preview: output.slice(0, 128),
-  })
+  const blobRef = pruned.state.compactedPayload?.blobRef
+  expect(typeof blobRef).toBe("string")
+  if (typeof blobRef !== "string") return
+  expect(blobRef).toMatch(/^blob:sha256:[a-f0-9]{64}$/)
+  const compacted = pruned.state.compactedPayload
+  expect(compacted?.version).toBe(1)
+  expect(compacted?.input.bytes).toBeTypeOf("number")
+  expect(compacted?.input.sha256).toMatch(/^[a-f0-9]{64}$/)
+  expect(compacted?.output.bytes).toBe(Buffer.byteLength(output))
+  expect(compacted?.output.sha256).toMatch(/^[a-f0-9]{64}$/)
+  expect(compacted?.attachments.count).toBe(1)
+  expect(compacted?.attachments.bytes).toBe(attachmentBytes.byteLength)
+  expect(typeof compacted?.preview).toBe("string")
   expect(JSON.stringify(pruned).length).toBeLessThan(20_000)
+  expect(Buffer.from(await new BlobStore().readURL(blobRef)).toString("utf8")).toBe(output)
 })
 
 test("does not rewrite active or non-completed tool states", async () => {

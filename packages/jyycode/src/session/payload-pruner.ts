@@ -1,11 +1,18 @@
 import crypto from "node:crypto"
 import type { MessageV2 } from "./message-v2"
 import { BlobStore } from "@/storage/blob"
+import { DEFAULT_OUTPUT_PREVIEW_BYTES, modelOutputSummary, retainOutput } from "@jyycode-ai/core/output-retention"
 
-export const DEFAULT_TOOL_PREVIEW_CHARS = 4 * 1024
-export const MAX_TOOL_PREVIEW_CHARS = 4 * 1024
+export const DEFAULT_TOOL_PREVIEW_BYTES = DEFAULT_OUTPUT_PREVIEW_BYTES
+export const MAX_TOOL_PREVIEW_BYTES = DEFAULT_OUTPUT_PREVIEW_BYTES
+/** @deprecated Use the byte-based preview limits. */
+export const DEFAULT_TOOL_PREVIEW_CHARS = DEFAULT_TOOL_PREVIEW_BYTES
+/** @deprecated Use the byte-based preview limits. */
+export const MAX_TOOL_PREVIEW_CHARS = MAX_TOOL_PREVIEW_BYTES
 
 export type PayloadPruneOptions = {
+  readonly previewBytes?: number
+  /** @deprecated Kept for config compatibility; interpreted as a byte limit. */
   readonly previewChars?: number
   readonly now?: number
   readonly blobStore?: BlobStore
@@ -33,9 +40,12 @@ export async function pruneToolPart(
   options: PayloadPruneOptions = {},
 ): Promise<MessageV2.ToolPart> {
   if (part.state.status !== "completed") return part
-  const previewChars = Math.max(
+  const previewBytes = Math.max(
     0,
-    Math.min(MAX_TOOL_PREVIEW_CHARS, Math.floor(options.previewChars ?? DEFAULT_TOOL_PREVIEW_CHARS)),
+    Math.min(
+      MAX_TOOL_PREVIEW_BYTES,
+      Math.floor(options.previewBytes ?? options.previewChars ?? DEFAULT_TOOL_PREVIEW_BYTES),
+    ),
   )
   const inputJSON = stableJSON(part.state.input)
   const output = part.state.output
@@ -44,14 +54,29 @@ export async function pruneToolPart(
     (part.state.attachments ?? []).map((attachment) => blobStore.describeURL(attachment.url, attachment.mime)),
   )
   const compactedAt = options.now ?? Date.now()
-  const preview = output.slice(0, previewChars)
+  const retained = await retainOutput([output], {
+    maxBytes: previewBytes,
+    strategy: "head_tail",
+    ...(Buffer.byteLength(output, "utf8") > previewBytes
+      ? {
+          blob: {
+            write: async (source: AsyncIterable<Uint8Array>) => {
+              const record = await blobStore.put({ source, mime: "text/plain; charset=utf-8", persistMetadata: true })
+              return { ref: record.url }
+            },
+          },
+        }
+      : {}),
+  })
+  const preview = retained.preview
+  const modelOutput = modelOutputSummary(retained)
 
   return {
     ...part,
     state: {
       status: "completed",
       input: { __compacted: true },
-      output: preview,
+      output: modelOutput,
       title: part.state.title,
       metadata: {},
       time: { start: part.state.time.start, end: part.state.time.end, compacted: compactedAt },
@@ -65,6 +90,8 @@ export async function pruneToolPart(
           sha256: attachments.map((attachment) => attachment.digest),
         },
         preview,
+        ...(retained.blobRef ? { blobRef: retained.blobRef } : {}),
+        ...(retained.blobError ? { blobError: retained.blobError } : {}),
       },
     },
   }

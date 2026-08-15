@@ -112,6 +112,7 @@ describe("Truncate", () => {
         const resolved = yield* svc.limits()
         expect(resolved.maxLines).toBe(Truncate.MAX_LINES)
         expect(resolved.maxBytes).toBe(Truncate.MAX_BYTES)
+        expect(resolved.provenance).toBe("default")
       }),
     )
 
@@ -122,6 +123,7 @@ describe("Truncate", () => {
           const resolved = yield* (yield* Truncate.Service).limits()
           expect(resolved.maxLines).toBe(123)
           expect(resolved.maxBytes).toBe(456)
+          expect(resolved.provenance).toBe("config")
         }),
       )
 

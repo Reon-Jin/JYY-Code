@@ -4,6 +4,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { AppProcess } from "@jyycode-ai/core/process"
 import * as Truncate from "@/tool/truncate"
 import { budgetFor } from "@/execution/budget"
+import { createOutputRetention, type OutputRetention } from "@jyycode-ai/core/output-retention"
 
 export type Status = "running" | "completed" | "error" | "cancelled" | "timed_out" | "kill_failed"
 
@@ -21,13 +22,16 @@ export type Info = {
   termination_reason?: string
   outputPath?: string
   truncated?: boolean
+  bytesSeen?: number
+  bytesRetained?: number
+  sha256?: string
 }
 
 type Active = {
   info: Info
   handle?: AppProcess.AppProcessHandle
-  chunks: string[]
-  bytes: number
+  retention: OutputRetention
+  outputFiber?: Fiber.Fiber<void, unknown>
   watchdog?: Fiber.Fiber<void, unknown>
   terminationRequested?: "cancelled" | "timed_out"
 }
@@ -92,6 +96,8 @@ export const layer = Layer.effect(
       data: { exit?: number | null; termination_reason?: string } = {},
       stopWatchdog = true,
     ) {
+      const current = (yield* SynchronizedRef.get(processes)).get(id)
+      if (current) yield* Effect.promise(() => current.retention.flush())
       const completed_at = Date.now()
       const result = yield* SynchronizedRef.modify(processes, (items): readonly [FinishUpdate, Map<string, Active>] => {
         const active = items.get(id)
@@ -111,11 +117,24 @@ export const layer = Layer.effect(
             ...active.info,
             status,
             completed_at,
+            ...(() => {
+              const preview = active.retention.snapshot()
+              return {
+                truncated: preview.truncated,
+                bytesSeen: preview.bytesSeen,
+                bytesRetained: preview.bytesRetained,
+                sha256: preview.sha256,
+                ...(preview.truncated && preview.blobRef ? { outputPath: preview.blobRef } : {}),
+              }
+            })(),
             ...(data.exit !== undefined ? { exit: data.exit } : {}),
             ...(data.termination_reason ? { termination_reason: data.termination_reason } : {}),
           },
         }
-        return [{ info: snapshot(next), watchdog: stopWatchdog ? active.watchdog : undefined }, new Map(items).set(id, next)] as const
+        return [
+          { info: snapshot(next), watchdog: stopWatchdog ? active.watchdog : undefined },
+          new Map(items).set(id, next),
+        ] as const
       })
       if (result?.watchdog) yield* Fiber.interrupt(result.watchdog).pipe(Effect.ignore)
       return result?.info
@@ -131,7 +150,6 @@ export const layer = Layer.effect(
 
     const appendRef = Effect.fn("BackgroundProcess.appendRef")(function* (
       processes: SynchronizedRef.SynchronizedRef<Map<string, Active>>,
-      limits: { maxBytes: number },
       id: string,
       text: string,
     ) {
@@ -140,29 +158,20 @@ export const layer = Layer.effect(
         Effect.fnUntraced(function* (items) {
           const active = items.get(id)
           if (!active) return items
-          const chunks = [...active.chunks, text]
-          let bytes = active.bytes + Buffer.byteLength(text, "utf-8")
-          let truncated = active.info.truncated ?? false
-          let outputPath = active.info.outputPath
-          while (bytes > limits.maxBytes * 2 && chunks.length > 1) {
-            const removed = chunks.shift()
-            if (!removed) break
-            outputPath ??= yield* trunc.write(active.chunks.join(""))
-            bytes -= Buffer.byteLength(removed, "utf-8")
-            truncated = true
-          }
+          yield* Effect.promise(() => active.retention.append(text))
+          const preview = active.retention.snapshot()
           return new Map(items).set(id, {
             ...active,
-            chunks,
-            bytes,
-            info: { ...active.info, truncated, ...(outputPath ? { outputPath } : {}) },
+            info: {
+              ...active.info,
+              truncated: preview.truncated,
+              bytesSeen: preview.bytesSeen,
+              bytesRetained: preview.bytesRetained,
+              sha256: preview.sha256,
+            },
           })
         }),
       )
-    })
-
-    const append = Effect.fn("BackgroundProcess.append")(function* (id: string, text: string) {
-      return yield* appendRef(processes, yield* trunc.limits(), id, text)
     })
 
     const terminate = Effect.fn("BackgroundProcess.terminate")(function* (
@@ -182,11 +191,14 @@ export const layer = Layer.effect(
       })
       const forceAfter = Math.max(forceAfterMs, 50)
       const result = yield* Effect.exit(
-        active.handle.terminate({
-          graceMs: forceAfter,
-          verifyMs: Math.max(forceAfter * 2, 100),
-        }).pipe(Effect.timeout(`${Math.max(forceAfter * 2, 100)} millis`)),
+        active.handle
+          .terminate({
+            graceMs: forceAfter,
+            verifyMs: Math.max(forceAfter * 2, 100),
+          })
+          .pipe(Effect.timeout(`${Math.max(forceAfter * 2, 100)} millis`)),
       )
+      if (active.outputFiber) yield* Fiber.interrupt(active.outputFiber).pipe(Effect.ignore)
       if (Exit.isSuccess(result) && result.value.state !== "kill_failed") {
         return yield* finish(id, successStatus, { termination_reason: reason })
       }
@@ -206,7 +218,9 @@ export const layer = Layer.effect(
       const id = Identifier.ascending("proc")
       const limits = yield* trunc.limits()
       const budget = budgetFor("background_process", input.timeout)
-      const handle = yield* appProcess.spawn(input.command).pipe(Effect.orDie, Effect.provideService(Scope.Scope, scope))
+      const handle = yield* appProcess
+        .spawn(input.command)
+        .pipe(Effect.orDie, Effect.provideService(Scope.Scope, scope))
       const started_at = Date.now()
       const info: Info = {
         id,
@@ -220,15 +234,38 @@ export const layer = Layer.effect(
       }
 
       yield* SynchronizedRef.update(processes, (items) =>
-        new Map(items).set(id, { info, handle, chunks: [], bytes: 0 }),
+        new Map(items).set(id, {
+          info,
+          handle,
+          retention: createOutputRetention({
+            maxBytes: limits.maxBytes,
+            strategy: "head_tail",
+            spill: "on_truncate",
+            blob: {
+              write: (source) => Effect.runPromise(trunc.writeStream(source)).then((ref) => ({ ref })),
+            },
+          }),
+        }),
       )
 
-      yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) => appendRef(processes, limits, id, chunk)).pipe(
+      const outputFiber = yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>
+        appendRef(processes, id, chunk),
+      ).pipe(
         Effect.catchCause(() => Effect.void),
         Effect.forkIn(scope, { startImmediately: true }),
       )
+      yield* SynchronizedRef.update(processes, (items) => {
+        const active = items.get(id)
+        return active ? new Map(items).set(id, { ...active, outputFiber }) : items
+      })
       yield* handle.exitCode.pipe(
-        Effect.flatMap((exit) => finishRef(processes, id, exit === 0 ? "completed" : "error", { exit }, true)),
+        Effect.flatMap((exit) =>
+          Effect.gen(function* () {
+            const active = (yield* SynchronizedRef.get(processes)).get(id)
+            if (active?.outputFiber) yield* Fiber.join(active.outputFiber).pipe(Effect.catch(() => Effect.void))
+            return yield* finishRef(processes, id, exit === 0 ? "completed" : "error", { exit }, true)
+          }),
+        ),
         Effect.catch(() => finishRef(processes, id, "error", { exit: null })),
         Effect.catchCause(() => Effect.void),
         Effect.forkIn(scope, { startImmediately: true }),
@@ -257,7 +294,7 @@ export const layer = Layer.effect(
     const output: Interface["output"] = Effect.fn("BackgroundProcess.output")(function* (input) {
       const active = (yield* SynchronizedRef.get(processes)).get(input.id)
       if (!active) return { output: "" }
-      const text = active.chunks.join("")
+      const text = active.retention.snapshot().preview
       const lines = text.split("\n")
       const limit = input.limit ?? 200
       const start = input.offset ? Math.max(0, input.offset - 1) : Math.max(0, lines.length - limit)
@@ -273,27 +310,26 @@ export const layer = Layer.effect(
       return yield* terminate(input.id, "cancelled", "user_requested", input.forceAfterMs ?? 3000)
     })
 
-    const cancelOwner: Interface["cancelOwner"] = Effect.fn("BackgroundProcess.cancelOwner")(function* (ownerSessionId) {
-      const items = yield* SynchronizedRef.get(processes)
-      const ids = Array.from(items.values())
-        .filter(
-          (active) =>
-            active.info.owner_session_id === ownerSessionId &&
-            (active.info.status === "running" || active.info.status === "kill_failed"),
-        )
-        .map((active) => active.info.id)
-      const results = yield* Effect.forEach(ids, (id) => terminate(id, "cancelled", "session_cancelled", 3000), {
-        concurrency: "unbounded",
-      })
-      return results.filter((info): info is Info => info !== undefined)
-    })
+    const cancelOwner: Interface["cancelOwner"] = Effect.fn("BackgroundProcess.cancelOwner")(
+      function* (ownerSessionId) {
+        const items = yield* SynchronizedRef.get(processes)
+        const ids = Array.from(items.values())
+          .filter(
+            (active) =>
+              active.info.owner_session_id === ownerSessionId &&
+              (active.info.status === "running" || active.info.status === "kill_failed"),
+          )
+          .map((active) => active.info.id)
+        const results = yield* Effect.forEach(ids, (id) => terminate(id, "cancelled", "session_cancelled", 3000), {
+          concurrency: "unbounded",
+        })
+        return results.filter((info): info is Info => info !== undefined)
+      },
+    )
 
     return Service.of({ start, get, output, kill, cancelOwner })
   }),
 )
 
-export const defaultLayer = layer.pipe(
-  Layer.provide(AppProcess.defaultLayer),
-  Layer.provide(Truncate.defaultLayer),
-)
+export const defaultLayer = layer.pipe(Layer.provide(AppProcess.defaultLayer), Layer.provide(Truncate.defaultLayer))
 export * as BackgroundProcess from "./job"

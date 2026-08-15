@@ -810,7 +810,8 @@ describe("session.message-v2.toModelMessage", () => {
             toolName: "bash",
             output: {
               type: "text",
-              value: "abcd\n[Tool output truncated for compaction: omitted 6 chars]",
+              value:
+                "abcd\n[Tool output truncated for compaction: omitted 6 bytes; sha256=72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0]",
             },
           },
         ],

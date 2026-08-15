@@ -1,4 +1,4 @@
-import { Effect, Exit, Stream } from "effect"
+import { Effect, Exit, Fiber, Stream } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
 import * as Tool from "./tool"
@@ -23,13 +23,17 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { ShellPrompt, type Parameters } from "./shell/prompt"
 import { BashArity } from "@/permission/arity"
 import { budgetFor } from "@/execution/budget"
+import { createOutputRetention } from "@jyycode-ai/core/output-retention"
 
 export { Parameters } from "./shell/prompt"
 
 export class ShellTerminationError extends Error {
   readonly code = "TIMED_OUT_KILL_FAILED"
 
-  constructor(readonly timeoutMs: number, readonly reason: string) {
+  constructor(
+    readonly timeoutMs: number,
+    readonly reason: string,
+  ) {
     super(`shell process exceeded ${timeoutMs}ms but termination was not verified: ${reason}`)
     this.name = "ShellTerminationError"
   }
@@ -85,11 +89,6 @@ type Scan = {
   dirs: Set<string>
   patterns: Set<string>
   always: Set<string>
-}
-
-type Chunk = {
-  text: string
-  size: number
 }
 
 export const log = Log.create({ service: "shell-tool" })
@@ -445,17 +444,15 @@ export const ShellTool = Tool.define(
       ctx: Tool.Context,
     ) {
       const limits = yield* trunc.limits()
-      const keep = limits.maxBytes * 2
       let full = ""
       let last = ""
-      const list: Chunk[] = []
-      let used = 0
       let file = ""
       let sink: ReturnType<typeof createWriteStream> | undefined
       let cut = false
       let expired = false
       let aborted = false
       let killFailed: string | undefined
+      const retention = createOutputRetention({ maxBytes: limits.maxBytes, strategy: "tail" })
 
       const closeSink = Effect.fnUntraced(function* () {
         const stream = sink
@@ -494,31 +491,38 @@ export const ShellTool = Tool.define(
           yield* Effect.addFinalizer(closeSink)
           const handle = yield* spawner.spawn(cmd(input.shell, input.command, input.cwd, input.env))
 
-          yield* Effect.forkScoped(
+          const outputFiber = yield* Effect.forkScoped(
             Stream.runForEach(Stream.decodeText(handle.all), (chunk) => {
-              const size = Buffer.byteLength(chunk, "utf-8")
-              list.push({ text: chunk, size })
-              used += size
-              while (used > keep && list.length > 1) {
-                const item = list.shift()
-                if (!item) break
-                used -= item.size
-                cut = true
-              }
-
+              const observed = Effect.promise(() => retention.append(chunk))
               last = preview(last + chunk)
 
               if (file) {
-                sink?.write(chunk)
+                return observed.pipe(
+                  Effect.andThen(
+                    Effect.sync(() => {
+                      sink?.write(chunk)
+                    }),
+                  ),
+                  Effect.andThen(
+                    ctx.metadata({
+                      metadata: {
+                        output: last,
+                        description: input.description,
+                      },
+                    }),
+                  ),
+                )
               } else {
-                full += chunk
-                if (Buffer.byteLength(full, "utf-8") > limits.maxBytes) {
-                  return trunc.write(full).pipe(
+                const next = full + chunk
+                if (Buffer.byteLength(next, "utf-8") > limits.maxBytes) {
+                  return observed.pipe(
+                    Effect.andThen(trunc.write(full)),
                     Effect.andThen((next) =>
                       Effect.sync(() => {
                         file = next
                         cut = true
                         sink = createWriteStream(next, { flags: "a" })
+                        sink.write(chunk)
                         full = ""
                       }),
                     ),
@@ -532,14 +536,19 @@ export const ShellTool = Tool.define(
                     ),
                   )
                 }
+                full = next
               }
 
-              return ctx.metadata({
-                metadata: {
-                  output: last,
-                  description: input.description,
-                },
-              })
+              return observed.pipe(
+                Effect.andThen(
+                  ctx.metadata({
+                    metadata: {
+                      output: last,
+                      description: input.description,
+                    },
+                  }),
+                ),
+              )
             }),
           )
 
@@ -569,9 +578,11 @@ export const ShellTool = Tool.define(
             if (Exit.isFailure(killed)) killFailed = String(killed.cause)
           }
 
+          yield* Fiber.join(outputFiber).pipe(Effect.catch(() => Effect.void))
+
           return exit.kind === "exit" ? exit.code : null
         }),
-      ).pipe(Effect.orDie)
+      ).pipe(Effect.ensuring(Effect.promise(() => retention.cancel()).pipe(Effect.ignore)), Effect.orDie)
 
       if (killFailed) yield* Effect.die(new ShellTerminationError(input.timeout, killFailed))
 
@@ -582,11 +593,11 @@ export const ShellTool = Tool.define(
         )
       }
       if (aborted) meta.push("User aborted the command")
-      const raw = list.map((item) => item.text).join("")
-      const end = tail(raw, limits.maxLines, limits.maxBytes)
-      if (end.cut) cut = true
+      const retained = yield* Effect.promise(() => retention.flush())
+      const end = tail(retained.preview, limits.maxLines, limits.maxBytes)
+      if (retained.truncated || end.cut) cut = true
       if (!file && end.cut) {
-        file = yield* trunc.write(raw)
+        file = yield* trunc.write(full)
       }
 
       let output = end.text
@@ -606,6 +617,9 @@ export const ShellTool = Tool.define(
           exit: code,
           description: input.description,
           truncated: cut,
+          bytesSeen: retained.bytesSeen,
+          bytesRetained: retained.bytesRetained,
+          sha256: retained.sha256,
           ...(cut && file ? { outputPath: file } : {}),
         },
         output,
