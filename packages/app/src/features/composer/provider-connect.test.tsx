@@ -1,4 +1,4 @@
-import type { Provider } from "@jyycode-ai/sdk/v2/client"
+import type { PublicProvider } from "@jyycode-ai/sdk/v2/client"
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -6,7 +6,7 @@ import { ProviderConnectButton } from "./provider-connect"
 
 const directory = "C:\\work\\demo"
 
-function provider(id: string, name: string): Provider {
+function provider(id: string, name: string): PublicProvider {
   return { id, name, source: "config", env: [], options: {}, models: {} }
 }
 

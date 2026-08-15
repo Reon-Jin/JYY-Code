@@ -175,7 +175,6 @@ describe("blob backfill", () => {
       for (const name of ["jyycode-main.db", "jyycode.db"]) {
         const sourceDb = path.join(root, "source", name)
         const copyDb = path.join(root, "copy", name)
-        const sourceRoot = path.join(root, "source", name.replace(/\.db$/, "-data"))
         const copyRoot = path.join(root, "copy", name.replace(/\.db$/, "-data"))
         await mkdir(path.dirname(sourceDb), { recursive: true })
         await mkdir(path.dirname(copyDb), { recursive: true })

@@ -938,7 +938,7 @@ it.instance("cancelling a dispatched task forces the next turn to redispatch", (
         ],
       }),
     )
-    const dispatched = yield* Effect.promise(() => defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }))
+    yield* Effect.promise(() => defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }))
     yield* prompt.prompt({
       sessionID: chat.id,
       agent: "build",

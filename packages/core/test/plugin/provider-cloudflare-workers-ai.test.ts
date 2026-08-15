@@ -1,8 +1,6 @@
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import { Catalog } from "@jyycode-ai/core/catalog"
-import { Location } from "@jyycode-ai/core/location"
-import { EventV2 } from "@jyycode-ai/core/event"
 import { ModelV2 } from "@jyycode-ai/core/model"
 import { PluginV2 } from "@jyycode-ai/core/plugin"
 import { CloudflareWorkersAIPlugin } from "@jyycode-ai/core/plugin/provider/cloudflare-workers-ai"

@@ -10,7 +10,7 @@ Log.init({
 })
 LLMTrace.init()
 
-const cli = yargs(hideBin(process.argv))
+yargs(hideBin(process.argv))
   .parserConfiguration({ "populate--": true })
   .scriptName("jyycode")
   .wrap(100)

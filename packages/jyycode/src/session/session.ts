@@ -196,9 +196,7 @@ const Share = Schema.Struct({
   url: Schema.String,
 })
 
-// Legacy HTTP accepted negative values here. Keep archive timestamps permissive
-// while excluding non-finite values that cannot round-trip through JSON.
-export const ArchivedTimestamp = Schema.Finite
+export const ArchivedTimestamp = NonNegativeInt
 
 const Time = Schema.Struct({
   created: NonNegativeInt,

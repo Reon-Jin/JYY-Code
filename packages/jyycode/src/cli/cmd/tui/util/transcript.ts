@@ -1,4 +1,4 @@
-import type { AssistantMessage, Part, Provider, UserMessage } from "@jyycode-ai/sdk/v2"
+import type { AssistantMessage, Part, PublicProvider, UserMessage } from "@jyycode-ai/sdk/v2"
 import { Locale } from "@/util/locale"
 import * as Model from "./model"
 
@@ -6,7 +6,7 @@ export type TranscriptOptions = {
   thinking: boolean
   toolDetails: boolean
   assistantMetadata: boolean
-  providers?: Provider[]
+  providers?: PublicProvider[]
 }
 
 export type SessionInfo = {
@@ -47,7 +47,7 @@ export function formatMessage(
   msg: UserMessage | AssistantMessage,
   parts: Part[],
   options: TranscriptOptions,
-  providers?: Provider[] | ReadonlyMap<string, Provider>,
+  providers?: PublicProvider[] | ReadonlyMap<string, PublicProvider>,
 ): string {
   let result = ""
 
@@ -67,7 +67,7 @@ export function formatMessage(
 export function formatAssistantHeader(
   msg: AssistantMessage,
   includeMetadata: boolean,
-  providers?: Provider[] | ReadonlyMap<string, Provider>,
+  providers?: PublicProvider[] | ReadonlyMap<string, PublicProvider>,
 ): string {
   if (!includeMetadata) {
     return `## Assistant\n\n`

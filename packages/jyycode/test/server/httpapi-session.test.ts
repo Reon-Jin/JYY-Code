@@ -801,8 +801,7 @@ describe("session HttpApi", () => {
           headers,
           body,
         })
-        expect(response.status).toBe(200)
-        expect((yield* json<Session.Info>(response)).time.archived).toBe(-1)
+        expect(response.status).toBe(400)
       }),
     { git: true, config: { formatter: false, lsp: false } },
   )

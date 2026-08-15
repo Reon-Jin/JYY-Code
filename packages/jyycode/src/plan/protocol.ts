@@ -710,7 +710,6 @@ function nextStepId(plan: PlanFile) {
 }
 
 function nextTaskId(step: PlanStep) {
-  const stepNo = step.id.slice(1)
   return `${step.id}_t${Math.max(0, ...step.tasks.map((task) => Number(task.id.split("_t")[1]) || 0)) + 1}`
 }
 

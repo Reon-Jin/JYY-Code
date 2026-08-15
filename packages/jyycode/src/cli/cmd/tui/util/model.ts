@@ -1,10 +1,14 @@
-import type { Provider } from "@jyycode-ai/sdk/v2"
+import type { PublicProvider } from "@jyycode-ai/sdk/v2"
 
-export function index(list: Provider[] | undefined) {
+export function index(list: PublicProvider[] | undefined) {
   return new Map((list ?? []).map((item) => [item.id, item] as const))
 }
 
-export function get(list: Provider[] | ReadonlyMap<string, Provider> | undefined, providerID: string, modelID: string) {
+export function get(
+  list: PublicProvider[] | ReadonlyMap<string, PublicProvider> | undefined,
+  providerID: string,
+  modelID: string,
+) {
   const provider =
     list instanceof Map
       ? list.get(providerID)
@@ -15,7 +19,7 @@ export function get(list: Provider[] | ReadonlyMap<string, Provider> | undefined
 }
 
 export function name(
-  list: Provider[] | ReadonlyMap<string, Provider> | undefined,
+  list: PublicProvider[] | ReadonlyMap<string, PublicProvider> | undefined,
   providerID: string,
   modelID: string,
 ) {

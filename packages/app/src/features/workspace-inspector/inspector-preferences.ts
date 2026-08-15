@@ -11,14 +11,8 @@ export const defaultInspectorPreferences: InspectorPreferences = { panes: [], ra
 
 const panes = new Set<InspectorPane>(["plan", "subagents", "blackboard", "changes", "files"])
 
-const legacyPanes: Record<string, InspectorPane> = {
-  todo: "plan",
-  "multi-agent": "plan",
-}
-
-function migratePane(value: string): InspectorPane | undefined {
+function parsePane(value: string): InspectorPane | undefined {
   if (panes.has(value as InspectorPane)) return value as InspectorPane
-  return legacyPanes[value]
 }
 
 function preferenceKey(directory: string) {
@@ -42,25 +36,16 @@ export function loadInspectorPreferences(directory: string, storage?: Storage): 
       const seen = new Set<InspectorPane>()
       const ordered = record.panes.flatMap((pane) => {
         if (typeof pane !== "string") return []
-        const migrated = migratePane(pane)
-        if (!migrated || seen.has(migrated)) return []
-        seen.add(migrated)
-        return [migrated]
+        const parsedPane = parsePane(pane)
+        if (!parsedPane || seen.has(parsedPane)) return []
+        seen.add(parsedPane)
+        return [parsedPane]
       })
       return {
         panes: ordered,
         ratios: normalizeInspectorRatios(ordered.length, record.ratios),
         width: validWidth(record.width),
       }
-    }
-    if (typeof record.pane === "string") {
-      const pane = migratePane(record.pane)
-      return pane ? { panes: [pane], ratios: [1], width: validWidth(record.width) } : { ...defaultInspectorPreferences }
-    }
-    if (typeof record.open === "boolean") {
-      return record.open
-        ? { panes: ["plan"], ratios: [1], width: validWidth(record.width) }
-        : { ...defaultInspectorPreferences }
     }
     return { ...defaultInspectorPreferences }
   } catch {

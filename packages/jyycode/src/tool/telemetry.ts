@@ -2,7 +2,6 @@ import { Cause, Effect, Schema } from "effect"
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
 import { Permission } from "@/permission"
-import type { Tool } from "./tool"
 
 const OptionalString = Schema.optional(Schema.String)
 const OptionalNumber = Schema.optional(Schema.Number)

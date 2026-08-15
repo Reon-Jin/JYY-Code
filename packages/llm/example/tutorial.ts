@@ -52,7 +52,7 @@ const request = LLM.request({
 
 // `http` is intentionally not needed for normal calls. This shows the shape for
 // newly released provider fields before they deserve a typed provider option.
-const rawOverlayExample = LLM.request({
+export const rawOverlayExample = LLM.request({
   model,
   prompt: "Show the final HTTP overlay shape.",
   http: {
@@ -64,7 +64,7 @@ const rawOverlayExample = LLM.request({
 
 // 3. `generate` sends the request and collects the event stream into one
 // response object. `response.text` is the collected text output.
-const generateOnce = Effect.gen(function* () {
+export const generateOnce = Effect.gen(function* () {
   const response = yield* LLM.generate(request)
 
   console.log("\n== generate ==")
@@ -74,7 +74,7 @@ const generateOnce = Effect.gen(function* () {
 
 // 4. `stream` exposes provider output as common `LLMEvent`s for UIs that want
 // incremental text, reasoning, tool input, usage, or finish events.
-const streamText = LLM.stream(request).pipe(
+export const streamText = LLM.stream(request).pipe(
   Stream.tap((event) =>
     Effect.sync(() => {
       if (event.type === "text-delta") process.stdout.write(`\ntext: ${event.text}`)
@@ -124,7 +124,7 @@ const WeatherReport = Schema.Struct({
   highFahrenheit: Schema.Number,
 })
 
-const generateStructuredObject = Effect.gen(function* () {
+export const generateStructuredObject = Effect.gen(function* () {
   const response = yield* LLM.generateObject({
     model,
     system: "Return only structured weather data.",
@@ -139,7 +139,7 @@ const generateStructuredObject = Effect.gen(function* () {
 
 // If the shape is only known at runtime, pass raw JSON Schema instead. The
 // `.object` type is `unknown`; callers that need static types should validate it.
-const generateDynamicObject = LLM.generateObject({
+export const generateDynamicObject = LLM.generateObject({
   model,
   prompt: "Extract the city and forecast from: San Francisco is sunny.",
   jsonSchema: {
@@ -213,7 +213,7 @@ const FakeEcho = {
 // `LLMClient.prepare` is the lower-level inspection hook: it compiles through
 // body conversion, validation, endpoint, auth, and HTTP construction without
 // sending anything over the network.
-const inspectFakeProvider = Effect.gen(function* () {
+export const inspectFakeProvider = Effect.gen(function* () {
   const prepared = yield* LLMClient.prepare(
     LLM.request({
       model: FakeEcho.configure().model("tiny-echo"),

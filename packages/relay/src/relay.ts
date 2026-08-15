@@ -1,7 +1,6 @@
 import {
   type RelayEnvelope,
   type RelayHello,
-  type RelayMessage,
   type RelayNotification,
   type RelayPushToken,
   parseRelayMessage,

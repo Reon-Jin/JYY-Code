@@ -53,28 +53,18 @@ await createClient({
 const sseTypesPath = path.join(generatedOutput, "client/types.gen.ts")
 const sseTypesFile = Bun.file(sseTypesPath)
 const sseTypesSource = await sseTypesFile.text()
-const sseTypesPatched = sseTypesSource.replace(
+const sseResultPatched = sseTypesSource.replace(
   "=> Promise<ServerSentEventsResult<TData, TError>>",
   "=> Promise<ServerSentEventsResult<TData>>",
 )
-if (sseTypesPatched === sseTypesSource) {
+const sseTypesPatched = sseResultPatched.replace(
+  "type SseFn = <\n  TData = unknown,\n  TError = unknown,",
+  "type SseFn = <\n  TData = unknown,\n  _TError = unknown,",
+)
+if (sseResultPatched === sseTypesSource || sseTypesPatched === sseResultPatched) {
   throw new Error(`SseFn patch did not apply; @hey-api/openapi-ts output may have changed (${sseTypesPath})`)
 }
 await Bun.write(sseTypesPath, sseTypesPatched)
-
-// Preserve the public type name used by existing v2 SDK consumers. The
-// OpenAPI generator names this response shape PublicProvider after the
-// server's schema update, while the SDK's compatibility surface is Provider.
-const sdkTypesPath = path.join(generatedOutput, "types.gen.ts")
-const sdkTypesFile = Bun.file(sdkTypesPath)
-const sdkTypesSource = await sdkTypesFile.text()
-const sdkTypesPatched = sdkTypesSource.includes("export type Provider = PublicProvider")
-  ? sdkTypesSource
-  : sdkTypesSource.replace("export type PublicProvider = {", "export type Provider = PublicProvider\n\nexport type PublicProvider = {")
-if (sdkTypesPatched === sdkTypesSource && !sdkTypesSource.includes("export type Provider = PublicProvider")) {
-  throw new Error(`Provider compatibility alias did not apply; generated SDK output may have changed (${sdkTypesPath})`)
-}
-await Bun.write(sdkTypesPath, sdkTypesPatched)
 
 await $`bun prettier --config ${path.join(dir, "../../../package.json")} --write ${generatedOutput}`
 if (!verifyOnly) {

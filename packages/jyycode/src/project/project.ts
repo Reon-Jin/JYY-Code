@@ -16,7 +16,6 @@ import { InstanceState } from "@/effect/instance-state"
 import { Effect, Layer, Scope, Context, Stream, Types, Schema } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
-import { AppProcess } from "@jyycode-ai/core/process"
 import { Project as ProjectV2 } from "@jyycode-ai/core/project"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { AbsolutePath, NonNegativeInt, optionalOmitUndefined } from "@jyycode-ai/core/schema"
@@ -142,7 +141,6 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
-    const proc = yield* AppProcess.Service
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const projectV2 = yield* ProjectV2.Service
     const bus = yield* Bus.Service
@@ -498,7 +496,6 @@ export const layer = Layer.effect(
 export const defaultLayer = layer.pipe(
   Layer.provide(Bus.defaultLayer),
   Layer.provide(ProjectV2.defaultLayer),
-  Layer.provide(AppProcess.defaultLayer),
   Layer.provide(CrossSpawnSpawner.defaultLayer),
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(RuntimeFlags.defaultLayer),

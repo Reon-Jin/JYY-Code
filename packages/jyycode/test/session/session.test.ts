@@ -13,6 +13,7 @@ import { Storage } from "@/storage/storage"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { BackgroundJob } from "@/background/job"
+import { SessionEvent } from "@jyycode-ai/core/session-event"
 
 void Log.init({ print: false })
 
@@ -127,7 +128,7 @@ describe("step-finish token propagation via Bus event", () => {
         // is the mutable domain type. Cast bridges the two — safe because the
         // test only reads the value afterwards.
         const received = yield* Deferred.make<MessageV2.Part>()
-        const unsub = subscribeGlobal(MessageV2.Event.PartUpdated.type, (event) => {
+        const unsub = subscribeGlobal(SessionEvent.Legacy.PartUpdated.type, (event) => {
           Deferred.doneUnsafe(received, Effect.succeed(event.properties.part as MessageV2.Part))
         })
         yield* Effect.addFinalizer(() => Effect.sync(unsub))

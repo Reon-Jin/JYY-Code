@@ -10,6 +10,7 @@ import {
   resolveZedSelection,
 } from "../../../src/cli/cmd/tui/context/editor-zed"
 import { tmpdir } from "../../fixture/fixture"
+import { symlinkAvailable } from "../../lib/symlink-capability"
 
 const originalZedTerm = process.env.ZED_TERM
 const originalTermProgram = process.env.TERM_PROGRAM
@@ -83,7 +84,7 @@ test("offsetToPosition converts Zed offsets to 1-based editor positions", () => 
   })
 })
 
-test("resolveZedDbPath skips candidates that cannot be stated", async () => {
+test.skipIf(!symlinkAvailable)("resolveZedDbPath skips candidates that cannot be stated", async () => {
   await using tmp = await tmpdir()
   const loop = path.join(tmp.path, "loop")
   await symlink(loop, loop)

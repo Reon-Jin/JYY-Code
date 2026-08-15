@@ -27,11 +27,6 @@ export function nextThinkingMode(current: ThinkingMode): ThinkingMode {
 
 export function useThinkingMode() {
   const kv = useKV()
-  // Capture pre-state before `kv.signal` seeds a default, so we can detect
-  // first-time users with a legacy `thinking_visibility` boolean and migrate.
-  // The KVProvider only renders children once kv.ready, so reads here are safe.
-  const hadStored = kv.get("thinking_mode") !== undefined
-  const legacy = kv.get("thinking_visibility")
   const [stored, setStored] = kv.signal<ThinkingMode>("thinking_mode", "hide")
 
   // The kv signal exposes its setter typed as `Setter<T>` which carries Solid's
@@ -43,16 +38,6 @@ export function useThinkingMode() {
     if (typeof next === "function") setStored(next as Setter<ThinkingMode>)
     else setStored(() => next)
   }
-
-  // Preserve previous experience for users who had explicitly toggled the
-  // legacy `thinking_visibility` boolean. First-time users (no legacy key)
-  // get the new "hide" default (collapsed thinking).
-  if (!hadStored) {
-    if (legacy === true) set("show")
-    else if (legacy === false) set("hide")
-  }
-
-  if ((stored() as string) === "minimal") set("hide")
 
   const mode = createMemo<ThinkingMode>(() => {
     const value = stored()

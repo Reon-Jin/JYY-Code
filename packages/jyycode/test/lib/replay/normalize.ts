@@ -37,7 +37,6 @@ const COST_KEY = /(?:cost|price)$/i
 const PORT_KEY = /(?:^|[_.-])port$/i
 const PID_KEY = /(?:^|[_.-])(?:pid|processid)$/i
 const PATH_KEY = /(?:path|file|cwd|directory|workspace|root|filename|command)$/i
-const ID_KEY = /(?:id|uuid|ulid)$/i
 
 const asPosix = (value: string) => value.replaceAll("\\", "/")
 

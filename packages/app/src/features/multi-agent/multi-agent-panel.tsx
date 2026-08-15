@@ -1,6 +1,6 @@
 import { tr } from "../../i18n/i18n-context"
 import { Bot, CircleHelp, RefreshCw } from "lucide-solid"
-import { createEffect, createMemo, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
 import { BorderBeam } from "../../components/ui/border-beam"
 import { InlineError } from "../../components/ui/inline-error"

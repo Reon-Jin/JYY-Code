@@ -26,7 +26,7 @@ export function sanitizeForPersistence(input: string): SanitizedText {
   let text = input
   let redacted = 0
   for (const pattern of patterns) {
-    text = text.replace(pattern, (match) => {
+    text = text.replace(pattern, () => {
       redacted++
       return pattern.source.includes("postgres") || pattern.source.includes("mysql") ? REDACTED_CONNECTION : REDACTED
     })

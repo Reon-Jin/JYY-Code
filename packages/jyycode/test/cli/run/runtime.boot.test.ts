@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
-import { JyycodeClient, type Provider } from "@jyycode-ai/sdk/v2"
+import { JyycodeClient, type PublicProvider } from "@jyycode-ai/sdk/v2"
 import { TuiConfig, type Resolved } from "@/cli/cmd/tui/config/tui"
 import { formatBindings } from "@/cli/cmd/run/keymap.shared"
 import { resolveDiffStyle, resolveFooterKeybinds, resolveModelInfo } from "@/cli/cmd/run/runtime.boot"
@@ -154,7 +154,7 @@ describe("run runtime boot", () => {
   test("prefers configured providers for model selector data", async () => {
     const sdk = new JyycodeClient()
     const data: {
-      all: Provider[]
+      all: PublicProvider[]
       default: Record<string, string>
       connected: string[]
     } = {
@@ -220,7 +220,7 @@ describe("run runtime boot", () => {
   test("falls back to provider list when configured providers are unavailable", async () => {
     const sdk = new JyycodeClient()
     const data: {
-      all: Provider[]
+      all: PublicProvider[]
       default: Record<string, string>
       connected: string[]
     } = {

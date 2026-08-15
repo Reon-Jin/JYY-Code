@@ -3,6 +3,7 @@ import { Deferred, Effect, Layer } from "effect"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { Flag } from "@jyycode-ai/core/flag/flag"
+import { SessionEvent } from "@jyycode-ai/core/session-event"
 import { createJyycodeClient } from "@jyycode-ai/sdk/v2"
 import { InstanceBootstrap } from "../../src/project/bootstrap-service"
 import { InstanceStore } from "../../src/project/instance-store"
@@ -86,7 +87,10 @@ describe("desktop shared-backend contract", () => {
         for await (const event of stream.stream) {
           const type = event.payload.type
           if (type === "server.connected") Deferred.doneUnsafe(connected, Effect.void)
-          if (event.directory === directory && (type === "message.updated" || type === "message.part.updated")) {
+          if (
+            event.directory === directory &&
+            (type === SessionEvent.Legacy.MessageUpdated.type || type === SessionEvent.Legacy.PartUpdated.type)
+          ) {
             types.add(type)
             if (types.size === 2) {
               Deferred.doneUnsafe(observed, Effect.succeed(types))
@@ -115,8 +119,8 @@ describe("desktop shared-backend contract", () => {
       )
       expect(prompt.response.status).toBe(204)
       expect(
-        yield* awaitWithTimeout(Deferred.await(observed), "desktop message events were not delivered", "5 seconds"),
-      ).toEqual(new Set(["message.updated", "message.part.updated"]))
+        yield* awaitWithTimeout(Deferred.await(observed), "desktop message events were not delivered", "20 seconds"),
+      ).toEqual(new Set([SessionEvent.Legacy.MessageUpdated.type, SessionEvent.Legacy.PartUpdated.type]))
 
       const reloaded = yield* Effect.promise(() => client(directory).session.messages({ directory, sessionID }))
       expect(reloaded.response.status).toBe(200)

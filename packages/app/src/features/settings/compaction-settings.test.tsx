@@ -105,7 +105,7 @@ describe("CompactionSettings", () => {
   })
 
   it("rolls the draft back when saving fails", async () => {
-    const value = renderSettings(
+    renderSettings(
       management({
         update: async () => {
           throw new Error("save failed")

@@ -40,28 +40,6 @@ describe("workspace inspector preferences", () => {
     expect(loadInspectorPreferences("C:\\partial")).toEqual({ panes: [], ratios: [], width: 420 })
   })
 
-  it("migrates the legacy open state and panes to the unified Plan pane", () => {
-    localStorage.setItem("jyycode:workspace-inspector:c:\\open", JSON.stringify({ open: true, todoRatio: 0.42 }))
-    localStorage.setItem("jyycode:workspace-inspector:c:\\closed", JSON.stringify({ open: false, todoRatio: 0.8 }))
-    localStorage.setItem(
-      "jyycode:workspace-inspector:c:\\legacy",
-      JSON.stringify({ panes: ["todo", "multi-agent", "changes"], ratios: [1, 2], width: 500 }),
-    )
-    localStorage.setItem(
-      "jyycode:workspace-inspector:c:\\legacy-single",
-      JSON.stringify({ pane: "multi-agent", width: 360 }),
-    )
-
-    expect(loadInspectorPreferences("C:\\open")).toEqual({ panes: ["plan"], ratios: [1], width: 420 })
-    expect(loadInspectorPreferences("C:\\closed")).toEqual({ panes: [], ratios: [], width: 420 })
-    expect(loadInspectorPreferences("C:\\legacy")).toEqual({
-      panes: ["plan", "changes"],
-      ratios: [1 / 3, 2 / 3],
-      width: 500,
-    })
-    expect(loadInspectorPreferences("C:\\legacy-single")).toEqual({ panes: ["plan"], ratios: [1], width: 360 })
-  })
-
   it("normalizes ordered panes, ratios, and duplicate values", () => {
     localStorage.setItem(
       "jyycode:workspace-inspector:c:\\stack",
@@ -97,7 +75,7 @@ function InspectorHarness(props: { initial?: InspectorPane; badge?: string; blac
 }
 
 describe("WorkspaceInspectorView", () => {
-  it("opens the project files pane without changing legacy pane preferences", async () => {
+  it("opens the project files pane without changing open pane preferences", async () => {
     const user = userEvent.setup()
     render(() => <InspectorHarness />)
 

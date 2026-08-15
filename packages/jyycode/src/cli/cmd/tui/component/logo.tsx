@@ -303,7 +303,6 @@ function build(shape: LogoShape): LogoContext {
 }
 
 const DEFAULT = build(logo)
-const GO = build(go)
 
 function shimmer(x: number, y: number, frame: Frame, ctx: LogoContext) {
   return frame.list.reduce((best, item) => {

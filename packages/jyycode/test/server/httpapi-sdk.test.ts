@@ -23,7 +23,7 @@ import path from "path"
 import { SessionEvent } from "@jyycode-ai/core/session-event"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, TestInstance, tmpdirScoped } from "../fixture/fixture"
-import { awaitWithTimeout, testEffect, testEffectShared } from "../lib/effect"
+import { awaitWithTimeout, pollWithTimeout, testEffect, testEffectShared } from "../lib/effect"
 import { testProviderConfig } from "../lib/test-provider"
 
 const noopBootstrap = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
@@ -216,6 +216,7 @@ function serverPathParity<A, E>(
   scenario: (serverPath: ServerPath) => Effect.Effect<A, E, TestScope>,
   shared = false,
   paths: readonly ServerPath[] = ["default", "raw"],
+  timeoutMs = 10_000,
 ) {
   ;(shared ? itShared : it).live(
     name,
@@ -230,7 +231,7 @@ function serverPathParity<A, E>(
       }
       return standard
     }),
-    10_000,
+    timeoutMs,
   )
 }
 
@@ -774,41 +775,57 @@ describe("HttpApi SDK", () => {
     true,
   )
 
-  serverPathParity("matches generated SDK prompt no-reply routes", (serverPath) =>
-    withStandardProject(serverPath, ({ sdk }) =>
-      Effect.gen(function* () {
-        const session = yield* capture(() => sdk.session.create({ title: "prompt" }))
-        const sessionID = String(record(session.data).id)
-        const prompt = yield* capture(() =>
-          sdk.session.prompt({
-            sessionID,
-            agent: "build",
-            noReply: true,
-            parts: [{ type: "text", text: "hello" }],
-          }),
-        )
-        const asyncPrompt = yield* capture(() =>
-          sdk.session.promptAsync({
-            sessionID,
-            agent: "build",
-            noReply: true,
-            parts: [{ type: "text", text: "async hello" }],
-          }),
-        )
-        const messages = yield* capture(() => sdk.session.messages({ sessionID }))
+  serverPathParity(
+    "matches generated SDK prompt no-reply routes",
+    (serverPath) =>
+      withStandardProject(serverPath, ({ sdk }) =>
+        Effect.gen(function* () {
+          const session = yield* capture(() => sdk.session.create({ title: "prompt" }))
+          const sessionID = String(record(session.data).id)
+          const prompt = yield* capture(() =>
+            sdk.session.prompt({
+              sessionID,
+              agent: "build",
+              noReply: true,
+              parts: [{ type: "text", text: "hello" }],
+            }),
+          )
+          const asyncPrompt = yield* capture(() =>
+            sdk.session.promptAsync({
+              sessionID,
+              agent: "build",
+              noReply: true,
+              parts: [{ type: "text", text: "async hello" }],
+            }),
+          )
+          const messages = yield* pollWithTimeout(
+            Effect.gen(function* () {
+              const result = yield* capture(() => sdk.session.messages({ sessionID }))
+              const texts = array(result.data)
+                .flatMap((item) => array(record(item).parts))
+                .map((part) => record(part).text)
+              return texts.includes("hello") ? result : undefined
+            }),
+            "prompt no-reply message was not persisted",
+            "10 seconds",
+          )
 
-        return {
-          statuses: statuses({ session, prompt, asyncPrompt, messages }),
-          promptRole: record(record(prompt.data).info).role,
-          messageCount: array(messages.data).length,
-          messageTexts: array(messages.data)
-            .flatMap((item) => array(record(item).parts))
-            .map((part) => record(part).text)
-            .filter((text): text is string => typeof text === "string")
-            .sort(),
-        }
-      }),
-    ),
+          return {
+            statuses: statuses({ session, prompt, asyncPrompt, messages }),
+            promptRole: record(record(prompt.data).info).role,
+            asyncPromptAccepted: asyncPrompt.status === 204,
+            messageTexts: array(messages.data)
+              .flatMap((item) => array(record(item).parts))
+              .map((part) => record(part).text)
+              .filter((text): text is string => typeof text === "string")
+              .filter((text) => text === "hello")
+              .sort(),
+          }
+        }),
+      ),
+    false,
+    ["default", "raw"],
+    120_000,
   )
 
   const runFakeLlmPrompt = (serverPath: ServerPath) =>

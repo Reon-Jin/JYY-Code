@@ -20,12 +20,8 @@ import {
   isOverflow as overflow,
   shouldCompact as predictiveOverflow,
   usable,
-  getAutocompactBufferTokens,
-  getEffectiveContextWindow,
-  getAutoCompactThreshold,
   getPredictiveCompactThreshold,
   calculateTokenWarningState,
-  estimateMaxTurnGrowth,
 } from "./overflow"
 import {
   DEFAULT_MICRO_COMPACT_MAX_CHARS,
@@ -38,9 +34,7 @@ import {
   shouldAttemptReactiveCompact,
   createReactiveCompactState,
   reactiveCompact,
-  type ReactiveCompactConfig,
   type ReactiveCompactResult,
-  type ReactiveCompactState,
 } from "./reactive-compact"
 import { serviceUse } from "@/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"

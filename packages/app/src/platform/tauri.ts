@@ -14,7 +14,6 @@ import {
   type DesktopNotification,
   type RecentProject,
   type DesktopSaveResult,
-  type DesktopUpdateCheck,
 } from "./types"
 
 const STORE_PATH = "desktop.json"

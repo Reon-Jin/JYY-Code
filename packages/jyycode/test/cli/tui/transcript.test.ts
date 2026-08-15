@@ -5,9 +5,9 @@ import {
   formatPart,
   formatTranscript,
 } from "../../../src/cli/cmd/tui/util/transcript"
-import type { AssistantMessage, Part, Provider, UserMessage } from "@jyycode-ai/sdk/v2"
+import type { AssistantMessage, Part, PublicProvider, UserMessage } from "@jyycode-ai/sdk/v2"
 
-const providers: Provider[] = [
+const providers: PublicProvider[] = [
   {
     id: "anthropic",
     name: "Anthropic",

@@ -6,12 +6,6 @@ import { onCleanup } from "solid-js"
 import { createTuiResolvedConfig } from "../../fixture/tui-runtime"
 import { JyycodeKeymapProvider, registerJyycodeKeymap } from "@/cli/cmd/tui/keymap"
 
-function keySequence(binding: { sequence: { stroke: { ctrl?: boolean; meta?: boolean; name: string } }[] }) {
-  return binding.sequence.map(
-    (part) => `${part.stroke.ctrl ? "ctrl+" : ""}${part.stroke.meta ? "alt+" : ""}${part.stroke.name}`,
-  )
-}
-
 test("legacy page key aliases compile as page keys", async () => {
   const sequences: Record<string, string[][]> = {}
 

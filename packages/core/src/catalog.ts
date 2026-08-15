@@ -83,7 +83,6 @@ export const layer = Layer.effect(
     let loaders: { update: (ctx: Context) => void }[] = []
     let defaultModel: { providerID: ProviderV2.ID; modelID: ModelV2.ID } | undefined
     const plugin = yield* PluginV2.Service
-    const events = yield* EventV2.Service
     const scope = yield* Scope.Scope
 
     const resolve = (model: ModelV2.Info) => {
@@ -198,12 +197,6 @@ export const layer = Layer.effect(
       }
       return result
     }
-
-    const transform = Effect.fn("CatalogV2.transform")(function* () {
-      const draft = { records: clone(records), data: HashMap.toValues(records) }
-      yield* plugin.trigger("catalog.transform", context(draft), {})
-      records = draft.records
-    })
 
     const rebuild = Effect.fn("CatalogV2.rebuild")(function* () {
       const draft = { records: HashMap.empty<ProviderV2.ID, ProviderRecord>(), data: [] as ProviderRecord[] }

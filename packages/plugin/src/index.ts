@@ -10,7 +10,7 @@ import type {
   Part,
   Config as SDKConfig,
 } from "@jyycode-ai/sdk"
-import type { Provider as ProviderV2, Model as ModelV2, Auth } from "@jyycode-ai/sdk/v2"
+import type { PublicProvider as ProviderV2, Model as ModelV2, Auth } from "@jyycode-ai/sdk/v2"
 
 import type { BunShell } from "./shell.js"
 import { type ToolDefinition } from "./tool.js"
@@ -99,8 +99,6 @@ export type AuthHook = {
               message: string
               placeholder?: string
               validate?: (value: string) => string | undefined
-              /** @deprecated Use `when` instead */
-              condition?: (inputs: Record<string, string>) => boolean
               when?: Rule
             }
           | {
@@ -112,8 +110,6 @@ export type AuthHook = {
                 value: string
                 hint?: string
               }>
-              /** @deprecated Use `when` instead */
-              condition?: (inputs: Record<string, string>) => boolean
               when?: Rule
             }
         >
@@ -129,8 +125,6 @@ export type AuthHook = {
               message: string
               placeholder?: string
               validate?: (value: string) => string | undefined
-              /** @deprecated Use `when` instead */
-              condition?: (inputs: Record<string, string>) => boolean
               when?: Rule
             }
           | {
@@ -142,8 +136,6 @@ export type AuthHook = {
                 value: string
                 hint?: string
               }>
-              /** @deprecated Use `when` instead */
-              condition?: (inputs: Record<string, string>) => boolean
               when?: Rule
             }
         >
@@ -215,9 +207,6 @@ export type ProviderHook = {
   id: string
   models?: (provider: ProviderV2, ctx: ProviderHookContext) => Promise<Record<string, ModelV2>>
 }
-
-/** @deprecated Use AuthOAuthResult instead. */
-export type AuthOuathResult = AuthOAuthResult
 
 export interface Hooks {
   event?: (input: { event: Event }) => Promise<void>

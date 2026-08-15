@@ -25,7 +25,6 @@ import {
 const files = (disableClaudeCodePrompt: boolean) => [
   "AGENTS.md",
   ...(disableClaudeCodePrompt ? [] : ["CLAUDE.md"]),
-  "CONTEXT.md", // deprecated
 ]
 
 function extract(messages: MessageV2.WithParts[]) {

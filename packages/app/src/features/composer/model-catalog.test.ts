@@ -1,4 +1,4 @@
-import type { Agent, Config, Path, Provider } from "@jyycode-ai/sdk/v2/client"
+import type { Agent, Config, Path, PublicProvider } from "@jyycode-ai/sdk/v2/client"
 import { describe, expect, it, vi } from "vitest"
 import {
   loadComposerPreference,
@@ -13,7 +13,7 @@ function agent(name: string, mode: Agent["mode"] = "primary", model?: Agent["mod
   return { name, mode, model, permission: [], options: {} }
 }
 
-function provider(id: string, modelIDs: string[]): Provider {
+function provider(id: string, modelIDs: string[]): PublicProvider {
   return {
     id,
     name: id.toUpperCase(),
@@ -55,8 +55,8 @@ function response<T>(data: T) {
 
 function createClient(input?: {
   agents?: Agent[]
-  providers?: Provider[]
-  configuredProviders?: Provider[]
+  providers?: PublicProvider[]
+  configuredProviders?: PublicProvider[]
   connected?: string[]
   defaults?: Record<string, string>
   config?: Config

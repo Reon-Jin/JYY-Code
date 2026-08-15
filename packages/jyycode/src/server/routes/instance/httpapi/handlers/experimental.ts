@@ -5,8 +5,6 @@ import { Project } from "@/project/project"
 import { Session } from "@/session/session"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { ToolRegistry } from "@/tool/registry"
-import { Config } from "@/config/config"
-import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Worktree } from "@/worktree"
 import { Effect } from "effect"
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse"
@@ -26,8 +24,6 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const mcp = yield* MCP.Service
     const project = yield* Project.Service
     const registry = yield* ToolRegistry.Service
-    const config = yield* Config.Service
-    const flags = yield* RuntimeFlags.Service
     const worktreeSvc = yield* Worktree.Service
 
     const console = Effect.fn("ExperimentalHttpApi.console")(function* () {

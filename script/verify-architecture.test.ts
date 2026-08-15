@@ -87,4 +87,31 @@ describe("verifyArchitecture", () => {
 
     expect(violations).toEqual([expect.objectContaining({ rule: "legacy-v2-marker" })])
   })
+
+  test("rejects removed TUI and auth compatibility surfaces", async () => {
+    const root = await fixture({
+      "packages/jyycode/src/plugin/tui.ts": `const shim = ${["createCommand", "Shim"].join("")}\n`,
+      "packages/plugin/src/auth.ts": `type Typo = ${["AuthOuath", "Result"].join("")}\ntype Prompt = { ${["condition?:", " (inputs:"].join("")} unknown) => boolean }\n`,
+      "packages/jyycode/src/session/payload.ts": `type Options = { ${["preview", "Chars?:"].join("")} number }\nconst oldFile = ${["CONTEXT", ".md"].join("")}\n`,
+      "packages/jyycode/src/session/archive.ts": `const ArchivedTimestamp =${[" Schema.Finite"].join("")}\n`,
+      "packages/app/src/inspector.ts": `const ${["legacy", "Panes"].join("")} = {}\nconst key = ${["thinking_", "visibility"].join("")}\n`,
+      "packages/sdk/src/provider.ts": `${["export type Provider =", " PublicProvider"].join("")}\n`,
+    })
+
+    const violations = await verifyArchitecture({ rootDir: root })
+
+    expect(violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ rule: "legacy-tui-command-shim" }),
+        expect.objectContaining({ rule: "legacy-auth-type-alias" }),
+        expect.objectContaining({ rule: "legacy-auth-prompt-condition" }),
+        expect.objectContaining({ rule: "legacy-character-preview-limit" }),
+        expect.objectContaining({ rule: "legacy-thinking-visibility" }),
+        expect.objectContaining({ rule: "legacy-inspector-pane-migration" }),
+        expect.objectContaining({ rule: "legacy-negative-archive-time" }),
+        expect.objectContaining({ rule: "legacy-provider-type-alias" }),
+        expect.objectContaining({ rule: "legacy-context-instruction-file" }),
+      ]),
+    )
+  })
 })

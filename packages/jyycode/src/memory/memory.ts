@@ -1975,9 +1975,3 @@ function validateTaskContent(input: string) {
 function validateTaskContentForPhase(input: string, _phase: MemoryUpdatePhase) {
   return validateTaskContent(input)
 }
-
-function legacyLooksSensitive(input: string) {
-  return /(password|passwd|secret|token|api[_-]?key|private[_-]?key|cookie|authorization|bearer|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|密码|密钥|令牌|私钥)/i.test(
-    input,
-  )
-}

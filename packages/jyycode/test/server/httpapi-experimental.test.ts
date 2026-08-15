@@ -60,31 +60,6 @@ function waitReady(input: { directory?: string; name?: string }) {
   })
 }
 
-function insertAccount() {
-  return Effect.acquireRelease(
-    Effect.sync(() => {
-      Database.Client()
-        .$client.prepare(
-          "INSERT INTO account (id, email, url, access_token, refresh_token, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .run(
-          "account-test",
-          "test@example.com",
-          "https://console.example.com",
-          "access",
-          "refresh",
-          Date.now(),
-          Date.now(),
-        )
-      return "account-test"
-    }),
-    (id) =>
-      Effect.sync(() => {
-        Database.Client().$client.prepare("DELETE FROM account WHERE id = ?").run(id)
-      }),
-  )
-}
-
 function setSessionUpdated(session: Session.Info, updated: number) {
   return Effect.sync(() => {
     Database.use((db) =>
@@ -216,11 +191,10 @@ describe("experimental HttpApi", () => {
     () =>
       Effect.gen(function* () {
         const tmp = yield* TestInstance
-        const accountID = yield* insertAccount()
         const switched = yield* request(ExperimentalPaths.consoleSwitch, tmp.directory, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ accountID, orgID: "org-test" }),
+          body: JSON.stringify({ accountID: "account-test", orgID: "org-test" }),
         })
 
         expect(switched.status).toBe(200)

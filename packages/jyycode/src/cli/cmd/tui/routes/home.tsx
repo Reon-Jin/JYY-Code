@@ -10,7 +10,6 @@ import { useLocal } from "../context/local"
 import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
 import { useEditorContext } from "@tui/context/editor"
 import { useTheme } from "../context/theme"
-import { useKV } from "../context/kv"
 let once = false
 const placeholder = {
   normal: ["Fix a TODO in the codebase", "What is the tech stack of this project?", "Fix broken tests"],
@@ -26,7 +25,6 @@ export function Home() {
   const local = useLocal()
   const editor = useEditorContext()
   const { theme } = useTheme()
-  const kv = useKV()
   const defaultMultiAgent = createMemo(() => false)
   const [multiAgentTouched, setMultiAgentTouched] = createSignal(false)
   const [multiAgent, setMultiAgent] = createSignal(defaultMultiAgent())

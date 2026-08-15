@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js"
-import { createDesktopClient, type DesktopClient } from "../../data/sdk"
+import type { DesktopClient } from "../../data/sdk"
 import { tr } from "../../i18n/i18n-context"
 import type { DesktopBootstrap, DesktopBridge, LastLocation } from "../../platform/types"
 import { defaultDesktopSettings, type DesktopSettings } from "../settings/settings-preferences"

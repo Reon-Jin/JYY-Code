@@ -12,7 +12,7 @@ import {
   type SnapshotManifestEntry,
   type SnapshotManifestLimits,
 } from "./snapshot-manifest"
-import { preflightWorkspaceBudget, type WorkspaceBudget } from "./workspace-budget"
+import { preflightWorkspaceBudget } from "./workspace-budget"
 import { execGitSync } from "./git-platform-adapter"
 
 export type ChildWorkspaceMode = "worktree" | "snapshot" | "shared_compat"
@@ -443,31 +443,6 @@ function assertSafeSymlink(root: string, pathname: string) {
   if (!isInside(root, resolved))
     throw new ChildWorkspaceError("拒绝复制指向 workspace 外部的 symlink", { directory: pathname })
   return target
-}
-
-function copyTree(source: string, target: string, root = source) {
-  if (!fs.existsSync(target)) fs.mkdirSync(target, { recursive: true })
-  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
-    if (entry.name === ".git") continue
-    const sourcePath = path.join(source, entry.name)
-    const targetPath = path.join(target, entry.name)
-    if (entry.isDirectory()) {
-      fs.mkdirSync(targetPath, { recursive: true })
-      copyTree(sourcePath, targetPath, root)
-    } else if (entry.isSymbolicLink()) {
-      const link = assertSafeSymlink(root, sourcePath)
-      if (fs.existsSync(targetPath) || fs.lstatSync(targetPath, { throwIfNoEntry: false }))
-        fs.rmSync(targetPath, { recursive: true, force: true })
-      try {
-        fs.symlinkSync(link, targetPath)
-      } catch (error) {
-        throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), { directory: targetPath })
-      }
-    } else if (entry.isFile()) {
-      fs.mkdirSync(path.dirname(targetPath), { recursive: true })
-      fs.copyFileSync(sourcePath, targetPath)
-    } else throw new ChildWorkspaceError(`不支持的 workspace 文件类型: ${path.relative(root, sourcePath)}`)
-  }
 }
 
 async function copyManifest(source: string, target: string, manifest: BaselineManifestEntry[]) {

@@ -12,7 +12,6 @@ import { Config } from "@/config/config"
 import { Global } from "@jyycode-ai/core/global"
 import { Plugin } from "../../plugin"
 import type { Hooks } from "@jyycode-ai/plugin"
-import { Process } from "@/util/process"
 import { AppProcess } from "@jyycode-ai/core/process"
 import { errorMessage } from "@/util/error"
 import { Effect, Option } from "effect"
@@ -73,7 +72,6 @@ const handlePluginAuth = Effect.fn("Cli.providers.pluginAuth")(function* (
         const matches = prompt.when.op === "eq" ? value === prompt.when.value : value !== prompt.when.value
         if (!matches) continue
       }
-      if (prompt.condition && !prompt.condition(inputs)) continue
       if (prompt.type === "select") {
         const value = yield* Prompt.select({
           message: prompt.message,

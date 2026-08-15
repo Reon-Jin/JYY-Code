@@ -5,15 +5,9 @@ import { DEFAULT_OUTPUT_PREVIEW_BYTES, modelOutputSummary, retainOutput } from "
 
 export const DEFAULT_TOOL_PREVIEW_BYTES = DEFAULT_OUTPUT_PREVIEW_BYTES
 export const MAX_TOOL_PREVIEW_BYTES = DEFAULT_OUTPUT_PREVIEW_BYTES
-/** @deprecated Use the byte-based preview limits. */
-export const DEFAULT_TOOL_PREVIEW_CHARS = DEFAULT_TOOL_PREVIEW_BYTES
-/** @deprecated Use the byte-based preview limits. */
-export const MAX_TOOL_PREVIEW_CHARS = MAX_TOOL_PREVIEW_BYTES
 
 export type PayloadPruneOptions = {
   readonly previewBytes?: number
-  /** @deprecated Kept for config compatibility; interpreted as a byte limit. */
-  readonly previewChars?: number
   readonly now?: number
   readonly blobStore?: BlobStore
 }
@@ -44,7 +38,7 @@ export async function pruneToolPart(
     0,
     Math.min(
       MAX_TOOL_PREVIEW_BYTES,
-      Math.floor(options.previewBytes ?? options.previewChars ?? DEFAULT_TOOL_PREVIEW_BYTES),
+      Math.floor(options.previewBytes ?? DEFAULT_TOOL_PREVIEW_BYTES),
     ),
   )
   const inputJSON = stableJSON(part.state.input)

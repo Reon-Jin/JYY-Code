@@ -78,7 +78,6 @@ import {
 
 import type { EventSource } from "./context/sdk"
 import { DialogVariant } from "./component/dialog-variant"
-import { Global } from "@jyycode-ai/core/global"
 
 const appBindingCommands = [
   "command.palette.show",

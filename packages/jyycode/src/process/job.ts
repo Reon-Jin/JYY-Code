@@ -190,13 +190,18 @@ export const layer = Layer.effect(
         return new Map(items).set(id, { ...current, terminationRequested: successStatus })
       })
       const forceAfter = Math.max(forceAfterMs, 50)
+      const verifyMs = Math.max(forceAfter * 2, 100)
+      // The supervisor may spend the grace interval, issue the escalation
+      // signal, and then use the full verification interval. The previous
+      // forceAfter*2 timeout could expire before that contract completed.
+      const terminationTimeoutMs = forceAfter + verifyMs + 250
       const result = yield* Effect.exit(
         active.handle
           .terminate({
             graceMs: forceAfter,
-            verifyMs: Math.max(forceAfter * 2, 100),
+            verifyMs,
           })
-          .pipe(Effect.timeout(`${Math.max(forceAfter * 2, 100)} millis`)),
+          .pipe(Effect.timeout(`${terminationTimeoutMs} millis`)),
       )
       if (active.outputFiber) yield* Fiber.interrupt(active.outputFiber).pipe(Effect.ignore)
       if (Exit.isSuccess(result) && result.value.state !== "kill_failed") {

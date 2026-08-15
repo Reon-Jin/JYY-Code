@@ -19,9 +19,7 @@ import { EffectBridge } from "@/effect/bridge"
 import {
   SESSION_PROJECTOR,
   SESSION_PROJECTOR_VERSION,
-  readWatermark,
   readWatermarkEffect,
-  writeWatermark,
   writeWatermarkEffect,
   ensureProjectionSchema,
 } from "@/session/projection"

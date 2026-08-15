@@ -148,19 +148,19 @@ export function windowsPath(p: string): string {
   return (
     p
       .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (match, drive) =>
-        existsSync(`${drive.toUpperCase()}:\\`) ? `${drive.toUpperCase()}:/` : match,
+        `${drive.toUpperCase()}:/`,
       )
       // Git Bash for Windows paths are typically /<drive>/...
       .replace(/^\/([a-zA-Z])(?:\/|$)/, (match, drive) =>
-        existsSync(`${drive.toUpperCase()}:\\`) ? `${drive.toUpperCase()}:/` : match,
+        `${drive.toUpperCase()}:/`,
       )
       // Cygwin git paths are typically /cygdrive/<drive>/...
       .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (match, drive) =>
-        existsSync(`${drive.toUpperCase()}:\\`) ? `${drive.toUpperCase()}:/` : match,
+        `${drive.toUpperCase()}:/`,
       )
       // WSL paths are typically /mnt/<drive>/...
       .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (match, drive) =>
-        existsSync(`${drive.toUpperCase()}:\\`) ? `${drive.toUpperCase()}:/` : match,
+        `${drive.toUpperCase()}:/`,
       )
   )
 }

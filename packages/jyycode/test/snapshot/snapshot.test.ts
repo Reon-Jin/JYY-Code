@@ -10,8 +10,10 @@ import { Global } from "@jyycode-ai/core/global"
 import { Snapshot } from "../../src/snapshot"
 import { disposeAllInstances, provideInstance, TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
+import { symlinkAvailable } from "../lib/symlink-capability"
 
 const it = testEffect(Layer.mergeAll(Snapshot.defaultLayer, AppFileSystem.defaultLayer))
+const symlinkIt = symlinkAvailable ? it.instance : it.instance.skip
 
 // Git always outputs /-separated paths internally. Snapshot.patch() joins them
 // with path.join (which produces \ on Windows) then normalizes back to /.
@@ -178,7 +180,7 @@ it.instance(
   { git: true },
 )
 
-it.instance(
+symlinkIt(
   "symlink handling",
   withTrackedSnapshot(({ tmp, snapshot, before }) =>
     Effect.gen(function* () {
@@ -371,7 +373,7 @@ it.instance(
   { git: true },
 )
 
-it.instance(
+symlinkIt(
   "nested symlinks",
   withTrackedSnapshot(({ tmp, snapshot, before }) =>
     Effect.gen(function* () {

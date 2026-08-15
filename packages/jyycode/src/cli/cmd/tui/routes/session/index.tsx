@@ -27,7 +27,7 @@ import { Prompt, type PromptRef } from "@tui/component/prompt"
 import type {
   AssistantMessage,
   Part,
-  Provider,
+  PublicProvider,
   ToolPart,
   UserMessage,
   TextPart,
@@ -86,7 +86,6 @@ import { SessionRetry } from "@/session/retry"
 import { getRevertDiffFiles } from "../../util/revert-diff"
 import { JYYCODE_BASE_MODE, useBindings, useCommandShortcut, useJyycodeKeymap } from "../../keymap"
 import { PathFormatterProvider, usePathFormatter } from "../../context/path-format"
-import { Flag } from "@jyycode-ai/core/flag/flag"
 
 addDefaultParsers(parsers.parsers)
 
@@ -161,7 +160,7 @@ const context = createContext<{
   showDetails: () => boolean
   showGenericToolOutput: () => boolean
   diffWrapMode: () => "word" | "none"
-  providers: () => ReadonlyMap<string, Provider>
+  providers: () => ReadonlyMap<string, PublicProvider>
   sync: ReturnType<typeof useSync>
   tui: ReturnType<typeof useTuiConfig>
 }>()

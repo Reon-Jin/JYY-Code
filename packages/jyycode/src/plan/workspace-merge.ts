@@ -311,13 +311,6 @@ function entryIsBinary(entry: FileEntry | undefined) {
   return !!entry && entry.kind === "file" && entry.text === undefined
 }
 
-function readEntry(entry: FileEntry | undefined): MergeApplyEntry | undefined {
-  if (!entry) return undefined
-  if (entry.kind === "symlink") return { path: entry.path, kind: "symlink", source: "child", link: entry.link }
-  if (entry.text !== undefined) return { path: entry.path, kind: "file", source: "child", content: entry.text }
-  return { path: entry.path, kind: "file", source: "child", bytes: entry.bytes }
-}
-
 function splitLines(text: string) {
   const normalized = normalizeText(text)
   const trailing = normalized.endsWith("\n")
@@ -701,23 +694,6 @@ function readJournal(pathname: string): MergeJournal | undefined {
   }
 }
 
-function journalResult(
-  journal: MergeJournal,
-  status: WorkspaceMergeTransactionResult["status"],
-  plan: MergePlan,
-  error?: string,
-) {
-  return {
-    status,
-    applied_paths: [...journal.applied_paths].sort((left, right) => left.localeCompare(right)),
-    conflicts: journal.conflicts,
-    plan,
-    journal_path: path.join(journal.roots.child, ".merge-journal-unavailable"),
-    target_fingerprint: journal.target_fingerprint,
-    ...(error ? { error } : {}),
-  }
-}
-
 function buildPlanFromJournal(journal: MergeJournal): MergePlan {
   return {
     apply: [],
@@ -729,15 +705,6 @@ function buildPlanFromJournal(journal: MergeJournal): MergePlan {
 
 function currentTargetEntries(root: string) {
   return scanWorkspace(root)
-}
-
-function expectedTargetFingerprint(journal: MergeJournal) {
-  return hashText(
-    Object.entries(journal.target_entries)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([relative, fingerprint]) => `${relative}\0${fingerprint}`)
-      .join("\n"),
-  )
 }
 
 function targetMatchesJournal(root: string, journal: MergeJournal) {

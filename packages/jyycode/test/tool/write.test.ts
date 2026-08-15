@@ -15,7 +15,6 @@ import { SessionID, MessageID } from "../../src/session/schema"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { disposeAllInstances, TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
-import { fileWriteLock } from "@/file/write-lock"
 
 const ctx = {
   sessionID: SessionID.make("ses_test-write-session"),

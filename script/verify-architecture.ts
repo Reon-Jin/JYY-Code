@@ -34,6 +34,15 @@ const LEGACY_MARKERS = [
   { marker: ["experimental", "EventSystem"].join(""), rule: "legacy-event-system-marker" },
   { marker: ["event-v2", "-bridge"].join(""), rule: "legacy-event-bridge-marker" },
   { marker: ["apiKey:", " Schema.optional", "(Schema.String)"].join(""), rule: "inline-credential-schema" },
+  { marker: ["createCommand", "Shim"].join(""), rule: "legacy-tui-command-shim" },
+  { marker: ["AuthOuath", "Result"].join(""), rule: "legacy-auth-type-alias" },
+  { marker: ["condition?:", " (inputs:"].join(""), rule: "legacy-auth-prompt-condition" },
+  { marker: ["preview", "Chars?:"].join(""), rule: "legacy-character-preview-limit" },
+  { marker: ["thinking_", "visibility"].join(""), rule: "legacy-thinking-visibility" },
+  { marker: ["legacy", "Panes"].join(""), rule: "legacy-inspector-pane-migration" },
+  { marker: ["ArchivedTimestamp =", " Schema.Finite"].join(""), rule: "legacy-negative-archive-time" },
+  { marker: ["export type Provider =", " PublicProvider"].join(""), rule: "legacy-provider-type-alias" },
+  { marker: ["CONTEXT", ".md"].join(""), rule: "legacy-context-instruction-file" },
 ] as const
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"])

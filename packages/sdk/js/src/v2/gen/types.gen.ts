@@ -1760,8 +1760,6 @@ export type Model = {
   }
 }
 
-export type Provider = PublicProvider
-
 export type PublicProvider = {
   id: string
   name: string

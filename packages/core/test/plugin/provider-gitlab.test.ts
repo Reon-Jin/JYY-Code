@@ -1,11 +1,7 @@
 import { describe, expect, mock } from "bun:test"
 import { Effect } from "effect"
-import { Catalog } from "@jyycode-ai/core/catalog"
-import { EventV2 } from "@jyycode-ai/core/event"
-import { Location } from "@jyycode-ai/core/location"
 import { PluginV2 } from "@jyycode-ai/core/plugin"
 import { GitLabPlugin } from "@jyycode-ai/core/plugin/provider/gitlab"
-import { ProviderV2 } from "@jyycode-ai/core/provider"
 import { it, model, withEnv } from "./provider-helper"
 
 const gitlabSDKOptions: Record<string, unknown>[] = []

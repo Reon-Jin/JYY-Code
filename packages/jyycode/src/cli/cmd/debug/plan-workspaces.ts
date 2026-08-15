@@ -57,7 +57,7 @@ export function formatPlanWorkspaceReport(report: WorkspaceInventoryResult, show
   }
 }
 
-function sessionContext(project: string) {
+function sessionContext() {
   try {
     const rows = Database.legacyClient()
       .select({ id: SessionTable.id, directory: SessionTable.directory })
@@ -95,7 +95,7 @@ const InspectCommand = effectCmd({
     const project = safeProject(args.project)
     const config = yield* Config.Service.use((service) => service.get())
     const pathConfig = roots(project, config.workspace_cleanup?.legacy_root, args.root)
-    const context = sessionContext(project)
+    const context = sessionContext()
     const report = yield* Effect.tryPromise({
       try: () =>
         inspectWorkspaceStorage({
@@ -127,7 +127,7 @@ const CleanupCommand = effectCmd({
     const project = safeProject(args.project)
     const config = yield* Config.Service.use((service) => service.get())
     const pathConfig = roots(project, config.workspace_cleanup?.legacy_root, args.root)
-    const context = sessionContext(project)
+    const context = sessionContext()
     const base = {
       project,
       runtimeRoot: pathConfig.runtimeRoot,

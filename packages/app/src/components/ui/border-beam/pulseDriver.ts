@@ -33,10 +33,6 @@ const FRAME_INTERVAL = 1000 / 30 - 2;
 
 const TWO_PI = Math.PI * 2;
 
-function now(): number {
-  return typeof performance !== 'undefined' ? performance.now() : Date.now();
-}
-
 /** Cosine ease-in-out factor in [0, 1]: 0 at phase 0/1, 1 at phase 0.5. */
 function pingPong(phase: number): number {
   return (1 - Math.cos(TWO_PI * phase)) / 2;

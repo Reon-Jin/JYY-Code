@@ -409,7 +409,7 @@ export function Autocomplete(props: {
         const width = props.anchor().width - 4
         options.push(
           ...sortedFiles.map((item): AutocompleteOption => {
-            const { filename, url, part } = createFilePart(item, lineRange)
+            const { filename, part } = createFilePart(item, lineRange)
 
             const isDir = item.endsWith("/")
             return {

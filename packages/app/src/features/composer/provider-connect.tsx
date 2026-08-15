@@ -1,5 +1,5 @@
 import { tr } from "../../i18n/i18n-context"
-import type { Provider } from "@jyycode-ai/sdk/v2/client"
+import type { PublicProvider } from "@jyycode-ai/sdk/v2/client"
 import { ArrowLeft, KeyRound, PlugZap, Search } from "lucide-solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { Button } from "../../components/ui/button"
@@ -18,8 +18,8 @@ export function ProviderConnectButton(props: {
   const [opened, setOpened] = createSignal(false)
   const [loading, setLoading] = createSignal(false)
   const [saving, setSaving] = createSignal(false)
-  const [providers, setProviders] = createSignal<Provider[]>([])
-  const [selected, setSelected] = createSignal<Provider>()
+  const [providers, setProviders] = createSignal<PublicProvider[]>([])
+  const [selected, setSelected] = createSignal<PublicProvider>()
   const [apiKey, setApiKey] = createSignal("")
   const [search, setSearch] = createSignal("")
   const [failure, setFailure] = createSignal<string>()

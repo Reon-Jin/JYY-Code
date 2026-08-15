@@ -19,7 +19,7 @@ jyycode.tool.add({
     },
     required: ["command"],
   },
-  execute(input, ctx) {},
+  execute() {},
 })
 
 jyycode.auth.add({

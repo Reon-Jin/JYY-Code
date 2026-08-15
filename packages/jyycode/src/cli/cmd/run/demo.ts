@@ -18,7 +18,7 @@ import path from "path"
 import type { Event } from "@jyycode-ai/sdk/v2"
 import { createSessionData, reduceSessionData, type SessionData } from "./session-data"
 import { writeSessionOutput } from "./stream"
-import type { FooterApi, PermissionReply, QuestionReject, QuestionReply, RunPrompt, StreamCommit } from "./types"
+import type { FooterApi, PermissionReply, QuestionReject, QuestionReply, RunPrompt } from "./types"
 
 const KINDS = ["markdown", "table", "text", "reasoning", "bash", "write", "edit", "patch", "question", "error", "mix"]
 const PERMISSIONS = ["edit", "bash", "read", "external", "doom"] as const

@@ -1,5 +1,5 @@
 import path from "path"
-import { Context, Effect, Layer, Option, Schema, Semaphore } from "effect"
+import { Context, Effect, Layer, Option, Semaphore } from "effect"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
 import { EffectFlock } from "@jyycode-ai/core/util/effect-flock"
 import { SessionID } from "@/session/schema"

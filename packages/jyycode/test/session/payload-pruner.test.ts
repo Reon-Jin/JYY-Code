@@ -33,7 +33,7 @@ test("prunes completed tool payloads to bounded metadata and preview", async () 
     },
   }
 
-  const pruned = await pruneToolPart(part, { now: 99, previewChars: 128 })
+  const pruned = await pruneToolPart(part, { now: 99, previewBytes: 128 })
   expect(pruned.state.status).toBe("completed")
   if (pruned.state.status !== "completed") return
   expect(pruned.state.input).toEqual({ __compacted: true })

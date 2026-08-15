@@ -225,7 +225,7 @@ function isOutputSchemaValidationError(error: Error) {
 function listTools(key: string, client: MCPClient, timeouts: McpTimeouts) {
   const deadlineAt = Date.now() + timeouts.totalMs
   return Effect.tryPromise({
-    try: (signal) => withMcpRequest((requestSignal) => client.listTools(undefined, mcpRequestOptions(remainingMcpTimeouts(timeouts, deadlineAt), requestSignal)), timeouts, `MCP ${key} tools/list`, deadlineAt),
+    try: () => withMcpRequest((requestSignal) => client.listTools(undefined, mcpRequestOptions(remainingMcpTimeouts(timeouts, deadlineAt), requestSignal)), timeouts, `MCP ${key} tools/list`, deadlineAt),
     catch: (err) => (err instanceof Error ? err : new Error(String(err))),
   }).pipe(
     Effect.map((result) => result.tools),
@@ -234,7 +234,7 @@ function listTools(key: string, client: MCPClient, timeouts: McpTimeouts) {
 
       log.warn("failed to validate MCP tool output schemas, retrying without output schema validation", { key, error })
       return Effect.tryPromise({
-        try: (signal) =>
+        try: () =>
           withMcpRequest(
             (requestSignal) =>
               client.request(
@@ -318,7 +318,7 @@ function convertMcpToolDef(
         Effect.gen(function* () {
           yield* ctx.ask({ permission: id, metadata: {}, patterns: ["*"], always: ["*"] })
           const result = (yield* Effect.tryPromise({
-            try: (signal) =>
+            try: () =>
               withMcpRequest(
                 (requestSignal) =>
                   client.callTool(
@@ -401,7 +401,7 @@ function fetchFromClient<T extends { name: string }>(
   timeouts: McpTimeouts,
 ) {
   return Effect.tryPromise({
-    try: (signal) => withMcpRequest((requestSignal) => listFn(client, mcpRequestOptions(timeouts, requestSignal)), timeouts, `MCP ${label} ${clientName}`),
+    try: () => withMcpRequest((requestSignal) => listFn(client, mcpRequestOptions(timeouts, requestSignal)), timeouts, `MCP ${label} ${clientName}`),
     catch: (e: any) => {
       log.error(`failed to get ${label}`, { clientName, error: e.message })
       return e
@@ -1070,7 +1070,7 @@ export const layer = Layer.effect(
       const entry = cfg.mcp?.[clientName]
       const timeouts = yield* timeoutsFor(isMcpConfigured(entry) ? entry : undefined)
       return yield* Effect.tryPromise({
-        try: (signal) => withMcpRequest((requestSignal) => fn(client, mcpRequestOptions(timeouts, requestSignal)), timeouts, `MCP ${label} ${clientName}`),
+        try: () => withMcpRequest((requestSignal) => fn(client, mcpRequestOptions(timeouts, requestSignal)), timeouts, `MCP ${label} ${clientName}`),
         catch: (e: any) => {
           log.error(`failed to ${label}`, { clientName, ...meta, error: e?.message })
           return e

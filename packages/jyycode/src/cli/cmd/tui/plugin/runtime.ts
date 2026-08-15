@@ -39,9 +39,6 @@ import { internalTuiPlugins, type InternalTuiPlugin } from "./internal"
 import { setupSlots, Slot as View } from "./slots"
 import type { HostPluginApi, HostSlots } from "./slots"
 import { ConfigPlugin } from "@/config/plugin"
-import { createCommandShim } from "./command-shim"
-import { RuntimeFlags } from "@/effect/runtime-flags"
-import { Effect } from "effect"
 
 ensureRuntimePluginSupport({ additional: keymapRuntimeModules })
 
@@ -623,8 +620,6 @@ function pluginApi(runtime: RuntimeState, plugin: PluginEntry, scope: PluginScop
   return {
     app: api.app,
     attention: createScopedAttention(api.attention, scope, load.plugin_root),
-    // Keep deprecated `api.command` working for v1 plugins; remove in v2.
-    command: createCommandShim(keymap, api.ui.dialog, api.tuiConfig.keybinds),
     keys: api.keys,
     keymap,
     mode: createScopedMode(api.mode, scope),
@@ -1086,11 +1081,6 @@ async function load(input: { api: Api; config: TuiConfig.Resolved; dispose?: () 
   }
   runtime = next
   try {
-    const flags = await Effect.runPromise(
-      Effect.gen(function* () {
-        return yield* RuntimeFlags.Service
-      }).pipe(Effect.provide(RuntimeFlags.defaultLayer)),
-    )
     const records = Flag.JYYCODE_PURE ? [] : (config.plugin_origins ?? [])
     if (Flag.JYYCODE_PURE && config.plugin_origins?.length) {
       log.info("skipping external tui plugins in pure mode", { count: config.plugin_origins.length })

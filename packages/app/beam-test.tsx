@@ -1,5 +1,5 @@
 import { render } from "solid-js/web"
-import { createSignal, Show } from "solid-js"
+import { createSignal } from "solid-js"
 import { BorderBeam } from "./src/components/ui/border-beam"
 import "./src/styles/tokens.css"
 import "./src/styles/global.css"

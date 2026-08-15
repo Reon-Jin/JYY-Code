@@ -354,7 +354,11 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
         })
       }
       const entries = scope === "task" ? globalTaskMemory : globalUserMemory
-      return json({ schemaVersion: 3, lastCompactedAt: null, entries: entries.map(({ id, scope, ...entry }) => entry) })
+      return json({
+        schemaVersion: 3,
+        lastCompactedAt: null,
+        entries: entries.map(({ id: _id, scope: _scope, ...entry }) => entry),
+      })
     }
     if (url.pathname === "/global/memory/user" && request.method === "POST") {
       const entry = { id: `usr_${globalUserMemory.length + 1}`, scope: "user", ...value }

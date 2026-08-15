@@ -1,4 +1,4 @@
-import type { Agent, Config, Provider } from "@jyycode-ai/sdk/v2/client"
+import type { Agent, Config, PublicProvider } from "@jyycode-ai/sdk/v2/client"
 import type { DesktopClient } from "../../data/sdk"
 
 const PREFERENCE_KEY = "jyycode.desktop.composer-preference"
@@ -149,7 +149,7 @@ export async function loadModelCatalog(input: {
   // `/provider.connected` includes providers discovered from inherited
   // environment variables. `/config/providers` is the authoritative list of
   // providers the user explicitly connected or configured for model picking.
-  const connectedProviders: Provider[] = configured.providers
+  const connectedProviders: PublicProvider[] = configured.providers
   const models = connectedProviders.flatMap((provider) =>
     Object.values(provider.models)
       .filter((model) => model.status !== "deprecated")

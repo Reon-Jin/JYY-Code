@@ -4,8 +4,7 @@ import { Catalog } from "@jyycode-ai/core/catalog"
 import { PluginV2 } from "@jyycode-ai/core/plugin"
 import { AzurePlugin } from "@jyycode-ai/core/plugin/provider/azure"
 import { ProviderV2 } from "@jyycode-ai/core/provider"
-import { testEffect } from "../lib/effect"
-import { fakeSelectorSdk, it, model, npmLayer, provider, withEnv } from "./provider-helper"
+import { fakeSelectorSdk, it, model, provider, withEnv } from "./provider-helper"
 
 describe("AzurePlugin", () => {
   it.effect("resolves resourceName from env", () =>

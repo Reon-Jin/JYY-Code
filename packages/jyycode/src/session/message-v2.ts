@@ -618,14 +618,6 @@ const info = (row: typeof MessageTable.$inferSelect) =>
     sessionID: row.session_id,
   }) as Info
 
-const part = (row: typeof PartTable.$inferSelect) =>
-  ({
-    ...row.data,
-    id: row.id,
-    sessionID: row.session_id,
-    messageID: row.message_id,
-  }) as Part
-
 const safeInfo = (row: typeof MessageTable.$inferSelect) =>
   decodeStoredJSONRow({
     table: "message",

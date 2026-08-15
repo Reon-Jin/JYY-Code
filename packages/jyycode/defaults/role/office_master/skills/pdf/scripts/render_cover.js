@@ -44,13 +44,13 @@ function loadPlaywright() {
   const { execSync } = require("child_process")
   try {
     return require("playwright")
-  } catch (_) {}
+  } catch {}
   try {
     const root = execSync("npm root -g", { stdio: ["ignore", "pipe", "ignore"] })
       .toString()
       .trim()
     return require(path.join(root, "playwright"))
-  } catch (_) {}
+  } catch {}
   console.error(
     JSON.stringify({
       status: "error",
@@ -68,7 +68,7 @@ function loadPlaywright() {
   let browser
   try {
     browser = await chromium.launch()
-  } catch (e) {
+  } catch {
     // Chromium binary missing — try installing
     const { spawnSync } = require("child_process")
     const r = spawnSync("npx", ["playwright", "install", "chromium"], { stdio: "inherit", shell: true })

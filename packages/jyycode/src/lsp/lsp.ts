@@ -169,7 +169,7 @@ export const layer = Layer.effect(
       }) satisfies ProcessSpec
 
     const state = yield* InstanceState.make<State>(
-      Effect.fn("LSP.state")(function* (ctx) {
+      Effect.fn("LSP.state")(function* () {
         const cfg = yield* config.get()
 
         const servers: Record<string, LSPServer.Info> = {}

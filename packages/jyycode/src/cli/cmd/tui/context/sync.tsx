@@ -1,10 +1,9 @@
 import type {
   Message,
   Agent,
-  Provider,
+  PublicProvider,
   Session,
   Part,
-  Event,
   Config,
   Todo,
   Command,
@@ -50,7 +49,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   init: () => {
     const [store, setStore] = createStore<{
       status: "loading" | "partial" | "complete"
-      provider: Provider[]
+      provider: PublicProvider[]
       provider_default: Record<string, string>
       provider_next: ProviderListResponse
       provider_auth: Record<string, ProviderAuthMethod[]>

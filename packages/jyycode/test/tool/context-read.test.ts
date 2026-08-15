@@ -1,4 +1,4 @@
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Agent } from "@/agent/agent"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"

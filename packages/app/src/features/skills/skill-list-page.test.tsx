@@ -1,7 +1,7 @@
 import type { AppSkillsResponse } from "@jyycode-ai/sdk/v2/client"
 import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router"
 import { QueryClientProvider } from "@tanstack/solid-query"
-import { cleanup, render, screen, waitFor } from "@solidjs/testing-library"
+import { cleanup, render, screen } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createDesktopQueryClient } from "../../data/query-client"

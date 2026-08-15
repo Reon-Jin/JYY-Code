@@ -11,7 +11,6 @@ import { isDeepStrictEqual } from "util"
 import { NamedError } from "@jyycode-ai/core/util/error"
 import { Flag } from "@jyycode-ai/core/flag/flag"
 import { Auth } from "../auth"
-import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
 import { InstallationPackageVersion } from "@jyycode-ai/core/installation/version"
 import { existsSync } from "fs"
@@ -601,7 +600,6 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
     const authSvc = yield* Auth.Service
-    const env = yield* Env.Service
     const npmSvc = yield* Npm.Service
     const http = yield* HttpClient.HttpClient
 
@@ -1139,7 +1137,6 @@ export const layer = Layer.effect(
 export const defaultLayer = layer.pipe(
   Layer.provide(EffectFlock.defaultLayer),
   Layer.provide(AppFileSystem.defaultLayer),
-  Layer.provide(Env.defaultLayer),
   Layer.provide(Auth.defaultLayer),
   Layer.provide(Npm.defaultLayer),
   Layer.provide(FetchHttpClient.layer),
