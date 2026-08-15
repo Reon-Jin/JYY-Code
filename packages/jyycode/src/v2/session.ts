@@ -1,4 +1,4 @@
-import { SessionMessageTable, SessionTable } from "@/session/session.sql"
+import { SessionTable } from "@/session/session.sql"
 import { SessionID } from "@/session/schema"
 import { WorkspaceID } from "@/control-plane/schema"
 import { and, asc, desc, eq, gt, gte, isNull, like, lt, or, type SQL } from "@/storage/db"
@@ -11,9 +11,14 @@ import { SessionEvent } from "@jyycode-ai/core/session-event"
 import { V2Schema } from "@jyycode-ai/core/v2-schema"
 import { optionalOmitUndefined } from "@jyycode-ai/core/schema"
 import { EventV2 } from "@jyycode-ai/core/event"
-import { EventV2Bridge } from "@/event-v2-bridge"
+import { EventRuntime } from "@/event-runtime"
 import { ModelV2 } from "@jyycode-ai/core/model"
 import { ProviderV2 } from "@jyycode-ai/core/provider"
+import {
+  MessageDecodeError,
+  Service as SessionMessageService,
+  defaultLayer as SessionMessageDefaultLayer,
+} from "@/session/message-store"
 
 export const Delivery = Schema.Literals(["immediate", "deferred"]).annotate({
   identifier: "Session.Delivery",
@@ -71,11 +76,6 @@ export class OperationUnavailableError extends Schema.TaggedErrorClass<Operation
     operation: Schema.Literals(["prompt", "compact", "wait"]),
   },
 ) {}
-
-export class MessageDecodeError extends Schema.TaggedErrorClass<MessageDecodeError>()("Session.MessageDecodeError", {
-  sessionID: SessionID,
-  messageID: SessionMessage.ID,
-}) {}
 
 export interface Interface {
   readonly create: (input?: {
@@ -139,19 +139,8 @@ export class Service extends Context.Service<Service, Interface>()("@jyycode/v2/
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const events = yield* EventV2Bridge.Service
-    const decodeMessage = Schema.decodeUnknownEffect(SessionMessage.Message)
-
-    const decode = (row: typeof SessionMessageTable.$inferSelect) =>
-      decodeMessage({ ...row.data, id: row.id, type: row.type }).pipe(
-        Effect.mapError(
-          () =>
-            new MessageDecodeError({
-              sessionID: SessionID.make(row.session_id),
-              messageID: SessionMessage.ID.make(row.id),
-            }),
-        ),
-      )
+    const events = yield* EventRuntime.Service
+    const messages = yield* SessionMessageService
 
     function fromRow(row: typeof SessionTable.$inferSelect): Info {
       return new Info({
@@ -188,8 +177,8 @@ export const layer = Layer.effect(
     }
 
     const result = Service.of({
-      // TODO(v2): Implement proper V2 session creation. This stub exists to
-      // unblock the V2 API surface while the full implementation is in progress.
+      // Compatibility stub: V2 session creation is still owned by the legacy
+      // session service until its durable session-created event is migrated.
       // Callers MUST NOT rely on the returned object having any valid properties.
       create: Effect.fn("V2Session.create")(function* (_input) {
         return {} as any
@@ -245,80 +234,17 @@ export const layer = Layer.effect(
       }),
       messages: Effect.fn("V2Session.messages")(function* (input) {
         yield* result.get(input.sessionID)
-        const direction = input.cursor?.direction ?? "next"
-        let order = input.order ?? "desc"
-        // Query the adjacent rows in reverse, then flip them back into the requested order below.
-        if (direction === "previous" && order === "asc") order = "desc"
-        if (direction === "previous" && order === "desc") order = "asc"
-        const boundary = input.cursor
-          ? order === "asc"
-            ? or(
-                gt(SessionMessageTable.time_created, input.cursor.time),
-                and(
-                  eq(SessionMessageTable.time_created, input.cursor.time),
-                  gt(SessionMessageTable.id, input.cursor.id),
-                ),
-              )
-            : or(
-                lt(SessionMessageTable.time_created, input.cursor.time),
-                and(
-                  eq(SessionMessageTable.time_created, input.cursor.time),
-                  lt(SessionMessageTable.id, input.cursor.id),
-                ),
-              )
-          : undefined
-        const where = boundary
-          ? and(eq(SessionMessageTable.session_id, input.sessionID), boundary)
-          : eq(SessionMessageTable.session_id, input.sessionID)
-
-        const rows = yield* Database.query((db) => {
-          const query = db
-            .select()
-            .from(SessionMessageTable)
-            .where(where)
-            .orderBy(
-              order === "asc" ? asc(SessionMessageTable.time_created) : desc(SessionMessageTable.time_created),
-              order === "asc" ? asc(SessionMessageTable.id) : desc(SessionMessageTable.id),
-            )
-          const rows = input.limit === undefined ? query.all() : query.limit(input.limit).all()
-          return rows.pipe(Effect.map((items) => (direction === "previous" ? items.toReversed() : items)))
+        const page = yield* messages.page({
+          sessionID: input.sessionID,
+          limit: input.limit ?? 100,
+          order: input.order,
+          cursor: input.cursor,
         })
-        return yield* Effect.forEach(rows, (row) => decode(row))
+        return page.items
       }),
       context: Effect.fn("V2Session.context")(function* (sessionID) {
         yield* result.get(sessionID)
-        const rows = yield* Database.query((db) =>
-          Effect.gen(function* () {
-            const compaction = yield* db
-              .select()
-              .from(SessionMessageTable)
-              .where(and(eq(SessionMessageTable.session_id, sessionID), eq(SessionMessageTable.type, "compaction")))
-              .orderBy(desc(SessionMessageTable.time_created), desc(SessionMessageTable.id))
-              .limit(1)
-              .get()
-
-            return yield* db
-              .select()
-              .from(SessionMessageTable)
-              .where(
-                and(
-                  eq(SessionMessageTable.session_id, sessionID),
-                  compaction
-                    ? or(
-                        gt(SessionMessageTable.time_created, compaction.time_created),
-                        and(
-                          eq(SessionMessageTable.time_created, compaction.time_created),
-                          gte(SessionMessageTable.id, compaction.id),
-                        ),
-                      )
-                    : undefined,
-                ),
-              )
-              .orderBy(asc(SessionMessageTable.time_created), asc(SessionMessageTable.id))
-              .all()
-          }),
-        )
-        return yield* Effect.forEach(rows, (row) => decode(row))
+        return yield* messages.context(sessionID)
       }),
       prompt: Effect.fn("V2Session.prompt")(function* (input) {
         yield* result.get(input.sessionID)
@@ -373,8 +299,10 @@ export const layer = Layer.effect(
 
     return result
   }),
-)
+).pipe(Layer.provide(SessionMessageDefaultLayer))
 
-export const defaultLayer = layer.pipe(Layer.provide(EventV2Bridge.defaultLayer))
+export const defaultLayer = layer.pipe(
+  Layer.provide(EventRuntime.defaultLayer),
+)
 
 export * as SessionV2 from "./session"
