@@ -117,7 +117,7 @@ export function afterCommit<A, E>(pending: Effect.Effect<A, E, never>) {
 }
 
 export function layerFromFlags(flags: DatabaseFlags = readRuntimeFlags()) {
-  log.info("opening database", { path: getPath(flags) })
+  log.debug("opening database", { path: getPath(flags) })
   return ScopedDatabase.layerFromPath(getPath(flags), flags.skipMigrations ? ScopedDatabase.noMigrations : undefined)
 }
 

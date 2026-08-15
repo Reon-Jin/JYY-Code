@@ -104,8 +104,9 @@ describe("run permission shared", () => {
         }),
       ),
     ).toMatchObject({
-      title: "General Task",
-      lines: ["◉ investigate stream"],
+      icon: "⚙",
+      title: "Call tool task",
+      lines: ["Tool: task"],
     })
 
     expect(

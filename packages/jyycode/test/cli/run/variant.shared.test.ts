@@ -143,8 +143,8 @@ describe("run variant shared", () => {
   test("formats model labels", () => {
     expect(formatModelLabel(model, undefined)).toBe("gpt-5 · openai")
     expect(formatModelLabel(model, "high")).toBe("gpt-5 · openai · high")
-    expect(formatModelLabel(model, undefined, providers)).toBe("GPT-5 · OpenAI")
-    expect(formatModelLabel(model, "high", providers)).toBe("GPT-5 · OpenAI · high")
+    expect(formatModelLabel(model, undefined, providers)).toBe("GPT-5 (gpt-5) · OpenAI")
+    expect(formatModelLabel(model, "high", providers)).toBe("GPT-5 (gpt-5) · OpenAI · high")
   })
 
   test("picks the latest matching variant from raw session messages", () => {
