@@ -17,6 +17,10 @@ export class ACPSessionManager {
     return this.sessions.get(sessionId)
   }
 
+  values(): readonly ACPSessionState[] {
+    return [...this.sessions.values()]
+  }
+
   async create(cwd: string, mcpServers: McpServer[], model?: ACPSessionState["model"]): Promise<ACPSessionState> {
     const session = await this.sdk.session
       .create(

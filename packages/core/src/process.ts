@@ -138,6 +138,7 @@ function normalizeInput(input: ProcessInput): { command: ChildProcess.Command; t
       cwd: input.cwd,
       env: environmentFor(input),
       extendEnv: false,
+      shell: input.shell,
       stdin: input.stdin === undefined ? (input.output === "inherit" ? "inherit" : undefined) : normalizeStdin(input.stdin),
       stdout: input.output === "inherit" ? "inherit" : "pipe",
       stderr: input.output === "inherit" ? "inherit" : "pipe",

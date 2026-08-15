@@ -5,7 +5,6 @@ import { pathToFileURL, fileURLToPath } from "url"
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from "vscode-jsonrpc/node"
 import type { Diagnostic as VSCodeDiagnostic } from "vscode-languageserver-types"
 import * as Log from "@jyycode-ai/core/util/log"
-import { Process } from "@/util/process"
 import { LANGUAGE_EXTENSIONS } from "./language"
 import { Effect, Schema } from "effect"
 import type * as LSPServer from "./server"
@@ -15,6 +14,7 @@ import { DocumentCache, limitDiagnostics } from "./document-cache"
 import { InstanceRef } from "@/effect/instance-ref"
 import { makeRuntime } from "@/effect/run-service"
 import type { InstanceContext } from "@/project/instance-context"
+import { terminate } from "./launch"
 
 const DIAGNOSTICS_DEBOUNCE_MS = 150
 const DIAGNOSTICS_DOCUMENT_WAIT_TIMEOUT_MS = 5_000
@@ -150,6 +150,8 @@ export async function create(input: {
   maxOpenDocuments?: number
   maxDocumentTextBytes?: number
 }) {
+  if ("ready" in input.server.process) await input.server.process.ready
+
   const logger = log.clone().tag("serverID", input.serverID)
   logger.info("starting client")
   const instance = input.instance
@@ -724,7 +726,7 @@ export async function create(input: {
       for (const filePath of [...files.keys()]) await closeDocument(filePath)
       connection.end()
       connection.dispose()
-      await Process.stop(input.server.process)
+      await terminate(input.server.process)
       logger.info("shutdown")
     },
   }

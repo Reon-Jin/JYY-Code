@@ -4,6 +4,7 @@ import { effectCmd, fail } from "../effect-cmd"
 import { Git } from "@/git"
 import { InstanceRef } from "@/effect/instance-ref"
 import { Process } from "@/util/process"
+import { AppProcess } from "@jyycode-ai/core/process"
 
 export const PrCommand = effectCmd({
   command: "pr <number>",
@@ -99,15 +100,17 @@ export const PrCommand = effectCmd({
     UI.println()
 
     const jyycodeArgs = sessionId ? ["-s", sessionId] : []
-    const code = yield* Effect.promise(
-      () =>
-        Process.spawn(["jyycode", ...jyycodeArgs], {
-          stdin: "inherit",
-          stdout: "inherit",
-          stderr: "inherit",
-          cwd: process.cwd(),
-        }).exited,
-    )
+    const appProcess = yield* AppProcess.Service
+    const result = yield* appProcess
+      .run({
+        command: "jyycode",
+        args: jyycodeArgs,
+        cwd: process.cwd(),
+        env: { mode: "inherit-allowlist" },
+        output: "inherit",
+      })
+      .pipe(Effect.orDie)
+    const code = result.exitCode
     // Match legacy throw semantics — propagate as a defect so the top-level
     // index.ts catch handles it identically (exit 1, "Unexpected error" banner).
     if (code !== 0) return yield* Effect.die(new Error(`jyycode exited with code ${code}`))

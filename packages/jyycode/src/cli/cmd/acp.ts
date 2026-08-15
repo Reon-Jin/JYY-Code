@@ -55,9 +55,11 @@ export const AcpCommand = effectCmd({
 
     const stream = ndJsonStream(input, output)
     const agent = ACP.init({ sdk })
+    let agentInstance: ACP.Agent | undefined
 
     new AgentSideConnection((conn) => {
-      return agent.create(conn, { sdk })
+      agentInstance = agent.create(conn, { sdk })
+      return agentInstance
     }, stream)
 
     log.info("setup connection")
@@ -68,6 +70,6 @@ export const AcpCommand = effectCmd({
           process.stdin.on("end", () => resolve())
           process.stdin.on("error", reject)
         }),
-    )
+    ).pipe(Effect.ensuring(Effect.promise(() => agentInstance?.shutdown() ?? Promise.resolve())))
   }),
 })

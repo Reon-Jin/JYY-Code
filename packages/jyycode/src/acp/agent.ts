@@ -161,6 +161,27 @@ export class Agent implements ACPAgent {
     this.startEventSubscription()
   }
 
+  async shutdown() {
+    this.eventAbort.abort()
+    await Promise.all(
+      this.sessionManager.values().map((session) =>
+        this.sdk.session
+          .abort(
+            {
+              sessionID: session.id,
+              directory: session.cwd,
+            },
+            { throwOnError: true },
+          )
+          .catch((error) => {
+            log.error("failed to abort session while shutting down ACP", { error, sessionID: session.id })
+          }),
+      ),
+    )
+    this.permissionQueues.clear()
+    this.sessionManager.values().forEach((session) => this.sessionManager.remove(session.id))
+  }
+
   private startEventSubscription() {
     if (this.eventStarted) return
     this.eventStarted = true

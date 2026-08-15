@@ -9,6 +9,7 @@ import { Locale } from "@/util/locale"
 import { Flag } from "@jyycode-ai/core/flag/flag"
 import { Filesystem } from "@/util/filesystem"
 import { Process } from "@/util/process"
+import { AppProcess } from "@jyycode-ai/core/process"
 import { NotFoundError } from "@/storage/storage"
 import { EOL } from "os"
 import path from "path"
@@ -190,22 +191,17 @@ export const SessionListCommand = effectCmd({
     const shouldPaginate = process.stdout.isTTY && !args.maxCount && args.format === "table"
 
     if (shouldPaginate) {
-      yield* Effect.promise(async () => {
-        const proc = Process.spawn(pagerCmd(), {
-          stdin: "pipe",
-          stdout: "inherit",
-          stderr: "inherit",
+      const pager = pagerCmd()
+      const appProcess = yield* AppProcess.Service
+      yield* appProcess
+        .run({
+          command: pager[0]!,
+          args: pager.slice(1),
+          env: { mode: "inherit-allowlist" },
+          stdin: output,
+          output: "inherit",
         })
-
-        if (!proc.stdin) {
-          console.log(output)
-          return
-        }
-
-        proc.stdin.write(output)
-        proc.stdin.end()
-        await proc.exited
-      })
+        .pipe(Effect.orDie)
     } else {
       console.log(output)
     }

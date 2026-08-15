@@ -14,6 +14,7 @@ export type ProcessSpec = {
   readonly args: readonly string[]
   readonly cwd?: string
   readonly env: ProcessEnvironment
+  readonly shell?: boolean | string
   readonly stdin?: string | Uint8Array | Stream.Stream<Uint8Array, PlatformError>
   readonly output: ProcessOutput
   readonly timeout?: Duration.Input

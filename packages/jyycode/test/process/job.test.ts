@@ -1,6 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { AppProcess } from "@jyycode-ai/core/process"
 import { BackgroundProcess } from "@/process/job"
 import * as Truncate from "@/tool/truncate"
 import { testEffect } from "../lib/effect"
@@ -8,55 +9,62 @@ import { pollWithTimeout } from "../lib/effect"
 
 const it = testEffect(BackgroundProcess.defaultLayer)
 
-const stalledSpawner = Layer.succeed(
-  ChildProcessSpawner.ChildProcessSpawner,
-  ChildProcessSpawner.make(() =>
+const fakeStdin = { [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") } as any
+
+const stalledAppProcess = Layer.succeed(AppProcess.Service, {
+  spawn: () =>
     Effect.succeed(
-      ChildProcessSpawner.makeHandle({
-        pid: ChildProcessSpawner.ProcessId(1),
-        exitCode: Effect.never,
-        isRunning: Effect.succeed(true),
-        kill: () => Effect.never,
-        stdin: { [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") } as any,
-        stdout: Stream.empty,
-        stderr: Stream.empty,
-        all: Stream.empty,
-        getInputFd: () => ({ [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") }) as any,
-        getOutputFd: () => Stream.empty,
-        unref: Effect.succeed(Effect.void),
-      }),
+      Object.assign(
+        ChildProcessSpawner.makeHandle({
+          pid: ChildProcessSpawner.ProcessId(1),
+          exitCode: Effect.never,
+          isRunning: Effect.succeed(true),
+          kill: () => Effect.never,
+          stdin: fakeStdin,
+          stdout: Stream.empty,
+          stderr: Stream.empty,
+          all: Stream.empty,
+          getInputFd: () => fakeStdin,
+          getOutputFd: () => Stream.empty,
+          unref: Effect.succeed(Effect.void),
+        }),
+        { terminate: () => Effect.never },
+      ),
     ),
-  ),
-)
+} as unknown as AppProcess.Interface)
 
 const stalledIt = testEffect(
-  BackgroundProcess.layer.pipe(Layer.provide(stalledSpawner), Layer.provide(Truncate.defaultLayer)),
+  BackgroundProcess.layer.pipe(Layer.provide(stalledAppProcess), Layer.provide(Truncate.defaultLayer)),
 )
 
 let ownedPid = 10
-const ownedSpawner = Layer.succeed(
-  ChildProcessSpawner.ChildProcessSpawner,
-  ChildProcessSpawner.make(() =>
+const ownedAppProcess = Layer.succeed(AppProcess.Service, {
+  spawn: () =>
     Effect.succeed(
-      ChildProcessSpawner.makeHandle({
-        pid: ChildProcessSpawner.ProcessId(ownedPid++),
-        exitCode: Effect.never,
-        isRunning: Effect.succeed(true),
-        kill: () => Effect.succeed(undefined),
-        stdin: { [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") } as any,
-        stdout: Stream.empty,
-        stderr: Stream.empty,
-        all: Stream.empty,
-        getInputFd: () => ({ [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") }) as any,
-        getOutputFd: () => Stream.empty,
-        unref: Effect.succeed(Effect.void),
-      }),
+      Object.assign(
+        ChildProcessSpawner.makeHandle({
+          pid: ChildProcessSpawner.ProcessId(ownedPid++),
+          exitCode: Effect.never,
+          isRunning: Effect.succeed(true),
+          kill: () => Effect.succeed(undefined),
+          stdin: fakeStdin,
+          stdout: Stream.empty,
+          stderr: Stream.empty,
+          all: Stream.empty,
+          getInputFd: () => fakeStdin,
+          getOutputFd: () => Stream.empty,
+          unref: Effect.succeed(Effect.void),
+        }),
+        {
+          terminate: (options?: { graceMs?: number }) =>
+            Effect.succeed({ state: "killed", pid: ownedPid, remainingPids: [], ...options } as any),
+        },
+      ),
     ),
-  ),
-)
+} as unknown as AppProcess.Interface)
 
 const ownedIt = testEffect(
-  BackgroundProcess.layer.pipe(Layer.provide(ownedSpawner), Layer.provide(Truncate.defaultLayer)),
+  BackgroundProcess.layer.pipe(Layer.provide(ownedAppProcess), Layer.provide(Truncate.defaultLayer)),
 )
 
 describe("process.job", () => {

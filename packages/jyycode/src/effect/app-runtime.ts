@@ -56,6 +56,7 @@ import { memoMap } from "@jyycode-ai/core/effect/memo-map"
 import { DataMigration } from "@/data-migration"
 import { BackgroundJob } from "@/background/job"
 import { BackgroundProcess } from "@/process/job"
+import { AppProcess } from "@jyycode-ai/core/process"
 import { EventRuntime } from "@/event-runtime"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@/storage/db"
@@ -85,6 +86,7 @@ export const AppLayer = Layer.mergeAll(
   Session.defaultLayer,
   SessionStatus.defaultLayer,
   BackgroundJob.defaultLayer,
+  AppProcess.defaultLayer,
   BackgroundProcess.defaultLayer,
   Database.layer,
   RuntimeFlags.defaultLayer,

@@ -13,8 +13,8 @@ import { Global } from "@jyycode-ai/core/global"
 import { Plugin } from "../../plugin"
 import type { Hooks } from "@jyycode-ai/plugin"
 import { Process } from "@/util/process"
+import { AppProcess } from "@jyycode-ai/core/process"
 import { errorMessage } from "@/util/error"
-import { text } from "node:stream/consumers"
 import { Effect, Option } from "effect"
 
 type PluginAuth = NonNullable<Hooks["auth"]>
@@ -328,14 +328,20 @@ export const ProvidersLoginCommand = effectCmd({
       }
       yield* Prompt.log.info(`Running \`${wellknown.auth.command.join(" ")}\``)
       const abort = new AbortController()
-      const proc = Process.spawn(wellknown.auth.command, { stdout: "pipe", stderr: "inherit", abort: abort.signal })
-      if (!proc.stdout) {
-        yield* Prompt.log.error("Failed")
-        yield* Prompt.outro("Done")
-        return
-      }
+      const appProcess = yield* AppProcess.Service
       const [exit, token] = yield* cliTry("Failed to run auth provider command: ", () =>
-        Promise.all([proc.exited, text(proc.stdout!)]),
+        Effect.runPromise(
+          appProcess.run(
+            {
+              command: wellknown.auth.command[0]!,
+              args: wellknown.auth.command.slice(1),
+              env: { mode: "inherit-allowlist" },
+              output: "capture",
+            },
+            { signal: abort.signal },
+          ),
+        )
+          .then((result) => [result.exitCode, result.stdout.toString()] as const),
       ).pipe(Effect.ensuring(Effect.sync(() => abort.abort())))
       if (exit !== 0) {
         yield* Prompt.log.error("Failed")

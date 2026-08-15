@@ -4,10 +4,11 @@ import { Effect, Layer } from "effect"
 import { LSP } from "@/lsp/lsp"
 import * as LSPServer from "@/lsp/server"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
+import { AppProcess } from "@jyycode-ai/core/process"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
-const it = testEffect(Layer.mergeAll(LSP.defaultLayer, CrossSpawnSpawner.defaultLayer))
+const it = testEffect(Layer.mergeAll(LSP.defaultLayer, AppProcess.defaultLayer, CrossSpawnSpawner.defaultLayer))
 
 describe("LSP service lifecycle", () => {
   let spawnSpy: ReturnType<typeof spyOn>

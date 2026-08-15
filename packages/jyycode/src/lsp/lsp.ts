@@ -6,9 +6,9 @@ import path from "path"
 import { pathToFileURL, fileURLToPath } from "url"
 import * as LSPServer from "./server"
 import { Config } from "@/config/config"
-import { Process } from "@/util/process"
-import { spawn as lspspawn } from "./launch"
-import { Effect, Layer, Context, Schema } from "effect"
+import { configureFrom, spawn as lspspawn, terminate } from "./launch"
+import { Effect, Layer, Context, Schema, Scope } from "effect"
+import { AppProcess, type ProcessSpec } from "@jyycode-ai/core/process"
 import { InstanceState } from "@/effect/instance-state"
 import { containsPath } from "@/project/instance-context"
 import { NonNegativeInt } from "@jyycode-ai/core/schema"
@@ -150,6 +150,23 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const config = yield* Config.Service
     const flags = yield* RuntimeFlags.Service
+    const appProcess = yield* AppProcess.Service
+    const processScope = yield* Scope.make()
+    configureFrom(appProcess, processScope)
+
+    const processSpec = (command: string, args: readonly string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) =>
+      ({
+        command,
+        args,
+        cwd: options.cwd,
+        env: {
+          mode: "inherit-allowlist",
+          values: Object.fromEntries(
+            Object.entries(options.env ?? {}).filter((entry): entry is [string, string] => entry[1] !== undefined),
+          ),
+        },
+        output: "capture",
+      }) satisfies ProcessSpec
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("LSP.state")(function* (ctx) {
@@ -180,10 +197,7 @@ export const layer = Layer.effect(
                 root: existing?.root ?? (async (_file, ctx) => ctx.directory),
                 extensions: item.extensions ?? existing?.extensions ?? [],
                 spawn: async (root) => ({
-                  process: lspspawn(item.command[0], item.command.slice(1), {
-                    cwd: root,
-                    env: { ...process.env, ...item.env },
-                  }),
+                  process: lspspawn(processSpec(item.command[0], item.command.slice(1), { cwd: root, env: item.env })),
                   initialization: item.initialization,
                 }),
               }
@@ -266,7 +280,7 @@ export const layer = Layer.effect(
             maxDocumentTextBytes: s.maxDocumentTextBytes,
           }).catch(async (err) => {
             s.broken.add(key)
-            await Process.stop(handle.process)
+            await terminate(handle.process)
             log.error(`Failed to initialize LSP client ${server.id}`, { error: err })
             return undefined
           })
@@ -276,7 +290,7 @@ export const layer = Layer.effect(
           const existing = s.clients.find((x) => x.root === root && x.serverID === server.id)
           if (existing) {
             s.lastUsed.set(existing, Date.now())
-            await Process.stop(handle.process)
+            await terminate(handle.process)
             return existing
           }
 
@@ -561,7 +575,11 @@ export const layer = Layer.effect(
   }),
 )
 
-export const defaultLayer = layer.pipe(Layer.provide(Config.defaultLayer), Layer.provide(RuntimeFlags.defaultLayer))
+export const defaultLayer = layer.pipe(
+  Layer.provide(Config.defaultLayer),
+  Layer.provide(RuntimeFlags.defaultLayer),
+  Layer.provide(AppProcess.defaultLayer),
+)
 
 export * as Diagnostic from "./diagnostic"
 

@@ -27,12 +27,9 @@ export const DEFAULT_ALLOWLIST: Readonly<Record<string, string>> = {
   "packages/jyycode/src/pty/pty.node.ts": "PTY platform adapter; permanent boundary",
   "packages/jyycode/src/cli/cmd/db.ts": "Task 10: migrate CLI database commands to AppProcess",
   "packages/jyycode/src/cli/cmd/github.ts": "Task 10: migrate CLI GitHub commands to AppProcess",
-  "packages/jyycode/src/lsp/launch.ts": "Task 10: route LSP launch through AppProcess",
-  "packages/jyycode/src/lsp/server.ts": "Task 10: route LSP installation through AppProcess",
   "packages/jyycode/src/plan/child-workspace.ts": "Task 10: migrate workspace subprocesses to AppProcess",
   "packages/jyycode/src/plan/workspace-merge.ts": "Task 10: migrate workspace subprocesses to AppProcess",
-  "packages/jyycode/src/shell/shell.ts": "Task 10: migrate shell subprocesses to AppProcess",
-  "packages/jyycode/src/util/process.ts": "Task 10: migrate process utility to AppProcess",
+  "packages/jyycode/src/util/process.ts": "platform compatibility adapter for legacy Promise-based callers; migrate consumers to AppProcess",
 }
 
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"])
@@ -174,6 +171,18 @@ export async function verifyArchitecture(options: VerifyArchitectureOptions = {}
           )
         }
       }
+    }
+
+    if (/\b(?:Bun\.spawn|Process\.spawn)\s*\(/.test(contents) && !allowlist[source]) {
+      violations.push(
+        violation(
+          source,
+          "native-process-spawn",
+          "business-cannot-use-native-spawn",
+          "Business modules must route subprocess creation through AppProcess.Service.",
+          "Use AppProcess.Service or add a narrowly scoped platform adapter with a Task/owner removal rationale.",
+        ),
+      )
     }
   }
 

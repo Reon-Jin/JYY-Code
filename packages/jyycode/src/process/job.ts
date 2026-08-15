@@ -1,8 +1,7 @@
 import { Identifier } from "@/id/id"
 import { Cause, Context, Effect, Exit, Fiber, Layer, Scope, Stream, SynchronizedRef } from "effect"
 import { ChildProcess } from "effect/unstable/process"
-import { ChildProcessSpawner, type ChildProcessHandle } from "effect/unstable/process/ChildProcessSpawner"
-import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
+import { AppProcess } from "@jyycode-ai/core/process"
 import * as Truncate from "@/tool/truncate"
 import { budgetFor } from "@/execution/budget"
 
@@ -26,7 +25,7 @@ export type Info = {
 
 type Active = {
   info: Info
-  handle?: ChildProcessHandle
+  handle?: AppProcess.AppProcessHandle
   chunks: string[]
   bytes: number
   watchdog?: Fiber.Fiber<void, unknown>
@@ -81,7 +80,7 @@ function snapshot(active: Active): Info {
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner
+    const appProcess = yield* AppProcess.Service
     const trunc = yield* Truncate.Service
     const processes = yield* SynchronizedRef.make(new Map<string, Active>())
     const scope = yield* Scope.Scope
@@ -183,14 +182,17 @@ export const layer = Layer.effect(
       })
       const forceAfter = Math.max(forceAfterMs, 50)
       const result = yield* Effect.exit(
-        active.handle.kill({ forceKillAfter: `${forceAfter} millis` }).pipe(
-          Effect.timeout(`${Math.max(forceAfter * 2, 100)} millis`),
-        ),
+        active.handle.terminate({
+          graceMs: forceAfter,
+          verifyMs: Math.max(forceAfter * 2, 100),
+        }).pipe(Effect.timeout(`${Math.max(forceAfter * 2, 100)} millis`)),
       )
-      if (Exit.isSuccess(result)) {
+      if (Exit.isSuccess(result) && result.value.state !== "kill_failed") {
         return yield* finish(id, successStatus, { termination_reason: reason })
       }
-      const detail = Cause.squash(result.cause)
+      const detail = Exit.isSuccess(result)
+        ? `remaining process ids: ${result.value.remainingPids.join(", ") || "unknown"}`
+        : Cause.squash(result.cause)
       return yield* finishRef(
         processes,
         id,
@@ -204,7 +206,7 @@ export const layer = Layer.effect(
       const id = Identifier.ascending("proc")
       const limits = yield* trunc.limits()
       const budget = budgetFor("background_process", input.timeout)
-      const handle = yield* spawner.spawn(input.command).pipe(Effect.orDie, Effect.provideService(Scope.Scope, scope))
+      const handle = yield* appProcess.spawn(input.command).pipe(Effect.orDie, Effect.provideService(Scope.Scope, scope))
       const started_at = Date.now()
       const info: Info = {
         id,
@@ -291,7 +293,7 @@ export const layer = Layer.effect(
 )
 
 export const defaultLayer = layer.pipe(
-  Layer.provide(CrossSpawnSpawner.defaultLayer),
+  Layer.provide(AppProcess.defaultLayer),
   Layer.provide(Truncate.defaultLayer),
 )
 export * as BackgroundProcess from "./job"
