@@ -76,6 +76,27 @@ export const Synthetic = EventV2.define({
 })
 export type Synthetic = typeof Synthetic.Type
 
+export namespace Request {
+  export const Prepared = EventV2.define({
+    type: "session.next.request.prepared",
+    ...options,
+    schema: {
+      ...Base,
+      stepID: Schema.String,
+      runtime: Schema.Literals(["ai-sdk", "native"]),
+      model: ModelV2.Ref,
+      payload: Schema.Struct({
+        blobID: Schema.String,
+        sha256: Schema.String,
+        bytes: NonNegativeInt,
+      }),
+      configHash: Schema.String,
+      toolCatalogHash: Schema.String,
+    },
+  })
+  export type Prepared = typeof Prepared.Type
+}
+
 export namespace Shell {
   export const Started = EventV2.define({
     type: "session.next.shell.started",
@@ -368,6 +389,7 @@ export const All = Schema.Union(
     ModelSwitched,
     Prompted,
     Synthetic,
+    Request.Prepared,
     Shell.Started,
     Shell.Ended,
     Step.Started,

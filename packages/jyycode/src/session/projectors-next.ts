@@ -109,6 +109,7 @@ function sqlite(db: Database.TxOrDb, sessionID: SessionID): SessionMessageUpdate
             data: encodeMessageData(data),
           },
         ])
+        .onConflictDoNothing({ target: SessionMessageTable.id })
         .run()
     },
     finish() {},
@@ -146,6 +147,7 @@ export default [
   SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Synthetic), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.synthetic", data })
   }),
+  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Request.Prepared), () => {}),
   SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Shell.Started), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.shell.started", data })
   }),
@@ -177,6 +179,9 @@ export default [
   }),
   SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Tool.Called), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.tool.called", data })
+  }),
+  SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Tool.Progress), (db, data, event) => {
+    update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.tool.progress", data })
   }),
   SyncEvent.project(EventV2Bridge.toSyncDefinition(SessionEvent.Tool.Success), (db, data, event) => {
     update(db, { id: SessionMessage.ID.make(event.id), type: "session.next.tool.success", data })

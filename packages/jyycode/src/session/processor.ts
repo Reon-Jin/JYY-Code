@@ -858,7 +858,7 @@ export const layer = Layer.effect(
             ctx.reasoningMap = {}
             yield* status.set(ctx.sessionID, { type: "busy" })
             waitingForRetry = false
-            const stream = llm.stream(streamInput)
+            const stream = llm.stream({ ...streamInput, stepID: ctx.assistantMessage.id })
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),

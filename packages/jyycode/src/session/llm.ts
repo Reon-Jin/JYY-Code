@@ -29,6 +29,13 @@ import { LLMRequestPrep } from "./llm/request"
 import { isTruncatedToolCall } from "./llm/tool-call"
 import type { ToolChoice } from "./llm/tool-choice"
 import { LLMTrace } from "@/dev/llm-trace"
+import * as BlobStore from "@/storage/blob"
+import { EventV2Bridge } from "@/event-v2-bridge"
+import { SessionEvent } from "@jyycode-ai/core/session-event"
+import { ModelV2 } from "@jyycode-ai/core/model"
+import { ProviderV2 } from "@jyycode-ai/core/provider"
+import * as DateTime from "effect/DateTime"
+import { createRequestEnvelope } from "./request-envelope"
 
 export type { ToolChoice } from "./llm/tool-choice"
 
@@ -37,6 +44,7 @@ export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
 export type StreamInput = {
   user: MessageV2.User
+  stepID?: string
   sessionID: string
   parentSessionID?: string
   model: Provider.Model
@@ -82,6 +90,8 @@ const live: Layer.Layer<
     const perm = yield* Permission.Service
     const llmClient = yield* LLMClient.Service
     const flags = yield* RuntimeFlags.Service
+    const blobStore = Option.getOrUndefined(yield* Effect.serviceOption(BlobStore.Service))
+    const events = Option.getOrUndefined(yield* Effect.serviceOption(EventV2Bridge.Service))
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       const l = log
@@ -116,6 +126,49 @@ const live: Layer.Layer<
         flags,
         isWorkflow,
         toolChoice: input.toolChoice,
+      })
+      const modelVisibleMessages = ProviderTransform.message(
+        structuredClone(prepared.messages),
+        input.model,
+        prepared.messageTransformOptions,
+      )
+      const persistRequestEnvelope = Effect.fn("LLM.persistRequestEnvelope")(function* (runtime: "ai-sdk" | "native") {
+        if (!flags.experimentalEventSystem || !blobStore || !events) return
+        const artifact = createRequestEnvelope({
+          sessionID: SessionID.make(input.sessionID),
+          stepID: input.stepID ?? input.user.id,
+          runtime,
+          model: input.model,
+          variant: input.user.model.variant,
+          prepared,
+          messages: modelVisibleMessages,
+        })
+        const record = yield* blobStore.put({
+          source: artifact.bytes,
+          mime: "application/json",
+          persistMetadata: true,
+        })
+        if (record.digest !== artifact.sha256 || record.size !== artifact.bytes.byteLength) {
+          throw new Error("request envelope blob integrity check failed")
+        }
+        yield* events.publish(SessionEvent.Request.Prepared, {
+          sessionID: SessionID.make(input.sessionID),
+          timestamp: DateTime.makeUnsafe(Date.now()),
+          stepID: input.stepID ?? input.user.id,
+          runtime,
+          model: {
+            id: ModelV2.ID.make(input.model.id),
+            providerID: ProviderV2.ID.make(input.model.providerID),
+            variant: ModelV2.VariantID.make(input.user.model.variant ?? "default"),
+          },
+          payload: {
+            blobID: record.digest,
+            sha256: artifact.sha256,
+            bytes: artifact.bytes.byteLength,
+          },
+          configHash: artifact.configHash,
+          toolCatalogHash: artifact.toolCatalogHash,
+        })
       })
 
       // Wire up toolExecutor for DWS workflow models so that tool calls
@@ -241,6 +294,7 @@ const live: Layer.Layer<
           abort: input.abort,
         })
         if (native.type === "supported") {
+          yield* persistRequestEnvelope("native")
           yield* Effect.logInfo("llm runtime selected").pipe(
             Effect.annotateLogs({
               "llm.runtime": "native",
@@ -281,13 +335,14 @@ const live: Layer.Layer<
       }
 
       const traceMessages = (() => {
-        if (!LLMTrace.isEnabled()) return prepared.messages
+        if (!LLMTrace.isEnabled()) return modelVisibleMessages
         try {
-          return ProviderTransform.message(structuredClone(prepared.messages), input.model, prepared.messageTransformOptions)
+          return modelVisibleMessages
         } catch {
           return prepared.messages
         }
       })()
+      yield* persistRequestEnvelope("ai-sdk")
       const trace = LLMTrace.start({
         sessionID: input.sessionID,
         parentSessionID: input.parentSessionID,
@@ -452,6 +507,8 @@ export const defaultLayer = Layer.suspend(() =>
       LLMClient.layer.pipe(Layer.provide(Layer.mergeAll(RequestExecutor.defaultLayer, WebSocketExecutor.layer))),
     ),
     Layer.provide(RuntimeFlags.defaultLayer),
+    Layer.provide(BlobStore.defaultLayer),
+    Layer.provide(EventV2Bridge.defaultLayer),
   ),
 )
 

@@ -139,6 +139,7 @@ export function update<Result>(adapter: Adapter<Result>, event: SessionEvent.Eve
         }),
       )
     },
+    "session.next.request.prepared": () => {},
     "session.next.shell.started": (event) => {
       adapter.appendMessage(
         new SessionMessage.Shell({
