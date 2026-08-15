@@ -13,13 +13,17 @@ export type Event =
   | EventServerConnected
   | EventGlobalDisposed
   | EventServerInstanceDisposed
-  | EventFileEdited
   | EventFileWatcherUpdated
+  | EventFileEdited
+  | EventMcpToolsChanged
+  | EventMcpBrowserOpenFailed
+  | EventPermissionAsked
+  | EventPermissionReplied
+  | EventCommandExecuted
+  | EventProjectUpdated
   | EventLspClientDiagnostics
   | EventLspUpdated
   | EventMessagePartDelta
-  | EventPermissionAsked
-  | EventPermissionReplied
   | EventSessionDiff
   | EventSessionError
   | EventQuestionAsked
@@ -28,10 +32,6 @@ export type Event =
   | EventTodoUpdated
   | EventSessionStatus
   | EventSessionIdle
-  | EventMcpToolsChanged
-  | EventMcpBrowserOpenFailed
-  | EventCommandExecuted
-  | EventProjectUpdated
   | EventToolCatalogResolved1
   | EventToolSearchExecuted1
   | EventToolExecutionCompleted1
@@ -60,6 +60,11 @@ export type Event =
   | EventSessionNextModelSwitched
   | EventSessionNextPrompted
   | EventSessionNextSynthetic
+  | EventSessionNextRequestPrepared
+  | EventSessionNextMessageUpdated
+  | EventSessionNextMessageRemoved
+  | EventSessionNextMessagePartUpdated
+  | EventSessionNextMessagePartRemoved
   | EventSessionNextShellStarted
   | EventSessionNextShellEnded
   | EventSessionNextStepStarted
@@ -189,6 +194,30 @@ export type PermissionRequest = {
     messageID: string
     callID: string
   }
+}
+
+export type Project = {
+  id: string
+  worktree: string
+  vcs?: "git"
+  name?: string
+  icon?: {
+    url?: string
+    override?: string
+    color?: string
+  }
+  commands?: {
+    /**
+     * Startup script to run when creating a new workspace (worktree)
+     */
+    start?: string
+  }
+  time: {
+    created: number
+    updated: number
+    initialized?: number
+  }
+  sandboxes: Array<string>
 }
 
 export type SnapshotFileDiff = {
@@ -354,38 +383,21 @@ export type SessionStatus =
       type: "busy"
     }
 
-export type Project = {
-  id: string
-  worktree: string
-  vcs?: "git"
-  name?: string
-  icon?: {
-    url?: string
-    override?: string
-    color?: string
-  }
-  commands?: {
-    /**
-     * Startup script to run when creating a new workspace (worktree)
-     */
-    start?: string
-  }
-  time: {
-    created: number
-    updated: number
-    initialized?: number
-  }
-  sandboxes: Array<string>
-}
-
 export type Pty = {
   id: string
   title: string
   command: string
   args: Array<string>
   cwd: string
-  status: "running" | "exited"
+  status: "running" | "exited" | "kill_failed"
   pid: number
+  owner_session_id?: string
+  owner_workspace_id?: string
+  created_at: number
+  last_activity_at: number
+  idle_expires_at: number
+  absolute_expires_at: number
+  termination_reason?: string
 }
 
 export type OutputFormatText = {
@@ -465,6 +477,30 @@ export type AssistantMessage = {
       read: number
       write: number
     }
+  }
+  usage?: {
+    version: 1
+    context: {
+      total?: number
+      input: number
+      output: number
+      reasoning: number
+      cache: {
+        read: number
+        write: number
+      }
+    }
+    billing: {
+      total?: number
+      input: number
+      output: number
+      reasoning: number
+      cache: {
+        read: number
+        write: number
+      }
+    }
+    cost: number
   }
   structured?: unknown
   variant?: string
@@ -594,6 +630,26 @@ export type ToolStateRunning = {
   }
 }
 
+export type CompactedToolPayload = {
+  version: 1
+  input: {
+    sha256: string
+    bytes: number
+  }
+  output: {
+    sha256: string
+    bytes: number
+  }
+  attachments: {
+    count: number
+    bytes: number
+    sha256: Array<string>
+  }
+  preview: string
+  blobRef?: string
+  blobError?: string
+}
+
 export type ToolStateCompleted = {
   status: "completed"
   input: {
@@ -610,6 +666,7 @@ export type ToolStateCompleted = {
     compacted?: number
   }
   attachments?: Array<FilePart>
+  compactedPayload?: CompactedToolPayload
 }
 
 export type ToolStateError = {
@@ -712,6 +769,40 @@ export type RetryPart = {
   }
 }
 
+export type CompactionSourceHighWatermark = {
+  id: string
+  created: number
+}
+
+export type CompactionContextMeasure = {
+  tokens: number
+  bytes: number
+}
+
+export type CompactionCheckpoint = {
+  version: 1
+  sessionID: string
+  sourceHighWatermark: CompactionSourceHighWatermark
+  before: CompactionContextMeasure
+  after?: CompactionContextMeasure
+  attempt: number
+  instructionDigests: Array<string>
+  goal: string
+  constraints: Array<string>
+  decisions: Array<string>
+  progress: Array<string>
+  files: Array<string>
+  commands: Array<string>
+  tests: Array<string>
+  pending: Array<string>
+  blocked: Array<string>
+  verbatimTailMessageIDs: Array<string>
+  status: "pending" | "active" | "complete" | "no_progress" | "cancelled" | "corrupt"
+  reason?: string
+  createdAt: number
+  updatedAt: number
+}
+
 export type CompactionPart = {
   id: string
   sessionID: string
@@ -720,6 +811,7 @@ export type CompactionPart = {
   auto: boolean
   overflow?: boolean
   tail_start_id?: string
+  checkpoint?: CompactionCheckpoint
 }
 
 export type Part =
@@ -754,6 +846,7 @@ export type Session = {
   directory: string
   path?: string
   parentID?: string
+  agentDepth?: number
   summary?: {
     additions: number
     deletions: number
@@ -837,13 +930,17 @@ export type GlobalEvent = {
     | EventServerConnected
     | EventGlobalDisposed
     | EventServerInstanceDisposed
-    | EventFileEdited
     | EventFileWatcherUpdated
+    | EventFileEdited
+    | EventMcpToolsChanged
+    | EventMcpBrowserOpenFailed
+    | EventPermissionAsked
+    | EventPermissionReplied
+    | EventCommandExecuted
+    | EventProjectUpdated
     | EventLspClientDiagnostics
     | EventLspUpdated
     | EventMessagePartDelta
-    | EventPermissionAsked
-    | EventPermissionReplied
     | EventSessionDiff
     | EventSessionError
     | EventQuestionAsked
@@ -852,10 +949,6 @@ export type GlobalEvent = {
     | EventTodoUpdated
     | EventSessionStatus
     | EventSessionIdle
-    | EventMcpToolsChanged
-    | EventMcpBrowserOpenFailed
-    | EventCommandExecuted
-    | EventProjectUpdated
     | EventToolCatalogResolved
     | EventToolSearchExecuted
     | EventToolExecutionCompleted
@@ -884,6 +977,11 @@ export type GlobalEvent = {
     | EventSessionNextModelSwitched
     | EventSessionNextPrompted
     | EventSessionNextSynthetic
+    | EventSessionNextRequestPrepared
+    | EventSessionNextMessageUpdated
+    | EventSessionNextMessageRemoved
+    | EventSessionNextMessagePartUpdated
+    | EventSessionNextMessagePartRemoved
     | EventSessionNextShellStarted
     | EventSessionNextShellEnded
     | EventSessionNextStepStarted
@@ -919,6 +1017,11 @@ export type GlobalEvent = {
     | SyncEventSessionNextModelSwitched
     | SyncEventSessionNextPrompted
     | SyncEventSessionNextSynthetic
+    | SyncEventSessionNextRequestPrepared
+    | SyncEventSessionNextMessageUpdated
+    | SyncEventSessionNextMessageRemoved
+    | SyncEventSessionNextMessagePartUpdated
+    | SyncEventSessionNextMessagePartRemoved
     | SyncEventSessionNextShellStarted
     | SyncEventSessionNextShellEnded
     | SyncEventSessionNextStepStarted
@@ -967,6 +1070,9 @@ export type SubagentProfile = {
   avatar: "bot" | "search" | "code" | "bug" | "chart" | "file" | "image" | "folder" | "pen" | "sparkles"
   model?: string
   variant?: string
+  steps?: number
+  timeout_ms?: number
+  no_progress_steps?: number
   tools?: Array<string>
   enabled: boolean
 }
@@ -1010,6 +1116,7 @@ export type PermissionConfig =
       bash?: PermissionRuleConfig
       task?: PermissionRuleConfig
       external_directory?: PermissionRuleConfig
+      runtime_data?: PermissionRuleConfig
       todowrite?: PermissionActionConfig
       question?: PermissionActionConfig
       webfetch?: PermissionActionConfig
@@ -1044,6 +1151,8 @@ export type AgentConfig = {
   color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
   steps?: number
   maxSteps?: number
+  timeout_ms?: number
+  no_progress_steps?: number
   permission?: PermissionConfig
   [key: string]:
     | unknown
@@ -1072,16 +1181,22 @@ export type AgentConfig = {
     | undefined
 }
 
+export type CredentialRef = {
+  providerID: string
+  credentialID: string
+  kind: "api" | "oauth" | "wellknown"
+}
+
 export type ProviderConfig = {
   api?: string
   name?: string
   env?: Array<string>
   id?: string
+  credential?: CredentialRef
   npm?: string
   whitelist?: Array<string>
   blacklist?: Array<string>
   options?: {
-    apiKey?: string
     baseURL?: string
     enterpriseUrl?: string
     setCacheKey?: boolean
@@ -1167,6 +1282,8 @@ export type McpLocalConfig = {
   }
   enabled?: boolean
   timeout?: number
+  idle_timeout_ms?: number
+  total_timeout_ms?: number
 }
 
 export type McpOAuthConfig = {
@@ -1195,6 +1312,8 @@ export type McpRemoteConfig = {
    */
   oauth?: McpOAuthConfig | false
   timeout?: number
+  idle_timeout_ms?: number
+  total_timeout_ms?: number
 }
 
 /**
@@ -1216,6 +1335,11 @@ export type AttachmentConfig = {
 export type Config = {
   $schema?: string
   shell?: string
+  pty?: {
+    max_sessions_per_owner?: number
+    idle_timeout_ms?: number
+    absolute_timeout_ms?: number
+  }
   logLevel?: LogLevel
   server?: ServerConfig
   command?: {
@@ -1233,12 +1357,24 @@ export type Config = {
   }
   subagents?: {
     profiles?: Array<SubagentProfile>
+    max_steps?: number
+    timeout_ms?: number
+    no_progress_steps?: number
   }
   reference?: ReferenceConfig
   watcher?: {
     ignore?: Array<string>
   }
   snapshot?: boolean
+  snapshot_limits?: {
+    max_file_bytes?: number
+    max_total_bytes?: number
+    max_file_count?: number
+    runtime_soft_limit_bytes?: number
+    runtime_hard_limit_bytes?: number
+    exclude?: Array<string>
+    include?: Array<string>
+  }
   plugin?: Array<
     | string
     | [
@@ -1322,6 +1458,11 @@ export type Config = {
             }
       }
   instructions?: Array<string>
+  instruction_budget?: {
+    max_file_bytes?: number
+    max_total_tokens?: number
+    safety_margin?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }
   layout?: LayoutConfig
   permission?: PermissionConfig
   tools?: {
@@ -1334,6 +1475,7 @@ export type Config = {
   tool_output?: {
     max_lines?: number
     max_bytes?: number
+    preview_bytes?: number
   }
   compaction?: {
     auto?: boolean
@@ -1344,7 +1486,40 @@ export type Config = {
     trigger_ratio?: number
     micro_compact?: boolean
     micro_compact_max_chars?: number
+    prune_preview_chars?: number
+    prune_preview_bytes?: number
     reactive_compact?: boolean
+  }
+  workspace_cleanup?: {
+    success_retention_minutes?: number
+    retained_failure_hours?: number
+    quarantine_days?: number
+    orphan_grace_hours?: number
+    runtime_soft_limit_bytes?: number
+    runtime_hard_limit_bytes?: number
+    terminal_reference_max?: number
+    sweep_interval_minutes?: number
+    inventory_max_entries?: number
+    migration_index?: boolean
+    legacy_root?: string
+  }
+  storage?: {
+    terminal_child_ttl_days?: number
+    blob_grace_hours?: number
+    warning_bytes?: number
+    warning_session_bytes?: number
+  }
+  fork?: {
+    max_logical_bytes?: number
+    max_part_count?: number
+    max_physical_blob_bytes?: number
+  }
+  execution_budget?: {
+    [key: string]: {
+      default_ms?: number
+      hard_cap_ms?: number
+      grace_ms?: number
+    }
   }
   experimental?: {
     disable_paste_summary?: boolean
@@ -1353,6 +1528,14 @@ export type Config = {
     primary_tools?: Array<string>
     continue_loop_on_deny?: boolean
     mcp_timeout?: number
+    mcp_idle_timeout_ms?: number
+    mcp_total_timeout_ms?: number
+    mcp_max_concurrency?: number
+    mcp_idle_ttl_ms?: number
+    lsp_max_clients?: number
+    lsp_idle_ttl_ms?: number
+    lsp_max_open_documents?: number
+    lsp_max_document_text_bytes?: number
   }
 }
 
@@ -1374,6 +1557,13 @@ export type GlobalCompaction = {
   microCompact: boolean
   microCompactMaxChars: number
   reactiveCompact: boolean
+  status?: {
+    estimatedTokens: number
+    budget: number
+    strategy: string
+    tokensReclaimed: number
+    reason: string
+  }
 }
 
 export type GlobalMemoryEntry =
@@ -1570,12 +1760,14 @@ export type Model = {
   }
 }
 
-export type Provider = {
+export type Provider = PublicProvider
+
+export type PublicProvider = {
   id: string
   name: string
   source: "env" | "config" | "custom" | "api"
   env: Array<string>
-  key?: string
+  credential?: CredentialRef
   options: {
     [key: string]: unknown
   }
@@ -1660,6 +1852,7 @@ export type GlobalSession = {
   directory: string
   path?: string
   parentID?: string
+  agentDepth?: number
   summary?: {
     additions: number
     deletions: number
@@ -2045,6 +2238,8 @@ export type Agent = {
     [key: string]: unknown
   }
   steps?: number
+  deadlineMs?: number
+  noProgressSteps?: number
 }
 
 export type SubagentProfileView = {
@@ -2055,6 +2250,9 @@ export type SubagentProfileView = {
   avatar: "bot" | "search" | "code" | "bug" | "chart" | "file" | "image" | "folder" | "pen" | "sparkles"
   model?: string
   variant?: string
+  steps?: number
+  timeout_ms?: number
+  no_progress_steps?: number
   tools?: Array<string>
   enabled: boolean
   skills: Array<{
@@ -2226,6 +2424,13 @@ export type ProjectNotFoundError = {
 export type PtyNotFoundError = {
   _tag: "PtyNotFoundError"
   ptyID: string
+  message: string
+}
+
+export type PtyTerminationFailedError = {
+  _tag: "PtyTerminationFailedError"
+  ptyID: string
+  code: "PTY_KILL_FAILED"
   message: string
 }
 
@@ -2699,6 +2904,86 @@ export type SyncEventSessionNextSynthetic = {
   }
 }
 
+export type SyncEventSessionNextRequestPrepared = {
+  type: "sync"
+  name: "session.next.request.prepared.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: {
+    timestamp: number
+    sessionID: string
+    stepID: string
+    runtime: "ai-sdk" | "native"
+    model: {
+      id: string
+      providerID: string
+      variant: string
+    }
+    payload: {
+      blobID: string
+      sha256: string
+      bytes: number
+    }
+    configHash: string
+    toolCatalogHash: string
+  }
+}
+
+export type SyncEventSessionNextMessageUpdated = {
+  type: "sync"
+  name: "session.next.message.updated.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: {
+    timestamp: number
+    sessionID: string
+    info: unknown
+  }
+}
+
+export type SyncEventSessionNextMessageRemoved = {
+  type: "sync"
+  name: "session.next.message.removed.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: {
+    timestamp: number
+    sessionID: string
+    messageID: string
+  }
+}
+
+export type SyncEventSessionNextMessagePartUpdated = {
+  type: "sync"
+  name: "session.next.message.part.updated.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: {
+    timestamp: number
+    sessionID: string
+    part: unknown
+    time: number
+  }
+}
+
+export type SyncEventSessionNextMessagePartRemoved = {
+  type: "sync"
+  name: "session.next.message.part.removed.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: {
+    timestamp: number
+    sessionID: string
+    messageID: string
+    partID: string
+  }
+}
+
 export type SyncEventSessionNextShellStarted = {
   type: "sync"
   name: "session.next.shell.started.1"
@@ -3046,7 +3331,14 @@ export type EventPlanRuntimeEvent = {
   type: "plan.runtime.event"
   properties: {
     seq: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    type: "plan.updated" | "child.activity" | "report_arrived" | "check_point" | "user_message" | "runtime.metric"
+    type:
+      | "plan.updated"
+      | "child.activity"
+      | "report_arrived"
+      | "check_point"
+      | "user_message"
+      | "runtime.metric"
+      | "child.recovery"
     session_id: string
     revision?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
     at: string
@@ -3080,6 +3372,15 @@ export type EventServerInstanceDisposed = {
   }
 }
 
+export type EventFileWatcherUpdated = {
+  id: string
+  type: "file.watcher.updated"
+  properties: {
+    file: string
+    event: "add" | "change" | "unlink"
+  }
+}
+
 export type EventFileEdited = {
   id: string
   type: "file.edited"
@@ -3088,13 +3389,54 @@ export type EventFileEdited = {
   }
 }
 
-export type EventFileWatcherUpdated = {
+export type EventMcpToolsChanged = {
   id: string
-  type: "file.watcher.updated"
+  type: "mcp.tools.changed"
   properties: {
-    file: string
-    event: "add" | "change" | "unlink"
+    server: string
   }
+}
+
+export type EventMcpBrowserOpenFailed = {
+  id: string
+  type: "mcp.browser.open.failed"
+  properties: {
+    mcpName: string
+    url: string
+  }
+}
+
+export type EventPermissionAsked = {
+  id: string
+  type: "permission.asked"
+  properties: PermissionRequest
+}
+
+export type EventPermissionReplied = {
+  id: string
+  type: "permission.replied"
+  properties: {
+    sessionID: string
+    requestID: string
+    reply: "once" | "always" | "reject"
+  }
+}
+
+export type EventCommandExecuted = {
+  id: string
+  type: "command.executed"
+  properties: {
+    name: string
+    sessionID: string
+    arguments: string
+    messageID: string
+  }
+}
+
+export type EventProjectUpdated = {
+  id: string
+  type: "project.updated"
+  properties: Project
 }
 
 export type EventLspClientDiagnostics = {
@@ -3123,22 +3465,6 @@ export type EventMessagePartDelta = {
     partID: string
     field: string
     delta: string
-  }
-}
-
-export type EventPermissionAsked = {
-  id: string
-  type: "permission.asked"
-  properties: PermissionRequest
-}
-
-export type EventPermissionReplied = {
-  id: string
-  type: "permission.replied"
-  properties: {
-    sessionID: string
-    requestID: string
-    reply: "once" | "always" | "reject"
   }
 }
 
@@ -3209,40 +3535,6 @@ export type EventSessionIdle = {
   properties: {
     sessionID: string
   }
-}
-
-export type EventMcpToolsChanged = {
-  id: string
-  type: "mcp.tools.changed"
-  properties: {
-    server: string
-  }
-}
-
-export type EventMcpBrowserOpenFailed = {
-  id: string
-  type: "mcp.browser.open.failed"
-  properties: {
-    mcpName: string
-    url: string
-  }
-}
-
-export type EventCommandExecuted = {
-  id: string
-  type: "command.executed"
-  properties: {
-    name: string
-    sessionID: string
-    arguments: string
-    messageID: string
-  }
-}
-
-export type EventProjectUpdated = {
-  id: string
-  type: "project.updated"
-  properties: Project
 }
 
 export type EventToolCatalogResolved = {
@@ -3545,6 +3837,71 @@ export type EventSessionNextSynthetic = {
     timestamp: number
     sessionID: string
     text: string
+  }
+}
+
+export type EventSessionNextRequestPrepared = {
+  id: string
+  type: "session.next.request.prepared"
+  properties: {
+    timestamp: number
+    sessionID: string
+    stepID: string
+    runtime: "ai-sdk" | "native"
+    model: {
+      id: string
+      providerID: string
+      variant: string
+    }
+    payload: {
+      blobID: string
+      sha256: string
+      bytes: number
+    }
+    configHash: string
+    toolCatalogHash: string
+  }
+}
+
+export type EventSessionNextMessageUpdated = {
+  id: string
+  type: "session.next.message.updated"
+  properties: {
+    timestamp: number
+    sessionID: string
+    info: unknown
+  }
+}
+
+export type EventSessionNextMessageRemoved = {
+  id: string
+  type: "session.next.message.removed"
+  properties: {
+    timestamp: number
+    sessionID: string
+    messageID: string
+  }
+}
+
+export type EventSessionNextMessagePartUpdated = {
+  id: string
+  type: "session.next.message.part.updated"
+  properties: {
+    timestamp: number
+    sessionID: string
+    part: unknown
+    time: number
+  }
+}
+
+export type EventSessionNextMessagePartRemoved = {
+  id: string
+  type: "session.next.message.part.removed"
+  properties: {
+    timestamp: number
+    sessionID: string
+    messageID: string
+    partID: string
   }
 }
 
@@ -4286,7 +4643,14 @@ export type EventPlanRuntimeEvent1 = {
   type: "plan.runtime.event"
   properties: {
     seq: number | "NaN" | "Infinity" | "-Infinity"
-    type: "plan.updated" | "child.activity" | "report_arrived" | "check_point" | "user_message" | "runtime.metric"
+    type:
+      | "plan.updated"
+      | "child.activity"
+      | "report_arrived"
+      | "check_point"
+      | "user_message"
+      | "runtime.metric"
+      | "child.recovery"
     session_id: string
     revision?: number | "NaN" | "Infinity" | "-Infinity"
     at: string
@@ -5238,7 +5602,7 @@ export type ConfigProvidersResponses = {
    * List of providers
    */
   200: {
-    providers: Array<Provider>
+    providers: Array<PublicProvider>
     default: {
       [key: string]: string
     }
@@ -7702,6 +8066,8 @@ export type PtyCreateData = {
     env?: {
       [key: string]: string
     }
+    owner_session_id?: string
+    owner_workspace_id?: string
   }
   path?: never
   query?: {
@@ -7750,6 +8116,10 @@ export type PtyRemoveErrors = {
    * PtyNotFoundError
    */
   404: PtyNotFoundError
+  /**
+   * PtyTerminationFailedError
+   */
+  409: PtyTerminationFailedError
 }
 
 export type PtyRemoveError = PtyRemoveErrors[keyof PtyRemoveErrors]
@@ -8068,7 +8438,7 @@ export type ProviderListResponses = {
    * List of providers
    */
   200: {
-    all: Array<Provider>
+    all: Array<PublicProvider>
     default: {
       [key: string]: string
     }

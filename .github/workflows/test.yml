@@ -30,6 +30,12 @@ jobs:
       - name: Verify generated SDK layout
         run: bun run verify:generated
 
+      - name: Build product smoke artifact
+        run: bun run --cwd packages/jyycode build --single --skip-install --skip-embed-web-ui
+
+      - name: Test built product entrypoints
+        run: bun run --cwd packages/jyycode test:built-smoke
+
       - name: Test all workspaces
         run: bun run test:ci
 

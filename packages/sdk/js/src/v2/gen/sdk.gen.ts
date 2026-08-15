@@ -2046,7 +2046,7 @@ export class File extends HeyApiClient {
   /**
    * Write file content
    *
-   * Write UTF-8 text or base64 spreadsheet content to a project file with optimistic revision checking.
+   * Write UTF-8 text or base64 spreadsheet/PDF content to a project file with optimistic revision checking.
    */
   public write<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -3967,6 +3967,8 @@ export class Pty extends HeyApiClient {
       env?: {
         [key: string]: string
       }
+      owner_session_id?: string
+      owner_workspace_id?: string
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3982,6 +3984,8 @@ export class Pty extends HeyApiClient {
             { in: "body", key: "cwd" },
             { in: "body", key: "title" },
             { in: "body", key: "env" },
+            { in: "body", key: "owner_session_id" },
+            { in: "body", key: "owner_workspace_id" },
           ],
         },
       ],

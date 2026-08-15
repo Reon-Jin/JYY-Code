@@ -10,6 +10,7 @@
     "test": "bun test --timeout 30000",
     "test:ci": "mkdir -p .artifacts/unit && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml && bun run test:replay",
     "test:replay": "bun test --timeout 90000 test/session/agent-replay.test.ts",
+    "test:built-smoke": "bun test --timeout 90000 test/cli/built-entry-smoke.test.ts test/server/built-http-smoke.test.ts",
     "test:file": "bun run script/run-test-file.ts",
     "test:httpapi": "bun run script/httpapi-exercise.ts --mode coverage --fail-on-missing --fail-on-skip && bun run script/httpapi-exercise.ts --mode auth --fail-on-missing --fail-on-skip && bun run script/httpapi-exercise.ts --mode effect --fail-on-missing --fail-on-skip",
     "bench:test": "bun run script/bench-test-suite.ts",
