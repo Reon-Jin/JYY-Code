@@ -2651,7 +2651,6 @@ unix(
   () =>
     Effect.gen(function* () {
       const { dir, llm } = yield* useServerConfig(providerCfg)
-      const afs = yield* AppFileSystem.Service
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
       const ready = path.join(dir, ".output-ready")
@@ -2669,7 +2668,7 @@ unix(
 
       yield* llm.tool("bash", {
         command:
-          'yes x | head -n 2201; touch "' + ready + '"; sleep 30',
+          'touch "' + ready + '"; yes x | head -n 2201; sleep 30',
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -2677,12 +2676,7 @@ unix(
 
       const run = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
-      yield* Effect.gen(function* () {
-        while (!(yield* afs.existsSafe(ready))) {
-          yield* Effect.sleep(Duration.millis(10))
-        }
-      }).pipe(Effect.timeout(Duration.seconds(15)))
-      yield* Effect.sleep(100)
+      yield* Effect.sleep(Duration.seconds(1))
       yield* prompt.cancel(chat.id)
 
       const exit = yield* Fiber.await(run)
