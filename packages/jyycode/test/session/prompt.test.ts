@@ -2668,8 +2668,15 @@ unix(
 
       const run = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
-      yield* waitForBusy(chat.id)
-      yield* Effect.sleep("3 seconds")
+      yield* pollWithTimeout(
+        Effect.gen(function* () {
+          const messages = yield* MessageV2.filterCompactedEffect(chat.id)
+          const assistant = messages.findLast((message) => message.info.role === "assistant")
+          const tool = assistant ? toolPart(assistant.parts) : undefined
+          if (tool?.state.status === "running" && tool.state.metadata.output?.length) return true
+        }),
+        "timed out waiting for shell output before cancellation",
+      )
       yield* prompt.cancel(chat.id)
 
       const exit = yield* Fiber.await(run)
