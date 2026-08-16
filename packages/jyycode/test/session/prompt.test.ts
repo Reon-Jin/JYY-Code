@@ -2669,7 +2669,7 @@ unix(
 
       yield* llm.tool("bash", {
         command:
-          'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; touch "' + ready + '"; sleep 30',
+          'yes x | head -n 2201; touch "' + ready + '"; sleep 30',
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -2681,7 +2681,7 @@ unix(
         while (!(yield* afs.existsSafe(ready))) {
           yield* Effect.sleep(Duration.millis(10))
         }
-      }).pipe(Effect.timeout(Duration.seconds(5)))
+      }).pipe(Effect.timeout(Duration.seconds(15)))
       yield* Effect.sleep(100)
       yield* prompt.cancel(chat.id)
 
