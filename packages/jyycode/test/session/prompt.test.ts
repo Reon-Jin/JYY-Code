@@ -2651,6 +2651,7 @@ unix(
         title: "Interrupted bash truncation",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
+      const outputFile = path.join(dir, ".truncation-output")
       const ready = path.join(dir, ".truncation-ready")
 
       yield* prompt.prompt({
@@ -2661,7 +2662,7 @@ unix(
       })
 
       yield* llm.tool("bash", {
-        command: `awk 'BEGIN { for (i = 0; i < 2201; i++) print "x" }'; touch "${ready}"; sleep 30`,
+        command: `awk 'BEGIN { for (i = 0; i < 2201; i++) print "x" }' > "${outputFile}"; touch "${ready}"; cat "${outputFile}"; sleep 30`,
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -2676,7 +2677,7 @@ unix(
         "timed out waiting for shell truncation output",
         "5 seconds",
       )
-      yield* Effect.sleep("200 millis")
+      yield* Effect.sleep("1 second")
       yield* prompt.cancel(chat.id)
 
       const exit = yield* Fiber.await(run)
