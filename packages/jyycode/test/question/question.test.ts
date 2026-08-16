@@ -108,7 +108,7 @@ it.instance(
 
       const pending = yield* waitForPending(1)
       expect(pending.length).toBe(1)
-      expect(pending[0].questions).toEqual(questions)
+      expect(pending[0].questions).toEqual(questions.map((question) => ({ ...question, custom: true })))
       yield* rejectAll
       expect((yield* Fiber.await(fiber))._tag).toBe("Failure")
     }),

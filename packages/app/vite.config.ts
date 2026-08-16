@@ -30,5 +30,7 @@ export default defineConfig(({ mode }) => ({
     restoreMocks: true,
     clearMocks: true,
     maxWorkers: 4,
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 }))

@@ -41,4 +41,10 @@ describe("CredentialRef", () => {
     expect(JSON.stringify(ref)).not.toMatch(/key|token|access|refresh/i)
     return Effect.void
   })
+
+  it.effect("encodes public credential references without requiring class identity", () => {
+    const ref = { providerID: "deepseek", credentialID: "deepseek:api", kind: "api" as const }
+    expect(Schema.encodeUnknownSync(CredentialRef)(ref)).toEqual(ref)
+    return Effect.void
+  })
 })

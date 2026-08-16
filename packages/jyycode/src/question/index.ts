@@ -166,7 +166,7 @@ export const layer = Layer.effect(
       const info: Request = {
         id,
         sessionID: input.sessionID,
-        questions: input.questions,
+        questions: input.questions.map((question) => ({ ...question, custom: true })),
         tool: input.tool,
       }
       pending.set(id, { info, deferred })

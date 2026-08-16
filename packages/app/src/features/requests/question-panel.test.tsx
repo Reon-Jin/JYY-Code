@@ -57,6 +57,11 @@ describe("QuestionPanel", () => {
     await waitFor(() => expect(screen.queryByRole("region", { name: "Agent 提问" })).not.toBeInTheDocument())
   })
 
+  it("offers a custom answer by default", async () => {
+    renderQuestion(single)
+    expect(screen.getByRole("textbox", { name: "自定义回答" })).toBeInTheDocument()
+  })
+
   it("supports multiple tabs, multi-select, and a custom answer", async () => {
     const user = userEvent.setup()
     const request: QuestionRequest = {

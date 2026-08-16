@@ -180,7 +180,7 @@ export function QuestionPanel(props: QuestionPanelProps) {
                   }}
                 </For>
               </div>
-              <Show when={question.custom}>
+              <Show when={question.custom !== false}>
                 <label class="request-panel__field">
                   <span>{tr("requests.custom-answer")}</span>
                   <input
