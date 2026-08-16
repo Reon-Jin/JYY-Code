@@ -18,8 +18,6 @@
   <sub>The desktop app in multi-agent mode: the root agent reviews child reports one by one while the plan panel tracks step progress and the blackboard collects findings and handoffs from every sub-agent.</sub>
 </p>
 
-**TUI install:** `npm install -g jyycode-ai` · **Launch:** `jyy`
-
 **Desktop install:** https://github.com/Reon-Jin/JYY-Code/releases
 
 ## Why JYY-Code
