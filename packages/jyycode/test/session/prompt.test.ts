@@ -79,7 +79,7 @@ const ref = {
 }
 
 test("normalizes only concise one-line generated titles", () => {
-  expect(normalizeGeneratedTitle("<think>ignore</think>\n修复多智能体右侧栏")).toBe("修复多智能体右侧栏")
+  expect(normalizeGeneratedTitle("<think>ignore</think>\n淇澶氭櫤鑳戒綋鍙充晶鏍?)).toBe("淇澶氭櫤鑳戒綋鍙充晶鏍?)
   expect(
     normalizeGeneratedTitle(
       "I'll analyze your request and create a comprehensive plan before making the requested changes.",
@@ -212,7 +212,7 @@ const memoryFailureLayer = Layer.succeed(
     formatWithHeader: () => Effect.succeed(""),
     currentTaskKeywords: () => Effect.succeed([]),
     currentTaskContent: () => Effect.succeed(undefined),
-    updateStepBegin: () => Effect.fail(new Error("Task memory 当前任务 must not exceed 120 characters")),
+    updateStepBegin: () => Effect.fail(new Error("Task memory 褰撳墠浠诲姟 must not exceed 120 characters")),
     updateAfterTurn: () => Effect.fail(new Error("memory completion update failed")),
   }),
 )
@@ -452,7 +452,7 @@ const useServerConfig = Effect.fn("test.useServerConfig")(function* (config: (ur
 
 // Wait for a session's runner to enter a busy state. SessionStatus is flipped to
 // "busy" inside Runner.startShell's modifyEffect at the same moment the runner
-// is registered, so this is a deterministic readiness signal — cancel can't
+// is registered, so this is a deterministic readiness signal 鈥?cancel can't
 // no-op once we observe it.
 const waitForBusy = (sessionID: SessionID, duration: Duration.Input = "2 seconds") =>
   pollWithTimeout(
@@ -876,7 +876,7 @@ it.instance("multi-agent roots tolerate preflight calls before creating a missin
     // instead of a hard unknown-tool failure. The mandatory choice is exact,
     // so read-only context tools cannot become a retry loop.
     expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_create")
-    expect(JSON.stringify(inputs[0]?.tools)).toContain("暂时禁用")
+    expect(JSON.stringify(inputs[0]?.tools)).toContain("鏆傛椂绂佺敤")
     expect(inputs[0]?.tool_choice).toEqual({ type: "function", function: { name: "Plan_read" } })
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_create")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_read")
@@ -1454,7 +1454,7 @@ withMemory.instance("does not inject persistent memory into child sessions", () 
       sessionID: child.id,
       agent: "build",
       noReply: true,
-      parts: [{ type: "text", text: "鐢ㄦ埛" }],
+      parts: [{ type: "text", text: "閻劍鍩? }],
     })
     yield* llm.text("done")
 
@@ -2661,7 +2661,7 @@ unix(
       yield* llm.tool("Plan_read", {})
       yield* llm.tool("bash", {
         command:
-          'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; sleep 30',
+          'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; printf "READY_FOR_CANCEL\\n"; sleep 30',
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -2669,7 +2669,20 @@ unix(
 
       const run = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
-      yield* Effect.sleep(150)
+      yield* Effect.gen(function* () {
+        while (true) {
+          const messages = yield* sessions.messages({ sessionID: chat.id })
+          const tool = messages
+            .flatMap((message) => message.parts)
+            .findLast((part): part is MessageV2.ToolPart => part.type === "tool")
+          if (
+            tool?.state.status === "running" &&
+            typeof tool.state.metadata?.output === "string" &&
+            tool.state.metadata.output.includes("READY_FOR_CANCEL")
+          ) return
+          yield* Effect.sleep(Duration.millis(10))
+        }
+      }).pipe(Effect.timeout(Duration.seconds(5)))
       yield* prompt.cancel(chat.id)
 
       const exit = yield* Fiber.await(run)
@@ -3350,7 +3363,7 @@ it.instance("profile subagent child session gets role skills in the skill tool a
         await fs.mkdir(dir, { recursive: true })
         await fs.writeFile(
           path.join(dir, "SKILL.md"),
-          `---\nname: ${name}\ndescription: ${name} 文档处理技能\n---\n\n# ${name}\n`,
+          `---\nname: ${name}\ndescription: ${name} 鏂囨。澶勭悊鎶€鑳絓n---\n\n# ${name}\n`,
         )
       }
     })
@@ -3369,10 +3382,10 @@ it.instance("profile subagent child session gets role skills in the skill tool a
             },
             {
               id: "office_master",
-              name: "office高手",
-              description: "精通word/ppt/excel/pdf等office软件的高手",
+              name: "office楂樻墜",
+              description: "绮鹃€歸ord/ppt/excel/pdf绛塷ffice杞欢鐨勯珮鎵?,
               prompt:
-                "你是一位精通各种office的高手，可以使用你的docx,pdf,pptx和xlsx四个技能进行各种office文档的生成和处理。",
+                "浣犳槸涓€浣嶇簿閫氬悇绉峯ffice鐨勯珮鎵嬶紝鍙互浣跨敤浣犵殑docx,pdf,pptx鍜寈lsx鍥涗釜鎶€鑳借繘琛屽悇绉峯ffice鏂囨。鐨勭敓鎴愬拰澶勭悊銆?,
               avatar: "chart",
               enabled: true,
             },
@@ -3397,9 +3410,9 @@ it.instance("profile subagent child session gets role skills in the skill tool a
         agent: "subagent:office_master",
         model: ref,
         noReply: true,
-        parts: [{ type: "text", text: "请生成一个精美的中文PDF报告" }],
+        parts: [{ type: "text", text: "璇风敓鎴愪竴涓簿缇庣殑涓枃PDF鎶ュ憡" }],
       })
-      yield* llm.text("好的，我来处理。")
+      yield* llm.text("濂界殑锛屾垜鏉ュ鐞嗐€?)
       yield* prompt.loop({ sessionID: child.id })
 
       const inputs = yield* llm.inputs
@@ -3420,8 +3433,8 @@ it.instance("profile subagent child session gets role skills in the skill tool a
       // First-turn system context carries the role catalog so the child loads
       // its skills even when the dispatch brief prescribes a raw toolchain.
       const payload = JSON.stringify(body)
-      expect(payload).toContain("你的专属技能")
-      expect(payload).toContain("docx 文档处理技能")
+      expect(payload).toContain("浣犵殑涓撳睘鎶€鑳?)
+      expect(payload).toContain("docx 鏂囨。澶勭悊鎶€鑳?)
       expect(payload).toContain("Runtime permissions, visible tools")
     }).pipe(Effect.ensuring(Effect.promise(() => fs.rm(roleRoot, { recursive: true, force: true }))))
   }),
@@ -3457,8 +3470,8 @@ const experienceMemoryLayer = Layer.succeed(
 const experienceCandidate: Memory.ExperienceCandidate = {
   kind: "failure",
   importance: 8,
-  keywords: ["部署"],
-  content: "部署脚本报错时先看日志再重试",
+  keywords: ["閮ㄧ讲"],
+  content: "閮ㄧ讲鑴氭湰鎶ラ敊鏃跺厛鐪嬫棩蹇楀啀閲嶈瘯",
   evidence: "[ses_x#1] deploy.sh",
   confidence: "high",
 }
@@ -3479,7 +3492,7 @@ const experienceWiringMemoryLayer = Layer.succeed(
     usage: (_sessionID, scope) => Effect.succeed({ percentage: 0, used: 0, limit: 1, scope }),
     formatWithHeader: () => Effect.succeed(""),
     currentTaskKeywords: () => Effect.succeed([]),
-    currentTaskContent: () => Effect.succeed("当前任务：修复认证缺陷；进展：进行中"),
+    currentTaskContent: () => Effect.succeed("褰撳墠浠诲姟锛氫慨澶嶈璇佺己闄凤紱杩涘睍锛氳繘琛屼腑"),
     updateStepBegin: () =>
       Effect.succeed({ status: "updated" as const, taskUpdated: true, userUpdated: 0, experienceCandidates: [] }),
     updateAfterTurn: () =>
@@ -3528,15 +3541,15 @@ withExperienceWiring.instance("passes the task goal text into the experience sna
     })
     const last = experienceSnapshotCalls.at(-1)
     expect(last?.[1]).toEqual([])
-    expect(last?.[2]).toBe("修复认证缺陷")
+    expect(last?.[2]).toBe("淇璁よ瘉缂洪櫡")
   }),
 )
 
 test("formats the existing user profile hint for curator dedup", () => {
   const hint = SessionPrompt.formatExistingUserHint([
-    { scope: "user", importance: 9, keywords: ["中文"], content: "用户偏好中文回答" },
+    { scope: "user", importance: 9, keywords: ["涓枃"], content: "鐢ㄦ埛鍋忓ソ涓枃鍥炵瓟" },
   ])
   expect(hint).toContain("Existing user profile")
-  expect(hint).toContain("keywords=[中文]")
+  expect(hint).toContain("keywords=[涓枃]")
   expect(hint).toContain("reuse the exact keywords to update a fact")
 })
