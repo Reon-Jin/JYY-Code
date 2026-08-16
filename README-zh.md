@@ -18,8 +18,6 @@
   <sub>桌面端多智能体模式实拍：主 Agent 逐项审核子 Agent 汇报，右侧方案面板展示阶段进度，协作黑板沉淀各子 Agent 的发现与交接。</sub>
 </p>
 
-**TUI版安装：** `npm install -g jyycode-ai` · **启动：** `jyy`
-
 **desktop安装：** https://github.com/Reon-Jin/JYY-Code/releases
 
 ## 为什么是 JYY-Code
