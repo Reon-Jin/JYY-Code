@@ -2668,17 +2668,8 @@ unix(
 
       const run = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
-      yield* pollWithTimeout(
-        Effect.gen(function* () {
-          const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
-          const taskMsg = msgs.find((item) => item.info.role === "assistant")
-          const tool = taskMsg ? toolPart(taskMsg.parts) : undefined
-          if (tool?.state.status === "running" && tool.state.metadata?.output.includes("x")) return true
-        }),
-        "timed out waiting for shell truncation metadata",
-        "5 seconds",
-      )
-      yield* Effect.sleep("2 seconds")
+      yield* waitForBusy(chat.id)
+      yield* Effect.sleep("3 seconds")
       yield* prompt.cancel(chat.id)
 
       const exit = yield* Fiber.await(run)
