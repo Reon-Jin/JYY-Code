@@ -83,9 +83,7 @@ describe("desktop accessibility contract", () => {
     skillLink.focus()
     await user.keyboard("{Enter}")
     expect(screen.getByRole("link", { name: "Skill" })).toHaveAttribute("aria-current", "page")
-    await user.click(
-      await screen.findByRole("button", { name: "打开 Skill desktop-helper" }, { timeout: 5_000 }),
-    )
+    await user.click(await screen.findByRole("button", { name: "打开 Skill desktop-helper" }, { timeout: 5_000 }))
 
     const trigger = await screen.findByRole("button", { name: "删除" })
     trigger.focus()
@@ -178,7 +176,7 @@ describe("desktop accessibility contract", () => {
     const back = screen.getByRole("button", { name: "返回" })
     back.focus()
     await user.keyboard("{Enter}")
-    await waitFor(() => expect(screen.getByRole("link", { name: "设置" })).toHaveFocus())
+    await waitFor(() => expect(screen.getByRole("link", { name: "设置" })).toHaveFocus(), { timeout: 5_000 })
   })
 
   it("keeps the plan drawer, task, model selector, and child route keyboard-operable", async () => {

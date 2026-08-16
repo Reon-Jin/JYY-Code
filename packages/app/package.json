@@ -10,7 +10,7 @@
     "budget": "bun run --bun scripts/check-bundle-budget.ts",
     "typecheck": "bun run --bun tsc --noEmit",
     "test": "bun run --bun vitest run",
-    "test:ci": "mkdir -p .artifacts/unit && bun run --bun vitest run --reporter=default --reporter=junit --outputFile=.artifacts/unit/junit.xml",
+    "test:ci": "mkdir -p .artifacts/unit && bun run --bun vitest run --reporter=junit --outputFile=.artifacts/unit/junit.xml",
     "test:watch": "bun run --bun vitest"
   },
   "dependencies": {
