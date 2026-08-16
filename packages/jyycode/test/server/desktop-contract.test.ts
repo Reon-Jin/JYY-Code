@@ -10,10 +10,10 @@ import { InstanceStore } from "../../src/project/instance-store"
 import { Server } from "../../src/server/server"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdirScoped } from "../fixture/fixture"
-import { awaitWithTimeout, testEffectShared } from "../lib/effect"
+import { awaitWithTimeout, testEffect } from "../lib/effect"
 
 const noopBootstrap = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
-const it = testEffectShared(
+const it = testEffect(
   Layer.mergeAll(
     AppFileSystem.defaultLayer,
     CrossSpawnSpawner.defaultLayer,
