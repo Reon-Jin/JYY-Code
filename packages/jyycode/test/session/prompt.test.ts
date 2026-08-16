@@ -39,11 +39,11 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionV2 } from "../../src/v2/session"
 import { Skill } from "../../src/skill"
-import { SystemPrompt } from "../../src/session/system"                          
-import { Memory } from "@/memory/memory"                                         
-import { EpisodicMemory } from "@/memory/episodic"                               
-import { ExperienceMemory } from "@/memory/experience"                           
-import { Shell } from "../../src/shell/shell"                                    
+import { SystemPrompt } from "../../src/session/system"
+import { Memory } from "@/memory/memory"
+import { EpisodicMemory } from "@/memory/episodic"
+import { ExperienceMemory } from "@/memory/experience"
+import { Shell } from "../../src/shell/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "@/tool/registry"
 import { Truncate } from "@/tool/truncate"
@@ -60,12 +60,7 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventRuntime } from "@/event-runtime"
-import {
-  clearChildBudget,
-  defaultPlanProtocol,
-  registerChildBudget,
-  resolveChildBudget,
-} from "../../src/plan/protocol"
+import { clearChildBudget, defaultPlanProtocol, registerChildBudget, resolveChildBudget } from "../../src/plan/protocol"
 
 void Log.init({ print: false })
 
@@ -1034,9 +1029,7 @@ it.instance("skips duplicate Plan_create calls after the first attempt in one re
     expect(
       toolParts.some(
         (part) =>
-          part.tool === "Plan_create" &&
-          part.state.status === "completed" &&
-          part.state.metadata?.skipped === true,
+          part.tool === "Plan_create" && part.state.status === "completed" && part.state.metadata?.skipped === true,
       ),
     ).toBe(true)
     const planExists = yield* Effect.promise(() =>
@@ -1409,7 +1402,9 @@ it.instance("goal mode resumes the main agent after a child report arrives", () 
         ],
       }),
     )
-    const dispatched = yield* Effect.promise(() => defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }))
+    const dispatched = yield* Effect.promise(() =>
+      defaultPlanProtocol.dispatch(context, { taskIds: ["s1_t1"], role: "general" }),
+    )
     if (!dispatched.ok) throw new Error(dispatched.error.message)
     yield* writeText(path.join(chat.directory, "result.md"), "done")
     const runId = dispatched.dispatched[0]!.run_id
@@ -1811,10 +1806,7 @@ it.instance("stops a dispatched child after its no-progress budget and records a
       noReply: true,
       parts: [{ type: "text", text: "repeat until the budget trips" }],
     })
-    registerChildBudget(
-      child.id,
-      resolveChildBudget({ now: Date.now(), role: { no_progress_steps: 8 } }),
-    )
+    registerChildBudget(child.id, resolveChildBudget({ now: Date.now(), role: { no_progress_steps: 8 } }))
     for (let index = 0; index < 10; index++) {
       yield* llm.push(reply().tool("first", { value: "same" }).stop())
     }
@@ -1822,7 +1814,8 @@ it.instance("stops a dispatched child after its no-progress budget and records a
     const result = yield* prompt.loop({ sessionID: child.id })
     expect(yield* llm.calls).toBe(8)
     expect(result.info.role).toBe("assistant")
-    if (result.info.role === "assistant") expect(JSON.stringify(result.info.error)).toContain("NO_PROGRESS_BUDGET_EXCEEDED")
+    if (result.info.role === "assistant")
+      expect(JSON.stringify(result.info.error)).toContain("NO_PROGRESS_BUDGET_EXCEEDED")
     clearChildBudget(child.id)
   }),
 )
@@ -2666,8 +2659,7 @@ unix(
       })
 
       yield* llm.tool("bash", {
-        command:
-          "yes x | head -n 2201; sleep 30",
+        command: 'i=0; while [ "$i" -lt 2201 ]; do printf "x\\n"; i=$((i + 1)); done; sleep 30',
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -3504,7 +3496,9 @@ const experienceWiringMemoryLayer = Layer.succeed(
   }),
 )
 
-const withExperienceWiring = testEffect(makeHttp({ memory: experienceWiringMemoryLayer, experience: experienceMemoryLayer }))
+const withExperienceWiring = testEffect(
+  makeHttp({ memory: experienceWiringMemoryLayer, experience: experienceMemoryLayer }),
+)
 
 withExperienceWiring.instance("writes experience candidates after the assistant turn", () =>
   Effect.gen(function* () {
