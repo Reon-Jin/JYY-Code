@@ -2658,6 +2658,7 @@ unix(
         parts: [{ type: "text", text: "run bash" }],
       })
 
+      yield* llm.tool("Plan_read", {})
       yield* llm.tool("bash", {
         command:
           'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; sleep 30',
@@ -2679,7 +2680,7 @@ unix(
       const tool = messages
         .flatMap((message) => message.parts)
         .findLast((part): part is MessageV2.ToolPart => part.type === "tool")
-      expect(tool?.state.status, JSON.stringify(tool?.state)).toBe("completed")
+      expect(tool?.state.status).toBe("completed")
       if (!tool || tool.state.status !== "completed") return
 
       expect(tool.state.metadata.truncated).toBe(true)
