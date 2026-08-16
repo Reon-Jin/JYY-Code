@@ -90,7 +90,13 @@ describe("desktop shared-backend contract", () => {
             type?: string
             syncEvent?: { type?: string }
           }
-          const type = payload.type === "sync" ? payload.syncEvent?.type?.replace(/\.\d+$/, "") : payload.type
+          const rawType = payload.type === "sync" ? payload.syncEvent?.type?.replace(/\.\d+$/, "") : payload.type
+          const type =
+            rawType === "message.updated"
+              ? SessionEvent.Legacy.MessageUpdated.type
+              : rawType === "message.part.updated"
+                ? SessionEvent.Legacy.PartUpdated.type
+                : rawType
           if (type === "server.connected") Deferred.doneUnsafe(connected, Effect.void)
           if (
             (envelope.directory === undefined || envelope.directory === directory) &&
@@ -114,7 +120,7 @@ describe("desktop shared-backend contract", () => {
       if (!sessionID) return yield* Effect.fail(new Error("desktop session was not created"))
 
       const prompt = yield* Effect.promise(() =>
-        sdk.session.promptAsync({
+        sdk.session.prompt({
           directory,
           sessionID,
           agent: "build",
@@ -122,7 +128,7 @@ describe("desktop shared-backend contract", () => {
           parts: [{ type: "text", text: "desktop contract prompt" }],
         }),
       )
-      expect(prompt.response.status).toBe(204)
+      expect(prompt.response.status).toBe(200)
       expect(
         yield* awaitWithTimeout(Deferred.await(observed), "desktop message events were not delivered", "20 seconds"),
       ).toEqual(new Set([SessionEvent.Legacy.MessageUpdated.type, SessionEvent.Legacy.PartUpdated.type]))
