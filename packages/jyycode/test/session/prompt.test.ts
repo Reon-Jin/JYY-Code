@@ -2676,6 +2676,7 @@ unix(
           if (tool?.state.status === "running" && tool.state.metadata.output?.length) return true
         }),
         "timed out waiting for shell output before cancellation",
+        "20 seconds",
       )
       yield* prompt.cancel(chat.id)
 
