@@ -2675,8 +2675,12 @@ unix(
       expect(Exit.isSuccess(exit)).toBe(true)
       if (Exit.isFailure(exit)) return
 
-      const tool = completedTool(exit.value.parts)
-      if (!tool) return
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      const tool = messages
+        .flatMap((message) => message.parts)
+        .findLast((part): part is MessageV2.ToolPart => part.type === "tool")
+      expect(tool?.state.status).toBe("completed")
+      if (!tool || tool.state.status !== "completed") return
 
       expect(tool.state.metadata.truncated).toBe(true)
       expect(typeof tool.state.metadata.outputPath).toBe("string")
