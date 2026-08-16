@@ -2651,8 +2651,10 @@ unix(
   () =>
     Effect.gen(function* () {
       const { dir, llm } = yield* useServerConfig(providerCfg)
+      const afs = yield* AppFileSystem.Service
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
+      const ready = path.join(dir, ".output-ready")
       const chat = yield* sessions.create({
         title: "Interrupted bash truncation",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
@@ -2667,7 +2669,7 @@ unix(
 
       yield* llm.tool("bash", {
         command:
-          'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; sleep 30',
+          'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; touch "' + ready + '"; sleep 30',
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -2675,7 +2677,12 @@ unix(
 
       const run = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
-      yield* Effect.sleep(150)
+      yield* Effect.gen(function* () {
+        while (!(yield* afs.existsSafe(ready))) {
+          yield* Effect.sleep(Duration.millis(10))
+        }
+      }).pipe(Effect.timeout(Duration.seconds(5)))
+      yield* Effect.sleep(100)
       yield* prompt.cancel(chat.id)
 
       const exit = yield* Fiber.await(run)
