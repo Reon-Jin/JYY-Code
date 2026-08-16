@@ -75,7 +75,7 @@ export function GitHubStatus(props: {
               <p>{item().detail}</p>
               <div class="github-status__command">
                 <code>{item().command}</code>
-                <Button size="small" variant="ghost" onClick={() => void copyCommand()}>
+                <Button size="small" variant="ghost" data-sound-effect="copy" onClick={() => void copyCommand()}>
                   <Show when={copied()} fallback={<Copy aria-hidden="true" />}>
                     <Check aria-hidden="true" />
                   </Show>

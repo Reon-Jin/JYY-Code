@@ -7,6 +7,8 @@ import { Button, IconButton } from "../../components/ui/button"
 import { BorderBeam } from "../../components/ui/border-beam"
 import { InlineError } from "../../components/ui/inline-error"
 import type { DesktopClient } from "../../data/sdk"
+import { keys } from "../../data/query-keys"
+import { isConversationSnapshot, type ConversationSnapshot } from "../conversation/conversation-state"
 import { errorMessage } from "../projects/project-controller"
 import { AgentSelect } from "./agent-select"
 import { createComposerController, type ComposerAttachment } from "./composer-controller"
@@ -25,6 +27,7 @@ export type ComposerProps = {
   client: Pick<DesktopClient, "app" | "auth" | "global" | "instance" | "provider" | "session">
   queryClient: QueryClient
   directory: string
+  requestDirectory?: string
   sessionID: string
   agents: readonly Agent[]
   models: readonly CatalogModel[]
@@ -128,6 +131,7 @@ export function Composer(props: ComposerProps) {
   const controller = createComposerController({
     client: props.client,
     directory: () => props.directory,
+    requestDirectory: () => props.requestDirectory ?? props.directory,
     sessionID: () => props.sessionID,
     agent: () => props.selectedAgent,
     model: () => props.selectedModel,
@@ -210,10 +214,14 @@ export function Composer(props: ComposerProps) {
 
     const item = queue.shift()
     if (!item) return
+    const sentAt = Date.now()
     setQueuePhase("awaiting-busy")
-    void controller.send(item.text, { agent: item.agent, model: item.model }, item.attachments).catch(() => {
-      setQueuePhase("ready")
-    })
+    void controller
+      .send(item.text, { agent: item.agent, model: item.model }, item.attachments)
+      .then(() => refreshConversationIfMissing(sentAt))
+      .catch(() => {
+        setQueuePhase("ready")
+      })
   })
 
   function enqueueDraft() {
@@ -223,7 +231,7 @@ export function Composer(props: ComposerProps) {
     queue.enqueue({ text, agent: props.selectedAgent, model: props.selectedModel, attachments: files })
     controller.setDraft("")
     setAttachments([])
-    playSoundEffect("send")
+    playSoundEffect("queue-add")
   }
 
   async function submit() {
@@ -236,6 +244,7 @@ export function Composer(props: ComposerProps) {
     }
     const files = attachments()
     try {
+      const sentAt = Date.now()
       if (props.childSteering && active()) {
         await controller.interruptAndSend(undefined, undefined, files)
         if (sendingContent) playSoundEffect("send")
@@ -243,6 +252,7 @@ export function Composer(props: ComposerProps) {
         await controller.send(undefined, undefined, files)
         if (sendingContent) playSoundEffect("send")
       }
+      refreshConversationIfMissing(sentAt)
       setAttachments([])
     } catch {
       playSoundEffect("error")
@@ -258,6 +268,22 @@ export function Composer(props: ComposerProps) {
     void controller.stop().catch(() => {})
   }
 
+  function refreshConversationIfMissing(sentAt: number) {
+    const queryKey = keys.messages(props.directory, props.sessionID)
+    const snapshot = props.queryClient.getQueryData<ConversationSnapshot>(queryKey)
+    const hasRecentUserMessage =
+      isConversationSnapshot(snapshot) &&
+      snapshot.messages.some(
+        (message) =>
+          message.info.role === "user" && (message.info.time.created ?? 0) >= Math.max(0, sentAt - 1_000),
+      )
+    if (hasRecentUserMessage) return
+    void props.queryClient.invalidateQueries({
+      queryKey,
+      exact: true,
+    })
+  }
+
   // Two-click terminate: the first click arms the confirmation, the second
   // stops the child assignment and notifies the main agent through the Inbox.
   function terminate() {
@@ -270,7 +296,16 @@ export function Composer(props: ComposerProps) {
     }
     clearTimeout(confirmTerminateTimer)
     setConfirmingTerminate(false)
-    void controller.terminate().catch(() => {})
+    void controller
+      .terminate()
+      .then(() => {
+        void props.queryClient.invalidateQueries({ queryKey: keys.sessions(props.directory), exact: true })
+        void props.queryClient.invalidateQueries({ queryKey: keys.sessionsAll(props.directory), exact: true })
+        void props.queryClient.invalidateQueries({ queryKey: keys.session(props.directory, props.sessionID), exact: true })
+        void props.queryClient.invalidateQueries({ queryKey: keys.status(props.directory), exact: true })
+        void props.queryClient.invalidateQueries({ queryKey: keys.plansScope(props.directory), exact: false })
+      })
+      .catch(() => {})
   }
 
   onCleanup(() => {
@@ -289,7 +324,9 @@ export function Composer(props: ComposerProps) {
       if (active()) await controller.stop()
       queue.remove(id)
       setQueuePhase("awaiting-busy")
+      const sentAt = Date.now()
       await controller.send(item.text, { agent: item.agent, model: item.model }, item.attachments)
+      refreshConversationIfMissing(sentAt)
       playSoundEffect("send")
     } catch {
       setQueuePhase("ready")
@@ -496,6 +533,7 @@ export function Composer(props: ComposerProps) {
               <button
                 type="button"
                 class="composer__attach"
+                data-sound-effect="attach"
                 aria-label={tr("composer.add-attachment")}
                 disabled={props.disabled || controller.sending()}
                 onClick={() => fileInput.click()}
@@ -534,7 +572,7 @@ export function Composer(props: ComposerProps) {
                         </IconButton>
                       </Show>
                       <Button
-                        data-sound-effect="cancel"
+                        data-sound-effect="stop"
                         size="small"
                         variant="secondary"
                         loading={controller.stopping()}

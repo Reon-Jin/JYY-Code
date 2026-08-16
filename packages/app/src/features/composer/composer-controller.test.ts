@@ -13,7 +13,7 @@ function deferred() {
   return { promise, resolve }
 }
 
-function setup(draftStore = new Map<string, string>()) {
+function setup(draftStore = new Map<string, string>(), requestDirectory?: string) {
   const client = {
     session: {
       promptAsync: vi.fn(async (_parameters: unknown, _options?: unknown) => ({ data: undefined })),
@@ -26,6 +26,7 @@ function setup(draftStore = new Map<string, string>()) {
   const controller = createComposerController({
     client: client as never,
     directory: () => directory,
+    ...(requestDirectory ? { requestDirectory: () => requestDirectory } : {}),
     sessionID: () => sessionID,
     agent: () => "build",
     model: () => model,
@@ -154,6 +155,28 @@ describe("createComposerController", () => {
     expect(client.session.terminate).toHaveBeenCalledTimes(1)
     expect(client.session.terminate).toHaveBeenCalledWith({ directory, sessionID }, { throwOnError: true })
     expect(client.session.abort).not.toHaveBeenCalled()
+  })
+
+  it("uses the child session directory for plan-child API calls", async () => {
+    const childDirectory = "C:\\work\\demo\\plan\\ses_child"
+    const { client, controller } = setup(new Map(), childDirectory)
+
+    await controller.send("steer")
+    await controller.stop()
+    await controller.terminate()
+
+    expect(client.session.promptAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ directory: childDirectory }),
+      { throwOnError: true },
+    )
+    expect(client.session.abort).toHaveBeenCalledWith(
+      { directory: childDirectory, sessionID },
+      { throwOnError: true },
+    )
+    expect(client.session.terminate).toHaveBeenCalledWith(
+      { directory: childDirectory, sessionID },
+      { throwOnError: true },
+    )
   })
 
   it("interrupts the current child assignment before steering it", async () => {

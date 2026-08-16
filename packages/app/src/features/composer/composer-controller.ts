@@ -18,6 +18,7 @@ function resolve<T>(value: Value<T>) {
 export type ComposerControllerInput = {
   client: Pick<DesktopClient, "session">
   directory: Value<string>
+  requestDirectory?: Value<string>
   sessionID: Value<string>
   agent: Value<string>
   model: Value<ModelSelection>
@@ -53,6 +54,7 @@ function slashCommand(text: string) {
 export function createComposerController(input: ComposerControllerInput) {
   const draftStore = input.draftStore ?? processDrafts
   const draftKey = `${resolve(input.directory)}\u0000${resolve(input.sessionID)}`
+  const requestDirectory = () => resolve(input.requestDirectory ?? input.directory)
   if (draftStore === processDrafts) {
     pruneProcessDrafts()
     if (processDrafts.has(draftKey)) processDraftTouched.set(draftKey, Date.now())
@@ -96,7 +98,7 @@ export function createComposerController(input: ComposerControllerInput) {
     setSending(true)
     const task = Promise.resolve().then(async () => {
       try {
-        const directory = resolve(input.directory)
+        const directory = requestDirectory()
         const sessionID = resolve(input.sessionID)
         const agent = selection?.agent ?? resolve(input.agent)
         const model = selection?.model ?? resolve(input.model)
@@ -161,7 +163,7 @@ export function createComposerController(input: ComposerControllerInput) {
     setSending(true)
     const task = Promise.resolve().then(async () => {
       try {
-        const directory = resolve(input.directory)
+        const directory = requestDirectory()
         const sessionID = resolve(input.sessionID)
         const agent = selection?.agent ?? resolve(input.agent)
         const model = selection?.model ?? resolve(input.model)
@@ -217,7 +219,7 @@ export function createComposerController(input: ComposerControllerInput) {
     const task = Promise.resolve().then(async () => {
       try {
         await input.client.session.abort(
-          { directory: resolve(input.directory), sessionID: resolve(input.sessionID) },
+          { directory: requestDirectory(), sessionID: resolve(input.sessionID) },
           { throwOnError: true },
         )
       } catch (cause) {
@@ -242,7 +244,7 @@ export function createComposerController(input: ComposerControllerInput) {
     const task = Promise.resolve().then(async () => {
       try {
         await input.client.session.terminate(
-          { directory: resolve(input.directory), sessionID: resolve(input.sessionID) },
+          { directory: requestDirectory(), sessionID: resolve(input.sessionID) },
           { throwOnError: true },
         )
       } catch (cause) {
@@ -275,7 +277,7 @@ export function createComposerController(input: ComposerControllerInput) {
     if (!cancelSession || !hadWork) return
     try {
       await input.client.session.abort(
-        { directory: resolve(input.directory), sessionID: resolve(input.sessionID) },
+        { directory: requestDirectory(), sessionID: resolve(input.sessionID) },
         { throwOnError: true },
       )
     } catch {

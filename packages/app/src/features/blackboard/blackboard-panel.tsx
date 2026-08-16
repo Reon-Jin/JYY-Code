@@ -567,7 +567,11 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
                       {(attachment) => (
                         <li>
                           <File aria-hidden="true" />
-                          <button type="button" onClick={() => void navigator.clipboard?.writeText(attachment.value)}>
+                          <button
+                            type="button"
+                            data-sound-effect="copy"
+                            onClick={() => void navigator.clipboard?.writeText(attachment.value)}
+                          >
                             {attachment.value}
                           </button>
                         </li>

@@ -86,12 +86,49 @@ function isDirectoryOrDescendant(candidate: string, root: string) {
   return normalizedCandidate.startsWith(`${normalizedRoot}${separator}`)
 }
 
-export function routeEvent(directory: string, event: GlobalEvent): CacheAction[] {
+function routedSessionID(payload: GlobalEvent["payload"]): string | undefined {
+  switch (payload.type) {
+    case "session.status":
+    case "session.idle":
+    case "session.next.compaction.started":
+    case "session.next.compaction.ended":
+    case "message.updated":
+    case "message.removed":
+    case "message.part.updated":
+    case "message.part.delta":
+    case "message.part.removed":
+    case "todo.updated":
+    case "session.diff":
+      return payload.properties.sessionID
+    case "session.created":
+    case "session.updated":
+      return payload.properties.info.id
+    case "session.deleted":
+      return payload.properties.sessionID
+    case "permission.asked":
+    case "permission.replied":
+    case "question.asked":
+    case "question.replied":
+    case "question.rejected":
+      return payload.properties.sessionID
+    default:
+      return undefined
+  }
+}
+
+export function routeEvent(
+  directory: string,
+  event: GlobalEvent,
+  activeSessionID?: string | undefined,
+): CacheAction[] {
   const payload = event.payload
   if (payload.type === "server.connected") {
     return [{ kind: "server.connected", eventID: payload.id }]
   }
-  if (!sameDirectory(event.directory, directory)) return []
+  if (!sameDirectory(event.directory, directory)) {
+    const routed = routedSessionID(payload)
+    if (routed === undefined || routed !== activeSessionID) return []
+  }
 
   switch (payload.type) {
     case "session.created":
@@ -452,7 +489,7 @@ export class EventBridge {
 
     for (const event of events) {
       if (this.#abort.signal.aborted) return
-      for (const action of routeEvent(this.#options.directory, event)) {
+      for (const action of routeEvent(this.#options.directory, event, this.#options.activeSessionID?.())) {
         if (this.#abort.signal.aborted) return
         publishNotificationAction(action)
         if (action.kind === "part.upsert") {

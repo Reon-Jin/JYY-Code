@@ -335,6 +335,37 @@ describe("event routing", () => {
     expect(action).toEqual([])
   })
 
+  it("routes session-scoped events for the active child session across directories", () => {
+    const childDirectory = "C:\\a\\plan\\ses_child"
+    expect(
+      routeEvent(
+        "C:\\a",
+        {
+          directory: childDirectory,
+          payload: { id: "evt_child_message", type: "message.updated", properties: { sessionID: session.id, info: session } },
+        } as GlobalEvent,
+        session.id,
+      ),
+    ).toEqual([
+      {
+        kind: "message.upsert",
+        eventID: "evt_child_message",
+        sessionID: session.id,
+        info: session,
+      },
+    ])
+    expect(
+      routeEvent(
+        "C:\\a",
+        {
+          directory: childDirectory,
+          payload: { id: "evt_other_message", type: "message.updated", properties: { sessionID: "ses_other", info: session } },
+        } as GlobalEvent,
+        session.id,
+      ),
+    ).toEqual([])
+  })
+
   it("matches Windows directories case-insensitively but POSIX directories case-sensitively", () => {
     const info = { ...session, directory: "C:\\Work\\Demo" }
     expect(

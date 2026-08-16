@@ -37,6 +37,41 @@ export function isConversationSnapshot(value: unknown): value is ConversationSna
   )
 }
 
+function messageHasPartAhead(
+  message: ConversationSnapshot["messages"][number],
+  baselinePart: ConversationSnapshot["messages"][number]["parts"][number],
+) {
+  const candidate = message.parts.find((part) => part.id === baselinePart.id)
+  if (!candidate) return false
+  const baselineText = "text" in baselinePart ? baselinePart.text : undefined
+  if (typeof baselineText === "string") {
+    const candidateText = "text" in candidate ? candidate.text : undefined
+    return typeof candidateText === "string" && candidateText.length >= baselineText.length
+  }
+  return true
+}
+
+/**
+ * Returns true when `candidate` contains every message and part present in
+ * `baseline`. A background refetch may start before the server has persisted
+ * the latest streamed events; in that case the locally patched snapshot is
+ * ahead of the fetched response and must not overwrite it.
+ */
+export function isConversationSnapshotAhead(
+  candidate: ConversationSnapshot,
+  baseline: ConversationSnapshot,
+): boolean {
+  const candidateMessages = new Map(candidate.messages.map((message) => [message.info.id, message]))
+  for (const message of baseline.messages) {
+    const candidateMessage = candidateMessages.get(message.info.id)
+    if (!candidateMessage) return false
+    for (const part of message.parts) {
+      if (!messageHasPartAhead(candidateMessage, part)) return false
+    }
+  }
+  return true
+}
+
 function sortByID<T extends { id: string }>(values: readonly T[]) {
   return [...values].sort((left, right) => left.id.localeCompare(right.id))
 }

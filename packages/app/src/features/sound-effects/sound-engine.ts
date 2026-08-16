@@ -16,6 +16,11 @@ export type SoundEffectName =
   | "mode-switch"
   | "confirm"
   | "cancel"
+  | "copy"
+  | "attach"
+  | "stop"
+  | "queue-add"
+  | "delete"
 
 export function isSoundEffectName(value: unknown): value is SoundEffectName {
   return typeof value === "string" && (soundEffects as Record<string, unknown>)[value] !== undefined
@@ -34,6 +39,10 @@ function audioContext(): AudioContext | undefined {
   if (!constructor) return undefined
   sharedContext ??= new constructor()
   return sharedContext
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
 }
 
 function noiseBuffer(context: AudioContext) {
@@ -62,7 +71,7 @@ function tone(context: AudioContext, master: GainNode, options: ToneOptions) {
   const gain = context.createGain()
   const start = Math.max(options.start, context.currentTime)
   const duration = Math.max(options.duration, 0.03)
-  const volume = Math.min(Math.max(options.volume ?? 0.12, 0), 0.4)
+  const volume = clamp(options.volume ?? 0.12, 0, 0.4)
   const attack = Math.min(options.attack ?? 0.005, duration * 0.35)
   const release = Math.min(options.release ?? 0.06, duration * 0.4)
 
@@ -97,7 +106,7 @@ function noiseBurst(context: AudioContext, master: GainNode, options: NoiseOptio
   const gain = context.createGain()
   const start = Math.max(options.start, context.currentTime)
   const duration = Math.max(options.duration, 0.02)
-  const volume = Math.min(Math.max(options.volume ?? 0.08, 0), 0.3)
+  const volume = clamp(options.volume ?? 0.08, 0, 0.3)
 
   source.buffer = noiseBuffer(context)
   filter.type = options.filterType ?? "bandpass"
@@ -116,33 +125,143 @@ function noiseBurst(context: AudioContext, master: GainNode, options: NoiseOptio
   source.stop(start + duration + 0.03)
 }
 
-function mechanicalClick(
-  context: AudioContext,
-  master: GainNode,
-  options: {
-    start: number
-    cutoff?: number
-    body?: number
-    volume?: number
-  },
-) {
+type BodyPartial = {
+  frequency: number
+  amplitude: number
+  /** Exponential decay time constant in seconds. */
+  decay: number
+}
+
+type StruckBodyOptions = {
+  start: number
+  partials: BodyPartial[]
+  volume?: number
+  duration?: number
+  type?: OscillatorType
+  attack?: number
+}
+
+/**
+ * Modal synthesis for a struck physical object. Each partial rings with its own
+ * exponential decay, so wood, glass, stone and marimba bars all get a natural,
+ * non-synthetic character.
+ */
+function struckBody(context: AudioContext, master: GainNode, options: StruckBodyOptions) {
   const start = Math.max(options.start, context.currentTime)
+  const volume = clamp(options.volume ?? 0.12, 0, 0.4)
+  const attack = Math.min(options.attack ?? 0.003, 0.02)
+  const duration = Math.max(options.duration ?? 0.6, 0.05)
+  for (const partial of options.partials) {
+    const oscillator = context.createOscillator()
+    const gain = context.createGain()
+    oscillator.type = options.type ?? "sine"
+    oscillator.frequency.setValueAtTime(partial.frequency, start)
+    gain.gain.setValueAtTime(0.0001, start)
+    gain.gain.exponentialRampToValueAtTime(Math.max(volume * partial.amplitude, 0.0002), start + attack)
+    gain.gain.setTargetAtTime(0.0001, start + attack, partial.decay)
+    oscillator.connect(gain)
+    gain.connect(master)
+    oscillator.start(start)
+    oscillator.stop(start + duration + 0.08)
+  }
+}
+
+const woodBody = (base: number, decay = 0.06): BodyPartial[] => [
+  { frequency: base, amplitude: 1, decay },
+  { frequency: base * 2.76, amplitude: 0.38, decay: decay * 0.85 },
+  { frequency: base * 5.4, amplitude: 0.16, decay: decay * 0.7 },
+]
+
+const glassBody = (base: number, decay = 0.4): BodyPartial[] => [
+  { frequency: base, amplitude: 1, decay },
+  { frequency: base * 2.32, amplitude: 0.3, decay: decay * 0.7 },
+  { frequency: base * 4.14, amplitude: 0.1, decay: decay * 0.5 },
+]
+
+const stoneBody = (base: number, decay = 0.05): BodyPartial[] => [
+  { frequency: base, amplitude: 1, decay },
+  { frequency: base * 2.1, amplitude: 0.25, decay: decay * 0.8 },
+  { frequency: base * 4.6, amplitude: 0.08, decay: decay * 0.6 },
+]
+
+const marimbaBody = (base: number, decay = 0.18): BodyPartial[] => [
+  { frequency: base, amplitude: 1, decay },
+  { frequency: base * 3.98, amplitude: 0.3, decay: decay * 0.65 },
+  { frequency: base * 9.2, amplitude: 0.08, decay: decay * 0.45 },
+]
+
+type SwitchClickOptions = {
+  start: number
+  cutoff?: number
+  body?: number
+  low?: number
+  volume?: number
+}
+
+/**
+ * A physical micro-switch press: crisp contact transient, tiny resonant body
+ * and a low-mass thump for weight.
+ */
+function switchClick(context: AudioContext, master: GainNode, options: SwitchClickOptions) {
+  const start = Math.max(options.start, context.currentTime)
+  const volume = clamp(options.volume ?? 0.14, 0, 0.3)
+  const cutoff = options.cutoff ?? 2400
+  const body = options.body ?? 1500
+  const low = options.low ?? 200
   noiseBurst(context, master, {
     start,
-    duration: 0.03,
-    volume: options.volume ?? 0.1,
-    frequency: options.cutoff ?? 900,
-    q: 0.5,
-    filterType: "lowpass",
+    duration: 0.018,
+    volume,
+    frequency: cutoff,
+    q: 0.9,
+    filterType: "bandpass",
+  })
+  struckBody(context, master, {
+    start,
+    duration: 0.12,
+    volume: volume * 0.75,
+    partials: [
+      { frequency: body, amplitude: 1, decay: 0.009 },
+      { frequency: body * 2.32, amplitude: 0.3, decay: 0.006 },
+    ],
   })
   tone(context, master, {
-    frequency: options.body ?? 220,
+    frequency: low,
     start,
-    duration: 0.04,
-    volume: (options.volume ?? 0.1) * 0.45,
+    duration: 0.07,
+    volume: volume * 0.32,
     type: "sine",
     attack: 0.002,
-    release: 0.024,
+    release: 0.04,
+  })
+}
+
+type KnockOptions = {
+  start: number
+  base?: number
+  volume?: number
+  hardness?: number
+}
+
+/** A knock on wood: soft contact transient plus a wooden body. */
+function knock(context: AudioContext, master: GainNode, options: KnockOptions) {
+  const start = Math.max(options.start, context.currentTime)
+  const volume = clamp(options.volume ?? 0.16, 0, 0.3)
+  const base = options.base ?? 260
+  const hardness = clamp(options.hardness ?? 0.7, 0, 1)
+  noiseBurst(context, master, {
+    start,
+    duration: 0.02,
+    volume: volume * (0.4 + hardness * 0.6),
+    frequency: 500 + hardness * 900,
+    q: 0.6,
+    filterType: "bandpass",
+  })
+  struckBody(context, master, {
+    start,
+    duration: 0.3,
+    volume,
+    partials: woodBody(base),
   })
 }
 
@@ -150,166 +269,249 @@ function playPattern(context: AudioContext, master: GainNode, name: SoundEffectN
   const now = context.currentTime
   switch (name) {
     case "click":
-      mechanicalClick(context, master, { start: now, cutoff: 950, body: 220, volume: 0.3 })
+      switchClick(context, master, { start: now, cutoff: 2300, body: 1500, low: 190, volume: 0.16 })
       break
     case "toggle-on":
-      mechanicalClick(context, master, { start: now, cutoff: 900, body: 240, volume: 0.26 })
-      mechanicalClick(context, master, { start: now + 0.045, cutoff: 700, body: 200, volume: 0.2 })
+      switchClick(context, master, { start: now, cutoff: 2500, body: 1700, low: 210, volume: 0.18 })
+      switchClick(context, master, { start: now + 0.07, cutoff: 2100, body: 1400, low: 180, volume: 0.16 })
       break
     case "toggle-off":
-      mechanicalClick(context, master, { start: now, cutoff: 750, body: 200, volume: 0.26 })
-      mechanicalClick(context, master, { start: now + 0.045, cutoff: 600, body: 180, volume: 0.2 })
+      switchClick(context, master, { start: now, cutoff: 2100, body: 1400, low: 180, volume: 0.17 })
+      switchClick(context, master, { start: now + 0.07, cutoff: 1800, body: 1200, low: 160, volume: 0.15 })
       break
     case "send":
-      mechanicalClick(context, master, { start: now, cutoff: 1000, body: 260, volume: 0.3 })
+      // A paper slide with a soft, sealed thump at the end.
+      noiseBurst(context, master, {
+        start: now,
+        duration: 0.16,
+        volume: 0.05,
+        frequency: 3200,
+        endFrequency: 900,
+        q: 0.5,
+        filterType: "bandpass",
+      })
+      tone(context, master, {
+        frequency: 150,
+        endFrequency: 120,
+        start: now + 0.04,
+        duration: 0.14,
+        volume: 0.06,
+        type: "sine",
+        attack: 0.008,
+        release: 0.07,
+      })
       break
     case "typing":
-      tone(context, master, {
-        frequency: 480,
-        endFrequency: 420,
+      // A very quiet pen tick on paper.
+      noiseBurst(context, master, {
         start: now,
-        duration: 0.035,
-        volume: 0.08,
-        type: "triangle",
-        attack: 0.004,
-        release: 0.025,
+        duration: 0.014,
+        volume: 0.025,
+        frequency: 3200,
+        q: 1.4,
+        filterType: "bandpass",
+      })
+      struckBody(context, master, {
+        start: now,
+        duration: 0.08,
+        volume: 0.02,
+        partials: [{ frequency: 1500, amplitude: 1, decay: 0.006 }],
       })
       break
     case "agent-start":
+      // A mechanism engages: low knock, then a restrained air and motor hum.
+      knock(context, master, { start: now, base: 170, volume: 0.14, hardness: 0.6 })
+      tone(context, master, {
+        frequency: 95,
+        endFrequency: 135,
+        start: now + 0.04,
+        duration: 0.34,
+        volume: 0.06,
+        type: "triangle",
+        attack: 0.02,
+        release: 0.16,
+      })
       noiseBurst(context, master, {
-        start: now,
+        start: now + 0.02,
         duration: 0.26,
-        volume: 0.1,
-        frequency: 150,
-        endFrequency: 450,
+        volume: 0.035,
+        frequency: 160,
+        endFrequency: 380,
         q: 0.5,
         filterType: "lowpass",
       })
-      tone(context, master, { frequency: 130, start: now, duration: 0.28, volume: 0.17, release: 0.14 })
       break
     case "agent-end":
-      tone(context, master, { frequency: 520, start: now, duration: 0.22, volume: 0.13, release: 0.11 })
-      tone(context, master, { frequency: 780, start: now + 0.05, duration: 0.26, volume: 0.1, release: 0.13 })
-      break
-    case "goal-start":
+      // One struck glass bar that rings out naturally.
       noiseBurst(context, master, {
         start: now,
-        duration: 0.3,
-        volume: 0.045,
-        frequency: 220,
-        endFrequency: 720,
-        q: 0.45,
-        filterType: "lowpass",
+        duration: 0.012,
+        volume: 0.035,
+        frequency: 5200,
+        q: 1.2,
+        filterType: "bandpass",
       })
-      tone(context, master, {
-        frequency: 392,
+      struckBody(context, master, {
         start: now,
-        duration: 0.16,
-        volume: 0.06,
-        type: "triangle",
-        release: 0.08,
+        duration: 0.9,
+        volume: 0.1,
+        partials: glassBody(880, 0.45),
       })
+      break
+    case "goal-start":
+      // A heavy latch drops into place.
+      knock(context, master, { start: now, base: 120, volume: 0.2, hardness: 0.5 })
+      switchClick(context, master, { start: now + 0.09, cutoff: 1600, body: 900, low: 150, volume: 0.18 })
       tone(context, master, {
-        frequency: 523.25,
-        start: now + 0.06,
-        duration: 0.18,
-        volume: 0.06,
+        frequency: 80,
+        start: now + 0.04,
+        duration: 0.4,
+        volume: 0.07,
         type: "triangle",
-        release: 0.09,
-      })
-      tone(context, master, {
-        frequency: 659.25,
-        start: now + 0.12,
-        duration: 0.24,
-        volume: 0.065,
-        type: "triangle",
-        release: 0.12,
+        attack: 0.02,
+        release: 0.2,
       })
       break
     case "goal-end":
-      tone(context, master, { frequency: 880, start: now, duration: 0.22, volume: 0.06, type: "sine", release: 0.11 })
-      tone(context, master, {
-        frequency: 659.25,
-        start: now + 0.08,
-        duration: 0.24,
-        volume: 0.055,
-        type: "sine",
-        release: 0.12,
+      // Two struck wooden marimba bars, a calm C-G resolution.
+      struckBody(context, master, {
+        start: now,
+        duration: 0.7,
+        volume: 0.09,
+        partials: marimbaBody(523.25, 0.2),
       })
-      tone(context, master, {
-        frequency: 440,
-        start: now + 0.16,
-        duration: 0.34,
-        volume: 0.055,
-        type: "sine",
-        release: 0.18,
+      struckBody(context, master, {
+        start: now + 0.11,
+        duration: 0.8,
+        volume: 0.08,
+        partials: marimbaBody(784, 0.24),
       })
       break
     case "error":
-      tone(context, master, { frequency: 130, start: now, duration: 0.26, volume: 0.14, release: 0.14 })
-      tone(context, master, { frequency: 88, start: now + 0.02, duration: 0.24, volume: 0.11, release: 0.14 })
+      // Two dull, descending thuds on a wooden block.
+      knock(context, master, { start: now, base: 170, volume: 0.16, hardness: 0.35 })
+      knock(context, master, { start: now + 0.16, base: 135, volume: 0.14, hardness: 0.3 })
       break
     case "attention":
-      mechanicalClick(context, master, { start: now, cutoff: 550, body: 190, volume: 0.09 })
-      mechanicalClick(context, master, { start: now + 0.11, cutoff: 480, body: 170, volume: 0.09 })
+      // A polite double knock on wood.
+      knock(context, master, { start: now, base: 300, volume: 0.13, hardness: 0.7 })
+      knock(context, master, { start: now + 0.18, base: 300, volume: 0.13, hardness: 0.7 })
       break
     case "blackboard":
-      mechanicalClick(context, master, { start: now, cutoff: 850, body: 220, volume: 0.09 })
-      mechanicalClick(context, master, { start: now + 0.055, cutoff: 650, body: 190, volume: 0.08 })
+      // Chalk taps a slate board: dry transient plus a short stone ring.
+      noiseBurst(context, master, {
+        start: now,
+        duration: 0.028,
+        volume: 0.06,
+        frequency: 3600,
+        q: 2.2,
+        filterType: "bandpass",
+      })
+      struckBody(context, master, {
+        start: now,
+        duration: 0.35,
+        volume: 0.07,
+        partials: stoneBody(920, 0.12),
+      })
       break
     case "panel-open":
       noiseBurst(context, master, {
         start: now,
-        duration: 0.22,
-        volume: 0.11,
-        frequency: 180,
-        endFrequency: 480,
-        q: 0.45,
-        filterType: "lowpass",
-      })
-      tone(context, master, {
-        frequency: 160,
-        endFrequency: 300,
-        start: now,
         duration: 0.2,
-        volume: 0.06,
-        type: "sine",
-        attack: 0.015,
-        release: 0.1,
+        volume: 0.055,
+        frequency: 950,
+        endFrequency: 320,
+        q: 0.5,
+        filterType: "bandpass",
       })
+      knock(context, master, { start: now + 0.14, base: 240, volume: 0.1, hardness: 0.55 })
       break
     case "panel-close":
       noiseBurst(context, master, {
         start: now,
-        duration: 0.22,
-        volume: 0.11,
-        frequency: 480,
-        endFrequency: 180,
-        q: 0.45,
-        filterType: "lowpass",
-      })
-      tone(context, master, {
-        frequency: 300,
-        endFrequency: 160,
-        start: now,
         duration: 0.2,
         volume: 0.06,
-        type: "sine",
-        attack: 0.015,
-        release: 0.1,
+        frequency: 750,
+        endFrequency: 240,
+        q: 0.5,
+        filterType: "bandpass",
       })
+      knock(context, master, { start: now + 0.12, base: 190, volume: 0.12, hardness: 0.5 })
       break
     case "mode-switch":
-      mechanicalClick(context, master, { start: now, cutoff: 700, body: 200, volume: 0.24 })
-      mechanicalClick(context, master, { start: now + 0.05, cutoff: 950, body: 240, volume: 0.24 })
+      // A rotary knob clicks into a new detent.
+      switchClick(context, master, { start: now, cutoff: 2600, body: 1800, low: 210, volume: 0.18 })
+      switchClick(context, master, { start: now + 0.07, cutoff: 2000, body: 1300, low: 170, volume: 0.16 })
       break
     case "confirm":
-      mechanicalClick(context, master, { start: now, cutoff: 800, body: 220, volume: 0.25 })
-      mechanicalClick(context, master, { start: now + 0.06, cutoff: 950, body: 250, volume: 0.25 })
+      switchClick(context, master, { start: now, cutoff: 1500, body: 950, low: 170, volume: 0.22 })
       break
     case "cancel":
-      mechanicalClick(context, master, { start: now, cutoff: 800, body: 220, volume: 0.24 })
-      mechanicalClick(context, master, { start: now + 0.06, cutoff: 600, body: 180, volume: 0.24 })
+      switchClick(context, master, { start: now, cutoff: 1900, body: 1200, low: 155, volume: 0.15 })
+      break
+    case "copy":
+      // A crisp card slips out: quick swish closing with a tiny click.
+      noiseBurst(context, master, {
+        start: now,
+        duration: 0.08,
+        volume: 0.045,
+        frequency: 2800,
+        endFrequency: 1100,
+        q: 0.7,
+        filterType: "bandpass",
+      })
+      switchClick(context, master, { start: now + 0.07, cutoff: 3000, body: 2000, low: 220, volume: 0.07 })
+      break
+    case "attach":
+      // A paper clip opens: two light metallic clicks.
+      switchClick(context, master, { start: now, cutoff: 2800, body: 1900, low: 230, volume: 0.13 })
+      switchClick(context, master, { start: now + 0.055, cutoff: 2400, body: 1600, low: 200, volume: 0.11 })
+      break
+    case "stop":
+      // A firm stop switch presses home with a dull body.
+      switchClick(context, master, { start: now, cutoff: 1300, body: 800, low: 160, volume: 0.2 })
+      tone(context, master, {
+        frequency: 140,
+        start: now,
+        duration: 0.1,
+        volume: 0.07,
+        type: "sine",
+        attack: 0.004,
+        release: 0.05,
+      })
+      break
+    case "queue-add":
+      // A card drops onto the stack.
+      tone(context, master, {
+        frequency: 150,
+        start: now,
+        duration: 0.09,
+        volume: 0.05,
+        type: "sine",
+        attack: 0.005,
+        release: 0.05,
+      })
+      noiseBurst(context, master, {
+        start: now,
+        duration: 0.05,
+        volume: 0.035,
+        frequency: 700,
+        q: 0.6,
+        filterType: "lowpass",
+      })
+      break
+    case "delete":
+      // Paper crumples away, then a drawer closes.
+      noiseBurst(context, master, {
+        start: now,
+        duration: 0.2,
+        volume: 0.05,
+        frequency: 1400,
+        endFrequency: 350,
+        q: 0.6,
+        filterType: "bandpass",
+      })
+      knock(context, master, { start: now + 0.09, base: 150, volume: 0.12, hardness: 0.45 })
       break
   }
 }
@@ -353,4 +555,9 @@ const soundEffects: Record<SoundEffectName, true> = {
   "mode-switch": true,
   confirm: true,
   cancel: true,
+  copy: true,
+  attach: true,
+  stop: true,
+  "queue-add": true,
+  delete: true,
 }

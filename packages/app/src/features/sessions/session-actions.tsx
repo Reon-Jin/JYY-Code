@@ -167,6 +167,7 @@ export function SessionActions(props: SessionActionsProps) {
             </Button>
             <Button
               variant="danger"
+              data-sound-effect="delete"
               loading={busy() === "delete"}
               loadingLabel={tr("sessions.deleting")}
               onClick={() => void remove()}

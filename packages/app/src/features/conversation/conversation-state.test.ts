@@ -4,6 +4,7 @@ import {
   applyConversationEvent,
   applyConversationEvents,
   emptyConversationSnapshot,
+  isConversationSnapshotAhead,
   snapshotFromMessages,
 } from "./conversation-state"
 import { conversationQueryOptions, loadConversation } from "./conversation-query"
@@ -201,5 +202,28 @@ describe("conversation state", () => {
     const snapshot = await loadConversation({ client: client as never, directory, sessionID, queryClient })
 
     expect(snapshot.processedEventIDs).toContain("evt_kept")
+  })
+
+  it("keeps a locally streamed snapshot when a stale refetch is missing its latest parts", async () => {
+    const directory = "C:\\work\\demo"
+    const queryClient = createDesktopQueryClient()
+    const streamedPart = { ...part, text: "streamed" }
+    const current = snapshotFromMessages(sessionID, [{ info: message, parts: [streamedPart] }])
+    queryClient.setQueryData(keys.messages(directory, sessionID), current)
+    const client = {
+      session: { messages: vi.fn(async () => ({ data: [{ info: message, parts: [part] }] })) },
+    }
+
+    const snapshot = await loadConversation({ client: client as never, directory, sessionID, queryClient })
+
+    expect(snapshot.messages[0]?.parts[0]).toMatchObject({ text: "streamed" })
+  })
+
+  it("detects when a snapshot is ahead of a fetched response", () => {
+    const baseline = snapshotFromMessages(sessionID, [{ info: message, parts: [part] }])
+    const ahead = snapshotFromMessages(sessionID, [{ info: message, parts: [{ ...part, text: "streamed" }] }])
+
+    expect(isConversationSnapshotAhead(ahead, baseline)).toBe(true)
+    expect(isConversationSnapshotAhead(baseline, ahead)).toBe(false)
   })
 })

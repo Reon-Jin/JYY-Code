@@ -586,7 +586,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
           })
         }
         if (intentSeq !== undefined) clearChildRunIntent(child.id, intentSeq)
-        return HttpApiSchema.NoContent.make()
+        return yield* new HttpApiError.BadRequest({})
       }
       if (ref) {
         const outcome = yield* settleChildTask(ref)
@@ -684,20 +684,32 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       payload: typeof PromptPayload.Type
     }) {
       yield* requireSession(ctx.params.sessionID)
-      yield* promptSvc.prompt({ ...ctx.payload, sessionID: ctx.params.sessionID }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.gen(function* () {
-            yield* Effect.logError("prompt_async failed").pipe(
-              Effect.annotateLogs({ sessionID: ctx.params.sessionID, cause }),
-            )
-            yield* bus.publish(Session.Event.Error, {
-              sessionID: ctx.params.sessionID,
-              error: new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(),
-            })
-          }),
-        ),
-        Effect.forkIn(scope, { startImmediately: true }),
-      )
+
+      const reportFailure = (cause: Cause.Cause<unknown>) =>
+        Effect.gen(function* () {
+          yield* Effect.logError("prompt_async failed").pipe(
+            Effect.annotateLogs({ sessionID: ctx.params.sessionID, cause }),
+          )
+          yield* bus.publish(Session.Event.Error, {
+            sessionID: ctx.params.sessionID,
+            error: new NamedError.Unknown({ message: Cause.pretty(cause) }).toObject(),
+          })
+        })
+
+      const created = yield* promptSvc
+        .prompt({ ...ctx.payload, sessionID: ctx.params.sessionID, noReply: true })
+        .pipe(Effect.exit)
+      if (Exit.isFailure(created)) {
+        yield* reportFailure(created.cause)
+        return HttpApiSchema.NoContent.make()
+      }
+
+      if (ctx.payload.noReply !== true) {
+        yield* promptSvc.loop({ sessionID: ctx.params.sessionID }).pipe(
+          Effect.catchCause(reportFailure),
+          Effect.forkIn(scope, { startImmediately: true }),
+        )
+      }
       return HttpApiSchema.NoContent.make()
     })
 

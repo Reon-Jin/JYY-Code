@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { isSoundEffectName } from "./sound-engine"
 import {
   handleSoundEffectEvent,
   publishSoundEffectsEnabled,
@@ -52,9 +53,20 @@ describe("sound effect target mapping", () => {
     button.dataset.soundEffect = "confirm"
     expect(soundEffectForTarget(button)).toBe("confirm")
 
+    const copy = document.createElement("button")
+    copy.dataset.soundEffect = "copy"
+    expect(soundEffectForTarget(copy)).toBe("copy")
+
     const silent = document.createElement("button")
     silent.dataset.soundEffect = "none"
     expect(soundEffectForTarget(silent)).toBeUndefined()
+  })
+
+  it("registers the full physical sound palette", () => {
+    for (const name of ["send", "typing", "copy", "attach", "stop", "queue-add", "delete", "agent-end", "goal-end"]) {
+      expect(isSoundEffectName(name)).toBe(true)
+    }
+    expect(isSoundEffectName("laser")).toBe(false)
   })
 
   it("ignores non-interactive targets", () => {
