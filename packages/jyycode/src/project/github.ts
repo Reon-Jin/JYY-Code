@@ -195,7 +195,11 @@ const missingExecutable = (exitCode: number | undefined, message: string) =>
 
 const commandReason = (exitCode: number | undefined, message: string): ErrorReason => {
   if (missingExecutable(exitCode, message)) return "missing-gh"
-  if (/not logged in|not authenticated|gh auth login|authentication required/i.test(message)) return "not-authenticated"
+  if (
+    /not logged in|not authenticated|gh auth login|authentication required|GH_TOKEN environment variable/i.test(message)
+  ) {
+    return "not-authenticated"
+  }
   if (
     /no (?:git )?remotes|not a git repository|could not determine (?:base )?repo|none of the git remotes/i.test(message)
   ) {

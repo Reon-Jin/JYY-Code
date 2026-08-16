@@ -1,5 +1,5 @@
 import { chmod, mkdir, readFile, stat as statFile, writeFile } from "fs/promises"
-import { createWriteStream, existsSync, statSync } from "fs"
+import { createWriteStream, existsSync, lstatSync, statSync } from "fs"
 import { realpathSync } from "fs"
 import { basename, dirname, isAbsolute, join, relative, resolve as pathResolve, win32 } from "path"
 import { Readable } from "stream"
@@ -198,14 +198,26 @@ export function canonicalizeForContainment(input: string): string {
   let current = resolved
   const suffix: string[] = []
 
-  while (!existsSync(current)) {
-    const parent = dirname(current)
-    if (parent === current) return resolved
-    suffix.unshift(basename(current))
-    current = parent
+  while (true) {
+    try {
+      lstatSync(current)
+      break
+    } catch (error) {
+      if (!isEnoent(error)) throw error
+      const parent = dirname(current)
+      if (parent === current) return resolved
+      suffix.unshift(basename(current))
+      current = parent
+    }
   }
 
-  const canonicalParent = realpathSync.native(current)
+  let canonicalParent: string
+  try {
+    canonicalParent = realpathSync.native(current)
+  } catch (error) {
+    if (isEnoent(error)) return resolved
+    throw error
+  }
   return suffix.reduce((parent, item) => join(parent, item), canonicalParent)
 }
 

@@ -219,6 +219,20 @@ describe("GitHub pull request reads", () => {
   )
 
   testEffect(
+    testLayer(() => ({
+      code: 1,
+      stderr: "gh: To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN environment variable.",
+    })),
+  ).instance("classifies a missing GitHub Actions token as unauthenticated", () =>
+    Effect.gen(function* () {
+      const github = yield* GitHub.Service
+      const error = yield* Effect.flip(github.listPullRequests({ state: "all" }))
+
+      expect(error.reason).toBe("not-authenticated")
+    }),
+  )
+
+  testEffect(
     testLayer((_command, args) => {
       if (args[1] === "list") {
         expect(args).toEqual(["pr", "list", "--state", "all", "--limit", "100", "--json", summaryFields])

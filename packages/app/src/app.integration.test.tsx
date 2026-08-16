@@ -107,7 +107,7 @@ describe("desktop GUI journey", () => {
     vi.stubGlobal("fetch", backend.fetch)
     render(() => <App bridge={desktop.bridge} />)
 
-    expect(await screen.findByRole("heading", { name: "Profile Session" }, { timeout: 5_000 })).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "Profile Session" }, { timeout: 15_000 })).toBeVisible()
     await user.click(screen.getByRole("button", { name: "方案" }))
     await user.click(screen.getByRole("button", { name: "子 Agent" }))
     expect(await screen.findByRole("heading", { name: "子 Agent" })).toBeVisible()

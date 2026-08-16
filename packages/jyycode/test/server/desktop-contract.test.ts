@@ -76,7 +76,7 @@ describe("desktop shared-backend contract", () => {
 
       const controller = new AbortController()
       yield* Effect.addFinalizer(() => Effect.sync(() => controller.abort()))
-      const stream = yield* Effect.promise(() => sdk.global.event({ signal: controller.signal }))
+      const stream = yield* Effect.promise(() => sdk.event.subscribe(undefined, { signal: controller.signal }))
       yield* Effect.addFinalizer(() =>
         Effect.promise(async () => void (await stream.stream.return?.(undefined))).pipe(Effect.ignore),
       )
@@ -85,10 +85,21 @@ describe("desktop shared-backend contract", () => {
       yield* Effect.promise(async () => {
         const types = new Set<string>()
         for await (const event of stream.stream) {
-          const type = event.payload.type
+          const envelope = event as { directory?: string; payload?: unknown }
+          const payload = (envelope.payload ?? event) as {
+            type?: string
+            syncEvent?: { type?: string }
+          }
+          const rawType = payload.type === "sync" ? payload.syncEvent?.type?.replace(/\.\d+$/, "") : payload.type
+          const type =
+            rawType === "message.updated"
+              ? SessionEvent.Legacy.MessageUpdated.type
+              : rawType === "message.part.updated"
+                ? SessionEvent.Legacy.PartUpdated.type
+                : rawType
           if (type === "server.connected") Deferred.doneUnsafe(connected, Effect.void)
           if (
-            event.directory === directory &&
+            (envelope.directory === undefined || envelope.directory === directory) &&
             (type === SessionEvent.Legacy.MessageUpdated.type || type === SessionEvent.Legacy.PartUpdated.type)
           ) {
             types.add(type)
@@ -109,7 +120,7 @@ describe("desktop shared-backend contract", () => {
       if (!sessionID) return yield* Effect.fail(new Error("desktop session was not created"))
 
       const prompt = yield* Effect.promise(() =>
-        sdk.session.promptAsync({
+        sdk.session.prompt({
           directory,
           sessionID,
           agent: "build",
@@ -117,7 +128,7 @@ describe("desktop shared-backend contract", () => {
           parts: [{ type: "text", text: "desktop contract prompt" }],
         }),
       )
-      expect(prompt.response.status).toBe(204)
+      expect(prompt.response.status).toBe(200)
       expect(
         yield* awaitWithTimeout(Deferred.await(observed), "desktop message events were not delivered", "20 seconds"),
       ).toEqual(new Set([SessionEvent.Legacy.MessageUpdated.type, SessionEvent.Legacy.PartUpdated.type]))

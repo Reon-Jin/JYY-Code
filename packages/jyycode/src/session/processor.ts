@@ -50,11 +50,7 @@ export interface Handle {
       attachments?: MessageV2.FilePart[]
     },
   ) => Effect.Effect<void>
-  readonly failToolCall?: (
-    toolCallID: string,
-    error: unknown,
-    metadata?: Record<string, any>,
-  ) => Effect.Effect<boolean>
+  readonly failToolCall?: (toolCallID: string, error: unknown, metadata?: Record<string, any>) => Effect.Effect<boolean>
   /** Mark this assistant turn's tool snapshot stale after a protocol mutation. */
   readonly requestToolCatalogRefresh?: () => void
   /** True after a protocol mutation invalidates this turn's tool snapshot. */
@@ -511,6 +507,12 @@ export const layer = Layer.effect(
 
           case "tool-error": {
             const toolCall = yield* readToolCall(value.id)
+            // Provider streams may report an abort as a tool error before the
+            // independently running tool has flushed its final result. Keep
+            // the call tracked so cleanup can persist the normal result; the
+            // bounded cleanup sweep below still converts genuinely abandoned
+            // calls to an interrupted error.
+            if (aborted && toolCall?.part.state.status === "running") return
             yield* events.publish(SessionEvent.Tool.Failed, {
               sessionID: ctx.sessionID,
               callID: value.id,
@@ -735,16 +737,15 @@ export const layer = Layer.effect(
         }
         ctx.reasoningMap = {}
 
-        // On interruption the tool fiber may never settle its deferred. Do
-        // not spend the cleanup budget waiting for it; the state sweep below
-        // is the authoritative abort path for pending and running calls.
-        if (!aborted) {
-          yield* Effect.forEach(
-            Object.values(ctx.toolcalls),
-            (call) => Deferred.await(call.done).pipe(Effect.timeout("250 millis"), Effect.ignore),
-            { concurrency: "unbounded" },
-          )
-        }
+        // Most interrupted tools finish quickly after their process is
+        // terminated. Give them a bounded window to persist a normal result
+        // (notably the shell tool, which must flush truncated output) before
+        // sweeping genuinely abandoned calls as errors.
+        yield* Effect.forEach(
+          Object.values(ctx.toolcalls),
+          (call) => Deferred.await(call.done).pipe(Effect.timeout(aborted ? "5 seconds" : "250 millis"), Effect.ignore),
+          { concurrency: "unbounded" },
+        )
 
         for (const toolCallID of Object.keys(ctx.toolcalls)) {
           const match = yield* readToolCall(toolCallID)
@@ -851,33 +852,37 @@ export const layer = Layer.effect(
                 parse,
                 set: (info) => {
                   waitingForRetry = true
-                  return events.publish(SessionEvent.Retried, {
-                    sessionID: ctx.sessionID,
-                    attempt: info.attempt,
-                    error: {
-                      message: info.message,
-                      isRetryable: true,
-                    },
-                    timestamp: DateTime.makeUnsafe(Date.now()),
-                  }).pipe(
-                    Effect.andThen(
-                      status.set(ctx.sessionID, {
-                        type: "retry",
-                        attempt: info.attempt,
+                  return events
+                    .publish(SessionEvent.Retried, {
+                      sessionID: ctx.sessionID,
+                      attempt: info.attempt,
+                      error: {
                         message: info.message,
-                        action: info.action,
-                        next: info.next,
-                      }),
-                    ),
-                  )
+                        isRetryable: true,
+                      },
+                      timestamp: DateTime.makeUnsafe(Date.now()),
+                    })
+                    .pipe(
+                      Effect.andThen(
+                        status.set(ctx.sessionID, {
+                          type: "retry",
+                          attempt: info.attempt,
+                          message: info.message,
+                          action: info.action,
+                          next: info.next,
+                        }),
+                      ),
+                    )
                 },
               }),
             ),
             Effect.catch(halt),
             Effect.ensuring(boundedCleanup),
-            Effect.onInterrupt(() => Effect.sync(() => {
-              aborted = true
-            })),
+            Effect.onInterrupt(() =>
+              Effect.sync(() => {
+                aborted = true
+              }),
+            ),
           )
 
           if (ctx.needsCompaction) return "compact"
