@@ -6,9 +6,9 @@
 
 [中文文档](README-zh.md) · [English](README.md)
 
-> **一套会计划、派发、审核、打回并汇总交付的 Multi-Agent 工程工作流。**
+> **面向长任务、并行执行与故障恢复的 Runtime-first Multi-Agent Coding System。**
 >
-> 一句话交代目标，剩下的交给一支可观察、可恢复的 AI 工程团队。
+> 一句话目标，进入一条持久化工程工作流：**规划 → 并行执行 → 审核 → 打回/重试 → 显式合并**。
 
 <p align="center">
   <img src="./logo/screenshot.png" alt="JYY-Code 桌面端多智能体模式：右侧为方案面板与协作黑板" width="900" />
@@ -20,97 +20,114 @@
 
 **desktop安装：** https://github.com/Reon-Jin/JYY-Code/releases
 
-## 为什么是 JYY-Code
+## JYY-Code 真正不同在哪里
 
-大多数 AI 编程工具是"一个对话框 + 一个 Agent"：你盯着它一步步做，做错了从头再来，任务一大就丢上下文、烂尾、无法追责。
+JYY-Code 不假设 LLM 能稳定地记住方案、协调多个 Agent、保证验收质量、隔离并发修改，或者在进程崩溃后自己恢复正确状态。它把这些责任从 Prompt 中拿出来，交给**运行时**。
 
-JYY-Code 把一次请求升级为**一次有组织的工程运行**：
+| 问题 | JYY-Code 把它交给什么机制 |
+| --- | --- |
+| 规划 | 带 revision 的结构化 Plan、分阶段 Step、依赖关系与可判定 `done_criteria` |
+| 执行 | 严格 Task 状态机与协议化派发 |
+| 并行 | 批量 wave 调度，单波最多 20 个隔离子 Agent |
+| 质量控制 | Report → review → reject/redispatch 的强制闭环 |
+| 代码集成 | Worktree / Snapshot 隔离 + 显式 `Merge.apply` |
+| Agent 协作 | 带语义类型、已读游标与事件唤醒的共享黑板 |
+| 路线选择 | 盲提案、交叉评审、最终综合裁决的 Candidate 竞争 |
+| 长任务上下文 | 分层上下文、情景摘要与结构化持久记忆 |
+| 崩溃恢复 | 持久事件、可重建投影、Activation Lease 与启动时 reconcile |
 
-- **不靠自觉，靠协议。** 计划、派发、汇报、审核全部由运行时协议强制执行——子 Agent 只能汇报，不能篡改方案；审核不通过必须写明具体缺口，打回后自动带回反馈重派。
-- **不靠记忆，靠状态。** 方案持久化为带 revision 的结构化文件，每次写入走乐观并发校验；会话、快照、黑板全部落库（SQLite WAL），进程重启、渠道切换后可精确恢复。
-- **不靠单点，靠团队。** 一个主 Agent 指挥多达 20 个并行子 Agent，角色各异、模型各异，通过共享黑板协作，关键时刻还能让人类用结构化提问介入决策。
+所以 JYY-Code 不是“一个 Agent 再多接几个工具”，而是一个**给 Agent 提供边界、共享状态、恢复语义和可审核执行协议的工程运行时**。
 
-结果：你交付的是一句话目标，收回来的是经过审核、有据可查的工程产物。
+## 1. 由协议强制执行的工程闭环
 
-## 核心亮点
-
-### 有闭环的 Multi-Agent 工程工作流
-
-JYY-Code 的内核是一条由运行时强制执行的工程闭环，而不是一段"请好好合作"的提示词：
+JYY-Code 的核心流程由工具与状态迁移强制执行，而不是在 Prompt 里要求 Agent“请认真协作”。
 
 ```text
 Plan_create → Plan_update(add_task) → Dispatch_dispatch → Report → review_task(approve) → Merge.apply → merged → cleanup
      ↑                                                              ↓
-     └────────── reject + 具体 feedback（自动带入下次派发）──────────┘
+     └──────────── reject + 具体 feedback → 重新派发 ────────────────┘
 ```
 
-- **阶段化方案（Plan）**：任务被拆成若干 Step，每个 Step 有可观察、可判定的 `done_criteria`（如"产出 X 文件且包含 Y"），拒绝"完成/做好"这类模糊验收。只有当前 Step 验收通过，后续 Step 才会展开明细——计划随认知演进，而不是一次性拍死。
-- **状态机驱动的任务生命周期**：每个 Task 严格沿 `pending → dispatched → running → reported → approved / rejected / dismissed` 流转，非法迁移被协议直接拒绝。
-- **取消与重开分离**：`Dispatch_cancel` 只允许停止 `dispatched`/`running` Task 并回到 `pending`；已汇报或审核终态必须通过带原因的 `Plan_update(reopen_task)` 清除旧报告后重新派发，不能用取消绕过审核记录。
-- **审核即门禁**：主 Agent 逐项对照 `done_criteria` 并抽查产物后才裁决；`reject` 必须写清哪条标准未满足、差在哪里，重派时工具自动把 `previous_feedback` 注入子 Agent 简报——错误不会被默默吞掉。
-- **权限隔离**：子 Agent 会话只能 `Report`，无法触碰父方案；每个 Task 绑定独立 `output_path`，越出工作区的路径在派发时即被拒绝。
-- **异常收件箱（Inbox）**：汇报预检失败、子任务被取消、运行时错误都会进入 Inbox 并附带建议动作，主 Agent 处理完异常才能推进。
-- **乐观并发与可恢复**：方案写入带 revision 校验，冲突时返回最新状态重新决策；方案文件、快照、事件全部持久化，中途崩溃也能续跑。
+- **方案会随认知演进。** 工作被组织为多个 Step，每个 Step 都有可观察、可判定的 `done_criteria`；当前阶段没有验收通过，后续阶段不会盲目展开。
+- **Task 状态不是聊天文本。** Task 沿 `pending → dispatched → running → reported → approved / rejected / dismissed` 等受控状态迁移，非法跳转由运行时直接拒绝。
+- **审核是真正的门禁。** 主 Agent 必须对照 `done_criteria` 检查汇报与相关产物；打回必须说明具体缺口，下一次派发会自动注入上一轮 feedback。
+- **子 Agent 不能改写编排状态。** 标准子会话负责执行和 Report，不能直接修改父 Plan。
+- **异常不会消失在模型文本里。** 汇报预检失败、子任务取消和运行时错误都会进入持久化 Inbox，成为必须处理的显式状态。
 
-### 极高的并行性
+这使“多 Agent 协作”从一种 Prompt 约定，变成了真正的状态化协议。
 
-JYY-Code 把"能并行的一律并行"写进了协议，而不是交给模型自由发挥：
+## 2. 高并行，但不让工作区失控
 
-- **批量派发**：同一 wave 的所有就绪 Task 必须一次放入 `Dispatch_dispatch`，**单波上限 20 个并行子 Agent**，禁止分批、禁止串行。
-- **可并行性检查**：拆分中大型任务前，协议要求逐条枚举拆分维度——独立交付物、独立模块、独立调查问题、独立验证面、独立角色专长——默认让每一波有 4-8 个互不阻塞的 Task；拆不出 4 个时必须逐条举证。
-- **角色分波**：不同角色的 Task 分成不同波次批量派发，同一角色的多个 Task 合并进同一波，调度效率最大化。
-- **Worktree 隔离**：内置 Git worktree 管理，并行实验互不污染工作区。
-- **项目级 Agent 隔离**：Git 项目中的标准 Task 使用独立 Worktree；非 Git 项目使用可写快照工作区。共享主工作区只有显式启用 `shared_compat` 才会使用，并会保留更高的并发污染风险。
-- **统一合并入口**：审核通过不会自动改写父工作区。主 Agent 调用 `Merge.apply({"task_id":"s1_t1"})` 集成 Git Worktree 或非 Git 快照中的变更；非重叠修改自动合并，真实冲突保留在原地并通过 Inbox/唤醒提示。
-- **显式冲突决策**：主 Agent 检查 `main_path`、`child_path`、`base_path` 后编辑父文件，再用 `{"task_id":"s1_t1","resolutions":[{"path":"src/config.ts","use":"main"}]}` 重试。后端不会静默执行 prefer-child，也不会把完整文件内容写入计划、事件或遥测。
-- **可恢复的计划运行**：`Plan`、`Inbox`、事件序列和 Dispatch lifecycle 持久化；运行时订阅仍是进程内机制。进程重启时 root session 首次进入 Multi-Agent 流程会执行一次 reconcile，活动 child 继续、失联运行会安全转为 rejected 并写入 Inbox。
-- **事件驱动，零轮询**：派发后主 Agent 立即挂起，由 Report / Inbox / 黑板事件精确唤醒，不为等待浪费一个 token。
+JYY-Code 的并行目标不是简单“多开几个 Agent”，而是在不互相覆盖代码的前提下并行真实工程任务。
 
-### 多方案候选
+- **协议级并行。** 同一 wave 中已就绪的 Task 批量派发，而不是一个个慢慢串行启动；**单波最多 20 个子 Agent 并行运行**。
+- **强制检查可拆分性。** 中大型任务会检查独立交付物、独立模块、独立调查问题、独立验证面与角色专长，避免 Planner 轻易退化成串行方案。
+- **隔离执行。** Git 项目的标准 Task 使用独立 Worktree；非 Git 项目使用可写 Snapshot 工作区。共享主工作区只是显式兼容模式，不是默认路径。
+- **审核通过不等于自动写回。** 子 Agent 的结果即使被 approve，也不会静默修改父工作区；主 Agent 仍需显式调用 `Merge.apply` 集成。
+- **冲突必须被看见。** 非重叠修改可自动合并，真实冲突会暴露给主 Agent 决策，而不是后台偷偷执行“优先子版本”。
+- **子 Agent 运行期间零轮询。** 派发后主 Agent 挂起，由 Report、Inbox 或黑板事件精确唤醒，不用消耗 token 反复查询状态。
 
-面对技术选型、架构设计、文案风格这类"尚无定论"的路线选择，JYY-Code 不让主 Agent 直接拍板，而是启动 **candidate 模式**——一场受控的方案竞赛：
+并行、隔离、审核和合并不是四个松散功能，而是一条完整的工程协议。
 
-1. **盲声明**：2-3 个候选子 Agent 各自提交 `approach / assumptions / risks / differentiator`，互不抄袭。
-2. **交叉评审**：候选之间通过黑板逐一直接回复彼此的声明，全部完成互评后方可就绪。
-3. **独立执行**：进入 running 阶段后候选在沙盒中独立实现方案（禁用 shell、编辑、MCP 等工具），各自产出隔离的 proposal。
-4. **综合裁决**：主 Agent 基于全部提案生成综合产物（synthesis artifact），原子地选出唯一胜出者，并记录有贡献的落选候选与裁决理由——既保留竞争红利，又留下完整决策审计。
+## 3. 持久运行时，而不是依赖某个进程活着
 
-### 丰富的内置角色
+长任务 Agent 最脆弱的地方之一，是把进程内存当成真实状态。JYY-Code 明确区分**持久状态**和**当前活跃进程**。
 
-开箱即是一支分工明确的团队，每个角色可独立配置**模型、思考深度、工具白名单与专属技能**：
+- **EventV2 是会话状态的持久事实源。** 状态变化写入版本化事件日志；Projection 只是可重建、可版本化的派生视图，可以通过 replay 恢复。
+- **子会话身份是持久的。** 正在运行的进程只是这个子会话当前的一次 activation。通过 `owner_id + generation + lease` 做所有权隔离，旧进程在被接管后无法继续结算或修改同一子任务。
+- **重启恢复是明确协议。** 冷启动时，运行时不会把“数据库里有一条 running 记录”误认为“子 Agent 真的还活着”，而是重新检查、接管、恢复或安全拒绝，并写入 Inbox。
+- **内存事件流不等于持久化。** 进程内 PubSub、通知和缓存可以随时消失；真正的恢复边界是已经提交的持久事件。
+- **恢复过程可回放、可审计。** Projection watermark、有限的 recovery metadata，以及 copy-first / resumable 的存储迁移流程，让部分失败可以定位，而不是悄悄污染状态。
 
-| 角色                   | 专长                                | 随附技能                                               |
-| ---------------------- | ----------------------------------- | ------------------------------------------------------ |
-| **方案设计师 Planner** | 深度权衡利弊、产出高质量实施方案    | writing-plans                                          |
-| **前端工程师**         | 精美的 UI / 前端实现                | design、ui-ux-pro-max、efficiency、executing-plans     |
-| **后端工程师**         | 严谨可靠的后端代码                  | efficiency、executing-plans                            |
-| **调查员**             | 广泛的网络信息搜集与整理            | agent-reach（覆盖主流平台的细粒度搜索）、firecrawl MCP |
-| **office 高手**        | Word / PPT / Excel / PDF 生成与处理 | docx、pptx、xlsx、pdf                                  |
-| **图表师**             | 各类图表绘制（中文无乱码）          | chart、graph、chart-visualization、antv-s2-expert      |
-| **General**            | 通用委派执行                        | —                                                      |
+这些机制真正影响的是最难的场景：长会话、大量子 Agent、崩溃、重启和部分失败。
 
-角色只是配置而非黑盒：你可以自由编辑、禁用、删除或新增角色，改动持久化到全局配置；项目级 `.jyycode/agent/` 还能放置团队专属 Agent 定义。
+## 4. 共享黑板：Agent 之间真正共享信息
 
-### 共享黑板
+并行 Agent 不是多个互不相干的聊天窗口。每个 Step 都有一块由用户、主 Agent 和子 Agent 共用的共享黑板。
 
-并行 Agent 之间不是孤岛。JYY-Code 提供 Step 级共享黑板作为团队的协调中枢：
+- `info / risk / blocker / decision / help` 五种语义消息
+- @提及、附件、线程回复、Task 关联
+- 每个参与者独立的已读游标与实时未读状态
+- 其他 Agent 发来关键信息时事件驱动唤醒
+- 协议禁止心跳和重复进度灌水，黑板只保留发现、依赖、交接和求助
 
-- **分类消息**：`info / risk / blocker / decision / help` 五种语义类型，支持 @提及、附件、线程回复与任务关联。
-- **已读游标**：每个参与者有独立已读位置，未读数实时可见，唤醒即处理。
-- **人机同板**：用户、主 Agent、子 Agent 在同一个板面协作；主 Agent 能读到子 Agent 之间的对话并直接介入。
-- **反噪音纪律**：协议明确禁止心跳和重复进度灌水，黑板只承载事实、依赖、交接与求助。
-- 候选模式的盲声明与交叉评审也运行在同一块黑板上，机制复用、语义统一。
+主 Agent 可以直接看到子 Agent 之间的沟通并介入，协作信息不再被锁死在各自私有 Prompt 历史中。
 
-### 在执行前后持续校准的结构化记忆
+## 5. Candidate 模式：在下注之前先竞争
 
-JYY-Code 的记忆不是"聊天记录归档"，而是一套 schema 化、有容量纪律的双层存储：
+当技术路线、架构方案或实现路径本身存在真实不确定性时，JYY-Code 不要求主 Agent 过早拍板，而是启动受控方案竞争。
 
-- **双层结构**：`MEMORY.json` 沉淀项目成果、约定、环境事实与教训；`USER.json` 记住用户身份与稳定偏好——两者分离，互不稀释。
-- **双阶段校准**：同一段记忆在**用户输入阶段**（记录"用户要求 A"）与**执行完成阶段**（补全"我用了 B，最终学会了 C"）各更新一次——执行前校准理解，执行后沉淀经验，避免"记了就忘、记错不改"。
-- **结构化条目**：每条记忆携带重要度（1-10）与归一化关键词，自动去重；写入有严格的字符纪律，拒绝流水账。
-- **每次请求自动注入**：Top 记忆快照进入每一轮 system prompt，新会话开场即拥有团队积累。
-- **容量自管理**：接近容量上限时确定性压缩合并，释放空间不丢要点；子 Agent 只读，防止并发写脏。
-- 同时提供显式记忆管理工具（add / replace / remove / compact），用户可随时介入。
+1. **盲声明**：2–3 个候选独立提交 approach、assumptions、risks 和 differentiator。
+2. **交叉评审**：候选先通过黑板逐一审视彼此方案，再进入执行阶段。
+3. **独立提案**：每个候选在隔离环境中发展自己的路线。
+4. **综合裁决**：主 Agent 生成 synthesis artifact，只选一个最终胜出方案，同时记录裁决理由和其他候选的有效贡献。
+
+Candidate 模式把“架构不确定性”变成一个可审计的搜索过程，而不是藏在单个 Agent 内部的一次猜测。
+
+## 6. 为长任务设计的上下文与记忆
+
+JYY-Code 不把“完整聊天记录”直接等同于记忆，而是把短期工作上下文和长期知识分开治理。
+
+- **工作上下文保持有界。** Full compaction、已完成工具输出的 micro-compaction、reactive emergency compaction，以及 media-aware token/context 估算共同限制长任务膨胀。
+- **旧回合进入情景记忆。** 已完成回合会被记录，并周期性压缩成累积 digest；需要时可以重新注入或检索。
+- **持久记忆按用途分离。** 当前任务状态、稳定用户事实和可复用经验分别保存，不塞进一个无限增长的自由文本摘要。
+- **执行前后双阶段校准。** 用户输入阶段先更新“现在理解到了什么”；助手完成阶段再用实际执行结果修正状态，并抽取成功、失败与经验规则。
+- **持久写入有明确所有权。** 主会话负责 Task/User Memory 的持久写入；子 Agent 可以读取相关上下文和经验，但不会并发改写共享长期记忆。
+- **容量本身有治理机制。** 记忆条目具备 schema、importance、keywords、去重和确定性 compact，而不是无上限“全部记住”。
+
+目标不是保存最多历史，而是**让长会话和新会话都能获得稳定的推理状态，同时避免旧噪音持续占据 Prompt**。
+
+## 7. 用能力边界代替盲目信任
+
+JYY-Code 会主动限制不同参与者能修改什么。
+
+- 子 Agent 不能重写父 Plan。
+- Task 输出路径被限制在指定工作区，并检查 traversal / escape 等越界情况。
+- 标准子任务在显式 Merge 之前保持工作区隔离。
+- 子 Agent 的工具权限与主 Agent 独立治理。
+- 持久会话状态由特权运行时拥有；外部扩展可以通过公开端口消费事件，但不能直接向持久事件日志追加记录，也不能直接修改 Projection 表。
+
+这些边界能显著缩小错误子 Agent 或错误工具调用的影响范围，也让编排状态更难被意外破坏。
 
 ## 快速开始
 
@@ -126,9 +143,9 @@ jyy
 
 进入 JYY-Code 后运行 `/connect` 配置模型 Provider。
 
-`jyy` 和 `jyycode` 是同一个 CLI。启动时所在的终端目录，就是 Agent 的工作区。
+`jyy` 和 `jyycode` 是同一个 CLI。启动时所在的终端目录，就是 Agent 工作区。
 
-### 使用配置文件
+### 配置
 
 全局配置：`~/.config/jyycode/jyycode.jsonc`
 
@@ -146,42 +163,32 @@ jyy
 }
 ```
 
-项目配置位于 `.jyycode/jyycode.jsonc`。主要配置项包括 `provider`、`permission`、`subagents`、`mcp`、`skills` 和 `plugin`。
+项目级配置位于 `.jyycode/jyycode.jsonc`。核心扩展入口包括 `provider`、`permission`、`subagents`、`mcp`、`skills` 和 `plugin`。
 
-## 更多内置能力
+## 架构速览
 
-- **多层上下文工程**：全量压缩、反应式压缩与溢出恢复流水线，配合上下文用量估算，长任务不"失忆"。
-- **工具输出微压缩**：默认只压缩已完成且超过阈值的工具输出，保留头尾和结构边界；可用 `compaction.micro_compact=false` 关闭，或用 `compaction.micro_compact_max_chars` 调整阈值。模型上下文使用压缩视图，原始完整输出仍保存在会话数据中。
-- **Git 级快照与回退**：每一轮的文件改动自动进入影子 Git 快照，支持按消息粒度 revert / unrevert，附带逐文件 diff；会话可 fork 分支、可生成分享链接。
-- **人机协作提问**：执行中遇到歧义，Agent 通过结构化提问工具向你发起带选项的询问（支持推荐项与多选），决策不跑偏。
-- **权限系统**：按工具细粒度配置 allow / ask / deny 规则，子 Agent 另有独立的工具策略与固定工具集。
-- **开放扩展**：MCP 服务器、Provider 插件（Codex、GitHub Copilot、xAI、Azure、Cloudflare 等）、LSP 诊断、ACP 协议适配、项目级自定义命令与自定义工具（`.jyycode/tool/*.ts`）、可换肤主题。
-- **多语言术语表**：内置 16 种语言的翻译术语表，跨语言交付保持术语一致。
-- **全端覆盖**：终端 TUI（OpenTUI + Solid）、Tauri 2 桌面端、iOS 与移动 Web（经端到端加密 relay 配对，中继不接触任务明文），以及完整的 HTTP Server、OpenAPI 规范与 JS SDK，可嵌入任何自动化系统。
-
-## 会话安全与恢复
-
-JYY-Code 会隔离已发布版本和源码开发版本的数据库。运行：
-
-```bash
-jyycode db status
+```text
+packages/jyycode/    Agent Runtime、Plan、Session、Memory、Tool 与 TUI
+packages/core/       文件系统、Provider 与共享运行时能力
+packages/llm/        LLM 协议与 Runtime Adapter
+packages/plugin/     Plugin SDK 与扩展接口
+packages/sdk/        HTTP / OpenAPI Client SDK
+packages/app/        Desktop Web UI
+packages/desktop/    Tauri Desktop Shell 与 Sidecar 打包
+packages/relay/      端到端加密 Mobile Relay
+packages/mobile-web/ Mobile Web / PWA Client
+.jyycode/            项目级 Agent、Skill、Command、Theme 与配置
 ```
 
-可以查看当前数据库、发布渠道、迁移状态和会话数量，不会修改其他数据库。更改渠道策略前，请先停止 JYY-Code，并同时备份数据库及其 `-wal`、`-shm` 文件。
+基础技术栈：Bun + TypeScript、Effect Service Architecture、Drizzle ORM + SQLite（WAL）、Turbo Monorepo、oxlint。
 
-如果会话看起来"丢失"，先用 `jyycode db status` 确认当前数据库，再从同一项目或 worktree 打开 `/sessions`。
+深入架构文档：
 
-会话存储迁移应先复制数据库和存储根目录，再执行 `jyycode storage backfill --dry-run --json` 预览。正式迁移按批次限制执行，并保存时间水位和游标，支持中断后继续；请保留原始副本，并在恢复检查完成前不要启用 payload 清理或 blob 垃圾回收。完整的隔离目录压测命令见[会话存储运维文档](docs/operations/session-storage.md)。
-
-Multi-Agent 的计划文件位于项目 `.jyycode/plan/<root-session-id>/plan.json`。Git Worktree、非 Git 快照和显式共享兼容模式的清理策略以及崩溃恢复步骤见：[计划恢复架构](docs/architecture/plan-recovery.md)、[Agent 隔离架构](docs/architecture/agent-isolation.md) 和 [恢复运行手册](docs/operations/recovery-runbook.md)。
-
-运行时所有权与迁移文档：
-
-- [Session EventV2 单一事实源](docs/architecture/session-event-source.md)
-- [进程运行时](docs/architecture/process-runtime.md) 与 [凭据边界](docs/architecture/credentials.md)
-- [EventV2 发布迁移](docs/migrations/event-v2-single-source.md) 与 [凭据引用迁移](docs/migrations/credential-ref.md)
-
-源码门禁可运行 `bun run check:ci && bun run verify:generated`；压测配置与运行时预算见[测试与回放](docs/architecture/testing-and-replay.md)。
+- [Session EventV2 source of truth](docs/architecture/session-event-source.md)
+- [Process runtime](docs/architecture/process-runtime.md)
+- [Session storage operations](docs/operations/session-storage.md)
+- [Plan workspace operations](docs/operations/plan-workspaces.md)
+- [Testing and replay](docs/architecture/testing-and-replay.md)
 
 ## 从源码开发
 
@@ -192,29 +199,19 @@ bun install
 bun run dev
 ```
 
-```text
-packages/jyycode/   主 CLI、Agent、会话、记忆、工具和 TUI
-packages/core/      文件系统、Provider 和共享工具
-packages/llm/       LLM 协议与运行时适配
-packages/plugin/    插件 SDK 与扩展接口
-packages/sdk/       JYY-Code API 客户端（JS）与 OpenAPI
-packages/app/       桌面端 Web UI（Solid）
-packages/desktop/   Tauri 桌面外壳与 sidecar 打包
-packages/relay/     移动端端到端加密中继
-packages/mobile-web/ 移动 Web / PWA 客户端
-.jyycode/           项目 Agent、技能、命令、主题和配置
-memory/             结构化持久记忆
-```
+源码校验：
 
-技术底座：Bun + TypeScript 全栈、Effect 服务化架构、Drizzle ORM + SQLite（WAL）、Turbo monorepo、oxlint。
+```bash
+bun run check:ci && bun run verify:generated
+```
 
 ## 下载
 
-Windows 安装包、校验和与更新清单统一发布在 [GitHub Releases 页面](https://github.com/Reon-Jin/JYY-Code/releases)。
+Windows 安装包、校验和与更新清单发布在 [GitHub Releases](https://github.com/Reon-Jin/JYY-Code/releases)。
 
 ## 隐私
 
-JYY-Code 在本地保存应用数据，并会连接你主动配置或调用的服务。详情见[隐私政策](PRIVACY.md)。
+JYY-Code 默认将应用数据保存在本地，只连接你明确配置或调用的服务。详见 [隐私政策](PRIVACY.md)。
 
 ## License
 
