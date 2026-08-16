@@ -76,7 +76,7 @@ describe("desktop shared-backend contract", () => {
 
       const controller = new AbortController()
       yield* Effect.addFinalizer(() => Effect.sync(() => controller.abort()))
-      const stream = yield* Effect.promise(() => sdk.global.event({ signal: controller.signal }))
+      const stream = yield* Effect.promise(() => sdk.event.subscribe(undefined, { signal: controller.signal }))
       yield* Effect.addFinalizer(() =>
         Effect.promise(async () => void (await stream.stream.return?.(undefined))).pipe(Effect.ignore),
       )
