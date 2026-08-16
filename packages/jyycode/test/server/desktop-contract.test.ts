@@ -85,7 +85,11 @@ describe("desktop shared-backend contract", () => {
       yield* Effect.promise(async () => {
         const types = new Set<string>()
         for await (const event of stream.stream) {
-          const type = event.payload.type
+          const payload = event.payload as {
+            type?: string
+            syncEvent?: { type?: string }
+          }
+          const type = payload.type === "sync" ? payload.syncEvent?.type?.replace(/\.\d+$/, "") : payload.type
           if (type === "server.connected") Deferred.doneUnsafe(connected, Effect.void)
           if (
             event.directory === directory &&

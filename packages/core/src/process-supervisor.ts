@@ -182,10 +182,21 @@ export async function terminateProcessTree(pid: number, options: TerminationOpti
       return
     }
     try {
-      process.kill(-pid, next)
+      if (groupAlive) process.kill(-pid, next)
+      else process.kill(pid, next)
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
-      if (code === "ESRCH") return
+      if (code === "ESRCH") {
+        // A process may have been spawned without its own process group.  The
+        // negative-PID group signal is then harmless but does not terminate
+        // the leader, so fall back to addressing the leader directly.
+        try {
+          process.kill(pid, next)
+        } catch (fallbackError) {
+          if ((fallbackError as NodeJS.ErrnoException).code !== "ESRCH") throw fallbackError
+        }
+        return
+      }
       // A process not created as a group leader can still be terminated by PID.
       // EPERM is deliberately not downgraded: it means termination was not
       // confirmed and must surface as kill_failed to the caller.

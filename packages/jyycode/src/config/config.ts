@@ -709,7 +709,18 @@ export const layer = Layer.effect(
       Duration.infinity,
     )
 
+    let loadedGlobalCacheKey: string | undefined
     const getGlobal = Effect.fn("Config.getGlobal")(function* () {
+      const cacheKey = JSON.stringify([
+        Global.Path.config,
+        Flag.JYYCODE_CONFIG,
+        Flag.JYYCODE_CONFIG_DIR,
+        Flag.JYYCODE_CONFIG_CONTENT,
+      ])
+      if (loadedGlobalCacheKey !== cacheKey) {
+        loadedGlobalCacheKey = cacheKey
+        yield* invalidateGlobal
+      }
       return yield* cachedGlobal
     })
 

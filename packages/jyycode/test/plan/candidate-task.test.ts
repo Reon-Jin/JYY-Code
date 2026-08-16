@@ -95,7 +95,9 @@ describe("candidate plan model", () => {
     let read = await protocol.read(context())
     if (!read.ok || !read.plan) throw new Error("candidate plan was not created")
     expect(read.plan.steps[0]?.tasks.map((item) => item.mode)).toEqual(["candidate", "candidate", "candidate"])
-    expect(read.plan.steps[0]?.tasks[0]?.output_path).toContain("candidates\\s1\\s1_t1\\proposal.md")
+    expect(path.normalize(read.plan.steps[0]?.tasks[0]?.output_path ?? "")).toContain(
+      path.normalize(path.join("candidates", "s1", "s1_t1", "proposal.md")),
+    )
     expect(
       await protocol.update(context(), {
         revision: read.plan.revision,

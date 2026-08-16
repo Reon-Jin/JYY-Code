@@ -11,7 +11,7 @@ import type { TerminationResult } from "@jyycode-ai/core/process-supervisor"
 import * as Log from "@jyycode-ai/core/util/log"
 import { PtyID } from "./schema"
 import { Effect, Layer, Context, Schema, Types, Scope, Clock } from "effect"
-import { NonNegativeInt, PositiveInt } from "@jyycode-ai/core/schema"
+import { NonNegativeInt, PositiveInt, optionalOmitUndefined } from "@jyycode-ai/core/schema"
 
 const log = Log.create({ service: "pty" })
 
@@ -79,8 +79,8 @@ export const Info = Schema.Struct({
   cwd: Schema.String,
   status: Schema.Literals(["running", "exited", "kill_failed"]),
   pid: PositiveInt,
-  owner_session_id: Schema.optional(Schema.String),
-  owner_workspace_id: Schema.optional(Schema.String),
+  owner_session_id: optionalOmitUndefined(Schema.String),
+  owner_workspace_id: optionalOmitUndefined(Schema.String),
   created_at: PositiveInt,
   last_activity_at: PositiveInt,
   idle_expires_at: PositiveInt,

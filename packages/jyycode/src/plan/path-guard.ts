@@ -64,6 +64,10 @@ export function assertInside(root: string, target: string, field: string) {
 
 export function resolveInside(root: string, value: string, field: string) {
   const canonicalRoot = canonicalExisting(root)
+  const hasWindowsDrivePrefix = /^[A-Za-z]:/.test(value)
+  const hasForeignAbsolutePath = hasWindowsDrivePrefix && !path.isAbsolute(value)
+  if (hasForeignAbsolutePath || (path.win32.isAbsolute(value) && !path.isAbsolute(value)))
+    throw new PathGuardError(`${field} 必须位于工作区内：${value}`)
   const absolute = path.isAbsolute(value) ? path.resolve(value) : path.resolve(canonicalRoot, value)
   const canonicalTarget = canonicalPath(absolute)
   if (!isInside(canonicalRoot, canonicalTarget))

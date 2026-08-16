@@ -6,6 +6,7 @@ import { Pty } from "../../src/pty"
 import type { PtyID } from "../../src/pty/schema"
 import { Cause, Effect, Exit, Layer, Queue } from "effect"
 import * as TestClock from "effect/testing/TestClock"
+import { withTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 type PtyEvent = { type: "created" | "exited" | "deleted"; id: PtyID }
@@ -147,7 +148,7 @@ describe("pty", () => {
     { git: true },
   )
 
-  ptyTest(
+  it.effect(
     "reclaims an inactive PTY at the idle deadline without waiting for wall clock time",
     () =>
       Effect.gen(function* () {
@@ -163,7 +164,8 @@ describe("pty", () => {
 
         const result = yield* pty.get(info.id).pipe(Effect.exit)
         expect(Exit.isFailure(result)).toBe(true)
-      }),
-    { git: true, config: { pty: { idle_timeout_ms: 1_000, absolute_timeout_ms: 60_000 } } },
+      }).pipe(
+        withTmpdirInstance({ git: true, config: { pty: { idle_timeout_ms: 1_000, absolute_timeout_ms: 60_000 } } }),
+      ),
   )
 })

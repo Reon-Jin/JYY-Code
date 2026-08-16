@@ -44,6 +44,7 @@ export type WorkspaceMergePreparation = {
   base: Map<string, FileEntry>
   main: Map<string, FileEntry>
   child: Map<string, FileEntry>
+  scanPaths?: ReadonlySet<string>
   plan: MergePlan
 }
 
@@ -527,7 +528,7 @@ export function prepareWorkspaceMerge(input: WorkspaceMergeInput): WorkspaceMerg
   result.keep = [...new Set(result.keep)].sort((left, right) => left.localeCompare(right))
   result.delete = [...new Set(result.delete)].sort((left, right) => left.localeCompare(right))
   result.conflicts.sort((left, right) => left.path.localeCompare(right.path))
-  return { roots, base, main, child, plan: result }
+  return { roots, base, main, child, ...(mergePaths ? { scanPaths: mergePaths } : {}), plan: result }
 }
 
 function resolvePreparedPlan(
@@ -587,6 +588,7 @@ type MergeJournal = {
   roots: { base: string; main: string; child: string }
   target_fingerprint: string
   target_entries: Record<string, string>
+  target_paths?: string[]
   items: JournalItem[]
   applied_paths: string[]
   conflicts: MergeConflictSummary[]
@@ -708,7 +710,11 @@ function currentTargetEntries(root: string) {
 }
 
 function targetMatchesJournal(root: string, journal: MergeJournal) {
-  const current = targetEntries(currentTargetEntries(root))
+  const current = targetEntries(
+    journal.target_paths
+      ? scanWorkspace(root, root, new Map(), { paths: new Set(journal.target_paths) })
+      : currentTargetEntries(root),
+  )
   const expected = { ...journal.target_entries }
   for (const item of journal.items) {
     if (!journal.applied_paths.includes(item.path)) continue
@@ -850,6 +856,7 @@ export function applyWorkspaceMerge(
     roots,
     target_fingerprint: targetFingerprint,
     target_entries: targetEntries(mainEntries),
+    ...(reusable.scanPaths ? { target_paths: [...reusable.scanPaths].sort((left, right) => left.localeCompare(right)) } : {}),
     items: [],
     applied_paths: [],
     conflicts: plan.conflicts,
@@ -886,7 +893,10 @@ export function applyWorkspaceMerge(
   }
   try {
     options.beforeApply?.()
-    if (fingerprintEntries(scanWorkspace(roots.main)) !== targetFingerprint) {
+    const currentMain = reusable.scanPaths
+      ? scanWorkspace(roots.main, roots.main, new Map(), { paths: reusable.scanPaths })
+      : scanWorkspace(roots.main)
+    if (fingerprintEntries(currentMain) !== targetFingerprint) {
       journal.status = "stale"
       journal.error = "target changed after merge preparation"
       writeJournal(journalPath, journal)

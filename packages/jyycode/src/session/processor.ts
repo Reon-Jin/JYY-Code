@@ -735,16 +735,15 @@ export const layer = Layer.effect(
         }
         ctx.reasoningMap = {}
 
-        // On interruption the tool fiber may never settle its deferred. Do
-        // not spend the cleanup budget waiting for it; the state sweep below
-        // is the authoritative abort path for pending and running calls.
-        if (!aborted) {
-          yield* Effect.forEach(
-            Object.values(ctx.toolcalls),
-            (call) => Deferred.await(call.done).pipe(Effect.timeout("250 millis"), Effect.ignore),
-            { concurrency: "unbounded" },
-          )
-        }
+        // Most interrupted tools finish quickly after their process is
+        // terminated. Give them a bounded window to persist a normal result
+        // (notably the shell tool, which must flush truncated output) before
+        // sweeping genuinely abandoned calls as errors.
+        yield* Effect.forEach(
+          Object.values(ctx.toolcalls),
+          (call) => Deferred.await(call.done).pipe(Effect.timeout(aborted ? "5 seconds" : "250 millis"), Effect.ignore),
+          { concurrency: "unbounded" },
+        )
 
         for (const toolCallID of Object.keys(ctx.toolcalls)) {
           const match = yield* readToolCall(toolCallID)
