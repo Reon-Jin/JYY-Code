@@ -59,6 +59,7 @@ jobs:
           if-no-files-found: warn
           path: |
             .artifacts/**/junit.xml
+            packages/app/.artifacts/**/junit.xml
             packages/jyycode/.artifacts/runtime-budget/**
 
   desktop:
