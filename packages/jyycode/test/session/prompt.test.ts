@@ -2679,7 +2679,7 @@ unix(
       const tool = messages
         .flatMap((message) => message.parts)
         .findLast((part): part is MessageV2.ToolPart => part.type === "tool")
-      expect(tool?.state.status).toBe("completed")
+      expect(tool?.state.status, JSON.stringify(tool?.state)).toBe("completed")
       if (!tool || tool.state.status !== "completed") return
 
       expect(tool.state.metadata.truncated).toBe(true)
