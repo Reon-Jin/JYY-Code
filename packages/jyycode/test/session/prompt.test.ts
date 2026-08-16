@@ -2653,7 +2653,6 @@ unix(
       const { dir, llm } = yield* useServerConfig(providerCfg)
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
-      const ready = path.join(dir, ".output-ready")
       const chat = yield* sessions.create({
         title: "Interrupted bash truncation",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
@@ -2668,7 +2667,7 @@ unix(
 
       yield* llm.tool("bash", {
         command:
-          'touch "' + ready + '"; yes x | head -n 2201; sleep 30',
+          "yes x | head -n 2201; sleep 30",
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -2676,7 +2675,17 @@ unix(
 
       const run = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
-      yield* Effect.sleep(Duration.seconds(1))
+      yield* pollWithTimeout(
+        Effect.gen(function* () {
+          const messages = yield* MessageV2.filterCompactedEffect(chat.id)
+          const assistant = messages.find((message) => message.info.role === "assistant")
+          const tool = assistant ? toolPart(assistant.parts) : undefined
+          const output = tool?.state.status === "running" ? tool.state.metadata?.output : undefined
+          if (typeof output === "string" && output.split("\n").length >= 2000) return true
+        }),
+        "timed out waiting for running shell truncation output",
+        "10 seconds",
+      )
       yield* prompt.cancel(chat.id)
 
       const exit = yield* Fiber.await(run)
