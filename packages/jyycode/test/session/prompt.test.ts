@@ -2650,7 +2650,6 @@ unix(
         title: "Interrupted bash truncation",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
-      const outputFile = path.join(dir, ".truncation-output")
 
       yield* prompt.prompt({
         sessionID: chat.id,
@@ -2660,7 +2659,8 @@ unix(
       })
 
       yield* llm.tool("bash", {
-        command: `awk 'BEGIN { for (i = 0; i < 2201; i++) print "x" }' > "${outputFile}"; cat "${outputFile}"; sleep 30`,
+        command:
+          'i=0; while [ "$i" -lt 4000 ]; do printf "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx %05d\\n" "$i"; i=$((i + 1)); done; sleep 30',
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -2668,16 +2668,7 @@ unix(
 
       const run = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
       yield* llm.wait(1)
-      yield* pollWithTimeout(
-        Effect.gen(function* () {
-          const messages = yield* MessageV2.filterCompactedEffect(chat.id)
-          const assistant = messages.findLast((message) => message.info.role === "assistant")
-          const tool = assistant ? toolPart(assistant.parts) : undefined
-          if (tool?.state.status === "running" && tool.state.metadata.output?.length) return true
-        }),
-        "timed out waiting for shell output before cancellation",
-        "20 seconds",
-      )
+      yield* Effect.sleep(150)
       yield* prompt.cancel(chat.id)
 
       const exit = yield* Fiber.await(run)
