@@ -2659,7 +2659,7 @@ unix(
       })
 
       yield* llm.tool("bash", {
-        command: 'i=0; while [ "$i" -lt 2201 ]; do printf "x\\n"; i=$((i + 1)); done; sleep 30',
+        command: 'awk \'BEGIN { for (i = 0; i < 2201; i++) print "x"; print "output-ready" }\'; sleep 30',
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -2673,7 +2673,7 @@ unix(
           const assistant = messages.find((message) => message.info.role === "assistant")
           const tool = assistant ? toolPart(assistant.parts) : undefined
           const output = tool?.state.status === "running" ? tool.state.metadata?.output : undefined
-          if (typeof output === "string" && output.split("\n").length >= 2000) return true
+          if (typeof output === "string" && output.includes("output-ready")) return true
         }),
         "timed out waiting for running shell truncation output",
         "10 seconds",
