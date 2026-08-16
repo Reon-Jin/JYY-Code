@@ -2644,7 +2644,6 @@ unix(
   () =>
     Effect.gen(function* () {
       const { dir, llm } = yield* useServerConfig(providerCfg)
-      const afs = yield* AppFileSystem.Service
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
       const chat = yield* sessions.create({
@@ -2652,7 +2651,6 @@ unix(
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
       const outputFile = path.join(dir, ".truncation-output")
-      const ready = path.join(dir, ".truncation-ready")
 
       yield* prompt.prompt({
         sessionID: chat.id,
@@ -2662,7 +2660,7 @@ unix(
       })
 
       yield* llm.tool("bash", {
-        command: `awk 'BEGIN { for (i = 0; i < 2201; i++) print "x" }' > "${outputFile}"; touch "${ready}"; cat "${outputFile}"; sleep 30`,
+        command: `awk 'BEGIN { for (i = 0; i < 2201; i++) print "x" }' > "${outputFile}"; cat "${outputFile}"; sleep 30`,
         description: "Print many lines",
         timeout: 30_000,
         workdir: path.resolve(dir),
@@ -2672,12 +2670,15 @@ unix(
       yield* llm.wait(1)
       yield* pollWithTimeout(
         Effect.gen(function* () {
-          if (yield* afs.existsSafe(ready)) return true
+          const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+          const taskMsg = msgs.find((item) => item.info.role === "assistant")
+          const tool = taskMsg ? toolPart(taskMsg.parts) : undefined
+          if (tool?.state.status === "running" && tool.state.metadata?.output.includes("x")) return true
         }),
-        "timed out waiting for shell truncation output",
+        "timed out waiting for shell truncation metadata",
         "5 seconds",
       )
-      yield* Effect.sleep("1 second")
+      yield* Effect.sleep("2 seconds")
       yield* prompt.cancel(chat.id)
 
       const exit = yield* Fiber.await(run)
