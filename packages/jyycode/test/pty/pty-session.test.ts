@@ -153,9 +153,12 @@ describe("pty", () => {
     () =>
       Effect.gen(function* () {
         const pty = yield* Pty.Service
+        const idleCommand =
+          process.platform === "win32"
+            ? { command: "powershell.exe", args: ["-NoProfile", "-Command", "Start-Sleep -Seconds 5"] }
+            : { command: "/usr/bin/env", args: ["sh", "-c", "sleep 5"] }
         const info = yield* pty.create({
-          command: "/usr/bin/env",
-          args: ["sh", "-c", "sleep 5"],
+          ...idleCommand,
           title: "idle",
         })
 
