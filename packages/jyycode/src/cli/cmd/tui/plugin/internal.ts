@@ -17,6 +17,7 @@ import PlanPanel from "../feature-plugins/system/plan-panel"
 import BlackboardPanel from "../feature-plugins/system/blackboard-panel"
 import SubagentProfiles from "../feature-plugins/system/subagent-profiles"
 import BranchControl from "../feature-plugins/system/branch-control"
+import FileTree from "../feature-plugins/system/file-tree"
 import type { TuiPlugin, TuiPluginModule } from "@jyycode-ai/plugin/tui"
 
 export type InternalTuiPlugin = Omit<TuiPluginModule, "id"> & {
@@ -46,5 +47,6 @@ export function internalTuiPlugins(): InternalTuiPlugin[] {
     BlackboardPanel,
     SubagentProfiles,
     BranchControl,
+    FileTree,
   ]
 }
