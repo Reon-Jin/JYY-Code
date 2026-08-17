@@ -71,8 +71,8 @@ function MemoryManageView(props: { api: TuiPluginApi }) {
   const [selected, setSelected] = createSignal(0)
   const [refresh, setRefresh] = createSignal(0)
 
-  const [data] = createResource([scope, refresh], async ([currentScope]) => {
-    const result = await props.api.client.memory
+  const [data] = createResource(() => [scope(), refresh()] as const, async ([currentScope]) => {
+    const result = await props.api.client.global.memory
       .list({ scope: currentScope, limit: "200" })
       .catch(() => undefined)
     return result?.data?.entries ?? []
@@ -106,7 +106,7 @@ function MemoryManageView(props: { api: TuiPluginApi }) {
     props.api.ui.dialog.clear()
     if (!ok) return
     try {
-      await props.api.client.memory.remove({ scope: entry.scope, id: entry.id })
+      await props.api.client.global.memory.remove({ scope: entry.scope, id: entry.id })
       await refreshAll()
     } catch (error) {
       toastError(error)
@@ -121,7 +121,7 @@ function MemoryManageView(props: { api: TuiPluginApi }) {
         ? { kind: entry.kind, importance: entry.importance, keywords: entry.keywords, content: value }
         : { importance: entry.importance, keywords: entry.keywords, content: value }
     try {
-      await props.api.client.memory.update({ scope: entry.scope, id: entry.id, body })
+      await props.api.client.global.memory.update({ scope: entry.scope, id: entry.id, body })
       await refreshAll()
     } catch (error) {
       toastError(error)
@@ -147,7 +147,7 @@ function MemoryManageView(props: { api: TuiPluginApi }) {
               ? { kind: entry.kind, importance, keywords: entry.keywords, content: entry.content }
               : { importance, keywords: entry.keywords, content: entry.content }
           try {
-            await props.api.client.memory.update({ scope: entry.scope, id: entry.id, body })
+            await props.api.client.global.memory.update({ scope: entry.scope, id: entry.id, body })
             await refreshAll()
           } catch (error) {
             toastError(error)
@@ -171,7 +171,7 @@ function MemoryManageView(props: { api: TuiPluginApi }) {
     props.api.ui.dialog.clear()
     if (!ok) return
     try {
-      await props.api.client.memory.compact({ scope: scope() })
+      await props.api.client.global.memory.compact({ scope: scope() })
       props.api.ui.toast({ message: "压缩完成", variant: "info" })
       await refreshAll()
     } catch (error) {
@@ -181,7 +181,7 @@ function MemoryManageView(props: { api: TuiPluginApi }) {
 
   async function exportScope() {
     try {
-      const result = await props.api.client.memory.export({ scope: scope() })
+      const result = await props.api.client.global.memory.export({ scope: scope() })
       const exported = result.data
       const count = exported && "entries" in exported ? exported.entries.length : 0
       props.api.ui.toast({
@@ -207,8 +207,10 @@ function MemoryManageView(props: { api: TuiPluginApi }) {
           props.api.ui.dialog.clear()
           if (!content.trim()) return
           try {
-            await props.api.client.user.create({
-              body: { importance: 5, keywords: [], content: content.trim() },
+            await props.api.client.global.memory.user.create({
+              importance: 5,
+              keywords: [],
+              content: content.trim(),
             })
             await refreshAll()
           } catch (error) {
@@ -358,7 +360,7 @@ function MemoryManageView(props: { api: TuiPluginApi }) {
         <For each={["user", "task", "experience"] as const}>
           {(item) => (
             <box
-              borderStyle={scope() === item ? "round" : undefined}
+              borderStyle={scope() === item ? "rounded" : undefined}
               borderColor={scope() === item ? theme.primary : theme.border}
               paddingLeft={1}
               paddingRight={1}
