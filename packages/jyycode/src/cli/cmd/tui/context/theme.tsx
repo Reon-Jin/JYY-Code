@@ -124,6 +124,9 @@ export const DEFAULT_THEMES: Record<string, ThemeJson> = {
   paper,
 }
 
+// 默认激活主题：与 desktop 的 paper 风格一致；用户显式配置优先。
+export const DEFAULT_ACTIVE_THEME = "paper"
+
 type State = {
   themes: Record<string, ThemeJson>
   mode: "dark" | "light"
@@ -158,7 +161,7 @@ const [store, setStore] = createStore<State>({
   themes: listThemes(),
   mode: "dark",
   lock: undefined,
-  active: "jyycode",
+  active: DEFAULT_ACTIVE_THEME,
   ready: false,
 })
 
@@ -323,8 +326,8 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         }
         draft.mode = mode
         draft.lock = lock
-        const active = config.theme ?? kv.get("theme", "jyycode")
-        draft.active = typeof active === "string" ? active : "jyycode"
+        const active = config.theme ?? kv.get("theme", DEFAULT_ACTIVE_THEME)
+        draft.active = typeof active === "string" ? active : DEFAULT_ACTIVE_THEME
         draft.ready = false
       }),
     )
@@ -343,7 +346,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
             syncThemes()
           })
           .catch(() => {
-            setStore("active", "jyycode")
+            setStore("active", DEFAULT_ACTIVE_THEME)
           }),
       ]).finally(() => {
         setStore("ready", true)
@@ -362,7 +365,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
             systemTheme = undefined
             syncThemes()
             if (store.active === "system") {
-              setStore("active", "jyycode")
+              setStore("active", DEFAULT_ACTIVE_THEME)
             }
             return
           }
@@ -373,7 +376,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
           systemTheme = undefined
           syncThemes()
           if (store.active === "system") {
-            setStore("active", "jyycode")
+            setStore("active", DEFAULT_ACTIVE_THEME)
           }
         })
     }
@@ -431,7 +434,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         }
       }
 
-      return resolveTheme(store.themes.jyycode, store.mode)
+      return resolveTheme(store.themes[DEFAULT_ACTIVE_THEME], store.mode)
     })
 
     createEffect(() => {

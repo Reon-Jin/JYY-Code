@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test"
 import { paperLight, paperDark, tuiTheme } from "@jyycode-ai/design-tokens"
-import { DEFAULT_THEMES, resolveTheme } from "../../../src/cli/cmd/tui/context/theme"
+import { DEFAULT_THEMES, DEFAULT_ACTIVE_THEME, resolveTheme } from "../../../src/cli/cmd/tui/context/theme"
+
+test("默认激活主题为 paper 且已注册", () => {
+  expect(DEFAULT_ACTIVE_THEME).toBe("paper")
+  expect(DEFAULT_THEMES[DEFAULT_ACTIVE_THEME]).toBeDefined()
+  // jyycode 主题仍保留可切换
+  expect(DEFAULT_THEMES.jyycode).toBeDefined()
+})
 
 test("paper 主题已注册为内置主题", () => {
   expect(DEFAULT_THEMES.paper).toBeDefined()
