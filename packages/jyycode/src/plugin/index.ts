@@ -49,7 +49,10 @@ export type TriggerOptions = {
 export class HookTimeoutError extends Error {
   readonly code = "PLUGIN_HOOK_TIMEOUT"
 
-  constructor(readonly hook: string, readonly effectiveMs: number) {
+  constructor(
+    readonly hook: string,
+    readonly effectiveMs: number,
+  ) {
     super(`plugin hook ${hook} exceeded its ${effectiveMs}ms execution budget`)
     this.name = "HookTimeoutError"
   }

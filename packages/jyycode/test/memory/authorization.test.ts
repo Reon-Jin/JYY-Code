@@ -176,11 +176,7 @@ describe("memory write authorization", () => {
   test("keeps reads available to child sessions", async () => {
     const { run } = fixture()
     const result = await run(
-      Memory.Service.use((memory) =>
-        Effect.all([
-          memory.read({ sessionID: childID, scope: "memory" }),
-        ]),
-      ),
+      Memory.Service.use((memory) => Effect.all([memory.read({ sessionID: childID, scope: "memory" })])),
     )
 
     expect(result[0]).toContain("existing project fact")

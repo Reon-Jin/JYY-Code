@@ -9,7 +9,7 @@ import { JsonMigration } from "@/storage/json-migration"
 import { Global } from "@jyycode-ai/core/global"
 import { ProjectTable } from "../../src/project/project.sql"
 import { ProjectID } from "../../src/project/schema"
-import { SessionTable, MessageTable, PartTable, TodoTable, PermissionTable } from "../../src/session/session.sql"
+import { SessionTable, MessageTable, PartTable, PermissionTable } from "../../src/session/session.sql"
 import { SessionShareTable } from "../../src/share/share.sql"
 import { SessionID, MessageID, PartID } from "../../src/session/schema"
 
@@ -57,7 +57,6 @@ async function setupStorageDir() {
   await fs.mkdir(path.join(storageDir, "message", "ses_test456def"), { recursive: true })
   await fs.mkdir(path.join(storageDir, "part", "msg_test789ghi"), { recursive: true })
   await fs.mkdir(path.join(storageDir, "session_diff"), { recursive: true })
-  await fs.mkdir(path.join(storageDir, "todo"), { recursive: true })
   await fs.mkdir(path.join(storageDir, "permission"), { recursive: true })
   await fs.mkdir(path.join(storageDir, "session_share"), { recursive: true })
   // Create legacy marker to indicate JSON storage exists
@@ -470,79 +469,6 @@ describe("JSON to SQLite migration", () => {
     expect(projects.length).toBe(1) // Still only 1 due to onConflictDoNothing
   })
 
-  test("migrates todos", async () => {
-    await writeProject(storageDir, {
-      id: "proj_test123abc",
-      worktree: "/",
-      time: { created: Date.now(), updated: Date.now() },
-      sandboxes: [],
-    })
-    await writeSession(storageDir, "proj_test123abc", { ...fixtures.session })
-
-    // Create todo file (named by sessionID, contains array of todos)
-    await Bun.write(
-      path.join(storageDir, "todo", "ses_test456def.json"),
-      JSON.stringify([
-        {
-          id: "todo_1",
-          content: "First todo",
-          status: "pending",
-          priority: "high",
-        },
-        {
-          id: "todo_2",
-          content: "Second todo",
-          status: "completed",
-          priority: "medium",
-        },
-      ]),
-    )
-
-    const stats = await JsonMigration.run(db)
-
-    expect(stats?.todos).toBe(2)
-
-    const todos = db.select().from(TodoTable).orderBy(TodoTable.position).all()
-    expect(todos.length).toBe(2)
-    expect(todos[0].content).toBe("First todo")
-    expect(todos[0].status).toBe("pending")
-    expect(todos[0].priority).toBe("high")
-    expect(todos[0].position).toBe(0)
-    expect(todos[1].content).toBe("Second todo")
-    expect(todos[1].position).toBe(1)
-  })
-
-  test("todos are ordered by position", async () => {
-    await writeProject(storageDir, {
-      id: "proj_test123abc",
-      worktree: "/",
-      time: { created: Date.now(), updated: Date.now() },
-      sandboxes: [],
-    })
-    await writeSession(storageDir, "proj_test123abc", { ...fixtures.session })
-
-    await Bun.write(
-      path.join(storageDir, "todo", "ses_test456def.json"),
-      JSON.stringify([
-        { content: "Third", status: "pending", priority: "low" },
-        { content: "First", status: "pending", priority: "high" },
-        { content: "Second", status: "in_progress", priority: "medium" },
-      ]),
-    )
-
-    await JsonMigration.run(db)
-
-    const todos = db.select().from(TodoTable).orderBy(TodoTable.position).all()
-
-    expect(todos.length).toBe(3)
-    expect(todos[0].content).toBe("Third")
-    expect(todos[0].position).toBe(0)
-    expect(todos[1].content).toBe("First")
-    expect(todos[1].position).toBe(1)
-    expect(todos[2].content).toBe("Second")
-    expect(todos[2].position).toBe(2)
-  })
-
   test("migrates permissions", async () => {
     await writeProject(storageDir, {
       id: "proj_test123abc",
@@ -609,7 +535,6 @@ describe("JSON to SQLite migration", () => {
     expect(stats.sessions).toBe(0)
     expect(stats.messages).toBe(0)
     expect(stats.parts).toBe(0)
-    expect(stats.todos).toBe(0)
     expect(stats.permissions).toBe(0)
     expect(stats.shares).toBe(0)
     expect(stats.errors).toEqual([])
@@ -634,7 +559,7 @@ describe("JSON to SQLite migration", () => {
     expect(projects[0].id).toBe(ProjectID.make("proj_test123abc"))
   })
 
-  test("skips invalid todo entries while preserving source positions", async () => {
+  test("skips orphaned permissions and shares", async () => {
     await writeProject(storageDir, {
       id: "proj_test123abc",
       worktree: "/",
@@ -642,44 +567,6 @@ describe("JSON to SQLite migration", () => {
       sandboxes: [],
     })
     await writeSession(storageDir, "proj_test123abc", { ...fixtures.session })
-
-    await Bun.write(
-      path.join(storageDir, "todo", "ses_test456def.json"),
-      JSON.stringify([
-        { content: "keep-0", status: "pending", priority: "high" },
-        { content: "drop-1", priority: "low" },
-        { content: "keep-2", status: "completed", priority: "medium" },
-      ]),
-    )
-
-    const stats = await JsonMigration.run(db)
-    expect(stats.todos).toBe(2)
-
-    const todos = db.select().from(TodoTable).orderBy(TodoTable.position).all()
-    expect(todos.length).toBe(2)
-    expect(todos[0].content).toBe("keep-0")
-    expect(todos[0].position).toBe(0)
-    expect(todos[1].content).toBe("keep-2")
-    expect(todos[1].position).toBe(2)
-  })
-
-  test("skips orphaned todos, permissions, and shares", async () => {
-    await writeProject(storageDir, {
-      id: "proj_test123abc",
-      worktree: "/",
-      time: { created: Date.now(), updated: Date.now() },
-      sandboxes: [],
-    })
-    await writeSession(storageDir, "proj_test123abc", { ...fixtures.session })
-
-    await Bun.write(
-      path.join(storageDir, "todo", "ses_test456def.json"),
-      JSON.stringify([{ content: "valid", status: "pending", priority: "high" }]),
-    )
-    await Bun.write(
-      path.join(storageDir, "todo", "ses_missing.json"),
-      JSON.stringify([{ content: "orphan", status: "pending", priority: "high" }]),
-    )
 
     await Bun.write(
       path.join(storageDir, "permission", "proj_test123abc.json"),
@@ -701,11 +588,9 @@ describe("JSON to SQLite migration", () => {
 
     const stats = await JsonMigration.run(db)
 
-    expect(stats.todos).toBe(1)
     expect(stats.permissions).toBe(1)
     expect(stats.shares).toBe(1)
 
-    expect(db.select().from(TodoTable).all().length).toBe(1)
     expect(db.select().from(PermissionTable).all().length).toBe(1)
     expect(db.select().from(SessionShareTable).all().length).toBe(1)
   })
@@ -775,19 +660,6 @@ describe("JSON to SQLite migration", () => {
     await Bun.write(path.join(storageDir, "part", "msg_ok", "part_broken.json"), "{ nope")
 
     await Bun.write(
-      path.join(storageDir, "todo", "ses_test456def.json"),
-      JSON.stringify([
-        { content: "ok", status: "pending", priority: "high" },
-        { content: "skip", status: "pending" },
-      ]),
-    )
-    await Bun.write(
-      path.join(storageDir, "todo", "ses_missing.json"),
-      JSON.stringify([{ content: "orphan", status: "pending", priority: "high" }]),
-    )
-    await Bun.write(path.join(storageDir, "todo", "ses_broken.json"), "{ nope")
-
-    await Bun.write(
       path.join(storageDir, "permission", "proj_test123abc.json"),
       JSON.stringify([{ permission: "file.read" }]),
     )
@@ -816,16 +688,14 @@ describe("JSON to SQLite migration", () => {
     expect(stats.sessions).toBe(3)
     expect(stats.messages).toBe(1)
     expect(stats.parts).toBe(1)
-    expect(stats.todos).toBe(1)
     expect(stats.permissions).toBe(1)
     expect(stats.shares).toBe(1)
-    expect(stats.errors.length).toBeGreaterThanOrEqual(6)
+    expect(stats.errors.length).toBeGreaterThanOrEqual(5)
 
     expect(db.select().from(ProjectTable).all().length).toBe(2)
     expect(db.select().from(SessionTable).all().length).toBe(3)
     expect(db.select().from(MessageTable).all().length).toBe(1)
     expect(db.select().from(PartTable).all().length).toBe(1)
-    expect(db.select().from(TodoTable).all().length).toBe(1)
     expect(db.select().from(PermissionTable).all().length).toBe(1)
     expect(db.select().from(SessionShareTable).all().length).toBe(1)
   })

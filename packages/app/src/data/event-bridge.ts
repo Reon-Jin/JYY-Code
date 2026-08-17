@@ -6,7 +6,6 @@ import type {
   QuestionRequest,
   Session,
   SessionStatus,
-  Todo,
   VcsInfo,
 } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
@@ -51,7 +50,6 @@ export type CacheAction =
   | { kind: "permission.remove"; eventID: string; requestID: string }
   | { kind: "question.upsert"; eventID: string; request: QuestionRequest }
   | { kind: "question.remove"; eventID: string; requestID: string }
-  | { kind: "todos.set"; eventID: string; directory: string; sessionID: string; todos: Todo[] }
   | { kind: "compaction.started"; eventID: string; sessionID: string; reason: "auto" | "manual" }
   | { kind: "compaction.ended"; eventID: string; sessionID: string }
   | { kind: "vcs.invalidate"; eventID: string; directory: string; relativePath?: string }
@@ -153,7 +151,6 @@ function routedSessionID(payload: GlobalEvent["payload"]): string | undefined {
     case "message.part.updated":
     case "message.part.delta":
     case "message.part.removed":
-    case "todo.updated":
     case "session.diff":
       return payload.properties.sessionID
     case "session.created":
@@ -172,11 +169,7 @@ function routedSessionID(payload: GlobalEvent["payload"]): string | undefined {
   }
 }
 
-export function routeEvent(
-  directory: string,
-  event: GlobalEvent,
-  activeSessionID?: string | undefined,
-): CacheAction[] {
+export function routeEvent(directory: string, event: GlobalEvent, activeSessionID?: string | undefined): CacheAction[] {
   const payload = normalizeEventPayload(event.payload)
   if (payload.type === "server.connected") {
     return [{ kind: "server.connected", eventID: payload.id }]
@@ -295,16 +288,6 @@ export function routeEvent(
           kind: "question.remove",
           eventID: payload.id,
           requestID: payload.properties.requestID,
-        },
-      ]
-    case "todo.updated":
-      return [
-        {
-          kind: "todos.set",
-          eventID: payload.id,
-          directory,
-          sessionID: payload.properties.sessionID,
-          todos: payload.properties.todos,
         },
       ]
     case "file.watcher.updated":
@@ -730,9 +713,6 @@ export class EventBridge {
       case "question.remove":
         this.#removeRequest(keys.questions(directory), action.requestID)
         break
-      case "todos.set":
-        this.#options.queryClient.setQueryData(keys.todos(action.directory, action.sessionID), action.todos)
-        break
       case "compaction.started": {
         const status: CompactionStatus = {
           status: "compacting",
@@ -822,10 +802,7 @@ export class EventBridge {
       ]
       const sessionID = this.#options.activeSessionID?.()
       if (sessionID) {
-        queryFilters.push(
-          { queryKey: keys.messages(directory, sessionID), exact: true },
-          { queryKey: keys.todos(directory, sessionID), exact: true },
-        )
+        queryFilters.push({ queryKey: keys.messages(directory, sessionID), exact: true })
       }
       await Promise.all(queryFilters.map((filters) => this.#options.queryClient.invalidateQueries(filters)))
     }

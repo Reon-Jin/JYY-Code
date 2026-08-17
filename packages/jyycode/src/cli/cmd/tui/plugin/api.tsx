@@ -155,9 +155,6 @@ function stateApi(sync: ReturnType<typeof useSync>): TuiPluginApi["state"] {
           item.file === undefined ? [] : [{ ...item, file: item.file }],
         )
       },
-      todo(sessionID) {
-        return sync.data.todo[sessionID] ?? []
-      },
       messages(sessionID) {
         return sync.data.message[sessionID] ?? []
       },

@@ -215,15 +215,7 @@ export type PlanUpdateOp =
       stepId: string
       taskId: string
       fields: Partial<
-        Pick<
-          PlanTask,
-          | "title"
-          | "goal"
-          | "done_criteria"
-          | "instructions"
-          | "output_path"
-          | "no_progress_steps"
-        >
+        Pick<PlanTask, "title" | "goal" | "done_criteria" | "instructions" | "output_path" | "no_progress_steps">
       >
     }
   | { op: "remove_task"; stepId: string; taskId: string }
@@ -532,7 +524,10 @@ export function validatePlanFile(value: unknown): string[] {
           errors.push(errorAt(`${taskPrefix}.instructions`, "must be a non-empty string when provided"))
         if (rawTask.reopen_reason !== undefined && !nonEmptyString(rawTask.reopen_reason))
           errors.push(errorAt(`${taskPrefix}.reopen_reason`, "must be a non-empty string when provided"))
-        if (rawTask.max_steps !== undefined && (!Number.isSafeInteger(rawTask.max_steps) || Number(rawTask.max_steps) < 1))
+        if (
+          rawTask.max_steps !== undefined &&
+          (!Number.isSafeInteger(rawTask.max_steps) || Number(rawTask.max_steps) < 1)
+        )
           errors.push(errorAt(`${taskPrefix}.max_steps`, "must be a positive safe integer when provided"))
         if (
           rawTask.no_progress_steps !== undefined &&
@@ -626,14 +621,15 @@ function isValidDispatch(value: unknown): value is DispatchRecord {
     validLaunch &&
     validWorkspace &&
     (value.lifecycle === undefined ||
-      ["reserved", "child_created", "starting", "running", "settled"].includes(String(value.lifecycle)))
-    && (value.activation_generation === undefined ||
-      (Number.isSafeInteger(value.activation_generation) && Number(value.activation_generation) >= 1))
-    && (value.max_steps === undefined || (Number.isSafeInteger(value.max_steps) && Number(value.max_steps) >= 1))
-    && (value.deadline_at === undefined || validDateTime(value.deadline_at))
-    && (value.no_progress_steps === undefined || (Number.isSafeInteger(value.no_progress_steps) && Number(value.no_progress_steps) >= 1))
-    && (value.source === undefined || ["default", "profile", "plan", "parent"].includes(String(value.source)))
-    && (value.budget === undefined || isValidDispatchBudget(value.budget))
+      ["reserved", "child_created", "starting", "running", "settled"].includes(String(value.lifecycle))) &&
+    (value.activation_generation === undefined ||
+      (Number.isSafeInteger(value.activation_generation) && Number(value.activation_generation) >= 1)) &&
+    (value.max_steps === undefined || (Number.isSafeInteger(value.max_steps) && Number(value.max_steps) >= 1)) &&
+    (value.deadline_at === undefined || validDateTime(value.deadline_at)) &&
+    (value.no_progress_steps === undefined ||
+      (Number.isSafeInteger(value.no_progress_steps) && Number(value.no_progress_steps) >= 1)) &&
+    (value.source === undefined || ["default", "profile", "plan", "parent"].includes(String(value.source))) &&
+    (value.budget === undefined || isValidDispatchBudget(value.budget))
   )
 }
 

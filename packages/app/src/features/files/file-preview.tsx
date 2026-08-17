@@ -230,7 +230,12 @@ function annotationBounds(annotation: PdfAnnotation) {
   const y = annotation.y ?? 0
   const width = annotation.width ?? 0
   const height = annotation.height ?? 0
-  return { left: Math.min(x, x + width), right: Math.max(x, x + width), top: Math.min(y, y + height), bottom: Math.max(y, y + height) }
+  return {
+    left: Math.min(x, x + width),
+    right: Math.max(x, x + width),
+    top: Math.min(y, y + height),
+    bottom: Math.max(y, y + height),
+  }
 }
 
 function annotationAtPoint(annotation: PdfAnnotation, point: { x: number; y: number }) {
@@ -251,11 +256,11 @@ function drawPdfAnnotation(svg: SVGSVGElement, annotation: PdfAnnotation, select
       ? create("path")
       : annotation.tool === "line"
         ? create("line")
-      : annotation.tool === "rectangle"
-        ? create("rect")
-        : annotation.tool === "ellipse"
-          ? create("ellipse")
-          : create("text")
+        : annotation.tool === "rectangle"
+          ? create("rect")
+          : annotation.tool === "ellipse"
+            ? create("ellipse")
+            : create("text")
 
   element.setAttribute("data-annotation-id", annotation.id)
   element.setAttribute("data-annotation-tool", annotation.tool)
@@ -335,7 +340,9 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
   let basePdfSource: Uint8Array | undefined
   let savedPdfContent: string | undefined
   const pageRenderTasks = new Map<number, { cancel: () => void }>()
-  const incomingEncodedContent = createMemo(() => (props.content.encoding === "base64" ? props.content.content : undefined))
+  const incomingEncodedContent = createMemo(() =>
+    props.content.encoding === "base64" ? props.content.content : undefined,
+  )
   const [displayedEncodedContent, setDisplayedEncodedContent] = createSignal<string>()
   createEffect(() => {
     const incoming = incomingEncodedContent()
@@ -432,7 +439,8 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
       translationTimer = undefined
       const controller = new AbortController()
       translationAbort = controller
-      void props.onTranslate(text, controller.signal)
+      void props
+        .onTranslate(text, controller.signal)
         .then((translated) => {
           if (translationAbort !== controller) return
           setTranslation(translated)
@@ -476,7 +484,12 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
     event.preventDefault()
   }
 
-  const startTextEditor = (page: number, surface: HTMLDivElement, point: { x: number; y: number }, existing?: PdfAnnotation) => {
+  const startTextEditor = (
+    page: number,
+    surface: HTMLDivElement,
+    point: { x: number; y: number },
+    existing?: PdfAnnotation,
+  ) => {
     const editor = window.document.createElement("div")
     editor.className = "file-preview__pdf-text-input"
     const handle = window.document.createElement("button")
@@ -525,18 +538,22 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
         const surfaceBounds = surface.getBoundingClientRect()
         const inputBounds = input.getBoundingClientRect()
         const next: PdfAnnotation = {
-            id: existing?.id ?? crypto.randomUUID(),
-            page,
-            tool: "text",
-            color: textColor,
-            text: input.value.trim(),
-            x,
-            y,
-            width: Math.min(0.5, Math.max(0.12, inputBounds.width / surfaceBounds.width)),
-            height: Math.max(0.045, inputBounds.height / surfaceBounds.height),
-            fontSize: Math.max(0.012, textSize / surfaceBounds.width),
-          }
-        updateAnnotations(existing ? annotations().map((annotation) => (annotation.id === existing.id ? next : annotation)) : [...annotations(), next])
+          id: existing?.id ?? crypto.randomUUID(),
+          page,
+          tool: "text",
+          color: textColor,
+          text: input.value.trim(),
+          x,
+          y,
+          width: Math.min(0.5, Math.max(0.12, inputBounds.width / surfaceBounds.width)),
+          height: Math.max(0.045, inputBounds.height / surfaceBounds.height),
+          fontSize: Math.max(0.012, textSize / surfaceBounds.width),
+        }
+        updateAnnotations(
+          existing
+            ? annotations().map((annotation) => (annotation.id === existing.id ? next : annotation))
+            : [...annotations(), next],
+        )
         setSelectedAnnotationID(next.id)
       }
       editor.remove()
@@ -572,12 +589,17 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
         finish(false)
       }
     })
-    editor.addEventListener("focusout", () => window.setTimeout(() => {
-      if (!editor.contains(window.document.activeElement)) finish(true)
-    }))
+    editor.addEventListener("focusout", () =>
+      window.setTimeout(() => {
+        if (!editor.contains(window.document.activeElement)) finish(true)
+      }),
+    )
     handle.addEventListener("pointerdown", (event) => {
       const bounds = surface.getBoundingClientRect()
-      drag = { offsetX: event.clientX - bounds.left - x * bounds.width, offsetY: event.clientY - bounds.top - y * bounds.height }
+      drag = {
+        offsetX: event.clientX - bounds.left - x * bounds.width,
+        offsetY: event.clientY - bounds.top - y * bounds.height,
+      }
       handle.setPointerCapture(event.pointerId)
       event.preventDefault()
       event.stopPropagation()
@@ -593,11 +615,18 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
     const activeTool = tool()
     const target = event.target instanceof Element ? event.target : undefined
     const annotationID = target?.closest("[data-annotation-id]")?.getAttribute("data-annotation-id")
-    const selectedAnnotation = annotationID ? annotations().find((annotation) => annotation.id === annotationID) : undefined
+    const selectedAnnotation = annotationID
+      ? annotations().find((annotation) => annotation.id === annotationID)
+      : undefined
     if (activeTool === "select" && selectedAnnotation?.tool === "text") {
       setSelectedAnnotationID(selectedAnnotation.id)
       if (event.detail > 1) {
-        startTextEditor(page, surface, { x: selectedAnnotation.x ?? 0, y: selectedAnnotation.y ?? 0 }, selectedAnnotation)
+        startTextEditor(
+          page,
+          surface,
+          { x: selectedAnnotation.x ?? 0, y: selectedAnnotation.y ?? 0 },
+          selectedAnnotation,
+        )
       } else {
         gesture = { kind: "move-text", annotation: selectedAnnotation, ...normalizedPdfPoint(event, surface) }
         surface.setPointerCapture(event.pointerId)
@@ -642,7 +671,14 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
 
     const annotation: PdfAnnotation =
       activeTool === "pen"
-        ? { id: crypto.randomUUID(), page, tool: "pen", color: color(), strokeWidth: strokeWidth() / 1000, points: [point] }
+        ? {
+            id: crypto.randomUUID(),
+            page,
+            tool: "pen",
+            color: color(),
+            strokeWidth: strokeWidth() / 1000,
+            points: [point],
+          }
         : {
             id: crypto.randomUUID(),
             page,
@@ -709,10 +745,7 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
       const selection = window.getSelection()
       const text = selection?.toString().trim() ?? ""
       const anchor = selection?.anchorNode
-      const element =
-        anchor?.nodeType === Node.ELEMENT_NODE
-          ? (anchor as Element)
-          : anchor?.parentElement
+      const element = anchor?.nodeType === Node.ELEMENT_NODE ? (anchor as Element) : anchor?.parentElement
       if (!text || !element || !viewportHost?.contains(element) || !element.closest(".file-preview__pdf-text-layer")) {
         clearTranslation()
         return
@@ -764,7 +797,8 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
     setMessage(undefined)
 
     const load = async () => {
-      if (!data?.byteLength || data.byteLength > MAX_DOCUMENT_PREVIEW_BYTES) throw new Error(tr("files.binary-too-large"))
+      if (!data?.byteLength || data.byteLength > MAX_DOCUMENT_PREVIEW_BYTES)
+        throw new Error(tr("files.binary-too-large"))
       const pdfjs = await import("pdfjs-dist")
       pdfjs.GlobalWorkerOptions.workerSrc = bundledAssetUrl(pdfWorkerSrc)
       currentLoadingTask = pdfjs.getDocument({
@@ -848,13 +882,13 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
         if (!context) throw new Error(tr("files.render-failed"))
         surface.append(canvas)
 
-      const textLayer = window.document.createElement("div")
-      textLayer.className = "file-preview__pdf-text-layer"
-      // PDF.js positions glyphs with --scale-factor. Without it, the
-      // selectable layer is mis-sized and its text can visibly overlap the
-      // rendered canvas while selecting.
-      textLayer.style.setProperty("--scale-factor", String(pageViewport.scale))
-      surface.append(textLayer)
+        const textLayer = window.document.createElement("div")
+        textLayer.className = "file-preview__pdf-text-layer"
+        // PDF.js positions glyphs with --scale-factor. Without it, the
+        // selectable layer is mis-sized and its text can visibly overlap the
+        // rendered canvas while selecting.
+        textLayer.style.setProperty("--scale-factor", String(pageViewport.scale))
+        surface.append(textLayer)
 
         const annotationLayer = window.document.createElementNS("http://www.w3.org/2000/svg", "svg")
         annotationLayer.setAttribute("class", "file-preview__pdf-annotation-layer")
@@ -963,28 +997,68 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
   return (
     <div class="file-preview__document file-preview__document--pdf" data-kind="pdf">
       <div class="file-preview__pdf-toolbar" role="toolbar" aria-label={tr("files.pdf-toolbar")}>
-        <Button size="icon" variant={tool() === "select" ? "secondary" : "ghost"} aria-label={tr("files.pdf-select")} onClick={() => setTool("select")}>
+        <Button
+          size="icon"
+          variant={tool() === "select" ? "secondary" : "ghost"}
+          aria-label={tr("files.pdf-select")}
+          onClick={() => setTool("select")}
+        >
           <MousePointer2 aria-hidden="true" />
         </Button>
-        <Button size="icon" variant={tool() === "hand" ? "secondary" : "ghost"} aria-label={tr("files.pdf-hand")} onClick={() => setTool("hand")}>
+        <Button
+          size="icon"
+          variant={tool() === "hand" ? "secondary" : "ghost"}
+          aria-label={tr("files.pdf-hand")}
+          onClick={() => setTool("hand")}
+        >
           <Hand aria-hidden="true" />
         </Button>
-        <Button size="icon" variant={tool() === "pen" ? "secondary" : "ghost"} aria-label={tr("files.pdf-pen")} onClick={() => setTool("pen")}>
+        <Button
+          size="icon"
+          variant={tool() === "pen" ? "secondary" : "ghost"}
+          aria-label={tr("files.pdf-pen")}
+          onClick={() => setTool("pen")}
+        >
           <PenLine aria-hidden="true" />
         </Button>
-        <Button size="icon" variant={tool() === "text" ? "secondary" : "ghost"} aria-label={tr("files.pdf-text")} onClick={() => setTool("text")}>
+        <Button
+          size="icon"
+          variant={tool() === "text" ? "secondary" : "ghost"}
+          aria-label={tr("files.pdf-text")}
+          onClick={() => setTool("text")}
+        >
           <Type aria-hidden="true" />
         </Button>
-        <Button size="icon" variant={tool() === "line" ? "secondary" : "ghost"} aria-label={tr("files.pdf-line")} onClick={() => setTool("line")}>
+        <Button
+          size="icon"
+          variant={tool() === "line" ? "secondary" : "ghost"}
+          aria-label={tr("files.pdf-line")}
+          onClick={() => setTool("line")}
+        >
           <Minus aria-hidden="true" />
         </Button>
-        <Button size="icon" variant={tool() === "rectangle" ? "secondary" : "ghost"} aria-label={tr("files.pdf-rectangle")} onClick={() => setTool("rectangle")}>
+        <Button
+          size="icon"
+          variant={tool() === "rectangle" ? "secondary" : "ghost"}
+          aria-label={tr("files.pdf-rectangle")}
+          onClick={() => setTool("rectangle")}
+        >
           <Square aria-hidden="true" />
         </Button>
-        <Button size="icon" variant={tool() === "ellipse" ? "secondary" : "ghost"} aria-label={tr("files.pdf-ellipse")} onClick={() => setTool("ellipse")}>
+        <Button
+          size="icon"
+          variant={tool() === "ellipse" ? "secondary" : "ghost"}
+          aria-label={tr("files.pdf-ellipse")}
+          onClick={() => setTool("ellipse")}
+        >
           <Circle aria-hidden="true" />
         </Button>
-        <Button size="icon" variant={tool() === "eraser" ? "secondary" : "ghost"} aria-label={tr("files.pdf-eraser")} onClick={() => setTool("eraser")}>
+        <Button
+          size="icon"
+          variant={tool() === "eraser" ? "secondary" : "ghost"}
+          aria-label={tr("files.pdf-eraser")}
+          onClick={() => setTool("eraser")}
+        >
           <Eraser aria-hidden="true" />
         </Button>
         <label class="file-preview__pdf-color" aria-label={tr("files.pdf-color")}>
@@ -1001,15 +1075,31 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
               value={strokeWidth()}
               onInput={(event) => setStrokeWidth(Number(event.currentTarget.value))}
             />
-            <span class="file-preview__pdf-stroke-preview" style={{ height: `${strokeWidth()}px` }} aria-hidden="true" />
+            <span
+              class="file-preview__pdf-stroke-preview"
+              style={{ height: `${strokeWidth()}px` }}
+              aria-hidden="true"
+            />
             <output>{strokeWidth()}</output>
           </label>
         </Show>
         <span class="file-preview__pdf-toolbar-spacer" />
-        <Button size="icon" variant="ghost" aria-label={tr("files.pdf-undo")} disabled={historyIndex() === 0} onClick={undo}>
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label={tr("files.pdf-undo")}
+          disabled={historyIndex() === 0}
+          onClick={undo}
+        >
           <Undo2 aria-hidden="true" />
         </Button>
-        <Button size="icon" variant="ghost" aria-label={tr("files.pdf-redo")} disabled={historyIndex() >= history().length - 1} onClick={redo}>
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label={tr("files.pdf-redo")}
+          disabled={historyIndex() >= history().length - 1}
+          onClick={redo}
+        >
           <Redo2 aria-hidden="true" />
         </Button>
         <Button
@@ -1036,7 +1126,9 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
         </div>
       </Show>
       <Show when={props.error}>
-        <div class="file-preview__pdf-error"><InlineError message={props.error!} /></div>
+        <div class="file-preview__pdf-error">
+          <InlineError message={props.error!} />
+        </div>
       </Show>
       <div class="file-preview__pdf-workspace">
         <div ref={viewportHost} class="file-preview__document-viewport" onWheel={onWheel}>
@@ -1060,9 +1152,13 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
               <p class="file-preview__pdf-selection">{selectedText()}</p>
               <div class="file-preview__pdf-translation-result" aria-live="polite">
                 <Show when={translating()}>
-                  <p><Spinner /> {tr("files.pdf-translating")}</p>
+                  <p>
+                    <Spinner /> {tr("files.pdf-translating")}
+                  </p>
                 </Show>
-                <Show when={translation()}><p>{translation()}</p></Show>
+                <Show when={translation()}>
+                  <p>{translation()}</p>
+                </Show>
                 <Show when={translationError()}>
                   <div class="file-preview__pdf-translation-error">
                     <InlineError message={translationError()!} />
@@ -1085,7 +1181,6 @@ function PdfWorkspacePreview(props: PdfPreviewProps) {
     </div>
   )
 }
-
 
 function DocxPreview(props: { content: FileContent }) {
   let host: HTMLDivElement | undefined
@@ -1468,7 +1563,13 @@ export function FilePreview(props: FilePreviewProps) {
   )
 
   const editor = (content: FileContent) => (
-    <Suspense fallback={<p class="file-preview__state" role="status">{tr("files.loading")}</p>}>
+    <Suspense
+      fallback={
+        <p class="file-preview__state" role="status">
+          {tr("files.loading")}
+        </p>
+      }
+    >
       <LazyFileEditor
         path={props.path}
         content={draft()}
@@ -1489,7 +1590,13 @@ export function FilePreview(props: FilePreviewProps) {
   )
 
   const spreadsheetEditor = (content: FileContent) => (
-    <Suspense fallback={<p class="file-preview__state" role="status">{tr("files.loading")}</p>}>
+    <Suspense
+      fallback={
+        <p class="file-preview__state" role="status">
+          {tr("files.loading")}
+        </p>
+      }
+    >
       <LazySpreadsheetEditor
         path={props.path}
         content={draft()}

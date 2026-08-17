@@ -14,7 +14,10 @@ describe("reliable event hub", () => {
     hub.publish({ key: "b", value: 3 })
     hub.publish({ key: "c", value: 4 })
     expect(subscriber.pending()).toBe(2)
-    expect(subscriber.drain()).toEqual([{ event: { key: "b", value: 3 }, gap: true }, { event: { key: "c", value: 4 } }])
+    expect(subscriber.drain()).toEqual([
+      { event: { key: "b", value: 3 }, gap: true },
+      { event: { key: "c", value: 4 } },
+    ])
   })
 
   test("closes a subscriber that cannot keep up with bounded lossless events", () => {

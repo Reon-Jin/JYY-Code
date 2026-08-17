@@ -134,10 +134,20 @@ export default [
   }),
   SyncEvent.project(toSyncDefinition(SessionEvent.Legacy.MessageRemoved), (db, data) => {
     db.delete(PartTable)
-      .where(and(eq(PartTable.message_id, MessageID.make(data.messageID)), eq(PartTable.session_id, SessionID.make(data.sessionID))))
+      .where(
+        and(
+          eq(PartTable.message_id, MessageID.make(data.messageID)),
+          eq(PartTable.session_id, SessionID.make(data.sessionID)),
+        ),
+      )
       .run()
     db.delete(MessageTable)
-      .where(and(eq(MessageTable.id, MessageID.make(data.messageID)), eq(MessageTable.session_id, SessionID.make(data.sessionID))))
+      .where(
+        and(
+          eq(MessageTable.id, MessageID.make(data.messageID)),
+          eq(MessageTable.session_id, SessionID.make(data.sessionID)),
+        ),
+      )
       .run()
   }),
   SyncEvent.project(toSyncDefinition(SessionEvent.Legacy.PartUpdated), (db, data) => {

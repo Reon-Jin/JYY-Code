@@ -105,10 +105,13 @@ describe("tool.edit", () => {
           return Effect.die(new Permission.DeniedError({ ruleset: [] }))
         },
       }
-      const exit = yield* run({
-        filePath: outsideFile.replace(outside, link),
-        edits: [{ oldString: "do not edit", newString: "changed" }],
-      }, next).pipe(Effect.exit)
+      const exit = yield* run(
+        {
+          filePath: outsideFile.replace(outside, link),
+          edits: [{ oldString: "do not edit", newString: "changed" }],
+        },
+        next,
+      ).pipe(Effect.exit)
 
       expect(exit._tag).toBe("Failure")
       expect(requested).toBe(true)

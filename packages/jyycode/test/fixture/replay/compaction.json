@@ -6,11 +6,7 @@
   "expected": {
     "requestEnvelopes": [{ "scenario": "compaction", "requestCount": 1 }],
     "messages": [{ "assistantCount": 1, "finalRole": "assistant" }],
-    "events": [
-      "session.next.compaction.started",
-      "session.next.request.prepared",
-      "session.next.compaction.ended"
-    ],
+    "events": ["session.next.compaction.started", "session.next.request.prepared", "session.next.compaction.ended"],
     "files": []
   },
   "terminalStatus": { "type": "idle" }

@@ -46,7 +46,8 @@ export type RequestEnvelopeArtifact = {
   readonly toolCatalogHash: string
 }
 
-const SECRET_KEY = /(?:authorization|cookie|set-cookie|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|private[-_]?key)/i
+const SECRET_KEY =
+  /(?:authorization|cookie|set-cookie|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|private[-_]?key)/i
 
 function safeValue(value: unknown, seen = new WeakSet<object>()): unknown {
   if (value === undefined || typeof value === "function" || typeof value === "symbol") return undefined
@@ -69,7 +70,11 @@ function safeValue(value: unknown, seen = new WeakSet<object>()): unknown {
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue)
   if (!value || typeof value !== "object") return value
-  return Object.fromEntries(Object.entries(value).toSorted(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, stableValue(v)]))
+  return Object.fromEntries(
+    Object.entries(value)
+      .toSorted(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => [k, stableValue(v)]),
+  )
 }
 
 export function stableJSON(value: unknown) {
@@ -97,7 +102,11 @@ function modelTool(tool: Tool) {
 }
 
 export function modelToolCatalog(tools: Record<string, Tool>) {
-  return Object.fromEntries(Object.entries(tools).toSorted(([a], [b]) => a.localeCompare(b)).map(([name, tool]) => [name, modelTool(tool)]))
+  return Object.fromEntries(
+    Object.entries(tools)
+      .toSorted(([a], [b]) => a.localeCompare(b))
+      .map(([name, tool]) => [name, modelTool(tool)]),
+  )
 }
 
 export function createRequestEnvelope(input: RequestEnvelopeInput): RequestEnvelopeArtifact {

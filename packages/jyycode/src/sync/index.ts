@@ -158,11 +158,7 @@ export const layer = Layer.effect(Service)(
 
       const publish = !!options?.publish
       const existing = yield* Database.query((db) =>
-        db
-          .select({ id: EventTable.id })
-          .from(EventTable)
-          .where(eq(EventTable.id, event.id))
-          .get(),
+        db.select({ id: EventTable.id }).from(EventTable).where(eq(EventTable.id, event.id)).get(),
       )
       // Bridge captures handler-fiber refs (InstanceRef/WorkspaceRef) and the
       // full Effect context, so the forked publish + GlobalBus emit run with
@@ -442,13 +438,13 @@ const process = Effect.fnUntraced(function* <Def extends Definition>(
 
   const projector = projectors.get(versionedType(def.type, def.version))
   if (!projector) {
-      if (def.ignorable === true) {
-        yield* Database.withTransaction((tx) =>
+    if (def.ignorable === true) {
+      yield* Database.withTransaction((tx) =>
         writeWatermarkEffect(tx, {
-            aggregateID: event.aggregateID,
-            seq: event.seq,
-            projectorVersion: SESSION_PROJECTOR_VERSION,
-          }),
+          aggregateID: event.aggregateID,
+          seq: event.seq,
+          projectorVersion: SESSION_PROJECTOR_VERSION,
+        }),
       )
       return
     }

@@ -34,11 +34,17 @@ type MutableResult = {
 }
 
 async function exists(file: string) {
-  return stat(file).then(() => true, () => false)
+  return stat(file).then(
+    () => true,
+    () => false,
+  )
 }
 
 async function fileSize(file: string) {
-  return stat(file).then((item) => item.size, () => 0)
+  return stat(file).then(
+    (item) => item.size,
+    () => 0,
+  )
 }
 
 async function canonicalFiles(root: string) {
@@ -95,7 +101,11 @@ export class BlobGarbageCollector {
       const known = new Set(rows.map((row) => row.digest))
       for (const row of rows) {
         const references = yield* Database.query((db) =>
-          db.select({ digest: BlobRefTable.digest }).from(BlobRefTable).where(eq(BlobRefTable.digest, row.digest)).all(),
+          db
+            .select({ digest: BlobRefTable.digest })
+            .from(BlobRefTable)
+            .where(eq(BlobRefTable.digest, row.digest))
+            .all(),
         )
         if (references.length > 0) {
           result.referenced++
@@ -104,11 +114,7 @@ export class BlobGarbageCollector {
         if (row.last_ref_removed_at == null) {
           if (!dryRun)
             yield* Database.withTransaction((db) =>
-              db
-                .update(BlobTable)
-                .set({ last_ref_removed_at: now })
-                .where(eq(BlobTable.digest, row.digest))
-                .run(),
+              db.update(BlobTable).set({ last_ref_removed_at: now }).where(eq(BlobTable.digest, row.digest)).run(),
             )
           result.marked++
           continue
@@ -146,7 +152,7 @@ export class BlobGarbageCollector {
         const digest = path.basename(file)
         if (known.has(digest)) continue
         const mtime = (yield* Effect.promise(() => stat(file))).mtimeMs
-        const size = (yield* Effect.promise(() => fileSize(file)))
+        const size = yield* Effect.promise(() => fileSize(file))
         if (mtime > cutoff || (yield* Effect.promise(() => exists(blobLeasePath(digest, root))))) continue
         result.orphanFiles++
         result.orphanBytes += size

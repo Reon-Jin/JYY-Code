@@ -247,7 +247,9 @@ describe("tool.read external_directory permission", () => {
           return Effect.die(new Permission.DeniedError({ ruleset: [] }))
         },
       }
-      const exit = yield* exec(path.join(test.directory), { filePath: path.join(link, "secret.txt") }, next).pipe(Effect.exit)
+      const exit = yield* exec(path.join(test.directory), { filePath: path.join(link, "secret.txt") }, next).pipe(
+        Effect.exit,
+      )
 
       expect(Exit.isFailure(exit)).toBe(true)
       expect(requested).toBe(true)

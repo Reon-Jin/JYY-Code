@@ -6,7 +6,7 @@ import type { TxOrDb } from "@/storage/db"
 import { SyncEvent } from "@/sync"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
-import { MessageTable, PartTable, SessionMessageTable, SessionTable, TodoTable } from "./session.sql"
+import { MessageTable, PartTable, SessionMessageTable, SessionTable } from "./session.sql"
 import { SessionShareTable } from "@/share/share.sql"
 import { WorkspaceTable } from "@/control-plane/workspace.sql"
 import { Log } from "@jyycode-ai/core/util/log"
@@ -124,7 +124,6 @@ export default [
   SyncEvent.project(Session.Event.Deleted, (db, data) => {
     db.delete(PartTable).where(eq(PartTable.session_id, data.sessionID)).run()
     db.delete(MessageTable).where(eq(MessageTable.session_id, data.sessionID)).run()
-    db.delete(TodoTable).where(eq(TodoTable.session_id, data.sessionID)).run()
     db.delete(SessionMessageTable).where(eq(SessionMessageTable.session_id, data.sessionID)).run()
     db.delete(SessionShareTable).where(eq(SessionShareTable.session_id, data.sessionID)).run()
     db.delete(SessionTable).where(eq(SessionTable.id, data.sessionID)).run()

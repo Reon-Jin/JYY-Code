@@ -64,7 +64,5 @@ export function ensureBase64WithinLimit(
   resource: string,
 ): Effect.Effect<void, ContentLimitError> {
   const actual = base64ByteLength(value)
-  return actual > limit
-    ? Effect.fail(new ContentLimitError({ resource, limit, actual }))
-    : Effect.void
+  return actual > limit ? Effect.fail(new ContentLimitError({ resource, limit, actual })) : Effect.void
 }

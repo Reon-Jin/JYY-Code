@@ -1,4 +1,4 @@
-import type { Todo, VcsBranches } from "@jyycode-ai/sdk/v2/client"
+import type { VcsBranches } from "@jyycode-ai/sdk/v2/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createDesktopQueryClient } from "./query-client"
 import { keys } from "./query-keys"
@@ -12,7 +12,6 @@ import {
   loadPullRequestDiff,
   loadPullRequests,
 } from "../features/github/github-query"
-import { loadTodos } from "../features/todos/todo-query"
 import { createFakeJyycode } from "../test/fake-jyycode"
 
 afterEach(() => vi.restoreAllMocks())
@@ -21,15 +20,12 @@ describe("workspace inspector queries", () => {
   it("loads workspace-scoped data through generated SDK methods", async () => {
     const directory = "C:\\work\\demo"
     const backend = createFakeJyycode(directory)
-    const todos: Todo[] = [{ content: "Inspect", status: "in_progress", priority: "high" }]
-    backend.setTodos("ses_1", todos)
     vi.spyOn(globalThis, "fetch").mockImplementation(backend.fetch)
     const client = createDesktopClient(
       { baseUrl: "http://desktop.test", username: "jyycode", password: "secret" },
       directory,
     )
 
-    expect(await loadTodos({ client, directory, sessionID: "ses_1" })).toEqual(todos)
     expect(await loadChanges({ client, directory, mode: "git" })).toEqual(backend.changes)
     expect(await loadVcsInfo({ client, directory })).toMatchObject({ branch: "main" })
     expect(await loadVcsBranches({ client, directory })).toEqual(backend.branches)
@@ -42,7 +38,6 @@ describe("workspace inspector queries", () => {
       directory,
       mode: "git",
     })
-    expect(backend.requests.some((request) => request.path.includes("/session/ses_1/todo"))).toBe(true)
   })
 
   it("writes returned branches and invalidates mutation side effects", async () => {

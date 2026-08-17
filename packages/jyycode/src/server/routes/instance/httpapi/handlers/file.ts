@@ -4,12 +4,7 @@ import { Ripgrep } from "@/file/ripgrep"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import {
-  FileConflictError,
-  FileTooLargeError,
-  FileUnsupportedWriteError,
-  FileUnsafePathError,
-} from "../groups/file"
+import { FileConflictError, FileTooLargeError, FileUnsupportedWriteError, FileUnsafePathError } from "../groups/file"
 
 export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handlers) =>
   Effect.gen(function* () {

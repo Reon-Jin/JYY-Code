@@ -148,27 +148,25 @@ describe("pty", () => {
     { git: true },
   )
 
-  it.effect(
-    "reclaims an inactive PTY at the idle deadline without waiting for wall clock time",
-    () =>
-      Effect.gen(function* () {
-        const pty = yield* Pty.Service
-        const idleCommand =
-          process.platform === "win32"
-            ? { command: "powershell.exe", args: ["-NoProfile", "-Command", "Start-Sleep -Seconds 5"] }
-            : { command: "/usr/bin/env", args: ["sh", "-c", "sleep 5"] }
-        const info = yield* pty.create({
-          ...idleCommand,
-          title: "idle",
-        })
+  it.effect("reclaims an inactive PTY at the idle deadline without waiting for wall clock time", () =>
+    Effect.gen(function* () {
+      const pty = yield* Pty.Service
+      const idleCommand =
+        process.platform === "win32"
+          ? { command: "powershell.exe", args: ["-NoProfile", "-Command", "Start-Sleep -Seconds 5"] }
+          : { command: "/usr/bin/env", args: ["sh", "-c", "sleep 5"] }
+      const info = yield* pty.create({
+        ...idleCommand,
+        title: "idle",
+      })
 
-        yield* TestClock.adjust("31 minutes")
-        yield* TestClock.adjust("1 second")
+      yield* TestClock.adjust("31 minutes")
+      yield* TestClock.adjust("1 second")
 
-        const result = yield* pty.get(info.id).pipe(Effect.exit)
-        expect(Exit.isFailure(result)).toBe(true)
-      }).pipe(
-        withTmpdirInstance({ git: true, config: { pty: { idle_timeout_ms: 1_000, absolute_timeout_ms: 60_000 } } }),
-      ),
+      const result = yield* pty.get(info.id).pipe(Effect.exit)
+      expect(Exit.isFailure(result)).toBe(true)
+    }).pipe(
+      withTmpdirInstance({ git: true, config: { pty: { idle_timeout_ms: 1_000, absolute_timeout_ms: 60_000 } } }),
+    ),
   )
 })

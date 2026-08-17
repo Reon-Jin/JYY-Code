@@ -122,11 +122,7 @@ export async function terminateChild(
   const idleDeadline = Date.now() + idleTimeoutMs
   while (true) {
     try {
-      const status = await withTimeout(
-        operations.status(),
-        Math.max(1, idleDeadline - Date.now()),
-        "idle status",
-      )
+      const status = await withTimeout(operations.status(), Math.max(1, idleDeadline - Date.now()), "idle status")
       if (status.type === "idle") break
     } catch (error) {
       return failed("idle", error)

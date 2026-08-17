@@ -81,7 +81,9 @@ describe("tool.write", () => {
           return Effect.die(new Permission.DeniedError({ ruleset: [] }))
         },
       }
-      const exit = yield* run({ filePath: outsideFile.replace(outside, link), content: "changed" }, next).pipe(Effect.exit)
+      const exit = yield* run({ filePath: outsideFile.replace(outside, link), content: "changed" }, next).pipe(
+        Effect.exit,
+      )
 
       expect(exit._tag).toBe("Failure")
       expect(requested).toBe(true)

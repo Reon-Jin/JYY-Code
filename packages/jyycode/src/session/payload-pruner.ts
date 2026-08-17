@@ -36,10 +36,7 @@ export async function pruneToolPart(
   if (part.state.status !== "completed") return part
   const previewBytes = Math.max(
     0,
-    Math.min(
-      MAX_TOOL_PREVIEW_BYTES,
-      Math.floor(options.previewBytes ?? DEFAULT_TOOL_PREVIEW_BYTES),
-    ),
+    Math.min(MAX_TOOL_PREVIEW_BYTES, Math.floor(options.previewBytes ?? DEFAULT_TOOL_PREVIEW_BYTES)),
   )
   const inputJSON = stableJSON(part.state.input)
   const output = part.state.output

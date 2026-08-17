@@ -58,7 +58,8 @@ export function budgetInstructions(
   const maxFileBytes = safeLimit(options.maxFileBytes, DEFAULT_INSTRUCTION_FILE_BYTES, "maxFileBytes")
   const maxTokens = safeLimit(options.maxTokens, DEFAULT_INSTRUCTION_TOKENS, "maxTokens")
   const safetyMargin = options.safetyMargin ?? DEFAULT_INSTRUCTION_SAFETY_MARGIN
-  if (!Number.isFinite(safetyMargin) || safetyMargin < 0 || safetyMargin >= 1) throw new Error("invalid instruction safety margin")
+  if (!Number.isFinite(safetyMargin) || safetyMargin < 0 || safetyMargin >= 1)
+    throw new Error("invalid instruction safety margin")
   const excerptBytes = Math.min(maxFileBytes, Math.max(1, options.excerptBytes ?? 4096))
   const entries: InstructionEntry[] = []
   let tokens = 0
@@ -129,7 +130,10 @@ export type BoundedRead = {
   readonly size?: number
 }
 
-export async function readFileBounded(filepath: string, maxRetainedBytes = DEFAULT_INSTRUCTION_FILE_BYTES): Promise<BoundedRead> {
+export async function readFileBounded(
+  filepath: string,
+  maxRetainedBytes = DEFAULT_INSTRUCTION_FILE_BYTES,
+): Promise<BoundedRead> {
   const info = await stat(filepath)
   const hash = createHash("sha256")
   const chunks: Buffer[] = []
@@ -150,7 +154,10 @@ export async function readFileBounded(filepath: string, maxRetainedBytes = DEFAU
   }
 }
 
-export function remoteReadBounded(chunks: readonly Uint8Array[], maxRetainedBytes = DEFAULT_INSTRUCTION_FILE_BYTES): BoundedRead {
+export function remoteReadBounded(
+  chunks: readonly Uint8Array[],
+  maxRetainedBytes = DEFAULT_INSTRUCTION_FILE_BYTES,
+): BoundedRead {
   const hash = createHash("sha256")
   const retained: Uint8Array[] = []
   let bytes = 0
@@ -165,5 +172,9 @@ export function remoteReadBounded(chunks: readonly Uint8Array[], maxRetainedByte
       retainedBytes += next.byteLength
     }
   }
-  return { content: Buffer.concat(retained.map((item) => Buffer.from(item))).toString("utf8"), bytes, digest: hash.digest("hex") }
+  return {
+    content: Buffer.concat(retained.map((item) => Buffer.from(item))).toString("utf8"),
+    bytes,
+    digest: hash.digest("hex"),
+  }
 }

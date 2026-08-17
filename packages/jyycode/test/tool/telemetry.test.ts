@@ -208,7 +208,12 @@ describe("ToolTelemetry", () => {
     Effect.gen(function* () {
       const advanced = {
         ...def("my_advanced", () => Effect.succeed({ title: "Advanced", output: "ok", metadata: {} })),
-        catalog: { category: "other" as const, mutability: "read" as const, risk: "low" as const, detail: "advanced" as const },
+        catalog: {
+          category: "other" as const,
+          mutability: "read" as const,
+          risk: "low" as const,
+          detail: "advanced" as const,
+        },
       }
       const mcpTool = {
         ...def("mcp_parse", () => Effect.succeed({ title: "Parse", output: "ok", metadata: {} })),

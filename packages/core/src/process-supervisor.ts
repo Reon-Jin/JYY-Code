@@ -59,8 +59,7 @@ export function isProcessAlive(pid: number): boolean {
 
 async function processRecords(platform: NodeJS.Platform): Promise<readonly ProcessRecord[]> {
   if (platform === "win32") {
-    const script =
-      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress"
+    const script = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress"
     try {
       const result = await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
         windowsHide: true,
@@ -105,7 +104,10 @@ function isProcessGroupAlive(pid: number, platform: NodeJS.Platform): boolean {
   }
 }
 
-export async function listProcessTreePids(pid: number, platform: NodeJS.Platform = process.platform): Promise<number[]> {
+export async function listProcessTreePids(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+): Promise<number[]> {
   if (!validPid(pid)) return []
   const rows = await processRecords(platform)
   const children = new Map<number, number[]>()
@@ -123,7 +125,10 @@ export async function listProcessTreePids(pid: number, platform: NodeJS.Platform
   return result
 }
 
-export async function listProcessGroupPids(pid: number, platform: NodeJS.Platform = process.platform): Promise<number[]> {
+export async function listProcessGroupPids(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+): Promise<number[]> {
   if (platform === "win32" || !validPid(pid)) return []
   const rows = await processRecords(platform)
   return rows.filter((row) => row.pgid === pid && isProcessAlive(row.pid)).map((row) => row.pid)
@@ -135,7 +140,13 @@ async function activeProcessPids(pid: number, platform: NodeJS.Platform): Promis
   return [...new Set([...tree, ...group])]
 }
 
-async function waitUntilDead(pid: number, originalTree: readonly number[], platform: NodeJS.Platform, timeoutMs: number, pollMs: number): Promise<boolean> {
+async function waitUntilDead(
+  pid: number,
+  originalTree: readonly number[],
+  platform: NodeJS.Platform,
+  timeoutMs: number,
+  pollMs: number,
+): Promise<boolean> {
   const deadline = Date.now() + Math.max(0, timeoutMs)
   do {
     const current = await activeProcessPids(pid, platform)
@@ -225,19 +236,32 @@ export async function terminateProcessTree(pid: number, options: TerminationOpti
 
   if (await waitUntilDead(pid, originalTree, platform, verifyMs, pollMs))
     return { state: "killed", pid, remainingPids: [], signal: killSignal, ...(degraded ? { degraded: true } : {}) }
-  const remaining = (await activeProcessPids(pid, platform)).length > 0
-    ? await activeProcessPids(pid, platform)
-    : originalTree.filter(isProcessAlive)
-  return { state: "kill_failed", pid, remainingPids: remaining, signal: killSignal, ...(degraded ? { degraded: true } : {}) }
+  const remaining =
+    (await activeProcessPids(pid, platform)).length > 0
+      ? await activeProcessPids(pid, platform)
+      : originalTree.filter(isProcessAlive)
+  return {
+    state: "kill_failed",
+    pid,
+    remainingPids: remaining,
+    signal: killSignal,
+    ...(degraded ? { degraded: true } : {}),
+  }
 }
 
-export async function killProcessTreeVerified(pid: number, options: TerminationOptions = {}): Promise<TerminationResult> {
+export async function killProcessTreeVerified(
+  pid: number,
+  options: TerminationOptions = {},
+): Promise<TerminationResult> {
   const result = await terminateProcessTree(pid, options)
   if (result.state === "kill_failed") throw new ProcessTerminationError(result)
   return result
 }
 
-export async function assertProcessTreeStopped(pid: number, options: Omit<TerminationOptions, "signal" | "killSignal"> = {}) {
+export async function assertProcessTreeStopped(
+  pid: number,
+  options: Omit<TerminationOptions, "signal" | "killSignal"> = {},
+) {
   if (isProcessAlive(pid)) {
     const result = await terminateProcessTree(pid, options)
     if (result.state === "kill_failed") throw new ProcessTerminationError(result)

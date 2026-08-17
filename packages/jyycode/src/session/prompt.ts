@@ -1566,28 +1566,26 @@ export const layer = Layer.effect(
             // is joined before the after-turn curator below, so the user-phase
             // write always precedes the assistant-phase write.
             stepBeginMemoryFiber = yield* Effect.forkIn(
-              memory
-                .updateStepBegin(sessionID, evaluateMemoryDecision, { userText: latestMemoryUserText })
-                .pipe(
-                  Effect.catchCause((cause) =>
-                    slog
-                      .warn("persistent memory update failed after user message; continuing prompt", {
-                        cause: Cause.pretty(cause),
-                      })
-                      .pipe(Effect.as(undefined)),
-                  ),
-                  Effect.andThen((updated) =>
-                    Effect.gen(function* () {
-                      if (!updated) return
-                      yield* slog.info("persistent memory updated after user message", { ...updated })
-                      if (updated.status === "updated" && experienceMemory) {
-                        yield* experienceMemory
-                          .upsertMany(sessionID, updated.experienceCandidates, session.directory)
-                          .pipe(Effect.ignore)
-                      }
-                    }),
-                  ),
+              memory.updateStepBegin(sessionID, evaluateMemoryDecision, { userText: latestMemoryUserText }).pipe(
+                Effect.catchCause((cause) =>
+                  slog
+                    .warn("persistent memory update failed after user message; continuing prompt", {
+                      cause: Cause.pretty(cause),
+                    })
+                    .pipe(Effect.as(undefined)),
                 ),
+                Effect.andThen((updated) =>
+                  Effect.gen(function* () {
+                    if (!updated) return
+                    yield* slog.info("persistent memory updated after user message", { ...updated })
+                    if (updated.status === "updated" && experienceMemory) {
+                      yield* experienceMemory
+                        .upsertMany(sessionID, updated.experienceCandidates, session.directory)
+                        .pipe(Effect.ignore)
+                    }
+                  }),
+                ),
+              ),
               scope,
             )
           }
@@ -1655,8 +1653,7 @@ export const layer = Layer.effect(
           // "Already exists" results are not failures and a successful create
           // clears the budget, so a duplicate create after the plan exists
           // can never disable planning.
-          const planCreateSucceeded =
-            lastAssistantMsg?.parts.some(succeededPlanCreatePart) ?? false
+          const planCreateSucceeded = lastAssistantMsg?.parts.some(succeededPlanCreatePart) ?? false
           if (planCreateSucceeded) {
             planCreateFailures = 0
             planCreateExhausted = false
@@ -1922,7 +1919,8 @@ export const layer = Layer.effect(
             yield* bus.publish(Session.Event.Error, { sessionID, error: error.toObject() })
             throw error
           }
-          const maxSteps = childBudget?.max_steps ?? (session.parentID !== undefined ? MAX_AGENT_STEPS : agent.steps ?? Infinity)
+          const maxSteps =
+            childBudget?.max_steps ?? (session.parentID !== undefined ? MAX_AGENT_STEPS : (agent.steps ?? Infinity))
           const isLastStep = step >= maxSteps
           const episodicDigest =
             canUsePersistentMemory && episodic
@@ -2230,10 +2228,10 @@ export const layer = Layer.effect(
             const toolChoice = finalChildReportStep
               ? { type: "tool" as const, toolName: "Report" }
               : requiredPlanTool
-              ? { type: "tool" as const, toolName: requiredPlanTool }
-              : format.type === "json_schema"
-                ? ("required" as const)
-                : undefined
+                ? { type: "tool" as const, toolName: requiredPlanTool }
+                : format.type === "json_schema"
+                  ? ("required" as const)
+                  : undefined
             const requestTools = Object.fromEntries(
               Object.entries(tools).map(([name, definition]) => [
                 name,

@@ -338,8 +338,7 @@ export const ProvidersLoginCommand = effectCmd({
             },
             { signal: abort.signal },
           ),
-        )
-          .then((result) => [result.exitCode, result.stdout.toString()] as const),
+        ).then((result) => [result.exitCode, result.stdout.toString()] as const),
       ).pipe(Effect.ensuring(Effect.sync(() => abort.abort())))
       if (exit !== 0) {
         yield* Prompt.log.error("Failed")

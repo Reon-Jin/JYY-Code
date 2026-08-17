@@ -31,35 +31,35 @@ describe("experience v1 JSON format", () => {
   test("parses and round-trips a valid store deterministically", () => {
     const text = ExperienceMemory.serializeExperienceStore([entry()])
     expect(text).toBe(
-      '{\n' +
+      "{\n" +
         '  "schemaVersion": 1,\n' +
         '  "lastMaintainedAt": null,\n' +
         '  "entries": [\n' +
-        '    {\n' +
+        "    {\n" +
         '      "kind": "lesson",\n' +
         '      "importance": 7,\n' +
         '      "date": "20260807",\n' +
         '      "updatedAt": "20260807",\n' +
         '      "keywords": [\n' +
         '        "测试"\n' +
-        '      ],\n' +
+        "      ],\n" +
         '      "content": "先跑失败测试再实现，避免无效改动",\n' +
         '      "evidence": "[ses_01JZEXPERIENCE1#3] npm test",\n' +
         '      "confidence": "high",\n' +
         '      "uses": 0,\n' +
         '      "status": "active",\n' +
         '      "sessionID": "ses_01JZEXPERIENCE1"\n' +
-        '    }\n' +
-        '  ]\n' +
-        '}\n',
+        "    }\n" +
+        "  ]\n" +
+        "}\n",
     )
     expect(ExperienceMemory.serializeExperienceStore(ExperienceMemory.parseExperienceStore(text).entries)).toBe(text)
   })
 
   test("rejects invalid stores", () => {
-    expect(() => ExperienceMemory.parseExperienceStore('{"schemaVersion":2,"lastMaintainedAt":null,"entries":[]}')).toThrow(
-      "schemaVersion",
-    )
+    expect(() =>
+      ExperienceMemory.parseExperienceStore('{"schemaVersion":2,"lastMaintainedAt":null,"entries":[]}'),
+    ).toThrow("schemaVersion")
     expect(() =>
       ExperienceMemory.parseExperienceStore(
         JSON.stringify({

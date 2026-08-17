@@ -499,7 +499,11 @@ export interface Interface {
     workspaceID?: WorkspaceID
     directory?: string
   }) => Effect.Effect<Info>
-  readonly fork: (input: { sessionID: SessionID; messageID?: MessageID; allowLarge?: boolean }) => Effect.Effect<Info, NotFound | ForkBudgetError>
+  readonly fork: (input: {
+    sessionID: SessionID
+    messageID?: MessageID
+    allowLarge?: boolean
+  }) => Effect.Effect<Info, NotFound | ForkBudgetError>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
   readonly get: (id: SessionID) => Effect.Effect<Info, NotFound>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
@@ -552,11 +556,7 @@ const db = Database.query
 export const layer: Layer.Layer<
   Service,
   never,
-  BackgroundJob.Service |
-    Bus.Service |
-    Storage.Service |
-    SyncEvent.Service |
-    RuntimeFlags.Service
+  BackgroundJob.Service | Bus.Service | Storage.Service | SyncEvent.Service | RuntimeFlags.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -589,7 +589,11 @@ export const layer: Layer.Layer<
         parentID: input.parentID,
         lookup: (parentID) => {
           const row = Database.legacyQuery((d) =>
-            d.select().from(SessionTable).where(eq(SessionTable.id, parentID as SessionID)).get(),
+            d
+              .select()
+              .from(SessionTable)
+              .where(eq(SessionTable.id, parentID as SessionID))
+              .get(),
           )
           return row ? fromRow(row) : undefined
         },
@@ -784,7 +788,11 @@ export const layer: Layer.Layer<
       })
     })
 
-    const fork = Effect.fn("Session.fork")(function* (input: { sessionID: SessionID; messageID?: MessageID; allowLarge?: boolean }) {
+    const fork = Effect.fn("Session.fork")(function* (input: {
+      sessionID: SessionID
+      messageID?: MessageID
+      allowLarge?: boolean
+    }) {
       const ctx = yield* InstanceState.context
       const original = yield* get(input.sessionID)
       const msgs = yield* messages({ sessionID: input.sessionID })

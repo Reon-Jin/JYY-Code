@@ -398,7 +398,9 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | ChildPro
                   Stream.filter((line) => line.length > 0),
                   Stream.mapEffect(parse),
                   Stream.filter((item): item is Match => item.type === "match"),
-                  Stream.filter((item) => input.allowRuntime || !shouldExcludeRuntimePath(input.cwd, item.data.path.text)),
+                  Stream.filter(
+                    (item) => input.allowRuntime || !shouldExcludeRuntimePath(input.cwd, item.data.path.text),
+                  ),
                   Stream.map((item) => row(item.data)),
                   Stream.runCollect,
                   Effect.map((chunk) => [...chunk]),

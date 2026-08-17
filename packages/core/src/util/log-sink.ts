@@ -61,7 +61,12 @@ function boundedString(value: string, maxBytes: number) {
 }
 
 /** Serialize only a bounded, shallow view so a huge tool result is never stringified wholesale. */
-export function formatLogValue(value: unknown, maxBytes = DEFAULT_LOG_RECORD_BYTES, depth = 0, seen = new WeakSet<object>()): string {
+export function formatLogValue(
+  value: unknown,
+  maxBytes = DEFAULT_LOG_RECORD_BYTES,
+  depth = 0,
+  seen = new WeakSet<object>(),
+): string {
   if (value === null || value === undefined) return String(value)
   if (typeof value === "string") return boundedString(redactLogText(value), maxBytes)
   if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value)
@@ -93,7 +98,10 @@ export function formatLogRecord(message: unknown, extra?: Record<string, unknown
     .filter(([, value]) => value !== undefined && value !== null)
     .map(([key, value]) => `${key}=${formatLogValue(value)}`)
     .join(" ")
-  return boundedString(redactLogText([prefix, formatLogValue(message)].filter(Boolean).join(" ")), DEFAULT_LOG_RECORD_BYTES)
+  return boundedString(
+    redactLogText([prefix, formatLogValue(message)].filter(Boolean).join(" ")),
+    DEFAULT_LOG_RECORD_BYTES,
+  )
 }
 
 export class BoundedLogSink {
@@ -135,16 +143,18 @@ export class BoundedLogSink {
   }
 
   stats(): LogSinkStats {
-    return { queued: this.queue.length, dropped: this.dropped, writtenBytes: this.writtenBytes, rotations: this.rotations }
+    return {
+      queued: this.queue.length,
+      dropped: this.dropped,
+      writtenBytes: this.writtenBytes,
+      rotations: this.rotations,
+    }
   }
 
   async flush(timeoutMs = 2_000) {
     const pending = this.draining
     if (!pending) return
-    await Promise.race([
-      pending,
-      new Promise<void>((resolve) => setTimeout(resolve, Math.max(1, timeoutMs))),
-    ])
+    await Promise.race([pending, new Promise<void>((resolve) => setTimeout(resolve, Math.max(1, timeoutMs)))])
   }
 
   async close() {
@@ -197,12 +207,19 @@ export class BoundedLogSink {
   }
 
   private async trimTotal() {
-    const names = (await fs.readdir(path.dirname(this.file))).filter((name) => name === path.basename(this.file) || name.startsWith(`${path.basename(this.file)}.`))
-    const files = await Promise.all(names.map(async (name) => ({ name, stat: await fs.stat(path.join(path.dirname(this.file), name)).catch(() => undefined) })))
+    const names = (await fs.readdir(path.dirname(this.file))).filter(
+      (name) => name === path.basename(this.file) || name.startsWith(`${path.basename(this.file)}.`),
+    )
+    const files = await Promise.all(
+      names.map(async (name) => ({
+        name,
+        stat: await fs.stat(path.join(path.dirname(this.file), name)).catch(() => undefined),
+      })),
+    )
     let total = files.reduce((sum, item) => sum + (item.stat?.size ?? 0), 0)
     const candidates = files
       .filter((item) => item.name !== path.basename(this.file) && item.stat)
-      .sort((a, b) => (a.stat!.mtimeMs - b.stat!.mtimeMs) || a.name.localeCompare(b.name))
+      .sort((a, b) => a.stat!.mtimeMs - b.stat!.mtimeMs || a.name.localeCompare(b.name))
     while ((total > this.maxTotalBytes || names.length > this.maxFiles) && candidates.length) {
       const item = candidates.shift()!
       await fs.rm(path.join(path.dirname(this.file), item.name), { force: true })

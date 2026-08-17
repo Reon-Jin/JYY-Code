@@ -85,7 +85,12 @@ function selectedV2WorkspaceID(
 }
 
 function defaultDirectory(request: HttpServerRequest.HttpServerRequest, url: URL): string {
-  return parseFilePreviewRoute(url)?.directory || url.searchParams.get("directory") || request.headers["x-jyycode-directory"] || process.cwd()
+  return (
+    parseFilePreviewRoute(url)?.directory ||
+    url.searchParams.get("directory") ||
+    request.headers["x-jyycode-directory"] ||
+    process.cwd()
+  )
 }
 
 function shouldStayOnControlPlane(request: HttpServerRequest.HttpServerRequest, url: URL): boolean {

@@ -127,7 +127,8 @@ function preparePart(data: unknown): PreparedPart {
   const visit = (value: unknown, slot: string) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${slot} attachment is invalid`)
     const file = value as Record<string, unknown>
-    if (typeof file.url !== "string" || typeof file.mime !== "string") throw new Error(`${slot} attachment is malformed`)
+    if (typeof file.url !== "string" || typeof file.mime !== "string")
+      throw new Error(`${slot} attachment is malformed`)
     const parsed = parseBackfillDataURL(file.url)
     if (parsed) attachments.push({ slot, mime: file.mime, bytes: parsed.bytes })
     return parsed
@@ -269,7 +270,15 @@ export function runBlobBackfill(options: BlobBackfillOptions = {}): Effect.Effec
         usedBatchBytes += prepared.bytes
         if (dryRun) continue
 
-        const records: Array<{ slot: string; url: string; digest: string; size: number; mime: string; createdAt: number; verifiedAt: number }> = []
+        const records: Array<{
+          slot: string
+          url: string
+          digest: string
+          size: number
+          mime: string
+          createdAt: number
+          verifiedAt: number
+        }> = []
         for (const attachment of prepared.attachments) {
           const record = yield* Effect.promise(() => store.putBytes(attachment.bytes, attachment.mime))
           records.push({
@@ -305,16 +314,28 @@ export function runBlobBackfill(options: BlobBackfillOptions = {}): Effect.Effec
                 })
                 .onConflictDoUpdate({
                   target: BlobTable.digest,
-                  set: { size: record.size, mime: record.mime, verified_at: record.verifiedAt, last_ref_removed_at: null },
+                  set: {
+                    size: record.size,
+                    mime: record.mime,
+                    verified_at: record.verifiedAt,
+                    last_ref_removed_at: null,
+                  },
                 })
                 .run()
               yield* db
                 .insert(BlobRefTable)
                 .values({ part_id: row.id, slot: record.slot, digest: record.digest, created_at: now() })
-                .onConflictDoUpdate({ target: [BlobRefTable.part_id, BlobRefTable.slot], set: { digest: record.digest } })
+                .onConflictDoUpdate({
+                  target: [BlobRefTable.part_id, BlobRefTable.slot],
+                  set: { digest: record.digest },
+                })
                 .run()
             }
-            yield* db.update(PartTable).set({ data: normalized as MessageV2.Part }).where(eq(PartTable.id, row.id)).run()
+            yield* db
+              .update(PartTable)
+              .set({ data: normalized as MessageV2.Part })
+              .where(eq(PartTable.id, row.id))
+              .run()
             return "migrated" as const
           }),
         )

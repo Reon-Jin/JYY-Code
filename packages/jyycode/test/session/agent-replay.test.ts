@@ -19,7 +19,6 @@ import { Env } from "@/env"
 import { Git } from "@/git"
 import { Image } from "@/image/image"
 import { Question } from "@/question"
-import { Todo } from "@/session/todo"
 import { Session } from "@/session/session"
 import { LLM } from "@/session/llm"
 import { SessionCompaction } from "@/session/compaction"
@@ -140,7 +139,6 @@ const makePrompt = () => {
     EventRuntime.defaultLayer,
   ).pipe(Layer.provideMerge(infra))
   const question = Question.layer.pipe(Layer.provideMerge(deps))
-  const todo = Todo.layer.pipe(Layer.provideMerge(deps))
   const registry = ToolRegistry.layer.pipe(
     Layer.provide(Skill.defaultLayer),
     Layer.provide(FetchHttpClient.layer),
@@ -151,7 +149,6 @@ const makePrompt = () => {
     Layer.provide(Ripgrep.defaultLayer),
     Layer.provide(Format.defaultLayer),
     Layer.provide(runtimeFlags),
-    Layer.provideMerge(todo),
     Layer.provideMerge(question),
     Layer.provideMerge(deps),
   )
@@ -357,7 +354,9 @@ function executeReplay(fixture: ReplayFixture) {
         const expectedEvents = (fixture.expected.events as string[]).map(String)
         const requestEvents = events.filter((event) => eventType(event.type) === "session.next.request.prepared")
 
-        expect(inputs.length).toBe((fixture.expected.requestEnvelopes as Array<{ requestCount: number }>)[0]!.requestCount)
+        expect(inputs.length).toBe(
+          (fixture.expected.requestEnvelopes as Array<{ requestCount: number }>)[0]!.requestCount,
+        )
         expect(requestEvents).toHaveLength(inputs.length)
         for (const event of requestEvents) {
           const data = event.data as { payload: { blobID: string; sha256: string; bytes: number } }
@@ -366,16 +365,14 @@ function executeReplay(fixture: ReplayFixture) {
           expect(sha256(bytes)).toBe(data.payload.sha256)
           expect(replaySecretFindings(JSON.parse(new TextDecoder().decode(bytes)))).toEqual([])
         }
-        expect(inputs.some((body) => JSON.stringify(body).includes(input.prompt) || input.scenario === "compaction")).toBe(
-          true,
-        )
+        expect(
+          inputs.some((body) => JSON.stringify(body).includes(input.prompt) || input.scenario === "compaction"),
+        ).toBe(true)
         expect(projected.length).toBeGreaterThan(0)
         expect(replayedProjection).toEqual(projected)
         expect(messages.some((message) => message.info.role === "assistant")).toBe(true)
         if (input.scenario === "tool-loop") {
-          expect(
-            messages.some((message) => message.parts.some((part) => part.type === "tool")),
-          ).toBe(true)
+          expect(messages.some((message) => message.parts.some((part) => part.type === "tool"))).toBe(true)
         }
         const expectedTerminal = fixture.terminalStatus as { type: "busy" | "idle" | "retry" }
         expect(finalStatus.type).toBe(expectedTerminal.type)
@@ -399,8 +396,7 @@ function replayTest(name: string): Effect.Effect<unknown, never, never> {
   return Effect.contextWith((context) =>
     Effect.promise(async () =>
       assertFixture(replayPath(name), {
-        execute: (fixture) =>
-          Effect.runPromiseWith(context as Context.Context<any>)(executeReplay(fixture)),
+        execute: (fixture) => Effect.runPromiseWith(context as Context.Context<any>)(executeReplay(fixture)),
       }),
     ),
   ) as Effect.Effect<unknown, never, never>

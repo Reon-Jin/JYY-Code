@@ -26,8 +26,5 @@ export const BlobRefTable = sqliteTable(
       .references(() => BlobTable.digest, { onDelete: "restrict" }),
     created_at: integer().notNull(),
   },
-  (table) => [
-    primaryKey({ columns: [table.part_id, table.slot] }),
-    index("blob_ref_digest_idx").on(table.digest),
-  ],
+  (table) => [primaryKey({ columns: [table.part_id, table.slot] }), index("blob_ref_digest_idx").on(table.digest)],
 )

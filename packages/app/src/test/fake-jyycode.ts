@@ -17,7 +17,6 @@ import type {
   SessionBlackboardResponse,
   Session,
   SessionPlanResponse,
-  Todo,
   VcsBranches,
   VcsFileDiff,
 } from "@jyycode-ai/sdk/v2/client"
@@ -71,7 +70,6 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
   }
   const sessions: Session[] = []
   const messages = new Map<string, Array<{ info: Message; parts: Part[] }>>()
-  const todos = new Map<string, Todo[]>()
   const plans = new Map<string, SessionPlanResponse>()
   const blackboards = new Map<string, SessionBlackboardResponse>()
   const permissions: PermissionRequest[] = []
@@ -273,7 +271,6 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     }
     sessions.push(session)
     messages.set(session.id, [])
-    todos.set(session.id, [])
     if (!session.parentID) boardFor(session.id)
     return session
   }
@@ -736,9 +733,6 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     if (sessionID && url.pathname.endsWith("/message") && request.method === "GET") {
       return json(messages.get(sessionID) ?? [])
     }
-    if (sessionID && url.pathname.endsWith("/todo") && request.method === "GET") {
-      return json(todos.get(sessionID) ?? [])
-    }
     if (sessionID && url.pathname.endsWith("/diff") && request.method === "GET") return json(sessionChanges)
     if (
       sessionID &&
@@ -954,11 +948,6 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     if (summary) summary.state = state
   }
 
-  function setTodos(sessionID: string, next: Todo[]) {
-    todos.set(sessionID, next)
-    event("todo.updated", { sessionID, todos: next })
-  }
-
   function setPlan(sessionID: string, state: SessionPlanResponse) {
     plans.set(sessionID, structuredClone(state))
   }
@@ -1003,7 +992,6 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     sessions,
     addSession,
     messages,
-    todos,
     plans,
     blackboards,
     globalConfig: () => structuredClone(globalConfig),
@@ -1018,7 +1006,6 @@ export function createFakeJyycode(directory = "C:\\work\\demo") {
     fileContents,
     requests,
     emit,
-    setTodos,
     setPlan,
     setBlackboard,
     emitPlan,

@@ -37,7 +37,6 @@ import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
 import { EffectBridge } from "@/effect/bridge"
 import { Question } from "../question"
-import { Todo } from "../session/todo"
 import { LSP } from "@/lsp/lsp"
 import { Instruction } from "../session/instruction"
 import { AppFileSystem } from "@jyycode-ai/core/filesystem"
@@ -150,7 +149,6 @@ export const layer: Layer.Layer<
   | Config.Service
   | Plugin.Service
   | Question.Service
-  | Todo.Service
   | Agent.Service
   | Skill.Service
   | Session.Service
@@ -478,7 +476,6 @@ export const defaultLayer = Layer.suspend(() =>
       Layer.provide(Config.defaultLayer),
       Layer.provide(Plugin.defaultLayer),
       Layer.provide(Question.defaultLayer),
-      Layer.provide(Todo.defaultLayer),
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),
       Layer.provide(Session.defaultLayer),

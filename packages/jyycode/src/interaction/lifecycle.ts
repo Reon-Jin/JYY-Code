@@ -11,7 +11,11 @@ export type InteractionRecord = {
   readonly state: InteractionState
 }
 
-export function transition(record: InteractionRecord, event: "park" | "answer" | "cancel" | "expire", now = Date.now()): InteractionRecord {
+export function transition(
+  record: InteractionRecord,
+  event: "park" | "answer" | "cancel" | "expire",
+  now = Date.now(),
+): InteractionRecord {
   if (record.state === "answered" || record.state === "cancelled" || record.state === "expired") return record
   if (event === "park") return { ...record, state: "parked" }
   if (event === "answer") return { ...record, state: "answered", lastAck: now }
@@ -26,7 +30,9 @@ export function deliver(record: InteractionRecord, now = Date.now()): Interactio
 
 export function reconcilePending(records: readonly InteractionRecord[], now = Date.now()) {
   return records.map((record) =>
-    record.expiresAt !== undefined && record.expiresAt <= now && (record.state === "pending" || record.state === "parked")
+    record.expiresAt !== undefined &&
+    record.expiresAt <= now &&
+    (record.state === "pending" || record.state === "parked")
       ? transition(record, "expire", now)
       : record,
   )

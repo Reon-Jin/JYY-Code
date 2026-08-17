@@ -302,7 +302,9 @@ describe("candidate plan model", () => {
     coverage = true
     expect(await protocol.candidateReady(child)).toMatchObject({ ok: true })
     const secondRun = runs.get("s1_t2")!
-    expect(await protocol.candidateReady(context(secondRun.child_session_id, secondRun.run_id))).toMatchObject({ ok: true })
+    expect(await protocol.candidateReady(context(secondRun.child_session_id, secondRun.run_id))).toMatchObject({
+      ok: true,
+    })
     expect(await protocol.candidateBegin(context())).toMatchObject({ ok: true, phase: "running" })
 
     const synthesis = path.join(root, "synthesis.md")

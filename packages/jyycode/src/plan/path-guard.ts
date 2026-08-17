@@ -58,8 +58,7 @@ function isInside(root: string, target: string) {
 export function assertInside(root: string, target: string, field: string) {
   const canonicalRoot = canonicalPath(root)
   const canonicalTarget = canonicalPath(target)
-  if (!isInside(canonicalRoot, canonicalTarget))
-    throw new PathGuardError(`${field} 必须位于边界内：${target}`)
+  if (!isInside(canonicalRoot, canonicalTarget)) throw new PathGuardError(`${field} 必须位于边界内：${target}`)
 }
 
 export function resolveInside(root: string, value: string, field: string) {
@@ -70,8 +69,7 @@ export function resolveInside(root: string, value: string, field: string) {
     throw new PathGuardError(`${field} 必须位于工作区内：${value}`)
   const absolute = path.isAbsolute(value) ? path.resolve(value) : path.resolve(canonicalRoot, value)
   const canonicalTarget = canonicalPath(absolute)
-  if (!isInside(canonicalRoot, canonicalTarget))
-    throw new PathGuardError(`${field} 必须位于工作区内：${value}`)
+  if (!isInside(canonicalRoot, canonicalTarget)) throw new PathGuardError(`${field} 必须位于工作区内：${value}`)
   return canonicalTarget
 }
 

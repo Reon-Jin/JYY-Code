@@ -68,11 +68,7 @@ const mergeOptions = (target: Record<string, any>, source: Record<string, any> |
 export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: PrepareInput) {
   const isOpenaiOauth = input.provider.id === "openai" && input.auth?.type === "oauth"
   const system = [
-    [
-      composeAgentSystemPrompt(input.agent),
-      ...input.system,
-      ...(input.user.system ? [input.user.system] : []),
-    ]
+    [composeAgentSystemPrompt(input.agent), ...input.system, ...(input.user.system ? [input.user.system] : [])]
       .filter((x) => x)
       .join("\n"),
   ]

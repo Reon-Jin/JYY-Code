@@ -308,9 +308,7 @@ function MemoryManager(props: { scope: Scope; management?: ManagementContextValu
                     <span>{entry.scope === "task" ? entry.projectID : undefined}</span>
                   </Show>
                   <Show when={entry.scope === "experience"}>
-                    <span>
-                      {entry.scope === "experience" ? tr(`settings.experience-kind-${entry.kind}`) : ""}
-                    </span>
+                    <span>{entry.scope === "experience" ? tr(`settings.experience-kind-${entry.kind}`) : ""}</span>
                     <span>
                       {entry.scope === "experience" ? tr(`settings.experience-confidence-${entry.confidence}`) : ""}
                     </span>

@@ -77,7 +77,11 @@ export function buildCorpusStats(entries: readonly ScoredExperience[]): CorpusSt
   }
 }
 
-export function buildQueryTerms(keywords: readonly string[], text: string, textWeight = GOAL_TERM_WEIGHT): Map<string, number> {
+export function buildQueryTerms(
+  keywords: readonly string[],
+  text: string,
+  textWeight = GOAL_TERM_WEIGHT,
+): Map<string, number> {
   const terms = new Map<string, number>()
   for (const keyword of keywords) {
     for (const token of tokenize(keyword)) {

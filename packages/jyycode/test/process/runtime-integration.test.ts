@@ -11,7 +11,9 @@ import { LSPLaunch } from "@/lsp/launch"
 import { cliIt } from "../lib/cli-process"
 import { pollWithTimeout, testEffect } from "../lib/effect"
 
-const it = testEffect(Layer.mergeAll(BackgroundProcess.defaultLayer, AppProcess.defaultLayer, CrossSpawnSpawner.defaultLayer))
+const it = testEffect(
+  Layer.mergeAll(BackgroundProcess.defaultLayer, AppProcess.defaultLayer, CrossSpawnSpawner.defaultLayer),
+)
 
 const childScript = [
   "const { spawn } = require('node:child_process')",

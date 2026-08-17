@@ -2064,9 +2064,13 @@ export const JuliaLS: Info = {
       return
     }
     return {
-      process: await spawn(julia, ["--startup-file=no", "--history-file=no", "-e", "using LanguageServer; runserver()"], {
-        cwd: root,
-      }),
+      process: await spawn(
+        julia,
+        ["--startup-file=no", "--history-file=no", "-e", "using LanguageServer; runserver()"],
+        {
+          cwd: root,
+        },
+      ),
     }
   },
 }

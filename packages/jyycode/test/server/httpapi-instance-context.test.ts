@@ -1,13 +1,7 @@
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { describe, expect } from "bun:test"
 import { Effect, Fiber, Layer } from "effect"
-import {
-  HttpClient,
-  HttpClientRequest,
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http"
+import { HttpClient, HttpClientRequest, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import * as Socket from "effect/unstable/socket/Socket"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"

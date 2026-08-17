@@ -13,8 +13,14 @@ async function fixture() {
   db.exec("CREATE TABLE session (id TEXT); CREATE TABLE message (id TEXT); CREATE TABLE part (id TEXT, data TEXT);")
   db.query("INSERT INTO session VALUES (?)").run("session-1")
   db.query("INSERT INTO message VALUES (?)").run("message-1")
-  db.query("INSERT INTO part VALUES (?, ?)").run("part-1", JSON.stringify({ type: "tool", state: { output: "secret-body" } }))
-  db.query("INSERT INTO part VALUES (?, ?)").run("part-2", JSON.stringify({ type: "file", url: "data:image/png;base64,AAAA" }))
+  db.query("INSERT INTO part VALUES (?, ?)").run(
+    "part-1",
+    JSON.stringify({ type: "tool", state: { output: "secret-body" } }),
+  )
+  db.query("INSERT INTO part VALUES (?, ?)").run(
+    "part-2",
+    JSON.stringify({ type: "file", url: "data:image/png;base64,AAAA" }),
+  )
   db.close()
   await writeFile(path.join(root, "jyycode-main.db"), "not-a-database")
   await writeFile(path.join(root, "jyycode.db.backup-20260705"), "backup")

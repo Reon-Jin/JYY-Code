@@ -57,13 +57,16 @@ function summary() {
   const measures = Object.fromEntries(
     (typeof performance === "undefined" ? [] : performance.getEntriesByType("measure"))
       .filter((entry) => entry.name.startsWith(prefix))
-      .map((entry) => [entry.name.slice(prefix.length), Math.round(entry.duration)])
+      .map((entry) => [entry.name.slice(prefix.length), Math.round(entry.duration)]),
   )
   return {
     measures,
     counters: Object.fromEntries(counters),
     startupRequests: typeof performance === "undefined" ? undefined : performance.getEntriesByType("resource").length,
-    longTaskP95Ms: percentile(longTasks.map((entry) => entry.duration), 0.95),
+    longTaskP95Ms: percentile(
+      longTasks.map((entry) => entry.duration),
+      0.95,
+    ),
     heapUsedBytes:
       typeof performance !== "undefined" && "memory" in performance
         ? (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory?.usedJSHeapSize

@@ -268,8 +268,7 @@ function normalizeAttachments(
     try {
       resolved = resolveInside(workspaceRoot, value, "attachment")
     } catch (error) {
-      if (error instanceof PathGuardError)
-        throw new BlackboardError("INVALID_ATTACHMENT", `附件超出工作区：${value}`)
+      if (error instanceof PathGuardError) throw new BlackboardError("INVALID_ATTACHMENT", `附件超出工作区：${value}`)
       throw error
     }
     if (!fs.existsSync(resolved)) throw new BlackboardError("INVALID_ATTACHMENT", `附件不存在：${value}`)

@@ -20,10 +20,22 @@ export interface PlanEventStore {
 }
 
 function ensureSchema(db: Database.TxOrDb) {
-  db.run(sql.raw("CREATE TABLE IF NOT EXISTS plan_event (id TEXT PRIMARY KEY NOT NULL, session_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL, revision INTEGER, payload TEXT NOT NULL, time_created INTEGER NOT NULL, UNIQUE(session_id, seq))"))
+  db.run(
+    sql.raw(
+      "CREATE TABLE IF NOT EXISTS plan_event (id TEXT PRIMARY KEY NOT NULL, session_id TEXT NOT NULL, seq INTEGER NOT NULL, type TEXT NOT NULL, revision INTEGER, payload TEXT NOT NULL, time_created INTEGER NOT NULL, UNIQUE(session_id, seq))",
+    ),
+  )
   db.run(sql.raw("CREATE INDEX IF NOT EXISTS plan_event_session_idx ON plan_event(session_id, seq)"))
-  db.run(sql.raw("CREATE TABLE IF NOT EXISTS plan_inbox (id TEXT PRIMARY KEY NOT NULL, session_id TEXT NOT NULL, task_id TEXT, run_id TEXT, kind TEXT NOT NULL, message TEXT NOT NULL, step_id TEXT, task_title TEXT, report TEXT, suggested_actions TEXT, created_at INTEGER NOT NULL, resolved_at INTEGER)"))
-  db.run(sql.raw("CREATE INDEX IF NOT EXISTS plan_inbox_session_resolved_idx ON plan_inbox(session_id, resolved_at, created_at)"))
+  db.run(
+    sql.raw(
+      "CREATE TABLE IF NOT EXISTS plan_inbox (id TEXT PRIMARY KEY NOT NULL, session_id TEXT NOT NULL, task_id TEXT, run_id TEXT, kind TEXT NOT NULL, message TEXT NOT NULL, step_id TEXT, task_title TEXT, report TEXT, suggested_actions TEXT, created_at INTEGER NOT NULL, resolved_at INTEGER)",
+    ),
+  )
+  db.run(
+    sql.raw(
+      "CREATE INDEX IF NOT EXISTS plan_inbox_session_resolved_idx ON plan_inbox(session_id, resolved_at, created_at)",
+    ),
+  )
   db.run(sql.raw("CREATE INDEX IF NOT EXISTS plan_inbox_session_task_idx ON plan_inbox(session_id, task_id)"))
 }
 

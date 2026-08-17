@@ -118,7 +118,10 @@ export function createCheckpoint(input: CheckpointInput): CompactionCheckpoint {
 export function updateCheckpoint(
   checkpoint: CompactionCheckpoint,
   update: Partial<
-    Pick<CompactionCheckpoint, "after" | "progress" | "pending" | "blocked" | "verbatimTailMessageIDs" | "status" | "reason">
+    Pick<
+      CompactionCheckpoint,
+      "after" | "progress" | "pending" | "blocked" | "verbatimTailMessageIDs" | "status" | "reason"
+    >
   >,
 ): CompactionCheckpoint {
   return {
@@ -153,25 +156,20 @@ export function validateCheckpoint(
   const decoded = decodeCheckpoint(checkpoint)
   if (!decoded) return false
   if (input?.sessionID && decoded.sessionID !== input.sessionID) return false
-  if (
-    input?.sourceHighWatermark &&
-    !sameSourceHighWatermark(decoded.sourceHighWatermark, input.sourceHighWatermark)
-  )
+  if (input?.sourceHighWatermark && !sameSourceHighWatermark(decoded.sourceHighWatermark, input.sourceHighWatermark))
     return false
   return true
 }
 
 /** Returns the newest non-compaction user boundary, or the newest message. */
-export function sourceHighWatermark(
-  messages: ReadonlyArray<SourceMessage>,
-): SourceHighWatermark {
+export function sourceHighWatermark(messages: ReadonlyArray<SourceMessage>): SourceHighWatermark {
   const candidates = messages.filter((message) => {
     if (!message.info?.id) return false
     if (message.info.role === "assistant" && message.info.summary) return false
     if (message.info.role === "user" && message.parts?.some((part) => part.type === "compaction")) return false
     return true
   })
-  const latest = candidates.reduce<typeof candidates[number] | undefined>((current, message) => {
+  const latest = candidates.reduce<(typeof candidates)[number] | undefined>((current, message) => {
     if (!current) return message
     const currentCreated = current.info?.time?.created ?? 0
     const created = message.info?.time?.created ?? 0

@@ -124,7 +124,7 @@ export function App(props: AppProps) {
     >
       <DesktopBridgeProvider bridge={props.bridge}>
         <I18nProvider>
-        <DesktopApplication workspaceLoader={props.workspaceLoader} />
+          <DesktopApplication workspaceLoader={props.workspaceLoader} />
         </I18nProvider>
       </DesktopBridgeProvider>
     </ErrorBoundary>

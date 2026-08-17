@@ -18,7 +18,6 @@ import { SessionStatus } from "@/session/status"
 import { InstanceStore } from "@/project/instance-store"
 import { EffectBridge } from "@/effect/bridge"
 import { SessionSummary } from "@/session/summary"
-import { Todo } from "@/session/todo"
 import {
   childTerminationRequest,
   clearChildRunIntent,
@@ -122,7 +121,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const statusSvc = yield* SessionStatus.Service
     const instanceStore = yield* InstanceStore.Service
     const bridge = yield* EffectBridge.make()
-    const todoSvc = yield* Todo.Service
     const summary = yield* SessionSummary.Service
     const blackboard = yield* Blackboard.Service
     const bus = yield* Bus.Service
@@ -360,11 +358,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return true
     })
 
-    const todo = Effect.fn("SessionHttpApi.todo")(function* (ctx: { params: { sessionID: SessionID } }) {
-      yield* requireSession(ctx.params.sessionID)
-      return yield* todoSvc.get(ctx.params.sessionID)
-    })
-
     const diff = Effect.fn("SessionHttpApi.diff")(function* (ctx: {
       params: { sessionID: SessionID }
       query: typeof DiffQuery.Type
@@ -485,11 +478,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload?: typeof ForkPayload.Type
     }) {
-      return yield* session.fork({ sessionID: ctx.params.sessionID, messageID: ctx.payload?.messageID }).pipe(
-        Effect.mapError((error) =>
-          error instanceof ForkBudgetError ? new HttpApiError.BadRequest({}) : ApiError.notFound(error.message),
-        ),
-      )
+      return yield* session
+        .fork({ sessionID: ctx.params.sessionID, messageID: ctx.payload?.messageID })
+        .pipe(
+          Effect.mapError((error) =>
+            error instanceof ForkBudgetError ? new HttpApiError.BadRequest({}) : ApiError.notFound(error.message),
+          ),
+        )
     })
 
     const forkRaw = Effect.fn("SessionHttpApi.forkRaw")(function* (ctx: {
@@ -705,10 +700,9 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       }
 
       if (ctx.payload.noReply !== true) {
-        yield* promptSvc.loop({ sessionID: ctx.params.sessionID }).pipe(
-          Effect.catchCause(reportFailure),
-          Effect.forkIn(scope, { startImmediately: true }),
-        )
+        yield* promptSvc
+          .loop({ sessionID: ctx.params.sessionID })
+          .pipe(Effect.catchCause(reportFailure), Effect.forkIn(scope, { startImmediately: true }))
       }
       return HttpApiSchema.NoContent.make()
     })
@@ -803,7 +797,6 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("context", context)
       .handle("plan", plan)
       .handle("blackboard", blackboardSnapshot)
-      .handle("todo", todo)
       .handle("diff", diff)
       .handle("messages", messages)
       .handle("message", message)

@@ -171,8 +171,10 @@ export class WorkspaceCleanupService {
 
     await persist({ ...record, state: "deleting", attempts, updated_at: nowIso(now), next_retry_at: undefined })
     if (input.deleteWorkspace !== false) {
-      if (!input.workspaceDirectory) return this.fail(input, record, "delete", new Error("workspace directory is missing"), now)
-      if (!input.remove) return this.fail(input, record, "delete", new Error("workspace remove operation is unavailable"), now)
+      if (!input.workspaceDirectory)
+        return this.fail(input, record, "delete", new Error("workspace directory is missing"), now)
+      if (!input.remove)
+        return this.fail(input, record, "delete", new Error("workspace remove operation is unavailable"), now)
       try {
         await retryLockedCleanup(input.remove, {
           delaysMs: input.retryDelaysMs,
@@ -209,7 +211,11 @@ export class WorkspaceCleanupService {
       state: isUnsafe(error) ? "quarantined" : "failed",
       updated_at: nowIso(now),
       next_retry_at: isUnsafe(error) ? undefined : new Date(now() + CLEANUP_RETRY_DELAY_MS).toISOString(),
-      last_error: { phase, ...(code ?? codeOf(error) ? { code: code ?? codeOf(error) } : {}), message: messageOf(error) },
+      last_error: {
+        phase,
+        ...((code ?? codeOf(error)) ? { code: code ?? codeOf(error) } : {}),
+        message: messageOf(error),
+      },
     }
     await input.persist(failed)
     return { record: failed, changed: true }

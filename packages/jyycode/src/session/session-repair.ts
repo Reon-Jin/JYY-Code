@@ -11,7 +11,11 @@ export type RepairPlan = {
   readonly sourceSessionID: string
   readonly validRows: readonly RepairInputRow[]
   readonly corruptRows: readonly CorruptSessionRow[]
-  readonly placeholders: readonly { readonly table: "message" | "part"; readonly sourceID: string; readonly digest: string }[]
+  readonly placeholders: readonly {
+    readonly table: "message" | "part"
+    readonly sourceID: string
+    readonly digest: string
+  }[]
 }
 
 /** Build a copy-only repair plan. It never mutates the source database. */

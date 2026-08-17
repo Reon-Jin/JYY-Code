@@ -215,7 +215,9 @@ describe("LSPClient interop", () => {
         await client.notify.open({ path: first })
         await client.connection.sendNotification("test/publish-diagnostics", {
           uri: pathToFileURL(first).href,
-          diagnostics: [{ message: "stale", range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }],
+          diagnostics: [
+            { message: "stale", range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } },
+          ],
         })
         await new Promise((resolve) => setTimeout(resolve, 20))
         await client.notify.open({ path: second })

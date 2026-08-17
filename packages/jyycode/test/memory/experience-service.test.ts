@@ -14,7 +14,9 @@ afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((directory) => fs.rm(directory, { recursive: true, force: true })))
 })
 
-function candidate(overrides: Partial<ExperienceMemory.ExperienceCandidate> = {}): ExperienceMemory.ExperienceCandidate {
+function candidate(
+  overrides: Partial<ExperienceMemory.ExperienceCandidate> = {},
+): ExperienceMemory.ExperienceCandidate {
   return {
     kind: "failure",
     importance: 8,
@@ -30,7 +32,9 @@ async function withStore<T>(run: (service: ExperienceMemory.ExperienceInterface)
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "experience-"))
   cleanup.push(directory)
   const layer = ExperienceMemory.layerWithDirectory(directory).pipe(Layer.provide(AppFileSystem.defaultLayer))
-  return Effect.runPromise(ExperienceMemory.Service.use((service) => Effect.promise(() => run(service))).pipe(Effect.provide(layer)))
+  return Effect.runPromise(
+    ExperienceMemory.Service.use((service) => Effect.promise(() => run(service))).pipe(Effect.provide(layer)),
+  )
 }
 
 describe("experience service", () => {
@@ -82,10 +86,16 @@ describe("experience service", () => {
     await withStore(async (service) => {
       const other = SessionID.make("ses_experience_other")
       const first = await Effect.runPromise(
-        service.upsert(sessionID, candidate({ content: "SSH 权限报错时先检查密钥权限", evidence: "[ses_experience#1] ssh" })),
+        service.upsert(
+          sessionID,
+          candidate({ content: "SSH 权限报错时先检查密钥权限", evidence: "[ses_experience#1] ssh" }),
+        ),
       )
       const second = await Effect.runPromise(
-        service.upsert(sessionID, candidate({ content: "SSH 权限报错时先检查密钥权限再重试", evidence: "[ses_experience#2] ssh -T" })),
+        service.upsert(
+          sessionID,
+          candidate({ content: "SSH 权限报错时先检查密钥权限再重试", evidence: "[ses_experience#2] ssh -T" }),
+        ),
       )
       const cross = await Effect.runPromise(service.upsert(other, candidate()))
       expect(first.status).toBe("written")
@@ -153,9 +163,7 @@ describe("experience service", () => {
       const substring = await Effect.runPromise(service.formatExperienceSnapshot(sessionID, ["部署"]))
       expect(substring).toContain("部署前先跑测试")
       expect(substring).not.toContain("完成赛车游戏的碰撞系统")
-      const goalQuery = await Effect.runPromise(
-        service.formatExperienceSnapshot(sessionID, [], "部署前先跑测试"),
-      )
+      const goalQuery = await Effect.runPromise(service.formatExperienceSnapshot(sessionID, [], "部署前先跑测试"))
       expect(goalQuery).toContain("部署前先跑测试")
       expect(await Effect.runPromise(service.formatExperienceSnapshot(sessionID, ["无关"]))).toBe("")
     })
@@ -163,12 +171,8 @@ describe("experience service", () => {
 
   test("snapshot ranks exact keyword matches above content-only matches", async () => {
     await withStore(async (service) => {
-      await Effect.runPromise(
-        service.upsert(sessionID, candidate({ keywords: ["部署"], content: "部署前先跑测试" })),
-      )
-      await Effect.runPromise(
-        service.upsert(sessionID, candidate({ keywords: ["脚本"], content: "部署前先看日志" })),
-      )
+      await Effect.runPromise(service.upsert(sessionID, candidate({ keywords: ["部署"], content: "部署前先跑测试" })))
+      await Effect.runPromise(service.upsert(sessionID, candidate({ keywords: ["脚本"], content: "部署前先看日志" })))
       const snapshot = await Effect.runPromise(service.formatExperienceSnapshot(sessionID, ["部署"]))
       expect(snapshot.indexOf("部署前先跑测试")).toBeLessThan(snapshot.indexOf("部署前先看日志"))
     })
@@ -185,9 +189,7 @@ describe("experience service", () => {
 
   test("search finds content-only hits and keeps uses increments", async () => {
     await withStore(async (service) => {
-      await Effect.runPromise(
-        service.upsert(sessionID, candidate({ keywords: ["部署"], content: "部署前先跑测试" })),
-      )
+      await Effect.runPromise(service.upsert(sessionID, candidate({ keywords: ["部署"], content: "部署前先跑测试" })))
       const hits = await Effect.runPromise(service.search({ sessionID, query: "测试" }))
       expect(hits).toHaveLength(1)
       expect(hits[0]?.uses).toBe(1)
@@ -196,9 +198,9 @@ describe("experience service", () => {
 
   test("rejects evidence without a [sessionID#turn] anchor", async () => {
     await withStore(async (service) => {
-      await expect(
-        Effect.runPromise(service.upsert(sessionID, candidate({ evidence: "no anchor" }))),
-      ).rejects.toThrow("evidence")
+      await expect(Effect.runPromise(service.upsert(sessionID, candidate({ evidence: "no anchor" })))).rejects.toThrow(
+        "evidence",
+      )
     })
   })
 })
@@ -247,9 +249,7 @@ describe("experience maintenance", () => {
         sessionID,
       },
     ])
-    const result = await run(
-      ExperienceMemory.Service.use((service) => service.maintain(sessionID)),
-    )
+    const result = await run(ExperienceMemory.Service.use((service) => service.maintain(sessionID)))
     expect(result).toMatchObject({ removed: 1, merged: 0, retained: 1 })
     const store = await run(ExperienceMemory.Service.use((service) => service.readStore(sessionID)))
     expect(store.entries.map((entry) => entry.content)).toEqual(["部署前先跑测试"])
@@ -291,9 +291,7 @@ describe("experience maintenance", () => {
         sessionID,
       },
     ])
-    const result = await run(
-      ExperienceMemory.Service.use((service) => service.maintain(sessionID)),
-    )
+    const result = await run(ExperienceMemory.Service.use((service) => service.maintain(sessionID)))
     expect(result).toMatchObject({ removed: 1 })
     const store = await run(ExperienceMemory.Service.use((service) => service.readStore(sessionID)))
     expect(store.entries.map((entry) => entry.content)).toEqual(["低置信但被复用过的经验"])

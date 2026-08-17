@@ -726,9 +726,9 @@ it.live("session.processor effect tests complete AI SDK tool calls when native f
 
         // A late timeout/defect notification must not overwrite the already
         // completed tool result or finalize the call a second time.
-        const lateFailure = yield* (handle.failToolCall
+        const lateFailure = yield* handle.failToolCall
           ? handle.failToolCall("call_1", new Error("late tool failure"), { phase: "late" })
-          : Effect.succeed(false))
+          : Effect.succeed(false)
         expect(lateFailure).toBe(false)
         const afterLateFailure = MessageV2.parts(msg.id).find(
           (part): part is MessageV2.ToolPart => part.type === "tool" && part.callID === "call_1",

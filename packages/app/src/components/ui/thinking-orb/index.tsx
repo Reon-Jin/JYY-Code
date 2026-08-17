@@ -39,16 +39,7 @@ function systemDark(): boolean {
  * upstream repository; only the React shell was translated to Solid.
  */
 export function ThinkingOrb(props: ThinkingOrbProps) {
-  const [local, rest] = splitProps(props, [
-    "state",
-    "size",
-    "theme",
-    "speed",
-    "paused",
-    "style",
-    "class",
-    "aria-label",
-  ])
+  const [local, rest] = splitProps(props, ["state", "size", "theme", "speed", "paused", "style", "class", "aria-label"])
 
   let canvas: HTMLCanvasElement | undefined
   const [dark, setDark] = createSignal(true)

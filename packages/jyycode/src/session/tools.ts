@@ -535,7 +535,9 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const mcp = yield* MCP.Service
   const bus = yield* Bus.Service
   const configService = yield* Effect.serviceOption(Config.Service)
-  const config = Option.isSome(configService) ? yield* Effect.promise(() => run.promise(configService.value.get())) : undefined
+  const config = Option.isSome(configService)
+    ? yield* Effect.promise(() => run.promise(configService.value.get()))
+    : undefined
   const executionBudgetConfig = Object.fromEntries(
     Object.entries(config?.execution_budget ?? {})
       .filter(([operationClass]) => Object.prototype.hasOwnProperty.call(DEFAULT_BUDGETS, operationClass))
@@ -681,23 +683,25 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
                   budget.child("plugin_hook", Math.max(1, Math.floor(budget.effectiveMs / 2)), executionBudgetConfig)
 
                 const beforeBudget = pluginStage()
-                yield* plugin.trigger(
-                  "tool.execute.before",
-                  { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
-                  { args },
-                  { signal: beforeBudget.deadline.signal(ctx.abort) },
-                ).pipe(
-                  Effect.timeoutOrElse({
-                    duration: beforeBudget.effectiveMs,
-                    orElse: () =>
-                      Effect.fail(
-                        new Tool.ExecutionTimeoutError(item.id, beforeBudget.effectiveMs, {
-                          requestedMs: beforeBudget.requestedMs,
-                          phase: "plugin_before",
-                        }),
-                      ),
-                  }),
-                )
+                yield* plugin
+                  .trigger(
+                    "tool.execute.before",
+                    { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
+                    { args },
+                    { signal: beforeBudget.deadline.signal(ctx.abort) },
+                  )
+                  .pipe(
+                    Effect.timeoutOrElse({
+                      duration: beforeBudget.effectiveMs,
+                      orElse: () =>
+                        Effect.fail(
+                          new Tool.ExecutionTimeoutError(item.id, beforeBudget.effectiveMs, {
+                            requestedMs: beforeBudget.requestedMs,
+                            phase: "plugin_before",
+                          }),
+                        ),
+                    }),
+                  )
                 phase = "execute"
                 const result = yield* executeDef(args, ctx)
                 const output = {
@@ -715,23 +719,25 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
                 yield* input.processor.completeToolCall(options.toolCallId, output)
                 phase = "plugin_after"
                 const afterBudget = pluginStage()
-                yield* plugin.trigger(
-                  "tool.execute.after",
-                  { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
-                  output,
-                  { signal: afterBudget.deadline.signal(ctx.abort) },
-                ).pipe(
-                  Effect.timeoutOrElse({
-                    duration: afterBudget.effectiveMs,
-                    orElse: () =>
-                      Effect.fail(
-                        new Tool.ExecutionTimeoutError(item.id, afterBudget.effectiveMs, {
-                          requestedMs: afterBudget.requestedMs,
-                          phase: "plugin_after",
-                        }),
-                      ),
-                  }),
-                )
+                yield* plugin
+                  .trigger(
+                    "tool.execute.after",
+                    { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
+                    output,
+                    { signal: afterBudget.deadline.signal(ctx.abort) },
+                  )
+                  .pipe(
+                    Effect.timeoutOrElse({
+                      duration: afterBudget.effectiveMs,
+                      orElse: () =>
+                        Effect.fail(
+                          new Tool.ExecutionTimeoutError(item.id, afterBudget.effectiveMs, {
+                            requestedMs: afterBudget.requestedMs,
+                            phase: "plugin_after",
+                          }),
+                        ),
+                    }),
+                  )
                 return output
               })
               // Interactive tools (question) wait on the user, not the clock.
@@ -739,19 +745,20 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
               // call while the user is still reading/answering; their lifetime
               // is governed by the session abort signal and cancelSession.
               const interactive = item.id === "question"
-              return yield* (interactive
-                ? execution
-                : bounded(
-                    execution,
-                    budget,
-                    () =>
-                      new Tool.ExecutionTimeoutError(item.id, budget.effectiveMs, {
-                        requestedMs: budget.requestedMs,
-                        elapsedMs: Date.now() - started,
-                        phase: options.abortSignal?.aborted ? "abort" : phase,
-                        terminationResult: options.abortSignal?.aborted ? "aborted" : "not_applicable",
-                      }),
-                  )
+              return yield* (
+                interactive
+                  ? execution
+                  : bounded(
+                      execution,
+                      budget,
+                      () =>
+                        new Tool.ExecutionTimeoutError(item.id, budget.effectiveMs, {
+                          requestedMs: budget.requestedMs,
+                          elapsedMs: Date.now() - started,
+                          phase: options.abortSignal?.aborted ? "abort" : phase,
+                          terminationResult: options.abortSignal?.aborted ? "aborted" : "not_applicable",
+                        }),
+                    )
               ).pipe(
                 Effect.matchCauseEffect({
                   onSuccess: (output) =>
@@ -774,16 +781,18 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
                       requested_ms: budget.requestedMs ?? budget.effectiveMs,
                       effective_ms: budget.effectiveMs,
                       elapsed_ms: Date.now() - started,
-                      phase: error instanceof Tool.ExecutionTimeoutError
-                        ? error.phase
-                        : options.abortSignal?.aborted
-                          ? "abort"
-                          : phase,
-                      termination_result: error instanceof Tool.ExecutionTimeoutError
-                        ? error.terminationResult
-                        : options.abortSignal?.aborted
-                          ? "aborted"
-                          : "not_applicable",
+                      phase:
+                        error instanceof Tool.ExecutionTimeoutError
+                          ? error.phase
+                          : options.abortSignal?.aborted
+                            ? "abort"
+                            : phase,
+                      termination_result:
+                        error instanceof Tool.ExecutionTimeoutError
+                          ? error.terminationResult
+                          : options.abortSignal?.aborted
+                            ? "aborted"
+                            : "not_applicable",
                     }
                     const finalize = input.processor.failToolCall
                       ? input.processor.failToolCall(options.toolCallId, error, metadata).pipe(Effect.ignore)
@@ -940,13 +949,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   // A profile-backed child that has no MCP allowance should not even resolve
   // MCP definitions: resolving them is the point at which configured servers
   // are started. Root sessions and explicitly MCP-enabled roles still opt in.
-  const shouldResolveMcp = input.agent.mode !== "subagent" || allowedToolIDs?.has(SUBAGENT_READ_ONLY_MCP_TOOL_ID) === true
+  const shouldResolveMcp =
+    input.agent.mode !== "subagent" || allowedToolIDs?.has(SUBAGENT_READ_ONLY_MCP_TOOL_ID) === true
   const mcpDefs =
-    candidateGate && candidateGate.phase !== "running"
-      ? []
-      : shouldResolveMcp
-        ? yield* mcp.toolDefs()
-        : []
+    candidateGate && candidateGate.phase !== "running" ? [] : shouldResolveMcp ? yield* mcp.toolDefs() : []
   const visibleRegistryDefs = filterToolIDs(registryDefs, allowedToolIDs).filter((item) => {
     if (item.id === "Goal_done" && (input.session.parentID !== undefined || input.session.goal?.status !== "running"))
       return false
@@ -955,11 +961,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     if (!PLAN_TOOL_IDS.has(item.id)) return true
     return isPlanToolVisible(item.id, input.session)
   })
-  const visibleMcpDefs = (allowedToolIDs
-    ? mcpDefs.filter(
-        (item) => allowedToolIDs.has(item.id) || allowedToolIDs.has(SUBAGENT_READ_ONLY_MCP_TOOL_ID),
-      )
-    : mcpDefs
+  const visibleMcpDefs = (
+    allowedToolIDs
+      ? mcpDefs.filter((item) => allowedToolIDs.has(item.id) || allowedToolIDs.has(SUBAGENT_READ_ONLY_MCP_TOOL_ID))
+      : mcpDefs
   ).filter((item) => {
     if (input.agent.mode !== "subagent") return true
     const readOnlyMcp =

@@ -197,13 +197,7 @@ export const layer = Layer.effect(
           },
         }
 
-        const subagentPermission = Permission.merge(
-          defaults,
-          Permission.fromConfig({
-            todowrite: "deny",
-          }),
-          user,
-        )
+        const subagentPermission = Permission.merge(defaults, user)
         const subagentConfig = global.subagents !== undefined ? global.subagents : cfg.subagents
         for (const profile of enabledProfiles(resolveProfiles(subagentConfig?.profiles))) {
           const name = profileAgentName(profile.id)

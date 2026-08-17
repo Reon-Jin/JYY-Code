@@ -29,9 +29,7 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
   const kind = options?.kind ?? "file"
   const dir = kind === "directory" ? full : path.dirname(full)
   const glob =
-    process.platform === "win32"
-      ? normalizePathPattern(path.join(dir, "*"))
-      : path.join(dir, "*").replaceAll("\\", "/")
+    process.platform === "win32" ? normalizePathPattern(path.join(dir, "*")) : path.join(dir, "*").replaceAll("\\", "/")
 
   yield* ctx.ask({
     permission: "external_directory",

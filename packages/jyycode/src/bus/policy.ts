@@ -16,7 +16,10 @@ export function eventPolicy(kind: EventClass, options: { capacity?: number; key?
   const defaultPolicy = DEFAULT_EVENT_POLICIES[kind]
   return {
     ...defaultPolicy,
-    capacity: Math.max(1, Math.min(kind === "coalescible" ? 256 : 1024, Math.floor(options.capacity ?? defaultPolicy.capacity))),
+    capacity: Math.max(
+      1,
+      Math.min(kind === "coalescible" ? 256 : 1024, Math.floor(options.capacity ?? defaultPolicy.capacity)),
+    ),
     ...(options.key ? { key: options.key } : {}),
   }
 }

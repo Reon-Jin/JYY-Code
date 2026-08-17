@@ -160,7 +160,7 @@ describe("session.retry.delay", () => {
             set: () =>
               Effect.sync(() => {
                 setCalls++
-            }),
+              }),
           }),
         )
         // Attempts 1..RETRY_MAX_ATTEMPTS schedule a retry; the next failure

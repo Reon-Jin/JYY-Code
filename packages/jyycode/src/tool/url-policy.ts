@@ -99,7 +99,7 @@ export function isPrivateNetworkAddress(address: string): boolean {
   if (v6 === undefined) return false
 
   // IPv4-mapped IPv6 addresses must use the IPv4 policy too.
-  if ((v6 >> 32n) === 0xffffn) return isBlockedIpv4(Number(v6 & 0xffffffffn))
+  if (v6 >> 32n === 0xffffn) return isBlockedIpv4(Number(v6 & 0xffffffffn))
 
   return (
     ipv6InRange(v6, 0n, 128) || // unspecified ::
@@ -146,11 +146,9 @@ export async function assertUrlAllowed(
   return url
 }
 
-export const assertUrlAllowedEffect = (
-  input: string,
-  options?: { allowPrivate?: boolean; resolve?: ResolveAll },
-) =>
+export const assertUrlAllowedEffect = (input: string, options?: { allowPrivate?: boolean; resolve?: ResolveAll }) =>
   Effect.tryPromise({
     try: () => assertUrlAllowed(input, options),
-    catch: (error) => (error instanceof UrlPolicyError ? error : new UrlPolicyError({ url: input, reason: String(error) })),
+    catch: (error) =>
+      error instanceof UrlPolicyError ? error : new UrlPolicyError({ url: input, reason: String(error) }),
   })

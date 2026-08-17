@@ -72,9 +72,7 @@ describe("review feedback history", () => {
         ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "reject", feedback: "Add examples" }],
       })
       expect(rejectedOnce).toMatchObject({ ok: true, dispatched: [{ taskId: "s1_t1" }] })
-      expect(starts[1]?.brief.review_feedback_history).toEqual([
-        { review_feedback: "Add examples", issues: [] },
-      ])
+      expect(starts[1]?.brief.review_feedback_history).toEqual([{ review_feedback: "Add examples", issues: [] }])
 
       if (!rejectedOnce.ok) return
       const secondRun = rejectedOnce.dispatched?.[0]
@@ -87,9 +85,7 @@ describe("review feedback history", () => {
       if (!secondReview.ok || !secondReview.plan) return
       const rejectedTwice = await protocol.update(context(root), {
         revision: secondReview.plan.revision,
-        ops: [
-          { op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "reject", feedback: "Cover pagination" },
-        ],
+        ops: [{ op: "review_task", stepId: "s1", taskId: "s1_t1", decision: "reject", feedback: "Cover pagination" }],
       })
       expect(rejectedTwice).toMatchObject({ ok: true, dispatched: [{ taskId: "s1_t1" }] })
       expect(starts[2]?.brief.review_feedback_history).toEqual([
@@ -172,9 +168,7 @@ describe("review feedback history", () => {
       expect(resumed[0]?.childSessionId).toBe(firstRun.child_session_id)
       expect(resumed[0]?.brief.run_id).toBe(secondRun.run_id)
       expect(resumed[0]?.brief.previous_feedback?.review_feedback).toBe("Add examples")
-      expect(resumed[0]?.brief.review_feedback_history).toEqual([
-        { review_feedback: "Add examples", issues: [] },
-      ])
+      expect(resumed[0]?.brief.review_feedback_history).toEqual([{ review_feedback: "Add examples", issues: [] }])
       expect(terminated).toHaveLength(0)
 
       await protocol.report(

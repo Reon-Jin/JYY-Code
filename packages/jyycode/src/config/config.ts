@@ -1039,9 +1039,7 @@ export const layer = Layer.effect(
       const existing = yield* loadFile(file)
       const merged = mergeDeep(writable(existing), writable(config)) as Info
       const migrated = yield* migrateInlineCredentials(merged)
-      yield* fs
-        .writeFileString(file, JSON.stringify(writable(migrated), null, 2))
-        .pipe(Effect.orDie)
+      yield* fs.writeFileString(file, JSON.stringify(writable(migrated), null, 2)).pipe(Effect.orDie)
     })
 
     const updateProject = Effect.fn("Config.updateProject")(function* (config: Pick<Info, "subagents">) {

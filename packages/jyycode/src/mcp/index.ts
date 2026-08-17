@@ -81,7 +81,10 @@ export function resolveMcpTimeouts(input: McpTimeoutInput = {}, defaults: McpTim
     input.idle_timeout_ms ?? input.timeout ?? defaults.idleMs ?? DEFAULT_MCP_IDLE_TIMEOUT,
     MAX_MCP_IDLE_TIMEOUT,
   )
-  const totalMs = Math.min(input.total_timeout_ms ?? defaults.totalMs ?? DEFAULT_MCP_TOTAL_TIMEOUT, MAX_MCP_TOTAL_TIMEOUT)
+  const totalMs = Math.min(
+    input.total_timeout_ms ?? defaults.totalMs ?? DEFAULT_MCP_TOTAL_TIMEOUT,
+    MAX_MCP_TOTAL_TIMEOUT,
+  )
   if (totalMs < idleMs) {
     throw new Error(`MCP total timeout (${totalMs}ms) must be greater than or equal to idle timeout (${idleMs}ms)`)
   }
@@ -108,7 +111,11 @@ export function withMcpRequest<T>(
   })
 }
 
-export function mcpRequestOptions(timeouts: McpTimeouts, signal: AbortSignal, onprogress?: (progress: unknown) => void) {
+export function mcpRequestOptions(
+  timeouts: McpTimeouts,
+  signal: AbortSignal,
+  onprogress?: (progress: unknown) => void,
+) {
   return {
     timeout: timeouts.idleMs,
     maxTotalTimeout: timeouts.totalMs,
@@ -225,7 +232,14 @@ function isOutputSchemaValidationError(error: Error) {
 function listTools(key: string, client: MCPClient, timeouts: McpTimeouts) {
   const deadlineAt = Date.now() + timeouts.totalMs
   return Effect.tryPromise({
-    try: () => withMcpRequest((requestSignal) => client.listTools(undefined, mcpRequestOptions(remainingMcpTimeouts(timeouts, deadlineAt), requestSignal)), timeouts, `MCP ${key} tools/list`, deadlineAt),
+    try: () =>
+      withMcpRequest(
+        (requestSignal) =>
+          client.listTools(undefined, mcpRequestOptions(remainingMcpTimeouts(timeouts, deadlineAt), requestSignal)),
+        timeouts,
+        `MCP ${key} tools/list`,
+        deadlineAt,
+      ),
     catch: (err) => (err instanceof Error ? err : new Error(String(err))),
   }).pipe(
     Effect.map((result) => result.tools),
@@ -401,7 +415,12 @@ function fetchFromClient<T extends { name: string }>(
   timeouts: McpTimeouts,
 ) {
   return Effect.tryPromise({
-    try: () => withMcpRequest((requestSignal) => listFn(client, mcpRequestOptions(timeouts, requestSignal)), timeouts, `MCP ${label} ${clientName}`),
+    try: () =>
+      withMcpRequest(
+        (requestSignal) => listFn(client, mcpRequestOptions(timeouts, requestSignal)),
+        timeouts,
+        `MCP ${label} ${clientName}`,
+      ),
     catch: (e: any) => {
       log.error(`failed to get ${label}`, { clientName, error: e.message })
       return e
@@ -538,8 +557,7 @@ export const layer = Layer.effect(
             },
             catch: (e) => (e instanceof Error ? e : new Error(String(e))),
           }),
-        (t, exit) =>
-          Exit.isFailure(exit) ? closeTransport(t, { key, operation: "connect" }) : Effect.void,
+        (t, exit) => (Exit.isFailure(exit) ? closeTransport(t, { key, operation: "connect" }) : Effect.void),
       )
 
     const DISABLED_RESULT: CreateResult = { status: { status: "disabled" } }
@@ -891,7 +909,13 @@ export const layer = Layer.effect(
         Object.entries(config),
         ([key, mcp]) =>
           Effect.gen(function* () {
-            if (!isMcpConfigured(mcp) || mcp.enabled === false || s.clients[key] || s.status[key]?.status === "disabled") return
+            if (
+              !isMcpConfigured(mcp) ||
+              mcp.enabled === false ||
+              s.clients[key] ||
+              s.status[key]?.status === "disabled"
+            )
+              return
             yield* createAndStore(key, mcp).pipe(Effect.catch(() => Effect.void))
           }),
         { concurrency: s.manager.maxConcurrency },
@@ -1045,13 +1069,21 @@ export const layer = Layer.effect(
     const prompts = Effect.fn("MCP.prompts")(function* () {
       yield* ensureConfigured()
       const s = yield* InstanceState.get(state)
-      return yield* collectFromConnected(s, (c, options) => c.listPrompts(undefined, options).then((r) => r.prompts), "prompts")
+      return yield* collectFromConnected(
+        s,
+        (c, options) => c.listPrompts(undefined, options).then((r) => r.prompts),
+        "prompts",
+      )
     })
 
     const resources = Effect.fn("MCP.resources")(function* () {
       yield* ensureConfigured()
       const s = yield* InstanceState.get(state)
-      return yield* collectFromConnected(s, (c, options) => c.listResources(undefined, options).then((r) => r.resources), "resources")
+      return yield* collectFromConnected(
+        s,
+        (c, options) => c.listResources(undefined, options).then((r) => r.resources),
+        "resources",
+      )
     })
 
     const withClient = Effect.fnUntraced(function* <A>(
@@ -1070,7 +1102,12 @@ export const layer = Layer.effect(
       const entry = cfg.mcp?.[clientName]
       const timeouts = yield* timeoutsFor(isMcpConfigured(entry) ? entry : undefined)
       return yield* Effect.tryPromise({
-        try: () => withMcpRequest((requestSignal) => fn(client, mcpRequestOptions(timeouts, requestSignal)), timeouts, `MCP ${label} ${clientName}`),
+        try: () =>
+          withMcpRequest(
+            (requestSignal) => fn(client, mcpRequestOptions(timeouts, requestSignal)),
+            timeouts,
+            `MCP ${label} ${clientName}`,
+          ),
         catch: (e: any) => {
           log.error(`failed to ${label}`, { clientName, ...meta, error: e?.message })
           return e
@@ -1083,15 +1120,25 @@ export const layer = Layer.effect(
       name: string,
       args?: Record<string, string>,
     ) {
-      return yield* withClient(clientName, (client, options) => client.getPrompt({ name, arguments: args }, options), "getPrompt", {
-        promptName: name,
-      })
+      return yield* withClient(
+        clientName,
+        (client, options) => client.getPrompt({ name, arguments: args }, options),
+        "getPrompt",
+        {
+          promptName: name,
+        },
+      )
     })
 
     const readResource = Effect.fn("MCP.readResource")(function* (clientName: string, resourceUri: string) {
-      return yield* withClient(clientName, (client, options) => client.readResource({ uri: resourceUri }, options), "readResource", {
-        resourceUri,
-      })
+      return yield* withClient(
+        clientName,
+        (client, options) => client.readResource({ uri: resourceUri }, options),
+        "readResource",
+        {
+          resourceUri,
+        },
+      )
     })
 
     const getMcpConfig = Effect.fnUntraced(function* (mcpName: string) {
@@ -1153,8 +1200,9 @@ export const layer = Layer.effect(
       return yield* Effect.tryPromise({
         try: () => {
           const client = new Client({ name: "jyycode", version: InstallationVersion })
-          return withMcpRequest(() => client.connect(transport), timeouts, `MCP ${mcpName} auth connect`)
-            .then(() => ({ authorizationUrl: "", oauthState, client }) satisfies AuthResult)
+          return withMcpRequest(() => client.connect(transport), timeouts, `MCP ${mcpName} auth connect`).then(
+            () => ({ authorizationUrl: "", oauthState, client }) satisfies AuthResult,
+          )
         },
         catch: (error) => error,
       }).pipe(
@@ -1173,7 +1221,9 @@ export const layer = Layer.effect(
       if (!result.authorizationUrl) {
         const client = "client" in result ? result.client : undefined
         const mcpConfig = yield* requireMcpConfig(mcpName).pipe(
-          Effect.tapError(() => (client ? closeClientResource(client, { mcpName, operation: "auth-config" }) : Effect.void)),
+          Effect.tapError(() =>
+            client ? closeClientResource(client, { mcpName, operation: "auth-config" }) : Effect.void,
+          ),
         )
 
         const timeouts = yield* timeoutsFor(mcpConfig)

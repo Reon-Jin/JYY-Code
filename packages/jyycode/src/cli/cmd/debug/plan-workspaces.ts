@@ -8,7 +8,11 @@ import { Database } from "@/storage/db"
 import { eq } from "@/storage/db"
 import { ProjectID } from "@/project/schema"
 import { SessionTable } from "@/session/session.sql"
-import { applyWorkspaceMigration, inspectWorkspaceStorage, type WorkspaceInventoryResult } from "@/plan/workspace-sweeper"
+import {
+  applyWorkspaceMigration,
+  inspectWorkspaceStorage,
+  type WorkspaceInventoryResult,
+} from "@/plan/workspace-sweeper"
 import { CliError, effectCmd } from "../../effect-cmd"
 import { cmd } from "../cmd"
 
@@ -74,7 +78,9 @@ function sessionContext() {
 }
 
 function roots(project: string, legacyRoot: string | undefined, runtimeOverride?: string) {
-  const runtimeRoot = runtimeOverride ? path.resolve(runtimeOverride) : path.join(Global.Path.data, "plan-workspaces", project)
+  const runtimeRoot = runtimeOverride
+    ? path.resolve(runtimeOverride)
+    : path.join(Global.Path.data, "plan-workspaces", project)
   const legacyRoots = new Set<string>()
   if (project === "global") legacyRoots.add(path.join(Global.Path.data, "global"))
   if (legacyRoot) legacyRoots.add(path.resolve(legacyRoot))
@@ -119,8 +125,15 @@ const CleanupCommand = effectCmd({
     yargs
       .option("project", { type: "string", default: "global", description: "project storage namespace" })
       .option("root", { type: "string", description: "runtime root override for diagnostics/tests" })
-      .option("dry-run", { type: "boolean", default: true, description: "report recommendations without changing storage" })
-      .option("apply", { type: "string", description: "one or more cleanup IDs from a previous dry-run, comma-separated" })
+      .option("dry-run", {
+        type: "boolean",
+        default: true,
+        description: "report recommendations without changing storage",
+      })
+      .option("apply", {
+        type: "string",
+        description: "one or more cleanup IDs from a previous dry-run, comma-separated",
+      })
       .option("json", { type: "boolean", default: false, description: "write machine-readable JSON" })
       .option("show-paths", { type: "boolean", default: false, description: "include absolute filesystem paths" }),
   handler: Effect.fn("Cli.debug.planWorkspaces.cleanup")(function* (args) {
@@ -140,7 +153,11 @@ const CleanupCommand = effectCmd({
       try: () => inspectWorkspaceStorage(base),
       catch: (error) => new CliError({ message: error instanceof Error ? error.message : String(error) }),
     })
-    const ids = args.apply?.split(",").map((id) => id.trim()).filter(Boolean) ?? []
+    const ids =
+      args.apply
+        ?.split(",")
+        .map((id) => id.trim())
+        .filter(Boolean) ?? []
     if (ids.length === 0) {
       print(
         {
@@ -156,7 +173,10 @@ const CleanupCommand = effectCmd({
       try: () => applyWorkspaceMigration({ ...base, cleanupIds: ids }),
       catch: (error) => new CliError({ message: error instanceof Error ? error.message : String(error) }),
     })
-    print({ mode: "apply", result: applied, inventory: formatPlanWorkspaceReport(report, args["show-paths"] === true) }, args.json === true)
+    print(
+      { mode: "apply", result: applied, inventory: formatPlanWorkspaceReport(report, args["show-paths"] === true) },
+      args.json === true,
+    )
   }),
 })
 

@@ -74,12 +74,7 @@ export type WorkspaceSweepResult = {
   timedOut: boolean
 }
 
-export type WorkspaceInventoryCategory =
-  | "active"
-  | "cleanup_failed"
-  | "orphan"
-  | "terminal_reference"
-  | "unknown"
+export type WorkspaceInventoryCategory = "active" | "cleanup_failed" | "orphan" | "terminal_reference" | "unknown"
 
 export type WorkspaceInventoryAction = "preserve" | "retry_cleanup" | "quarantine" | "manual_review"
 
@@ -429,7 +424,10 @@ async function inventoryItem(input: {
   const expired = lease ? leaseIsExpired(lease, input.now) : false
   const withinGrace = lease ? input.now < Date.parse(lease.expires_at) + input.orphanGraceMs : false
   const recentUnleased =
-    !lease && Number.isFinite(stat.birthtimeMs) && input.now >= stat.birthtimeMs && input.now - stat.birthtimeMs < input.orphanGraceMs
+    !lease &&
+    Number.isFinite(stat.birthtimeMs) &&
+    input.now >= stat.birthtimeMs &&
+    input.now - stat.birthtimeMs < input.orphanGraceMs
   let category: WorkspaceInventoryCategory
   let reason: string
   let action: WorkspaceInventoryAction
@@ -447,7 +445,11 @@ async function inventoryItem(input: {
     action = "quarantine"
   } else if (lease !== undefined && expired && manifestValid) {
     category = "orphan"
-    reason = withinGrace ? "ORPHAN_GRACE" : input.sessionIds.has(lease.session_id) ? "EXPIRED_LEASE" : "EXPIRED_LEASE_NO_SESSION"
+    reason = withinGrace
+      ? "ORPHAN_GRACE"
+      : input.sessionIds.has(lease.session_id)
+        ? "EXPIRED_LEASE"
+        : "EXPIRED_LEASE_NO_SESSION"
     action = withinGrace ? "preserve" : "quarantine"
   } else if (!manifestValid) {
     category = "unknown"
@@ -519,7 +521,9 @@ function emptyTelemetry(): WorkspaceInventoryTelemetry {
 
 export async function inspectWorkspaceStorage(input: WorkspaceInventoryOptions): Promise<WorkspaceInventoryResult> {
   const runtimeRoot = path.resolve(input.runtimeRoot)
-  const legacyRoots = Array.from(new Set((input.legacyRoots ?? []).map((root) => path.resolve(root)).filter((root) => root !== runtimeRoot)))
+  const legacyRoots = Array.from(
+    new Set((input.legacyRoots ?? []).map((root) => path.resolve(root)).filter((root) => root !== runtimeRoot)),
+  )
   const roots = [runtimeRoot, ...legacyRoots]
   fs.mkdirSync(runtimeRoot, { recursive: true })
   const now = inventoryNow(input)
@@ -622,9 +626,18 @@ function migrationSidecars(directory: string) {
 
 async function quarantineItem(item: WorkspaceInventoryItem, now: number) {
   const sourceRoot = path.resolve(item.source_root)
-  const directory = assertRuntimePath({ runtimeRoot: sourceRoot, candidate: item.directory, label: "workspace migration directory" })
+  const directory = assertRuntimePath({
+    runtimeRoot: sourceRoot,
+    candidate: item.directory,
+    label: "workspace migration directory",
+  })
   const current = await fs.promises.lstat(directory)
-  if (!current.isDirectory() || canonicalPath(directory) !== item.identity.realpath || current.size !== item.identity.size || current.mtimeMs !== item.identity.mtime_ms) {
+  if (
+    !current.isDirectory() ||
+    canonicalPath(directory) !== item.identity.realpath ||
+    current.size !== item.identity.size ||
+    current.mtimeMs !== item.identity.mtime_ms
+  ) {
     const error = new Error("workspace identity changed before quarantine")
     ;(error as Error & { code?: string }).code = "PATH_IDENTITY_MISMATCH"
     throw error
@@ -635,7 +648,9 @@ async function quarantineItem(item: WorkspaceInventoryItem, now: number) {
   await fs.promises.rename(directory, target)
   for (const sidecar of migrationSidecars(item.directory)) {
     const suffix = path.basename(sidecar).slice(item.name.length)
-    await fs.promises.rename(sidecar, path.join(quarantineRoot, `${item.name}-${item.cleanup_id}${suffix}`)).catch(() => {})
+    await fs.promises
+      .rename(sidecar, path.join(quarantineRoot, `${item.name}-${item.cleanup_id}${suffix}`))
+      .catch(() => {})
   }
   return target
 }
@@ -655,11 +670,23 @@ export async function applyWorkspaceMigration(input: {
   const storedItems = loadInventoryIndex(input.runtimeRoot)
   const before = await inspectWorkspaceStorage({ ...input, writeIndex: true })
   const fresh = await inspectWorkspaceStorage({ ...input, writeIndex: false })
-  const result: WorkspaceMigrationApplyResult = { operation_id: operationId, applied: [], quarantined: [], skipped: [], failures: [] }
+  const result: WorkspaceMigrationApplyResult = {
+    operation_id: operationId,
+    applied: [],
+    quarantined: [],
+    skipped: [],
+    failures: [],
+  }
   for (const cleanupId of selected) {
     const stored = storedItems?.find(
       (value): value is { cleanup_id: string; identity: WorkspaceInventoryItem["identity"] } =>
-        Boolean(value && typeof value === "object" && "cleanup_id" in value && value.cleanup_id === cleanupId && "identity" in value),
+        Boolean(
+          value &&
+            typeof value === "object" &&
+            "cleanup_id" in value &&
+            value.cleanup_id === cleanupId &&
+            "identity" in value,
+        ),
     )
     const expected = stored ?? before.items.find((item) => item.cleanup_id === cleanupId)
     const item = fresh.items.find((candidate) => candidate.cleanup_id === cleanupId)
@@ -682,7 +709,10 @@ export async function applyWorkspaceMigration(input: {
     } catch (error) {
       result.failures.push({
         cleanup_id: cleanupId,
-        code: error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : "QUARANTINE_FAILED",
+        code:
+          error && typeof error === "object" && "code" in error && typeof error.code === "string"
+            ? error.code
+            : "QUARANTINE_FAILED",
       })
     }
   }

@@ -47,12 +47,7 @@ function management(entries?: (typeof userEntry)[]) {
   const memory = {
     list: vi.fn(async ({ scope }: { scope: "user" | "task" | "experience" }) => ({
       data: {
-        entries:
-          scope === "user"
-            ? (entries ?? [userEntry])
-            : scope === "task"
-              ? [taskEntry]
-              : [experienceEntry],
+        entries: scope === "user" ? (entries ?? [userEntry]) : scope === "task" ? [taskEntry] : [experienceEntry],
         total: scope === "user" ? (entries?.length ?? 1) : 1,
       },
     })),
@@ -204,10 +199,9 @@ describe("MemorySettings", () => {
     const dialog = screen.getByRole("dialog", { name: "删除记忆" })
     await user.click(within(dialog).getByRole("button", { name: "确认删除" }))
     await waitFor(() =>
-      expect(memory.remove).toHaveBeenCalledWith(
-        expect.objectContaining({ scope: "experience", id: "exp_pptx" }),
-        { throwOnError: true },
-      ),
+      expect(memory.remove).toHaveBeenCalledWith(expect.objectContaining({ scope: "experience", id: "exp_pptx" }), {
+        throwOnError: true,
+      }),
     )
   })
 

@@ -78,14 +78,8 @@ describe("memory", () => {
   test("read section=task and section=user select only the requested store", async () => {
     await withMemory((memory) =>
       Effect.gen(function* () {
-        const task = Memory.parseStore(
-          "memory",
-          yield* memory.read({ sessionID, scope: "memory", section: "task" }),
-        )
-        const user = Memory.parseStore(
-          "user",
-          yield* memory.read({ sessionID, scope: "memory", section: "user" }),
-        )
+        const task = Memory.parseStore("memory", yield* memory.read({ sessionID, scope: "memory", section: "task" }))
+        const user = Memory.parseStore("user", yield* memory.read({ sessionID, scope: "memory", section: "user" }))
 
         expect(task.entries.every((entry) => entry.scope === "memory")).toBe(true)
         expect(user.entries.every((entry) => entry.scope === "user")).toBe(true)

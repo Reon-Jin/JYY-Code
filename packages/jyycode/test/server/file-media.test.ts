@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { htmlPreviewHostDocument, parseFileByteRange } from "../../src/server/routes/instance/httpapi/handlers/file-media"
+import {
+  htmlPreviewHostDocument,
+  parseFileByteRange,
+} from "../../src/server/routes/instance/httpapi/handlers/file-media"
 
 describe("file media byte ranges", () => {
   test("limits open-ended and suffix ranges to the streaming chunk size", () => {

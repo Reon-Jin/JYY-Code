@@ -24,17 +24,17 @@
 
 JYY-Code does not assume an LLM will reliably remember the plan, coordinate peers, enforce quality, isolate concurrent edits, or recover itself after a crash. Those responsibilities are moved into the **runtime**.
 
-| Problem | JYY-Code moves it out of the prompt and into... |
-| --- | --- |
-| Planning | A revisioned Plan with staged Steps, explicit dependencies and judgeable `done_criteria` |
-| Execution | A strict Task state machine and protocol-enforced dispatch |
-| Parallelism | Batched waves of isolated sub-agents, up to 20 per wave |
-| Quality control | Report → review → reject/redispatch as a mandatory gate |
-| Integration | Worktree/snapshot isolation plus explicit `Merge.apply` |
-| Coordination | A typed shared blackboard with read cursors and event wakeups |
-| Route selection | Candidate competition with blind proposals, cross-review and final synthesis |
-| Long-task continuity | Layered context, episodic digests and structured persistent memory |
-| Crash recovery | Durable events, rebuildable projections, activation leases and reconciliation |
+| Problem              | JYY-Code moves it out of the prompt and into...                                          |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| Planning             | A revisioned Plan with staged Steps, explicit dependencies and judgeable `done_criteria` |
+| Execution            | A strict Task state machine and protocol-enforced dispatch                               |
+| Parallelism          | Batched waves of isolated sub-agents, up to 20 per wave                                  |
+| Quality control      | Report → review → reject/redispatch as a mandatory gate                                  |
+| Integration          | Worktree/snapshot isolation plus explicit `Merge.apply`                                  |
+| Coordination         | A typed shared blackboard with read cursors and event wakeups                            |
+| Route selection      | Candidate competition with blind proposals, cross-review and final synthesis             |
+| Long-task continuity | Layered context, episodic digests and structured persistent memory                       |
+| Crash recovery       | Durable events, rebuildable projections, activation leases and reconciliation            |
 
 The result is not “one agent with more tools”. It is an **engineering runtime that gives agents boundaries, shared state, recovery semantics and a reviewable execution protocol**.
 

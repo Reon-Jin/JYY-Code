@@ -29,7 +29,6 @@ export type Event =
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
-  | EventTodoUpdated
   | EventSessionStatus
   | EventSessionIdle
   | EventToolCatalogResolved1
@@ -344,21 +343,6 @@ export type QuestionReplied = {
 export type QuestionRejected = {
   sessionID: string
   requestID: string
-}
-
-export type Todo = {
-  /**
-   * Brief description of the task
-   */
-  content: string
-  /**
-   * Current status of the task: pending, in_progress, completed, cancelled
-   */
-  status: string
-  /**
-   * Priority level of the task: high, medium, low
-   */
-  priority: string
 }
 
 export type SessionStatus =
@@ -946,7 +930,6 @@ export type GlobalEvent = {
     | EventQuestionAsked
     | EventQuestionReplied
     | EventQuestionRejected
-    | EventTodoUpdated
     | EventSessionStatus
     | EventSessionIdle
     | EventToolCatalogResolved
@@ -1117,7 +1100,6 @@ export type PermissionConfig =
       task?: PermissionRuleConfig
       external_directory?: PermissionRuleConfig
       runtime_data?: PermissionRuleConfig
-      todowrite?: PermissionActionConfig
       question?: PermissionActionConfig
       webfetch?: PermissionActionConfig
       websearch?: PermissionActionConfig
@@ -3507,15 +3489,6 @@ export type EventQuestionRejected = {
   id: string
   type: "question.rejected"
   properties: QuestionRejected
-}
-
-export type EventTodoUpdated = {
-  id: string
-  type: "todo.updated"
-  properties: {
-    sessionID: string
-    todos: Array<Todo>
-  }
 }
 
 export type EventSessionStatus = {
@@ -9092,40 +9065,6 @@ export type SessionBlackboardPostResponses = {
 }
 
 export type SessionBlackboardPostResponse = SessionBlackboardPostResponses[keyof SessionBlackboardPostResponses]
-
-export type SessionTodoData = {
-  body?: never
-  path: {
-    sessionID: string
-  }
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/session/{sessionID}/todo"
-}
-
-export type SessionTodoErrors = {
-  /**
-   * BadRequest | InvalidRequestError
-   */
-  400: EffectHttpApiErrorBadRequest | InvalidRequestError
-  /**
-   * NotFoundError
-   */
-  404: NotFoundError
-}
-
-export type SessionTodoError = SessionTodoErrors[keyof SessionTodoErrors]
-
-export type SessionTodoResponses = {
-  /**
-   * Todo list
-   */
-  200: Array<Todo>
-}
-
-export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
 
 export type SessionDiffData = {
   body?: never

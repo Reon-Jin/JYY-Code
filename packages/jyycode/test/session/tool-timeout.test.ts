@@ -109,7 +109,15 @@ function processor() {
     message,
     updateToolCall: (_id: string, update: (part: any) => any) =>
       Effect.sync(() => {
-        const part = update({ id: "part_tool", messageID: message.id, sessionID: session.id, type: "tool", callID: "call", tool: "lookup", state })
+        const part = update({
+          id: "part_tool",
+          messageID: message.id,
+          sessionID: session.id,
+          type: "tool",
+          callID: "call",
+          tool: "lookup",
+          state,
+        })
         state = part.state
         return part
       }),
@@ -161,10 +169,7 @@ function layer(plugin: Plugin.Interface, tools: Tool.Def[]) {
 
 const it = testEffect(CrossSpawnSpawner.defaultLayer as Layer.Layer<any, never>)
 
-function runTool(
-  promise: Promise<unknown>,
-  advance: Effect.Effect<void, never, any>,
-) {
+function runTool(promise: Promise<unknown>, advance: Effect.Effect<void, never, any>) {
   const settled = promise.then(
     (value) => ({ ok: true as const, value }),
     (error) => ({ ok: false as const, error }),
@@ -178,195 +183,211 @@ function runTool(
 
 describe("session tool timeout boundaries", () => {
   it.effect("finalizes a never-resolving tool as a typed timeout", () =>
-    provideTmpdirInstance(() => Effect.gen(function* () {
-      const state = processor()
-      const tools = yield* SessionTools.resolve({
-        agent,
-        model: provider.model,
-        session,
-        processor: state,
-        bypassAgentCheck: false,
-        messages: [],
-        promptOps: {},
-      } as any).pipe(
-        Effect.provide(
-          layer(
-            Plugin.Service.of({
-              init: () => Effect.void,
-              list: () => Effect.succeed([]),
-              trigger: (_name, _input, output) => Effect.succeed(output),
-            }),
-            [def("lookup", () => Effect.never)],
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const state = processor()
+        const tools = yield* SessionTools.resolve({
+          agent,
+          model: provider.model,
+          session,
+          processor: state,
+          bypassAgentCheck: false,
+          messages: [],
+          promptOps: {},
+        } as any).pipe(
+          Effect.provide(
+            layer(
+              Plugin.Service.of({
+                init: () => Effect.void,
+                list: () => Effect.succeed([]),
+                trigger: (_name, _input, output) => Effect.succeed(output),
+              }),
+              [def("lookup", () => Effect.never)],
+            ),
           ),
-        ),
-      )
+        )
 
-      const result = yield* runTool(
-        (tools.lookup as any).execute({ query: "test" }, { toolCallId: "call", abortSignal: new AbortController().signal }),
-        TestClock.adjust("20 millis"),
-      )
+        const result = yield* runTool(
+          (tools.lookup as any).execute(
+            { query: "test" },
+            { toolCallId: "call", abortSignal: new AbortController().signal },
+          ),
+          TestClock.adjust("20 millis"),
+        )
 
-      expect(result.ok).toBe(false)
-      const error = state.error()
-      expect(error).toBeInstanceOf(Tool.ExecutionTimeoutError)
-      expect(state.read().status).toBe("error")
-      expect(state.read().metadata).toMatchObject({
-        code: "TOOL_TIMEOUT",
-        requested_ms: 10,
-        effective_ms: 10,
-        phase: "execute",
-        termination_result: "not_applicable",
-      })
-      expect(state.finalized()).toBe(1)
-    })),
+        expect(result.ok).toBe(false)
+        const error = state.error()
+        expect(error).toBeInstanceOf(Tool.ExecutionTimeoutError)
+        expect(state.read().status).toBe("error")
+        expect(state.read().metadata).toMatchObject({
+          code: "TOOL_TIMEOUT",
+          requested_ms: 10,
+          effective_ms: 10,
+          phase: "execute",
+          termination_result: "not_applicable",
+        })
+        expect(state.finalized()).toBe(1)
+      }),
+    ),
   )
 
   it.effect("bounds a never-resolving before hook and lets the next call continue", () =>
-    provideTmpdirInstance(() => Effect.gen(function* () {
-      let beforeCalls = 0
-      const state = processor()
-      const tools = yield* SessionTools.resolve({
-        agent,
-        model: provider.model,
-        session,
-        processor: state,
-        bypassAgentCheck: false,
-        messages: [],
-        promptOps: {},
-      } as any).pipe(
-        Effect.provide(
-          layer(
-            Plugin.Service.of({
-              init: () => Effect.void,
-              list: () => Effect.succeed([]),
-              trigger: (name, _input, output) => {
-                if (name === "tool.execute.before" && beforeCalls++ === 0) return Effect.never
-                return Effect.succeed(output)
-              },
-            }),
-            [def("lookup", () => Effect.succeed({ title: "ok", output: "done", metadata: {} }))],
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        let beforeCalls = 0
+        const state = processor()
+        const tools = yield* SessionTools.resolve({
+          agent,
+          model: provider.model,
+          session,
+          processor: state,
+          bypassAgentCheck: false,
+          messages: [],
+          promptOps: {},
+        } as any).pipe(
+          Effect.provide(
+            layer(
+              Plugin.Service.of({
+                init: () => Effect.void,
+                list: () => Effect.succeed([]),
+                trigger: (name, _input, output) => {
+                  if (name === "tool.execute.before" && beforeCalls++ === 0) return Effect.never
+                  return Effect.succeed(output)
+                },
+              }),
+              [def("lookup", () => Effect.succeed({ title: "ok", output: "done", metadata: {} }))],
+            ),
           ),
-        ),
-      )
+        )
 
-      const first = yield* runTool(
-        (tools.lookup as any).execute({ query: "test" }, { toolCallId: "call", abortSignal: new AbortController().signal }),
-        TestClock.adjust("20 millis"),
-      )
-      expect(first.ok).toBe(false)
-      expect(state.error()).toBeInstanceOf(Tool.ExecutionTimeoutError)
-      expect(state.read().status).toBe("error")
-
-      // The same resolved catalog remains usable for a subsequent model turn.
-      const nextTools = yield* SessionTools.resolve({
-        agent,
-        model: provider.model,
-        session,
-        processor: state,
-        bypassAgentCheck: false,
-        messages: [],
-        promptOps: {},
-      } as any).pipe(
-        Effect.provide(
-          layer(
-            Plugin.Service.of({
-              init: () => Effect.void,
-              list: () => Effect.succeed([]),
-              trigger: (name, _input, output) => {
-                if (name === "tool.execute.before" && beforeCalls++ === 0) return Effect.never
-                return Effect.succeed(output)
-              },
-            }),
-            [def("lookup", () => Effect.succeed({ title: "ok", output: "done", metadata: {} }))],
+        const first = yield* runTool(
+          (tools.lookup as any).execute(
+            { query: "test" },
+            { toolCallId: "call", abortSignal: new AbortController().signal },
           ),
-        ),
-      )
-      expect(nextTools.lookup).toBeDefined()
-    })),
+          TestClock.adjust("20 millis"),
+        )
+        expect(first.ok).toBe(false)
+        expect(state.error()).toBeInstanceOf(Tool.ExecutionTimeoutError)
+        expect(state.read().status).toBe("error")
+
+        // The same resolved catalog remains usable for a subsequent model turn.
+        const nextTools = yield* SessionTools.resolve({
+          agent,
+          model: provider.model,
+          session,
+          processor: state,
+          bypassAgentCheck: false,
+          messages: [],
+          promptOps: {},
+        } as any).pipe(
+          Effect.provide(
+            layer(
+              Plugin.Service.of({
+                init: () => Effect.void,
+                list: () => Effect.succeed([]),
+                trigger: (name, _input, output) => {
+                  if (name === "tool.execute.before" && beforeCalls++ === 0) return Effect.never
+                  return Effect.succeed(output)
+                },
+              }),
+              [def("lookup", () => Effect.succeed({ title: "ok", output: "done", metadata: {} }))],
+            ),
+          ),
+        )
+        expect(nextTools.lookup).toBeDefined()
+      }),
+    ),
   )
 
   it.effect("completes before a hanging after hook and records only one finalization", () =>
-    provideTmpdirInstance(() => Effect.gen(function* () {
-      const state = processor()
-      const tools = yield* SessionTools.resolve({
-        agent,
-        model: provider.model,
-        session,
-        processor: state,
-        bypassAgentCheck: false,
-        messages: [],
-        promptOps: {},
-      } as any).pipe(
-        Effect.provide(
-          layer(
-            Plugin.Service.of({
-              init: () => Effect.void,
-              list: () => Effect.succeed([]),
-              trigger: (name, _input, output) => name === "tool.execute.after" ? Effect.never : Effect.succeed(output),
-            }),
-            [def("lookup", () => Effect.succeed({ title: "ok", output: "done", metadata: {} }))],
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const state = processor()
+        const tools = yield* SessionTools.resolve({
+          agent,
+          model: provider.model,
+          session,
+          processor: state,
+          bypassAgentCheck: false,
+          messages: [],
+          promptOps: {},
+        } as any).pipe(
+          Effect.provide(
+            layer(
+              Plugin.Service.of({
+                init: () => Effect.void,
+                list: () => Effect.succeed([]),
+                trigger: (name, _input, output) =>
+                  name === "tool.execute.after" ? Effect.never : Effect.succeed(output),
+              }),
+              [def("lookup", () => Effect.succeed({ title: "ok", output: "done", metadata: {} }))],
+            ),
           ),
-        ),
-      )
+        )
 
-      const result = yield* runTool(
-        (tools.lookup as any).execute({ query: "test" }, { toolCallId: "call", abortSignal: new AbortController().signal }),
-        TestClock.adjust("20 millis"),
-      )
-      expect(result.ok).toBe(false)
-      expect(state.read().status).toBe("completed")
-      expect(state.read().output).toBe("done")
-      expect(state.finalized()).toBe(1)
-    })),
+        const result = yield* runTool(
+          (tools.lookup as any).execute(
+            { query: "test" },
+            { toolCallId: "call", abortSignal: new AbortController().signal },
+          ),
+          TestClock.adjust("20 millis"),
+        )
+        expect(result.ok).toBe(false)
+        expect(state.read().status).toBe("completed")
+        expect(state.read().output).toBe("done")
+        expect(state.finalized()).toBe(1)
+      }),
+    ),
   )
 
   it.effect("question tool waits for the user beyond the generic budget", () =>
-    provideTmpdirInstance(() => Effect.gen(function* () {
-      const state = processor()
-      const deferred = yield* Deferred.make<number, never>()
-      const tools = yield* SessionTools.resolve({
-        agent,
-        model: provider.model,
-        session,
-        processor: state,
-        bypassAgentCheck: false,
-        messages: [],
-        promptOps: {},
-      } as any).pipe(
-        Effect.provide(
-          layer(
-            Plugin.Service.of({
-              init: () => Effect.void,
-              list: () => Effect.succeed([]),
-              trigger: (_name, _input, output) => Effect.succeed(output),
-            }),
-            [
-              def("question", () =>
-                Deferred.await(deferred).pipe(
-                  Effect.as({ title: "answered", output: "ok", metadata: {} }),
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const state = processor()
+        const deferred = yield* Deferred.make<number, never>()
+        const tools = yield* SessionTools.resolve({
+          agent,
+          model: provider.model,
+          session,
+          processor: state,
+          bypassAgentCheck: false,
+          messages: [],
+          promptOps: {},
+        } as any).pipe(
+          Effect.provide(
+            layer(
+              Plugin.Service.of({
+                init: () => Effect.void,
+                list: () => Effect.succeed([]),
+                trigger: (_name, _input, output) => Effect.succeed(output),
+              }),
+              [
+                def("question", () =>
+                  Deferred.await(deferred).pipe(Effect.as({ title: "answered", output: "ok", metadata: {} })),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      )
+        )
 
-      const promise = (tools.question as any).execute(
-        { query: "test" },
-        { toolCallId: "call", abortSignal: new AbortController().signal },
-      )
-      // The bridge promise rejects with the harness's pre-existing interrupt
-      // quirk on the success path; swallow it and rely on processor state.
-      promise.catch(() => undefined)
-      // Advance far beyond the 10ms generic budget: without the exemption the
-      // tool is killed and finalized as an error before the user answers.
-      yield* TestClock.adjust("5 seconds")
-      yield* Deferred.succeed(deferred, 1)
-      yield* Effect.yieldNow
-      expect(state.read().status).toBe("completed")
-      expect(state.read().output).toBe("ok")
-      expect(state.finalized()).toBe(1)
-    })),
+        const promise = (tools.question as any).execute(
+          { query: "test" },
+          { toolCallId: "call", abortSignal: new AbortController().signal },
+        )
+        // The bridge promise rejects with the harness's pre-existing interrupt
+        // quirk on the success path; swallow it and rely on processor state.
+        promise.catch(() => undefined)
+        // Advance far beyond the 10ms generic budget: without the exemption the
+        // tool is killed and finalized as an error before the user answers.
+        yield* TestClock.adjust("5 seconds")
+        yield* Deferred.succeed(deferred, 1)
+        yield* Effect.yieldNow
+        expect(state.read().status).toBe("completed")
+        expect(state.read().output).toBe("ok")
+        expect(state.finalized()).toBe(1)
+      }),
+    ),
   )
 
   it.effect("tool_search runs through the budget-aware wrapper", () =>

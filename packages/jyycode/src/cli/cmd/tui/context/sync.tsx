@@ -5,7 +5,6 @@ import type {
   Session,
   Part,
   Config,
-  Todo,
   Command,
   PermissionRequest,
   QuestionRequest,
@@ -72,9 +71,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       session_context: {
         [sessionID: string]: SessionContextEstimate
       }
-      todo: {
-        [sessionID: string]: Todo[]
-      }
       message: {
         [sessionID: string]: Message[]
       }
@@ -109,7 +105,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       session_status: {},
       session_diff: {},
       session_context: {},
-      todo: {},
       message: {},
       part: {},
       lsp: [],
@@ -241,10 +236,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           )
           break
         }
-
-        case "todo.updated":
-          setStore("todo", event.properties.sessionID, event.properties.todos)
-          break
 
         case "session.diff":
           setStore("session_diff", event.properties.sessionID, event.properties.diff)
@@ -568,10 +559,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const token = {}
           const request = (async () => {
             try {
-              const [session, messages, todo, diff, context] = await Promise.all([
+              const [session, messages, diff, context] = await Promise.all([
                 sdk.client.session.get({ sessionID }, { throwOnError: true }),
                 sdk.client.session.messages({ sessionID, limit: 100 }),
-                sdk.client.session.todo({ sessionID }),
                 sdk.client.session.diff({ sessionID }),
                 fetchSessionContext(sessionID),
               ])
@@ -586,7 +576,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                   const match = Binary.search(draft.session, sessionID, (s) => s.id)
                   if (match.found) draft.session[match.index] = session.data!
                   if (!match.found) draft.session.splice(match.index, 0, session.data!)
-                  draft.todo[sessionID] = todo.data ?? []
                   const infos: (typeof draft.message)[string] = []
                   for (const message of messages.data) {
                     infos.push(message.info)

@@ -110,7 +110,9 @@ describe("File.write path traversal protection", () => {
   it.instance("rejects relative traversal and absolute paths", () =>
     Effect.gen(function* () {
       yield* expectAccessDenied(write({ path: "../../../etc/passwd", content: "unsafe" }))
-      yield* expectAccessDenied(write({ path: path.join((yield* TestInstance).directory, "outside.txt"), content: "unsafe" }))
+      yield* expectAccessDenied(
+        write({ path: path.join((yield* TestInstance).directory, "outside.txt"), content: "unsafe" }),
+      )
     }),
   )
 })

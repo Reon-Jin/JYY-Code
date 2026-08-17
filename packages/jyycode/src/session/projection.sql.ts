@@ -19,4 +19,3 @@ export const SessionProjectionTable = sqliteTable(
     index("session_projection_aggregate_seq_idx").on(table.aggregate_id, table.seq),
   ],
 )
-

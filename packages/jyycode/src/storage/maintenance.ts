@@ -39,10 +39,20 @@ async function fullVacuum(file: string, options: MaintenanceOptions): Promise<Ma
   const minimumFree = Math.max(64 * 1024 * 1024, source.size * 2)
   const available = await freeBytes(directory).catch(() => 0)
   if (available < minimumFree) {
-    return { path: resolved, status: "insufficient-space", mode: "full", reason: `need ${minimumFree} bytes, have ${available}` }
+    return {
+      path: resolved,
+      status: "insufficient-space",
+      mode: "full",
+      reason: `need ${minimumFree} bytes, have ${available}`,
+    }
   }
   if (options.dryRun) {
-    return { path: resolved, status: "dry-run", mode: "full", reason: `would require at least ${minimumFree} free bytes` }
+    return {
+      path: resolved,
+      status: "dry-run",
+      mode: "full",
+      reason: `would require at least ${minimumFree} free bytes`,
+    }
   }
 
   const temp = path.join(directory, `.${path.basename(resolved)}.${process.pid}.${randomUUID()}.vacuum.tmp`)
@@ -79,7 +89,13 @@ async function fullVacuum(file: string, options: MaintenanceOptions): Promise<Ma
     await rename(manifestTemp, manifest)
 
     if (process.platform === "win32") {
-      return { path: resolved, status: "busy", mode: "full", manifest, reason: "Windows replacement is refused while database handles may be open" }
+      return {
+        path: resolved,
+        status: "busy",
+        mode: "full",
+        manifest,
+        reason: "Windows replacement is refused while database handles may be open",
+      }
     }
     await rename(temp, resolved)
     replaced = true

@@ -56,20 +56,15 @@ afterEach(() => {
 })
 
 describe("workspace inspector Git and GitHub journey", () => {
-  it("moves from live Todo and Changes through branch sync and the PR lifecycle", async () => {
+  it("moves from live Changes through branch sync and the PR lifecycle", async () => {
     const user = userEvent.setup()
     const { desktop, backend } = restoredWorkspace()
-    backend.setTodos("ses_1", [{ content: "Inspect workspace", status: "pending", priority: "high" }])
     vi.stubGlobal("fetch", backend.fetch)
     render(() => <App bridge={desktop.bridge} />)
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Workspace flow" })).toBeVisible(), {
       timeout: 5_000,
     })
-    await user.click(screen.getByRole("button", { name: "方案" }))
-    expect(await screen.findByText("Inspect workspace")).toBeVisible()
-    expect(await screen.findByText("后端已连接")).toBeVisible()
-    expect(screen.getByText("Inspect workspace").closest("li")).toHaveTextContent("未开始")
 
     await user.click(screen.getByRole("button", { name: "工作区变更" }))
     expect(await screen.findByRole("button", { name: /src\/app.tsx, \+4 -1/ })).toBeVisible()

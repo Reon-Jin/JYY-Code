@@ -8,11 +8,13 @@ import { testEffect } from "../lib/effect"
 const it = testEffect(AppProcess.defaultLayer)
 const NODE = process.execPath
 
-const spec = (input: Omit<ProcessSpec, "command" | "args" | "env" | "output"> & {
-  args?: readonly string[]
-  env?: ProcessSpec["env"]
-  output?: ProcessSpec["output"]
-}): ProcessSpec => ({
+const spec = (
+  input: Omit<ProcessSpec, "command" | "args" | "env" | "output"> & {
+    args?: readonly string[]
+    env?: ProcessSpec["env"]
+    output?: ProcessSpec["output"]
+  },
+): ProcessSpec => ({
   command: NODE,
   args: input.args ?? [],
   env: input.env ?? { mode: "scrubbed" },
@@ -55,10 +57,7 @@ it.live(
     const svc = yield* AppProcess.Service
     const result = yield* svc.run(
       spec({
-        args: [
-          "-e",
-          "process.stderr.write('error'); process.stdin.on('data', chunk => process.stdout.write(chunk))",
-        ],
+        args: ["-e", "process.stderr.write('error'); process.stdin.on('data', chunk => process.stdout.write(chunk))"],
         stdin: "0123456789",
       }),
       { maxOutputBytes: 5, maxErrorBytes: 3 },
@@ -92,9 +91,7 @@ it.live(
   "reports timeout and AbortSignal failures while terminating the child",
   Effect.gen(function* () {
     const svc = yield* AppProcess.Service
-    const timeout = yield* Effect.exit(
-      svc.run(spec({ args: ["-e", "setInterval(() => {}, 60_000)"], timeout: 100 })),
-    )
+    const timeout = yield* Effect.exit(svc.run(spec({ args: ["-e", "setInterval(() => {}, 60_000)"], timeout: 100 })))
     expect(Exit.isFailure(timeout)).toBe(true)
 
     const controller = new AbortController()
@@ -119,4 +116,3 @@ it.live(
     }),
   ),
 )
-

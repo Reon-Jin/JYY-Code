@@ -26,7 +26,12 @@ describe("global paths", () => {
       stderr: "pipe",
     })
     expect(await child.exited).toBe(0)
-    expect(await fs.stat(stale).then(() => true, () => false)).toBe(false)
+    expect(
+      await fs.stat(stale).then(
+        () => true,
+        () => false,
+      ),
+    ).toBe(false)
   })
 
   test("removes the current process temp directory on exit", async () => {
@@ -44,6 +49,11 @@ describe("global paths", () => {
     )
     const tempPath = (await new Response(child.stdout).text()).trim()
     expect(await child.exited).toBe(0)
-    expect(await fs.stat(tempPath).then(() => true, () => false)).toBe(false)
+    expect(
+      await fs.stat(tempPath).then(
+        () => true,
+        () => false,
+      ),
+    ).toBe(false)
   })
 })

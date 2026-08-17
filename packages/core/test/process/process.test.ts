@@ -317,9 +317,7 @@ describe("AppProcess", () => {
       Effect.gen(function* () {
         const svc = yield* AppProcess.Service
         const exit = yield* Effect.exit(
-          svc
-            .runStream(cmd("-e", "setInterval(() => {}, 60_000)"), { timeout: 100 })
-            .pipe(Stream.runCollect),
+          svc.runStream(cmd("-e", "setInterval(() => {}, 60_000)"), { timeout: 100 }).pipe(Stream.runCollect),
         )
         expect(Exit.isFailure(exit)).toBe(true)
       }),

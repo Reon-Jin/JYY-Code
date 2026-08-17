@@ -5,13 +5,7 @@ import fs from "fs/promises"
 import * as Global from "../global"
 import { Schema } from "effect"
 import { Glob } from "./glob"
-import {
-  BoundedLogSink,
-  DEFAULT_LOG_RECORD_BYTES,
-  boundLogText,
-  formatLogValue,
-  redactLogText,
-} from "./log-sink"
+import { BoundedLogSink, DEFAULT_LOG_RECORD_BYTES, boundLogText, formatLogValue, redactLogText } from "./log-sink"
 
 export const Level = Schema.Literals(["DEBUG", "INFO", "WARN", "ERROR"]).annotate({
   identifier: "LogLevel",
@@ -150,7 +144,9 @@ export function create(tags?: Record<string, any>) {
     const diff = next.getTime() - last
     last = next.getTime()
     const renderedMessage = typeof message === "string" ? redactLogText(message) : formatLogValue(message)
-    return [next.toISOString().split(".")[0], "+" + diff + "ms", prefix, renderedMessage].filter(Boolean).join(" ") + "\n"
+    return (
+      [next.toISOString().split(".")[0], "+" + diff + "ms", prefix, renderedMessage].filter(Boolean).join(" ") + "\n"
+    )
   }
   const result: Logger = {
     debug(message?: any, extra?: Record<string, any>) {

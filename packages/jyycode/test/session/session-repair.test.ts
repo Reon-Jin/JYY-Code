@@ -14,6 +14,10 @@ describe("session repair plan", () => {
     expect(plan.corruptRows).toHaveLength(1)
     expect(plan.placeholders[0]?.sourceID).toBe("p1")
     expect(JSON.stringify(plan)).not.toContain("not-json")
-    expect(repairPlaceholder(plan.corruptRows[0]!)).toMatchObject({ type: "repair-placeholder", table: "part", sourceID: "p1" })
+    expect(repairPlaceholder(plan.corruptRows[0]!)).toMatchObject({
+      type: "repair-placeholder",
+      table: "part",
+      sourceID: "p1",
+    })
   })
 })

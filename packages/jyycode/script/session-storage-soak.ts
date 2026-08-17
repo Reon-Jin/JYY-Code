@@ -37,7 +37,9 @@ function count(value: number | undefined, fallback: number) {
   return Number.isSafeInteger(value) && value! >= 0 ? value! : fallback
 }
 
-export async function runSessionStorageSoak(options: SessionStorageSoakOptions = {}): Promise<SessionStorageSoakReport> {
+export async function runSessionStorageSoak(
+  options: SessionStorageSoakOptions = {},
+): Promise<SessionStorageSoakReport> {
   const sessions = count(options.sessions, 1000)
   const children = count(options.children, 5000)
   const logicalBlobBytes = count(options.blobBytes, 1024 * 1024 * 1024)
@@ -136,7 +138,7 @@ if (import.meta.main) {
   runSessionStorageSoak(cliOptions(process.argv.slice(2)))
     .then((report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`))
     .catch((error) => {
-      process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`)
+      process.stderr.write(`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`)
       process.exitCode = 1
     })
 }

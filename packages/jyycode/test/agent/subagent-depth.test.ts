@@ -67,8 +67,6 @@ describe("subagent depth invariant", () => {
       subagent,
       parentAgentDepth: 1,
     })
-    expect(Permission.evaluate("task", "general", Permission.merge(subagent.permission, inherited)).action).toBe(
-      "deny",
-    )
+    expect(Permission.evaluate("task", "general", Permission.merge(subagent.permission, inherited)).action).toBe("deny")
   })
 })

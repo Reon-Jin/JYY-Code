@@ -23,13 +23,17 @@ describe("UsageLedger", () => {
 
   test("derives totals and ignores invalid provider numbers", () => {
     const ledger = new UsageLedger()
-    const result = ledger.applyStep(0, {
-      total: 99_999,
-      input: Number.NaN,
-      output: -1,
-      reasoning: Number.POSITIVE_INFINITY,
-      cache: { read: 5, write: undefined },
-    }, Number.NaN)
+    const result = ledger.applyStep(
+      0,
+      {
+        total: 99_999,
+        input: Number.NaN,
+        output: -1,
+        reasoning: Number.POSITIVE_INFINITY,
+        cache: { read: 5, write: undefined },
+      },
+      Number.NaN,
+    )
     expect(result.context).toEqual({
       input: 0,
       output: 0,

@@ -7,7 +7,6 @@ import type {
   Session,
   SessionPlanResponse,
   TextPart,
-  Todo,
   VcsInfo,
 } from "@jyycode-ai/sdk/v2/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -67,7 +66,6 @@ describe("desktop data boundary", () => {
   it("includes directory in every project-scoped key", () => {
     expect(keys.sessions("C:\\a")).toEqual(["project", "c:\\a", "sessions"])
     expect(keys.messages("C:\\a", "ses_1")).toEqual(["project", "c:\\a", "session", "ses_1", "messages"])
-    expect(keys.todos("C:/A/", "ses_1")).toEqual(["project", "c:\\a", "session", "ses_1", "todos"])
     expect(keys.vcsInfo("C:/A/")).toEqual(["project", "c:\\a", "vcs", "info"])
     expect(keys.vcsBranches("C:/A/")).toEqual(["project", "c:\\a", "vcs", "branches"])
     expect(keys.vcsDiff("C:/A/")).toEqual(["project", "c:\\a", "vcs", "diff"])
@@ -186,14 +184,6 @@ describe("event routing", () => {
   })
 
   it("routes workspace inspector events to explicit cache actions", () => {
-    const todos: Todo[] = [{ content: "Implement", status: "in_progress", priority: "high" }]
-
-    expect(
-      routeEvent("C:\\a", {
-        directory: "C:\\a",
-        payload: { id: "evt_todo", type: "todo.updated", properties: { sessionID: session.id, todos } },
-      } as GlobalEvent),
-    ).toEqual([{ kind: "todos.set", eventID: "evt_todo", directory: "C:\\a", sessionID: session.id, todos }])
     expect(
       routeEvent("C:\\a", {
         directory: "C:\\a",
@@ -260,72 +250,6 @@ describe("event routing", () => {
     bridge.abort()
   })
 
-  it("sets exact todos and coalesces workspace invalidations within one frame", async () => {
-    const queryClient = createDesktopQueryClient()
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
-    const todos: Todo[] = [{ content: "Implement", status: "completed", priority: "high" }]
-    const otherTodos: Todo[] = [{ content: "Other", status: "pending", priority: "low" }]
-    queryClient.setQueryData(keys.todos("C:\\a", session.id), [])
-    queryClient.setQueryData(keys.todos("C:\\a", "ses_other"), otherTodos)
-    queryClient.setQueryData<VcsInfo>(keys.vcsInfo("C:\\a"), { branch: "main", default_branch: "main" })
-    const nestedFileKey = keys.fileContent("C:\\a\\child-workspace", undefined, "ses_child", "src/app.tsx")
-    queryClient.setQueryData(nestedFileKey, { type: "text", content: "old", revision: "1" })
-
-    let releaseStream = () => {}
-    const streamWait = new Promise<void>((resolve) => {
-      releaseStream = resolve
-    })
-    const stream = (async function* () {
-      yield {
-        directory: "C:\\a",
-        payload: { id: "evt_todo", type: "todo.updated", properties: { sessionID: session.id, todos } },
-      } as GlobalEvent
-      for (const event of ["add", "change", "unlink"] as const) {
-        yield {
-          directory: "C:\\a",
-          payload: {
-            id: `evt_file_${event}`,
-            type: "file.watcher.updated",
-            properties: { file: "src/app.tsx", event },
-          },
-        } as GlobalEvent
-      }
-      yield {
-        directory: "C:\\a",
-        payload: { id: "evt_branch", type: "vcs.branch.updated", properties: { branch: "feature" } },
-      } as GlobalEvent
-      await streamWait
-    })()
-    let scheduled: FrameRequestCallback | undefined
-    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
-      scheduled = callback
-      return 1
-    })
-    const bridge = new EventBridge({
-      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
-      directory: "C:\\a",
-      queryClient,
-      requestFrame,
-      cancelFrame: vi.fn(),
-    })
-
-    bridge.start()
-    await vi.waitFor(() => expect(requestFrame).toHaveBeenCalledTimes(1))
-    scheduled?.(0)
-    await vi.waitFor(() => expect(queryClient.getQueryData(keys.todos("C:\\a", session.id))).toEqual(todos))
-
-    expect(queryClient.getQueryData(keys.todos("C:\\a", "ses_other"))).toEqual(otherTodos)
-    expect(queryClient.getQueryData<VcsInfo>(keys.vcsInfo("C:\\a"))?.branch).toBe("feature")
-    const invalidated = invalidate.mock.calls.map(([filters]) => filters?.queryKey)
-    expect(invalidated.filter((key) => JSON.stringify(key) === JSON.stringify(keys.vcsDiff("C:\\a")))).toHaveLength(1)
-    expect(invalidated).toContainEqual(keys.vcsBranches("C:\\a"))
-    expect(invalidated).toContainEqual(keys.pullRequestsScope("C:\\a"))
-    expect(invalidated).toContainEqual(nestedFileKey)
-
-    bridge.abort()
-    releaseStream()
-  })
-
   it("ignores events from a different project directory", () => {
     const action = routeEvent("C:\\a", {
       directory: "C:\\b",
@@ -342,7 +266,11 @@ describe("event routing", () => {
         "C:\\a",
         {
           directory: childDirectory,
-          payload: { id: "evt_child_message", type: "message.updated", properties: { sessionID: session.id, info: session } },
+          payload: {
+            id: "evt_child_message",
+            type: "message.updated",
+            properties: { sessionID: session.id, info: session },
+          },
         } as GlobalEvent,
         session.id,
       ),
@@ -359,7 +287,11 @@ describe("event routing", () => {
         "C:\\a",
         {
           directory: childDirectory,
-          payload: { id: "evt_other_message", type: "message.updated", properties: { sessionID: "ses_other", info: session } },
+          payload: {
+            id: "evt_other_message",
+            type: "message.updated",
+            properties: { sessionID: "ses_other", info: session },
+          },
         } as GlobalEvent,
         session.id,
       ),
@@ -1318,7 +1250,6 @@ describe("event routing", () => {
       keys.plansScope("C:\\a"),
       keys.blackboardsScope("C:\\a"),
       keys.messages("C:\\a", session.id),
-      keys.todos("C:\\a", session.id),
     ])
     expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.plansScope("C:\\a"), exact: false })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.blackboardsScope("C:\\a"), exact: false })

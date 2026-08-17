@@ -82,9 +82,7 @@ export const layer: Layer.Layer<Service, never, Project.Service | InstanceBootst
         }
 
         const ctx = contextExit.value
-        const exit = yield* Effect.exit(
-          bootstrap.run.pipe(Effect.provideService(InstanceRef, ctx), Effect.as(ctx)),
-        )
+        const exit = yield* Effect.exit(bootstrap.run.pipe(Effect.provideService(InstanceRef, ctx), Effect.as(ctx)))
         if (Exit.isFailure(exit)) yield* removeEntry(directory, entry)
         yield* Deferred.done(entry.deferred, exit).pipe(Effect.asVoid)
       }).pipe(Effect.withSpan("InstanceStore.boot"))

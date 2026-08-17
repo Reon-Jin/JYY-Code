@@ -85,10 +85,7 @@ describe("child execution budgets", () => {
       },
     })
 
-    await protocol.create(
-      { workspaceRoot: root, sessionId: "ses_main", mode: "multi" },
-      planInput(),
-    )
+    await protocol.create({ workspaceRoot: root, sessionId: "ses_main", mode: "multi" }, planInput())
     const first = await protocol.dispatch(
       { workspaceRoot: root, sessionId: "ses_main", mode: "multi" },
       { taskIds: ["s1_t1"], role: "general" },

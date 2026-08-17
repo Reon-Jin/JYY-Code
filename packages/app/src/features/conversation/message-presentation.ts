@@ -68,8 +68,7 @@ export function presentConversationMessages(messages: readonly ConversationMessa
     if (parts.length === 0) {
       if (message.info.role === "assistant" && message.info.time.completed === undefined) {
         const previous = presented.at(-1)
-        const mergesIntoPrevious =
-          previous?.info.role === "assistant" && sameAgent(previous.info, message.info)
+        const mergesIntoPrevious = previous?.info.role === "assistant" && sameAgent(previous.info, message.info)
         // A new step of the same Agent may open before the previous step's
         // entry has visible parts. Absorb it into the existing entry so the
         // response keeps a single activity section; its parts merge in when
@@ -81,9 +80,7 @@ export function presentConversationMessages(messages: readonly ConversationMessa
 
     const previous = presented.at(-1)
     const canMerge =
-      message.info.role === "assistant" &&
-      previous?.info.role === "assistant" &&
-      sameAgent(previous.info, message.info)
+      message.info.role === "assistant" && previous?.info.role === "assistant" && sameAgent(previous.info, message.info)
 
     if (canMerge) {
       previous.pendingEmpty = false

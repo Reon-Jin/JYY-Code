@@ -34,12 +34,17 @@ describe("durable child activation ownership", () => {
     now = 20_000
     const takeover = store.takeover({ session_id: first.session_id, owner_id: "owner-b" })
     expect(takeover.generation).toBe(2)
-    expect(() => store.renew({ session_id: first.session_id, owner_id: "owner-a", generation: first.generation })).toThrow(
-      "stale activation generation",
-    )
-    expect(() => store.transition({ session_id: first.session_id, owner_id: "owner-a", generation: first.generation, state: "settled" })).toThrow(
-      "stale activation generation",
-    )
+    expect(() =>
+      store.renew({ session_id: first.session_id, owner_id: "owner-a", generation: first.generation }),
+    ).toThrow("stale activation generation")
+    expect(() =>
+      store.transition({
+        session_id: first.session_id,
+        owner_id: "owner-a",
+        generation: first.generation,
+        state: "settled",
+      }),
+    ).toThrow("stale activation generation")
 
     const recovery = events.readAfter(first.parent_session_id, -1)
     expect(recovery.some((event) => event.type === "child.recovery")).toBe(true)

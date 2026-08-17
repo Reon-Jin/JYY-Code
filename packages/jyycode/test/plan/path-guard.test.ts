@@ -33,7 +33,8 @@ describe("plan path guard", () => {
     )
     expect(() => resolveInside(root, "../outside.md", "report")).toThrow(PathGuardError)
     expect(() => resolveInside(root, path.join(path.dirname(root), "outside.md"), "report")).toThrow(PathGuardError)
-    if (process.platform === "win32") expect(() => resolveInside(root, "Z:\\outside.md", "report")).toThrow(PathGuardError)
+    if (process.platform === "win32")
+      expect(() => resolveInside(root, "Z:\\outside.md", "report")).toThrow(PathGuardError)
   })
 
   it("canonicalizes existing symlinks and rejects escapes", () => {
@@ -58,12 +59,12 @@ describe("plan path guard", () => {
     expect(() => assertOutputArtifact({ workspaceRoot: root, outputRoot: output, artifact: output })).toThrow(
       PathGuardError,
     )
-    expect(() => assertOutputArtifact({ workspaceRoot: root, outputRoot: output, artifact: path.join(root, "other.md") })).toThrow(
-      PathGuardError,
-    )
-    expect(assertOutputArtifact({ workspaceRoot: root, outputRoot: output, artifact: path.join(output, "pending.md") })).toBe(
-      path.join(output, "pending.md"),
-    )
+    expect(() =>
+      assertOutputArtifact({ workspaceRoot: root, outputRoot: output, artifact: path.join(root, "other.md") }),
+    ).toThrow(PathGuardError)
+    expect(
+      assertOutputArtifact({ workspaceRoot: root, outputRoot: output, artifact: path.join(output, "pending.md") }),
+    ).toBe(path.join(output, "pending.md"))
   })
 
   it("keeps boundary checks consistent for mixed separators and non-existing parents", () => {

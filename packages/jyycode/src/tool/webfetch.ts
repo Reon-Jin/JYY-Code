@@ -140,9 +140,7 @@ export const WebFetchTool = Tool.define(
 
               return { response, currentUrl }
             }
-          }).pipe(
-            Effect.timeoutOrElse({ duration: timeout, orElse: () => Effect.die(new Error("Request timed out")) }),
-          )
+          }).pipe(Effect.timeoutOrElse({ duration: timeout, orElse: () => Effect.die(new Error("Request timed out")) }))
 
           const { response, currentUrl } = fetched
 

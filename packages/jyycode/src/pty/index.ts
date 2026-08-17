@@ -192,7 +192,10 @@ export const layer = Layer.effect(
         } catch {}
       }
       session.subscribers.clear()
-      return session.termination ?? ({ state: "exited", pid: session.info.pid, remainingPids: [] } satisfies TerminationResult)
+      return (
+        session.termination ??
+        ({ state: "exited", pid: session.info.pid, remainingPids: [] } satisfies TerminationResult)
+      )
     })
 
     const state = yield* InstanceState.make<State>(
@@ -203,9 +206,16 @@ export const layer = Layer.effect(
         }
 
         yield* Effect.addFinalizer(() =>
-          Effect.forEach(state.sessions.values(), (session) => teardown(session, "instance_dispose").pipe(Effect.ignore), {
-            concurrency: "unbounded",
-          }).pipe(Effect.asVoid, Effect.tap(() => Effect.sync(() => state.sessions.clear()))),
+          Effect.forEach(
+            state.sessions.values(),
+            (session) => teardown(session, "instance_dispose").pipe(Effect.ignore),
+            {
+              concurrency: "unbounded",
+            },
+          ).pipe(
+            Effect.asVoid,
+            Effect.tap(() => Effect.sync(() => state.sessions.clear())),
+          ),
         )
 
         return state

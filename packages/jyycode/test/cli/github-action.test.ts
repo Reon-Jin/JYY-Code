@@ -92,7 +92,7 @@ describe("extractResponseText", () => {
   })
 
   test("returns text even when tool parts follow", () => {
-    const parts = [createTextPart("I'll help with that."), createToolPart("todowrite", "3 todos")]
+    const parts = [createTextPart("I'll help with that."), createToolPart("bash", "bun test")]
     expect(extractResponseText(parts)).toBe("I'll help with that.")
   })
 
@@ -102,8 +102,8 @@ describe("extractResponseText", () => {
   })
 
   test("returns null for tool-only response (signals summary needed)", () => {
-    // This is the exact scenario from the bug report - todowrite with no text
-    const parts = [createToolPart("todowrite", "8 todos")]
+    // A completed tool without preceding text signals no deliverable text.
+    const parts = [createToolPart("bash", "bun test")]
     expect(extractResponseText(parts)).toBeNull()
   })
 

@@ -39,12 +39,7 @@ export function parseFilePreviewRoute(url: URL): FilePreviewRoute | undefined {
   }
 }
 
-export function filePreviewPath(input: {
-  directory: string
-  workspaceID?: string
-  authToken: string
-  path: string
-}) {
+export function filePreviewPath(input: { directory: string; workspaceID?: string; authToken: string; path: string }) {
   const segments = [
     input.directory,
     input.workspaceID ?? "_",

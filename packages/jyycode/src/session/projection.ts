@@ -26,7 +26,9 @@ function ensureSchema(db: LegacyDatabase) {
     ),
   )
   db.run(
-    sql.raw("CREATE INDEX IF NOT EXISTS session_projection_aggregate_seq_idx ON session_projection (aggregate_id, seq)"),
+    sql.raw(
+      "CREATE INDEX IF NOT EXISTS session_projection_aggregate_seq_idx ON session_projection (aggregate_id, seq)",
+    ),
   )
   const columns = db.all<{ name: string }>(sql.raw("PRAGMA table_info(event)"))
   if (!columns.some((column) => column.name === "ignorable")) {
@@ -123,10 +125,7 @@ export function readWatermark(
   }
 }
 
-export function readWatermarkEffect(
-  db: Database.EffectTxOrDb,
-  input: { aggregateID: string; projector?: string },
-) {
+export function readWatermarkEffect(db: Database.EffectTxOrDb, input: { aggregateID: string; projector?: string }) {
   const key = projectionKey(input)
   return db
     .select()
@@ -240,10 +239,7 @@ export function writeWatermarkEffect(
     .pipe(Effect.asVoid)
 }
 
-export function clearProjection(
-  db: Database.TxOrDb,
-  input: { aggregateID: string; projector?: string },
-) {
+export function clearProjection(db: Database.TxOrDb, input: { aggregateID: string; projector?: string }) {
   const key = projectionKey(input)
   db.delete(SessionProjectionTable)
     .where(

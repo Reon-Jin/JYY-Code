@@ -67,20 +67,16 @@ export const layer = Layer.effect(
         ? order === "asc"
           ? or(
               gt(SessionMessageTable.time_created, input.cursor.time),
-              and(
-                eq(SessionMessageTable.time_created, input.cursor.time),
-                gt(SessionMessageTable.id, input.cursor.id),
-              ),
+              and(eq(SessionMessageTable.time_created, input.cursor.time), gt(SessionMessageTable.id, input.cursor.id)),
             )
           : or(
               lt(SessionMessageTable.time_created, input.cursor.time),
-              and(
-                eq(SessionMessageTable.time_created, input.cursor.time),
-                lt(SessionMessageTable.id, input.cursor.id),
-              ),
+              and(eq(SessionMessageTable.time_created, input.cursor.time), lt(SessionMessageTable.id, input.cursor.id)),
             )
         : undefined
-      const where = boundary ? and(eq(SessionMessageTable.session_id, input.sessionID), boundary) : eq(SessionMessageTable.session_id, input.sessionID)
+      const where = boundary
+        ? and(eq(SessionMessageTable.session_id, input.sessionID), boundary)
+        : eq(SessionMessageTable.session_id, input.sessionID)
       const rows = yield* Database.query((db) =>
         db
           .select()
@@ -101,9 +97,7 @@ export const layer = Layer.effect(
       return {
         items,
         more,
-        ...(more && tail
-          ? { cursor: { id: SessionMessage.ID.make(tail.id), time: tail.time_created } }
-          : {}),
+        ...(more && tail ? { cursor: { id: SessionMessage.ID.make(tail.id), time: tail.time_created } } : {}),
       }
     })
 

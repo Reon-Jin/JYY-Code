@@ -617,7 +617,6 @@ describe("HttpApi SDK", () => {
         const roots = yield* capture(() => sdk.session.list({ roots: true, limit: 10 }))
         const all = yield* capture(() => sdk.session.list({ roots: false, limit: 10 }))
         const children = yield* capture(() => sdk.session.children({ sessionID: parentID }))
-        const todo = yield* capture(() => sdk.session.todo({ sessionID: parentID }))
         const status = yield* capture(() => sdk.session.status())
         const messages = yield* capture(() => sdk.session.messages({ sessionID: parentID }))
         const missingGet = yield* capture(() => sdk.session.get({ sessionID: "ses_missing" }))
@@ -637,7 +636,6 @@ describe("HttpApi SDK", () => {
             roots,
             all,
             children,
-            todo,
             status,
             messages,
             missingGet,
@@ -651,7 +649,6 @@ describe("HttpApi SDK", () => {
           rootTitles: sessionTitles(roots.data),
           allTitles: sessionTitles(all.data),
           childCount: array(children.data).length,
-          todoCount: array(todo.data).length,
           messageCount: array(messages.data).length,
         }
       }),
@@ -716,62 +713,64 @@ describe("HttpApi SDK", () => {
   // bus.publish → SDK subscriber path. Goes red if either the publisher uses a
   // different bus instance (Bug 2 / pre-#27825) or the stream loses context (Bug 1 /
   // pre-#27425).
-  serverPathParity("streams sync-backed part updates to /event subscribers", (serverPath) =>
-    withStandardProject(serverPath, ({ sdk, directory }) =>
-      Effect.gen(function* () {
-        const session = yield* capture(() => sdk.session.create({ title: "sync-backed part event" }))
-        const sessionID = String(record(session.data).id)
-        const seeded = yield* seedMessage(directory, sessionID)
+  serverPathParity(
+    "streams sync-backed part updates to /event subscribers",
+    (serverPath) =>
+      withStandardProject(serverPath, ({ sdk, directory }) =>
+        Effect.gen(function* () {
+          const session = yield* capture(() => sdk.session.create({ title: "sync-backed part event" }))
+          const sessionID = String(record(session.data).id)
+          const seeded = yield* seedMessage(directory, sessionID)
 
-        const controller = new AbortController()
-        yield* Effect.addFinalizer(() => Effect.sync(() => controller.abort()))
-        const events = yield* call(() => sdk.event.subscribe(undefined, { signal: controller.signal }))
-        yield* Effect.addFinalizer(() =>
-          call(async () => void (await events.stream.return?.(undefined))).pipe(Effect.ignore),
-        )
+          const controller = new AbortController()
+          yield* Effect.addFinalizer(() => Effect.sync(() => controller.abort()))
+          const events = yield* call(() => sdk.event.subscribe(undefined, { signal: controller.signal }))
+          yield* Effect.addFinalizer(() =>
+            call(async () => void (await events.stream.return?.(undefined))).pipe(Effect.ignore),
+          )
 
-        const ready = yield* Deferred.make<void>()
-        const received = yield* Deferred.make<unknown>()
+          const ready = yield* Deferred.make<void>()
+          const received = yield* Deferred.make<unknown>()
 
-        yield* call(async () => {
-          for await (const event of events.stream) {
-            const payload = record(event).payload ?? event
-            const type = record(payload).type
-            if (type === "server.connected") {
-              Deferred.doneUnsafe(ready, Effect.void)
-              continue
+          yield* call(async () => {
+            for await (const event of events.stream) {
+              const payload = record(event).payload ?? event
+              const type = record(payload).type
+              if (type === "server.connected") {
+                Deferred.doneUnsafe(ready, Effect.void)
+                continue
+              }
+              if (type === SessionEvent.Legacy.PartUpdated.type) {
+                Deferred.doneUnsafe(received, Effect.succeed(payload))
+                return
+              }
             }
-            if (type === SessionEvent.Legacy.PartUpdated.type) {
-              Deferred.doneUnsafe(received, Effect.succeed(payload))
-              return
-            }
-          }
-        }).pipe(Effect.forkScoped)
+          }).pipe(Effect.forkScoped)
 
-        yield* awaitWithTimeout(Deferred.await(ready), "timed out waiting for /event server.connected", "2 seconds")
+          yield* awaitWithTimeout(Deferred.await(ready), "timed out waiting for /event server.connected", "2 seconds")
 
-        const updated = yield* capture(() =>
-          sdk.part.update({
-            sessionID,
-            messageID: seeded.message.id,
-            partID: seeded.part.id,
-            part: { ...seeded.part, text: "updated via sync" } as NonNullable<
-              Parameters<Sdk["part"]["update"]>[0]["part"]
-            >,
-          }),
-        )
-        expect(updated.status).toBe(200)
+          const updated = yield* capture(() =>
+            sdk.part.update({
+              sessionID,
+              messageID: seeded.message.id,
+              partID: seeded.part.id,
+              part: { ...seeded.part, text: "updated via sync" } as NonNullable<
+                Parameters<Sdk["part"]["update"]>[0]["part"]
+              >,
+            }),
+          )
+          expect(updated.status).toBe(200)
 
-        const event = yield* awaitWithTimeout(
-          Deferred.await(received),
-          "timed out waiting for message.part.updated bus payload over /event",
-          "5 seconds",
-        )
-        const properties = record(record(event).properties)
-        expect(record(properties.part)).toMatchObject({ id: seeded.part.id, type: "text" })
-        return { type: record(event).type, partType: record(properties.part).type }
-      }),
-    ),
+          const event = yield* awaitWithTimeout(
+            Deferred.await(received),
+            "timed out waiting for message.part.updated bus payload over /event",
+            "5 seconds",
+          )
+          const properties = record(record(event).properties)
+          expect(record(properties.part)).toMatchObject({ id: seeded.part.id, type: "text" })
+          return { type: record(event).type, partType: record(properties.part).type }
+        }),
+      ),
     true,
   )
 
@@ -832,11 +831,9 @@ describe("HttpApi SDK", () => {
     withFakeLlm(serverPath, ({ sdk, llm }) =>
       Effect.gen(function* () {
         yield* llm.reset
-        yield* llm.textMatch(
-          (hit) => JSON.stringify(hit.body).includes("hello llm"),
-          "fake world",
-          { usage: { input: 11, output: 7 } },
-        )
+        yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("hello llm"), "fake world", {
+          usage: { input: 11, output: 7 },
+        })
         const session = yield* capture(() =>
           sdk.session.create({
             title: "llm prompt",
@@ -866,7 +863,9 @@ describe("HttpApi SDK", () => {
       }),
     )
 
-  serverPathParity("matches generated SDK prompt streaming through fake LLM (default)", runFakeLlmPrompt, false, ["default"])
+  serverPathParity("matches generated SDK prompt streaming through fake LLM (default)", runFakeLlmPrompt, false, [
+    "default",
+  ])
   serverPathParity("matches generated SDK prompt streaming through fake LLM (raw)", runFakeLlmPrompt, false, ["raw"])
 
   httpapi(

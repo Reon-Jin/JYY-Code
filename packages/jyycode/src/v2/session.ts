@@ -301,8 +301,6 @@ export const layer = Layer.effect(
   }),
 ).pipe(Layer.provide(SessionMessageDefaultLayer))
 
-export const defaultLayer = layer.pipe(
-  Layer.provide(EventRuntime.defaultLayer),
-)
+export const defaultLayer = layer.pipe(Layer.provide(EventRuntime.defaultLayer))
 
 export * as SessionV2 from "./session"

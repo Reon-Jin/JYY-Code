@@ -53,8 +53,7 @@ export function retentionDecision(input: RetentionDecisionInput): RetentionDecis
   if (lifecycle === "unknown") return { action: "preserve", reason: "unknown-lifecycle", automatic: false }
   if (lifecycle === "active") return { action: "preserve", reason: "active-session", automatic: false }
   if (lifecycle === "leased") return { action: "preserve", reason: "leased-session", automatic: false }
-  if (lifecycle === "waiting_permission")
-    return { action: "preserve", reason: "waiting-permission", automatic: false }
+  if (lifecycle === "waiting_permission") return { action: "preserve", reason: "waiting-permission", automatic: false }
   if (lifecycle === "waiting_question") return { action: "preserve", reason: "waiting-question", automatic: false }
 
   const now = input.now ?? Date.now()
@@ -65,11 +64,25 @@ export function retentionDecision(input: RetentionDecisionInput): RetentionDecis
 }
 
 export function parseDuration(value: string): number {
-  const match = value.trim().toLowerCase().match(/^(\d+(?:\.\d+)?)(ms|s|m|h|d|w)$/)
+  const match = value
+    .trim()
+    .toLowerCase()
+    .match(/^(\d+(?:\.\d+)?)(ms|s|m|h|d|w)$/)
   if (!match) throw new Error(`invalid duration: ${value}; use a value such as 30d, 12h, or 15m`)
   const amount = Number(match[1])
   const unit = match[2]
-  const multiplier = unit === "ms" ? 1 : unit === "s" ? 1000 : unit === "m" ? 60_000 : unit === "h" ? 3_600_000 : unit === "d" ? 86_400_000 : 604_800_000
+  const multiplier =
+    unit === "ms"
+      ? 1
+      : unit === "s"
+        ? 1000
+        : unit === "m"
+          ? 60_000
+          : unit === "h"
+            ? 3_600_000
+            : unit === "d"
+              ? 86_400_000
+              : 604_800_000
   const result = amount * multiplier
   if (!Number.isFinite(result) || result <= 0) throw new Error(`invalid duration: ${value}`)
   return Math.floor(result)
@@ -133,7 +146,12 @@ function total(entries: readonly FileEntry[]): StorageCount {
 
 function isCanonicalBlob(entry: FileEntry, root: string) {
   const relative = path.relative(root, entry.path).split(path.sep)
-  return relative[0] === "blob" && relative[1] === "sha256" && /^[a-f0-9]{2}$/.test(relative[2] ?? "") && /^[a-f0-9]{64}$/.test(relative[3] ?? "")
+  return (
+    relative[0] === "blob" &&
+    relative[1] === "sha256" &&
+    /^[a-f0-9]{2}$/.test(relative[2] ?? "") &&
+    /^[a-f0-9]{64}$/.test(relative[3] ?? "")
+  )
 }
 
 function aggregateDatabaseBytes(report: StorageAuditReport) {
@@ -154,20 +172,32 @@ export async function inspectStorage(root = Global.Path.data): Promise<StorageIn
   const resolvedRoot = path.resolve(root)
   const [files, audit] = await Promise.all([filesUnder(resolvedRoot), auditStorage({ root: resolvedRoot })])
   const blobs = files.filter((entry) => isCanonicalBlob(entry, resolvedRoot))
-  const logs = files.filter((entry) => path.relative(resolvedRoot, entry.path).split(path.sep)[0]?.toLowerCase() === "log")
+  const logs = files.filter(
+    (entry) => path.relative(resolvedRoot, entry.path).split(path.sep)[0]?.toLowerCase() === "log",
+  )
   const backups = files.filter((entry) => /backup/i.test(path.relative(resolvedRoot, entry.path)))
-  const workspaces = files.filter((entry) => /^(?:plan-)?workspaces?$/i.test(path.relative(resolvedRoot, entry.path).split(path.sep)[0] ?? ""))
-  const toolOutput = files.filter((entry) => /(?:tool[-_]?output|truncat)/i.test(path.relative(resolvedRoot, entry.path)))
-  const channels = audit.databases.filter((database) => database.kind === "active-channel-db" || database.kind === "inactive-channel-db")
+  const workspaces = files.filter((entry) =>
+    /^(?:plan-)?workspaces?$/i.test(path.relative(resolvedRoot, entry.path).split(path.sep)[0] ?? ""),
+  )
+  const toolOutput = files.filter((entry) =>
+    /(?:tool[-_]?output|truncat)/i.test(path.relative(resolvedRoot, entry.path)),
+  )
+  const channels = audit.databases.filter(
+    (database) => database.kind === "active-channel-db" || database.kind === "inactive-channel-db",
+  )
   const databaseStats = aggregateDatabaseBytes(audit)
   const disk = await statfs(resolvedRoot).catch(() => undefined)
   const freeBytes = disk ? Number(disk.bavail) * Number(disk.bsize) : undefined
   const totalDiskBytes = disk ? Number(disk.blocks) * Number(disk.bsize) : undefined
-  const freeThreshold = totalDiskBytes === undefined ? undefined : Math.max(RETENTION_DEFAULTS.warningFreeBytes, totalDiskBytes * RETENTION_DEFAULTS.warningFreeRatio)
+  const freeThreshold =
+    totalDiskBytes === undefined
+      ? undefined
+      : Math.max(RETENTION_DEFAULTS.warningFreeBytes, totalDiskBytes * RETENTION_DEFAULTS.warningFreeRatio)
   const warnings: string[] = []
   const rootBytes = files.reduce((sum, entry) => sum + entry.bytes, 0)
   if (rootBytes > RETENTION_DEFAULTS.warningRootBytes) warnings.push("data-root-over-1GiB")
-  if (audit.databases.some((database) => database.bytes > RETENTION_DEFAULTS.warningSessionBytes)) warnings.push("single-session-storage-over-100MiB")
+  if (audit.databases.some((database) => database.bytes > RETENTION_DEFAULTS.warningSessionBytes))
+    warnings.push("single-session-storage-over-100MiB")
   const lowDisk = freeBytes !== undefined && freeThreshold !== undefined && freeBytes < freeThreshold
   if (lowDisk) warnings.push("low-free-disk")
   if (audit.backups.length > 0) warnings.push("backups-preserved-unless-recognized")
@@ -196,7 +226,11 @@ export async function inspectStorage(root = Global.Path.data): Promise<StorageIn
     },
     retention: {
       automaticSessionDeletion: false,
-      reasons: ["root-sessions-preserved", "active-and-waiting-sessions-preserved", "unknown-databases-and-backups-reported-only"],
+      reasons: [
+        "root-sessions-preserved",
+        "active-and-waiting-sessions-preserved",
+        "unknown-databases-and-backups-reported-only",
+      ],
     },
   }
 }
@@ -208,7 +242,9 @@ export type CleanupPlan = {
   readonly decisions: readonly RetentionDecision[]
 }
 
-export async function planCleanup(options: { readonly root?: string; readonly olderThanMs?: number; readonly dryRun?: boolean } = {}): Promise<CleanupPlan> {
+export async function planCleanup(
+  options: { readonly root?: string; readonly olderThanMs?: number; readonly dryRun?: boolean } = {},
+): Promise<CleanupPlan> {
   const olderThanMs = options.olderThanMs ?? RETENTION_DEFAULTS.terminalChildTtlMs
   const inspection = await inspectStorage(options.root)
   return {
@@ -218,13 +254,18 @@ export async function planCleanup(options: { readonly root?: string; readonly ol
     decisions: [
       retentionDecision({ root: true, artifact: "session" }),
       retentionDecision({ lifecycle: "unknown", artifact: "database" }),
-      retentionDecision({ lifecycle: "terminal", updatedAt: Date.now() - olderThanMs, terminalChildTtlMs: olderThanMs }),
+      retentionDecision({
+        lifecycle: "terminal",
+        updatedAt: Date.now() - olderThanMs,
+        terminalChildTtlMs: olderThanMs,
+      }),
     ],
   }
 }
 
 export function defaultStorageRoot() {
   if (process.env.JYYCODE_DATA_DIR) return path.resolve(process.env.JYYCODE_DATA_DIR)
-  if (process.platform === "win32") return path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "jyycode")
+  if (process.platform === "win32")
+    return path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "jyycode")
   return path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "jyycode")
 }

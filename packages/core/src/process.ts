@@ -50,10 +50,7 @@ export interface RunResult {
 export type Interface = Omit<ChildProcessSpawner["Service"], "spawn"> & {
   readonly spawn: (command: ProcessInput) => Effect.Effect<AppProcessHandle, PlatformError, Scope.Scope>
   readonly run: (command: ProcessInput, options?: RunOptions) => Effect.Effect<RunResult, AppProcessError>
-  readonly runStream: (
-    command: ProcessInput,
-    options?: RunStreamOptions,
-  ) => Stream.Stream<string, AppProcessError>
+  readonly runStream: (command: ProcessInput, options?: RunStreamOptions) => Stream.Stream<string, AppProcessError>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@jyycode/AppProcess") {}
@@ -139,7 +136,8 @@ function normalizeInput(input: ProcessInput): { command: ChildProcess.Command; t
       env: environmentFor(input),
       extendEnv: false,
       shell: input.shell,
-      stdin: input.stdin === undefined ? (input.output === "inherit" ? "inherit" : undefined) : normalizeStdin(input.stdin),
+      stdin:
+        input.stdin === undefined ? (input.output === "inherit" ? "inherit" : undefined) : normalizeStdin(input.stdin),
       stdout: input.output === "inherit" ? "inherit" : "pipe",
       stderr: input.output === "inherit" ? "inherit" : "pipe",
     }
@@ -213,7 +211,9 @@ export const layer = Layer.effect(
           try: () => terminateProcessTree(Number(handle.pid), options),
           catch: (cause) => wrapError(describeCommand(command), cause),
         })
-      const result = Object.assign(Object.create(Object.getPrototypeOf(handle)), handle, { terminate }) as AppProcessHandle
+      const result = Object.assign(Object.create(Object.getPrototypeOf(handle)), handle, {
+        terminate,
+      }) as AppProcessHandle
       if (timeout !== undefined) {
         yield* Effect.forkScoped(
           Effect.sleep(timeout).pipe(
@@ -289,10 +289,7 @@ export const layer = Layer.effect(
       return yield* runCommand(next, effectiveOptions)
     })
 
-    const runStream = (
-      input: ProcessInput,
-      options?: RunStreamOptions,
-    ): Stream.Stream<string, AppProcessError> => {
+    const runStream = (input: ProcessInput, options?: RunStreamOptions): Stream.Stream<string, AppProcessError> => {
       const normalized = normalizeInput(input)
       const command = normalized.command
       const description = describeCommand(command)
@@ -338,7 +335,9 @@ export const layer = Layer.effect(
         bounded = bounded.pipe(
           Stream.interruptWhen(
             Effect.sleep(timeout).pipe(
-              Effect.flatMap(() => Effect.fail(new AppProcessError({ command: description, cause: new Error("Timed out") }))),
+              Effect.flatMap(() =>
+                Effect.fail(new AppProcessError({ command: description, cause: new Error("Timed out") })),
+              ),
             ),
           ),
         )

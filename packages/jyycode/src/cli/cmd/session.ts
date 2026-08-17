@@ -85,12 +85,15 @@ export const SessionRecoverCommand = effectCmd({
       .get(sessionID)
       .pipe(
         Effect.mapError(
-          (error) => new CliError({ message: error instanceof Error ? error.message : `Session not found: ${args.sessionID}` }),
+          (error) =>
+            new CliError({ message: error instanceof Error ? error.message : `Session not found: ${args.sessionID}` }),
         ),
       )
     const messages = yield* sessions
       .messages({ sessionID })
-      .pipe(Effect.mapError((error) => new CliError({ message: error instanceof Error ? error.message : String(error) })))
+      .pipe(
+        Effect.mapError((error) => new CliError({ message: error instanceof Error ? error.message : String(error) })),
+      )
     const plan = planRecovery(messages, {
       pageSize: args.chunked ? 50 : Math.max(1, messages.length),
     })

@@ -68,14 +68,24 @@ export function planRecovery<T>(items: readonly T[], options: PagedRecoveryOptio
     chunks.push({
       index: chunks.length,
       items: structuredClone(page),
-      sourceHighWatermark: sourceHighWatermark(page as ReadonlyArray<{ info?: { id?: string; role?: string; time?: { created?: number }; summary?: unknown }; parts?: ReadonlyArray<{ type?: string }> }>),
+      sourceHighWatermark: sourceHighWatermark(
+        page as ReadonlyArray<{
+          info?: { id?: string; role?: string; time?: { created?: number }; summary?: unknown }
+          parts?: ReadonlyArray<{ type?: string }>
+        }>,
+      ),
       measure: measureEffectiveContext(page),
     })
     cursor += page.length
   }
   return {
     chunks,
-    sourceHighWatermark: sourceHighWatermark(items as ReadonlyArray<{ info?: { id?: string; role?: string; time?: { created?: number }; summary?: unknown }; parts?: ReadonlyArray<{ type?: string }> }>),
+    sourceHighWatermark: sourceHighWatermark(
+      items as ReadonlyArray<{
+        info?: { id?: string; role?: string; time?: { created?: number }; summary?: unknown }
+        parts?: ReadonlyArray<{ type?: string }>
+      }>,
+    ),
     measure: measureEffectiveContext(items.slice(0, cursor)),
     pages: chunks.length,
     truncated,

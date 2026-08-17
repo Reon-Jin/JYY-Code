@@ -393,10 +393,7 @@ export const GlobalApi = HttpApi.make("global").add(
       ),
       HttpApiEndpoint.get("memoryExport", GlobalPaths.memoryExport, {
         query: GlobalMemoryListQuery,
-        success: described(
-          Schema.Union([GlobalMemoryExport, GlobalExperienceMemoryExport]),
-          "Exported memory store",
-        ),
+        success: described(Schema.Union([GlobalMemoryExport, GlobalExperienceMemoryExport]), "Exported memory store"),
         error: GlobalMemoryErrors,
       }).annotateMerge(
         OpenApi.annotations({

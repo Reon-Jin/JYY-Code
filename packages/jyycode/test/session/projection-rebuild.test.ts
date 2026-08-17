@@ -9,13 +9,7 @@ import { Database, eq } from "@/storage/db"
 import { EventTable } from "@/sync/event.sql"
 import { SyncEvent } from "@/sync"
 import { SessionProjectionTable } from "@/session/projection.sql"
-import {
-  SESSION_PROJECTOR,
-  SESSION_PROJECTOR_VERSION,
-  decide,
-  needsRebuild,
-  readWatermark,
-} from "@/session/projection"
+import { SESSION_PROJECTOR, SESSION_PROJECTOR_VERSION, decide, needsRebuild, readWatermark } from "@/session/projection"
 import { initProjectors } from "@/server/projectors"
 
 const it = testEffect(
@@ -74,7 +68,9 @@ describe("session projection watermarks", () => {
         })
         expect(applied()).toBe(2)
 
-        Database.use((db) => db.delete(SessionProjectionTable).where(eq(SessionProjectionTable.aggregate_id, sessionID)).run())
+        Database.use((db) =>
+          db.delete(SessionProjectionTable).where(eq(SessionProjectionTable.aggregate_id, sessionID)).run(),
+        )
         const events = Database.use((db) => db.select().from(EventTable).orderBy(EventTable.seq).all())
         yield* SyncEvent.use.replay(
           {

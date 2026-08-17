@@ -180,7 +180,11 @@ function formatPart(part: unknown): string {
     case "file":
     case "image": {
       const label =
-        typeof part.filename === "string" ? part.filename : typeof part.mediaType === "string" ? part.mediaType : "unknown"
+        typeof part.filename === "string"
+          ? part.filename
+          : typeof part.mediaType === "string"
+            ? part.mediaType
+            : "unknown"
       return `[${type}: ${label}]`
     }
     case "reasoning":

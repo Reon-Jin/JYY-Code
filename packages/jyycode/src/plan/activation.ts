@@ -73,7 +73,9 @@ function ensureSchema(db: Database.TxOrDb) {
       "CREATE TABLE IF NOT EXISTS plan_activation (session_id TEXT PRIMARY KEY NOT NULL, parent_session_id TEXT NOT NULL, task_id TEXT NOT NULL, run_id TEXT NOT NULL, owner_id TEXT NOT NULL, generation INTEGER NOT NULL, lease_expires_at INTEGER NOT NULL, state TEXT NOT NULL, recovery_reason TEXT, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL)",
     ),
   )
-  db.run(sql.raw("CREATE INDEX IF NOT EXISTS plan_activation_parent_idx ON plan_activation(parent_session_id, session_id)"))
+  db.run(
+    sql.raw("CREATE INDEX IF NOT EXISTS plan_activation_parent_idx ON plan_activation(parent_session_id, session_id)"),
+  )
   db.run(sql.raw("CREATE INDEX IF NOT EXISTS plan_activation_lease_idx ON plan_activation(lease_expires_at, state)"))
   db.run(sql.raw("CREATE INDEX IF NOT EXISTS plan_activation_owner_idx ON plan_activation(owner_id, state)"))
 }
@@ -142,7 +144,9 @@ export class PlanActivationStore {
             time_created: now,
             time_updated: now,
           }
-          db.insert(PlanActivationTable).values({ ...activation, recovery_reason: null }).run()
+          db.insert(PlanActivationTable)
+            .values({ ...activation, recovery_reason: null })
+            .run()
           return { activation, takeover: undefined as { previous_owner_id: string } | undefined }
         }
         if (existing.owner_id !== input.owner_id && !isExpired(existing, now) && existing.state !== "settled")
@@ -204,7 +208,8 @@ export class PlanActivationStore {
       },
       { behavior: "immediate" },
     )
-    if (result.takeover) this.emitRecovery(result.activation, result.takeover.previous_owner_id, result.activation.recovery_reason)
+    if (result.takeover)
+      this.emitRecovery(result.activation, result.takeover.previous_owner_id, result.activation.recovery_reason)
     return result.activation
   }
 
@@ -300,7 +305,10 @@ export class PlanActivationStore {
         .all()
         .map((row) => {
           const durable = toActivation(row)
-          return { durable, live: durable.state !== "settled" && durable.lease_expires_at > now && isOwnerLive(durable.owner_id) }
+          return {
+            durable,
+            live: durable.state !== "settled" && durable.lease_expires_at > now && isOwnerLive(durable.owner_id),
+          }
         })
     })
   }
@@ -321,7 +329,10 @@ export class PlanActivationStore {
     return row ? toActivation(row) : undefined
   }
 
-  private assertCas(current: PlanActivation | undefined, input: PlanActivationCasInput): asserts current is PlanActivation {
+  private assertCas(
+    current: PlanActivation | undefined,
+    input: PlanActivationCasInput,
+  ): asserts current is PlanActivation {
     if (!current) throw new PlanActivationError("activation not found", "NOT_FOUND")
     if (current.owner_id !== input.owner_id || current.generation !== input.generation)
       throw new PlanActivationError("stale activation generation or owner", "STALE_GENERATION")

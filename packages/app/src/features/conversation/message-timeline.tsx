@@ -197,9 +197,7 @@ function CompactionIndicator(props: { status?: CompactionStatus | null }) {
             <ThinkingOrb state="compacting" size={20} theme="light" aria-label={tr("conversation.compacting")} />
           </Show>
           <span>
-            {current().status === "compacting"
-              ? tr("conversation.compacting")
-              : tr("conversation.compaction-complete")}
+            {current().status === "compacting" ? tr("conversation.compacting") : tr("conversation.compaction-complete")}
           </span>
         </div>
       )}
@@ -280,11 +278,7 @@ function PresentedMessageView(props: {
           </For>
         </Show>
         <Show when={props.message.pendingEmpty}>
-          <ActivityGroup
-            label={tr("conversation.thinking-and-tool-calling")}
-            count={0}
-            pending
-          >
+          <ActivityGroup label={tr("conversation.thinking-and-tool-calling")} count={0} pending>
             <span class="conversation-message__waiting" role="status">
               {tr("conversation.waiting-for-execution")}
             </span>

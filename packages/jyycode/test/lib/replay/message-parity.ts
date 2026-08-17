@@ -136,10 +136,7 @@ export function normalizeEventMessages(messages: readonly SessionMessage.Message
   })
 }
 
-export function parityDiff(
-  legacy: readonly MessageV2.WithParts[],
-  eventV2: readonly SessionMessage.Message[],
-) {
+export function parityDiff(legacy: readonly MessageV2.WithParts[], eventV2: readonly SessionMessage.Message[]) {
   const left = normalizeLegacyMessages(legacy)
   const right = normalizeEventMessages(eventV2)
   return {

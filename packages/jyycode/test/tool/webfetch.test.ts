@@ -236,10 +236,9 @@ describe("tool.webfetch", () => {
               return Effect.void
             },
           }
-          const exit = yield* execWithContext(
-            { url: new URL("/redirect", url).toString(), format: "text" },
-            next,
-          ).pipe(Effect.exit)
+          const exit = yield* execWithContext({ url: new URL("/redirect", url).toString(), format: "text" }, next).pipe(
+            Effect.exit,
+          )
           expect(Exit.isFailure(exit)).toBe(true)
           expect(privateRequests).toBe(2)
         }),

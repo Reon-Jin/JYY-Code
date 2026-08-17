@@ -1,4 +1,4 @@
-import type { PulseDriverConfig } from './styles';
+import type { PulseDriverConfig } from "./styles"
 
 /**
  * Shared breathing driver for the Pulse effects.
@@ -20,66 +20,61 @@ import type { PulseDriverConfig } from './styles';
  */
 
 interface PulseInstance {
-  el: HTMLElement;
-  config: PulseDriverConfig;
+  el: HTMLElement
+  config: PulseDriverConfig
 }
 
-const instances = new Set<PulseInstance>();
-let rafId: number | null = null;
-let lastFrame = 0;
+const instances = new Set<PulseInstance>()
+let rafId: number | null = null
+let lastFrame = 0
 
 // ~30 fps. Subtract a small slack so a frame that lands a hair early still runs.
-const FRAME_INTERVAL = 1000 / 30 - 2;
+const FRAME_INTERVAL = 1000 / 30 - 2
 
-const TWO_PI = Math.PI * 2;
+const TWO_PI = Math.PI * 2
 
 /** Cosine ease-in-out factor in [0, 1]: 0 at phase 0/1, 1 at phase 0.5. */
 function pingPong(phase: number): number {
-  return (1 - Math.cos(TWO_PI * phase)) / 2;
+  return (1 - Math.cos(TWO_PI * phase)) / 2
 }
 
 function frame(ts: number): void {
-  rafId = requestAnimationFrame(frame);
+  rafId = requestAnimationFrame(frame)
 
-  if (ts - lastFrame < FRAME_INTERVAL) return;
-  lastFrame = ts;
+  if (ts - lastFrame < FRAME_INTERVAL) return
+  lastFrame = ts
 
-  const tSec = ts / 1000;
+  const tSec = ts / 1000
 
   instances.forEach(({ el, config }) => {
     for (const osc of config.oscillators) {
       // Match CSS animation-delay semantics: a positive delay starts later.
-      const phase = (tSec - osc.delay) / osc.period;
-      const value = osc.a + (osc.b - osc.a) * pingPong(phase);
-      el.style.setProperty(
-        osc.prop,
-        osc.unit === 'px' ? `${value.toFixed(2)}px` : value.toFixed(4)
-      );
+      const phase = (tSec - osc.delay) / osc.period
+      const value = osc.a + (osc.b - osc.a) * pingPong(phase)
+      el.style.setProperty(osc.prop, osc.unit === "px" ? `${value.toFixed(2)}px` : value.toFixed(4))
     }
 
     if (config.hue) {
-      const { prop, range, period, continuous } = config.hue;
+      const { prop, range, period, continuous } = config.hue
       // `continuous` rotates a full circle (0→range, looping) so every color
       // sweeps through every edge; otherwise drift between -range and +range.
-      const value = continuous
-        ? ((tSec / period) % 1) * range
-        : -range + 2 * range * pingPong(tSec / period);
-      el.style.setProperty(prop, `${value.toFixed(2)}deg`);
+      const value = continuous ? ((tSec / period) % 1) * range : -range + 2 * range * pingPong(tSec / period)
+      el.style.setProperty(prop, `${value.toFixed(2)}deg`)
     }
-  });
+  })
 }
 
 function startLoop(): void {
   if (rafId == null) {
-    lastFrame = 0;
-    rafId = requestAnimationFrame(frame);
+    lastFrame = 0
+    rafId = requestAnimationFrame(frame)
   }
 }
 
 function stopLoopIfIdle(): void {
   if (instances.size === 0 && rafId != null) {
-    cancelAnimationFrame(rafId);
-    rafId = null;
+    cancelAnimationFrame(rafId)
+    rafId = null
   }
 }
 
@@ -89,16 +84,13 @@ function stopLoopIfIdle(): void {
  * @returns a cleanup function that unregisters the instance (and stops the
  *          shared loop once no instances remain).
  */
-export function registerPulseInstance(
-  el: HTMLElement,
-  config: PulseDriverConfig
-): () => void {
-  const instance: PulseInstance = { el, config };
-  instances.add(instance);
-  startLoop();
+export function registerPulseInstance(el: HTMLElement, config: PulseDriverConfig): () => void {
+  const instance: PulseInstance = { el, config }
+  instances.add(instance)
+  startLoop()
 
   return () => {
-    instances.delete(instance);
-    stopLoopIfIdle();
-  };
+    instances.delete(instance)
+    stopLoopIfIdle()
+  }
 }

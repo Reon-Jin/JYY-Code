@@ -19,19 +19,7 @@ type AgentMode = "all" | "primary" | "subagent"
 // Permission keys (not raw tool names). Multiple tools can map to a single
 // permission — e.g. write/edit all gate on `edit` — so we configure
 // agents at the permission level to match how the runtime actually enforces it.
-const AVAILABLE_PERMISSIONS = [
-  "bash",
-  "read",
-  "edit",
-  "glob",
-  "grep",
-  "webfetch",
-  "task",
-  "todowrite",
-  "websearch",
-  "lsp",
-  "skill",
-]
+const AVAILABLE_PERMISSIONS = ["bash", "read", "edit", "glob", "grep", "webfetch", "task", "websearch", "lsp", "skill"]
 
 const AgentCreateCommand = effectCmd({
   command: "create",

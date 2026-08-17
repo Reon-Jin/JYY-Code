@@ -65,7 +65,9 @@ describe("workspace three-way merge contract", () => {
       expect(result.apply.find((entry: MergeApplyEntry) => entry.path === "src/lines.txt")?.content).toBe(
         "ONE\r\ntwo\r\nTHREE\r\n",
       )
-      expect(result.apply.find((entry: MergeApplyEntry) => entry.path === "src/utf8.txt")?.content).toBe("你好\n世界！\n")
+      expect(result.apply.find((entry: MergeApplyEntry) => entry.path === "src/utf8.txt")?.content).toBe(
+        "你好\n世界！\n",
+      )
     } finally {
       fixture.cleanup()
     }
@@ -80,7 +82,12 @@ describe("workspace three-way merge contract", () => {
       copyTree(fixture.baseline, fixture.child)
       writeFile(fixture.child, "src/in-scope.ts", "child\n")
       writeFile(fixture.child, "outside.ts", "child\n")
-      const scoped = planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child, paths: ["src"] })
+      const scoped = planWorkspaceMerge({
+        base: fixture.baseline,
+        main: fixture.parent,
+        child: fixture.child,
+        paths: ["src"],
+      })
       expect(pathsOf(scoped.apply)).toEqual(["src/in-scope.ts"])
 
       let created = false
@@ -90,7 +97,10 @@ describe("workspace three-way merge contract", () => {
       } catch {
         // Windows may not allow unprivileged symlink creation.
       }
-      if (created) expect(() => planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child })).toThrow()
+      if (created)
+        expect(() =>
+          planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child }),
+        ).toThrow()
     } finally {
       fixture.cleanup()
     }
@@ -129,7 +139,14 @@ describe("workspace three-way merge contract", () => {
         main: fixture.parent,
         child: fixture.child,
       })
-      expect(result).toEqual(expect.objectContaining({ apply: expect.any(Array), keep: expect.any(Array), delete: expect.any(Array), conflicts: expect.any(Array) }))
+      expect(result).toEqual(
+        expect.objectContaining({
+          apply: expect.any(Array),
+          keep: expect.any(Array),
+          delete: expect.any(Array),
+          conflicts: expect.any(Array),
+        }),
+      )
       expect(pathsOf(result.apply)).toContain("src/git-child.ts")
     } finally {
       fixture.cleanup()
@@ -166,7 +183,9 @@ describe("workspace three-way merge contract", () => {
       const result = planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child })
       expect(pathsOf(result.apply)).toContain("src/file.ts")
       expect(result.conflicts).toEqual([])
-      expect(result.apply.find((entry: MergeApplyEntry) => entry.path === "src/file.ts")?.content).toBe("ONE\ntwo\nTHREE\nfour\n")
+      expect(result.apply.find((entry: MergeApplyEntry) => entry.path === "src/file.ts")?.content).toBe(
+        "ONE\ntwo\nTHREE\nfour\n",
+      )
     } finally {
       fixture.cleanup()
     }
@@ -192,11 +211,11 @@ describe("workspace three-way merge contract", () => {
   it("applies explicit child and main resolutions", () => {
     const fixture = createMergeWorkspaceFixture()
     try {
-      writeFile(fixture.baseline, "src/config.ts", "export const value = \"base\"\n")
+      writeFile(fixture.baseline, "src/config.ts", 'export const value = "base"\n')
       copyTree(fixture.baseline, fixture.parent)
       copyTree(fixture.baseline, fixture.child)
-      writeFile(fixture.parent, "src/config.ts", "export const value = \"main\"\n")
-      writeFile(fixture.child, "src/config.ts", "export const value = \"child\"\n")
+      writeFile(fixture.parent, "src/config.ts", 'export const value = "main"\n')
+      writeFile(fixture.child, "src/config.ts", 'export const value = "child"\n')
 
       const child = planWorkspaceMerge({
         base: fixture.baseline,
@@ -206,10 +225,10 @@ describe("workspace three-way merge contract", () => {
       })
       expect(child.conflicts).toEqual([])
       expect(child.apply.find((entry: MergeApplyEntry) => entry.path === "src/config.ts")?.content).toBe(
-        "export const value = \"child\"\n",
+        'export const value = "child"\n',
       )
 
-      writeFile(fixture.parent, "src/config.ts", "export const value = \"manually-resolved\"\n")
+      writeFile(fixture.parent, "src/config.ts", 'export const value = "manually-resolved"\n')
       const main = planWorkspaceMerge({
         base: fixture.baseline,
         main: fixture.parent,
@@ -251,8 +270,13 @@ describe("workspace three-way merge contract", () => {
           expect.objectContaining({ path: "binary.bin", kind: "binary" }),
         ]),
       )
-      if (fs.existsSync(path.join(fixture.parent, "link")) || fs.lstatSync(path.join(fixture.parent, "link"), { throwIfNoEntry: false }))
-        expect(result.conflicts).toEqual(expect.arrayContaining([expect.objectContaining({ path: "link", kind: "symlink" })]))
+      if (
+        fs.existsSync(path.join(fixture.parent, "link")) ||
+        fs.lstatSync(path.join(fixture.parent, "link"), { throwIfNoEntry: false })
+      )
+        expect(result.conflicts).toEqual(
+          expect.arrayContaining([expect.objectContaining({ path: "link", kind: "symlink" })]),
+        )
     } finally {
       fixture.cleanup()
     }
@@ -261,8 +285,22 @@ describe("workspace three-way merge contract", () => {
   it("rejects traversal and .git paths", () => {
     const fixture = createMergeWorkspaceFixture()
     try {
-      expect(() => planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child, paths: ["../escape"] })).toThrow()
-      expect(() => planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child, paths: [".git/config"] })).toThrow()
+      expect(() =>
+        planWorkspaceMerge({
+          base: fixture.baseline,
+          main: fixture.parent,
+          child: fixture.child,
+          paths: ["../escape"],
+        }),
+      ).toThrow()
+      expect(() =>
+        planWorkspaceMerge({
+          base: fixture.baseline,
+          main: fixture.parent,
+          child: fixture.child,
+          paths: [".git/config"],
+        }),
+      ).toThrow()
     } finally {
       fixture.cleanup()
     }

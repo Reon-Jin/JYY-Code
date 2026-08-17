@@ -22,10 +22,7 @@ import {
   type InstructionCandidate,
 } from "./instruction-budget"
 
-const files = (disableClaudeCodePrompt: boolean) => [
-  "AGENTS.md",
-  ...(disableClaudeCodePrompt ? [] : ["CLAUDE.md"]),
-]
+const files = (disableClaudeCodePrompt: boolean) => ["AGENTS.md", ...(disableClaudeCodePrompt ? [] : ["CLAUDE.md"])]
 
 function extract(messages: MessageV2.WithParts[]) {
   const paths = new Set<string>()
@@ -120,27 +117,29 @@ export const layer: Layer.Layer<
       const cached = s.remoteCache.get(url)
       if (cached) return { source: url, ...cached, required: true } satisfies InstructionCandidate
       const res = yield* http.execute(HttpClientRequest.get(url)).pipe(Effect.timeout(5000), Effect.orDie)
-      const collected = yield* res.stream.pipe(
-        Stream.runFold(
-          () => ({
-            chunks: [] as Uint8Array[],
-            bytes: 0,
-            retained: 0,
-            hash: createHash("sha256"),
-          }),
-          (acc, chunk) => {
-            acc.hash.update(chunk)
-            acc.bytes += chunk.byteLength
-            const remaining = DEFAULT_INSTRUCTION_FILE_BYTES - acc.retained
-            if (remaining > 0) {
-              const next = chunk.subarray(0, remaining)
-              acc.chunks.push(next)
-              acc.retained += next.byteLength
-            }
-            return acc
-          },
-        ),
-      ).pipe(Effect.orDie)
+      const collected = yield* res.stream
+        .pipe(
+          Stream.runFold(
+            () => ({
+              chunks: [] as Uint8Array[],
+              bytes: 0,
+              retained: 0,
+              hash: createHash("sha256"),
+            }),
+            (acc, chunk) => {
+              acc.hash.update(chunk)
+              acc.bytes += chunk.byteLength
+              const remaining = DEFAULT_INSTRUCTION_FILE_BYTES - acc.retained
+              if (remaining > 0) {
+                const next = chunk.subarray(0, remaining)
+                acc.chunks.push(next)
+                acc.retained += next.byteLength
+              }
+              return acc
+            },
+          ),
+        )
+        .pipe(Effect.orDie)
       const bounded: BoundedRead = {
         content: Buffer.concat(collected.chunks.map((item) => Buffer.from(item))).toString("utf8"),
         bytes: collected.bytes,
@@ -277,7 +276,8 @@ export const layer: Layer.Layer<
         const candidate = yield* read(found)
         if (candidate.content) {
           const entry = budgetInstructions([candidate], { maxFileBytes: DEFAULT_INSTRUCTION_FILE_BYTES }).entries[0]
-          if (entry?.included) results.push({ filepath: found, content: `Instructions from: ${found}\n${entry.content}` })
+          if (entry?.included)
+            results.push({ filepath: found, content: `Instructions from: ${found}\n${entry.content}` })
         }
 
         current = path.dirname(current)

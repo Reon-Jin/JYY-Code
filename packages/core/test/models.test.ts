@@ -169,11 +169,7 @@ describe("ModelsDev Service", () => {
       expect(agnes.env).toEqual(["AGNES_API_KEY"])
       expect(agnes.npm).toBe("@ai-sdk/openai-compatible")
       expect(agnes.api).toBe("https://api.agnes-ai.cn/v1")
-      expect(Object.keys(agnes.models).sort()).toEqual([
-        "agnes-2.0-flash",
-        "agnes-2.5-flash",
-        "agnes-2.5-pro-alpha",
-      ])
+      expect(Object.keys(agnes.models).sort()).toEqual(["agnes-2.0-flash", "agnes-2.5-flash", "agnes-2.5-pro-alpha"])
       expect(agnes.models["agnes-2.5-flash"].tool_call).toBe(true)
       expect(agnes.models["agnes-2.5-pro-alpha"].limit).toEqual({ context: 1048576, output: 65536 })
     }),

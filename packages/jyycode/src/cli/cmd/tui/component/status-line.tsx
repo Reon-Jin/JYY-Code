@@ -34,19 +34,11 @@ export function StatusLine(props: StatusLineProps) {
   const cost = createMemo(() => session()?.cost ?? 0)
 
   const usage = createMemo(() => {
-    const last = msg()
-      .findLast(
-        (item): item is AssistantMessage =>
-          item.role === "assistant" && item.tokens.output > 0,
-      )
+    const last = msg().findLast((item): item is AssistantMessage => item.role === "assistant" && item.tokens.output > 0)
     if (!last) return null
 
     const tokens =
-      last.tokens.input +
-      last.tokens.output +
-      last.tokens.reasoning +
-      last.tokens.cache.read +
-      last.tokens.cache.write
+      last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write
     const ctxSize = props.contextWindowSize
     const percent = ctxSize ? Math.round((tokens / ctxSize) * 100) : null
     return { tokens, percent, contextWindow: ctxSize }
@@ -60,12 +52,11 @@ export function StatusLine(props: StatusLineProps) {
           <>
             <Separator />
             <text fg={theme.textMuted}>Context </text>
-            <text fg={theme.text}>
-              {u().percent ?? "-"}%
-            </text>
+            <text fg={theme.text}>{u().percent ?? "-"}%</text>
             <Show when={u().contextWindow}>
               <text fg={theme.textMuted}>
-                {" "}({formatTokens(u().tokens)}/{formatTokens(u().contextWindow!)})
+                {" "}
+                ({formatTokens(u().tokens)}/{formatTokens(u().contextWindow!)})
               </text>
             </Show>
           </>

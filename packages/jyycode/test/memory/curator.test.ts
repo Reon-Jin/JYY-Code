@@ -250,7 +250,9 @@ describe("two-phase semantic memory curator", () => {
       Memory.Service.use((memory) =>
         memory.updateStepBegin(sessionID, (input) => {
           secondPromptInput = input
-          return Effect.succeed(decision("当前任务：完成赛车游戏并优化碰撞性能；进展：基础碰撞完成；经验：性能需基准测试"))
+          return Effect.succeed(
+            decision("当前任务：完成赛车游戏并优化碰撞性能；进展：基础碰撞完成；经验：性能需基准测试"),
+          )
         }),
       ),
     )
@@ -264,7 +266,9 @@ describe("two-phase semantic memory curator", () => {
       Memory.Service.use((memory) =>
         memory.updateAfterTurn(sessionID, (input) => {
           secondAnswerInput = input
-          return Effect.succeed(decision("当前任务：赛车碰撞与性能；进展：完成瓶颈分析与基准测试；经验：性能优化需基准验证"))
+          return Effect.succeed(
+            decision("当前任务：赛车碰撞与性能；进展：完成瓶颈分析与基准测试；经验：性能优化需基准验证"),
+          )
         }),
       ),
     )
@@ -344,7 +348,9 @@ describe("two-phase semantic memory curator", () => {
 
     await ctx.run(
       Memory.Service.use((memory) =>
-        memory.updateStepBegin(sessionID, () => Effect.succeed(decision("当前任务：记住用户姓名；进展：已记录姓名", [userFact]))),
+        memory.updateStepBegin(sessionID, () =>
+          Effect.succeed(decision("当前任务：记住用户姓名；进展：已记录姓名", [userFact])),
+        ),
       ),
     )
     await ctx.run(
@@ -437,11 +443,11 @@ describe("two-phase semantic memory curator", () => {
     await expect(
       ctx.run(
         Memory.Service.use((memory) =>
-          memory.updateAfterTurn(
-            sessionID,
-            () => Effect.succeed(decision("当前任务：修复部署脚本；进展：完成尝试")),
-            { userText: "修复部署脚本", assistantText: "已尝试修复，但脚本仍报错。", failureHint: "Tool shell: exit 1" },
-          ),
+          memory.updateAfterTurn(sessionID, () => Effect.succeed(decision("当前任务：修复部署脚本；进展：完成尝试")), {
+            userText: "修复部署脚本",
+            assistantText: "已尝试修复，但脚本仍报错。",
+            failureHint: "Tool shell: exit 1",
+          }),
         ),
       ),
     ).rejects.toThrow("failureHint present: experiences must include a kind=failure entry")

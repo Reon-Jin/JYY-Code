@@ -40,8 +40,18 @@ describe("compaction checkpoints", () => {
       verbatimTailMessageIDs: [MessageID.make("msg_1")],
     })
 
-    expect(validateCheckpoint(decodeCheckpoint(JSON.parse(JSON.stringify(checkpoint))), { sessionID, sourceHighWatermark: source })).toBe(true)
-    expect(validateCheckpoint(checkpoint, { sessionID, sourceHighWatermark: sourceHighWatermark([user("msg_2", 20, "new")]) })).toBe(false)
+    expect(
+      validateCheckpoint(decodeCheckpoint(JSON.parse(JSON.stringify(checkpoint))), {
+        sessionID,
+        sourceHighWatermark: source,
+      }),
+    ).toBe(true)
+    expect(
+      validateCheckpoint(checkpoint, {
+        sessionID,
+        sourceHighWatermark: sourceHighWatermark([user("msg_2", 20, "new")]),
+      }),
+    ).toBe(false)
   })
 
   test("requires monotonic reduction and rejects expansion", () => {
@@ -65,11 +75,14 @@ describe("chunked compaction recovery", () => {
   test("reads cursor pages and reports truncation at a deadline", async () => {
     const source = [user("msg_1", 1, "a"), user("msg_2", 2, "b")]
     let calls = 0
-    const plan = await recoverPaged(async (cursor) => {
-      calls++
-      if (!cursor) return { items: source.slice(0, 1), next: "next" }
-      return { items: source.slice(1), next: undefined }
-    }, { pageSize: 1, deadline: Deadline.fromDuration(5_000) })
+    const plan = await recoverPaged(
+      async (cursor) => {
+        calls++
+        if (!cursor) return { items: source.slice(0, 1), next: "next" }
+        return { items: source.slice(1), next: undefined }
+      },
+      { pageSize: 1, deadline: Deadline.fromDuration(5_000) },
+    )
     expect(calls).toBe(2)
     expect(plan.measure.tokens).toBeGreaterThan(0)
     expect(plan.sourceHighWatermark.id).toBe("msg_2")

@@ -79,9 +79,7 @@ const squote = (text: string) => `'${text}'`
 const projectRoot = path.join(__dirname, "../..")
 const bin = quote(process.execPath.replaceAll("\\", "/"))
 const longRunningCommand =
-  process.platform === "win32"
-    ? 'Write-Output "started"; Start-Sleep -Seconds 60'
-    : "echo started && sleep 60"
+  process.platform === "win32" ? 'Write-Output "started"; Start-Sleep -Seconds 60' : "echo started && sleep 60"
 const bash = (() => {
   const shell = Shell.acceptable()
   if (Shell.name(shell) === "bash") return shell

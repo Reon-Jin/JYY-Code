@@ -83,11 +83,7 @@ import {
 } from "@/config/agent"
 import { budgetFor, type ExecutionBudget } from "@/execution/budget"
 import { assertCanSpawnSubagent, SubagentDepthError } from "@/agent/subagent-depth"
-import {
-  activationOwnerId,
-  defaultPlanActivationStore,
-  type PlanActivationStore,
-} from "./activation"
+import { activationOwnerId, defaultPlanActivationStore, type PlanActivationStore } from "./activation"
 
 export type ExecutionMode = "single" | "multi"
 
@@ -248,7 +244,8 @@ export function resolveChildBudget(input: ChildBudgetResolutionInput = {}): Chil
   // safety bound for nested execution.
   if (input.parent?.deadline_at !== undefined) {
     const parentRemaining = Date.parse(input.parent.deadline_at) - now
-    if (Number.isFinite(parentRemaining)) deadlineCandidates.push({ value: Math.max(0, parentRemaining), source: "parent" })
+    if (Number.isFinite(parentRemaining))
+      deadlineCandidates.push({ value: Math.max(0, parentRemaining), source: "parent" })
   }
   const deadlineCandidate = deadlineCandidates.reduce((left, right) => (right.value < left.value ? right : left))
 
@@ -264,14 +261,8 @@ export function resolveChildBudget(input: ChildBudgetResolutionInput = {}): Chil
   const noProgressCandidate = noProgressCandidates.reduce((left, right) => (right.value < left.value ? right : left))
 
   const deadlineMs = Math.max(0, Math.min(MAX_AGENT_DEADLINE_MS, Math.floor(deadlineCandidate.value)))
-  const no_progress_steps = Math.max(
-    1,
-    Math.min(MAX_AGENT_NO_PROGRESS_STEPS, Math.floor(noProgressCandidate.value)),
-  )
-  const selectedSources = new Set([
-    deadlineCandidate.source,
-    noProgressCandidate.source,
-  ])
+  const no_progress_steps = Math.max(1, Math.min(MAX_AGENT_NO_PROGRESS_STEPS, Math.floor(noProgressCandidate.value)))
+  const selectedSources = new Set([deadlineCandidate.source, noProgressCandidate.source])
   const source = (["parent", "plan", "profile", "default"] as const).find((item) => selectedSources.has(item))!
   return {
     max_steps,
@@ -405,12 +396,7 @@ function truncateText(value: string, max = 60) {
  * or use a close alias (name, heading); deriving a deterministic fallback here
  * is more robust than rejecting the whole plan and forcing a retry loop.
  */
-function requiredTextOrFallback(
-  value: unknown,
-  fallback: string,
-  field: string,
-  warnings: string[],
-) {
+function requiredTextOrFallback(value: unknown, fallback: string, field: string, warnings: string[]) {
   const text = asString(value)
   if (text) return text
   warnings.push(`${field} 缺失或为空，已自动补充：${fallback}`)
@@ -616,12 +602,7 @@ function normalizeCreateInput(input: unknown, workspaceRoot?: string): { value: 
     "title",
     warnings,
   )
-  const goal = requiredTextOrFallback(
-    firstText(value.goal, value.objective, value.purpose),
-    title,
-    "goal",
-    warnings,
-  )
+  const goal = requiredTextOrFallback(firstText(value.goal, value.objective, value.purpose), title, "goal", warnings)
   if (!Array.isArray(value.steps) || value.steps.length < 2) inputError("steps 至少需要包含 2 个阶段")
   const steps = (value.steps as unknown[]).map((rawStep, index) => {
     if (!rawStep || typeof rawStep !== "object" || Array.isArray(rawStep)) inputError(`steps[${index}] 必须是对象`)
@@ -702,9 +683,7 @@ function normalizeCreateInput(input: unknown, workspaceRoot?: string): { value: 
           const basename = segments.at(-1)
           if (basename && basename !== "." && basename !== "..") {
             const repaired = path.posix.join("artifacts", basename)
-            warnings.push(
-              `steps[${index}].tasks[${taskIndex}].output_path 必须位于工作区内，已重置为 ${repaired}`,
-            )
+            warnings.push(`steps[${index}].tasks[${taskIndex}].output_path 必须位于工作区内，已重置为 ${repaired}`)
             outputPath = repaired
           } else {
             warnings.push(`steps[${index}].tasks[${taskIndex}].output_path 无法解析，已忽略`)
@@ -747,9 +726,21 @@ function validateUpdateInput(input: unknown): asserts input is PlanUpdateInput {
   for (const [index, rawOp] of (value.ops as unknown[]).entries()) {
     if (!rawOp || typeof rawOp !== "object" || Array.isArray(rawOp)) inputError(`ops[${index}] 必须是对象`)
     const op = rawOp as Record<string, unknown>
-    if (op.op === "add_task" && op.task && typeof op.task === "object" && !Array.isArray(op.task) && "timeout_ms" in op.task)
+    if (
+      op.op === "add_task" &&
+      op.task &&
+      typeof op.task === "object" &&
+      !Array.isArray(op.task) &&
+      "timeout_ms" in op.task
+    )
       inputError(`ops[${index}].task.timeout_ms is runtime-owned and cannot be set`)
-    if (op.op === "edit_task" && op.fields && typeof op.fields === "object" && !Array.isArray(op.fields) && "timeout_ms" in op.fields)
+    if (
+      op.op === "edit_task" &&
+      op.fields &&
+      typeof op.fields === "object" &&
+      !Array.isArray(op.fields) &&
+      "timeout_ms" in op.fields
+    )
       inputError(`ops[${index}].fields.timeout_ms is runtime-owned and cannot be set`)
     if (op.op === "review_task" && op.decision === "reject" && !asString(op.feedback))
       inputError(`ops[${index}] reject 必须提供 feedback`, "补充具体的验收缺口后重试")
@@ -1494,7 +1485,10 @@ export class PlanProtocol {
     })
   }
 
-  private claimChildActivation(ctx: PlanExecutionContext, input: { taskId: string; childSessionId: string; runId: string }) {
+  private claimChildActivation(
+    ctx: PlanExecutionContext,
+    input: { taskId: string; childSessionId: string; runId: string },
+  ) {
     return this.activation.claim({
       session_id: input.childSessionId,
       parent_session_id: ctx.sessionId,
@@ -1521,10 +1515,7 @@ export class PlanProtocol {
     })
   }
 
-  private async settleTaskActivation(
-    task: PlanTask,
-    childSessionId = task.dispatch?.child_session_id,
-  ) {
+  private async settleTaskActivation(task: PlanTask, childSessionId = task.dispatch?.child_session_id) {
     return this.transitionTaskActivation(task, "settled", childSessionId)
   }
 
@@ -1949,9 +1940,7 @@ export class PlanProtocol {
         // the child session and its workspace alive when the runtime can
         // append a prompt to the existing session. Legacy controllers without
         // resume support retain the old cleanup-and-recreate behavior.
-        const canResume =
-          this.children?.resume !== undefined &&
-          hasReviewContinuation(task)
+        const canResume = this.children?.resume !== undefined && hasReviewContinuation(task)
         if (!canResume) {
           const cleanupErrors = await this.cleanupTaskWorkspace(ctx, review.taskId)
           if (cleanupErrors.length) {
@@ -2270,17 +2259,18 @@ export class PlanProtocol {
                 })
               }
               if (this.children) {
-                const childDirectory = workspaceHandle?.directory ?? (item.resume ? item.dispatch.workspace?.directory : undefined)
+                const childDirectory =
+                  workspaceHandle?.directory ?? (item.resume ? item.dispatch.workspace?.directory : undefined)
                 const childBrief = childDirectory
                   ? rebaseBriefForChild(
                       {
                         ...item.brief,
-                      workspace_root: childDirectory,
-                      output_path: resolveInside(
-                        childDirectory,
-                        path.relative(ctx.workspaceRoot, item.brief.output_path),
-                        `浠诲姟 ${taskId} 鐨?child output_path`,
-                      ),
+                        workspace_root: childDirectory,
+                        output_path: resolveInside(
+                          childDirectory,
+                          path.relative(ctx.workspaceRoot, item.brief.output_path),
+                          `浠诲姟 ${taskId} 鐨?child output_path`,
+                        ),
                       },
                       ctx.workspaceRoot,
                       childDirectory,

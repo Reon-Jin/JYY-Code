@@ -12,7 +12,6 @@ A sort dialog component that provides multi-rule sorting capabilities.
 
 ```tsx
 import { AdvancedSort } from "@antv/s2-react-components"
-
 ;<AdvancedSort sheetInstance={s2} />
 ```
 
@@ -130,7 +129,6 @@ Export component for copying and downloading table data.
 
 ```tsx
 import { Export } from "@antv/s2-react-components"
-
 ;<Export sheetInstance={s2} />
 ```
 
@@ -162,7 +160,6 @@ Dimension switcher component for rearranging rows, columns, and values via drag-
 
 ```tsx
 import { Switcher } from "@antv/s2-react-components"
-
 ;<Switcher
   rows={{ items: [{ id: "province", displayName: "Province" }] }}
   columns={{ items: [{ id: "type", displayName: "Type" }] }}

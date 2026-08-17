@@ -154,7 +154,11 @@ export const layer = Layer.effect(
     const processScope = yield* Scope.make()
     configureFrom(appProcess, processScope)
 
-    const processSpec = (command: string, args: readonly string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) =>
+    const processSpec = (
+      command: string,
+      args: readonly string[],
+      options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+    ) =>
       ({
         command,
         args,

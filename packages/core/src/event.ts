@@ -135,7 +135,12 @@ export const layer = Layer.effect(
           ...event,
           sequence: event.sequence ?? ++sequence,
           ...(aggregateKey
-            ? { aggregateSequence: event.aggregateSequence ?? (aggregateSequences.set(aggregateKey, (aggregateSequences.get(aggregateKey) ?? 0) + 1), aggregateSequences.get(aggregateKey)) }
+            ? {
+                aggregateSequence:
+                  event.aggregateSequence ??
+                  (aggregateSequences.set(aggregateKey, (aggregateSequences.get(aggregateKey) ?? 0) + 1),
+                  aggregateSequences.get(aggregateKey)),
+              }
             : {}),
         } as Payload<D>
         for (const sync of syncHandlers) {

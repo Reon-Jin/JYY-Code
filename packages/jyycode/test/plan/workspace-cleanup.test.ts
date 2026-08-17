@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import {
-  WorkspaceCleanupService,
-  type CleanupRecord,
-} from "../../src/plan/workspace-cleanup"
+import { WorkspaceCleanupService, type CleanupRecord } from "../../src/plan/workspace-cleanup"
 
 const baseRecord: CleanupRecord = {
   state: "pending",

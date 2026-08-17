@@ -608,10 +608,10 @@ describe("MessageTimeline", () => {
     render(() => (
       <MessageTimeline
         messages={[
-          conversation(
-            [{ id: "part_cancelled", sessionID, messageID: info.id, type: "text", text: "cancelled" }],
-            { ...info, time: { created: 20 } },
-          ),
+          conversation([{ id: "part_cancelled", sessionID, messageID: info.id, type: "text", text: "cancelled" }], {
+            ...info,
+            time: { created: 20 },
+          }),
         ]}
         goal={{
           condition: "cancelled goal",
@@ -631,7 +631,9 @@ describe("MessageTimeline", () => {
   it("does not render toggles that never reached a message", () => {
     render(() => (
       <MessageTimeline
-        messages={[conversation([{ id: "part_before_goal", sessionID, messageID: info.id, type: "text", text: "before" }])]}
+        messages={[
+          conversation([{ id: "part_before_goal", sessionID, messageID: info.id, type: "text", text: "before" }]),
+        ]}
         goal={{
           condition: "latest cancelled goal",
           status: "cancelled",
@@ -679,9 +681,7 @@ describe("MessageTimeline", () => {
   })
 
   it("shows compaction progress and completion indicators", () => {
-    const message = conversation([
-      { id: "part_compaction", sessionID, messageID: info.id, type: "text", text: "hi" },
-    ])
+    const message = conversation([{ id: "part_compaction", sessionID, messageID: info.id, type: "text", text: "hi" }])
     const { unmount } = render(() => (
       <MessageTimeline messages={[message]} compaction={{ status: "compacting", startedAt: 1, reason: "auto" }} />
     ))

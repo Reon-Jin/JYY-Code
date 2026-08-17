@@ -274,8 +274,7 @@ export function Composer(props: ComposerProps) {
     const hasRecentUserMessage =
       isConversationSnapshot(snapshot) &&
       snapshot.messages.some(
-        (message) =>
-          message.info.role === "user" && (message.info.time.created ?? 0) >= Math.max(0, sentAt - 1_000),
+        (message) => message.info.role === "user" && (message.info.time.created ?? 0) >= Math.max(0, sentAt - 1_000),
       )
     if (hasRecentUserMessage) return
     void props.queryClient.invalidateQueries({
@@ -301,7 +300,10 @@ export function Composer(props: ComposerProps) {
       .then(() => {
         void props.queryClient.invalidateQueries({ queryKey: keys.sessions(props.directory), exact: true })
         void props.queryClient.invalidateQueries({ queryKey: keys.sessionsAll(props.directory), exact: true })
-        void props.queryClient.invalidateQueries({ queryKey: keys.session(props.directory, props.sessionID), exact: true })
+        void props.queryClient.invalidateQueries({
+          queryKey: keys.session(props.directory, props.sessionID),
+          exact: true,
+        })
         void props.queryClient.invalidateQueries({ queryKey: keys.status(props.directory), exact: true })
         void props.queryClient.invalidateQueries({ queryKey: keys.plansScope(props.directory), exact: false })
       })
@@ -367,57 +369,57 @@ export function Composer(props: ComposerProps) {
           data-minimal={props.minimal ? "true" : "false"}
           aria-label={tr("composer.message-editor")}
         >
-        <Show when={!props.minimal}>
-          <div class="composer__selectors">
-            <AgentSelect
-              agents={props.agents}
-              value={props.selectedAgent}
-              disabled={props.identityLocked || controller.sending() || props.disabled}
-              onChange={props.onAgentChange}
-            />
-            <ProviderConnectButton
-              client={props.client}
-              directory={props.directory}
-              disabled={controller.sending() || props.disabled}
-              onConnected={props.onProviderConnected}
-            />
-            <ModelControl
-              models={props.models}
-              value={props.selectedModel}
-              disabled={props.identityLocked || controller.sending() || props.disabled}
-              onChange={props.onModelChange}
-            />
-            {props.branchControl}
-            {props.multiAgentControl}
-            {props.goalModeControl}
-            {props.mcpControl}
-          </div>
-        </Show>
+          <Show when={!props.minimal}>
+            <div class="composer__selectors">
+              <AgentSelect
+                agents={props.agents}
+                value={props.selectedAgent}
+                disabled={props.identityLocked || controller.sending() || props.disabled}
+                onChange={props.onAgentChange}
+              />
+              <ProviderConnectButton
+                client={props.client}
+                directory={props.directory}
+                disabled={controller.sending() || props.disabled}
+                onConnected={props.onProviderConnected}
+              />
+              <ModelControl
+                models={props.models}
+                value={props.selectedModel}
+                disabled={props.identityLocked || controller.sending() || props.disabled}
+                onChange={props.onModelChange}
+              />
+              {props.branchControl}
+              {props.multiAgentControl}
+              {props.goalModeControl}
+              {props.mcpControl}
+            </div>
+          </Show>
 
-        <div
-          ref={inputRegion}
-          class="composer__input"
-          data-active={active()}
-          data-dragging={draggingFiles()}
-          onDragEnter={(event) => {
-            if (!event.dataTransfer?.types.includes("Files")) return
-            event.preventDefault()
-            setDraggingFiles(true)
-          }}
-          onDragOver={(event) => {
-            if (!event.dataTransfer?.types.includes("Files")) return
-            event.preventDefault()
-            event.dataTransfer.dropEffect = "copy"
-          }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingFiles(false)
-          }}
-          onDrop={(event) => {
-            event.preventDefault()
-            setDraggingFiles(false)
-            if (event.dataTransfer?.files.length) void addFiles(event.dataTransfer.files)
-          }}
-        >
+          <div
+            ref={inputRegion}
+            class="composer__input"
+            data-active={active()}
+            data-dragging={draggingFiles()}
+            onDragEnter={(event) => {
+              if (!event.dataTransfer?.types.includes("Files")) return
+              event.preventDefault()
+              setDraggingFiles(true)
+            }}
+            onDragOver={(event) => {
+              if (!event.dataTransfer?.types.includes("Files")) return
+              event.preventDefault()
+              event.dataTransfer.dropEffect = "copy"
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingFiles(false)
+            }}
+            onDrop={(event) => {
+              event.preventDefault()
+              setDraggingFiles(false)
+              if (event.dataTransfer?.files.length) void addFiles(event.dataTransfer.files)
+            }}
+          >
             <SkillAutocomplete
               client={props.client}
               queryClient={props.queryClient}
@@ -463,9 +465,7 @@ export function Composer(props: ComposerProps) {
                       <button
                         type="button"
                         aria-label={tr("composer.remove-attachment", { name: attachment.filename })}
-                        onClick={() =>
-                          setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index()))
-                        }
+                        onClick={() => setAttachments((items) => items.filter((_, itemIndex) => itemIndex !== index()))}
                       >
                         <X aria-hidden="true" />
                       </button>
@@ -617,24 +617,24 @@ export function Composer(props: ComposerProps) {
             </div>
           </div>
 
-        <Show when={props.usage}>
-          <ComposerUsage metrics={props.usage!} permissionControl={props.permissionControl} />
-        </Show>
+          <Show when={props.usage}>
+            <ComposerUsage metrics={props.usage!} permissionControl={props.permissionControl} />
+          </Show>
 
-        <Show when={!props.minimal ? controller.failure() : undefined} keyed>
-          {(failure) => (
-            <div class="composer__failure">
-              <InlineError message={errorMessage(failure, tr("composer.message-sending-failed"))} />
-              <Show when={controller.lastFailedDraft() !== undefined}>
-                <Button size="small" variant="secondary" onClick={() => void controller.retry().catch(() => {})}>
-                  <RotateCcw aria-hidden="true" />
-                  {tr("changes.try-again")}
-                </Button>
-              </Show>
-            </div>
-          )}
-        </Show>
-      </section>
+          <Show when={!props.minimal ? controller.failure() : undefined} keyed>
+            {(failure) => (
+              <div class="composer__failure">
+                <InlineError message={errorMessage(failure, tr("composer.message-sending-failed"))} />
+                <Show when={controller.lastFailedDraft() !== undefined}>
+                  <Button size="small" variant="secondary" onClick={() => void controller.retry().catch(() => {})}>
+                    <RotateCcw aria-hidden="true" />
+                    {tr("changes.try-again")}
+                  </Button>
+                </Show>
+              </div>
+            )}
+          </Show>
+        </section>
       </BorderBeam>
     </div>
   )

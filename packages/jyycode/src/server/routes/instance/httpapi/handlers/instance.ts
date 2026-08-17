@@ -240,12 +240,10 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* Effect.forEach(
         resolved,
         (profile) =>
-          roleSkillManagement
-            .list(profile.id)
-            .pipe(
-              Effect.map((skills) => ({ ...profile, skills })),
-              Effect.mapError(mapSubagentError),
-            ),
+          roleSkillManagement.list(profile.id).pipe(
+            Effect.map((skills) => ({ ...profile, skills })),
+            Effect.mapError(mapSubagentError),
+          ),
         { concurrency: "unbounded" },
       )
     })

@@ -171,16 +171,12 @@ export class PlanRecovery {
       taskId: task.id,
       workspaceDirectory: workspace.directory,
       record:
-        task.merge?.cleanup_record ??
-        cleanupRecordFromLegacy(task.merge?.cleanup, task.merge?.cleanup_error, this.now),
+        task.merge?.cleanup_record ?? cleanupRecordFromLegacy(task.merge?.cleanup, task.merge?.cleanup_error, this.now),
       now: this.now,
       deleteWorkspace: workspace.mode !== "shared_compat",
       stop: async () => {
         if (!task.dispatch?.child_session_id || !this.children) return
-        const result = await this.children.terminate(
-          task.dispatch.child_session_id,
-          childTerminationRequest(workspace),
-        )
+        const result = await this.children.terminate(task.dispatch.child_session_id, childTerminationRequest(workspace))
         if (result?.state !== "stop_failed") await this.settleActivation(task)
         return result
       },
@@ -201,7 +197,7 @@ export class PlanRecovery {
       persist: (record) => this.persistCleanupRecord(sessionId, task.id, record),
     })
     return result.record.state === "failed" || result.record.state === "quarantined"
-      ? result.record.last_error?.message ?? result.record.state
+      ? (result.record.last_error?.message ?? result.record.state)
       : undefined
   }
 
@@ -279,16 +275,12 @@ export class PlanRecovery {
       taskId: task.id,
       workspaceDirectory: canonicalChild,
       record:
-        task.merge?.cleanup_record ??
-        cleanupRecordFromLegacy(task.merge?.cleanup, task.merge?.cleanup_error, this.now),
+        task.merge?.cleanup_record ?? cleanupRecordFromLegacy(task.merge?.cleanup, task.merge?.cleanup_error, this.now),
       now: this.now,
       stop: async () => {
         if (!this.children) return
         if (!task.dispatch?.child_session_id) return
-        const result = await this.children.terminate(
-          task.dispatch.child_session_id,
-          childTerminationRequest(workspace),
-        )
+        const result = await this.children.terminate(task.dispatch.child_session_id, childTerminationRequest(workspace))
         if (result?.state !== "stop_failed") await this.settleActivation(task)
         return result
       },
@@ -316,7 +308,9 @@ export class PlanRecovery {
       persist: (record) => this.persistCleanupRecord(sessionId, task.id, record),
     })
     if (result.record.state === "failed" || result.record.state === "quarantined")
-      throw new Error(`${result.record.last_error?.phase ?? "cleanup"}: ${result.record.last_error?.message ?? result.record.state}`)
+      throw new Error(
+        `${result.record.last_error?.phase ?? "cleanup"}: ${result.record.last_error?.message ?? result.record.state}`,
+      )
     return result
   }
 
@@ -614,7 +608,9 @@ export class PlanRecovery {
               }
             }
           } catch (error) {
-            result.errors.push(`${task.id}: activation takeover failed: ${error instanceof Error ? error.message : String(error)}`)
+            result.errors.push(
+              `${task.id}: activation takeover failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
           }
           await this.reject(rootSessionId, task, "child owner lease expired and the child is no longer active", result)
           continue

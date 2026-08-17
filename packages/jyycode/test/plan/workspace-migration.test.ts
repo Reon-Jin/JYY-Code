@@ -12,7 +12,13 @@ function tempDirectory(prefix: string) {
 function manifest(directory: string, rootSessionId: string, taskId: string) {
   fs.writeFileSync(
     `${directory}.manifest.json`,
-    JSON.stringify({ version: 1, root_session_id: rootSessionId, task_id: taskId, name: path.basename(directory), entries: [] }),
+    JSON.stringify({
+      version: 1,
+      root_session_id: rootSessionId,
+      task_id: taskId,
+      name: path.basename(directory),
+      entries: [],
+    }),
   )
 }
 
@@ -100,13 +106,37 @@ describe("plan workspace migration inventory", () => {
     manifest(terminal, "ses_main", "s1_t1")
     plan(projectRoot, terminal)
     const store = new WorkspaceLeaseStore({ runtimeRoot, now: () => 0, ttlMs: 10_000 })
-    store.create({ workspace_directory: active, root_session_id: "ses_active", task_id: "s4_t1", run_id: "run_active", session_id: "ses_child_active" })
+    store.create({
+      workspace_directory: active,
+      root_session_id: "ses_active",
+      task_id: "s4_t1",
+      run_id: "run_active",
+      session_id: "ses_child_active",
+    })
     const staleStore = new WorkspaceLeaseStore({ runtimeRoot, now: () => 0, ttlMs: 10 })
-    staleStore.create({ workspace_directory: failed, root_session_id: "ses_failed", task_id: "s1_t1", run_id: "run_failed", session_id: "ses_missing" })
-    staleStore.create({ workspace_directory: orphan, root_session_id: "ses_orphan", task_id: "s1_t1", run_id: "run_orphan", session_id: "ses_missing" })
+    staleStore.create({
+      workspace_directory: failed,
+      root_session_id: "ses_failed",
+      task_id: "s1_t1",
+      run_id: "run_failed",
+      session_id: "ses_missing",
+    })
+    staleStore.create({
+      workspace_directory: orphan,
+      root_session_id: "ses_orphan",
+      task_id: "s1_t1",
+      run_id: "run_orphan",
+      session_id: "ses_missing",
+    })
     fs.writeFileSync(
       path.join(runtimeRoot, ".jyycode-cleanup-queue.json"),
-      JSON.stringify({ [`ses_failed\0s1_t1\0${path.resolve(failed)}`]: { state: "failed", attempts: 1, updated_at: new Date(0).toISOString() } }),
+      JSON.stringify({
+        [`ses_failed\0s1_t1\0${path.resolve(failed)}`]: {
+          state: "failed",
+          attempts: 1,
+          updated_at: new Date(0).toISOString(),
+        },
+      }),
     )
 
     const report = await inspectWorkspaceStorage({
@@ -122,9 +152,12 @@ describe("plan workspace migration inventory", () => {
     expect(report.categories.orphan.map((item) => item.name)).toEqual([path.basename(orphan)])
     expect(report.categories.terminal_reference.map((item) => item.name)).toEqual([path.basename(terminal)])
     expect(report.categories.unknown.map((item) => item.name)).toEqual([path.basename(unknown)])
-    expect(report.items.filter((item) => item.eligible).map((item) => item.name).sort()).toEqual(
-      [path.basename(failed), path.basename(orphan), path.basename(terminal)].sort(),
-    )
+    expect(
+      report.items
+        .filter((item) => item.eligible)
+        .map((item) => item.name)
+        .sort(),
+    ).toEqual([path.basename(failed), path.basename(orphan), path.basename(terminal)].sort())
     expect(fs.existsSync(report.index_path)).toBe(true)
   })
 
@@ -134,12 +167,25 @@ describe("plan workspace migration inventory", () => {
     fs.mkdirSync(directory)
     manifest(directory, "ses_old", "s1_t1")
     const store = new WorkspaceLeaseStore({ runtimeRoot, now: () => 0, ttlMs: 10 })
-    store.create({ workspace_directory: directory, root_session_id: "ses_old", task_id: "s1_t1", run_id: "run_old", session_id: "ses_missing" })
+    store.create({
+      workspace_directory: directory,
+      root_session_id: "ses_old",
+      task_id: "s1_t1",
+      run_id: "run_old",
+      session_id: "ses_missing",
+    })
     const report = await inspectWorkspaceStorage({ runtimeRoot, now: 5_000, orphanGraceMs: 0 })
     const item = report.categories.orphan[0]!
-    const applied = await applyWorkspaceMigration({ runtimeRoot, now: 5_000, orphanGraceMs: 0, cleanupIds: [item.cleanup_id] })
+    const applied = await applyWorkspaceMigration({
+      runtimeRoot,
+      now: 5_000,
+      orphanGraceMs: 0,
+      cleanupIds: [item.cleanup_id],
+    })
     expect(applied.applied).toEqual([item.cleanup_id])
     expect(fs.existsSync(directory)).toBe(false)
-    expect(fs.readdirSync(path.join(runtimeRoot, ".quarantine")).some((name) => name.includes(item.cleanup_id))).toBe(true)
+    expect(fs.readdirSync(path.join(runtimeRoot, ".quarantine")).some((name) => name.includes(item.cleanup_id))).toBe(
+      true,
+    )
   })
 })

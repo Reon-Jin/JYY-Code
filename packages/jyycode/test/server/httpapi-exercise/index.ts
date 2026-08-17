@@ -123,11 +123,7 @@ const scenarios: Scenario[] = [
       },
     }))
     .json(200, object),
-  http.protected
-    .delete("/global/compaction", "global.compaction.reset")
-    .global()
-    .mutating()
-    .json(200, object),
+  http.protected.delete("/global/compaction", "global.compaction.reset").global().mutating().json(200, object),
   http.protected
     .get("/global/memory", "global.memory.list")
     .global()
@@ -169,11 +165,7 @@ const scenarios: Scenario[] = [
     .mutating()
     .at(() => ({ path: route("/global/memory/{scope}/compact", { scope: "user" }) }))
     .json(200, object),
-  http.protected
-    .post("/global/memory/task/clear", "global.memory.task.clear")
-    .global()
-    .mutating()
-    .json(200, object),
+  http.protected.post("/global/memory/task/clear", "global.memory.task.clear").global().mutating().json(200, object),
   http.protected
     .get("/global/memory/export", "global.memory.export")
     .global()
@@ -213,16 +205,17 @@ const scenarios: Scenario[] = [
     .at((ctx) => ({ path: "/vcs/branches/switch", headers: ctx.headers(), body: { name: "httpapi-missing" } }))
     .json(400, object, "status"),
   http.protected.post("/vcs/fetch", "vcs.fetch").mutating().json(200, object, "status"),
-  http.protected.post("/vcs/push", "vcs.push").mutating().at((ctx) => ({
-    path: "/vcs/push",
-    headers: ctx.headers(),
-    body: {},
-  })).json(400, object, "status"),
-  http.protected.get("/github/status", "github.status").inProject({ git: true }).json(200, object),
   http.protected
-    .get("/github/pulls", "github.pull.list")
-    .inProject({ git: true })
-    .status(424, undefined, "status"),
+    .post("/vcs/push", "vcs.push")
+    .mutating()
+    .at((ctx) => ({
+      path: "/vcs/push",
+      headers: ctx.headers(),
+      body: {},
+    }))
+    .json(400, object, "status"),
+  http.protected.get("/github/status", "github.status").inProject({ git: true }).json(200, object),
+  http.protected.get("/github/pulls", "github.pull.list").inProject({ git: true }).status(424, undefined, "status"),
   http.protected
     .post("/github/pulls", "github.pull.create")
     .inProject({ git: true })
@@ -1308,23 +1301,6 @@ const scenarios: Scenario[] = [
     }))
     .json(200, (body) => {
       check(body === true, "blackboard read should advance the cursor")
-    }),
-  http.protected
-    .get("/session/{sessionID}/todo", "session.todo")
-    .seeded((ctx) =>
-      Effect.gen(function* () {
-        const session = yield* ctx.session({ title: "Todo session" })
-        const todos = [{ content: "cover session todo", status: "pending", priority: "high" }]
-        yield* ctx.todos(session.id, todos)
-        return { session, todos }
-      }),
-    )
-    .at((ctx) => ({
-      path: route("/session/{sessionID}/todo", { sessionID: ctx.state.session.id }),
-      headers: ctx.headers(),
-    }))
-    .json(200, (body, ctx) => {
-      check(stable(body) === stable(ctx.state.todos), "todos should match seeded state")
     }),
   http.protected
     .get("/session/{sessionID}/diff", "session.diff")

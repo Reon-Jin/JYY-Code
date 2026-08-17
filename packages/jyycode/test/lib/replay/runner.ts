@@ -44,7 +44,10 @@ export async function updateFixture(path: string, execute: ReplayExecutor, optio
   const fixture = await readReplayFixture(path)
   const actual = await execute(fixture)
   assertReplayValueFree(actual)
-  const updated = normalizeFixture({ ...fixture, expected: actual.expected, terminalStatus: actual.terminalStatus }, options)
+  const updated = normalizeFixture(
+    { ...fixture, expected: actual.expected, terminalStatus: actual.terminalStatus },
+    options,
+  )
   await Bun.write(resolve(dirname(path), path.split(/[\\/]/).at(-1)!), stableJson(updated))
   return updated
 }

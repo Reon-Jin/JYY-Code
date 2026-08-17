@@ -1,7 +1,13 @@
 import type { JyycodeClient } from "@jyycode-ai/sdk/v2/client"
 import { describe, expect, it, vi } from "vitest"
 import { PDFDocument } from "pdf-lib"
-import { PDF_TRANSLATION_MAX_CHARS, flattenPdfAnnotations, pdfPageRows, pdfTranslationTarget, translatePdfText } from "./pdf-preview"
+import {
+  PDF_TRANSLATION_MAX_CHARS,
+  flattenPdfAnnotations,
+  pdfPageRows,
+  pdfTranslationTarget,
+  translatePdfText,
+} from "./pdf-preview"
 
 describe("PDF preview helpers", () => {
   it("targets Chinese selections to English and other selections to Chinese", () => {
@@ -67,9 +73,9 @@ describe("PDF preview helpers", () => {
     }
     const client = { session } as unknown as Pick<JyycodeClient, "session">
 
-    await expect(translatePdfText({ client, directory: "D:/repo", sessionID: "ses_parent", text: "source" })).rejects.toBe(
-      failure,
-    )
+    await expect(
+      translatePdfText({ client, directory: "D:/repo", sessionID: "ses_parent", text: "source" }),
+    ).rejects.toBe(failure)
     expect(session.delete).toHaveBeenCalledOnce()
   })
 
@@ -99,7 +105,17 @@ describe("PDF preview helpers", () => {
         height: 0.15,
         strokeWidth: 0.006,
       },
-      { id: "line-1", page: 1, tool: "line", color: "#16a34a", x: 0.1, y: 0.7, width: 0.3, height: -0.12, strokeWidth: 0.004 },
+      {
+        id: "line-1",
+        page: 1,
+        tool: "line",
+        color: "#16a34a",
+        x: 0.1,
+        y: 0.7,
+        width: 0.3,
+        height: -0.12,
+        strokeWidth: 0.004,
+      },
     ])
 
     expect((await PDFDocument.load(result)).getPageCount()).toBe(1)

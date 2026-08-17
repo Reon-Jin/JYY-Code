@@ -147,21 +147,13 @@ export function windowsPath(p: string): string {
   if (process.platform !== "win32") return p
   return (
     p
-      .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (match, drive) =>
-        `${drive.toUpperCase()}:/`,
-      )
+      .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (match, drive) => `${drive.toUpperCase()}:/`)
       // Git Bash for Windows paths are typically /<drive>/...
-      .replace(/^\/([a-zA-Z])(?:\/|$)/, (match, drive) =>
-        `${drive.toUpperCase()}:/`,
-      )
+      .replace(/^\/([a-zA-Z])(?:\/|$)/, (match, drive) => `${drive.toUpperCase()}:/`)
       // Cygwin git paths are typically /cygdrive/<drive>/...
-      .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (match, drive) =>
-        `${drive.toUpperCase()}:/`,
-      )
+      .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (match, drive) => `${drive.toUpperCase()}:/`)
       // WSL paths are typically /mnt/<drive>/...
-      .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (match, drive) =>
-        `${drive.toUpperCase()}:/`,
-      )
+      .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (match, drive) => `${drive.toUpperCase()}:/`)
   )
 }
 
@@ -193,8 +185,7 @@ export function resolveUserPath(input: string, cwd: string): string {
  * unresolved suffix for a path that is about to be created.
  */
 export function canonicalizeForContainment(input: string): string {
-  const resolved =
-    process.platform === "win32" ? win32.normalize(windowsPath(input)) : pathResolve(input)
+  const resolved = process.platform === "win32" ? win32.normalize(windowsPath(input)) : pathResolve(input)
   let current = resolved
   const suffix: string[] = []
 
@@ -228,7 +219,10 @@ export function canonicalizeForContainment(input: string): string {
 export function containsCanonicalPath(root: string, target: string): boolean {
   const canonicalRoot = canonicalizeForContainment(root)
   const canonicalTarget = canonicalizeForContainment(target)
-  const child = process.platform === "win32" ? win32.relative(canonicalRoot, canonicalTarget) : relative(canonicalRoot, canonicalTarget)
+  const child =
+    process.platform === "win32"
+      ? win32.relative(canonicalRoot, canonicalTarget)
+      : relative(canonicalRoot, canonicalTarget)
   const absolute = process.platform === "win32" ? win32.isAbsolute(child) : isAbsolute(child)
   return child === "" || (!child.startsWith("..") && !absolute)
 }

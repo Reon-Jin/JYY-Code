@@ -162,7 +162,12 @@ async function runIntegration(vcs: "git" | "none", failCleanupOnce = false) {
         {
           op: "add_task",
           stepId: "s2",
-          task: { title: "Verify sentinel", goal: "Read the merged sentinel", done_criteria: "The sentinel is visible", output_path: "out/step2.md" },
+          task: {
+            title: "Verify sentinel",
+            goal: "Read the merged sentinel",
+            done_criteria: "The sentinel is visible",
+            output_path: "out/step2.md",
+          },
         },
       ],
     })

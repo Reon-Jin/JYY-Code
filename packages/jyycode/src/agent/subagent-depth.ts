@@ -14,11 +14,7 @@ export type AgentDepthNode = {
   agentDepth?: number | null
 }
 
-export type AgentDepthErrorCode =
-  | "PARENT_MISSING"
-  | "PARENT_CYCLE"
-  | "DEPTH_INVALID"
-  | "DEPTH_EXCEEDED"
+export type AgentDepthErrorCode = "PARENT_MISSING" | "PARENT_CYCLE" | "DEPTH_INVALID" | "DEPTH_EXCEEDED"
 
 export class SubagentDepthError extends Error {
   readonly code: AgentDepthErrorCode
@@ -99,8 +95,7 @@ export function computeAgentDepth(input: {
 
   const depth = chain.length
   const limit = effectiveAgentDepthLimit(input.maxDepth)
-  if (depth > limit)
-    throw new SubagentDepthError("DEPTH_EXCEEDED", `agent depth ${depth} exceeds hard limit ${limit}`)
+  if (depth > limit) throw new SubagentDepthError("DEPTH_EXCEEDED", `agent depth ${depth} exceeds hard limit ${limit}`)
   return depth
 }
 

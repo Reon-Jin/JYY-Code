@@ -8,7 +8,6 @@ import { SessionPrompt } from "@/session/prompt"
 import { SessionRevert } from "@/session/revert"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
-import { Todo } from "@/session/todo"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { Snapshot } from "@/snapshot"
 import { Schema, Struct } from "effect"
@@ -229,7 +228,6 @@ export const SessionPaths = {
   plan: `${root}/:sessionID/plan`,
   blackboard: `${root}/:sessionID/blackboard`,
   blackboardRead: `${root}/:sessionID/blackboard/read`,
-  todo: `${root}/:sessionID/todo`,
   diff: `${root}/:sessionID/diff`,
   messages: `${root}/:sessionID/message`,
   message: `${root}/:sessionID/message/:messageID`,
@@ -338,18 +336,6 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.blackboard",
             summary: "Get step blackboard",
             description: "Read the shared blackboard for the current or selected plan step.",
-          }),
-        ),
-        HttpApiEndpoint.get("todo", SessionPaths.todo, {
-          params: { sessionID: SessionID },
-          query: WorkspaceRoutingQuery,
-          success: described(Schema.Array(Todo.Info), "Todo list"),
-          error: [HttpApiError.BadRequest, ApiNotFoundError],
-        }).annotateMerge(
-          OpenApi.annotations({
-            identifier: "session.todo",
-            summary: "Get session todos",
-            description: "Retrieve the todo list associated with a specific session, showing tasks and action items.",
           }),
         ),
         HttpApiEndpoint.get("diff", SessionPaths.diff, {

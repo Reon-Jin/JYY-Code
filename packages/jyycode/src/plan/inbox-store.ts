@@ -33,33 +33,36 @@ function rowToEntry(row: typeof PlanInboxTable.$inferSelect): InboxEntry {
 
 export class SqlitePlanInboxStore implements PlanInboxStore {
   add(entry: InboxEntryInput) {
-    return Database.legacyTransaction((db) => {
-      ensurePlanEventInboxSchema()
-      const id = `inbox_${crypto.randomUUID()}`
-      const createdAt = Date.now()
-      db.insert(PlanInboxTable)
-        .values({
+    return Database.legacyTransaction(
+      (db) => {
+        ensurePlanEventInboxSchema()
+        const id = `inbox_${crypto.randomUUID()}`
+        const createdAt = Date.now()
+        db.insert(PlanInboxTable)
+          .values({
+            id,
+            session_id: entry.session_id,
+            task_id: entry.task_id ?? null,
+            run_id: entry.run_id ?? null,
+            kind: entry.kind,
+            message: entry.message,
+            step_id: entry.step_id ?? null,
+            task_title: entry.task_title ?? null,
+            report: entry.report ?? null,
+            suggested_actions: entry.suggested_actions ?? null,
+            created_at: createdAt,
+            resolved_at: null,
+          })
+          .run()
+        return {
+          ...entry,
           id,
-          session_id: entry.session_id,
-          task_id: entry.task_id ?? null,
-          run_id: entry.run_id ?? null,
-          kind: entry.kind,
-          message: entry.message,
-          step_id: entry.step_id ?? null,
-          task_title: entry.task_title ?? null,
-          report: entry.report ?? null,
-          suggested_actions: entry.suggested_actions ?? null,
-          created_at: createdAt,
+          created_at: new Date(createdAt).toISOString(),
           resolved_at: null,
-        })
-        .run()
-      return {
-        ...entry,
-        id,
-        created_at: new Date(createdAt).toISOString(),
-        resolved_at: null,
-      }
-    }, { behavior: "immediate" })
+        }
+      },
+      { behavior: "immediate" },
+    )
   }
 
   list(sessionId: string) {
@@ -89,21 +92,24 @@ export class SqlitePlanInboxStore implements PlanInboxStore {
   }
 
   resolve(sessionId: string, id: string) {
-    return Database.legacyTransaction((db) => {
-      ensurePlanEventInboxSchema()
-      const existing = db
-        .select()
-        .from(PlanInboxTable)
-        .where(and(eq(PlanInboxTable.session_id, sessionId), eq(PlanInboxTable.id, id)))
-        .get()
-      if (!existing) return undefined
-      const resolvedAt = Date.now()
-      db.update(PlanInboxTable)
-        .set({ resolved_at: resolvedAt })
-        .where(and(eq(PlanInboxTable.session_id, sessionId), eq(PlanInboxTable.id, id)))
-        .run()
-      return rowToEntry({ ...existing, resolved_at: resolvedAt })
-    }, { behavior: "immediate" })
+    return Database.legacyTransaction(
+      (db) => {
+        ensurePlanEventInboxSchema()
+        const existing = db
+          .select()
+          .from(PlanInboxTable)
+          .where(and(eq(PlanInboxTable.session_id, sessionId), eq(PlanInboxTable.id, id)))
+          .get()
+        if (!existing) return undefined
+        const resolvedAt = Date.now()
+        db.update(PlanInboxTable)
+          .set({ resolved_at: resolvedAt })
+          .where(and(eq(PlanInboxTable.session_id, sessionId), eq(PlanInboxTable.id, id)))
+          .run()
+        return rowToEntry({ ...existing, resolved_at: resolvedAt })
+      },
+      { behavior: "immediate" },
+    )
   }
 }
 

@@ -26,6 +26,11 @@ describe("LSP document cache", () => {
     expect(entry).toBeUndefined()
     expect(cache.get("large")?.textTruncated).toBe(true)
     expect(Buffer.byteLength(cache.get("large")?.text ?? "")).toBeLessThanOrEqual(4)
-    expect(limitDiagnostics(Array.from({ length: 3 }, (_, index) => index), 2)).toEqual([0, 1])
+    expect(
+      limitDiagnostics(
+        Array.from({ length: 3 }, (_, index) => index),
+        2,
+      ),
+    ).toEqual([0, 1])
   })
 })

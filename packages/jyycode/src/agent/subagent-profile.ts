@@ -43,10 +43,7 @@ export type SubagentProfile = Schema.Schema.Type<typeof Profile>
 
 export type ProfileSnapshot = Pick<SubagentProfile, "id" | "name" | "description" | "avatar">
 export type LaunchSnapshot = ProfileSnapshot &
-  Pick<
-    SubagentProfile,
-    "prompt" | "model" | "variant" | "tools" | "steps" | "timeout_ms" | "no_progress_steps"
-  >
+  Pick<SubagentProfile, "prompt" | "model" | "variant" | "tools" | "steps" | "timeout_ms" | "no_progress_steps">
 
 export const defaultGeneralProfile: SubagentProfile = {
   id: "general",
@@ -69,7 +66,8 @@ export const builtinProfiles: readonly SubagentProfile[] = [
     id: "coder_backend",
     name: "后端工程师",
     description: "专业的后端代码工程师",
-    prompt: "Focus on backend contracts, data boundaries, failure handling, and maintainable implementation. Verify affected behavior and state any compatibility risk or unresolved dependency.",
+    prompt:
+      "Focus on backend contracts, data boundaries, failure handling, and maintainable implementation. Verify affected behavior and state any compatibility risk or unresolved dependency.",
     avatar: "code",
     model: "deepseek/deepseek-v4-flash",
     variant: "max",
@@ -80,7 +78,8 @@ export const builtinProfiles: readonly SubagentProfile[] = [
     id: "researcher",
     name: "调查员",
     description: "专业的信息调查员，能广泛搜集、整理各种网络信息",
-    prompt: "Find reliable primary evidence, distinguish facts from inference, and deliver concise findings with sources, uncertainty, and decision-relevant tradeoffs.",
+    prompt:
+      "Find reliable primary evidence, distinguish facts from inference, and deliver concise findings with sources, uncertainty, and decision-relevant tradeoffs.",
     avatar: "search",
     model: "deepseek/deepseek-v4-flash",
     variant: "low",
@@ -90,7 +89,8 @@ export const builtinProfiles: readonly SubagentProfile[] = [
     id: "coder_frontend",
     name: "前端工程师",
     description: "专业的前端代码工程师",
-    prompt: "Focus on accessible, responsive UI behavior, existing design conventions, and user-visible edge cases. Verify the affected interaction and report any visual or compatibility tradeoff.",
+    prompt:
+      "Focus on accessible, responsive UI behavior, existing design conventions, and user-visible edge cases. Verify the affected interaction and report any visual or compatibility tradeoff.",
     avatar: "code",
     model: "kimi-for-coding/k3",
     variant: "low",
@@ -101,7 +101,8 @@ export const builtinProfiles: readonly SubagentProfile[] = [
     id: "Planner",
     name: "方案设计师",
     description: "专业的方案设计师",
-    prompt: "Compare viable approaches against the stated goal and constraints. Recommend one implementable path with acceptance criteria, dependencies, risks, and the smallest useful verification set.",
+    prompt:
+      "Compare viable approaches against the stated goal and constraints. Recommend one implementable path with acceptance criteria, dependencies, risks, and the smallest useful verification set.",
     avatar: "pen",
     model: "deepseek/deepseek-v4-flash",
     variant: "high",
@@ -112,7 +113,8 @@ export const builtinProfiles: readonly SubagentProfile[] = [
     id: "office_master",
     name: "office高手",
     description: "精通word/ppt/excel/pdf等office软件的高手",
-    prompt: "Produce polished office artifacts that preserve requested content, structure, and visual hierarchy. Validate the rendered output and flag any source-data or layout limitation.",
+    prompt:
+      "Produce polished office artifacts that preserve requested content, structure, and visual hierarchy. Validate the rendered output and flag any source-data or layout limitation.",
     avatar: "chart",
     model: "kimi-for-coding/k3",
     variant: "low",
@@ -123,7 +125,8 @@ export const builtinProfiles: readonly SubagentProfile[] = [
     id: "charter",
     name: "图表师",
     description: "精通各类图表绘制的大师",
-    prompt: "Choose a chart that makes the requested comparison clear. Preserve data fidelity, readable labels, and correct Chinese text; validate the final visual before delivery.",
+    prompt:
+      "Choose a chart that makes the requested comparison clear. Preserve data fidelity, readable labels, and correct Chinese text; validate the final visual before delivery.",
     avatar: "image",
     model: "kimi-for-coding/k3",
     tools: ["bash", "edit", "glob", "grep", "process", "read", "webfetch", "websearch", "write"],

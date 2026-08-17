@@ -3,7 +3,12 @@ import { decodeStoredJSONRow, MAX_SESSION_ROW_BYTES } from "@/session/row-decode
 
 describe("session row decoder", () => {
   test("decodes valid JSON and records stable diagnostics for invalid rows", () => {
-    const valid = decodeStoredJSONRow({ table: "message", id: "m1", data: JSON.stringify({ ok: true }), decode: (value) => value })
+    const valid = decodeStoredJSONRow({
+      table: "message",
+      id: "m1",
+      data: JSON.stringify({ ok: true }),
+      decode: (value) => value,
+    })
     expect(valid).toEqual({ value: { ok: true } })
     const invalid = decodeStoredJSONRow({ table: "message", id: "m2", data: "{", decode: (value) => value })
     expect("error" in invalid && invalid.error.reason).toBe("invalid-json")

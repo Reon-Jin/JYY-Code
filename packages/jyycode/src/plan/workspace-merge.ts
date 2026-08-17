@@ -856,7 +856,9 @@ export function applyWorkspaceMerge(
     roots,
     target_fingerprint: targetFingerprint,
     target_entries: targetEntries(mainEntries),
-    ...(reusable.scanPaths ? { target_paths: [...reusable.scanPaths].sort((left, right) => left.localeCompare(right)) } : {}),
+    ...(reusable.scanPaths
+      ? { target_paths: [...reusable.scanPaths].sort((left, right) => left.localeCompare(right)) }
+      : {}),
     items: [],
     applied_paths: [],
     conflicts: plan.conflicts,

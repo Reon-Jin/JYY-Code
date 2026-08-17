@@ -9,8 +9,16 @@ describe("MCP server manager", () => {
     const manager = new MCPServerManager<number>({ now: () => now, idleTtlMs: 100 })
     const key = { worktree: ".", server: "one", command: "node", args: ["server.js"], config: { mode: "safe" } }
 
-    const first = await manager.acquire(key, async () => ++starts, async () => void closes++)
-    const second = await manager.acquire(key, async () => ++starts, async () => void closes++)
+    const first = await manager.acquire(
+      key,
+      async () => ++starts,
+      async () => void closes++,
+    )
+    const second = await manager.acquire(
+      key,
+      async () => ++starts,
+      async () => void closes++,
+    )
     expect(first.value).toBe(1)
     expect(second.value).toBe(1)
     expect(starts).toBe(1)
@@ -54,10 +62,14 @@ describe("MCP server manager", () => {
     let now = 0
     let attempts = 0
     const manager = new MCPServerManager<number>({ now: () => now, idleTtlMs: 10 })
-    const lease = await manager.acquire("degraded", async () => 1, async () => {
-      attempts++
-      if (attempts === 1) throw new Error("busy")
-    })
+    const lease = await manager.acquire(
+      "degraded",
+      async () => 1,
+      async () => {
+        attempts++
+        if (attempts === 1) throw new Error("busy")
+      },
+    )
     await lease.release()
     now = 10
     expect((await manager.sweep()).degraded).toBe(1)

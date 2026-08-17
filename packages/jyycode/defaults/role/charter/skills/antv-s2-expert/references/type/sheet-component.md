@@ -7,7 +7,6 @@ Out-of-the-box React component `<SheetComponent />` based on `@antv/s2`.
 ```tsx
 import { SheetComponent } from "@antv/s2-react"
 import "@antv/s2-react/dist/s2-react.min.css"
-
 ;<SheetComponent sheetType="pivot" />
 ```
 

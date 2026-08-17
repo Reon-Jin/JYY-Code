@@ -118,11 +118,7 @@ function inspectDatabase(file: StorageFileReport, kind: StorageEntryKind, deadli
     const sessionCount = queryNumber(db, "SELECT COUNT(*) FROM session", deadline)
     const messageCount = queryNumber(db, "SELECT COUNT(*) FROM message", deadline)
     const partCount = queryNumber(db, "SELECT COUNT(*) FROM part", deadline)
-    const toolCount = queryNumber(
-      db,
-      `SELECT COUNT(*) FROM part WHERE data LIKE '%"type":"tool"%'`,
-      deadline,
-    )
+    const toolCount = queryNumber(db, `SELECT COUNT(*) FROM part WHERE data LIKE '%"type":"tool"%'`, deadline)
     const partJsonBytes = queryNumber(db, "SELECT COALESCE(SUM(length(data)), 0) FROM part", deadline)
     const toolJsonBytes = queryNumber(
       db,
@@ -203,7 +199,11 @@ const AuditCommand = effectCmd({
   builder: (yargs) =>
     yargs
       .option("database", { type: "string", description: "database path to inspect" })
-      .option("readonly", { type: "boolean", default: false, description: "require an explicit read-only database open" })
+      .option("readonly", {
+        type: "boolean",
+        default: false,
+        description: "require an explicit read-only database open",
+      })
       .option("json", { type: "boolean", default: false, description: "write machine-readable JSON" })
       .option("root", { type: "string", description: "storage root override for diagnostics/tests" }),
   handler: Effect.fn("Cli.debug.storage.audit")(function* (args) {

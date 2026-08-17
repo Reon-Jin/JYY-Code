@@ -16,7 +16,6 @@ import {
   type LoadSessionRequest,
   type NewSessionRequest,
   type PermissionOption,
-  type PlanEntry,
   type PromptRequest,
   type ResumeSessionRequest,
   type ResumeSessionResponse,
@@ -44,7 +43,6 @@ import { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
 import { MessageV2 } from "@/session/message-v2"
 import { ConfigMCP } from "@/config/mcp"
-import { Todo } from "@/session/todo"
 import { Result, Schema } from "effect"
 import { LoadAPIKeyError } from "ai"
 import type { AssistantMessage, Event, JyycodeClient, SessionMessageResponse, ToolPart } from "@jyycode-ai/sdk/v2"
@@ -54,7 +52,6 @@ import { ShellID } from "@/tool/shell/id"
 
 type ModeOption = { id: string; name: string; description?: string }
 type ModelOption = { modelId: string; name: string }
-const decodeTodos = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Array(Todo.Info)))
 
 const DEFAULT_VARIANT_VALUE = "default"
 
@@ -367,36 +364,10 @@ export class Agent implements ACPAgent {
               const kind = toToolKind(part.tool)
               const content = completedToolContent(part, kind)
 
-              if (part.tool === "todowrite") {
-                const parsedTodos = decodeTodos(part.state.output)
-                if (Result.isSuccess(parsedTodos)) {
-                  await this.connection
-                    .sessionUpdate({
-                      sessionId,
-                      update: {
-                        sessionUpdate: "plan",
-                        entries: parsedTodos.success.map((todo) => {
-                          const status: PlanEntry["status"] =
-                            todo.status === "cancelled" ? "completed" : (todo.status as PlanEntry["status"])
-                          return {
-                            priority: "medium",
-                            status,
-                            content: todo.content,
-                          }
-                        }),
-                      },
-                    })
-                    .catch((error) => {
-                      log.error("failed to send session update for todo", { error })
-                    })
-                } else {
-                  log.error("failed to parse todo output", { error: parsedTodos.failure })
-                }
-              }
-
               await this.connection
                 .sessionUpdate({
                   sessionId,
+
                   update: {
                     sessionUpdate: "tool_call_update",
                     toolCallId: part.callID,
@@ -850,33 +821,6 @@ export class Agent implements ACPAgent {
             this.shellSnapshots.delete(part.callID)
             const kind = toToolKind(part.tool)
             const content = completedToolContent(part, kind)
-
-            if (part.tool === "todowrite") {
-              const parsedTodos = decodeTodos(part.state.output)
-              if (Result.isSuccess(parsedTodos)) {
-                await this.connection
-                  .sessionUpdate({
-                    sessionId,
-                    update: {
-                      sessionUpdate: "plan",
-                      entries: parsedTodos.success.map((todo) => {
-                        const status: PlanEntry["status"] =
-                          todo.status === "cancelled" ? "completed" : (todo.status as PlanEntry["status"])
-                        return {
-                          priority: "medium",
-                          status,
-                          content: todo.content,
-                        }
-                      }),
-                    },
-                  })
-                  .catch((err) => {
-                    log.error("failed to send session update for todo", { error: err })
-                  })
-              } else {
-                log.error("failed to parse todo output", { error: parsedTodos.failure })
-              }
-            }
 
             await this.connection
               .sessionUpdate({

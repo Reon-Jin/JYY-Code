@@ -59,7 +59,8 @@ export async function runTestFile(testPath: string, options: RunTestFileOptions 
     try {
       termination = await killProcessTreeVerified(child.pid, { graceMs: 3000, verifyMs: 5000 })
     } catch (error) {
-      termination = error && typeof error === "object" && "result" in error ? (error.result as TerminationResult) : undefined
+      termination =
+        error && typeof error === "object" && "result" in error ? (error.result as TerminationResult) : undefined
     }
     return {
       testPath: absolutePath,

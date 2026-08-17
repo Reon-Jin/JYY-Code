@@ -141,8 +141,7 @@ const stepInputSchema: JSONSchema7 = {
     tasks: {
       type: "array",
       items: taskInputSchema,
-      description:
-        `Tasks are optional in any Step at creation; keeping later Steps as skeletons and expanding them later with Plan_update(add_task) is also fine. ${DECOMPOSITION_GUIDANCE} For a candidate Step, include exactly 2-3 candidate Tasks together. The initial Step may declare them in Plan_create; a later clean active Step may initialize them with one Plan_update containing 2-3 candidate add_task operations.`,
+      description: `Tasks are optional in any Step at creation; keeping later Steps as skeletons and expanding them later with Plan_update(add_task) is also fine. ${DECOMPOSITION_GUIDANCE} For a candidate Step, include exactly 2-3 candidate Tasks together. The initial Step may declare them in Plan_create; a later clean active Step may initialize them with one Plan_update containing 2-3 candidate add_task operations.`,
     },
   },
 }
@@ -163,8 +162,7 @@ export const PLAN_CREATE_INPUT_SCHEMA: JSONSchema7 = {
       type: "array",
       minItems: 2,
       items: stepInputSchema,
-      description:
-        `Call Plan_create exactly once when the runtime confirms that no plan exists. goal and done_criteria are required; title is optional and will be derived from goal when omitted. Extra fields are ignored and reported as warnings. Valid shape: {goal, steps:[{goal, done_criteria, tasks:[{goal, done_criteria, output_path}]}, {goal, done_criteria}]}. output_path must resolve inside the workspace (use relative paths); timeout_ms is runtime-owned and ignored. ${DECOMPOSITION_GUIDANCE} Later active Steps may be skeletons expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group, or carry their own Task details from creation. After this call returns, stop issuing protocol writes until the next model turn. If Plan_create fails, fix the reported validation errors and retry at most twice; never call it twice in the same response.`,
+      description: `Call Plan_create exactly once when the runtime confirms that no plan exists. goal and done_criteria are required; title is optional and will be derived from goal when omitted. Extra fields are ignored and reported as warnings. Valid shape: {goal, steps:[{goal, done_criteria, tasks:[{goal, done_criteria, output_path}]}, {goal, done_criteria}]}. output_path must resolve inside the workspace (use relative paths); timeout_ms is runtime-owned and ignored. ${DECOMPOSITION_GUIDANCE} Later active Steps may be skeletons expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group, or carry their own Task details from creation. After this call returns, stop issuing protocol writes until the next model turn. If Plan_create fails, fix the reported validation errors and retry at most twice; never call it twice in the same response.`,
     },
   },
 }
@@ -344,8 +342,7 @@ export const DISPATCH_INPUT_SCHEMA: JSONSchema7 = {
       minItems: 1,
       maxItems: 20,
       items: taskIdSchema,
-      description:
-        `Pass every ready standard Task ID from the current wave in this one call (max 20); never split a wave into batches. ${DECOMPOSITION_GUIDANCE} For a candidate Step, pass every candidate Task ID from the same Step in this one call; never dispatch candidates individually.`,
+      description: `Pass every ready standard Task ID from the current wave in this one call (max 20); never split a wave into batches. ${DECOMPOSITION_GUIDANCE} For a candidate Step, pass every candidate Task ID from the same Step in this one call; never dispatch candidates individually.`,
     },
     role: { type: "string", minLength: 1, description: "Use an enabled role such as general." },
   },
@@ -441,7 +438,9 @@ function runId(ctx: Tool.Context, session?: Session.Info) {
     ctx.extra?.runID,
     ctx.extra?.agentRunID,
     runIdForChildSession(ctx.sessionID),
-    session ? persistedRunId(session, typeof ctx.extra?.planRoot === "string" ? ctx.extra.planRoot : undefined) : undefined,
+    session
+      ? persistedRunId(session, typeof ctx.extra?.planRoot === "string" ? ctx.extra.planRoot : undefined)
+      : undefined,
   ]
   return candidates.find((value): value is string => typeof value === "string" && value.length > 0)
 }
@@ -1163,7 +1162,9 @@ export const PlanCreateTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description: DECOMPOSITION_GUIDANCE + " Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; do not include timeout_ms. " +
+      description:
+        DECOMPOSITION_GUIDANCE +
+        " Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; do not include timeout_ms. " +
         "创建当前主 session 的 plan.json；每个 Step 都可以带任务明细（后续阶段保持骨架、之后用 Plan_update 展开也可以）。合法结构模板：{goal, steps:[{goal, done_criteria, tasks:[{goal, done_criteria, output_path}]}, {goal, done_criteria}]}；goal/done_criteria 必填，title 可省略（省略时从 goal 自动生成），额外字段会被忽略并在返回值 warnings 中说明，output_path 使用工作区内相对路径。按可并行性检查拆分，默认放 4-8 个可并行的 standard Task（上限 20 个）；能拆就拆，优先多派子 Agent。需要候选比较时，在 Plan_create 或后续 clean active Step 的一次 Plan_update 中完整放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
       parameters: AnyObject,
       jsonSchema: PLAN_CREATE_INPUT_SCHEMA,
@@ -1196,7 +1197,9 @@ export const PlanUpdateTool = Tool.define(
     const sessions = yield* Session.Service
     const bus = yield* Bus.Service
     return {
-      description: DECOMPOSITION_GUIDANCE + " Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; timeout_ms is not accepted. " +
+      description:
+        DECOMPOSITION_GUIDANCE +
+        " Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; timeout_ms is not accepted. " +
         "以 revision 乐观锁原子修改方案、展开标准任务、推进单智能体状态或审核子 Agent 汇报。后续 active Step 可在一次调用中用 2-3 个 candidate add_task 初始化候选组；不能向已有 candidate Step 追加或混入 standard Task。",
       parameters: AnyObject,
       jsonSchema: PLAN_UPDATE_INPUT_SCHEMA,
@@ -1253,7 +1256,9 @@ export const DispatchDispatchTool = Tool.define(
     const bus = yield* Bus.Service
     const config = yield* Config.Service
     return {
-      description: DECOMPOSITION_GUIDANCE + " Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; this tool has no timeout control. " +
+      description:
+        DECOMPOSITION_GUIDANCE +
+        " Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; this tool has no timeout control. " +
         "Rejected tasks with review feedback continue the existing child session; do not reopen them first. " +
         "在多智能体模式把 pending/rejected 任务派给指定角色。必须选择一个当前启用的 role；如果 taskIds 中包含 candidate Task，必须在一次调用中包含该 Step 的全部 2-3 个候选 ID。",
       parameters: Schema.Struct({ taskIds: Schema.Array(Schema.String), role: Schema.String }),

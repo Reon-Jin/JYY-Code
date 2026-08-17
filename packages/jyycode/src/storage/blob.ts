@@ -3,15 +3,7 @@ import { Global } from "@jyycode-ai/core/global"
 import { Database } from "@/storage/db"
 import { eq } from "drizzle-orm"
 import { BlobRefTable, BlobTable } from "./blob.sql"
-import {
-  blobPath,
-  blobTempPath,
-  blobURL,
-  isBlobDigest,
-  parseBlobURL,
-  parseDataURL,
-  parseFileURL,
-} from "./blob-path"
+import { blobPath, blobTempPath, blobURL, isBlobDigest, parseBlobURL, parseDataURL, parseFileURL } from "./blob-path"
 import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
 import crypto from "node:crypto"
@@ -23,7 +15,10 @@ export const BLOB_GRACE_MS = 24 * 60 * 60 * 1000
 export class BlobLimitError extends Error {
   readonly code = "BLOB_SIZE_LIMIT"
 
-  constructor(readonly limit: number, readonly actual: number) {
+  constructor(
+    readonly limit: number,
+    readonly actual: number,
+  ) {
     super(`Blob exceeds ${limit} bytes (received at least ${actual})`)
     this.name = "BlobLimitError"
   }
@@ -269,7 +264,11 @@ export class BlobStore {
     ) as Effect.Effect<void, never, never>
   }
 
-  attachReferenceEffect(input: { partID: string; slot: string; record: BlobRecord }): Effect.Effect<void, never, never> {
+  attachReferenceEffect(input: {
+    partID: string
+    slot: string
+    record: BlobRecord
+  }): Effect.Effect<void, never, never> {
     const metadata = this.persistMetadataEffect(input.record)
     const reference = Database.withTransaction((db) =>
       db

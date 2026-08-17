@@ -22,7 +22,6 @@ import { Git } from "../../src/git"
 import { Image } from "../../src/image/image"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Question } from "../../src/question"
-import { Todo } from "../../src/session/todo"
 import { Session } from "@/session/session"
 import { SessionMessageTable } from "../../src/session/session.sql"
 import { LLM } from "../../src/session/llm"
@@ -283,7 +282,6 @@ function makePrompt(input?: {
     EventRuntime.defaultLayer,
   ).pipe(Layer.provideMerge(infra))
   const question = Question.layer.pipe(Layer.provideMerge(deps))
-  const todo = Todo.layer.pipe(Layer.provideMerge(deps))
   const registry = ToolRegistry.layer.pipe(
     Layer.provide(Skill.defaultLayer),
     Layer.provide(FetchHttpClient.layer),
@@ -294,7 +292,6 @@ function makePrompt(input?: {
     Layer.provide(Ripgrep.defaultLayer),
     Layer.provide(Format.defaultLayer),
     Layer.provide(runtimeFlags),
-    Layer.provideMerge(todo),
     Layer.provideMerge(question),
     Layer.provideMerge(deps),
   )
@@ -1002,7 +999,9 @@ test("counts only genuine validation failures toward the Plan_create retry budge
   // "Plan already exists" is not a failed creation attempt: it must not burn
   // the retry budget or force a recovery read.
   expect(
-    failedPlanCreatePart(completed(JSON.stringify({ ok: false, error: { code: "INVALID_STATE", message: "已有方案" } }))),
+    failedPlanCreatePart(
+      completed(JSON.stringify({ ok: false, error: { code: "INVALID_STATE", message: "已有方案" } })),
+    ),
   ).toBe(false)
   // A successful create is not a failure.
   expect(failedPlanCreatePart(completed(JSON.stringify({ ok: true })))).toBe(false)
@@ -1011,7 +1010,12 @@ test("counts only genuine validation failures toward the Plan_create retry budge
   // A genuine schema/validation failure still counts.
   expect(
     failedPlanCreatePart(
-      completed(JSON.stringify({ ok: false, error: { code: "SCHEMA_VALIDATION", message: "steps[1].done_criteria 必须是非空字符串" } })),
+      completed(
+        JSON.stringify({
+          ok: false,
+          error: { code: "SCHEMA_VALIDATION", message: "steps[1].done_criteria 必须是非空字符串" },
+        }),
+      ),
     ),
   ).toBe(true)
 })
@@ -1153,9 +1157,7 @@ it.instance("accepts a plan with extra fields and later-step tasks on the first 
     const messages = yield* sessions.messages({ sessionID: chat.id })
     const createParts = messages
       .flatMap((message) => message.parts)
-      .filter(
-        (part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "Plan_create",
-      )
+      .filter((part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "Plan_create")
     expect(createParts).toHaveLength(1)
     expect(createParts[0]?.state.status).toBe("completed")
     if (createParts[0]?.state.status === "completed") {
@@ -2940,7 +2942,8 @@ unix(
             tool?.state.status === "running" &&
             typeof tool.state.metadata?.output === "string" &&
             tool.state.metadata.output.includes("READY_FOR_CANCEL")
-          ) return
+          )
+            return
           yield* Effect.sleep(Duration.millis(10))
         }
       }).pipe(Effect.timeout(Duration.seconds(5)))

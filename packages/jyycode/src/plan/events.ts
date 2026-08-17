@@ -30,9 +30,15 @@ export function validatePlanEvent(value: unknown): string[] {
     if (!(field in event)) errors.push(`event.${field}: is required`)
   if (!Number.isInteger(event.seq) || Number(event.seq) < 0) errors.push("event.seq: must be an integer >= 0")
   if (
-    !["plan.updated", "child.activity", "report_arrived", "check_point", "user_message", "runtime.metric", "child.recovery"].includes(
-      String(event.type),
-    )
+    ![
+      "plan.updated",
+      "child.activity",
+      "report_arrived",
+      "check_point",
+      "user_message",
+      "runtime.metric",
+      "child.recovery",
+    ].includes(String(event.type))
   )
     errors.push("event.type: invalid event type")
   if (typeof event.session_id !== "string" || event.session_id.length === 0)
@@ -126,8 +132,12 @@ export class WakeupQueue {
         queue.push({ ...event, payload: { items: [event.payload] } })
       }
     } else {
-      const dedupeKey = event.type === "user_message" && typeof event.payload.dedupe_key === "string" ? event.payload.dedupe_key : undefined
-      if (dedupeKey && queue.some((item) => item.type === "user_message" && item.payload.dedupe_key === dedupeKey)) return
+      const dedupeKey =
+        event.type === "user_message" && typeof event.payload.dedupe_key === "string"
+          ? event.payload.dedupe_key
+          : undefined
+      if (dedupeKey && queue.some((item) => item.type === "user_message" && item.payload.dedupe_key === dedupeKey))
+        return
       queue.push(event)
     }
     queue.sort((left, right) => {
@@ -215,13 +225,15 @@ export class PlanInbox {
   }
 
   add(entry: Omit<InboxEntry, "id" | "created_at" | "resolved_at">) {
-    const duplicate = this.store.pending(entry.session_id).find(
-      (item) =>
-        item.kind === entry.kind &&
-        item.task_id === entry.task_id &&
-        item.run_id === entry.run_id &&
-        item.message === entry.message,
-    )
+    const duplicate = this.store
+      .pending(entry.session_id)
+      .find(
+        (item) =>
+          item.kind === entry.kind &&
+          item.task_id === entry.task_id &&
+          item.run_id === entry.run_id &&
+          item.message === entry.message,
+      )
     if (duplicate) return duplicate
     return this.store.add(entry as InboxEntryInput)
   }

@@ -97,10 +97,7 @@ function messageHasPartAhead(
  * the latest streamed events; in that case the locally patched snapshot is
  * ahead of the fetched response and must not overwrite it.
  */
-export function isConversationSnapshotAhead(
-  candidate: ConversationSnapshot,
-  baseline: ConversationSnapshot,
-): boolean {
+export function isConversationSnapshotAhead(candidate: ConversationSnapshot, baseline: ConversationSnapshot): boolean {
   const candidateMessages = new Map(candidate.messages.map((message) => [message.info.id, message]))
   for (const message of baseline.messages) {
     const candidateMessage = candidateMessages.get(message.info.id)

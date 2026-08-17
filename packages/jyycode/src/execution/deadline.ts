@@ -7,7 +7,9 @@
 export type MonotonicClock = () => number
 
 const monotonicNow: MonotonicClock = () =>
-  typeof globalThis.performance?.now === "function" ? globalThis.performance.now() : Number(process.hrtime.bigint()) / 1_000_000
+  typeof globalThis.performance?.now === "function"
+    ? globalThis.performance.now()
+    : Number(process.hrtime.bigint()) / 1_000_000
 
 export class DeadlineError extends Error {
   readonly code = "INVALID_DEADLINE"

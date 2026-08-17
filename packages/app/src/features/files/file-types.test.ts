@@ -40,7 +40,9 @@ describe("file preview types", () => {
   it("hides dotfiles and generated directories without hiding gitignored source files", () => {
     expect(isHiddenFileNode({ name: ".gitignore", path: ".gitignore", type: "file", ignored: false })).toBe(true)
     expect(isHiddenFileNode({ name: "config", path: "src/.config", type: "directory", ignored: false })).toBe(true)
-    expect(isHiddenFileNode({ name: "node_modules", path: "node_modules", type: "directory", ignored: false })).toBe(true)
+    expect(isHiddenFileNode({ name: "node_modules", path: "node_modules", type: "directory", ignored: false })).toBe(
+      true,
+    )
     expect(isHiddenFileNode({ name: "dist", path: "dist", type: "directory", ignored: true })).toBe(true)
     expect(isHiddenFileNode({ name: "generated", path: "generated", type: "directory", ignored: true })).toBe(false)
     expect(isHiddenFileNode({ name: "app.ts", path: "src/app.ts", type: "file", ignored: false })).toBe(false)

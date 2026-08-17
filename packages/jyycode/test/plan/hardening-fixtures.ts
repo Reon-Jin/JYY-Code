@@ -72,11 +72,13 @@ export function readHardeningPlan(workspaceRoot: string, sessionId = "ses_main")
   return JSON.parse(fs.readFileSync(planFilePath(workspaceRoot, sessionId), "utf8")) as PlanFile
 }
 
-export function createHardeningChildren(options: {
-  createFailures?: number
-  startFailures?: number
-  terminateFailures?: number
-} = {}) {
+export function createHardeningChildren(
+  options: {
+    createFailures?: number
+    startFailures?: number
+    terminateFailures?: number
+  } = {},
+) {
   let createFailures = options.createFailures ?? 0
   let startFailures = options.startFailures ?? 0
   let terminateFailures = options.terminateFailures ?? 0

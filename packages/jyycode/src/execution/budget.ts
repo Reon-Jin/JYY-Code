@@ -107,7 +107,13 @@ export class ExecutionBudget {
   }
 
   child(operationClass: OperationClass, maxDurationMs?: number, config?: BudgetConfig): ExecutionBudget {
-    return resolveExecutionBudget({ operationClass, requestedMs: maxDurationMs, parent: this, config, now: this.deadline.now })
+    return resolveExecutionBudget({
+      operationClass,
+      requestedMs: maxDurationMs,
+      parent: this,
+      config,
+      now: this.deadline.now,
+    })
   }
 }
 
@@ -118,9 +124,7 @@ export function resolveExecutionBudget(input: ResolveBudgetInput): ExecutionBudg
   const parentRemaining = input.parent?.remaining()
   const effectiveMs = Math.min(requestedOrDefault, limits.hardCapMs, parentRemaining ?? Number.POSITIVE_INFINITY)
   const now = input.now ?? input.parent?.deadline.now
-  const deadline = input.parent
-    ? input.parent.deadline.child(effectiveMs)
-    : Deadline.fromDuration(effectiveMs, { now })
+  const deadline = input.parent ? input.parent.deadline.child(effectiveMs) : Deadline.fromDuration(effectiveMs, { now })
   return new ExecutionBudget({
     operationClass: input.operationClass,
     requestedMs: requested,

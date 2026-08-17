@@ -165,11 +165,14 @@ describe("model-facing plan tool names", () => {
       }),
     )
     const childWorkspace = path.join(workspace, "isolated-child")
-    const gate = candidateToolGateState({
-      id: "candidate-child" as never,
-      parentID: rootSession as never,
-      directory: childWorkspace,
-    }, { planRoot: workspace })
+    const gate = candidateToolGateState(
+      {
+        id: "candidate-child" as never,
+        parentID: rootSession as never,
+        directory: childWorkspace,
+      },
+      { planRoot: workspace },
+    )
     expect(gate?.phase).toBe("running")
     expect([...gate!.allowedToolIDs]).toEqual(
       expect.arrayContaining(["read", "glob", "grep", "webfetch", "websearch", "skill", "Candidate.submit"]),
@@ -182,19 +185,25 @@ describe("model-facing plan tool names", () => {
     }
     persisted.steps[0]!.candidate_discussion.phase = "declaring"
     fs.writeFileSync(persistedPath, JSON.stringify(persisted))
-    const declaringGate = candidateToolGateState({
-      id: "candidate-child" as never,
-      parentID: rootSession as never,
-      directory: childWorkspace,
-    }, { planRoot: workspace })
+    const declaringGate = candidateToolGateState(
+      {
+        id: "candidate-child" as never,
+        parentID: rootSession as never,
+        directory: childWorkspace,
+      },
+      { planRoot: workspace },
+    )
     expect([...declaringGate!.allowedToolIDs]).toEqual(["Candidate.declare"])
     persisted.steps[0]!.candidate_discussion.phase = "cross_review"
     fs.writeFileSync(persistedPath, JSON.stringify(persisted))
-    const reviewGate = candidateToolGateState({
-      id: "candidate-child" as never,
-      parentID: rootSession as never,
-      directory: childWorkspace,
-    }, { planRoot: workspace })
+    const reviewGate = candidateToolGateState(
+      {
+        id: "candidate-child" as never,
+        parentID: rootSession as never,
+        directory: childWorkspace,
+      },
+      { planRoot: workspace },
+    )
     expect([...reviewGate!.allowedToolIDs]).toEqual(["Blackboard", "Blackboard.reply", "Candidate.ready"])
     fs.rmSync(workspace, { recursive: true, force: true })
   })

@@ -5,10 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Beam Test</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #efede7; }
-      body { display: flex; align-items: center; justify-content: center; gap: 24px; }
-      .composer-stack { display: grid; width: 520px; gap: 8px; margin: 0 auto; }
-      .composer-stack .composer__beam { overflow: visible; }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #efede7;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+      }
+      .composer-stack {
+        display: grid;
+        width: 520px;
+        gap: 8px;
+        margin: 0 auto;
+      }
+      .composer-stack .composer__beam {
+        overflow: visible;
+      }
       .composer {
         position: relative;
         z-index: 2;
@@ -30,10 +47,18 @@
         animation: ui-rise-in 0.3s ease-out both;
         overflow: visible;
       }
-      .multi-agent-task { width: 460px; }
+      .multi-agent-task {
+        width: 460px;
+      }
       @keyframes ui-rise-in {
-        from { opacity: 0; transform: translateY(8px); }
-        to { opacity: 1; transform: translateY(0); }
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
     </style>
   </head>

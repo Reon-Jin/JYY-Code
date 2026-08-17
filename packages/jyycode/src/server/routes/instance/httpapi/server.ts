@@ -42,7 +42,6 @@ import { SessionRevert } from "@/session/revert"
 import { SessionRunState } from "@/session/run-state"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
-import { Todo } from "@/session/todo"
 import { SessionShare } from "@/share/session"
 import { ShareNext } from "@/share/share-next"
 import { EventRuntime } from "@/event-runtime"
@@ -240,7 +239,6 @@ export function createRoutes(
       Skill.defaultLayer,
       SkillManagement.defaultLayer,
       RoleSkillManagement.defaultLayer,
-      Todo.defaultLayer,
       ToolRegistry.defaultLayer,
       Vcs.defaultLayer,
       Workspace.defaultLayer,

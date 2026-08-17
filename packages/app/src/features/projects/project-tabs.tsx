@@ -226,10 +226,7 @@ export function ProjectTabs(props: ProjectTabsProps) {
 
     const results = await Promise.allSettled(
       projects.map(async (project) => {
-        const result = await project.client.session.status(
-          { directory: project.directory },
-          { throwOnError: true },
-        )
+        const result = await project.client.session.status({ directory: project.directory }, { throwOnError: true })
         return { project, status: (result.data ?? {}) as Record<string, SessionStatus> }
       }),
     )
@@ -256,8 +253,7 @@ export function ProjectTabs(props: ProjectTabsProps) {
     if (document.visibilityState === "hidden") {
       statusPollGeneration += 1
       clearStatusPoll()
-    }
-    else void pollProjectStatuses()
+    } else void pollProjectStatuses()
   }
 
   createEffect(() => {
@@ -416,7 +412,10 @@ export function ProjectTabs(props: ProjectTabsProps) {
               project={project}
               active={normalizeDirectory(project.directory) === normalizeDirectory(props.activeDirectory)}
               queryClient={props.queryClient}
-              status={statuses()[normalizeDirectory(project.directory)] ?? statusCache.get(normalizeDirectory(project.directory))}
+              status={
+                statuses()[normalizeDirectory(project.directory)] ??
+                statusCache.get(normalizeDirectory(project.directory))
+              }
               selectDisabled={
                 props.disabled ||
                 props.pendingActions?.has("project.switch") === true ||

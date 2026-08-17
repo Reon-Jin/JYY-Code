@@ -58,7 +58,13 @@ export function planSystemPrompt(input: {
   // Single-agent root sessions have no plan protocol: plan tools are hidden
   // entirely and the prompt must not reference them.
   if (!input.multiAgent) return ""
-  return [PLAN_BASE_PROMPT, PLAN_CREATE_PROMPT, PLAN_MULTI_PROMPT, PLAN_CANDIDATE_PROMPT, dispatchRosterPrompt(input.profiles)].join("\n\n")
+  return [
+    PLAN_BASE_PROMPT,
+    PLAN_CREATE_PROMPT,
+    PLAN_MULTI_PROMPT,
+    PLAN_CANDIDATE_PROMPT,
+    dispatchRosterPrompt(input.profiles),
+  ].join("\n\n")
 }
 
 export * as PlanPrompts from "./prompts"

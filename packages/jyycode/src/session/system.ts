@@ -33,7 +33,10 @@ export const layer = Layer.effect(
     const skill = yield* Skill.Service
 
     return Service.of({
-      environment: Effect.fn("SystemPrompt.environment")(function* (model: Provider.Model, input?: { child?: boolean }) {
+      environment: Effect.fn("SystemPrompt.environment")(function* (
+        model: Provider.Model,
+        input?: { child?: boolean },
+      ) {
         const ctx = yield* InstanceState.context
         const workspace = input?.child
           ? [

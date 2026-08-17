@@ -15,21 +15,19 @@ export const normalizeRelativePath = (relativePath = "") => {
   return normalized === "." ? "" : normalized
 }
 
-const workspaceScope = (scope: WorkspaceQueryScope) => [
-  ...project(scope.directory),
-  "workspace",
-  scope.workspaceID ?? "",
-  "session",
-  scope.sessionID ?? "",
-  "path",
-  normalizeRelativePath(scope.relativePath),
-] as const
+const workspaceScope = (scope: WorkspaceQueryScope) =>
+  [
+    ...project(scope.directory),
+    "workspace",
+    scope.workspaceID ?? "",
+    "session",
+    scope.sessionID ?? "",
+    "path",
+    normalizeRelativePath(scope.relativePath),
+  ] as const
 
-const scopedKey = (kind: string, scope: WorkspaceQueryScope, ...parts: readonly unknown[]) => [
-  ...workspaceScope(scope),
-  kind,
-  ...parts,
-] as const
+const scopedKey = (kind: string, scope: WorkspaceQueryScope, ...parts: readonly unknown[]) =>
+  [...workspaceScope(scope), kind, ...parts] as const
 
 export const keys = {
   management: ["management"] as const,
@@ -46,7 +44,6 @@ export const keys = {
   session: (directory: string, sessionID: string) => [...project(directory), "session", sessionID] as const,
   messages: (directory: string, sessionID: string) =>
     [...project(directory), "session", sessionID, "messages"] as const,
-  todos: (directory: string, sessionID: string) => [...project(directory), "session", sessionID, "todos"] as const,
   compaction: (directory: string, sessionID: string) =>
     [...project(directory), "session", sessionID, "compaction"] as const,
   status: (directory: string) => [...project(directory), "status"] as const,

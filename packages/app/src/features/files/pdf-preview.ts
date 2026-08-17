@@ -71,10 +71,7 @@ export async function translatePdfText(input: PdfTranslationInput): Promise<stri
 
   try {
     const parent = input.sessionID
-      ? await input.client.session.get(
-          { ...query, sessionID: input.sessionID },
-          requestOptions,
-        )
+      ? await input.client.session.get({ ...query, sessionID: input.sessionID }, requestOptions)
       : undefined
     const created = await input.client.session.create(
       {
@@ -135,7 +132,11 @@ export function base64FromBytes(bytes: Uint8Array) {
 function colorComponents(color: string) {
   const value = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color)
   if (!value) return [0, 0, 0] as const
-  return [Number.parseInt(value[1]!, 16) / 255, Number.parseInt(value[2]!, 16) / 255, Number.parseInt(value[3]!, 16) / 255] as const
+  return [
+    Number.parseInt(value[1]!, 16) / 255,
+    Number.parseInt(value[2]!, 16) / 255,
+    Number.parseInt(value[3]!, 16) / 255,
+  ] as const
 }
 
 async function textPng(text: string, color: string, width: number, height: number) {
@@ -221,7 +222,9 @@ export async function flattenPdfAnnotations(source: Uint8Array, annotations: Pdf
     }
 
     if (annotation.tool === "text" && annotation.text) {
-      const image = await document.embedPng(await textPng(annotation.text, annotation.color, annotationWidth * 1200, annotationHeight * 1200))
+      const image = await document.embedPng(
+        await textPng(annotation.text, annotation.color, annotationWidth * 1200, annotationHeight * 1200),
+      )
       page.drawImage(image, { x: left, y: bottom, width: drawingWidth, height: drawingHeight })
     }
   }

@@ -120,7 +120,6 @@ it.instance("enabled built-in subagent denies todo tools", () =>
     expect(researcher).toBeDefined()
     expect(researcher?.mode).toBe("subagent")
     expect(researcher?.hidden).toBeUndefined()
-    expect(evalPerm(researcher, "todowrite")).toBe("deny")
   }),
 )
 

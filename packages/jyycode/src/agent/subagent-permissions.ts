@@ -12,8 +12,8 @@ import { DEFAULT_HARD_MAX_AGENT_DEPTH } from "./subagent-depth"
  *    silently bypass it. (#26514)
  * 2. The parent **session's** deny rules and external_directory rules —
  *    same forwarding the original code already did.
- * 3. Default `todowrite` and `task` denies if the subagent's own ruleset
- *    doesn't already permit them.
+ * 3. Default `task` deny if the subagent's own ruleset
+ *    doesn't already permit it.
  */
 export function deriveSubagentSessionPermission(input: {
   parentSessionPermission: Permission.Ruleset
@@ -25,7 +25,6 @@ export function deriveSubagentSessionPermission(input: {
   const canTask =
     (input.parentAgentDepth === undefined || input.parentAgentDepth < DEFAULT_HARD_MAX_AGENT_DEPTH) &&
     input.subagent.permission.some((rule) => rule.permission === "task" && rule.action === "allow")
-  const canTodo = input.subagent.permission.some((rule) => rule.permission === "todowrite" && rule.action === "allow")
   const parentAgentDenies =
     input.parentAgent?.permission.filter((rule) => rule.action === "deny" && rule.permission === "edit") ?? []
   return [
@@ -33,7 +32,6 @@ export function deriveSubagentSessionPermission(input: {
     ...input.parentSessionPermission.filter(
       (rule) => rule.permission === "external_directory" || rule.action === "deny",
     ),
-    ...(canTodo ? [] : [{ permission: "todowrite" as const, pattern: "*" as const, action: "deny" as const }]),
     ...(canTask ? [] : [{ permission: "task" as const, pattern: "*" as const, action: "deny" as const }]),
   ]
 }

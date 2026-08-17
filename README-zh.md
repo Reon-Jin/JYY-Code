@@ -24,17 +24,17 @@
 
 JYY-Code 不假设 LLM 能稳定地记住方案、协调多个 Agent、保证验收质量、隔离并发修改，或者在进程崩溃后自己恢复正确状态。它把这些责任从 Prompt 中拿出来，交给**运行时**。
 
-| 问题 | JYY-Code 把它交给什么机制 |
-| --- | --- |
-| 规划 | 带 revision 的结构化 Plan、分阶段 Step、依赖关系与可判定 `done_criteria` |
-| 执行 | 严格 Task 状态机与协议化派发 |
-| 并行 | 批量 wave 调度，单波最多 20 个隔离子 Agent |
-| 质量控制 | Report → review → reject/redispatch 的强制闭环 |
-| 代码集成 | Worktree / Snapshot 隔离 + 显式 `Merge.apply` |
-| Agent 协作 | 带语义类型、已读游标与事件唤醒的共享黑板 |
-| 路线选择 | 盲提案、交叉评审、最终综合裁决的 Candidate 竞争 |
-| 长任务上下文 | 分层上下文、情景摘要与结构化持久记忆 |
-| 崩溃恢复 | 持久事件、可重建投影、Activation Lease 与启动时 reconcile |
+| 问题         | JYY-Code 把它交给什么机制                                                |
+| ------------ | ------------------------------------------------------------------------ |
+| 规划         | 带 revision 的结构化 Plan、分阶段 Step、依赖关系与可判定 `done_criteria` |
+| 执行         | 严格 Task 状态机与协议化派发                                             |
+| 并行         | 批量 wave 调度，单波最多 20 个隔离子 Agent                               |
+| 质量控制     | Report → review → reject/redispatch 的强制闭环                           |
+| 代码集成     | Worktree / Snapshot 隔离 + 显式 `Merge.apply`                            |
+| Agent 协作   | 带语义类型、已读游标与事件唤醒的共享黑板                                 |
+| 路线选择     | 盲提案、交叉评审、最终综合裁决的 Candidate 竞争                          |
+| 长任务上下文 | 分层上下文、情景摘要与结构化持久记忆                                     |
+| 崩溃恢复     | 持久事件、可重建投影、Activation Lease 与启动时 reconcile                |
 
 所以 JYY-Code 不是“一个 Agent 再多接几个工具”，而是一个**给 Agent 提供边界、共享状态、恢复语义和可审核执行协议的工程运行时**。
 

@@ -73,7 +73,10 @@ function ModelFields(props: {
   disabled?: boolean
   onChange: (model: ModelSelection) => void
 }) {
-  const options = createModelOptions(() => props.models, () => props.value)
+  const options = createModelOptions(
+    () => props.models,
+    () => props.value,
+  )
   const variants = createMemo(() => variantsFor(props.value, props.models))
 
   function changeModel(value: string) {
@@ -100,9 +103,7 @@ function ModelFields(props: {
           disabled={props.disabled}
           onChange={(event) => changeModel(event.currentTarget.value)}
         >
-          <For each={options()}>
-            {(option) => <option value={option.value}>{option.label}</option>}
-          </For>
+          <For each={options()}>{(option) => <option value={option.value}>{option.label}</option>}</For>
         </select>
       </label>
       <label class="model-control__field">
@@ -114,9 +115,7 @@ function ModelFields(props: {
           onChange={(event) => changeVariant(event.currentTarget.value)}
         >
           <option value="">{variantLabel(undefined)}</option>
-          <For each={variants()}>
-            {(variant) => <option value={variant}>{variantLabel(variant)}</option>}
-          </For>
+          <For each={variants()}>{(variant) => <option value={variant}>{variantLabel(variant)}</option>}</For>
         </select>
       </label>
     </div>

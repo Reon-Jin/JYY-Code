@@ -157,7 +157,11 @@ export function MemoryEditor(props: {
           </label>
           <label>
             <span>{tr("settings.experience-evidence")}</span>
-            <input aria-label={tr("settings.experience-evidence")} value={props.entry?.scope === "experience" ? props.entry.evidence : ""} readOnly />
+            <input
+              aria-label={tr("settings.experience-evidence")}
+              value={props.entry?.scope === "experience" ? props.entry.evidence : ""}
+              readOnly
+            />
           </label>
         </Show>
       </div>

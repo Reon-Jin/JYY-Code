@@ -165,14 +165,10 @@ describe("createComposerController", () => {
     await controller.stop()
     await controller.terminate()
 
-    expect(client.session.promptAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ directory: childDirectory }),
-      { throwOnError: true },
-    )
-    expect(client.session.abort).toHaveBeenCalledWith(
-      { directory: childDirectory, sessionID },
-      { throwOnError: true },
-    )
+    expect(client.session.promptAsync).toHaveBeenCalledWith(expect.objectContaining({ directory: childDirectory }), {
+      throwOnError: true,
+    })
+    expect(client.session.abort).toHaveBeenCalledWith({ directory: childDirectory, sessionID }, { throwOnError: true })
     expect(client.session.terminate).toHaveBeenCalledWith(
       { directory: childDirectory, sessionID },
       { throwOnError: true },

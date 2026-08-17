@@ -11,8 +11,9 @@ const candidate = (source: string, content: string, required = false) => ({
 
 describe("instruction budget", () => {
   test("fails closed for an oversized required instruction", () => {
-    expect(() => budgetInstructions([candidate("AGENTS.md", "x".repeat(331 * 1024), true)], { maxFileBytes: 256 * 1024 }))
-      .toThrow(InstructionBudgetError)
+    expect(() =>
+      budgetInstructions([candidate("AGENTS.md", "x".repeat(331 * 1024), true)], { maxFileBytes: 256 * 1024 }),
+    ).toThrow(InstructionBudgetError)
   })
 
   test("keeps ordinary oversized content as an explicit manifest and excerpt", () => {
@@ -28,7 +29,10 @@ describe("instruction budget", () => {
   })
 
   test("bounds chunked remote input without Content-Length", () => {
-    const read = remoteReadBounded([new TextEncoder().encode("a".repeat(200_000)), new TextEncoder().encode("b".repeat(200_000))], 256 * 1024)
+    const read = remoteReadBounded(
+      [new TextEncoder().encode("a".repeat(200_000)), new TextEncoder().encode("b".repeat(200_000))],
+      256 * 1024,
+    )
     expect(read.bytes).toBe(400_000)
     expect(Buffer.byteLength(read.content)).toBe(256 * 1024)
     expect(read.digest).toHaveLength(64)

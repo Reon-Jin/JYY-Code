@@ -67,7 +67,9 @@ function stableValue(value: unknown): unknown {
 }
 
 function fingerprint(value: unknown) {
-  return createHash("sha256").update(JSON.stringify(stableValue(value)) ?? "null").digest("hex")
+  return createHash("sha256")
+    .update(JSON.stringify(stableValue(value)) ?? "null")
+    .digest("hex")
 }
 
 function canonicalWorktree(worktree: string) {

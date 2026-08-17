@@ -20,9 +20,11 @@ describe("storage retention policy", () => {
   })
 
   test("only expired terminal children are eligible for payload pruning", () => {
-    expect(
-      retentionDecision({ lifecycle: "terminal", updatedAt: 0, now: 31, terminalChildTtlMs: 30 }),
-    ).toEqual({ action: "prune_payload", reason: "terminal-child-expired", automatic: true })
+    expect(retentionDecision({ lifecycle: "terminal", updatedAt: 0, now: 31, terminalChildTtlMs: 30 })).toEqual({
+      action: "prune_payload",
+      reason: "terminal-child-expired",
+      automatic: true,
+    })
     expect(retentionDecision({ lifecycle: "terminal", updatedAt: 10, now: 20, terminalChildTtlMs: 30 }).action).toBe(
       "preserve",
     )

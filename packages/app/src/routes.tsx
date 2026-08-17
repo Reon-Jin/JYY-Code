@@ -94,9 +94,7 @@ function WorkspaceLoadError(props: { error: unknown; onRetry: () => void; onRetu
             {tr("lifecycle.return-to-project-selection")}
           </Button>
         </div>
-        <Show when={returnError()}>
-          {(message) => <InlineError message={message()} />}
-        </Show>
+        <Show when={returnError()}>{(message) => <InlineError message={message()} />}</Show>
       </div>
     </main>
   )

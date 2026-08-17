@@ -5,7 +5,6 @@ import type {
   FilePart,
   LspStatus,
   McpStatus,
-  Todo,
   Message,
   Part,
   PublicProvider,
@@ -362,7 +361,6 @@ export type TuiState = {
     count: () => number
     get: (sessionID: string) => Session | undefined
     diff: (sessionID: string) => ReadonlyArray<TuiSidebarFileItem>
-    todo: (sessionID: string) => ReadonlyArray<TuiSidebarTodoItem>
     messages: (sessionID: string) => ReadonlyArray<Message>
     context: (sessionID: string) => TuiSessionContextEstimate | undefined
     status: (sessionID: string) => SessionStatus | undefined
@@ -419,8 +417,6 @@ export type TuiSidebarMcpItem = {
 }
 
 export type TuiSidebarLspItem = Pick<LspStatus, "id" | "root" | "status">
-
-export type TuiSidebarTodoItem = Pick<Todo, "content" | "status">
 
 export type TuiSidebarFileItem = {
   file: string

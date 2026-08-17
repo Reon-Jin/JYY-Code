@@ -55,7 +55,11 @@ export function estimateFork(messages: readonly MessageV2.WithParts[], budget: F
       partCount++
       logicalBytes += jsonBytes(part)
       const attachments =
-        part.type === "file" ? [part] : part.type === "tool" && part.state.status === "completed" ? (part.state.attachments ?? []) : []
+        part.type === "file"
+          ? [part]
+          : part.type === "tool" && part.state.status === "completed"
+            ? (part.state.attachments ?? [])
+            : []
       for (const attachment of attachments) {
         const parsed = parseDataURL(attachment.url)
         const digest = dataDigest(attachment.url)

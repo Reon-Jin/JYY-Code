@@ -39,10 +39,12 @@ test("MCP SDK options reset idle timeout on progress but retain an absolute tota
 })
 
 test("MCP discovery uses a short budget without changing tool-call timeouts", () => {
-  expect(resolveMcpDiscoveryTimeouts({ idleMs: DEFAULT_MCP_IDLE_TIMEOUT, totalMs: DEFAULT_MCP_TOTAL_TIMEOUT })).toEqual({
-    idleMs: DEFAULT_MCP_DISCOVERY_TIMEOUT,
-    totalMs: DEFAULT_MCP_DISCOVERY_TIMEOUT,
-  })
+  expect(resolveMcpDiscoveryTimeouts({ idleMs: DEFAULT_MCP_IDLE_TIMEOUT, totalMs: DEFAULT_MCP_TOTAL_TIMEOUT })).toEqual(
+    {
+      idleMs: DEFAULT_MCP_DISCOVERY_TIMEOUT,
+      totalMs: DEFAULT_MCP_DISCOVERY_TIMEOUT,
+    },
+  )
   expect(resolveMcpDiscoveryTimeouts({ idleMs: 100, totalMs: 200 }, 1_000)).toEqual({ idleMs: 100, totalMs: 200 })
 })
 

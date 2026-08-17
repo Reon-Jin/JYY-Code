@@ -96,7 +96,7 @@ const processLayer = Layer.succeed(
               started_at: Date.now(),
               completed_at: Date.now(),
               exit: null,
-          },
+            },
       ),
     cancelOwner: () => Effect.succeed([]),
   }),

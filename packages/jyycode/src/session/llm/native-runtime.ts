@@ -98,7 +98,9 @@ export function stream(input: StreamInput): StreamResult {
   const stream =
     input.credential && input.resolveCredential
       ? Stream.unwrap(
-          Effect.promise(() => input.resolveCredential!(input.credential!)).pipe(Effect.map((apiKey) => makeStream(apiKey))),
+          Effect.promise(() => input.resolveCredential!(input.credential!)).pipe(
+            Effect.map((apiKey) => makeStream(apiKey)),
+          ),
         )
       : makeStream(current.apiKey)
 
