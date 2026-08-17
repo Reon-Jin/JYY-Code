@@ -1,9 +1,9 @@
-import { describe, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 import { Agent } from "../../src/agent/agent"
 import { Truncate } from "@/tool/truncate"
-import { WebFetchTool } from "../../src/tool/webfetch"
+import { WebFetchTool, resolveWebFetchTimeout } from "../../src/tool/webfetch"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { Tool } from "@/tool/tool"
 import { testEffect } from "../lib/effect"
@@ -156,6 +156,23 @@ describe("tool.webfetch", () => {
         }),
     ),
   )
+
+  describe("webfetch timeout resolution (milliseconds)", () => {
+    test("defaults to 30000ms when omitted", () => {
+      expect(resolveWebFetchTimeout()).toBe(30_000)
+    })
+
+    test("interprets the value as milliseconds, capped at 120000", () => {
+      expect(resolveWebFetchTimeout(3_000)).toBe(3_000)
+      expect(resolveWebFetchTimeout(150_000)).toBe(120_000)
+    })
+
+    test("rejects non-positive and non-finite values", () => {
+      for (const value of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+        expect(() => resolveWebFetchTimeout(value)).toThrow(/milliseconds/)
+      }
+    })
+  })
 
   it.instance("rejects non-positive and non-finite timeouts before asking for permission", () =>
     Effect.gen(function* () {

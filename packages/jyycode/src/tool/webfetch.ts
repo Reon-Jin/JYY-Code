@@ -8,8 +8,20 @@ import { isImageAttachment } from "@/util/media"
 import { ContentLimitError, ContentLimits, readBoundedBytes } from "./content-limits"
 import { assertUrlAllowedEffect, UrlPolicyError } from "./url-policy"
 
-const DEFAULT_TIMEOUT = 30 * 1000 // 30 seconds
-const MAX_TIMEOUT = 120 * 1000 // 2 minutes
+const DEFAULT_TIMEOUT = 30_000 // 30 seconds, in milliseconds
+const MAX_TIMEOUT = 120_000 // 2 minutes, in milliseconds
+
+/** Resolve the LLM-supplied timeout (milliseconds) to the effective value. */
+export function resolveWebFetchTimeout(timeout?: number): number {
+  const timeoutMs = timeout ?? DEFAULT_TIMEOUT
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Tool.InvalidArgumentsError({
+      tool: "webfetch",
+      detail: "timeout must be a finite positive number of milliseconds",
+    })
+  }
+  return Math.min(timeoutMs, MAX_TIMEOUT)
+}
 
 export const Parameters = Schema.Struct({
   url: Schema.String.annotate({ description: "The URL to fetch content from" }),
@@ -19,7 +31,9 @@ export const Parameters = Schema.Struct({
       default: "markdown",
     })
     .pipe(Schema.optional, Schema.withDecodingDefault(Effect.succeed("markdown" as const))),
-  timeout: Schema.optional(Schema.Number).annotate({ description: "Optional timeout in seconds (max 120)" }),
+  timeout: Schema.optional(Schema.Number).annotate({
+    description: "Optional timeout in milliseconds (default 30000, max 120000)",
+  }),
 })
 
 export const WebFetchTool = Tool.define(
@@ -42,13 +56,7 @@ export const WebFetchTool = Tool.define(
             throw new Error("URL must start with http:// or https://")
           }
 
-          const timeoutSeconds = params.timeout ?? DEFAULT_TIMEOUT / 1000
-          if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) {
-            throw new Tool.InvalidArgumentsError({
-              tool: "webfetch",
-              detail: "timeout must be a finite positive number of seconds",
-            })
-          }
+          const timeout = resolveWebFetchTimeout(params.timeout)
 
           yield* ctx.ask({
             permission: "webfetch",
@@ -60,8 +68,6 @@ export const WebFetchTool = Tool.define(
               timeout: params.timeout,
             },
           })
-
-          const timeout = Math.min(timeoutSeconds * 1000, MAX_TIMEOUT)
 
           // Build Accept header based on requested format with q parameters for fallbacks
           let acceptHeader = "*/*"
