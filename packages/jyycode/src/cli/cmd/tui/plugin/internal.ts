@@ -11,6 +11,7 @@ import WhichKey from "../feature-plugins/system/which-key"
 import DiffViewer from "../feature-plugins/system/diff-viewer"
 import McpManage from "../feature-plugins/system/mcp-manage"
 import SkillsManage from "../feature-plugins/system/skills-manage"
+import MemoryManage from "../feature-plugins/system/memory-manage"
 import type { TuiPlugin, TuiPluginModule } from "@jyycode-ai/plugin/tui"
 
 export type InternalTuiPlugin = Omit<TuiPluginModule, "id"> & {
@@ -34,5 +35,6 @@ export function internalTuiPlugins(): InternalTuiPlugin[] {
     DiffViewer,
     McpManage,
     SkillsManage,
+    MemoryManage,
   ]
 }
