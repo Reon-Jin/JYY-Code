@@ -66,7 +66,12 @@ export const ContextReadTool = Tool.define(
           }
           if (action === "turn") {
             if (params.turn === undefined) {
-              return yield* Effect.fail(new Error("turn is required for action=turn"))
+              return {
+                title: "Context read",
+                metadata: { action: "turn" },
+                output:
+                  'action=turn requires a 1-based turn number: pass {"action":"turn","turn":3}. Omit action to read the latest digest.',
+              }
             }
             const episode = yield* episodic.readEpisode({
               sessionID: ctx.sessionID,
@@ -86,7 +91,11 @@ export const ContextReadTool = Tool.define(
             const experienceMemory =
               capturedExperience ?? Option.getOrUndefined(yield* Effect.serviceOption(ExperienceMemory.Service))
             if (!experienceMemory) {
-              return yield* Effect.fail(new Error("Experience memory is unavailable in this runtime"))
+              return {
+                title: "Context read",
+                metadata: { action: "experience" },
+                output: "Experience memory is unavailable in this runtime.",
+              }
             }
             const query = params.query?.trim()
             const limit = Math.min(10, Math.max(1, params.limit ?? 5))
@@ -127,7 +136,13 @@ export const ContextReadTool = Tool.define(
             }
           }
           const query = params.query?.trim()
-          if (!query) return yield* Effect.fail(new Error("query is required for action=search"))
+          if (!query) {
+            return {
+              title: "Context search",
+              metadata: { action: "search" },
+              output: 'action=search requires a query: pass {"action":"search","query":"<keyword>"}.',
+            }
+          }
           const hits = yield* episodic.searchEpisodes({
             sessionID: ctx.sessionID,
             workspaceRoot: root,

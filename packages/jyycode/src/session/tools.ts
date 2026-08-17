@@ -458,6 +458,11 @@ export function requiredPlanTool(input: {
   workspaceRoot?: string
 }) {
   if (!input.root) return undefined
+  // Plain (non multi-agent) sessions have no plan protocol. Plan tools stay
+  // visible for convenience, but the runtime never forces a protocol action
+  // and never narrows the catalog, so an ordinary chat does not pay a
+  // mandatory Plan_read round trip on every turn.
+  if (!input.multiAgent) return undefined
   if ((input.blackboardUnread ?? 0) > 0) return "Blackboard"
   // Once the model has exhausted its Plan_create retry budget, forcing plan
   // protocol tools again only re-enters the create/read loop. Let it answer
@@ -953,12 +958,13 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   }
   for (const item of visibleRegistryDefs) {
     if (item.id === "tool_search") continue
-    // Subagents cannot call tool_search to expand a lazy tool, so expose the
-    // full context_read and MCP schemas/descriptions to them directly;
-    // otherwise the lazy hint points at a tool they are forbidden to use.
+    // context_read has a small schema and is prompted from the system prompt,
+    // so always expose it in full — a hidden schema makes models call it blind
+    // with missing turn/query arguments. Subagents also get full MCP schemas
+    // because they cannot call tool_search to expand a lazy tool.
     const lazy =
       shouldLazyLoadTool(item) &&
-      !(input.session.parentID !== undefined && (item.id === "context_read" || item.catalog?.category === "mcp"))
+      !(item.id === "context_read" || (input.session.parentID !== undefined && item.catalog?.category === "mcp"))
     addToolDef(item, { lazy })
   }
   for (const item of visibleMcpDefs) {

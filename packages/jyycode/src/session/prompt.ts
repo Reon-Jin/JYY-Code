@@ -1466,6 +1466,11 @@ export const layer = Layer.effect(
         let toolCallParseRetries = 0
         let lastToolCallParseRepairMessageID: string | undefined
         let lastUserID: string | undefined
+        // Background semantic-memory curator for the current user message. It
+        // runs concurrently with the first model call so the first token is
+        // not delayed by a second LLM round trip; it is joined before the
+        // after-turn curator so user/assistant writes stay ordered.
+        let stepBeginMemoryFiber: Fiber.Fiber<unknown, unknown> | undefined
 
         const resetTurnGuards = () => {
           // Compaction changes the effective conversation context. A repeated
@@ -1557,23 +1562,35 @@ export const layer = Layer.effect(
             memory &&
             (!lastAssistant || MessageV2.compareChronological(lastUser, lastAssistant) > 0)
           ) {
-            const updated = yield* memory
-              .updateStepBegin(sessionID, evaluateMemoryDecision, { userText: latestMemoryUserText })
-              .pipe(
-                Effect.catchCause((cause) =>
-                  slog
-                    .warn("persistent memory update failed after user message; continuing prompt", {
-                      cause: Cause.pretty(cause),
-                    })
-                    .pipe(Effect.as(undefined)),
+            // Run the semantic memory curator in the background so the first
+            // model token is not delayed by a second LLM round trip. The fiber
+            // is joined before the after-turn curator below, so the user-phase
+            // write always precedes the assistant-phase write.
+            stepBeginMemoryFiber = yield* Effect.forkIn(
+              memory
+                .updateStepBegin(sessionID, evaluateMemoryDecision, { userText: latestMemoryUserText })
+                .pipe(
+                  Effect.catchCause((cause) =>
+                    slog
+                      .warn("persistent memory update failed after user message; continuing prompt", {
+                        cause: Cause.pretty(cause),
+                      })
+                      .pipe(Effect.as(undefined)),
+                  ),
+                  Effect.andThen((updated) =>
+                    Effect.gen(function* () {
+                      if (!updated) return
+                      yield* slog.info("persistent memory updated after user message", { ...updated })
+                      if (updated.status === "updated" && experienceMemory) {
+                        yield* experienceMemory
+                          .upsertMany(sessionID, updated.experienceCandidates, session.directory)
+                          .pipe(Effect.ignore)
+                      }
+                    }),
+                  ),
                 ),
-              )
-            if (updated) yield* slog.info("persistent memory updated after user message", { ...updated })
-            if (updated?.status === "updated" && experienceMemory) {
-              yield* experienceMemory
-                .upsertMany(sessionID, updated.experienceCandidates, session.directory)
-                .pipe(Effect.ignore)
-            }
+              scope,
+            )
           }
 
           const lastAssistantMsg = msgs.findLast(
@@ -2036,9 +2053,7 @@ export const layer = Layer.effect(
               plan: planState?.ok ? (planState.plan ?? undefined) : undefined,
               workspaceRoot: session.directory,
             })
-            if (requiredPlanTool) {
-              SessionTools.retainRequiredPlanTools(tools, requiredPlanTool, session.multiAgent === true)
-            } else if (lastUser.format?.type === "json_schema") {
+            if (!requiredPlanTool && lastUser.format?.type === "json_schema") {
               tools["StructuredOutput"] = createStructuredOutputTool({
                 schema: lastUser.format.schema,
                 onSuccess(output) {
@@ -2049,9 +2064,10 @@ export const layer = Layer.effect(
             // The model exhausted its Plan_create retries. Only remove the
             // plan write tools when the plan really is missing: if a plan
             // exists, the model must still be able to continue it with
-            // Plan_update or Dispatch_dispatch instead of restarting.
+            // Plan_update or Dispatch_dispatch instead of restarting. Plain
+            // (non multi-agent) sessions keep their plan tools visible.
             const planMissing = planState?.ok === true ? planState.plan === null : true
-            if (planCreateExhausted && requiredPlanTool === undefined && planMissing) {
+            if (session.multiAgent === true && planCreateExhausted && requiredPlanTool === undefined && planMissing) {
               delete tools.Plan_create
               delete tools.Plan_update
               delete tools.Dispatch_dispatch
@@ -2552,6 +2568,13 @@ export const layer = Layer.effect(
         }
 
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
+        if (stepBeginMemoryFiber) {
+          // Let the background step-begin curator finish before the after-turn
+          // curator runs, so the user-phase write never races the
+          // assistant-phase write.
+          yield* Fiber.join(stepBeginMemoryFiber).pipe(Effect.ignore)
+          stepBeginMemoryFiber = undefined
+        }
         const result = yield* lastAssistant(sessionID)
         if (canUsePersistentMemory && memory) {
           const freshMessages = yield* sessions
