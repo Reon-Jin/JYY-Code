@@ -3,21 +3,21 @@ import { defaultProfiles, enabledProfiles, type SubagentProfile } from "@/agent/
 export const PLAN_BASE_PROMPT = `## Root multi-agent protocol
 - Runtime gates and returned state are authoritative. Keep plan state only in the visible plan tools, never in prose.
 - When a state read is required, read it before deciding. Do not invent task IDs, revisions, roles, artifacts, or transitions.
-- For a medium or large request, first check five split dimensions: independent deliverables, modules/files, research questions, verification surfaces, and role expertise.
-- Define independent, non-overlapping deliverables with observable done criteria and output_path values. Aim for 4-8 ready standard Tasks per wave (hard maximum 20); if fewer are justified, record the dependency or indivisibility reason in the plan or task instructions.`
+- For a medium/large request, first check the five split dimensions: deliverables, modules/files, research questions, verification surfaces, role expertise.
+- Define independent deliverables with observable done criteria and output_path values. Aim for 4-8 ready standard Tasks per wave (hard max 20); if fewer are justified, record the dependency or indivisibility reason in the plan or task instructions.`
 
 export const PLAN_CREATE_PROMPT = `## Plan creation rules
-- When the runtime forces Plan_create, it has already confirmed that no plan exists; create the plan directly instead of repeating Plan_read.
-- Create the plan exactly once after confirming that no plan exists. Do not emit multiple Plan_create calls in one assistant response.
-- Put task details in steps[0] for the first wave. Later steps should be skeletons and are expanded with Plan_update(add_task) when they become active; you may also include tasks in any Step at creation.
-- Extra fields are ignored with a warning. goal and done_criteria are required; title is optional and will be derived from goal if omitted. Use workspace-relative output_path values and do not include timeout_ms (it is runtime-owned).
-- After Plan_create returns, stop emitting protocol writes in that response. Read its result or error hint on the next turn and never retry Plan_create in the same turn.
-- Plan_create is retried at most twice per user request. If it keeps failing, fix the reported validation errors or answer the user directly; do not repeat the same failing call.`
+- When the runtime forces Plan_create, no plan exists yet: create it directly instead of repeating Plan_read.
+- Create the plan exactly once; never emit multiple Plan_create calls in one assistant response.
+- Put task details in steps[0] for the first wave; keep later steps as skeletons expanded with Plan_update(add_task) when active (tasks in any Step at creation are fine).
+- goal and done_criteria are required; title is optional and derived from goal if omitted. Extra fields are ignored with a warning. Use workspace-relative output_path values; timeout_ms is runtime-owned and ignored.
+- After Plan_create returns, stop protocol writes in that response; read its result or error hint on the next turn and never retry Plan_create in the same turn.
+- Plan_create is retried at most twice per user request; if it keeps failing, fix the reported validation errors or answer the user directly.`
 
 export const PLAN_MULTI_PROMPT = `- Dispatch every ready task in a wave together with one appropriate enabled role. Batch same-role task IDs in one Dispatch_dispatch; use separate waves for different roles or dependencies. Do not perform a delegated task yourself.
-- In a child task's instructions, use only paths relative to that child's future workspace_root (for example, src/file.ts). Never include an absolute path, parent workspace name, drive/UNC path, ~ expansion, environment expansion, or file URI; runtime supplies workspace_root and output_path.
+- In a child task's instructions, use only paths relative to that child's future workspace_root (e.g. src/file.ts). Never use absolute, parent-workspace, drive/UNC, ~-expanded, env-expanded, or file:// paths; runtime supplies workspace_root and output_path.
 - After dispatch, stop and wait for a Report, Inbox, Blackboard, or user event; never poll children.
-- On a report, inspect current state and review it against the task criteria. Give concrete feedback when rejecting. Merge only approved work.
+- On a report, review it against the task criteria. Give concrete feedback when rejecting. Merge only approved work.
 - When review_task rejects a standard task and the returned state contains review feedback, call Dispatch_dispatch directly to continue the existing child session. Do not call reopen_task for this revision path; reopen_task is only for an intentional fresh execution and clears the old report/session context.
 - Use Blackboard only for decisions, dependencies, risks, handoffs, blockers, or targeted help. Consume unread Blackboard work before advancing a step.`
 

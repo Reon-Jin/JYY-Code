@@ -2101,9 +2101,10 @@ it.instance("warns then cuts off repeated main-session tool turns", () =>
     }
 
     const result = yield* prompt.loop({ sessionID: session.id })
-    // Root sessions first consume one forced Plan.read turn, then get one
-    // stuck-loop warning reminder before the hard stop.
-    expect(yield* llm.calls).toBe(5)
+    // Plain sessions no longer consume a forced Plan.read preflight turn; the
+    // repeated identical tool turn gets one stuck-loop warning reminder before
+    // the hard stop.
+    expect(yield* llm.calls).toBe(4)
     expect(result.info.role).toBe("assistant")
     if (result.info.role === "assistant") expect(result.info.finish).toBe("stop")
 
