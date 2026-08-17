@@ -1,7 +1,12 @@
 import type { DesktopClient } from "../../data/sdk"
 import { keys } from "../../data/query-keys"
 import type { QueryClient } from "@tanstack/solid-query"
-import { isConversationSnapshot, isConversationSnapshotAhead, snapshotFromMessages } from "./conversation-state"
+import {
+  isConversationSnapshot,
+  isConversationSnapshotAhead,
+  replayPendingDeltas,
+  snapshotFromMessages,
+} from "./conversation-state"
 
 export type ConversationQueryInput = {
   client: Pick<DesktopClient, "session">
@@ -24,7 +29,12 @@ export async function loadConversation(input: ConversationQueryInput) {
   const previous = input.queryClient?.getQueryData(keys.messages(input.directory, input.sessionID))
   if (!isConversationSnapshot(previous)) return snapshot
   const messages = isConversationSnapshotAhead(previous, snapshot) ? previous.messages : snapshot.messages
-  return { ...snapshot, messages, processedEventIDs: previous.processedEventIDs }
+  return replayPendingDeltas({
+    ...snapshot,
+    messages,
+    processedEventIDs: previous.processedEventIDs,
+    pendingDeltas: previous.pendingDeltas ?? snapshot.pendingDeltas,
+  })
 }
 
 export function conversationQueryOptions(input: ConversationQueryInput) {

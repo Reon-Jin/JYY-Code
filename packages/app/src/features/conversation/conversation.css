@@ -276,6 +276,12 @@
   padding-left: 0;
 }
 
+.conversation-message__waiting {
+  display: block;
+  padding: var(--space-1) 0;
+  color: var(--color-text-muted);
+}
+
 .tool-call {
   display: grid;
   min-width: 0;

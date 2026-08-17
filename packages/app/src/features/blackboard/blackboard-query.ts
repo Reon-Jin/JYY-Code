@@ -58,7 +58,12 @@ export async function loadBlackboard(input: BlackboardQueryInput) {
 
 export function blackboardQueryOptions(input: BlackboardQueryInput) {
   return {
-    queryKey: keys.blackboard(input.directory, input.rootSessionID),
+    // Each step keeps its own cache entry: switching steps changes the key and
+    // lets the query library swap data atomically, so a slow/out-of-order
+    // response can never surface another step's notes under this board.
+    queryKey: input.stepID
+      ? keys.blackboardStep(input.directory, input.rootSessionID, input.stepID)
+      : keys.blackboard(input.directory, input.rootSessionID),
     queryFn: ({ signal }: { signal: AbortSignal }) => loadBlackboard({ ...input, signal }),
   } as const
 }
@@ -82,7 +87,8 @@ export function createBlackboardApi(input: BlackboardApiInput) {
   const invalidate = () =>
     input.queryClient.invalidateQueries({
       queryKey: keys.blackboard(input.directory, input.rootSessionID),
-      exact: true,
+      // The board is cached per step; invalidate every step variant too.
+      exact: false,
     })
 
   async function post(value: BlackboardPostInput, signal?: AbortSignal) {

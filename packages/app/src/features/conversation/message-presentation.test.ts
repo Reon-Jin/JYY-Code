@@ -131,4 +131,53 @@ describe("presentConversationMessages", () => {
 
     expect(result[0]?.groups).toEqual([{ type: "content", parts: [answer] }])
   })
+
+  it("renders an in-progress assistant message before any visible part arrives", () => {
+    const inProgress = { ...assistant, time: { created: 1 } }
+
+    const result = presentConversationMessages([{ info: inProgress, parts: [] }])
+
+    expect(result).toEqual([{ info: inProgress, groups: [], pendingEmpty: true }])
+  })
+
+  it("keeps a completed assistant message with no visible parts hidden", () => {
+    const completed = { ...assistant, time: { created: 1, completed: 2 } }
+
+    expect(presentConversationMessages([{ info: completed, parts: [] }])).toEqual([])
+  })
+
+  it("absorbs a new in-progress assistant step into the previous assistant entry", () => {
+    const first = { ...assistant, id: "msg_step_1", time: { created: 1, completed: 2 } }
+    const second = { ...assistant, id: "msg_step_2", time: { created: 3 } }
+    const reasoning: Part = {
+      id: "part_reasoning_step_1",
+      sessionID,
+      messageID: first.id,
+      type: "reasoning",
+      text: "thinking",
+      time: { start: 1, end: 2 },
+    }
+
+    const result = presentConversationMessages([
+      { info: first, parts: [reasoning] },
+      { info: second, parts: [] },
+    ])
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.pendingEmpty).toBeUndefined()
+    expect(result[0]?.groups).toEqual([{ type: "activity", parts: [reasoning] }])
+  })
+
+  it("does not duplicate pending entries for consecutive empty steps of the same agent", () => {
+    const first = { ...assistant, id: "msg_step_1", time: { created: 1 } }
+    const second = { ...assistant, id: "msg_step_2", time: { created: 3 } }
+
+    const result = presentConversationMessages([
+      { info: first, parts: [] },
+      { info: second, parts: [] },
+    ])
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.pendingEmpty).toBe(true)
+  })
 })

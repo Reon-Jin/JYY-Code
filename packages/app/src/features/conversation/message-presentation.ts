@@ -15,6 +15,13 @@ export function presentMessageText(input: {
 export type PresentedConversationMessage = {
   info: Message
   groups: PresentedMessageGroup[]
+  /**
+   * The assistant message exists (the turn has started) but has not produced
+   * any visible part yet. It is rendered immediately with a pending activity
+   * section so the "thinking & tool calling" indicator appears as soon as the
+   * Agent starts, instead of waiting for the first reasoning/tool token.
+   */
+  pendingEmpty?: boolean
 }
 
 export type PresentedMessageGroup = { type: "content"; parts: Part[] } | { type: "activity"; parts: Part[] }
@@ -58,15 +65,28 @@ export function presentConversationMessages(messages: readonly ConversationMessa
 
   for (const message of messages) {
     const parts = visibleParts(message)
-    if (parts.length === 0) continue
+    if (parts.length === 0) {
+      if (message.info.role === "assistant" && message.info.time.completed === undefined) {
+        const previous = presented.at(-1)
+        const mergesIntoPrevious =
+          previous?.info.role === "assistant" && sameAgent(previous.info, message.info)
+        // A new step of the same Agent may open before the previous step's
+        // entry has visible parts. Absorb it into the existing entry so the
+        // response keeps a single activity section; its parts merge in when
+        // they arrive.
+        if (!mergesIntoPrevious) presented.push({ info: message.info, groups: [], pendingEmpty: true })
+      }
+      continue
+    }
 
     const previous = presented.at(-1)
     const canMerge =
       message.info.role === "assistant" &&
       previous?.info.role === "assistant" &&
-      (previous.info.agent ?? previous.info.mode) === (message.info.agent ?? message.info.mode)
+      sameAgent(previous.info, message.info)
 
     if (canMerge) {
+      previous.pendingEmpty = false
       appendPresentedParts(previous.groups, parts)
       continue
     }
@@ -77,6 +97,11 @@ export function presentConversationMessages(messages: readonly ConversationMessa
   }
 
   return presented
+}
+
+function sameAgent(left: Message, right: Message) {
+  if (left.role !== "assistant" || right.role !== "assistant") return false
+  return (left.agent ?? left.mode) === (right.agent ?? right.mode)
 }
 
 function appendPresentedParts(groups: PresentedMessageGroup[], parts: readonly Part[]) {

@@ -86,6 +86,62 @@ function isDirectoryOrDescendant(candidate: string, root: string) {
   return normalizedCandidate.startsWith(`${normalizedRoot}${separator}`)
 }
 
+const LEGACY_MESSAGE_EVENT_TYPES = {
+  "message.updated": "message.updated",
+  "message.removed": "message.removed",
+  "message.part.updated": "message.part.updated",
+  "message.part.removed": "message.part.removed",
+  "session.next.message.updated": "message.updated",
+  "session.next.message.removed": "message.removed",
+  "session.next.message.part.updated": "message.part.updated",
+  "session.next.message.part.removed": "message.part.removed",
+} as const
+
+type SyncEnvelope = {
+  type: "sync"
+  id?: string
+  name?: string
+  data?: unknown
+  syncEvent?: { type?: string; name?: string; id?: string; data?: unknown }
+}
+
+function syncEventType(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const record = value as Record<string, unknown>
+  return typeof record.type === "string" ? record.type : typeof record.name === "string" ? record.name : undefined
+}
+
+/**
+ * The server publishes session progress both as legacy `message.*` payloads
+ * and as event-v2 `session.next.*` payloads (and the durable `sync`
+ * envelopes of the latter). Normalize all of them to the legacy shapes the
+ * rest of the client consumes, so live reasoning/tool/text updates are not
+ * dropped from the UI.
+ */
+export function normalizeEventPayload(payload: GlobalEvent["payload"]): GlobalEvent["payload"] {
+  if (payload.type === "sync") {
+    const envelope = payload as unknown as SyncEnvelope
+    const syncEvent = envelope.syncEvent
+    const rawType = syncEventType(syncEvent) ?? syncEventType(envelope)
+    if (rawType) {
+      const type = LEGACY_MESSAGE_EVENT_TYPES[rawType.replace(/\.\d+$/, "") as keyof typeof LEGACY_MESSAGE_EVENT_TYPES]
+      if (type) {
+        const data = syncEvent ? syncEvent.data : envelope.data
+        return {
+          id: syncEvent?.id ?? envelope.id ?? payload.id,
+          type,
+          properties: data ?? {},
+        } as GlobalEvent["payload"]
+      }
+    }
+    return payload
+  }
+
+  const type = LEGACY_MESSAGE_EVENT_TYPES[payload.type as keyof typeof LEGACY_MESSAGE_EVENT_TYPES]
+  if (!type) return payload
+  return { ...payload, type } as GlobalEvent["payload"]
+}
+
 function routedSessionID(payload: GlobalEvent["payload"]): string | undefined {
   switch (payload.type) {
     case "session.status":
@@ -121,7 +177,7 @@ export function routeEvent(
   event: GlobalEvent,
   activeSessionID?: string | undefined,
 ): CacheAction[] {
-  const payload = event.payload
+  const payload = normalizeEventPayload(event.payload)
   if (payload.type === "server.connected") {
     return [{ kind: "server.connected", eventID: payload.id }]
   }
@@ -452,7 +508,8 @@ export class EventBridge {
 
   #enqueue(event: GlobalEvent) {
     if (this.#abort.signal.aborted) return
-    const eventID = event.payload.id
+    const normalized = normalizeEventPayload(event.payload)
+    const eventID = normalized.id
     if (this.#seenEventIDs.has(eventID)) return
     this.#seenEventIDs.add(eventID)
     if (this.#seenEventIDs.size > 2_048) {
@@ -461,7 +518,7 @@ export class EventBridge {
     }
 
     if (event.payload.type === "server.connected") this.#reconnectAttempt = 0
-    this.#queue.push(event)
+    this.#queue.push({ ...event, payload: normalized })
     if (this.#frame !== undefined) return
     this.#frame = (this.#options.requestFrame ?? requestFrame)(() => {
       this.#frame = undefined
@@ -512,7 +569,7 @@ export class EventBridge {
         }
         if (isConversationAction(action)) {
           const current = conversations.get(action.sessionID) ?? []
-          current.push(event)
+          current.push({ ...event, payload: normalizeEventPayload(event.payload) })
           conversations.set(action.sessionID, current)
           continue
         }
@@ -551,7 +608,11 @@ export class EventBridge {
     if (this.#abort.signal.aborted) return
     for (const sessionID of changedPlans) this.#invalidate(keys.plan(this.#options.directory, sessionID))
     for (const rootSessionID of changedBlackboards) {
-      this.#invalidate(keys.blackboard(this.#options.directory, rootSessionID))
+      // The board is cached per step; invalidate every step variant as well.
+      void this.#options.queryClient.invalidateQueries({
+        queryKey: keys.blackboard(this.#options.directory, rootSessionID),
+        exact: false,
+      })
     }
     for (const sessionID of idleSessionIDs) {
       this.#invalidate(keys.messages(this.#options.directory, sessionID))

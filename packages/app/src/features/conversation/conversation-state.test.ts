@@ -133,6 +133,103 @@ describe("conversation state", () => {
     expect(next.messages).toEqual([])
   })
 
+  it("normalizes session.next.* message events into the snapshot", () => {
+    const next = applyConversationEvent(
+      emptyConversationSnapshot(sessionID),
+      event({
+        id: "evt_next_message",
+        type: "session.next.message.updated",
+        properties: { timestamp: 1, sessionID, info: message },
+      }),
+    )
+    const partUpdated = applyConversationEvent(
+      next,
+      event({
+        id: "evt_next_part",
+        type: "session.next.message.part.updated",
+        properties: { timestamp: 2, sessionID, part, time: 1 },
+      }),
+    )
+
+    expect(partUpdated.messages[0]?.info.id).toBe(message.id)
+    expect(partUpdated.messages[0]?.parts[0]?.id).toBe(part.id)
+  })
+
+  it("replays deltas buffered before the part exists once the part is created", () => {
+    let snapshot = emptyConversationSnapshot(sessionID)
+    snapshot = applyConversationEvent(
+      snapshot,
+      event({
+        id: "evt_m",
+        type: "message.updated",
+        properties: { sessionID, info: message },
+      }),
+    )
+    snapshot = applyConversationEvent(snapshot, delta("Hello", "evt_1"))
+    snapshot = applyConversationEvent(snapshot, delta(" world", "evt_2"))
+    expect(snapshot.needsRefetch).toBe(true)
+    expect(snapshot.messages[0]?.parts).toEqual([])
+
+    snapshot = applyConversationEvent(
+      snapshot,
+      event({
+        id: "evt_3",
+        type: "message.part.updated",
+        properties: { sessionID, part, time: 1 },
+      }),
+    )
+
+    expect(textOf(snapshot, part.id)).toBe("Hello world")
+  })
+
+  it("keeps token order when buffered and direct deltas interleave", () => {
+    let snapshot = emptyConversationSnapshot(sessionID)
+    snapshot = applyConversationEvent(
+      snapshot,
+      event({
+        id: "evt_m",
+        type: "message.updated",
+        properties: { sessionID, info: message },
+      }),
+    )
+    snapshot = applyConversationEvent(snapshot, delta("A", "evt_1"))
+    snapshot = applyConversationEvent(
+      snapshot,
+      event({
+        id: "evt_2",
+        type: "message.part.updated",
+        properties: { sessionID, part, time: 1 },
+      }),
+    )
+    snapshot = applyConversationEvent(snapshot, delta("B", "evt_3"))
+
+    expect(textOf(snapshot, part.id)).toBe("AB")
+  })
+
+  it("does not duplicate buffered deltas when the part update already carries the full text", () => {
+    let snapshot = emptyConversationSnapshot(sessionID)
+    snapshot = applyConversationEvent(
+      snapshot,
+      event({
+        id: "evt_m",
+        type: "message.updated",
+        properties: { sessionID, info: message },
+      }),
+    )
+    snapshot = applyConversationEvent(snapshot, delta("Hello", "evt_1"))
+    const full: TextPart = { ...part, text: "Hello" }
+    snapshot = applyConversationEvent(
+      snapshot,
+      event({
+        id: "evt_2",
+        type: "message.part.updated",
+        properties: { sessionID, part: full, time: 1 },
+      }),
+    )
+
+    expect(textOf(snapshot, part.id)).toBe("Hello")
+  })
+
   it("leaves the snapshot unchanged when a delta targets a non-string field", () => {
     const snapshot = snapshotFromMessages(sessionID, [{ info: message, parts: [part] }])
     const invalid = event({
@@ -217,6 +314,20 @@ describe("conversation state", () => {
     const snapshot = await loadConversation({ client: client as never, directory, sessionID, queryClient })
 
     expect(snapshot.messages[0]?.parts[0]).toMatchObject({ text: "streamed" })
+  })
+
+  it("replays buffered deltas when a refetch creates the part", async () => {
+    const directory = "C:\\work\\demo"
+    const queryClient = createDesktopQueryClient()
+    const current = applyConversationEvent(emptyConversationSnapshot(sessionID), delta("Head", "evt_head"))
+    queryClient.setQueryData(keys.messages(directory, sessionID), current)
+    const client = {
+      session: { messages: vi.fn(async () => ({ data: [{ info: message, parts: [part] }] })) },
+    }
+
+    const snapshot = await loadConversation({ client: client as never, directory, sessionID, queryClient })
+
+    expect(snapshot.messages[0]?.parts[0]).toMatchObject({ text: "Head" })
   })
 
   it("detects when a snapshot is ahead of a fetched response", () => {

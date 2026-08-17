@@ -37,7 +37,7 @@ describe("blackboard query boundary", () => {
     )
   })
 
-  it("uses the root board key and invalidates only that key after mutations", async () => {
+  it("invalidates the whole board prefix after mutations so every Step's cache refreshes", async () => {
     const post = vi.fn().mockResolvedValue({ data: { id: "bb_1" } })
     const read = vi.fn().mockResolvedValue({ data: true })
     const client = { session: { blackboard: vi.fn(), blackboard2: { post, read } } } as never
@@ -64,9 +64,9 @@ describe("blackboard query boundary", () => {
       { directory: "C:\\work", sessionID: "ses_root", stepID: "step_1", throughMessageID: "bb_1" },
       { throwOnError: true },
     )
-    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
-      ["project", "c:\\work", "blackboards", "ses_root"],
-      ["project", "c:\\work", "blackboards", "ses_root"],
+    expect(invalidate.mock.calls.map(([filters]) => [filters?.queryKey, filters?.exact])).toEqual([
+      [["project", "c:\\work", "blackboards", "ses_root"], false],
+      [["project", "c:\\work", "blackboards", "ses_root"], false],
     ])
   })
 
@@ -74,6 +74,26 @@ describe("blackboard query boundary", () => {
     expect(
       blackboardQueryOptions({ client: {} as never, directory: "C:\\work", rootSessionID: "ses_root" }).queryKey,
     ).toEqual(["project", "c:\\work", "blackboards", "ses_root"])
+  })
+
+  it("caches each Step under its own key so switching Steps cannot mix notes", () => {
+    const base = blackboardQueryOptions({ client: {} as never, directory: "C:\\work", rootSessionID: "ses_root" })
+    const first = blackboardQueryOptions({
+      client: {} as never,
+      directory: "C:\\work",
+      rootSessionID: "ses_root",
+      stepID: "step_1",
+    })
+    const second = blackboardQueryOptions({
+      client: {} as never,
+      directory: "C:\\work",
+      rootSessionID: "ses_root",
+      stepID: "step_2",
+    })
+    expect(first.queryKey).toEqual(["project", "c:\\work", "blackboards", "ses_root", "step", "step_1"])
+    expect(first.queryKey).not.toEqual(base.queryKey)
+    expect(first.queryKey).not.toEqual(second.queryKey)
+    expect(second.queryKey).toEqual(["project", "c:\\work", "blackboards", "ses_root", "step", "step_2"])
   })
 
   it("falls back to general purpose for snapshots from older servers", () => {

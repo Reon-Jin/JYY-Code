@@ -267,16 +267,29 @@ function PresentedMessageView(props: {
         <header>{props.message.info.agent}</header>
       </Show>
       <div class="conversation-message__parts">
-        <For each={groupKeys()}>
-          {(key) => (
-            <PresentedGroupView
-              group={groupsByKey().get(key)!}
-              messageRole={props.message.info.role}
-              messageAgent={agent()}
-              pendingActivityKeys={props.pendingActivityKeys}
-            />
-          )}
-        </For>
+        <Show when={!props.message.pendingEmpty}>
+          <For each={groupKeys()}>
+            {(key) => (
+              <PresentedGroupView
+                group={groupsByKey().get(key)!}
+                messageRole={props.message.info.role}
+                messageAgent={agent()}
+                pendingActivityKeys={props.pendingActivityKeys}
+              />
+            )}
+          </For>
+        </Show>
+        <Show when={props.message.pendingEmpty}>
+          <ActivityGroup
+            label={tr("conversation.thinking-and-tool-calling")}
+            count={0}
+            pending
+          >
+            <span class="conversation-message__waiting" role="status">
+              {tr("conversation.waiting-for-execution")}
+            </span>
+          </ActivityGroup>
+        </Show>
       </div>
     </article>
   )

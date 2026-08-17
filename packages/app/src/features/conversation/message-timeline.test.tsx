@@ -127,6 +127,95 @@ describe("MessageTimeline", () => {
     expect(screen.getByText("第二步")).toBeVisible()
   })
 
+  it("shows a pending activity section as soon as the in-progress assistant message exists", () => {
+    const inProgress = { ...assistantInfo, time: { created: 2 } }
+
+    render(() => (
+      <MessageTimeline
+        messages={[
+          conversation([{ id: "part_user", sessionID, messageID: info.id, type: "text", text: "用户消息" }]),
+          conversation([], inProgress),
+        ]}
+      />
+    ))
+
+    expect(screen.getByLabelText("Agent 回复")).toBeInTheDocument()
+    expect(screen.getByText("思考与工具调用")).toBeVisible()
+    expect(screen.queryByText("0 项")).not.toBeInTheDocument()
+  })
+
+  it("replaces the pending section with real activity once the first part arrives", () => {
+    const inProgress = { ...assistantInfo, time: { created: 2 } }
+
+    render(() => (
+      <MessageTimeline
+        messages={[
+          conversation([{ id: "part_user", sessionID, messageID: info.id, type: "text", text: "用户消息" }]),
+          conversation(
+            [
+              {
+                id: "part_reasoning",
+                sessionID,
+                messageID: inProgress.id,
+                type: "reasoning",
+                text: "正在推理",
+                time: { start: 2 },
+              },
+            ],
+            inProgress,
+          ),
+        ]}
+      />
+    ))
+
+    expect(screen.getByText("思考与工具调用")).toBeVisible()
+    expect(screen.getByText("1 项")).toBeVisible()
+    expect(screen.queryByText("等待执行")).not.toBeInTheDocument()
+  })
+
+  it("keeps a completed assistant message with no visible parts hidden", () => {
+    render(() => (
+      <MessageTimeline
+        messages={[
+          conversation([{ id: "part_user", sessionID, messageID: info.id, type: "text", text: "用户消息" }]),
+          conversation([], assistantInfo),
+        ]}
+      />
+    ))
+
+    expect(screen.queryByLabelText("Agent 回复")).not.toBeInTheDocument()
+    expect(screen.queryByText("思考与工具调用")).not.toBeInTheDocument()
+  })
+
+  it("keeps a single activity section across consecutive assistant steps", () => {
+    const first = { ...assistantInfo, id: "msg_step_1", time: { created: 2, completed: 3 } }
+    const second = { ...assistantInfo, id: "msg_step_2", time: { created: 4 } }
+
+    render(() => (
+      <MessageTimeline
+        messages={[
+          conversation([{ id: "part_user", sessionID, messageID: info.id, type: "text", text: "用户消息" }]),
+          conversation(
+            [
+              {
+                id: "part_reasoning_step_1",
+                sessionID,
+                messageID: first.id,
+                type: "reasoning",
+                text: "第一步思考",
+                time: { start: 2, end: 3 },
+              },
+            ],
+            first,
+          ),
+          conversation([], second),
+        ]}
+      />
+    ))
+
+    expect(screen.getAllByText("思考与工具调用")).toHaveLength(1)
+  })
+
   it("renders text updates as streaming deltas arrive", async () => {
     const initial = conversation([{ id: "part_stream", sessionID, messageID: info.id, type: "text", text: "Hel" }])
     const [messages, setMessages] = createSignal([initial])

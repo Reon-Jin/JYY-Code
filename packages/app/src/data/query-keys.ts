@@ -76,6 +76,8 @@ export const keys = {
   blackboardsScope: (directory: string) => [...project(directory), "blackboards"] as const,
   blackboard: (directory: string, rootSessionID: string) =>
     [...keys.blackboardsScope(directory), rootSessionID] as const,
+  blackboardStep: (directory: string, rootSessionID: string, stepID: string) =>
+    [...keys.blackboard(directory, rootSessionID), "step", stepID] as const,
   skills: (directory: string, agent = "") => [...project(directory), "skills", agent] as const,
   subagents: (directory: string) => [...project(directory), "subagents"] as const,
   subagentTools: (directory: string) => [...project(directory), "subagent-tools"] as const,

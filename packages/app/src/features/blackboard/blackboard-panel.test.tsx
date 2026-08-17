@@ -1,6 +1,7 @@
 import type { SessionBlackboardResponse } from "@jyycode-ai/sdk/v2/client"
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
+import { createSignal } from "solid-js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { DataProvider } from "../../data/context"
 import { createFakeJyycode } from "../../test/fake-jyycode"
@@ -150,6 +151,97 @@ describe("BlackboardPanel", () => {
     expect(await screen.findByText("Old step")).toBeVisible()
     expect(screen.getByText("历史 Step 只读")).toBeVisible()
     expect(screen.queryByRole("textbox", { name: "发送黑板消息…" })).not.toBeInTheDocument()
+  })
+
+  it("shows the clicked Step's notes even when the switch lands before the first load settles", async () => {
+    const user = userEvent.setup()
+    const backend = createFakeJyycode(directory)
+    const root = backend.addSession({ id: "ses_root", title: "Root" })
+    backend.setBlackboard(root.id, board(root.id))
+
+    // Hold every blackboard list request open so the switch happens while the
+    // first snapshot is still in flight, then mirror the real server: a list
+    // without a step filter only returns the current Step's notes.
+    const original = backend.fetch
+    const releases: Array<() => void> = []
+    backend.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      const url = new URL(request.url)
+      const isBlackboardList = url.pathname.endsWith("/blackboard") && request.method === "GET"
+      if (!isBlackboardList) return original(input, init)
+      return new Promise<Response>((resolve) => {
+        releases.push(() => {
+          void original(input, init).then(async (response) => {
+            if (url.searchParams.has("stepID")) {
+              resolve(response)
+              return
+            }
+            const body = (await response.json()) as SessionBlackboardResponse
+            body.messages = body.messages.filter((message) => message.stepID === body.currentStepID)
+            resolve(new Response(JSON.stringify(body), { status: response.status, headers: response.headers }))
+          })
+        })
+      })
+    }) as typeof globalThis.fetch
+    renderPanel(backend, root.id)
+
+    const step = await screen.findByRole("combobox", { name: "当前 Step" })
+    await user.selectOptions(step, "step_1")
+    for (const release of releases) release()
+
+    expect(await screen.findByText("Old step")).toBeVisible()
+    expect(screen.queryByText("Blocked")).not.toBeInTheDocument()
+    expect(
+      backend.requests.some(
+        (request) => request.path === `/session/${root.id}/blackboard` && request.query.stepID === "step_1",
+      ),
+    ).toBe(true)
+  })
+
+  it("keeps the selected Step visible in the dropdown when the option list is recreated", async () => {
+    const user = userEvent.setup()
+    const backend = createFakeJyycode(directory)
+    const root = backend.addSession({ id: "ses_root", title: "Root" })
+    backend.setBlackboard(root.id, board(root.id))
+    const [steps, setSteps] = createSignal([
+      { id: "step_1", title: "Discovery" },
+      { id: "step_2", title: "Implementation" },
+    ])
+    vi.stubGlobal("fetch", backend.fetch)
+    render(() => (
+      <DataProvider
+        bootstrap={{ baseUrl: "http://desktop.test", username: "jyycode", password: "secret" }}
+        generation={0}
+        directory={directory}
+      >
+        <BlackboardPanel
+          directory={directory}
+          rootSessionID={root.id}
+          postingEnabled={false}
+          steps={steps()}
+          taskLabels={{ task_a: "Investigate" }}
+        />
+      </DataProvider>
+    ))
+
+    const step = (await screen.findByRole("combobox", { name: "当前 Step" })) as HTMLSelectElement
+    await user.selectOptions(step, "step_1")
+    await user.selectOptions(step, "step_2")
+    expect(step.value).toBe("step_2")
+
+    // Re-create the Step options with new object identities, as happens when a
+    // plan refresh flows into the panel. A native select then resets its
+    // displayed value to the first option; the option-level selected binding
+    // must restore the user's choice.
+    setSteps([
+      { id: "step_1", title: "Discovery" },
+      { id: "step_2", title: "Implementation" },
+    ])
+    await waitFor(() => {
+      expect(step.options[1]?.selected).toBe(true)
+      expect(step.value).toBe("step_2")
+      expect(step.options[step.selectedIndex]?.textContent).toBe("Implementation")
+    })
   })
 
   it("keeps notes visible but read-only when posting is disabled in single-agent mode", async () => {

@@ -673,9 +673,9 @@ describe("event routing", () => {
     bridge.start()
     await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
     scheduled?.(0)
-    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: firstKey, exact: true }))
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: firstKey, exact: false }))
 
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: secondKey, exact: true })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: secondKey, exact: false })
     expect(
       invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(firstKey)),
     ).toHaveLength(1)
@@ -813,6 +813,138 @@ describe("event routing", () => {
 
     bridge.abort()
     releaseStream()
+  })
+
+  it("applies session.next.* message events to the live snapshot", async () => {
+    const queryClient = createDesktopQueryClient()
+    const livePart = { ...part, text: "" }
+    const stream = (async function* () {
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_next_1",
+          type: "session.next.message.updated",
+          properties: { timestamp: 1, sessionID: session.id, info: message },
+        },
+      } as GlobalEvent
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_next_2",
+          type: "session.next.message.part.updated",
+          properties: { timestamp: 2, sessionID: session.id, part: livePart, time: 1 },
+        },
+      } as GlobalEvent
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_next_3",
+          type: "message.part.delta",
+          properties: {
+            sessionID: session.id,
+            messageID: message.id,
+            partID: livePart.id,
+            field: "text",
+            delta: "streaming",
+          },
+        },
+      } as GlobalEvent
+      await new Promise(() => undefined)
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+    scheduled?.(0)
+    await Promise.resolve()
+
+    await vi.waitFor(() => {
+      const snapshot = queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", session.id))
+      expect(snapshot?.messages[0]?.parts[0]).toMatchObject({ text: "streaming" })
+    })
+
+    bridge.abort()
+  })
+
+  it("unwraps durable sync envelopes for message events", async () => {
+    const queryClient = createDesktopQueryClient()
+    const livePart = { ...part, text: "" }
+    const stream = (async function* () {
+      yield {
+        directory: "C:\\a",
+        payload: {
+          type: "sync",
+          syncEvent: {
+            type: "session.next.message.updated.1",
+            id: "evt_sync_1",
+            seq: 1,
+            aggregateID: "sessionID",
+            data: { sessionID: session.id, info: message },
+          },
+        },
+      } as GlobalEvent
+      yield {
+        directory: "C:\\a",
+        payload: {
+          type: "sync",
+          syncEvent: {
+            type: "session.next.message.part.updated.1",
+            id: "evt_sync_2",
+            seq: 2,
+            aggregateID: "sessionID",
+            data: { sessionID: session.id, part: livePart, time: 1 },
+          },
+        },
+      } as GlobalEvent
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_sync_3",
+          type: "message.part.delta",
+          properties: {
+            sessionID: session.id,
+            messageID: message.id,
+            partID: livePart.id,
+            field: "text",
+            delta: "synced",
+          },
+        },
+      } as GlobalEvent
+      await new Promise(() => undefined)
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+    scheduled?.(0)
+    await Promise.resolve()
+
+    await vi.waitFor(() => {
+      const snapshot = queryClient.getQueryData<ConversationSnapshot>(keys.messages("C:\\a", session.id))
+      expect(snapshot?.messages[0]?.parts[0]).toMatchObject({ text: "synced" })
+    })
+
+    bridge.abort()
   })
 
   it("refetches the conversation when a session goes idle to reconcile dropped stream events", async () => {

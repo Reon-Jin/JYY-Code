@@ -201,7 +201,15 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
   createEffect(
     on(
       () => [props.directory, props.rootSessionID] as const,
-      () => setLayout(loadLayout(layoutStorageKey(props.directory, props.rootSessionID))),
+      (next, previous) => {
+        if (previous === undefined) return
+        // A different session must not inherit the previous session's Step
+        // selection; the next snapshot re-seeds it from the server.
+        setSelectedStep(undefined)
+        setExpandedID(undefined)
+        setSelectedTask("all")
+        setLayout(loadLayout(layoutStorageKey(next[0], next[1])))
+      },
     ),
   )
 
@@ -328,21 +336,6 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
   )
 
   createEffect(() => {
-    const current = snapshot()?.currentStepID
-    if (!current || selectedStep() !== undefined) return
-    setSelectedStep(current)
-  })
-
-  createEffect(
-    on(
-      () => selectedStep(),
-      (next, previous) => {
-        if (next && previous !== undefined && next !== previous) void query.refetch()
-      },
-    ),
-  )
-
-  createEffect(() => {
     const messages = visibleMessages()
     const stepID = activeStep()
     const throughMessageID = latestVisibleMessageID(messages)
@@ -410,7 +403,13 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
               value={activeStep()}
               onChange={(event) => selectStep(event.currentTarget.value)}
             >
-              <For each={stepOptions()}>{(step) => <option value={step.id}>{step.title}</option>}</For>
+              <For each={stepOptions()}>
+                {(step) => (
+                  <option value={step.id} prop:selected={step.id === activeStep()}>
+                    {step.title}
+                  </option>
+                )}
+              </For>
             </select>
           </label>
           <label>
@@ -422,7 +421,11 @@ export function BlackboardPanel(props: BlackboardPanelProps) {
             >
               <option value="all">{tr("blackboard.all-tasks")}</option>
               <For each={tasks()}>
-                {(task) => <option value={task.id}>{taskLabels()[task.id] ?? task.title}</option>}
+                {(task) => (
+                  <option value={task.id} prop:selected={task.id === selectedTask()}>
+                    {taskLabels()[task.id] ?? task.title}
+                  </option>
+                )}
               </For>
             </select>
           </label>

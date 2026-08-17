@@ -63,9 +63,11 @@ export function ActivityGroup(
           <ThinkingOrb state="searching" size={20} theme="light" class="activity-group__spinner" aria-hidden="true" />
         </Show>
         <span>{props.label}</span>
-        <small>
-          {props.count} {tr("conversation.item")}
-        </small>
+        <Show when={props.count > 0}>
+          <small>
+            {props.count} {tr("conversation.item")}
+          </small>
+        </Show>
         <ChevronDown aria-hidden="true" data-expanded={expanded() ? "true" : undefined} />
       </button>
       <Show when={expanded()}>
