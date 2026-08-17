@@ -9,6 +9,7 @@ import PluginManager from "../feature-plugins/system/plugins"
 import Notifications from "../feature-plugins/system/notifications"
 import WhichKey from "../feature-plugins/system/which-key"
 import DiffViewer from "../feature-plugins/system/diff-viewer"
+import McpManage from "../feature-plugins/system/mcp-manage"
 import type { TuiPlugin, TuiPluginModule } from "@jyycode-ai/plugin/tui"
 
 export type InternalTuiPlugin = Omit<TuiPluginModule, "id"> & {
@@ -30,5 +31,6 @@ export function internalTuiPlugins(): InternalTuiPlugin[] {
     PluginManager,
     WhichKey,
     DiffViewer,
+    McpManage,
   ]
 }

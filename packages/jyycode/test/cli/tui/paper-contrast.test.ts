@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { paperLight, paperDark } from "@jyycode-ai/design-tokens"
+import type { RGBA } from "@opentui/core"
 import { DEFAULT_THEMES, resolveTheme } from "../../../src/cli/cmd/tui/context/theme"
 import { contrast, contrastHex } from "../../../src/cli/cmd/tui/util/contrast"
 
@@ -10,7 +11,7 @@ describe("paper 主题对比度", () => {
     test(`${mode}: 正文/注释/链接/语法高亮均满足可读对比度`, () => {
       const theme = resolveTheme(DEFAULT_THEMES.paper, mode)
       const bg = theme.background
-      const checks: Array<[string, number, number]> = [
+      const checks: Array<[string, RGBA, number]> = [
         ["text", theme.text, 4.5],
         ["textMuted", theme.textMuted, 3],
         ["primary", theme.primary, 3],
