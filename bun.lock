@@ -139,6 +139,15 @@
         "@types/semver": "catalog:",
       },
     },
+    "packages/design-tokens": {
+      "name": "@jyycode-ai/design-tokens",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/desktop": {
       "name": "@jyycode-ai/desktop",
       "version": "1.0.0",
@@ -947,6 +956,8 @@
     "@jyycode-ai/app": ["@jyycode-ai/app@workspace:packages/app"],
 
     "@jyycode-ai/core": ["@jyycode-ai/core@workspace:packages/core"],
+
+    "@jyycode-ai/design-tokens": ["@jyycode-ai/design-tokens@workspace:packages/design-tokens"],
 
     "@jyycode-ai/desktop": ["@jyycode-ai/desktop@workspace:packages/desktop"],
 
