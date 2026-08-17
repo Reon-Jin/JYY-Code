@@ -123,6 +123,39 @@ function succeededPlanCreatePart(part: MessageV2.Part) {
   }
 }
 
+const TOOL_CALL_PARSE_ERROR_PATTERNS = [
+  /failed to parse tool call/i,
+  /invalid tool call arguments/i,
+  /is not valid json/i,
+  /unexpected end of (?:json )?input/i,
+  /unterminated string/i,
+  /unexpected token/i,
+]
+
+const INVALID_TOOL_OUTPUT_PREFIX = "The arguments provided to the tool are invalid"
+
+/**
+ * Return the error text of a tool call whose JSON arguments could not be
+ * parsed (malformed or cut off by the output limit). This is a model-output
+ * problem, not a plan-validity problem: it gets a bounded repair retry before
+ * it is allowed to consume the Plan_create retry budget.
+ */
+function toolCallParseErrorText(part: MessageV2.Part): string | undefined {
+  if (part.type !== "tool" || part.metadata?.providerExecuted) return undefined
+  if (part.tool === "invalid") {
+    if (part.state.status !== "completed" || !("output" in part.state)) return undefined
+    const output = String(part.state.output)
+    // The `invalid` tool also receives unknown-tool calls; only treat the
+    // call as a JSON parse failure when the underlying detail mentions parsing.
+    if (!output.includes(INVALID_TOOL_OUTPUT_PREFIX)) return undefined
+    const detail = output.slice(INVALID_TOOL_OUTPUT_PREFIX.length)
+    return TOOL_CALL_PARSE_ERROR_PATTERNS.some((pattern) => pattern.test(detail)) ? output : undefined
+  }
+  if (part.state.status !== "error") return undefined
+  const message = "error" in part.state ? JSON.stringify(part.state.error) : ""
+  return TOOL_CALL_PARSE_ERROR_PATTERNS.some((pattern) => pattern.test(message)) ? message : undefined
+}
+
 export async function retryMemoryJsonOutput(
   generate: (prompt: string) => Promise<unknown>,
   prompt: string,
@@ -1421,11 +1454,17 @@ export const layer = Layer.effect(
         // after this many failed attempts the plan gate is released and the
         // model must answer or make progress with ordinary tools.
         const PLAN_CREATE_RETRY_MAX = 3
+        // Malformed tool-call JSON (including output-token truncation) is a
+        // model-output problem. Give it a bounded number of explicit repair
+        // turns before it is allowed to consume the Plan_create budget.
+        const TOOL_CALL_PARSE_RETRY_MAX = 2
         let loopWarningIssued = false
         let emptyResponseCount = 0
         let truncationCount = 0
         let planCreateFailures = 0
         let planCreateExhausted = false
+        let toolCallParseRetries = 0
+        let lastToolCallParseRepairMessageID: string | undefined
         let lastUserID: string | undefined
 
         const resetTurnGuards = () => {
@@ -1507,6 +1546,8 @@ export const layer = Layer.effect(
             step = 0
             planCreateFailures = 0
             planCreateExhausted = false
+            toolCallParseRetries = 0
+            lastToolCallParseRepairMessageID = undefined
             resetTurnGuards()
           }
           lastUserID = lastUser.id
@@ -1550,6 +1591,45 @@ export const layer = Layer.effect(
           const hasToolCalls =
             lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
 
+          // A tool call whose JSON arguments failed to parse (malformed, or
+          // cut off by the output limit) is a model-output problem, not a
+          // plan-validity problem. Give the model a bounded number of explicit
+          // repair turns before it is allowed to consume the Plan_create
+          // retry budget.
+          const parseErrorText = lastAssistantMsg?.parts
+            .map(toolCallParseErrorText)
+            .find((text): text is string => text !== undefined)
+          const awaitingToolCallParseRepair =
+            lastAssistantInfo !== undefined && lastAssistantInfo.id === lastToolCallParseRepairMessageID
+          if (
+            parseErrorText !== undefined &&
+            // Output-token truncation is already handled by the dedicated
+            // finish="length" recovery path; do not double-remind.
+            lastAssistantInfo?.finish !== "length" &&
+            !lastAssistantInfo?.error &&
+            !awaitingToolCallParseRepair &&
+            toolCallParseRetries < TOOL_CALL_PARSE_RETRY_MAX
+          ) {
+            toolCallParseRetries++
+            lastToolCallParseRepairMessageID = lastAssistantInfo?.id
+            previousToolTurnSignature = undefined
+            repeatedToolTurnCount = 0
+            yield* slog.warn("tool call arguments failed to parse; requesting a bounded repair", {
+              attempt: toolCallParseRetries,
+              message: lastAssistantInfo?.id,
+            })
+            yield* createSyntheticReminder({
+              lastUser,
+              kind: "tool_call_parse_retry",
+              lines: [
+                "Your previous tool call failed because its arguments were not valid JSON or were cut off before completion.",
+                `Error: ${parseErrorText.slice(0, 400)}`,
+                "Re-emit ONLY the tool call with strictly valid JSON arguments, complete and properly escaped. If the payload was cut off by the output limit, make it more compact (shorter titles/goals/done_criteria) and expand details later with Plan_update; do not repeat an oversized call unchanged.",
+              ],
+            })
+            continue
+          }
+
           // Count consecutive Plan_create failures for this user turn. The
           // recovery gate alternates create-fail -> Plan_read -> create, so
           // consecutive turns never repeat and the stuck-turn guard cannot
@@ -1565,7 +1645,7 @@ export const layer = Layer.effect(
             planCreateFailures = 0
             planCreateExhausted = false
           }
-          if (planCreateFailed && !planCreateExhausted) {
+          if (planCreateFailed && !planCreateExhausted && !awaitingToolCallParseRepair) {
             planCreateFailures++
             if (planCreateFailures >= PLAN_CREATE_RETRY_MAX) {
               planCreateExhausted = true
@@ -1948,7 +2028,10 @@ export const layer = Layer.effect(
               step,
               blackboardUnread,
               planExists: planState?.ok ? planState.plan !== null : undefined,
-              planCreateFailed,
+              // While the model is re-emitting the tool call after a JSON
+              // repair reminder, do not force a recovery read: the create is
+              // still pending and should be retried directly.
+              planCreateFailed: awaitingToolCallParseRepair ? false : planCreateFailed,
               planCreateExhausted,
               plan: planState?.ok ? (planState.plan ?? undefined) : undefined,
               workspaceRoot: session.directory,

@@ -610,8 +610,8 @@ describe("model-facing plan tool names", () => {
     )
     expect((PLAN_CREATE_INPUT_SCHEMA.properties?.steps as { description?: string }).description).toContain("4-8")
     expect(createSteps.items).toMatchObject({
-      required: ["title", "goal", "done_criteria"],
-      properties: { tasks: { items: { required: ["title", "goal", "done_criteria"] } } },
+      required: ["goal", "done_criteria"],
+      properties: { tasks: { items: { required: ["goal", "done_criteria"] } } },
     })
     const taskProperties = (
       createSteps.items as { properties: { tasks: { description?: string; items: { properties: object } } } }

@@ -10,7 +10,7 @@ export const PLAN_CREATE_PROMPT = `## Plan creation rules
 - When the runtime forces Plan_create, it has already confirmed that no plan exists; create the plan directly instead of repeating Plan_read.
 - Create the plan exactly once after confirming that no plan exists. Do not emit multiple Plan_create calls in one assistant response.
 - Put task details in steps[0] for the first wave. Later steps should be skeletons and are expanded with Plan_update(add_task) when they become active; you may also include tasks in any Step at creation.
-- Extra fields are ignored with a warning. The required fields are title, goal and done_criteria; use workspace-relative output_path values and do not include timeout_ms (it is runtime-owned).
+- Extra fields are ignored with a warning. goal and done_criteria are required; title is optional and will be derived from goal if omitted. Use workspace-relative output_path values and do not include timeout_ms (it is runtime-owned).
 - After Plan_create returns, stop emitting protocol writes in that response. Read its result or error hint on the next turn and never retry Plan_create in the same turn.
 - Plan_create is retried at most twice per user request. If it keeps failing, fix the reported validation errors or answer the user directly; do not repeat the same failing call.`
 

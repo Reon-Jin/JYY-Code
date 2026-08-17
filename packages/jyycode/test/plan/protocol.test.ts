@@ -642,6 +642,37 @@ describe("file-backed plan protocol", () => {
     expect(read.plan?.title).toBe("重构用户模块")
   })
 
+  it("derives missing titles from goals instead of rejecting the plan", async () => {
+    const root = workspace()
+    const protocol = new PlanProtocol({ store: new PlanStore() })
+    const result = await protocol.create(context(root), {
+      goal: "完成中美 AI 现状对比",
+      steps: [
+        {
+          goal: "搜集资料",
+          done_criteria: "资料齐全",
+          tasks: [{ goal: "检索公开数据", done_criteria: "数据存在", output_path: "research.md" }],
+        },
+        { goal: "制作 PPT", done_criteria: "三页 PPT 已生成" },
+      ],
+    })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        "title 缺失或为空，已自动补充：完成中美 AI 现状对比",
+        "steps[0].title 缺失或为空，已自动补充：搜集资料",
+        "steps[0].tasks[0].title 缺失或为空，已自动补充：检索公开数据",
+        "steps[1].title 缺失或为空，已自动补充：制作 PPT",
+      ]),
+    )
+    const read = await protocol.read(context(root))
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.plan?.title).toBe("完成中美 AI 现状对比")
+    expect(read.plan?.steps[0]?.tasks[0]?.title).toBe("检索公开数据")
+  })
+
   it("ignores caller-supplied child execution limits in create and rejects them in update inputs", async () => {
     const root = workspace()
     const protocol = new PlanProtocol({ store: new PlanStore() })

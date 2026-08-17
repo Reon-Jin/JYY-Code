@@ -387,6 +387,36 @@ function asString(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
 }
 
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    const text = asString(value)
+    if (text) return text
+  }
+  return ""
+}
+
+function truncateText(value: string, max = 60) {
+  if (value.length <= max) return value
+  return `${value.slice(0, max - 1)}…`
+}
+
+/**
+ * Accept a required text field leniently. Models often omit redundant titles
+ * or use a close alias (name, heading); deriving a deterministic fallback here
+ * is more robust than rejecting the whole plan and forcing a retry loop.
+ */
+function requiredTextOrFallback(
+  value: unknown,
+  fallback: string,
+  field: string,
+  warnings: string[],
+) {
+  const text = asString(value)
+  if (text) return text
+  warnings.push(`${field} 缺失或为空，已自动补充：${fallback}`)
+  return fallback
+}
+
 function nowIso(now: () => number) {
   return new Date(now()).toISOString()
 }
@@ -534,12 +564,31 @@ function assertOnly(value: Record<string, unknown>, allowed: readonly string[], 
   if (extra) inputError(`${prefix}.${extra} 不允许出现`, "删除未定义字段后重试")
 }
 
-const CREATE_ALLOWED_FIELDS = new Set(["title", "goal", "steps"])
-const CREATE_STEP_ALLOWED_FIELDS = new Set(["title", "goal", "done_criteria", "tasks"])
+const CREATE_ALLOWED_FIELDS = new Set(["title", "name", "heading", "goal", "objective", "purpose", "steps"])
+const CREATE_STEP_ALLOWED_FIELDS = new Set([
+  "title",
+  "name",
+  "heading",
+  "goal",
+  "objective",
+  "purpose",
+  "done_criteria",
+  "done",
+  "acceptance_criteria",
+  "criteria",
+  "tasks",
+])
 const CREATE_TASK_ALLOWED_FIELDS = new Set([
   "title",
+  "name",
+  "heading",
   "goal",
+  "objective",
+  "purpose",
   "done_criteria",
+  "done",
+  "acceptance_criteria",
+  "criteria",
   "instructions",
   "output_path",
   "no_progress_steps",
@@ -561,8 +610,18 @@ function normalizeCreateInput(input: unknown, workspaceRoot?: string): { value: 
   for (const key of Object.keys(value)) {
     if (!CREATE_ALLOWED_FIELDS.has(key)) warnings.push(`忽略未识别字段 create.${key}`)
   }
-  const title = requiredText(value.title, "title")
-  const goal = requiredText(value.goal, "goal")
+  const title = requiredTextOrFallback(
+    firstText(value.title, value.name, value.heading),
+    truncateText(firstText(value.goal, value.objective, value.purpose)) || "任务计划",
+    "title",
+    warnings,
+  )
+  const goal = requiredTextOrFallback(
+    firstText(value.goal, value.objective, value.purpose),
+    title,
+    "goal",
+    warnings,
+  )
   if (!Array.isArray(value.steps) || value.steps.length < 2) inputError("steps 至少需要包含 2 个阶段")
   const steps = (value.steps as unknown[]).map((rawStep, index) => {
     if (!rawStep || typeof rawStep !== "object" || Array.isArray(rawStep)) inputError(`steps[${index}] 必须是对象`)
@@ -570,9 +629,24 @@ function normalizeCreateInput(input: unknown, workspaceRoot?: string): { value: 
     for (const key of Object.keys(step)) {
       if (!CREATE_STEP_ALLOWED_FIELDS.has(key)) warnings.push(`忽略未识别字段 steps[${index}].${key}`)
     }
-    const stepTitle = requiredText(step.title, `steps[${index}].title`)
-    const stepGoal = requiredText(step.goal, `steps[${index}].goal`)
-    const stepDoneCriteria = requiredText(step.done_criteria, `steps[${index}].done_criteria`)
+    const stepTitle = requiredTextOrFallback(
+      firstText(step.title, step.name, step.heading),
+      truncateText(firstText(step.goal, step.objective, step.purpose, step.done_criteria)) || `步骤 ${index + 1}`,
+      `steps[${index}].title`,
+      warnings,
+    )
+    const stepGoal = requiredTextOrFallback(
+      firstText(step.goal, step.objective, step.purpose),
+      stepTitle,
+      `steps[${index}].goal`,
+      warnings,
+    )
+    const stepDoneCriteria = requiredTextOrFallback(
+      firstText(step.done_criteria, step.done, step.acceptance_criteria, step.criteria),
+      "该阶段目标达成并通过验收",
+      `steps[${index}].done_criteria`,
+      warnings,
+    )
     if (step.tasks !== undefined && !Array.isArray(step.tasks)) inputError(`steps[${index}].tasks 必须是数组`)
     const tasks = (Array.isArray(step.tasks) ? step.tasks : []).map((rawTask, taskIndex) => {
       if (!rawTask || typeof rawTask !== "object" || Array.isArray(rawTask))
@@ -583,9 +657,24 @@ function normalizeCreateInput(input: unknown, workspaceRoot?: string): { value: 
           warnings.push(`忽略未识别字段 steps[${index}].tasks[${taskIndex}].${key}`)
         }
       }
-      const taskTitle = requiredText(task.title, `steps[${index}].tasks[${taskIndex}].title`)
-      const taskGoal = requiredText(task.goal, `steps[${index}].tasks[${taskIndex}].goal`)
-      const taskDoneCriteria = requiredText(task.done_criteria, `steps[${index}].tasks[${taskIndex}].done_criteria`)
+      const taskTitle = requiredTextOrFallback(
+        firstText(task.title, task.name, task.heading),
+        truncateText(firstText(task.goal, task.objective, task.purpose, task.done_criteria)) || `任务 ${taskIndex + 1}`,
+        `steps[${index}].tasks[${taskIndex}].title`,
+        warnings,
+      )
+      const taskGoal = requiredTextOrFallback(
+        firstText(task.goal, task.objective, task.purpose),
+        taskTitle,
+        `steps[${index}].tasks[${taskIndex}].goal`,
+        warnings,
+      )
+      const taskDoneCriteria = requiredTextOrFallback(
+        firstText(task.done_criteria, task.done, task.acceptance_criteria, task.criteria),
+        "产出物存在且通过验收",
+        `steps[${index}].tasks[${taskIndex}].done_criteria`,
+        warnings,
+      )
       const mode: "standard" | "candidate" | undefined =
         task.mode === "standard" || task.mode === "candidate" ? task.mode : undefined
       if (task.mode !== undefined && mode === undefined)

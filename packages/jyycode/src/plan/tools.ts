@@ -104,9 +104,12 @@ const DECOMPOSITION_GUIDANCE =
 const taskInputSchema: JSONSchema7 = {
   type: "object",
   additionalProperties: false,
-  required: ["title", "goal", "done_criteria"],
+  required: ["goal", "done_criteria"],
   properties: {
-    title: nonEmptyStringSchema,
+    title: {
+      ...nonEmptyStringSchema,
+      description: "可选；省略时从 goal 自动生成。",
+    },
     goal: nonEmptyStringSchema,
     done_criteria: nonEmptyStringSchema,
     instructions: {
@@ -127,9 +130,12 @@ const taskInputSchema: JSONSchema7 = {
 const stepInputSchema: JSONSchema7 = {
   type: "object",
   additionalProperties: false,
-  required: ["title", "goal", "done_criteria"],
+  required: ["goal", "done_criteria"],
   properties: {
-    title: nonEmptyStringSchema,
+    title: {
+      ...nonEmptyStringSchema,
+      description: "可选；省略时从 goal 自动生成。",
+    },
     goal: nonEmptyStringSchema,
     done_criteria: nonEmptyStringSchema,
     tasks: {
@@ -144,16 +150,21 @@ const stepInputSchema: JSONSchema7 = {
 export const PLAN_CREATE_INPUT_SCHEMA: JSONSchema7 = {
   type: "object",
   additionalProperties: false,
-  required: ["title", "goal", "steps"],
+  required: ["goal", "steps"],
   properties: {
-    title: { type: "string", minLength: 1, maxLength: 60 },
+    title: {
+      type: "string",
+      minLength: 1,
+      maxLength: 60,
+      description: "可选；省略时从 goal 自动生成。",
+    },
     goal: nonEmptyStringSchema,
     steps: {
       type: "array",
       minItems: 2,
       items: stepInputSchema,
       description:
-        `Call Plan_create exactly once when the runtime confirms that no plan exists. Required fields are title, goal and done_criteria; extra fields are ignored and reported as warnings. Valid shape: {title, goal, steps:[{title, goal, done_criteria, tasks:[{title, goal, done_criteria, output_path}]}, {title, goal, done_criteria}]}. output_path must resolve inside the workspace (use relative paths); timeout_ms is runtime-owned and ignored. ${DECOMPOSITION_GUIDANCE} Later active Steps may be skeletons expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group, or carry their own Task details from creation. After this call returns, stop issuing protocol writes until the next model turn. If Plan_create fails, fix the reported validation errors and retry at most twice; never call it twice in the same response.`,
+        `Call Plan_create exactly once when the runtime confirms that no plan exists. goal and done_criteria are required; title is optional and will be derived from goal when omitted. Extra fields are ignored and reported as warnings. Valid shape: {goal, steps:[{goal, done_criteria, tasks:[{goal, done_criteria, output_path}]}, {goal, done_criteria}]}. output_path must resolve inside the workspace (use relative paths); timeout_ms is runtime-owned and ignored. ${DECOMPOSITION_GUIDANCE} Later active Steps may be skeletons expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group, or carry their own Task details from creation. After this call returns, stop issuing protocol writes until the next model turn. If Plan_create fails, fix the reported validation errors and retry at most twice; never call it twice in the same response.`,
     },
   },
 }
@@ -1153,7 +1164,7 @@ export const PlanCreateTool = Tool.define(
     const bus = yield* Bus.Service
     return {
       description: DECOMPOSITION_GUIDANCE + " Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; do not include timeout_ms. " +
-        "创建当前主 session 的 plan.json；每个 Step 都可以带任务明细（后续阶段保持骨架、之后用 Plan_update 展开也可以）。合法结构模板：{title, goal, steps:[{title, goal, done_criteria, tasks:[{title, goal, done_criteria, output_path}]}, {title, goal, done_criteria}]}；必填 title/goal/done_criteria，额外字段会被忽略并在返回值 warnings 中说明，output_path 使用工作区内相对路径。按可并行性检查拆分，默认放 4-8 个可并行的 standard Task（上限 20 个）；能拆就拆，优先多派子 Agent。需要候选比较时，在 Plan_create 或后续 clean active Step 的一次 Plan_update 中完整放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
+        "创建当前主 session 的 plan.json；每个 Step 都可以带任务明细（后续阶段保持骨架、之后用 Plan_update 展开也可以）。合法结构模板：{goal, steps:[{goal, done_criteria, tasks:[{goal, done_criteria, output_path}]}, {goal, done_criteria}]}；goal/done_criteria 必填，title 可省略（省略时从 goal 自动生成），额外字段会被忽略并在返回值 warnings 中说明，output_path 使用工作区内相对路径。按可并行性检查拆分，默认放 4-8 个可并行的 standard Task（上限 20 个）；能拆就拆，优先多派子 Agent。需要候选比较时，在 Plan_create 或后续 clean active Step 的一次 Plan_update 中完整放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
       parameters: AnyObject,
       jsonSchema: PLAN_CREATE_INPUT_SCHEMA,
       catalog: {

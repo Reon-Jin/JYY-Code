@@ -31,7 +31,11 @@ export const Profile = Schema.Struct({
   steps: Schema.optional(PositiveInt),
   timeout_ms: Schema.optional(PositiveInt),
   no_progress_steps: Schema.optional(PositiveInt),
-  /** Omitted means all currently available non-system tools; [] means no user-selectable tools. */
+  /**
+   * Omitted means the role's built-in default toolset, which always includes
+   * the core execution surface (write/edit/bash/process) so a delegated task
+   * can produce its artifact; [] means no user-selectable tools.
+   */
   tools: Schema.optional(Schema.mutable(Schema.Array(TOOL_ID))),
   enabled: Schema.Boolean,
 }).annotate({ identifier: "SubagentProfile" })

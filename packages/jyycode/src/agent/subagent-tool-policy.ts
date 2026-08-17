@@ -6,6 +6,12 @@
  * orchestration, and memory tools are controlled by the runtime instead of
  * being user-configurable role permissions. Plugin and MCP IDs are accepted
  * as dynamic user-configurable tools after this built-in set.
+ *
+ * Role defaults always include the core execution surface (write, edit, bash,
+ * process): every dispatched task must produce its artifact at output_path
+ * before Report, so a read-only child can never complete a task. Least
+ * privilege is applied to protocol, memory, and orchestration tools, not to
+ * basic file writing and shell execution.
  */
 export const SUBAGENT_SELECTABLE_TOOL_IDS = [
   "read",
@@ -24,11 +30,23 @@ export const SUBAGENT_SELECTABLE_TOOL_ID_SET = new Set<string>(SUBAGENT_SELECTAB
 /** Internal marker used to admit only MCP tools with a positive read-only hint. */
 export const SUBAGENT_READ_ONLY_MCP_TOOL_ID = "__subagent_read_only_mcp__"
 
-const SAFE_DEFAULT_TOOL_IDS = ["read", "glob", "grep", "context_read"] as const
+const SAFE_DEFAULT_TOOL_IDS = ["read", "glob", "grep", "context_read", "write", "edit", "bash", "process"] as const
 const ROLE_DEFAULT_TOOL_IDS: Record<string, readonly string[]> = {
-  researcher: ["read", "glob", "grep", "websearch", "webfetch", "context_read", SUBAGENT_READ_ONLY_MCP_TOOL_ID],
-  planner: ["read", "glob", "grep", "context_read"],
-  implementer: ["read", "glob", "grep", "write", "edit", "bash"],
+  researcher: [
+    "read",
+    "glob",
+    "grep",
+    "websearch",
+    "webfetch",
+    "context_read",
+    "write",
+    "edit",
+    "bash",
+    "process",
+    SUBAGENT_READ_ONLY_MCP_TOOL_ID,
+  ],
+  planner: ["read", "glob", "grep", "context_read", "write", "edit", "bash", "process"],
+  implementer: ["read", "glob", "grep", "write", "edit", "bash", "process"],
   reviewer: ["read", "glob", "grep", "bash", "context_read"],
 }
 

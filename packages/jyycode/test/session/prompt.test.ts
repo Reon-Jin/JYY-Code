@@ -922,10 +922,9 @@ it.instance("stops the Plan_create/Plan_read retry loop after bounded failed att
       parts: [{ type: "text", text: "create a plan for the requested work" }],
     })
 
-    // The model systematically violates a required field (missing
-    // done_criteria on a Step), so every Plan_create attempt fails the same
-    // way. This used to alternate create-fail -> Plan_read forever because
-    // the recovery gate never bounded the retries.
+    // The model systematically provides fewer than two Steps, which remains a
+    // hard validation failure. This used to alternate create-fail ->
+    // Plan_read forever because the recovery gate never bounded the retries.
     const invalidCreate = {
       title: "Invalid plan",
       goal: "cannot be created",
@@ -942,11 +941,6 @@ it.instance("stops the Plan_create/Plan_read retry loop after bounded failed att
               output_path: "result.md",
             },
           ],
-        },
-        {
-          title: "Review",
-          goal: "review the result",
-          done_criteria: "",
         },
       ],
     }
@@ -1021,6 +1015,78 @@ test("counts only genuine validation failures toward the Plan_create retry budge
     ),
   ).toBe(true)
 })
+
+it.instance("auto-repairs malformed Plan_create JSON without burning the retry budget", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Plan create parse repair",
+      multiAgent: true,
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "create a plan" }],
+    })
+
+    const validCreate = {
+      title: "Repaired plan",
+      goal: "finish the work",
+      steps: [
+        {
+          title: "Work",
+          goal: "do the work",
+          done_criteria: "the work is complete",
+          tasks: [
+            {
+              title: "Task",
+              goal: "produce the result",
+              done_criteria: "result.md exists",
+              output_path: "result.md",
+            },
+          ],
+        },
+        { title: "Review", goal: "review the result", done_criteria: "the result is accepted" },
+      ],
+    }
+
+    // The model emits a Plan_create whose JSON arguments are cut off mid-way.
+    // On the gated Plan_create turn there is no `invalid` repair target, so
+    // the SDK surfaces a tool error; the runtime must repair it explicitly.
+    yield* llm.push(reply().pendingTool("Plan_create", validCreate).finish("tool_calls"))
+    yield* llm.tool("Plan_create", validCreate)
+    yield* llm.text("Plan created after repair.")
+
+    yield* prompt.loop({ sessionID: chat.id })
+
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const reminders = messages
+      .flatMap((message) => message.parts)
+      .filter(
+        (part): part is MessageV2.TextPart =>
+          part.type === "text" && part.synthetic === true && part.metadata?.kind === "tool_call_parse_retry",
+      )
+    expect(reminders).toHaveLength(1)
+    const inputs = yield* llm.inputs
+    // malformed call, repaired create, final answer; no recovery read between.
+    expect(inputs).toHaveLength(3)
+    const plan = JSON.parse(
+      yield* Effect.promise(() => Bun.file(path.join(chat.directory, ".jyycode", "plan", chat.id, "plan.json")).text()),
+    )
+    expect(plan.title).toBe("Repaired plan")
+    const exhausted = messages
+      .flatMap((message) => message.parts)
+      .filter(
+        (part): part is MessageV2.TextPart =>
+          part.type === "text" && part.synthetic === true && part.metadata?.kind === "plan_create_exhausted",
+      )
+    expect(exhausted).toHaveLength(0)
+  }),
+)
 
 it.instance("accepts a plan with extra fields and later-step tasks on the first attempt", () =>
   Effect.gen(function* () {
@@ -1205,12 +1271,8 @@ it.instance("skips duplicate Plan_create calls after the first attempt in one re
     }
     const invalidCreate = {
       ...validCreate,
-      steps: [
-        validCreate.steps[0],
-        // Missing a required field: the protocol still hard-rejects this.
-        { ...validCreate.steps[1], done_criteria: "" },
-        validCreate.steps[2],
-      ],
+      // Fewer than two Steps remains a hard validation failure.
+      steps: [validCreate.steps[0]],
     }
 
     yield* llm.tool("Plan_read", {})
@@ -1258,8 +1320,8 @@ it.instance("requires Plan_read before retrying a failed Plan_create", () =>
     })
 
     yield* llm.tool("Plan_read", {})
-    // timeout_ms is now ignored with a warning, so violate a required field
-    // instead to keep this a hard validation failure.
+    // timeout_ms and missing title/done_criteria are now lenient, so provide
+    // fewer than two Steps to keep this a hard validation failure.
     yield* llm.tool("Plan_create", {
       title: "Invalid plan",
       goal: "this must be repaired",
@@ -1272,12 +1334,11 @@ it.instance("requires Plan_read before retrying a failed Plan_create", () =>
             {
               title: "Task",
               goal: "produce the result",
-              done_criteria: "",
+              done_criteria: "result.md exists",
               output_path: "result.md",
             },
           ],
         },
-        { title: "Review", goal: "review the result", done_criteria: "the result is accepted" },
       ],
     })
     yield* llm.tool("Plan_read", {})
@@ -3627,8 +3688,10 @@ it.instance("profile subagent child session gets role skills in the skill tool a
       expect(skillTool?.function?.description).not.toContain("customize-jyycode")
       const toolNames = (body.tools ?? []).map((item) => item.function?.name)
       expect(toolNames).toContain("read")
-      expect(toolNames).not.toContain("write")
-      expect(toolNames).not.toContain("bash")
+      // Every artifact-producing role default includes the execution surface:
+      // the child must write its deliverable before reporting.
+      expect(toolNames).toContain("write")
+      expect(toolNames).toContain("bash")
       // First-turn system context carries the role catalog so the child loads
       // its skills even when the dispatch brief prescribes a raw toolchain.
       const payload = JSON.stringify(body)

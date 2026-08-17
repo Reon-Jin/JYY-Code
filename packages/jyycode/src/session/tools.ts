@@ -954,8 +954,11 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   for (const item of visibleRegistryDefs) {
     if (item.id === "tool_search") continue
     // Subagents cannot call tool_search to expand a lazy tool, so expose the
-    // full context_read schema/description to them directly.
-    const lazy = shouldLazyLoadTool(item) && !(item.id === "context_read" && input.session.parentID !== undefined)
+    // full context_read and MCP schemas/descriptions to them directly;
+    // otherwise the lazy hint points at a tool they are forbidden to use.
+    const lazy =
+      shouldLazyLoadTool(item) &&
+      !(input.session.parentID !== undefined && (item.id === "context_read" || item.catalog?.category === "mcp"))
     addToolDef(item, { lazy })
   }
   for (const item of visibleMcpDefs) {

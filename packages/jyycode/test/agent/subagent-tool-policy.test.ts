@@ -8,19 +8,24 @@ import {
 import { subagentRoleToolIDs } from "../../src/session/tools"
 
 describe("subagent least-privilege policy", () => {
-  it("uses restrictive role defaults when profile.tools is omitted", () => {
+  it("keeps write and shell execution in role defaults so delegated tasks can produce artifacts", () => {
     const researcher = new Set(defaultSubagentToolIDs("researcher"))
     const planner = new Set(defaultSubagentToolIDs("Planner"))
     const implementer = new Set(defaultSubagentToolIDs("implementer"))
     const reviewer = new Set(defaultSubagentToolIDs("reviewer"))
+    const general = new Set(defaultSubagentToolIDs("general"))
 
     expect(researcher).toContain("webfetch")
     expect(researcher).toContain(SUBAGENT_READ_ONLY_MCP_TOOL_ID)
-    expect(researcher).not.toContain("write")
-    expect(researcher).not.toContain("bash")
-    expect(planner).toEqual(new Set(["read", "glob", "grep", "context_read"]))
-    expect(planner).not.toContain("edit")
-    expect(implementer).toEqual(new Set(["read", "glob", "grep", "write", "edit", "bash"]))
+    // Every artifact-producing role must be able to write files and run
+    // commands; the protocol requires the child to write output_path first.
+    for (const role of [researcher, planner, implementer, general]) {
+      expect(role).toContain("write")
+      expect(role).toContain("edit")
+      expect(role).toContain("bash")
+      expect(role).toContain("process")
+    }
+    // The reviewer role only reviews, so it stays read-only (read-only bash).
     expect(reviewer).toContain("bash")
     expect(reviewer).not.toContain("write")
   })
