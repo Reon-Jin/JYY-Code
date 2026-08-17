@@ -2454,7 +2454,11 @@ export const layer = Layer.effect(
                     turn: episodeFromMessages(episodeMessages),
                   })
                   .pipe(Effect.ignore)
-                const digestDue = yield* episodic
+                // Episodic digest generation can trigger a second LLM call;
+                // run it in the background so the user is not blocked after
+                // the assistant finishes. recordTurn stays synchronous so the
+                // digest sees the just-recorded episode.
+                yield* episodic
                   .isDigestDue({
                     sessionID,
                     workspaceRoot: ctx.directory,
@@ -2463,40 +2467,51 @@ export const layer = Layer.effect(
                     backfillText: undefined,
                     previousSummary: summary,
                   })
-                  .pipe(Effect.catch(() => Effect.succeed(false)))
-                if (digestDue) {
-                  yield* events
-                    .publish(SessionEvent.Compaction.Started, {
-                      sessionID,
-                      timestamp: DateTime.makeUnsafe(Date.now()),
-                      reason: "auto",
-                    })
-                    .pipe(Effect.ignore)
-                }
-                yield* episodic
-                  .compactIfDue({
-                    sessionID,
-                    workspaceRoot: ctx.directory,
-                    reason: "interval",
-                    totalTurns: countRealUserTurns(msgs),
-                    backfillText: undefined,
-                    previousSummary: summary,
-                    generate: (prompt) => generateDigest(prompt, model).pipe(Effect.orDie),
-                  })
                   .pipe(
-                    Effect.catchCause((cause) =>
-                      slog.warn("episodic digest failed; will retry on next trigger", { cause: Cause.pretty(cause) }),
-                    ),
-                    Effect.ensuring(
-                      digestDue
-                        ? events
-                            .publish(SessionEvent.Compaction.Ended, {
+                    Effect.catch(() => Effect.succeed(false)),
+                    Effect.flatMap((digestDue) =>
+                      Effect.forkIn(
+                        Effect.gen(function* () {
+                          if (digestDue) {
+                            yield* events
+                              .publish(SessionEvent.Compaction.Started, {
+                                sessionID,
+                                timestamp: DateTime.makeUnsafe(Date.now()),
+                                reason: "auto",
+                              })
+                              .pipe(Effect.ignore)
+                          }
+                          yield* episodic
+                            .compactIfDue({
                               sessionID,
-                              timestamp: DateTime.makeUnsafe(Date.now()),
-                              text: "episodic digest",
+                              workspaceRoot: ctx.directory,
+                              reason: "interval",
+                              totalTurns: countRealUserTurns(msgs),
+                              backfillText: undefined,
+                              previousSummary: summary,
+                              generate: (prompt) => generateDigest(prompt, model).pipe(Effect.orDie),
                             })
-                            .pipe(Effect.ignore)
-                        : Effect.void,
+                            .pipe(
+                              Effect.catchCause((cause) =>
+                                slog.warn("episodic digest failed; will retry on next trigger", {
+                                  cause: Cause.pretty(cause),
+                                }),
+                              ),
+                              Effect.ensuring(
+                                digestDue
+                                  ? events
+                                      .publish(SessionEvent.Compaction.Ended, {
+                                        sessionID,
+                                        timestamp: DateTime.makeUnsafe(Date.now()),
+                                        text: "episodic digest",
+                                      })
+                                      .pipe(Effect.ignore)
+                                  : Effect.void,
+                              ),
+                            )
+                        }),
+                        scope,
+                      ),
                     ),
                   )
               }
@@ -2563,44 +2578,54 @@ export const layer = Layer.effect(
         }
 
         yield* compaction.prune({ sessionID }).pipe(Effect.ignore, Effect.forkIn(scope))
-        if (stepBeginMemoryFiber) {
-          // Let the background step-begin curator finish before the after-turn
-          // curator runs, so the user-phase write never races the
-          // assistant-phase write.
-          yield* Fiber.join(stepBeginMemoryFiber).pipe(Effect.ignore)
+        if (canUsePersistentMemory && memory) {
+          // Persistent memory curation runs in the background so the user is
+          // never blocked on the second LLM round trip. The after-turn curator
+          // joins the step-begin fiber first, preserving the write order
+          // (user-phase write before assistant-phase write).
+          const stepBegin = stepBeginMemoryFiber
+          stepBeginMemoryFiber = undefined
+          yield* Effect.forkIn(
+            Effect.gen(function* () {
+              if (stepBegin) {
+                yield* Fiber.join(stepBegin).pipe(Effect.ignore)
+              }
+              const result = yield* lastAssistant(sessionID)
+              const freshMessages = yield* sessions
+                .messages({ sessionID })
+                .pipe(Effect.catch(() => Effect.succeed([] as MessageV2.WithParts[])))
+              const curated = yield* memory
+                .updateAfterTurn(sessionID, evaluateMemoryDecision, {
+                  userText: latestMemoryUserText,
+                  assistantText: latestRealAssistantText(result),
+                  failureHint: lastToolFailureHint(freshMessages),
+                })
+                .pipe(
+                  Effect.catchCause((cause) =>
+                    slog
+                      .warn("persistent memory update failed after assistant response; preserving response", {
+                        cause: Cause.pretty(cause),
+                      })
+                      .pipe(Effect.as(undefined)),
+                  ),
+                )
+              if (curated?.status === "updated" && experienceMemory) {
+                yield* experienceMemory
+                  .upsertMany(sessionID, curated.experienceCandidates, session.directory)
+                  .pipe(Effect.ignore)
+                const turnCount = countRealUserTurns(freshMessages)
+                if (turnCount > 0 && turnCount % ExperienceMemory.EXPERIENCE_MAINTENANCE_INTERVAL_TURNS === 0) {
+                  yield* experienceMemory.maintain(sessionID).pipe(Effect.ignore)
+                }
+              }
+              if (curated) yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
+            }),
+            scope,
+          )
+        } else {
           stepBeginMemoryFiber = undefined
         }
         const result = yield* lastAssistant(sessionID)
-        if (canUsePersistentMemory && memory) {
-          const freshMessages = yield* sessions
-            .messages({ sessionID })
-            .pipe(Effect.catch(() => Effect.succeed([] as MessageV2.WithParts[])))
-          const curated = yield* memory
-            .updateAfterTurn(sessionID, evaluateMemoryDecision, {
-              userText: latestMemoryUserText,
-              assistantText: latestRealAssistantText(result),
-              failureHint: lastToolFailureHint(freshMessages),
-            })
-            .pipe(
-              Effect.catchCause((cause) =>
-                slog
-                  .warn("persistent memory update failed after assistant response; preserving response", {
-                    cause: Cause.pretty(cause),
-                  })
-                  .pipe(Effect.as(undefined)),
-              ),
-            )
-          if (curated?.status === "updated" && experienceMemory) {
-            yield* experienceMemory
-              .upsertMany(sessionID, curated.experienceCandidates, session.directory)
-              .pipe(Effect.ignore)
-            const turnCount = countRealUserTurns(freshMessages)
-            if (turnCount > 0 && turnCount % ExperienceMemory.EXPERIENCE_MAINTENANCE_INTERVAL_TURNS === 0) {
-              yield* experienceMemory.maintain(sessionID).pipe(Effect.ignore)
-            }
-          }
-          if (curated) yield* elog.info("persistent memory curator completed", { sessionID, ...curated })
-        }
         return result
       },
     )

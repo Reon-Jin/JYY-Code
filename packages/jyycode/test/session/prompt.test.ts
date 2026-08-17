@@ -1799,6 +1799,15 @@ withMemoryLifecycle.instance("updates memory while busy and before returning the
     const result = exit.value
 
     expect(result.info.role).toBe("assistant")
+    // The after-turn curator now runs in the background so the assistant
+    // response is never blocked on the second LLM round trip; poll until it
+    // lands.
+    yield* pollWithTimeout(
+      Effect.sync(() =>
+        memoryLifecycleUpdates.filter((entry) => entry.sessionID === chat.id).length >= 2 ? true : undefined,
+      ),
+      "memory after-turn update did not complete",
+    )
     expect(memoryLifecycleUpdates.filter((entry) => entry.sessionID === chat.id).map((entry) => entry.phase)).toEqual([
       "received",
       "before_final",
