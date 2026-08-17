@@ -74,9 +74,9 @@ export const Definitions = {
   diff_help: keybind("?", "Show more diff viewer shortcuts"),
 
   editor_open: keybind("<leader>e", "Open external editor"),
-  theme_list: keybind("<leader>t", "List available themes"),
-  theme_switch_mode: keybind("none", "Switch between light and dark theme mode"),
-  theme_mode_lock: keybind("none", "Lock or unlock theme mode"),
+  theme_list: keybind("none", "List available themes (fixed paper theme — no-op)"),
+  theme_switch_mode: keybind("none", "Switch between light and dark theme mode (fixed — no-op)"),
+  theme_mode_lock: keybind("none", "Lock or unlock theme mode (fixed — no-op)"),
   sidebar_toggle: keybind("<leader>b", "Toggle sidebar"),
   scrollbar_toggle: keybind("none", "Toggle session scrollbar"),
   status_view: keybind("<leader>s", "View status"),

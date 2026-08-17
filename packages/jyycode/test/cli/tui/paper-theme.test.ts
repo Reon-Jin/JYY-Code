@@ -9,6 +9,15 @@ test("默认激活主题为 paper 且已注册", () => {
   expect(DEFAULT_THEMES.jyycode).toBeDefined()
 })
 
+test("固定配色：仅 paper 可被选中，且主题列表保留 paper 供解析", () => {
+  // ThemeProvider 强制 active = DEFAULT_ACTIVE_THEME，且 set() 只允许 paper；
+  // 这里验证其前提：paper 在 DEFAULT_THEMES 中且被解析。
+  expect(DEFAULT_ACTIVE_THEME).toBe("paper")
+  expect(DEFAULT_THEMES.paper).toBeDefined()
+  const resolved = resolveTheme(DEFAULT_THEMES.paper, "light")
+  expect(resolved.background.r).toBeCloseTo(0xef / 255, 3)
+})
+
 test("paper 主题已注册为内置主题", () => {
   expect(DEFAULT_THEMES.paper).toBeDefined()
 })

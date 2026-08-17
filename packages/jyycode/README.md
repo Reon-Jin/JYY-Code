@@ -30,9 +30,9 @@ JYYCode 终端 UI 与本地后端。与 Desktop（`packages/desktop` + `packages
 
 ## 主题
 
-- 默认主题为 `paper`，与 Desktop 的 paper 配色逐值一致（单一 token 源 `@jyycode-ai/design-tokens`，`src/cli/cmd/tui/context/theme/paper.json` 由 `script/generate-paper-theme.ts` 生成）。
+- **固定配色**：TUI 不再支持 `/theme` 切换风格，始终使用 `paper` 主题，与 Desktop 的 paper 配色逐值一致（单一 token 源 `@jyycode-ai/design-tokens`，`src/cli/cmd/tui/context/theme/paper.json` 由 `script/generate-paper-theme.ts` 生成）。
+- 明暗模式跟随终端主题（dark/light 均来自 paper 色族），不支持用户锁定/切换；不加载用户自定义主题或系统终端主题。
 - Desktop `tokens.css` 颜色块同样由该 token 源生成（`packages/design-tokens/script/generate.ts`），并受防漂移测试保护。
-- 内置主题列表含 30+ 主题，`/themes` 可切换。
 
 ## 开发
 

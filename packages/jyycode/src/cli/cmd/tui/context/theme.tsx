@@ -1,8 +1,6 @@
-import { CliRenderEvents, SyntaxStyle, RGBA, type TerminalColors } from "@opentui/core"
-import path from "path"
+import { CliRenderEvents, SyntaxStyle, RGBA } from "@opentui/core"
 import { createEffect, createMemo, onCleanup, onMount } from "solid-js"
 import { createSimpleContext } from "./helper"
-import { Glob } from "@jyycode-ai/core/util/glob"
 import aura from "./theme/aura.json" with { type: "json" }
 import ayu from "./theme/ayu.json" with { type: "json" }
 import catppuccin from "./theme/catppuccin.json" with { type: "json" }
@@ -37,12 +35,8 @@ import vesper from "./theme/vesper.json" with { type: "json" }
 import zenburn from "./theme/zenburn.json" with { type: "json" }
 import carbonfox from "./theme/carbonfox.json" with { type: "json" }
 import paper from "./theme/paper.json" with { type: "json" }
-import { useKV } from "./kv"
 import { useRenderer } from "@opentui/solid"
 import { createStore, produce } from "solid-js/store"
-import { Global } from "@jyycode-ai/core/global"
-import { Filesystem } from "@/util/filesystem"
-import { useTuiConfig } from "./tui-config"
 import { isRecord } from "@/util/record"
 import type { TuiThemeCurrent } from "@jyycode-ai/plugin/tui"
 
@@ -136,20 +130,12 @@ type State = {
 }
 
 const pluginThemes: Record<string, ThemeJson> = {}
-let customThemes: Record<string, ThemeJson> = {}
-let systemTheme: ThemeJson | undefined
 
 function listThemes() {
-  // Priority: defaults < plugin installs < custom files < generated system.
-  const themes = {
+  // 固定配色：仅内置主题（默认 paper）+ 插件注册主题；不加载用户自定义/系统终端主题。
+  return {
     ...DEFAULT_THEMES,
     ...pluginThemes,
-    ...customThemes,
-  }
-  if (!systemTheme) return themes
-  return {
-    ...themes,
-    system: systemTheme,
   }
 }
 
@@ -192,11 +178,7 @@ export function addTheme(name: string, theme: unknown) {
 export function upsertTheme(name: string, theme: unknown) {
   if (!name) return false
   if (!isTheme(theme)) return false
-  if (customThemes[name] !== undefined) {
-    customThemes[name] = theme
-  } else {
-    pluginThemes[name] = theme
-  }
+  pluginThemes[name] = theme
   syncThemes()
   return true
 }
@@ -310,8 +292,6 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
   name: "Theme",
   init: (props: { mode: "dark" | "light" }) => {
     const renderer = useRenderer()
-    const config = useTuiConfig()
-    const kv = useKV()
     const pick = (value: unknown) => {
       if (value === "dark" || value === "light") return value
       return
@@ -319,92 +299,28 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
 
     setStore(
       produce((draft) => {
-        const lock = pick(kv.get("theme_mode_lock"))
-        const mode = lock ?? pick(renderer.themeMode) ?? props.mode
-        if (!lock && pick(kv.get("theme_mode")) !== undefined) {
-          kv.set("theme_mode", undefined)
-        }
+        // 固定配色：始终使用 paper 主题；明暗跟随终端主题模式，不支持用户切换。
+        const mode = pick(renderer.themeMode) ?? props.mode
         draft.mode = mode
-        draft.lock = lock
-        const active = config.theme ?? kv.get("theme", DEFAULT_ACTIVE_THEME)
-        draft.active = typeof active === "string" ? active : DEFAULT_ACTIVE_THEME
+        draft.lock = undefined
+        draft.active = DEFAULT_ACTIVE_THEME
         draft.ready = false
       }),
     )
 
-    createEffect(() => {
-      const theme = config.theme
-      if (theme) setStore("active", theme)
-    })
-
     function init() {
-      void Promise.allSettled([
-        resolveSystemTheme(store.mode),
-        getCustomThemes()
-          .then((custom) => {
-            customThemes = custom
-            syncThemes()
-          })
-          .catch(() => {
-            setStore("active", DEFAULT_ACTIVE_THEME)
-          }),
-      ]).finally(() => {
-        setStore("ready", true)
-      })
+      setStore("ready", true)
     }
 
     onMount(init)
 
-    function resolveSystemTheme(mode: "dark" | "light" = store.mode) {
-      return renderer
-        .getPalette({
-          size: 16,
-        })
-        .then((colors: TerminalColors) => {
-          if (!colors.palette[0]) {
-            systemTheme = undefined
-            syncThemes()
-            if (store.active === "system") {
-              setStore("active", DEFAULT_ACTIVE_THEME)
-            }
-            return
-          }
-          systemTheme = generateSystem(colors, mode)
-          syncThemes()
-        })
-        .catch(() => {
-          systemTheme = undefined
-          syncThemes()
-          if (store.active === "system") {
-            setStore("active", DEFAULT_ACTIVE_THEME)
-          }
-        })
-    }
-
     function apply(mode: "dark" | "light") {
-      if (store.lock !== undefined) kv.set("theme_mode", mode)
       if (store.mode === mode) return
       setStore("mode", mode)
       renderer.clearPaletteCache()
-      void resolveSystemTheme(mode)
-    }
-
-    function pin(mode: "dark" | "light" = store.mode) {
-      setStore("lock", mode)
-      kv.set("theme_mode_lock", mode)
-      apply(mode)
-    }
-
-    function free() {
-      setStore("lock", undefined)
-      kv.set("theme_mode_lock", undefined)
-      kv.set("theme_mode", undefined)
-      const mode = renderer.themeMode
-      if (mode) apply(mode)
     }
 
     const handle = (mode: "dark" | "light") => {
-      if (store.lock) return
       apply(mode)
     }
     renderer.on(CliRenderEvents.THEME_MODE, handle)
@@ -421,20 +337,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     })
 
     const values = createMemo(() => {
-      const active = store.themes[store.active]
-      if (active) {
-        return resolveTheme(active, store.mode)
-      }
-
-      const saved = kv.get("theme")
-      if (typeof saved === "string") {
-        const theme = store.themes[saved]
-        if (theme) {
-          return resolveTheme(theme, store.mode)
-        }
-      }
-
-      return resolveTheme(store.themes[DEFAULT_ACTIVE_THEME], store.mode)
+      return resolveTheme(store.themes[DEFAULT_ACTIVE_THEME] ?? DEFAULT_THEMES.paper, store.mode)
     })
 
     createEffect(() => {
@@ -465,22 +368,10 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       mode() {
         return store.mode
       },
-      locked() {
-        return store.lock !== undefined
-      },
-      lock() {
-        pin(store.mode)
-      },
-      unlock() {
-        free()
-      },
-      setMode(mode: "dark" | "light") {
-        pin(mode)
-      },
       set(theme: string) {
-        if (!hasTheme(theme)) return false
+        // 固定配色：仅允许 paper，其它主题一律拒绝。
+        if (theme !== DEFAULT_ACTIVE_THEME) return false
         setStore("active", theme)
-        kv.set("theme", theme)
         return true
       },
       get ready() {
@@ -490,33 +381,6 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
   },
 })
 
-async function getCustomThemes() {
-  const directories = [
-    Global.Path.config,
-    ...(await Array.fromAsync(
-      Filesystem.up({
-        targets: [".jyycode"],
-        start: process.cwd(),
-      }),
-    )),
-  ]
-
-  const result: Record<string, ThemeJson> = {}
-  for (const dir of directories) {
-    for (const item of await Glob.scan("themes/*.json", {
-      cwd: dir,
-      absolute: true,
-      dot: true,
-      symlink: true,
-    })) {
-      const name = path.basename(item, ".json")
-      const theme = await Filesystem.readJson(item)
-      if (isTheme(theme)) result[name] = theme
-    }
-  }
-  return result
-}
-
 export function tint(base: RGBA, overlay: RGBA, alpha: number): RGBA {
   const r = base.r + (overlay.r - base.r) * alpha
   const g = base.g + (overlay.g - base.g) * alpha
@@ -524,116 +388,6 @@ export function tint(base: RGBA, overlay: RGBA, alpha: number): RGBA {
   return RGBA.fromInts(Math.round(r * 255), Math.round(g * 255), Math.round(b * 255))
 }
 
-export function generateSystem(colors: TerminalColors, mode: "dark" | "light"): ThemeJson {
-  const bg = RGBA.fromHex(colors.defaultBackground ?? colors.palette[0]!)
-  const fg = RGBA.fromHex(colors.defaultForeground ?? colors.palette[7]!)
-  const transparent = RGBA.fromValues(bg.r, bg.g, bg.b, 0)
-  const isDark = mode == "dark"
-
-  const col = (i: number) => {
-    const value = colors.palette[i]
-    if (value) return RGBA.fromHex(value)
-    return ansiToRgba(i)
-  }
-
-  // Generate gray scale based on terminal background
-  const grays = generateGrayScale(bg, isDark)
-  const textMuted = generateMutedTextColor(bg, isDark)
-
-  // ANSI color references
-  const ansiColors = {
-    black: col(0),
-    red: col(1),
-    green: col(2),
-    yellow: col(3),
-    blue: col(4),
-    magenta: col(5),
-    cyan: col(6),
-    white: col(7),
-    redBright: col(9),
-    greenBright: col(10),
-  }
-
-  const diffAlpha = isDark ? 0.22 : 0.14
-  const diffAddedBg = tint(bg, ansiColors.green, diffAlpha)
-  const diffRemovedBg = tint(bg, ansiColors.red, diffAlpha)
-  const diffContextBg = grays[2]
-  const diffAddedLineNumberBg = tint(diffContextBg, ansiColors.green, diffAlpha)
-  const diffRemovedLineNumberBg = tint(diffContextBg, ansiColors.red, diffAlpha)
-  const diffLineNumber = textMuted
-
-  return {
-    theme: {
-      // Primary colors using ANSI
-      primary: ansiColors.cyan,
-      secondary: ansiColors.magenta,
-      accent: ansiColors.cyan,
-
-      // Status colors using ANSI
-      error: ansiColors.red,
-      warning: ansiColors.yellow,
-      success: ansiColors.green,
-      info: ansiColors.cyan,
-
-      // Text colors
-      text: fg,
-      textMuted,
-      selectedListItemText: bg,
-
-      // Background colors - use transparent to respect terminal transparency
-      background: transparent,
-      backgroundPanel: grays[2],
-      backgroundElement: grays[3],
-      backgroundMenu: grays[3],
-
-      // Border colors
-      borderSubtle: grays[6],
-      border: grays[7],
-      borderActive: grays[8],
-
-      // Diff colors
-      diffAdded: ansiColors.green,
-      diffRemoved: ansiColors.red,
-      diffContext: grays[7],
-      diffHunkHeader: grays[7],
-      diffHighlightAdded: ansiColors.greenBright,
-      diffHighlightRemoved: ansiColors.redBright,
-      diffAddedBg,
-      diffRemovedBg,
-      diffContextBg,
-      diffLineNumber,
-      diffAddedLineNumberBg,
-      diffRemovedLineNumberBg,
-
-      // Markdown colors
-      markdownText: fg,
-      markdownHeading: fg,
-      markdownLink: ansiColors.blue,
-      markdownLinkText: ansiColors.cyan,
-      markdownCode: ansiColors.green,
-      markdownBlockQuote: ansiColors.yellow,
-      markdownEmph: ansiColors.yellow,
-      markdownStrong: fg,
-      markdownHorizontalRule: grays[7],
-      markdownListItem: ansiColors.blue,
-      markdownListEnumeration: ansiColors.cyan,
-      markdownImage: ansiColors.blue,
-      markdownImageText: ansiColors.cyan,
-      markdownCodeBlock: fg,
-
-      // Syntax colors
-      syntaxComment: textMuted,
-      syntaxKeyword: ansiColors.magenta,
-      syntaxFunction: ansiColors.blue,
-      syntaxVariable: fg,
-      syntaxString: ansiColors.green,
-      syntaxNumber: ansiColors.yellow,
-      syntaxType: ansiColors.cyan,
-      syntaxOperator: ansiColors.cyan,
-      syntaxPunctuation: fg,
-    },
-  }
-}
 
 function generateGrayScale(bg: RGBA, isDark: boolean): Record<number, RGBA> {
   const grays: Record<number, RGBA> = {}

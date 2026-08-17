@@ -1,9 +1,7 @@
 import type { TuiPluginApi } from "@jyycode-ai/plugin/tui"
 import { createMemo, For, type Accessor } from "solid-js"
-import { DEFAULT_THEMES, useTheme } from "@tui/context/theme"
+import { useTheme } from "@tui/context/theme"
 import { useCommandShortcut } from "../../keymap"
-
-const themeCount = Object.keys(DEFAULT_THEMES).length
 
 type TipPart = { text: string; highlight: boolean }
 type TipShortcut = Accessor<string>
@@ -40,7 +38,6 @@ type Shortcuts = {
   sessionTimeline: TipShortcut
   statusView: TipShortcut
   terminalSuspend: TipShortcut
-  themeList: TipShortcut
 }
 type Tip = string | ((shortcuts: Shortcuts) => string | undefined)
 
@@ -130,7 +127,6 @@ export function Tips(props: { api: TuiPluginApi; connected?: boolean }) {
     sessionTimeline: configShortcut(props.api, "session.timeline"),
     statusView: useCommandShortcut("jyycode.status"),
     terminalSuspend: useCommandShortcut("terminal.suspend"),
-    themeList: useCommandShortcut("theme.switch"),
   }
   const tip = createMemo(() => {
     if (props.connected === false) return NO_MODELS_TIP
@@ -173,7 +169,7 @@ const TIPS: Tip[] = [
   (shortcuts) => `Use ${commandText("/editor", shortcuts.editorOpen())} to compose messages in your external editor`,
   "Run {highlight}/init{/highlight} to auto-generate project rules based on your codebase",
   (shortcuts) => `Use ${commandText("/models", shortcuts.modelList())} to see and switch between available AI models`,
-  (shortcuts) => `Use ${commandText("/themes", shortcuts.themeList())} to switch between ${themeCount} built-in themes`,
+  "JYYCode 使用固定 paper 配色，与 Desktop 完全一致；明暗跟随终端主题",
   (shortcuts) => `Use ${commandText("/new", shortcuts.sessionNew())} to start a fresh conversation session`,
   (shortcuts) => `Use ${commandText("/sessions", shortcuts.sessionList())} to list, pin, and continue sessions`,
   (shortcuts) => press(shortcuts.sessionPinToggle(), "in the session list to pin a session so it stays at the top"),
@@ -247,10 +243,7 @@ const TIPS: Tip[] = [
   "Run {highlight}jyycode github install{/highlight} to set up the GitHub workflow",
   "Comment {highlight}/jyycode fix this{/highlight} on issues to auto-create PRs",
   "Comment {highlight}/oc{/highlight} on PR code lines for targeted code reviews",
-  'Use {highlight}"theme": "system"{/highlight} to match your terminal\'s colors',
-  "Create JSON theme files in {highlight}.jyycode/themes/{/highlight} directory",
-  "Themes support dark/light variants for both modes",
-  "Use numeric xterm color codes 0-255 in custom theme JSON",
+  "JYYCode 的固定配色为 paper：暖米白表面、墨色正文、灰蓝强调色（与 Desktop 一致）",
   "Use {highlight}{env:VAR_NAME}{/highlight} syntax to reference environment variables in config",
   "Use {highlight}{file:path}{/highlight} to include file contents in config values",
   "Use {highlight}instructions{/highlight} in config to load additional rules files",
