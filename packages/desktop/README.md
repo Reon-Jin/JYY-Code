@@ -63,6 +63,12 @@ sub-agent profiles in the right rail; changes do not switch models for tasks alr
 Desktop and the TUI share the same Sessions, SQLite-backed state, HTTP API, and SSE events. Actions and progress remain
 authoritative in the shared backend and are visible from either interface.
 
+The TUI mirrors every Desktop capability through keyboard-driven equivalents — Global MCP management, Skills management,
+Memory management, Settings, Plan drawer, Blackboard, Subagent profiles, Changes (per-file diff), Git branches, and a file
+tree with preview. See `packages/jyycode/README.md` for the full parity table and TUI entry points. Both interfaces use the
+same `paper` color system from the shared `@jyycode-ai/design-tokens` package: Desktop `tokens.css` color values and the TUI
+`paper` theme are generated from one source of truth and guarded by drift tests.
+
 ## Home, Skill, and MCP management
 
 The Home screen has a compact global navigation rail for Home, Skill, and MCP. Home can open a directory, create a
