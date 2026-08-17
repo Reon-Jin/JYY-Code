@@ -53,6 +53,7 @@
     "xlsx": "0.18.5"
   },
   "devDependencies": {
+    "@jyycode-ai/design-tokens": "workspace:*",
     "@solidjs/testing-library": "catalog:",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/user-event": "catalog:",

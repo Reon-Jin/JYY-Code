@@ -64,6 +64,7 @@
         "xlsx": "0.18.5",
       },
       "devDependencies": {
+        "@jyycode-ai/design-tokens": "workspace:*",
         "@solidjs/testing-library": "catalog:",
         "@testing-library/jest-dom": "catalog:",
         "@testing-library/user-event": "catalog:",
@@ -293,6 +294,7 @@
       "devDependencies": {
         "@babel/core": "7.28.4",
         "@jyycode-ai/core": "workspace:*",
+        "@jyycode-ai/design-tokens": "workspace:*",
         "@jyycode-ai/http-recorder": "workspace:*",
         "@jyycode-ai/script": "workspace:*",
         "@octokit/webhooks-types": "7.6.1",

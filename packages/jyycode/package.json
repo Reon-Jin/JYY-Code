@@ -43,6 +43,7 @@
   },
   "devDependencies": {
     "@babel/core": "7.28.4",
+    "@jyycode-ai/design-tokens": "workspace:*",
     "@octokit/webhooks-types": "7.6.1",
     "@jyycode-ai/core": "workspace:*",
     "@jyycode-ai/http-recorder": "workspace:*",
