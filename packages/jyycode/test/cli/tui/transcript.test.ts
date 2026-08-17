@@ -105,9 +105,9 @@ describe("transcript", () => {
     })
 
     test("titlecases agent name", () => {
-      const msg = { ...baseMsg, agent: "plan" }
+      const msg = { ...baseMsg, agent: "build" }
       const result = formatAssistantHeader(msg, true)
-      expect(result).toContain("Plan")
+      expect(result).toContain("Build")
     })
   })
 

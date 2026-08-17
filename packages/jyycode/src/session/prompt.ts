@@ -60,7 +60,6 @@ import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
 import { referencePromptMetadata, referenceTextPart } from "./prompt/reference"
-import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { SessionState } from "./state"
 import { countRealUserTurns } from "./state"
@@ -1925,11 +1924,6 @@ export const layer = Layer.effect(
           }
           const maxSteps = childBudget?.max_steps ?? (session.parentID !== undefined ? MAX_AGENT_STEPS : agent.steps ?? Infinity)
           const isLastStep = step >= maxSteps
-          msgs = yield* SessionReminders.apply({ messages: msgs, agent, session }).pipe(
-            Effect.provideService(RuntimeFlags.Service, flags),
-            Effect.provideService(AppFileSystem.Service, fsys),
-            Effect.provideService(Session.Service, sessions),
-          )
           const episodicDigest =
             canUsePersistentMemory && episodic
               ? yield* episodic
@@ -2170,16 +2164,19 @@ export const layer = Layer.effect(
             }
             // Profiles live in the global config; mirror Agent.state's
             // resolution order so the roster in the system prompt matches the
-            // materialized subagents.
-            const subagentConfig = (yield* config.getGlobal()).subagents ?? (yield* config.get()).subagents
-            const promptProfiles = enabledProfiles(resolveProfiles(subagentConfig?.profiles))
-            system.push(
-              planSystemPrompt({
+            // materialized subagents. Only multi-agent roots/children get a
+            // plan protocol prompt section; single-agent roots skip both the
+            // profile resolution and the (empty) plan section.
+            if (session.multiAgent === true || session.parentID !== undefined) {
+              const subagentConfig = (yield* config.getGlobal()).subagents ?? (yield* config.get()).subagents
+              const promptProfiles = enabledProfiles(resolveProfiles(subagentConfig?.profiles))
+              const planPrompt = planSystemPrompt({
                 child: session.parentID !== undefined,
                 multiAgent: session.multiAgent === true,
                 profiles: promptProfiles,
-              }),
-            )
+              })
+              if (planPrompt) system.push(planPrompt)
+            }
             if (firstSessionTurn && session.parentID === undefined && skill) {
               const rootSkills = yield* sys
                 .skills(agent, Skill.rootScope)

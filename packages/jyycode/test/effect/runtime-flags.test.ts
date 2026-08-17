@@ -57,7 +57,6 @@ describe("RuntimeFlags", () => {
       expect(flags.experimentalBackgroundSubagents).toBe(true)
       expect(flags.experimentalLspTy).toBe(false)
       expect(flags.experimentalOxfmt).toBe(true)
-      expect(flags.experimentalPlanMode).toBe(true)
       expect(flags.experimentalWorkspaces).toBe(true)
       expect(flags.experimentalIconDiscovery).toBe(true)
       expect(flags.experimentalNativeLlm).toBe(true)

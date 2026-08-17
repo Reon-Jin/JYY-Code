@@ -43,7 +43,6 @@ export class Service extends ConfigService.Service<Service>()("@jyycode/RuntimeF
   experimentalBackgroundSubagents: enabledByExperimental("JYYCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS"),
   experimentalLspTy: bool("JYYCODE_EXPERIMENTAL_LSP_TY"),
   experimentalOxfmt: enabledByExperimental("JYYCODE_EXPERIMENTAL_OXFMT"),
-  experimentalPlanMode: enabledByExperimental("JYYCODE_EXPERIMENTAL_PLAN_MODE"),
   experimentalWorkspaces: enabledByExperimental("JYYCODE_EXPERIMENTAL_WORKSPACES"),
   experimentalIconDiscovery: enabledByExperimental("JYYCODE_EXPERIMENTAL_ICON_DISCOVERY"),
   outputTokenMax: positiveInteger("JYYCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"),

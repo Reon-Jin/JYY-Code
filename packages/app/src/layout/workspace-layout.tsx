@@ -644,7 +644,9 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
         directory: data.directory(),
         sessionID: rootSessionID() ?? "",
       }),
-      enabled: Boolean(rootSessionID()),
+      // Single-agent sessions have no plan protocol; only multi-agent roots
+      // pay for plan snapshot polling.
+      enabled: Boolean(rootSessionID()) && rootMultiAgentEnabled(),
     }),
     data.queryClient,
   )
@@ -675,6 +677,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     return childTaskRunning() || (status !== undefined && status.type !== "idle")
   })
   const planBadge = createMemo(() => {
+    if (!rootMultiAgentEnabled()) return undefined
     const snapshot = planSnapshot()
     if (snapshot.failedAgents > 0) return `${snapshot.runningAgents}/${snapshot.failedAgents}`
     if (snapshot.runningAgents > 0) return String(snapshot.runningAgents)

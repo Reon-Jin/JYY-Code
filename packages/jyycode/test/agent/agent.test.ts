@@ -55,7 +55,6 @@ it.instance("returns default native agents when no config", () =>
     const agents = yield* load((svc) => svc.list())
     const names = agents.map((a) => a.name)
     expect(names).toContain("build")
-    expect(names).toContain("plan")
     // Built-in roles that ship enabled by default
     expect(names).toContain(profileAgentName("general"))
     expect(names).toContain(profileAgentName("researcher"))
@@ -84,17 +83,6 @@ it.instance("build agent has correct default properties", () =>
     expect(evalPerm(build, "bash")).toBe("allow")
     expect(evalPerm(build, "repo_clone")).toBe("deny")
     expect(evalPerm(build, "repo_overview")).toBe("deny")
-  }),
-)
-
-it.instance("plan agent denies edits except .jyycode/plans/*", () =>
-  Effect.gen(function* () {
-    const plan = yield* load((svc) => svc.get("plan"))
-    expect(plan).toBeDefined()
-    // Wildcard is denied
-    expect(evalPerm(plan, "edit")).toBe("deny")
-    // But specific path is allowed
-    expect(Permission.evaluate("edit", ".jyycode/plans/foo.md", plan!.permission).action).toBe("allow")
   }),
 )
 
@@ -488,13 +476,17 @@ it.instance(
   () =>
     Effect.gen(function* () {
       const names = (yield* load((svc) => svc.list())).map((a) => a.name)
-      expect(names[0]).toBe("plan")
+      expect(names[0]).toBe("custom_primary")
       expect(names.slice(1)).toEqual(names.slice(1).toSorted())
     }),
   {
     config: {
-      default_agent: "plan",
+      default_agent: "custom_primary",
       agent: {
+        custom_primary: {
+          description: "Custom primary",
+          mode: "primary",
+        },
         zebra: {
           description: "Zebra",
           mode: "subagent",
@@ -692,20 +684,6 @@ it.instance("defaultInfo returns resolved build agent when no default_agent conf
 )
 
 it.instance(
-  "defaultAgent respects default_agent config set to plan",
-  () =>
-    Effect.gen(function* () {
-      const agent = yield* load((svc) => svc.defaultAgent())
-      expect(agent).toBe("plan")
-    }),
-  {
-    config: {
-      default_agent: "plan",
-    },
-  },
-)
-
-it.instance(
   "defaultAgent respects default_agent config set to custom agent with mode all",
   () =>
     Effect.gen(function* () {
@@ -745,30 +723,12 @@ it.instance(
 )
 
 it.instance(
-  "defaultAgent returns plan when build is disabled and default_agent not set",
-  () =>
-    Effect.gen(function* () {
-      const agent = yield* load((svc) => svc.defaultAgent())
-      // build is disabled, so it should return plan (next primary agent)
-      expect(agent).toBe("plan")
-    }),
-  {
-    config: {
-      agent: {
-        build: { disable: true },
-      },
-    },
-  },
-)
-
-it.instance(
-  "defaultAgent throws when all primary agents are disabled",
+  "defaultAgent throws when the only primary agent is disabled",
   () => expectDefaultAgentError("no primary visible agent found"),
   {
     config: {
       agent: {
         build: { disable: true },
-        plan: { disable: true },
       },
     },
   },

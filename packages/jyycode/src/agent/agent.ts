@@ -121,8 +121,6 @@ export const layer = Layer.effect(
             ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
           },
           question: "deny",
-          plan_enter: "deny",
-          plan_exit: "deny",
           repo_clone: "deny",
           repo_overview: "deny",
           // mirrors github.com/github/gitignore Node.gitignore pattern for .env files
@@ -144,32 +142,6 @@ export const layer = Layer.effect(
               defaults,
               Permission.fromConfig({
                 question: "allow",
-                plan_enter: "allow",
-              }),
-              user,
-              Permission.fromConfig({ skill: primarySkills }),
-            ),
-            mode: "primary",
-            native: true,
-          },
-          plan: {
-            name: "plan",
-            description: "Plan mode. Disallows all edit tools.",
-            options: {},
-            permission: Permission.merge(
-              defaults,
-              Permission.fromConfig({
-                question: "allow",
-                plan_exit: "allow",
-                plan_update: "deny",
-                external_directory: {
-                  [path.join(Global.Path.data, "plans", "*")]: "allow",
-                },
-                edit: {
-                  "*": "deny",
-                  [path.join(".jyycode", "plans", "*.md")]: "allow",
-                  [path.relative(ctx.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]: "allow",
-                },
               }),
               user,
               Permission.fromConfig({ skill: primarySkills }),
@@ -229,7 +201,6 @@ export const layer = Layer.effect(
           defaults,
           Permission.fromConfig({
             todowrite: "deny",
-            plan_update: "deny",
           }),
           user,
         )

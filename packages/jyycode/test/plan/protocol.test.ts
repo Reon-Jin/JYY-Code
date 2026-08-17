@@ -1838,7 +1838,9 @@ describe("file-backed plan protocol", () => {
     expect(multiAgentPrompt).toContain("output_path")
     expect(multiAgentPrompt).toContain("reviewer")
     expect(planSystemPrompt({ child: false, multiAgent: true, profiles: [] })).toContain("No enabled sub-agent roles")
-    expect(planSystemPrompt({ child: false, multiAgent: false })).toContain("Root single-agent protocol")
+    // Single-agent roots get no plan protocol section at all.
+    expect(planSystemPrompt({ child: false, multiAgent: false })).toBe("")
+    expect(planSystemPrompt({ child: false, multiAgent: false })).not.toContain("Plan_create")
     const childPrompt = planSystemPrompt({ child: true, multiAgent: true })
     expect(childPrompt).toContain("workspace_root")
     expect(childPrompt).toContain("honest done, partial, or failed outcome")

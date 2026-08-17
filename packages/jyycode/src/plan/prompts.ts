@@ -21,9 +21,7 @@ export const PLAN_MULTI_PROMPT = `- Dispatch every ready task in a wave together
 - When review_task rejects a standard task and the returned state contains review feedback, call Dispatch_dispatch directly to continue the existing child session. Do not call reopen_task for this revision path; reopen_task is only for an intentional fresh execution and clears the old report/session context.
 - Use Blackboard only for decisions, dependencies, risks, handoffs, blockers, or targeted help. Consume unread Blackboard work before advancing a step.`
 
-export const PLAN_SINGLE_PROMPT = `## Root single-agent protocol
-- Use plan tools only when phases, dependencies, or explicit acceptance require tracked state. Keep plan state in those tools, not prose.
-- Follow the returned task state and revision. Satisfy observable done criteria before approving or advancing work.`
+export const PLAN_SINGLE_PROMPT = ""
 
 export const PLAN_CHILD_PROMPT = `## Child-agent protocol
 - Runtime rules, visible tools, and your dispatch brief are authoritative. The brief defines your task, workspace_root, output_path, and done criteria; stay within that workspace.
@@ -57,7 +55,9 @@ export function planSystemPrompt(input: {
   profiles?: readonly SubagentProfile[]
 }) {
   if (input.child) return PLAN_CHILD_PROMPT
-  if (!input.multiAgent) return PLAN_SINGLE_PROMPT
+  // Single-agent root sessions have no plan protocol: plan tools are hidden
+  // entirely and the prompt must not reference them.
+  if (!input.multiAgent) return ""
   return [PLAN_BASE_PROMPT, PLAN_CREATE_PROMPT, PLAN_MULTI_PROMPT, PLAN_CANDIDATE_PROMPT, dispatchRosterPrompt(input.profiles)].join("\n\n")
 }
 

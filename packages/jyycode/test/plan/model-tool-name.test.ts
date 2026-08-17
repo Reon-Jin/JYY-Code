@@ -72,6 +72,12 @@ describe("model-facing plan tool names", () => {
     expect(isPlanToolVisible("Blackboard", { parentID: "ses_parent" as never, multiAgent: undefined })).toBe(true)
     expect(isPlanToolVisible("Blackboard.reply", { parentID: "ses_parent" as never, multiAgent: undefined })).toBe(true)
     expect(isPlanToolVisible("Plan.read", { parentID: "ses_parent" as never, multiAgent: undefined })).toBe(false)
+    // Single-agent root sessions never see any plan protocol tool.
+    expect(isPlanToolVisible("Plan.read", { parentID: undefined, multiAgent: false })).toBe(false)
+    expect(isPlanToolVisible("Plan.create", { parentID: undefined, multiAgent: false })).toBe(false)
+    expect(isPlanToolVisible("Plan.update", { parentID: undefined, multiAgent: false })).toBe(false)
+    expect(isPlanToolVisible("Inbox", { parentID: undefined, multiAgent: false })).toBe(false)
+    expect(isPlanToolVisible("Merge.apply", { parentID: undefined, multiAgent: false })).toBe(false)
     expect(isPlanToolVisible("Blackboard", { parentID: undefined, multiAgent: false })).toBe(false)
     expect(isPlanToolVisible("Blackboard", { parentID: undefined, multiAgent: true })).toBe(true)
     expect(isPlanToolVisible("Candidate.declare", { parentID: undefined, multiAgent: false })).toBe(false)

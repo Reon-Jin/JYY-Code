@@ -413,13 +413,6 @@ export const Event = {
   ),
 }
 
-export function plan(input: { slug: string; time: { created: number } }, instance: InstanceContext) {
-  const base = instance.project.vcs
-    ? path.join(instance.worktree, ".jyycode", "plans")
-    : path.join(Global.Path.data, "plans")
-  return path.join(base, [input.time.created, input.slug].join("-") + ".md")
-}
-
 export const getUsage = (input: { model: Provider.Model; usage: Usage; metadata?: ProviderMetadata }) => {
   const safe = (value: number) => {
     if (!Number.isFinite(value)) return 0

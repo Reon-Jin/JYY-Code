@@ -36,6 +36,8 @@ test("prompt layers remain within their explicit character budgets", () => {
   expect(BASE_POLICY.length).toBeLessThanOrEqual(2_400)
   expect(PLAN_CHILD_PROMPT.length).toBeLessThanOrEqual(1_600)
   expect(planSystemPrompt({ child: false, multiAgent: true, profiles: [] }).length).toBeLessThanOrEqual(3_500)
+  // Single-agent roots carry no plan protocol section.
+  expect(planSystemPrompt({ child: false, multiAgent: false })).toBe("")
 })
 
 test("child protocol is artifact-first and never offers root plan mutation", () => {
