@@ -14,6 +14,7 @@ import SkillsManage from "../feature-plugins/system/skills-manage"
 import MemoryManage from "../feature-plugins/system/memory-manage"
 import Settings from "../feature-plugins/system/settings"
 import PlanPanel from "../feature-plugins/system/plan-panel"
+import BlackboardPanel from "../feature-plugins/system/blackboard-panel"
 import type { TuiPlugin, TuiPluginModule } from "@jyycode-ai/plugin/tui"
 
 export type InternalTuiPlugin = Omit<TuiPluginModule, "id"> & {
@@ -40,5 +41,6 @@ export function internalTuiPlugins(): InternalTuiPlugin[] {
     MemoryManage,
     Settings,
     PlanPanel,
+    BlackboardPanel,
   ]
 }
