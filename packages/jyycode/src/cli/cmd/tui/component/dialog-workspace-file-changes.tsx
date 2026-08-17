@@ -13,6 +13,32 @@ const options = ["no", "yes"] as const
 
 export type WorkspaceFileChangesChoice = (typeof options)[number]
 
+// ---------- Changes 面板归约逻辑（可测，对齐 desktop features/changes/changes-query.ts） ----------
+
+export type FileChangeGroup = {
+  added: VcsFileStatus[]
+  modified: VcsFileStatus[]
+  deleted: VcsFileStatus[]
+}
+
+export function groupByStatus(files: readonly VcsFileStatus[]): FileChangeGroup {
+  const group: FileChangeGroup = { added: [], modified: [], deleted: [] }
+  for (const file of files) {
+    if (file.status === "added") group.added.push(file)
+    else if (file.status === "deleted") group.deleted.push(file)
+    else group.modified.push(file)
+  }
+  return group
+}
+
+export function fileChangeSummary(file: VcsFileStatus): string {
+  const parts: string[] = []
+  if (file.additions) parts.push(`+${file.additions}`)
+  if (file.deletions) parts.push(`-${file.deletions}`)
+  const suffix = parts.length > 0 ? ` (${parts.join(" ")})` : ""
+  return `${statusLabel(file.status)} ${file.file}${suffix}`
+}
+
 function statusLabel(status: VcsFileStatus["status"]) {
   if (status === "added") return "A"
   if (status === "deleted") return "D"

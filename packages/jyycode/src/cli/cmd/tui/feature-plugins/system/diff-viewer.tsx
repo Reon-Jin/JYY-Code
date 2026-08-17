@@ -945,6 +945,22 @@ const tui: TuiPlugin = async (api) => {
           api.ui.dialog.clear()
         },
       },
+      {
+        name: "changes.open",
+        title: "Changes 面板（工作区改动）",
+        slashName: "changes",
+        slashAliases: ["git"],
+        category: "VCS",
+        namespace: "palette",
+        run() {
+          api.route.navigate(ROUTE, {
+            mode: "git",
+            sessionID: "params" in api.route.current ? api.route.current.params?.sessionID : undefined,
+            returnRoute: api.route.current,
+          })
+          api.ui.dialog.clear()
+        },
+      },
     ],
   })
 }
