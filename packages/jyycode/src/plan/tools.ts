@@ -136,7 +136,7 @@ const stepInputSchema: JSONSchema7 = {
       type: "array",
       items: taskInputSchema,
       description:
-        `${DECOMPOSITION_GUIDANCE} For a candidate Step, include exactly 2-3 candidate Tasks together. The initial Step may declare them in Plan_create; a later clean active Step may initialize them with one Plan_update containing 2-3 candidate add_task operations.`,
+        `Tasks are optional in any Step at creation; keeping later Steps as skeletons and expanding them later with Plan_update(add_task) is also fine. ${DECOMPOSITION_GUIDANCE} For a candidate Step, include exactly 2-3 candidate Tasks together. The initial Step may declare them in Plan_create; a later clean active Step may initialize them with one Plan_update containing 2-3 candidate add_task operations.`,
     },
   },
 }
@@ -153,7 +153,7 @@ export const PLAN_CREATE_INPUT_SCHEMA: JSONSchema7 = {
       minItems: 2,
       items: stepInputSchema,
       description:
-        `Call Plan_create exactly once after Plan_read confirms that no plan exists. Only steps[0] may contain Task details at creation. ${DECOMPOSITION_GUIDANCE} Later active Steps must be skeletons and are expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group. After this call returns, stop issuing protocol writes until the next model turn.`,
+        `Call Plan_create exactly once when the runtime confirms that no plan exists. Required fields are title, goal and done_criteria; extra fields are ignored and reported as warnings. Valid shape: {title, goal, steps:[{title, goal, done_criteria, tasks:[{title, goal, done_criteria, output_path}]}, {title, goal, done_criteria}]}. output_path must resolve inside the workspace (use relative paths); timeout_ms is runtime-owned and ignored. ${DECOMPOSITION_GUIDANCE} Later active Steps may be skeletons expanded with one Plan_update containing all ready standard Tasks or one complete 2-3 candidate Task group, or carry their own Task details from creation. After this call returns, stop issuing protocol writes until the next model turn. If Plan_create fails, fix the reported validation errors and retry at most twice; never call it twice in the same response.`,
     },
   },
 }
@@ -1153,7 +1153,7 @@ export const PlanCreateTool = Tool.define(
     const bus = yield* Bus.Service
     return {
       description: DECOMPOSITION_GUIDANCE + " Child-agent wall-clock timeout is runtime-owned and fixed at 30 minutes; do not include timeout_ms. " +
-        "创建当前主 session 的 plan.json；后续阶段只建立骨架，细节用 Plan_update 展开。按可并行性检查拆分，默认放 4-8 个可并行的 standard Task（上限 20 个）；能拆就拆，优先多派子 Agent。需要候选比较时，在 Plan_create 或后续 clean active Step 的一次 Plan_update 中完整放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
+        "创建当前主 session 的 plan.json；每个 Step 都可以带任务明细（后续阶段保持骨架、之后用 Plan_update 展开也可以）。合法结构模板：{title, goal, steps:[{title, goal, done_criteria, tasks:[{title, goal, done_criteria, output_path}]}, {title, goal, done_criteria}]}；必填 title/goal/done_criteria，额外字段会被忽略并在返回值 warnings 中说明，output_path 使用工作区内相对路径。按可并行性检查拆分，默认放 4-8 个可并行的 standard Task（上限 20 个）；能拆就拆，优先多派子 Agent。需要候选比较时，在 Plan_create 或后续 clean active Step 的一次 Plan_update 中完整放入 2-3 个 mode=candidate Task，运行时会自动创建 candidate_discussion 和隔离 proposal 路径。",
       parameters: AnyObject,
       jsonSchema: PLAN_CREATE_INPUT_SCHEMA,
       catalog: {

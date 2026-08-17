@@ -32,7 +32,7 @@ import { SessionCompaction } from "../../src/session/compaction"
 import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
-import { normalizeGeneratedTitle, SessionPrompt } from "../../src/session/prompt"
+import { failedPlanCreatePart, normalizeGeneratedTitle, SessionPrompt } from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
@@ -871,17 +871,22 @@ it.instance("multi-agent roots tolerate preflight calls before creating a missin
     const inputs = yield* llm.inputs
     expect(inputs).toHaveLength(6)
     expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_read")
-    // Gated plan write tools stay visible as inert stubs: providers that
-    // ignore the required tool choice then get a recoverable gated result
-    // instead of a hard unknown-tool failure. The mandatory choice is exact,
-    // so read-only context tools cannot become a retry loop.
+    // A fresh multi-agent root with no plan is forced straight to
+    // Plan_create: the runtime already knows the plan is empty, so a
+    // mandatory Plan_read round trip would add no information. Plan_read
+    // stays visible for models that still want to confirm before creating.
     expect(JSON.stringify(inputs[0]?.tools)).toContain("Plan_create")
-    expect(JSON.stringify(inputs[0]?.tools)).toContain("暂时禁用")
-    expect(inputs[0]?.tool_choice).toEqual({ type: "function", function: { name: "Plan_read" } })
+    expect(inputs[0]?.tool_choice).toEqual({ type: "function", function: { name: "Plan_create" } })
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_create")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Plan_read")
     expect(JSON.stringify(inputs[1]?.tools)).toContain("Dispatch_roles")
     expect(inputs[1]?.tool_choice).toEqual({ type: "function", function: { name: "Plan_create" } })
+    // The gate stays on Plan_create while no plan exists: every preflight
+    // call the model chooses instead is tolerated, and no plan write tool is
+    // ever stubbed or hidden during creation.
+    for (const input of inputs.slice(0, 5)) {
+      expect(input?.tool_choice).toEqual({ type: "function", function: { name: "Plan_create" } })
+    }
 
     const messages = yield* sessions.messages({ sessionID: chat.id })
     const failedTools = messages
@@ -897,6 +902,208 @@ it.instance("multi-agent roots tolerate preflight calls before creating a missin
     )
     expect(plan.steps[0].tasks).toHaveLength(1)
     expect(plan.steps[1].tasks).toEqual([])
+  }),
+)
+
+it.instance("stops the Plan_create/Plan_read retry loop after bounded failed attempts", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Bounded plan creation retries",
+      multiAgent: true,
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "create a plan for the requested work" }],
+    })
+
+    // The model systematically violates a required field (missing
+    // done_criteria on a Step), so every Plan_create attempt fails the same
+    // way. This used to alternate create-fail -> Plan_read forever because
+    // the recovery gate never bounded the retries.
+    const invalidCreate = {
+      title: "Invalid plan",
+      goal: "cannot be created",
+      steps: [
+        {
+          title: "Work",
+          goal: "do the work",
+          done_criteria: "the work is complete",
+          tasks: [
+            {
+              title: "Task",
+              goal: "produce the result",
+              done_criteria: "result.md exists",
+              output_path: "result.md",
+            },
+          ],
+        },
+        {
+          title: "Review",
+          goal: "review the result",
+          done_criteria: "",
+        },
+      ],
+    }
+
+    yield* llm.tool("Plan_read", {})
+    yield* llm.tool("Plan_create", invalidCreate)
+    yield* llm.tool("Plan_read", {})
+    yield* llm.tool("Plan_create", invalidCreate)
+    yield* llm.tool("Plan_read", {})
+    yield* llm.tool("Plan_create", invalidCreate)
+    yield* llm.text("I cannot produce a valid plan; answering directly.")
+
+    yield* prompt.loop({ sessionID: chat.id })
+
+    const inputs = yield* llm.inputs
+    // read, failed create, recovery read, failed create, recovery read,
+    // failed create, final answer — bounded at three attempts.
+    expect(inputs).toHaveLength(7)
+    const finalInput = inputs[inputs.length - 1]
+    expect(finalInput).toBeDefined()
+    if (finalInput) {
+      // The exhausted gate removes the plan write tools so the model cannot
+      // keep retrying the same failing call.
+      const tools = finalInput.tools as Record<string, unknown> | undefined
+      expect(tools).toBeDefined()
+      if (tools) {
+        expect("Plan_create" in tools).toBe(false)
+        expect("Plan_update" in tools).toBe(false)
+        expect("Dispatch_dispatch" in tools).toBe(false)
+      }
+      // The gate is released: no function tool choice is forced anymore.
+      expect(JSON.stringify(finalInput.tool_choice)).not.toContain("Plan_create")
+    }
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const reminders = messages
+      .flatMap((message) => message.parts)
+      .filter(
+        (part): part is MessageV2.TextPart =>
+          part.type === "text" && part.synthetic === true && part.metadata?.kind === "plan_create_exhausted",
+      )
+    expect(reminders).toHaveLength(1)
+    const planExists = yield* Effect.promise(() =>
+      fs.access(path.join(chat.directory, ".jyycode", "plan", chat.id, "plan.json")).then(
+        () => true,
+        () => false,
+      ),
+    )
+    expect(planExists).toBe(false)
+  }),
+)
+
+test("counts only genuine validation failures toward the Plan_create retry budget", () => {
+  const completed = (output: string, metadata?: Record<string, unknown>) =>
+    ({
+      type: "tool",
+      tool: "Plan_create",
+      state: { status: "completed", output, ...(metadata ? { metadata } : {}) },
+    }) as unknown as MessageV2.Part
+  // "Plan already exists" is not a failed creation attempt: it must not burn
+  // the retry budget or force a recovery read.
+  expect(
+    failedPlanCreatePart(completed(JSON.stringify({ ok: false, error: { code: "INVALID_STATE", message: "已有方案" } }))),
+  ).toBe(false)
+  // A successful create is not a failure.
+  expect(failedPlanCreatePart(completed(JSON.stringify({ ok: true })))).toBe(false)
+  // A stale duplicate call in the same response is not a failure either.
+  expect(failedPlanCreatePart(completed("{}", { skipped: true }))).toBe(false)
+  // A genuine schema/validation failure still counts.
+  expect(
+    failedPlanCreatePart(
+      completed(JSON.stringify({ ok: false, error: { code: "SCHEMA_VALIDATION", message: "steps[1].done_criteria 必须是非空字符串" } })),
+    ),
+  ).toBe(true)
+})
+
+it.instance("accepts a plan with extra fields and later-step tasks on the first attempt", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({
+      title: "Lenient plan creation",
+      multiAgent: true,
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    yield* prompt.prompt({
+      sessionID: chat.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "plan and execute the requested work" }],
+    })
+
+    yield* llm.tool("Plan_read", {})
+    // A realistic sloppy payload: extra fields, a runtime-owned timeout_ms,
+    // and task detail on a later Step. None of these should fail creation.
+    yield* llm.tool("Plan_create", {
+      title: "Lenient plan",
+      goal: "finish the work",
+      priority: "high",
+      steps: [
+        {
+          title: "Work",
+          goal: "do the work",
+          done_criteria: "the work is complete",
+          status: "active",
+          tasks: [
+            {
+              title: "Task",
+              goal: "produce the result",
+              done_criteria: "result.md exists",
+              output_path: "result.md",
+              timeout_ms: 30_000,
+              owner: "main",
+            },
+          ],
+        },
+        {
+          title: "Verify",
+          goal: "verify the result",
+          done_criteria: "the result is verified",
+          tasks: [{ title: "Check", goal: "run checks", done_criteria: "checks pass", output_path: "checks.md" }],
+        },
+      ],
+    })
+    yield* llm.text("Plan created on the first attempt.")
+
+    yield* prompt.loop({ sessionID: chat.id })
+
+    const inputs = yield* llm.inputs
+    // read + one successful create + final answer; no recovery read appeared.
+    expect(inputs).toHaveLength(3)
+    const plan = JSON.parse(
+      yield* Effect.promise(() => Bun.file(path.join(chat.directory, ".jyycode", "plan", chat.id, "plan.json")).text()),
+    )
+    expect(plan.steps[0].tasks).toHaveLength(1)
+    expect(plan.steps[1].tasks).toHaveLength(1)
+    expect(JSON.stringify(plan)).not.toContain("timeout_ms")
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+    const createParts = messages
+      .flatMap((message) => message.parts)
+      .filter(
+        (part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "Plan_create",
+      )
+    expect(createParts).toHaveLength(1)
+    expect(createParts[0]?.state.status).toBe("completed")
+    if (createParts[0]?.state.status === "completed") {
+      const result = JSON.parse(createParts[0].state.output)
+      expect(result.ok).toBe(true)
+      expect(result.warnings).toEqual(
+        expect.arrayContaining([
+          "忽略未识别字段 create.priority",
+          "忽略未识别字段 steps[0].status",
+          "忽略未识别字段 steps[0].tasks[0].timeout_ms",
+          "忽略未识别字段 steps[0].tasks[0].owner",
+        ]),
+      )
+    }
   }),
 )
 
@@ -1000,17 +1207,8 @@ it.instance("skips duplicate Plan_create calls after the first attempt in one re
       ...validCreate,
       steps: [
         validCreate.steps[0],
-        {
-          ...validCreate.steps[1],
-          tasks: [
-            {
-              title: "Create 2.txt",
-              goal: "copy 1.txt",
-              done_criteria: "2.txt contains the copied content",
-              output_path: "2.txt",
-            },
-          ],
-        },
+        // Missing a required field: the protocol still hard-rejects this.
+        { ...validCreate.steps[1], done_criteria: "" },
         validCreate.steps[2],
       ],
     }
@@ -1060,6 +1258,8 @@ it.instance("requires Plan_read before retrying a failed Plan_create", () =>
     })
 
     yield* llm.tool("Plan_read", {})
+    // timeout_ms is now ignored with a warning, so violate a required field
+    // instead to keep this a hard validation failure.
     yield* llm.tool("Plan_create", {
       title: "Invalid plan",
       goal: "this must be repaired",
@@ -1072,9 +1272,8 @@ it.instance("requires Plan_read before retrying a failed Plan_create", () =>
             {
               title: "Task",
               goal: "produce the result",
-              done_criteria: "result.md exists",
+              done_criteria: "",
               output_path: "result.md",
-              timeout_ms: 30_000,
             },
           ],
         },

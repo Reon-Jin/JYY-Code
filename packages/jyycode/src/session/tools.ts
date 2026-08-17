@@ -120,11 +120,17 @@ function gatedPlanWriteStub(name: string, requiredTool: string): AITool {
   return tool({
     description: `${name} 当前被协议门控暂时禁用`,
     inputSchema: jsonSchema({ type: "object", additionalProperties: true }),
-    execute: async () => ({
-      title: `${name} gated by protocol`,
-      output: `当前步骤必须先调用 ${requiredTool}；${name} 未执行，方案未变更。请先完成 ${requiredTool} 并读取其结果（含最新 revision），下一步回复会重新开放 ${name}，届时携带最新 revision 重试。`,
-      metadata: { gated: true, tool: name, requiredTool },
-    })
+    execute: async () => {
+      const guidance =
+        name === "Plan_create"
+          ? "请先完成 Plan_read 并确认最新状态：若方案尚不存在，下一步回复会重新开放 Plan_create；若方案已存在，请改用 Plan_update 修改，不要重复创建。"
+          : `请先完成 ${requiredTool} 并读取其结果（含最新 revision），下一步回复会重新开放 ${name}，届时携带最新 revision 重试。`
+      return {
+        title: `${name} gated by protocol`,
+        output: `当前步骤必须先调用 ${requiredTool}；${name} 未执行，方案未变更。${guidance}`,
+        metadata: { gated: true, tool: name, requiredTool },
+      }
+    },
   })
 }
 
@@ -446,12 +452,22 @@ export function requiredPlanTool(input: {
   planExists?: boolean
   /** A previous Plan_create call failed; force a fresh state read before retrying. */
   planCreateFailed?: boolean
+  /** Plan_create retries are exhausted for this user turn; release the plan gate. */
+  planCreateExhausted?: boolean
   plan?: PlanToolGateState
   workspaceRoot?: string
 }) {
   if (!input.root) return undefined
   if ((input.blackboardUnread ?? 0) > 0) return "Blackboard"
-  if (input.step === 1) return "Plan_read"
+  // Once the model has exhausted its Plan_create retry budget, forcing plan
+  // protocol tools again only re-enters the create/read loop. Let it answer
+  // the user or use ordinary tools instead.
+  if (input.planCreateExhausted) return undefined
+  // On a fresh turn the runtime may already know there is no plan. Forcing a
+  // Plan_read first costs an extra round trip that adds no information: the
+  // create gate already carries a fresh empty state, and Plan_create rejects
+  // a duplicate plan if one appears concurrently.
+  if (input.step === 1) return input.multiAgent && input.planExists === false ? "Plan_create" : "Plan_read"
   if (input.multiAgent && input.planExists === false) return input.planCreateFailed ? "Plan_read" : "Plan_create"
   if (input.multiAgent) {
     const currentStep = input.plan?.current_step

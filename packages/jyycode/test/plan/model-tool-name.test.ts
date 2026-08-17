@@ -423,6 +423,7 @@ describe("model-facing plan tool names", () => {
 
   it("forces multi-agent roots to create, recover, prepare, and dispatch active work instead of doing it themselves", () => {
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 1 })).toBe("Plan_read")
+    expect(requiredPlanTool({ root: true, multiAgent: true, step: 1, planExists: false })).toBe("Plan_create")
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 1, blackboardUnread: 2, planExists: false })).toBe(
       "Blackboard",
     )
@@ -430,6 +431,12 @@ describe("model-facing plan tool names", () => {
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 2, planExists: false, planCreateFailed: true })).toBe(
       "Plan_read",
     )
+    expect(
+      requiredPlanTool({ root: true, multiAgent: true, step: 2, planExists: false, planCreateExhausted: true }),
+    ).toBeUndefined()
+    expect(
+      requiredPlanTool({ root: true, multiAgent: true, step: 1, planExists: false, planCreateExhausted: true }),
+    ).toBeUndefined()
     expect(requiredPlanTool({ root: true, multiAgent: true, step: 3, planExists: true })).toBeUndefined()
     expect(
       requiredPlanTool({

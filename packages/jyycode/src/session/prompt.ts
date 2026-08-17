@@ -96,13 +96,28 @@ IMPORTANT:
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured JSON output. You MUST use the StructuredOutput tool to provide your final response as a JSON object. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the JSON schema.`
 
-function failedPlanCreatePart(part: MessageV2.Part) {
+export function failedPlanCreatePart(part: MessageV2.Part) {
   if (part.type !== "tool" || part.tool !== "Plan_create" || part.metadata?.providerExecuted) return false
   if (part.state.status === "error") return true
   if (part.state.status !== "completed" || part.state.metadata?.skipped === true) return false
   try {
+    const output = JSON.parse(part.state.output) as { ok?: unknown; error?: { code?: string } }
+    if (output.ok !== false) return false
+    // A create that fails because a plan already exists is not a failed
+    // creation attempt: there is nothing to retry, and it must neither burn
+    // the retry budget nor force a recovery read.
+    return output.error?.code !== "INVALID_STATE"
+  } catch {
+    return false
+  }
+}
+
+function succeededPlanCreatePart(part: MessageV2.Part) {
+  if (part.type !== "tool" || part.tool !== "Plan_create" || part.metadata?.providerExecuted) return false
+  if (part.state.status !== "completed" || part.state.metadata?.skipped === true) return false
+  try {
     const output = JSON.parse(part.state.output) as { ok?: unknown }
-    return output.ok === false
+    return output.ok === true
   } catch {
     return false
   }
@@ -1400,9 +1415,17 @@ export const layer = Layer.effect(
         // bounded continuation attempt, the second proves the output limit is
         // being hit repeatedly and should be surfaced to the user.
         const MAX_TRUNCATION_FINISHES = 2
+        // A failed Plan_create forces a Plan_read recovery turn, so the
+        // create/read cycle alternates and the exact-turn stuck-loop guard
+        // can never match it. Bound the retry budget per user turn instead:
+        // after this many failed attempts the plan gate is released and the
+        // model must answer or make progress with ordinary tools.
+        const PLAN_CREATE_RETRY_MAX = 3
         let loopWarningIssued = false
         let emptyResponseCount = 0
         let truncationCount = 0
+        let planCreateFailures = 0
+        let planCreateExhausted = false
         let lastUserID: string | undefined
 
         const resetTurnGuards = () => {
@@ -1482,6 +1505,8 @@ export const layer = Layer.effect(
             latestUserMsg?.parts.some((part) => part.type === "text" && part.synthetic) ?? false
           if (lastUser.id !== lastUserID && !latestUserIsSynthetic) {
             step = 0
+            planCreateFailures = 0
+            planCreateExhausted = false
             resetTurnGuards()
           }
           lastUserID = lastUser.id
@@ -1524,6 +1549,40 @@ export const layer = Layer.effect(
           // provider's stream (e.g. DWS Agent Platform) and don't need a re-loop.
           const hasToolCalls =
             lastAssistantMsg?.parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted) ?? false
+
+          // Count consecutive Plan_create failures for this user turn. The
+          // recovery gate alternates create-fail -> Plan_read -> create, so
+          // consecutive turns never repeat and the stuck-turn guard cannot
+          // see the cycle. Once the budget is exhausted, tell the model to
+          // stop retrying and release the plan gate so the turn always ends
+          // with an answer instead of an unbounded Plan_create/Plan_read loop.
+          // "Already exists" results are not failures and a successful create
+          // clears the budget, so a duplicate create after the plan exists
+          // can never disable planning.
+          const planCreateSucceeded =
+            lastAssistantMsg?.parts.some(succeededPlanCreatePart) ?? false
+          if (planCreateSucceeded) {
+            planCreateFailures = 0
+            planCreateExhausted = false
+          }
+          if (planCreateFailed && !planCreateExhausted) {
+            planCreateFailures++
+            if (planCreateFailures >= PLAN_CREATE_RETRY_MAX) {
+              planCreateExhausted = true
+              yield* slog.warn("plan creation retries exhausted; releasing the plan gate", {
+                failures: planCreateFailures,
+              })
+              yield* createSyntheticReminder({
+                lastUser,
+                kind: "plan_create_exhausted",
+                lines: [
+                  `Plan_create failed ${planCreateFailures} times in a row. The runtime will no longer force plan protocol tools for this request, and Plan_create is disabled for the rest of this request.`,
+                  "If a plan already exists, continue it with Plan_update or Dispatch_dispatch. Otherwise fix the validation errors reported by the failed calls, then either answer the user directly or make progress with ordinary tools. Do not call Plan_create again.",
+                ],
+              })
+              continue
+            }
+          }
 
           // Stuck-turn guard: an assistant turn that repeats the exact same text
           // and tool calls as the previous iteration made no progress. Child
@@ -1890,6 +1949,7 @@ export const layer = Layer.effect(
               blackboardUnread,
               planExists: planState?.ok ? planState.plan !== null : undefined,
               planCreateFailed,
+              planCreateExhausted,
               plan: planState?.ok ? (planState.plan ?? undefined) : undefined,
               workspaceRoot: session.directory,
             })
@@ -1902,6 +1962,16 @@ export const layer = Layer.effect(
                   structured = output
                 },
               })
+            }
+            // The model exhausted its Plan_create retries. Only remove the
+            // plan write tools when the plan really is missing: if a plan
+            // exists, the model must still be able to continue it with
+            // Plan_update or Dispatch_dispatch instead of restarting.
+            const planMissing = planState?.ok === true ? planState.plan === null : true
+            if (planCreateExhausted && requiredPlanTool === undefined && planMissing) {
+              delete tools.Plan_create
+              delete tools.Plan_update
+              delete tools.Dispatch_dispatch
             }
 
             if (step === 1) {

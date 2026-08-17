@@ -506,7 +506,7 @@ describe("file-backed plan protocol", () => {
     expect(captured?.brief.output_path).toBe(path.resolve(root, "notes", "notes.md"))
   })
 
-  it("rejects an output_path escaping the workspace at create time", async () => {
+  it("repairs an output_path escaping the workspace at create time", async () => {
     const root = workspace()
     let created = false
     const protocol = new PlanProtocol({
@@ -522,16 +522,24 @@ describe("file-backed plan protocol", () => {
       },
     })
     const createdPlan = await protocol.create(context(root), createInput(path.join("..", "escape.md")))
-    expect(createdPlan).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
+    expect(createdPlan.ok).toBe(true)
+    if (!createdPlan.ok) return
+    expect(createdPlan.warnings).toEqual([expect.stringContaining("已重置为 artifacts/escape.md")])
     expect(created).toBe(false)
-    expect(fs.existsSync(planFilePath(root, "ses_main"))).toBe(false)
+    expect(fs.existsSync(planFilePath(root, "ses_main"))).toBe(true)
   })
 
-  it("rejects an output_path with a stray drive prefix at create time", async () => {
+  it("repairs an output_path with a stray drive prefix at create time", async () => {
     const root = workspace()
     const protocol = new PlanProtocol({ store: new PlanStore() })
     const result = await protocol.create(context(root), createInput(`c:/${root.replace(/\\/g, "/")}/notes.md`))
-    expect(result).toMatchObject({ ok: false, error: { code: "SCHEMA_VALIDATION" } })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.warnings).toEqual([expect.stringContaining("已重置为 artifacts/notes.md")])
+    const read = await protocol.read(context(root))
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.plan?.steps[0]?.tasks[0]?.output_path).toBe("artifacts/notes.md")
   })
 
   it("still rejects a persisted output_path escaping the workspace at dispatch time", async () => {
@@ -599,39 +607,42 @@ describe("file-backed plan protocol", () => {
     expect(fs.existsSync(planFilePath(root, "ses_main"))).toBe(true)
   })
 
-  it("rejects tasks on later create steps and rejects duplicate plans", async () => {
+  it("keeps tasks on later create steps and rejects duplicate plans", async () => {
     const root = workspace()
     const protocol = new PlanProtocol({ store: new PlanStore() })
-    const invalid = await protocol.create(context(root), {
+    const kept = await protocol.create(context(root), {
       ...createInput(),
       steps: [
         { ...createInput().steps[0] },
         { ...createInput().steps[1], tasks: [{ title: "x", goal: "x", done_criteria: "x" }] },
       ],
     })
-    expect(invalid.ok).toBe(false)
-    if (invalid.ok) return
-    expect(invalid.error.code).toBe("SCHEMA_VALIDATION")
-    expect(invalid.error.message).toContain("steps[1]")
-    expect((await protocol.create(context(root), createInput())).ok).toBe(true)
+    expect(kept.ok).toBe(true)
+    if (!kept.ok) return
+    expect(kept.plan_id_assigned.tasks["s2"]).toEqual(["s2_t1"])
+    const read = await protocol.read(context(root))
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.plan?.steps[1]?.tasks).toHaveLength(1)
     const duplicate = await protocol.create(context(root), createInput())
     expect(duplicate.ok).toBe(false)
     if (!duplicate.ok) expect(duplicate.error.hint).toContain("Plan_update")
   })
 
-  it("rejects caller-supplied priority so write priority remains runtime-derived", async () => {
+  it("ignores unrecognized create fields and reports them as warnings", async () => {
     const root = workspace()
     const protocol = new PlanProtocol({ store: new PlanStore() })
     const forged = await protocol.create(context(root), { ...createInput(), priority: "high" })
-    expect(forged.ok).toBe(false)
-    if (!forged.ok) {
-      expect(forged.error.code).toBe("SCHEMA_VALIDATION")
-      expect(forged.error.message).toContain("priority")
-    }
-    expect(fs.existsSync(planFilePath(root, "ses_main"))).toBe(false)
+    expect(forged.ok).toBe(true)
+    if (!forged.ok) return
+    expect(forged.warnings).toEqual(["忽略未识别字段 create.priority"])
+    const read = await protocol.read(context(root))
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    expect(read.plan?.title).toBe("重构用户模块")
   })
 
-  it("rejects caller-supplied child execution limits in create and update inputs", async () => {
+  it("ignores caller-supplied child execution limits in create and rejects them in update inputs", async () => {
     const root = workspace()
     const protocol = new PlanProtocol({ store: new PlanStore() })
     const forgedCreate = {
@@ -645,10 +656,18 @@ describe("file-backed plan protocol", () => {
       ],
     }
     const createResult = await protocol.create(context(root), forgedCreate as never)
-    expect(createResult.ok).toBe(false)
-    if (!createResult.ok) expect(createResult.error.code).toBe("SCHEMA_VALIDATION")
+    expect(createResult.ok).toBe(true)
+    if (!createResult.ok) return
+    expect(createResult.warnings).toEqual([
+      "忽略未识别字段 steps[0].tasks[0].timeout_ms",
+      "忽略未识别字段 steps[0].tasks[0].max_steps",
+    ])
+    const created = await protocol.read(context(root))
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    expect(JSON.stringify(created.plan)).not.toContain("timeout_ms")
+    expect(JSON.stringify(created.plan)).not.toContain("max_steps")
 
-    expect((await protocol.create(context(root), createInput())).ok).toBe(true)
     const updateResult = await protocol.update(context(root), {
       revision: 1,
       ops: [
@@ -1773,7 +1792,7 @@ describe("file-backed plan protocol", () => {
     expect(multiAgentPrompt).toContain("Root multi-agent protocol")
     expect(multiAgentPrompt).toContain("Dispatch every ready task")
     expect(multiAgentPrompt).toContain("Create the plan exactly once")
-    expect(multiAgentPrompt).toContain("Later steps must be skeletons")
+    expect(multiAgentPrompt).toContain("Later steps should be skeletons")
     expect(multiAgentPrompt).toContain("never retry Plan_create in the same turn")
     expect(multiAgentPrompt).toContain("call Dispatch_dispatch directly to continue the existing child session")
     expect(multiAgentPrompt).toContain("Do not call reopen_task for this revision path")

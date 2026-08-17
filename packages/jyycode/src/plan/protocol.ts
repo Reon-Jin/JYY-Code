@@ -49,7 +49,7 @@ import {
 } from "./events"
 import { projectPlanSnapshot, type ActivityState, type PlanSnapshot } from "./snapshot"
 import { PlanStore, REPORT_RETRY_MAX, defaultPlanStore, type WriteOutcome } from "./store"
-import { assertInside, assertOutputArtifact, resolveInside } from "./path-guard"
+import { PathGuardError, assertInside, assertOutputArtifact, resolveInside } from "./path-guard"
 import {
   ChildWorkspace,
   DEFAULT_SNAPSHOT_LIMITS,
@@ -534,73 +534,119 @@ function assertOnly(value: Record<string, unknown>, allowed: readonly string[], 
   if (extra) inputError(`${prefix}.${extra} 不允许出现`, "删除未定义字段后重试")
 }
 
-function validateCreateInput(input: unknown): asserts input is CreatePlanInput {
+const CREATE_ALLOWED_FIELDS = new Set(["title", "goal", "steps"])
+const CREATE_STEP_ALLOWED_FIELDS = new Set(["title", "goal", "done_criteria", "tasks"])
+const CREATE_TASK_ALLOWED_FIELDS = new Set([
+  "title",
+  "goal",
+  "done_criteria",
+  "instructions",
+  "output_path",
+  "no_progress_steps",
+  "mode",
+])
+
+/**
+ * Normalize a Plan_create payload instead of hard-rejecting benign deviations:
+ * unknown fields, runtime-owned fields such as timeout_ms, invalid optional
+ * values, and task detail on any Step are dropped with an explicit warning.
+ * The model sees the warnings in the result and self-corrects without burning
+ * a retry. Only structurally required fields and protocol invariants remain
+ * hard errors, so the main agent can produce a valid plan on the first try.
+ */
+function normalizeCreateInput(input: unknown, workspaceRoot?: string): { value: CreatePlanInput; warnings: string[] } {
+  const warnings: string[] = []
   if (!input || typeof input !== "object" || Array.isArray(input)) inputError("Plan_create 入参必须是对象")
   const value = input as Record<string, unknown>
-  assertOnly(value, ["title", "goal", "steps"], "create")
-  requiredText(value.title, "title")
-  requiredText(value.goal, "goal")
+  for (const key of Object.keys(value)) {
+    if (!CREATE_ALLOWED_FIELDS.has(key)) warnings.push(`忽略未识别字段 create.${key}`)
+  }
+  const title = requiredText(value.title, "title")
+  const goal = requiredText(value.goal, "goal")
   if (!Array.isArray(value.steps) || value.steps.length < 2) inputError("steps 至少需要包含 2 个阶段")
-  for (const [index, rawStep] of (value.steps as unknown[]).entries()) {
+  const steps = (value.steps as unknown[]).map((rawStep, index) => {
     if (!rawStep || typeof rawStep !== "object" || Array.isArray(rawStep)) inputError(`steps[${index}] 必须是对象`)
     const step = rawStep as Record<string, unknown>
-    assertOnly(step, ["title", "goal", "done_criteria", "tasks"], `steps[${index}]`)
-    requiredText(step.title, `steps[${index}].title`)
-    requiredText(step.goal, `steps[${index}].goal`)
-    requiredText(step.done_criteria, `steps[${index}].done_criteria`)
-    if (step.tasks !== undefined && !Array.isArray(step.tasks)) inputError(`steps[${index}].tasks 必须是数组`)
-    if (index > 0 && Array.isArray(step.tasks) && step.tasks.length > 0) {
-      inputError(
-        `steps[${index}].tasks 不允许携带任务明细`,
-        "只有 steps[0] 可以携带 tasks；后续阶段用 Plan_update(add_task) 展开",
-      )
+    for (const key of Object.keys(step)) {
+      if (!CREATE_STEP_ALLOWED_FIELDS.has(key)) warnings.push(`忽略未识别字段 steps[${index}].${key}`)
     }
-    for (const [taskIndex, rawTask] of (Array.isArray(step.tasks) ? step.tasks : []).entries()) {
+    const stepTitle = requiredText(step.title, `steps[${index}].title`)
+    const stepGoal = requiredText(step.goal, `steps[${index}].goal`)
+    const stepDoneCriteria = requiredText(step.done_criteria, `steps[${index}].done_criteria`)
+    if (step.tasks !== undefined && !Array.isArray(step.tasks)) inputError(`steps[${index}].tasks 必须是数组`)
+    const tasks = (Array.isArray(step.tasks) ? step.tasks : []).map((rawTask, taskIndex) => {
       if (!rawTask || typeof rawTask !== "object" || Array.isArray(rawTask))
         inputError(`steps[${index}].tasks[${taskIndex}] 必须是对象`)
       const task = rawTask as Record<string, unknown>
-      assertOnly(
-        task,
-        [
-          "title",
-          "goal",
-          "done_criteria",
-          "instructions",
-          "output_path",
-          "no_progress_steps",
-          "mode",
-        ],
-        `steps[${index}].tasks[${taskIndex}]`,
-      )
-      requiredText(task.title, `steps[${index}].tasks[${taskIndex}].title`)
-      requiredText(task.goal, `steps[${index}].tasks[${taskIndex}].goal`)
-      requiredText(task.done_criteria, `steps[${index}].tasks[${taskIndex}].done_criteria`)
-      if (task.instructions !== undefined && !asString(task.instructions))
-        inputError(`steps[${index}].tasks[${taskIndex}].instructions must be non-empty`)
-      if (task.output_path !== undefined && !asString(task.output_path))
-        inputError(`steps[${index}].tasks[${taskIndex}].output_path must be non-empty`)
-      for (const field of ["no_progress_steps"] as const) {
-        if (
-          task[field] !== undefined &&
-          (!Number.isSafeInteger(task[field]) || Number(task[field]) < 1)
-        )
-          inputError(`steps[${index}].tasks[${taskIndex}].${field} must be a positive safe integer`)
+      for (const key of Object.keys(task)) {
+        if (!CREATE_TASK_ALLOWED_FIELDS.has(key)) {
+          warnings.push(`忽略未识别字段 steps[${index}].tasks[${taskIndex}].${key}`)
+        }
       }
-      if (task.mode !== undefined && task.mode !== "standard" && task.mode !== "candidate")
-        inputError(`steps[${index}].tasks[${taskIndex}].mode must be standard or candidate`)
-      if (task.mode === "candidate" && task.output_path !== undefined) {
-        inputError(`steps[${index}].tasks[${taskIndex}] candidate tasks cannot provide output_path`)
+      const taskTitle = requiredText(task.title, `steps[${index}].tasks[${taskIndex}].title`)
+      const taskGoal = requiredText(task.goal, `steps[${index}].tasks[${taskIndex}].goal`)
+      const taskDoneCriteria = requiredText(task.done_criteria, `steps[${index}].tasks[${taskIndex}].done_criteria`)
+      const mode: "standard" | "candidate" | undefined =
+        task.mode === "standard" || task.mode === "candidate" ? task.mode : undefined
+      if (task.mode !== undefined && mode === undefined)
+        warnings.push(`steps[${index}].tasks[${taskIndex}].mode 仅支持 standard|candidate，已忽略`)
+      if (mode === "candidate" && task.output_path !== undefined) {
+        warnings.push(`steps[${index}].tasks[${taskIndex}] candidate output_path 由运行时分配，已忽略`)
+        delete task.output_path
       }
-      const modes = (Array.isArray(step.tasks) ? step.tasks : []).map(
-        (task) => (task as Record<string, unknown>).mode ?? "standard",
-      )
-      if (
-        modes.includes("candidate") &&
-        (modes.length < 2 || modes.length > 3 || modes.some((mode) => mode !== "candidate"))
-      )
-        inputError(`steps[${index}].tasks candidate steps require 2-3 candidate tasks and no standard tasks`)
-    }
-  }
+      const instructions =
+        task.instructions !== undefined && asString(task.instructions) ? asString(task.instructions) : undefined
+      if (task.instructions !== undefined && !instructions)
+        warnings.push(`steps[${index}].tasks[${taskIndex}].instructions 必须是非空字符串，已忽略`)
+      let outputPath =
+        task.output_path !== undefined && asString(task.output_path) ? asString(task.output_path) : undefined
+      if (task.output_path !== undefined && !outputPath)
+        warnings.push(`steps[${index}].tasks[${taskIndex}].output_path 必须是非空字符串，已忽略`)
+      if (outputPath && workspaceRoot) {
+        try {
+          resolveWorkspacePath(workspaceRoot, outputPath, "task.output_path")
+        } catch {
+          // Models often pass an absolute path outside the workspace (for
+          // example a Desktop deliverable). Auto-repair it to a workspace
+          // artifact path so creation never fails on the path alone.
+          const segments = outputPath.replaceAll("\\", "/").split("/").filter(Boolean)
+          const basename = segments.at(-1)
+          if (basename && basename !== "." && basename !== "..") {
+            const repaired = path.posix.join("artifacts", basename)
+            warnings.push(
+              `steps[${index}].tasks[${taskIndex}].output_path 必须位于工作区内，已重置为 ${repaired}`,
+            )
+            outputPath = repaired
+          } else {
+            warnings.push(`steps[${index}].tasks[${taskIndex}].output_path 无法解析，已忽略`)
+            outputPath = undefined
+          }
+        }
+      }
+      const noProgressSteps =
+        task.no_progress_steps !== undefined &&
+        Number.isSafeInteger(task.no_progress_steps) &&
+        Number(task.no_progress_steps) >= 1
+          ? Number(task.no_progress_steps)
+          : undefined
+      if (task.no_progress_steps !== undefined && noProgressSteps === undefined)
+        warnings.push(`steps[${index}].tasks[${taskIndex}].no_progress_steps 必须是正整数，已忽略`)
+      return {
+        title: taskTitle,
+        goal: taskGoal,
+        done_criteria: taskDoneCriteria,
+        ...(instructions ? { instructions } : {}),
+        ...(outputPath ? { output_path: outputPath } : {}),
+        ...(noProgressSteps !== undefined ? { no_progress_steps: noProgressSteps } : {}),
+        ...(mode ? { mode } : {}),
+      }
+    })
+    const modes = tasks.map((task) => task.mode ?? "standard")
+    if (modes.includes("candidate") && (modes.length < 2 || modes.length > 3 || modes.some((m) => m !== "candidate")))
+      inputError(`steps[${index}].tasks candidate steps require 2-3 candidate tasks and no standard tasks`)
+    return { title: stepTitle, goal: stepGoal, done_criteria: stepDoneCriteria, tasks }
+  })
+  return { value: { title, goal, steps }, warnings }
 }
 
 function validateUpdateInput(input: unknown): asserts input is PlanUpdateInput {
@@ -775,7 +821,18 @@ function mergeJournalName(runId: string) {
 function createTask(input: CreateTaskInput, id: string, workspaceRoot?: string, rootSessionID?: string): PlanTask {
   const taskMode = input.mode ?? "standard"
   if (taskMode !== "candidate" && input.output_path && workspaceRoot) {
-    resolveWorkspacePath(workspaceRoot, asString(input.output_path), "task.output_path")
+    try {
+      resolveWorkspacePath(workspaceRoot, asString(input.output_path), "task.output_path")
+    } catch (error) {
+      if (error instanceof PathGuardError) {
+        throw new PlanProtocolError({
+          code: ERROR_CODES.SCHEMA_VALIDATION,
+          message: error.message,
+          hint: `output_path 必须解析到工作区内部，请使用相对路径（例如 src/out.md）；当前工作区：${workspaceRoot}`,
+        })
+      }
+      throw error
+    }
   }
   return {
     id,
@@ -1642,11 +1699,13 @@ export class PlanProtocol {
       revision: number
       current_step: string
       next_action_hint: string
+      warnings?: string[]
     }>
   > {
     try {
       assertMain(ctx)
-      validateCreateInput(input)
+      const normalized = normalizeCreateInput(input, ctx.workspaceRoot)
+      const value = normalized.value
       const assigned = { steps: [] as string[], tasks: {} as Record<string, string[]> }
       const result = await this.write(ctx, (latest) => {
         if (latest) {
@@ -1656,12 +1715,11 @@ export class PlanProtocol {
             hint: "已有方案，请用 Plan_update 修改",
           })
         }
-        const value = input as CreatePlanInput
         const steps = value.steps.map((step, index) => {
           const id = `s${index + 1}`
           assigned.steps.push(id)
           const taskIds: string[] = []
-          const tasks = (index === 0 ? (step.tasks ?? []) : []).map((task, taskIndex) => {
+          const tasks = (step.tasks ?? []).map((task, taskIndex) => {
             const taskId = `${id}_t${taskIndex + 1}`
             taskIds.push(taskId)
             return createTask(task, taskId, ctx.workspaceRoot, ctx.sessionId)
@@ -1688,7 +1746,12 @@ export class PlanProtocol {
           result: { revision: 1, current_step: "s1", next_action_hint: nextActionHint(plan, 0) },
         }
       })
-      return { ok: true, plan_id_assigned: assigned, ...result.result }
+      return {
+        ok: true,
+        plan_id_assigned: assigned,
+        ...result.result,
+        ...(normalized.warnings.length > 0 ? { warnings: normalized.warnings } : {}),
+      }
     } catch (error) {
       return responseFromError(error)
     }
