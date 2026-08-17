@@ -844,11 +844,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     })
   }
 
-  function changeAgent(agent: string) {
-    setSelectedAgent(agent)
-    saveComposerPreference({ agent, model: selectedModel() })
-  }
-
   function changeModel(model: ModelSelection) {
     setSelectedModel(model)
     saveComposerPreference({ agent: selectedAgent(), model })
@@ -1071,7 +1066,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                     directory={data.directory()}
                     requestDirectory={activeSession()?.directory ?? data.directory()}
                     sessionID={sessionID}
-                    agents={isChildSession() ? (catalogQuery.data?.allAgents ?? []) : (catalogQuery.data?.agents ?? [])}
                     models={catalogQuery.data?.models ?? []}
                     selectedAgent={composerAgent()}
                     selectedModel={composerModel()!}
@@ -1126,7 +1120,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
                         disabled={data.connection() !== "connected"}
                       />
                     }
-                    onAgentChange={changeAgent}
                     onModelChange={changeModel}
                     onProviderConnected={async () => {
                       await catalogQuery.refetch()

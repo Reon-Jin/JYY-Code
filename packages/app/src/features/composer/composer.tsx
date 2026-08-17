@@ -1,5 +1,5 @@
 import { tr } from "../../i18n/i18n-context"
-import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
+import type { SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import type { QueryClient } from "@tanstack/solid-query"
 import { File, ListPlus, OctagonX, Plus, RotateCcw, Send, Square, X } from "lucide-solid"
 import { createEffect, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
@@ -10,7 +10,6 @@ import type { DesktopClient } from "../../data/sdk"
 import { keys } from "../../data/query-keys"
 import { isConversationSnapshot, type ConversationSnapshot } from "../conversation/conversation-state"
 import { errorMessage } from "../projects/project-controller"
-import { AgentSelect } from "./agent-select"
 import { createComposerController, type ComposerAttachment } from "./composer-controller"
 import { createComposerQueue, type ComposerQueueStore } from "./composer-queue"
 import { ComposerQueuePanel } from "./composer-queue-panel"
@@ -29,7 +28,6 @@ export type ComposerProps = {
   directory: string
   requestDirectory?: string
   sessionID: string
-  agents: readonly Agent[]
   models: readonly CatalogModel[]
   selectedAgent: string
   selectedModel: ModelSelection
@@ -45,7 +43,6 @@ export type ComposerProps = {
   identityLocked?: boolean
   minimal?: boolean
   usage?: ComposerUsageMetrics
-  onAgentChange: (name: string) => void
   onModelChange: (model: ModelSelection) => void
   onProviderConnected: (providerID: string) => void | Promise<void>
   queueStore?: ComposerQueueStore
@@ -371,12 +368,6 @@ export function Composer(props: ComposerProps) {
         >
           <Show when={!props.minimal}>
             <div class="composer__selectors">
-              <AgentSelect
-                agents={props.agents}
-                value={props.selectedAgent}
-                disabled={props.identityLocked || controller.sending() || props.disabled}
-                onChange={props.onAgentChange}
-              />
               <ProviderConnectButton
                 client={props.client}
                 directory={props.directory}
@@ -483,7 +474,6 @@ export function Composer(props: ComposerProps) {
               aria-autocomplete="list"
               aria-expanded={autocompleteOpen()}
               aria-controls={autocompleteOpen() ? "composer-skill-listbox" : undefined}
-              disabled={controller.sending()}
               placeholder={tr("composer.send-message-to-agent")}
               onInput={(event) => {
                 controller.setDraft(event.currentTarget.value)
@@ -535,7 +525,7 @@ export function Composer(props: ComposerProps) {
                 class="composer__attach"
                 data-sound-effect="attach"
                 aria-label={tr("composer.add-attachment")}
-                disabled={props.disabled || controller.sending()}
+                disabled={props.disabled}
                 onClick={() => fileInput.click()}
               >
                 <Plus aria-hidden="true" />

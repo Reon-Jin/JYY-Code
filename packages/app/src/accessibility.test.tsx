@@ -117,8 +117,7 @@ describe("desktop accessibility contract", () => {
 
     expect(await screen.findByRole("complementary", { name: "项目与 Session 导航" }, { timeout: 5_000 })).toBeVisible()
     expect(screen.getByRole("navigation", { name: "活动 Session" })).toBeVisible()
-    expect(await screen.findByRole("combobox", { name: "智能体" }, { timeout: 5_000 })).toBeVisible()
-    expect(screen.getByRole("button", { name: "配置模型" })).toBeVisible()
+    expect(await screen.findByRole("button", { name: "配置模型" }, { timeout: 5_000 })).toBeVisible()
     await user.click(screen.getByRole("button", { name: "配置模型" }))
     expect(screen.queryByRole("combobox", { name: "子 Agent 模型" })).not.toBeInTheDocument()
     expect(screen.queryByRole("combobox", { name: "子 Agent 思考深度" })).not.toBeInTheDocument()

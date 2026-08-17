@@ -1,4 +1,4 @@
-import type { Agent, SessionStatus } from "@jyycode-ai/sdk/v2/client"
+import type { SessionStatus } from "@jyycode-ai/sdk/v2/client"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { createSignal, onMount, type JSX } from "solid-js"
@@ -20,7 +20,6 @@ vi.mock("@tauri-apps/api/webview", () => ({
 
 const directory = "C:\\work\\demo"
 const sessionID = "ses_1"
-const agents: Agent[] = [{ name: "build", mode: "primary", permission: [], options: {} }]
 const models: CatalogModel[] = [
   {
     providerID: "openai",
@@ -62,7 +61,6 @@ function renderComposer(input?: {
   minimal?: boolean
   selectedAgent?: string
   selectedModel?: ModelSelection
-  agents?: Agent[]
   models?: CatalogModel[]
   usage?: ComposerProps["usage"]
   queryClient?: ReturnType<typeof createDesktopQueryClient>
@@ -92,7 +90,6 @@ function renderComposer(input?: {
       queryClient={input?.queryClient ?? createDesktopQueryClient()}
       directory={directory}
       sessionID={sessionID}
-      agents={input?.agents ?? agents}
       models={input?.models ?? models}
       selectedAgent={input?.selectedAgent ?? "build"}
       selectedModel={input?.selectedModel ?? { providerID: "openai", modelID: "gpt-5" }}
@@ -108,7 +105,6 @@ function renderComposer(input?: {
       identityLocked={input?.identityLocked}
       minimal={input?.minimal}
       usage={input?.usage}
-      onAgentChange={vi.fn()}
       onModelChange={vi.fn()}
       onProviderConnected={vi.fn()}
       queueStore={createComposerQueueStore()}
@@ -311,7 +307,6 @@ describe("Composer", () => {
   it("exposes labeled selectors and sends on Enter but not Shift+Enter", async () => {
     const user = userEvent.setup()
     const client = renderComposer()
-    expect(screen.getByLabelText("智能体")).toBeVisible()
     await user.click(screen.getByRole("button", { name: "配置模型" }))
     expect(screen.getByRole("dialog", { name: "模型设置" })).toBeVisible()
     expect(screen.getByRole("combobox", { name: "模型" })).toHaveValue("openai/gpt-5")
@@ -336,14 +331,13 @@ describe("Composer", () => {
       multiAgentControl: <button aria-label="Multi-Agent control">Multi-Agent</button>,
       mcpControl: <button aria-label="MCP control">MCP</button>,
     })
-    const selectors = screen.getByLabelText("智能体").parentElement?.parentElement
-    expect(selectors?.children).toHaveLength(6)
-    expect(selectors?.children[0]).toContainElement(screen.getByLabelText("智能体"))
-    expect(selectors?.children[1]).toContainElement(screen.getByRole("button", { name: "连接" }))
-    expect(selectors?.children[2]).toContainElement(screen.getByRole("button", { name: "配置模型" }))
-    expect(selectors?.children[3]).toContainElement(screen.getByRole("button", { name: "Branch" }))
-    expect(selectors?.children[4]).toContainElement(screen.getByRole("button", { name: "Multi-Agent control" }))
-    expect(selectors?.children[5]).toContainElement(screen.getByRole("button", { name: "MCP control" }))
+    const selectors = screen.getByRole("button", { name: "连接" }).parentElement?.parentElement
+    expect(selectors?.children).toHaveLength(5)
+    expect(selectors?.children[0]).toContainElement(screen.getByRole("button", { name: "连接" }))
+    expect(selectors?.children[1]).toContainElement(screen.getByRole("button", { name: "配置模型" }))
+    expect(selectors?.children[2]).toContainElement(screen.getByRole("button", { name: "Branch" }))
+    expect(selectors?.children[3]).toContainElement(screen.getByRole("button", { name: "Multi-Agent control" }))
+    expect(selectors?.children[4]).toContainElement(screen.getByRole("button", { name: "MCP control" }))
   })
 
   it("keeps child model controls out of the Composer", async () => {
@@ -396,12 +390,9 @@ describe("Composer", () => {
       identityLocked: true,
       selectedAgent: "worker",
       selectedModel: { providerID: "test", modelID: "worker-model" },
-      agents: [{ name: "worker", mode: "subagent", permission: [], options: {} }],
       models: [],
     })
 
-    expect(screen.getByLabelText("智能体")).toHaveValue("worker")
-    expect(screen.getByLabelText("智能体")).toBeDisabled()
     expect(screen.getByRole("button", { name: "配置模型" })).toBeDisabled()
     const textbox = screen.getByRole("textbox", { name: "消息" })
     expect(textbox).toBeEnabled()
@@ -409,10 +400,9 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "发送" })).toBeEnabled()
   })
 
-  it("keeps next-turn Agent, provider, and model controls available while a turn is running", () => {
+  it("keeps provider and model controls available while a turn is running", () => {
     renderComposer({ status: { type: "busy" } })
 
-    expect(screen.getByLabelText("智能体")).toBeEnabled()
     expect(screen.getByRole("button", { name: "连接" })).toBeEnabled()
     expect(screen.getByRole("button", { name: "配置模型" })).toBeEnabled()
   })
@@ -679,14 +669,12 @@ describe("Composer", () => {
         queryClient={createDesktopQueryClient()}
         directory={directory}
         sessionID={sessionID}
-        agents={agents}
         models={models}
         selectedAgent="build"
         selectedModel={{ providerID: "openai", modelID: "gpt-5" }}
         status={{ type: "idle" }}
         usage={usage()}
         permissionControl={<PermissionProbe />}
-        onAgentChange={vi.fn()}
         onModelChange={vi.fn()}
         onProviderConnected={vi.fn()}
         queueStore={createComposerQueueStore()}

@@ -281,7 +281,6 @@ describe("desktop GUI journey", () => {
     await waitFor(
       () => {
         expect(screen.getByRole("main")).toBeVisible()
-        expect(screen.getByRole("combobox", { name: "智能体" })).toHaveValue("build")
         expect(screen.getByRole("button", { name: "配置模型" })).toBeVisible()
       },
       { timeout: 5_000 },
