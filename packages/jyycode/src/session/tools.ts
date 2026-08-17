@@ -294,13 +294,10 @@ export function isPlanToolVisible(itemID: string, session: Pick<Session.Info, "p
   if (session.parentID !== undefined)
     return itemID === "Report" || itemID === "Blackboard" || itemID === "Blackboard.reply"
   if (session.multiAgent === true) return true
-  return (
-    !itemID.startsWith("Dispatch.") &&
-    !itemID.startsWith("Candidate.") &&
-    itemID !== "Report" &&
-    itemID !== "Blackboard" &&
-    itemID !== "Blackboard.reply"
-  )
+  // Single-agent (non multi-agent) root sessions never expose plan protocol
+  // tools: the agent does not participate in the plan protocol at all, so
+  // Plan.read/Plan.create/Plan.update/Inbox/Merge_apply stay hidden entirely.
+  return false
 }
 
 /** Return the explicit allowlist carried by a profile-backed subagent. */
@@ -458,10 +455,10 @@ export function requiredPlanTool(input: {
   workspaceRoot?: string
 }) {
   if (!input.root) return undefined
-  // Plain (non multi-agent) sessions have no plan protocol. Plan tools stay
-  // visible for convenience, but the runtime never forces a protocol action
-  // and never narrows the catalog, so an ordinary chat does not pay a
-  // mandatory Plan_read round trip on every turn.
+  // Plain (non multi-agent) sessions have no plan protocol: plan tools are
+  // hidden entirely (see isPlanToolVisible) and the runtime never forces a
+  // protocol action or narrows the catalog, so an ordinary chat pays no
+  // plan-related round trips or gates.
   if (!input.multiAgent) return undefined
   if ((input.blackboardUnread ?? 0) > 0) return "Blackboard"
   // Once the model has exhausted its Plan_create retry budget, forcing plan
@@ -737,16 +734,24 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
                 )
                 return output
               })
-              return yield* bounded(
-                execution,
-                budget,
-                () =>
-                  new Tool.ExecutionTimeoutError(item.id, budget.effectiveMs, {
-                    requestedMs: budget.requestedMs,
-                    elapsedMs: Date.now() - started,
-                    phase: options.abortSignal?.aborted ? "abort" : phase,
-                    terminationResult: options.abortSignal?.aborted ? "aborted" : "not_applicable",
-                  }),
+              // Interactive tools (question) wait on the user, not the clock.
+              // Bounding them by the generic wall-clock budget would kill the
+              // call while the user is still reading/answering; their lifetime
+              // is governed by the session abort signal and cancelSession.
+              const interactive = item.id === "question"
+              return yield* (interactive
+                ? execution
+                : bounded(
+                    execution,
+                    budget,
+                    () =>
+                      new Tool.ExecutionTimeoutError(item.id, budget.effectiveMs, {
+                        requestedMs: budget.requestedMs,
+                        elapsedMs: Date.now() - started,
+                        phase: options.abortSignal?.aborted ? "abort" : phase,
+                        terminationResult: options.abortSignal?.aborted ? "aborted" : "not_applicable",
+                      }),
+                  )
               ).pipe(
                 Effect.matchCauseEffect({
                   onSuccess: (output) =>

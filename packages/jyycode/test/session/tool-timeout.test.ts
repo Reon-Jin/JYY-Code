@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Effect, Layer, Schema } from "effect"
+import { Deferred, Effect, Layer, Schema } from "effect"
 import * as TestClock from "effect/testing/TestClock"
 import { Agent } from "@/agent/agent"
 import { Bus } from "@/bus"
@@ -316,6 +316,55 @@ describe("session tool timeout boundaries", () => {
       expect(result.ok).toBe(false)
       expect(state.read().status).toBe("completed")
       expect(state.read().output).toBe("done")
+      expect(state.finalized()).toBe(1)
+    })),
+  )
+
+  it.effect("question tool waits for the user beyond the generic budget", () =>
+    provideTmpdirInstance(() => Effect.gen(function* () {
+      const state = processor()
+      const deferred = yield* Deferred.make<number, never>()
+      const tools = yield* SessionTools.resolve({
+        agent,
+        model: provider.model,
+        session,
+        processor: state,
+        bypassAgentCheck: false,
+        messages: [],
+        promptOps: {},
+      } as any).pipe(
+        Effect.provide(
+          layer(
+            Plugin.Service.of({
+              init: () => Effect.void,
+              list: () => Effect.succeed([]),
+              trigger: (_name, _input, output) => Effect.succeed(output),
+            }),
+            [
+              def("question", () =>
+                Deferred.await(deferred).pipe(
+                  Effect.as({ title: "answered", output: "ok", metadata: {} }),
+                ),
+              ),
+            ],
+          ),
+        ),
+      )
+
+      const promise = (tools.question as any).execute(
+        { query: "test" },
+        { toolCallId: "call", abortSignal: new AbortController().signal },
+      )
+      // The bridge promise rejects with the harness's pre-existing interrupt
+      // quirk on the success path; swallow it and rely on processor state.
+      promise.catch(() => undefined)
+      // Advance far beyond the 10ms generic budget: without the exemption the
+      // tool is killed and finalized as an error before the user answers.
+      yield* TestClock.adjust("5 seconds")
+      yield* Deferred.succeed(deferred, 1)
+      yield* Effect.yieldNow
+      expect(state.read().status).toBe("completed")
+      expect(state.read().output).toBe("ok")
       expect(state.finalized()).toBe(1)
     })),
   )
