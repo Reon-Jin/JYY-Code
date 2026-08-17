@@ -39,7 +39,7 @@ jobs:
           bun-version: 1.3.14
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-13
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable 2026-08-05
         with:
           targets: x86_64-pc-windows-msvc
 
@@ -104,7 +104,7 @@ jobs:
           bun-version: 1.3.14
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-13
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable 2026-08-05
         with:
           targets: aarch64-apple-darwin
 

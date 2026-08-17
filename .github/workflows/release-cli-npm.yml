@@ -38,7 +38,7 @@ jobs:
         uses: ./.github/actions/setup-bun
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@4be706ada62dd38de10e7b70166bc74ed198c30 # stable 2026-07-13
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable 2026-08-05
 
       - name: Setup Node
         uses: actions/setup-node@v4
