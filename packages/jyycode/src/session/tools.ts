@@ -872,35 +872,48 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
       ) => {
         return run.promise(
           Effect.gen(function* () {
-            const detail: "summary" | "schema" | "full" = searchParams.detail ?? "summary"
-            const scored = CatalogSearch.search({
-              tools: searchable,
-              query: searchParams.query ?? "",
-              limit: searchParams.limit,
-              detail,
-              category: searchParams.category,
-            })
-            const output = CatalogSearch.formatResults(scored, { detail })
-            const resultIDs = scored.map((item) => item.tool.id)
-            yield* ToolTelemetry.searchExecuted(bus, {
-              sessionID: input.session.id,
-              messageID: input.processor.message.id,
-              callID: options.toolCallId,
-              query: searchParams.query ?? "",
-              detail,
-              category: searchParams.category,
-              resultIDs,
-            })
-            return {
-              title: `Tool search: ${searchParams.query ?? ""}`,
-              metadata: {
-                matches: scored.length,
-                resultIDs,
+            const budget = budgetFor("generic_tool", undefined, input.executionBudget, executionBudgetConfig)
+            const ctx = context(searchParams as Record<string, unknown>, options, budget)
+            const execution = Effect.gen(function* () {
+              const detail: "summary" | "schema" | "full" = searchParams.detail ?? "summary"
+              const scored = CatalogSearch.search({
+                tools: searchable,
+                query: searchParams.query ?? "",
+                limit: searchParams.limit,
                 detail,
-                truncated: false,
-              },
-              output,
-            }
+                category: searchParams.category,
+              })
+              const output = CatalogSearch.formatResults(scored, { detail })
+              const resultIDs = scored.map((item) => item.tool.id)
+              yield* ToolTelemetry.searchExecuted(bus, {
+                sessionID: input.session.id,
+                messageID: input.processor.message.id,
+                callID: options.toolCallId,
+                query: searchParams.query ?? "",
+                detail,
+                category: searchParams.category,
+                resultIDs,
+              })
+              return {
+                title: `Tool search: ${searchParams.query ?? ""}`,
+                metadata: {
+                  matches: scored.length,
+                  resultIDs,
+                  detail,
+                  truncated: false,
+                },
+                output,
+              }
+            })
+            return yield* bounded(
+              execution,
+              budget,
+              () =>
+                new Tool.ExecutionTimeoutError("tool_search", budget.effectiveMs, {
+                  requestedMs: budget.requestedMs,
+                  phase: "execute",
+                }),
+            )
           }),
         )
       },
