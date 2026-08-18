@@ -622,8 +622,15 @@ it.instance("keeps the verbatim window contiguous with the episodic digest", () 
     expect(episodesText.trim().split("\n")).toHaveLength(5)
 
     const digestFile = path.join(dir, ".jyycode", "memory", "digest", `${chat.id}`, "0001.md")
-    const digestText = (yield* fsys.readFileStringSafe(digestFile).pipe(Effect.orDie)) ?? ""
-    expect(digestText.length).toBeGreaterThan(0)
+    // Digest generation now runs in the background so the assistant response
+    // is never blocked on the second LLM round trip; poll until it lands.
+    const digestText = yield* pollWithTimeout(
+      Effect.gen(function* () {
+        const text = (yield* fsys.readFileStringSafe(digestFile).pipe(Effect.orDie)) ?? ""
+        return text.length > 0 ? text : undefined
+      }),
+      "episodic digest was not written",
+    )
     expect(digestText.length).toBeLessThanOrEqual(3000)
 
     const beforeTurn6 = (yield* llm.inputs).at(-2)!
@@ -3797,6 +3804,13 @@ withExperienceWiring.instance("writes experience candidates after the assistant 
       agent: "build",
       parts: [{ type: "text", text: "fix deploy" }],
     })
+    // The after-turn curator runs in the background so the assistant response
+    // is never blocked on the second LLM round trip; poll until it lands. The
+    // step-begin write (user phase) is joined first, so ordering is preserved.
+    yield* pollWithTimeout(
+      Effect.sync(() => (experienceCandidatesWritten.length >= 2 ? true : undefined)),
+      "experience candidates after-turn write did not complete",
+    )
     expect(experienceCandidatesWritten.map((entry) => entry.candidates)).toEqual([[], [experienceCandidate]])
   }),
 )
