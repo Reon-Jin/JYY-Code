@@ -38,6 +38,8 @@ export type WorkspaceMergeInput = {
   resolutions?: MergeResolution[]
   childManifest?: BaselineManifestEntry[]
   childLimits?: SnapshotLimits
+  /** @internal test hook; not part of the public protocol */
+  __scanFilter?: ScanFilter
 }
 
 export type MergeApplyEntry = {
@@ -61,7 +63,7 @@ export type WorkspaceMergePreparation = {
   base: Map<string, FileEntry>
   main: Map<string, FileEntry>
   child: Map<string, FileEntry>
-  scanPaths?: ReadonlySet<string>
+  scanFilter?: ScanFilter
   plan: MergePlan
 }
 
@@ -185,15 +187,29 @@ type ScanOptions = {
   childSnapshot?: boolean
   limits?: SnapshotLimits
   state?: { totalBytes: number; fileCount: number }
-  paths?: ReadonlySet<string>
+  filter?: ScanFilter
 }
 
-function selectedPath(relative: string, paths: ReadonlySet<string> | undefined) {
-  if (!paths) return true
-  if (paths.has(relative)) return true
-  const prefix = `${relative}/`
-  for (const candidate of paths) if (candidate.startsWith(prefix)) return true
-  return false
+export type ScanFilter = {
+  files: ReadonlySet<string>
+  dirs: ReadonlySet<string>
+}
+
+export function buildScanFilter(paths: ReadonlySet<string>): ScanFilter {
+  const dirs = new Set<string>()
+  for (const relative of paths) {
+    let index = relative.indexOf("/")
+    while (index >= 0) {
+      dirs.add(relative.slice(0, index))
+      index = relative.indexOf("/", index + 1)
+    }
+  }
+  return { files: paths, dirs }
+}
+
+function selectedPath(relative: string, filter: ScanFilter | undefined) {
+  if (!filter) return true
+  return filter.files.has(relative) || filter.dirs.has(relative)
 }
 
 function scanWorkspace(root: string, current = root, output = new Map<string, FileEntry>(), options: ScanOptions = {}) {
@@ -205,8 +221,8 @@ function scanWorkspace(root: string, current = root, output = new Map<string, Fi
     const relative = canonicalRelative(path.relative(root, pathname), "workspace path")
     // Without a Git-derived path filter, fall back to the same hard excludes
     // the child snapshot used, so node_modules/dist/build are never walked.
-    if (!options.paths && !isSnapshotPathAllowed(relative, entry.isDirectory())) continue
-    if (!selectedPath(relative, options.paths)) continue
+    if (!options.filter && !isSnapshotPathAllowed(relative, entry.isDirectory())) continue
+    if (!selectedPath(relative, options.filter)) continue
     if (entry.isDirectory()) {
       if (options.childSnapshot && !isSnapshotPathAllowed(relative, true)) continue
       scanWorkspace(root, pathname, output, { ...options, state })
@@ -322,7 +338,7 @@ function optimizedGitMergePaths(input: WorkspaceMergeInput, roots: { base: strin
   }
 
   const scopes = (input.paths ?? []).map((value) => canonicalRelative(value, "paths entry"))
-  return new Set([...paths].filter((relative) => inScope(relative, scopes)))
+  return buildScanFilter(new Set([...paths].filter((relative) => inScope(relative, scopes))))
 }
 
 function sameEntry(left: FileEntry | undefined, right: FileEntry | undefined) {
@@ -479,8 +495,8 @@ export function prepareWorkspaceMerge(input: WorkspaceMergeInput): WorkspaceMerg
     if (resolutions.has(relative)) fail(`duplicate resolution for ${relative}`)
     resolutions.set(relative, { path: relative, use: resolution.use })
   }
-  const mergePaths = optimizedGitMergePaths(input, roots)
-  const scanOptions = mergePaths ? { paths: mergePaths } : undefined
+  const scanFilter = input.__scanFilter ?? optimizedGitMergePaths(input, roots)
+  const scanOptions = scanFilter ? { filter: scanFilter } : undefined
   const base = scanWorkspace(roots.base, roots.base, new Map(), scanOptions)
   const main = scanWorkspace(roots.main, roots.main, new Map(), scanOptions)
   const child = scanWorkspace(roots.child, roots.child, new Map(), {
@@ -491,7 +507,7 @@ export function prepareWorkspaceMerge(input: WorkspaceMergeInput): WorkspaceMerg
   if (input.childManifest) {
     for (const entry of input.childManifest) {
       const relative = entry.relative_path.replaceAll("\\", "/")
-      if (mergePaths && !mergePaths.has(relative)) continue
+      if (scanFilter && !scanFilter.files.has(relative)) continue
       const baseline = base.get(relative)
       const expected = entry.mode === "symlink" ? hashText(entry.hash) : entry.hash
       if (!baseline || baseline.kind !== entry.mode || baseline.hash !== expected)
@@ -553,7 +569,7 @@ export function prepareWorkspaceMerge(input: WorkspaceMergeInput): WorkspaceMerg
   result.keep = [...new Set(result.keep)].sort((left, right) => left.localeCompare(right))
   result.delete = [...new Set(result.delete)].sort((left, right) => left.localeCompare(right))
   result.conflicts.sort((left, right) => left.path.localeCompare(right.path))
-  return { roots, base, main, child, ...(mergePaths ? { scanPaths: mergePaths } : {}), plan: result }
+  return { roots, base, main, child, ...(scanFilter ? { scanFilter } : {}), plan: result }
 }
 
 function resolvePreparedPlan(
@@ -737,7 +753,7 @@ function currentTargetEntries(root: string) {
 function targetMatchesJournal(root: string, journal: MergeJournal) {
   const current = targetEntries(
     journal.target_paths
-      ? scanWorkspace(root, root, new Map(), { paths: new Set(journal.target_paths) })
+      ? scanWorkspace(root, root, new Map(), { filter: buildScanFilter(new Set(journal.target_paths)) })
       : currentTargetEntries(root),
   )
   const expected = { ...journal.target_entries }
@@ -881,8 +897,8 @@ export function applyWorkspaceMerge(
     roots,
     target_fingerprint: targetFingerprint,
     target_entries: targetEntries(mainEntries),
-    ...(reusable.scanPaths
-      ? { target_paths: [...reusable.scanPaths].sort((left, right) => left.localeCompare(right)) }
+    ...(reusable.scanFilter
+      ? { target_paths: [...reusable.scanFilter.files].sort((left, right) => left.localeCompare(right)) }
       : {}),
     items: [],
     applied_paths: [],
@@ -920,8 +936,8 @@ export function applyWorkspaceMerge(
   }
   try {
     options.beforeApply?.()
-    const currentMain = reusable.scanPaths
-      ? scanWorkspace(roots.main, roots.main, new Map(), { paths: reusable.scanPaths })
+    const currentMain = reusable.scanFilter
+      ? scanWorkspace(roots.main, roots.main, new Map(), { filter: reusable.scanFilter })
       : scanWorkspace(roots.main)
     if (fingerprintEntries(currentMain) !== targetFingerprint) {
       journal.status = "stale"
