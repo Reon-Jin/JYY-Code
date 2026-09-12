@@ -234,6 +234,10 @@ export const Info = Schema.Struct({
   ).annotate({
     description: "Streaming child snapshot limits and safe exclusion overrides",
   }),
+  max_concurrent_children: Schema.optional(PositiveInt).annotate({
+    description:
+      "Maximum number of child agents whose workspaces are created/started concurrently by a single Dispatch_dispatch call",
+  }),
   // User-facing plugin config is stored as Specs; provenance gets attached later while configs are merged.
   plugin: Schema.optional(Schema.mutable(Schema.Array(ConfigPlugin.Spec))),
   share: Schema.optional(Schema.Literals(["manual", "auto", "disabled"])).annotate({

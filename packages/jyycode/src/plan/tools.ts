@@ -755,6 +755,7 @@ function protocolFor(
     childWorkspace?: ChildWorkspace
     disposeDirectory?: (directory: string) => Promise<void>
     leaseStore?: WorkspaceLeaseStore
+    maxConcurrentChildren?: number
   },
 ) {
   let protocol: PlanProtocol
@@ -892,6 +893,9 @@ function protocolFor(
       runtime.bridge.fork(bus.publish(RuntimeEvent, event).pipe(Effect.ignore))
     },
     profiles: runtime.profiles,
+    ...(runtime.maxConcurrentChildren !== undefined
+      ? { maxConcurrentChildren: runtime.maxConcurrentChildren }
+      : {}),
     children: {
       async create(input) {
         const run = runtime.bridge.promise
@@ -1328,6 +1332,9 @@ export const DispatchDispatchTool = Tool.define(
             childWorkspace,
             disposeDirectory,
             leaseStore,
+            ...(runtimeConfig.max_concurrent_children !== undefined
+              ? { maxConcurrentChildren: runtimeConfig.max_concurrent_children }
+              : {}),
             profiles: async () => enabledProfiles(resolveProfiles(runtimeConfig.subagents?.profiles)),
           })
           const result = yield* Effect.promise(() => protocol.dispatch(protocolContext(session, ctx), input))

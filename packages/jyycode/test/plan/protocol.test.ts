@@ -278,6 +278,54 @@ describe("file-backed plan protocol", () => {
     expect(read.plan.steps[0]?.tasks.map((task) => task.status)).toEqual(["running", "running"])
   })
 
+  it("bounds concurrent child starts by max_concurrent_children", async () => {
+    const root = workspace()
+    const input = createInput(path.join("out", "one.md"))
+    input.steps[0]!.tasks!.push({
+      title: "Check API",
+      goal: "Check the API request shape",
+      done_criteria: "API check file exists",
+      output_path: path.join("out", "two.md"),
+    })
+    let releaseFirst!: () => void
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    let firstStarted!: () => void
+    const firstStartedSignal = new Promise<void>((resolve) => {
+      firstStarted = resolve
+    })
+    const started: string[] = []
+    const protocol = new PlanProtocol({
+      store: new PlanStore(),
+      profiles: async () => [defaultGeneralProfile],
+      maxConcurrentChildren: 1,
+      children: {
+        async create(input) {
+          return `ses_${input.taskId}`
+        },
+        async start(input) {
+          started.push(input.taskId)
+          if (input.taskId === "s1_t1") {
+            firstStarted()
+            await firstRelease
+          }
+        },
+        async terminate() {},
+      },
+    })
+    await protocol.create(context(root), input)
+
+    const dispatching = protocol.dispatch(context(root), { taskIds: ["s1_t1", "s1_t2"], role: "general" })
+    await firstStartedSignal
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    expect(started).toEqual(["s1_t1"])
+
+    releaseFirst()
+    expect(await dispatching).toMatchObject({ ok: true })
+    expect(started).toEqual(["s1_t1", "s1_t2"])
+  })
+
   it("cancels running and already-cancelled dispatches idempotently", async () => {
     const root = workspace()
     let terminations = 0

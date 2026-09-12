@@ -370,9 +370,36 @@ type ProtocolOptions = {
   workspaceCleanup?: WorkspaceCleanupService
   activation?: PlanActivationStore
   ownerId?: string
+  maxConcurrentChildren?: number
 }
 
 type WriteResult<T extends object> = { result: T; plan: PlanFile }
+
+/** Bound the dispatch burst so a large Step cannot create all child workspaces at once. */
+const DEFAULT_MAX_CONCURRENT_CHILDREN = 4
+
+async function boundedAllSettled<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T) => Promise<R>,
+): Promise<Array<PromiseSettledResult<R>>> {
+  const results = new Array<PromiseSettledResult<R>>(items.length)
+  let next = 0
+  const worker = async () => {
+    while (true) {
+      const index = next++
+      if (index >= items.length) return
+      try {
+        results[index] = { status: "fulfilled", value: await run(items[index]!) }
+      } catch (reason) {
+        results[index] = { status: "rejected", reason }
+      }
+    }
+  }
+  const width = Math.max(1, Math.min(limit, items.length))
+  await Promise.all(Array.from({ length: width }, worker))
+  return results
+}
 
 function asString(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
@@ -1324,6 +1351,7 @@ export class PlanProtocol {
   private readonly reportAttempts = sharedReportAttempts
   private readonly activities = sharedActivities
   private readonly activityEvents = sharedActivityEvents
+  private readonly maxConcurrentChildren: number
 
   constructor(options: ProtocolOptions = {}) {
     this.store = options.store ?? defaultPlanStore
@@ -1341,6 +1369,7 @@ export class PlanProtocol {
     this.workspaceCleanup = options.workspaceCleanup ?? new WorkspaceCleanupService()
     this.activation = options.activation ?? defaultPlanActivationStore
     this.ownerId = options.ownerId ?? activationOwnerId()
+    this.maxConcurrentChildren = options.maxConcurrentChildren ?? DEFAULT_MAX_CONCURRENT_CHILDREN
   }
 
   private publish(event: Parameters<PlanEventHub["publish"]>[0]) {
@@ -2239,8 +2268,11 @@ export class PlanProtocol {
             result: { next_action_hint: nextActionHint(next, this.inbox.pendingCount(ctx.sessionId)) },
           }
         })
-        const launchResults = await Promise.allSettled(
-          [...prepared].map(async ([taskId, item]) => {
+        const launchItems = [...prepared]
+        const launchResults = await boundedAllSettled(
+          launchItems,
+          this.maxConcurrentChildren,
+          async ([taskId, item]) => {
             let actualChild: string | undefined
             let workspaceHandle: WorkspaceHandle | undefined = item.workspace
             try {
@@ -2394,7 +2426,7 @@ export class PlanProtocol {
               })
               throw error
             }
-          }),
+          },
         )
         for (const result of launchResults) {
           if (result.status === "rejected") throw result.reason
