@@ -13,6 +13,23 @@ import { tryExecGitSync } from "./git-platform-adapter"
 const INTERNAL_NAMES = new Set([".git", ".jyycode"])
 const MAX_PATH_LENGTH = 4096
 
+/**
+ * Test-only scan counters. Merge scans are the hottest path in multi-agent
+ * mode; regression tests assert that we stop rescanning whole workspaces.
+ */
+export const __mergeScanStats = {
+  workspaceScans: 0,
+  filesRead: 0,
+  scannedPaths: [] as string[],
+}
+
+/** @internal reset helper for tests */
+export function __resetMergeScanStats() {
+  __mergeScanStats.workspaceScans = 0
+  __mergeScanStats.filesRead = 0
+  __mergeScanStats.scannedPaths = []
+}
+
 export type WorkspaceMergeInput = {
   base: string
   main: string
@@ -181,10 +198,14 @@ function selectedPath(relative: string, paths: ReadonlySet<string> | undefined) 
 
 function scanWorkspace(root: string, current = root, output = new Map<string, FileEntry>(), options: ScanOptions = {}) {
   const state = options.state ?? { totalBytes: 0, fileCount: 0 }
+  __mergeScanStats.workspaceScans++
   for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
     if (INTERNAL_NAMES.has(entry.name)) continue
     const pathname = path.join(current, entry.name)
     const relative = canonicalRelative(path.relative(root, pathname), "workspace path")
+    // Without a Git-derived path filter, fall back to the same hard excludes
+    // the child snapshot used, so node_modules/dist/build are never walked.
+    if (!options.paths && !isSnapshotPathAllowed(relative, entry.isDirectory())) continue
     if (!selectedPath(relative, options.paths)) continue
     if (entry.isDirectory()) {
       if (options.childSnapshot && !isSnapshotPathAllowed(relative, true)) continue
@@ -204,6 +225,8 @@ function scanWorkspace(root: string, current = root, output = new Map<string, Fi
         if (state.fileCount > options.limits.maxFileCount)
           fail("child merge exceeds the file-count limit; narrow the task scope")
       }
+      __mergeScanStats.scannedPaths.push(relative)
+      __mergeScanStats.filesRead++
       output.set(relative, { path: relative, kind: "symlink", link, hash: hashText(link) })
       continue
     }
@@ -220,6 +243,8 @@ function scanWorkspace(root: string, current = root, output = new Map<string, Fi
     }
     const bytes = new Uint8Array(fs.readFileSync(pathname))
     const text = isTextBytes(bytes) ? Buffer.from(bytes).toString("utf8") : undefined
+    __mergeScanStats.scannedPaths.push(relative)
+    __mergeScanStats.filesRead++
     output.set(relative, {
       path: relative,
       kind: "file",
