@@ -38,6 +38,8 @@ export type RuntimeMetricInput = {
   retention_days?: number
   snapshot_files?: number
   snapshot_bytes?: number
+  scanned_files?: number
+  workspace_scans?: number
 }
 
 /**

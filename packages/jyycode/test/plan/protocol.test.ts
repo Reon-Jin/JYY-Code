@@ -1181,12 +1181,13 @@ describe("file-backed plan protocol", () => {
       expect(resolved).toMatchObject({ ok: true, status: "merged", cleanup: "completed" })
       expect(fs.readFileSync(path.join(root, "src", "config.ts"), "utf8")).toBe("main-resolved\n")
       expect(fs.existsSync(childRoot)).toBe(false)
-      expect(
-        events
-          .readAfter("ses_main", -1)
-          .filter((event) => event.type === "runtime.metric" && event.payload.metric === "merge")
-          .some((event) => event.payload.phase === "completed"),
-      ).toBe(true)
+      const mergeMetrics = events
+        .readAfter("ses_main", -1)
+        .filter((event) => event.type === "runtime.metric" && event.payload.metric === "merge")
+      const completedMetric = mergeMetrics.find((event) => event.payload.phase === "completed")
+      expect(completedMetric).toBeDefined()
+      expect(typeof completedMetric!.payload.workspace_scans).toBe("number")
+      expect(typeof completedMetric!.payload.scanned_files).toBe("number")
     } finally {
       fs.rmSync(runtime, { recursive: true, force: true })
       fs.rmSync(root, { recursive: true, force: true })

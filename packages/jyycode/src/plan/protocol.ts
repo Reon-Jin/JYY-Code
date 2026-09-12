@@ -63,6 +63,7 @@ import {
   prepareWorkspaceMerge,
   removeMergeJournal,
   workspaceFingerprint,
+  __mergeScanStats,
   type WorkspaceMergePreparation,
   type WorkspaceMergeTransactionResult,
 } from "./workspace-merge"
@@ -3131,6 +3132,8 @@ export class PlanProtocol {
     }>
   > {
     const startedAt = this.now()
+    const scanStart = __mergeScanStats.filesRead
+    const scanStartScans = __mergeScanStats.workspaceScans
     let mergeStarted = false
     try {
       assertMain(ctx)
@@ -3468,6 +3471,8 @@ export class PlanProtocol {
         outcome: status,
         duration_ms: Math.max(0, this.now() - startedAt),
         count: transaction.applied_paths.length,
+        scanned_files: Math.max(0, __mergeScanStats.filesRead - scanStart),
+        workspace_scans: Math.max(0, __mergeScanStats.workspaceScans - scanStartScans),
       })
       return {
         ok: true,
