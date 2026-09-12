@@ -484,6 +484,73 @@ async function copyManifest(source: string, target: string, manifest: BaselineMa
   await Promise.all(Array.from({ length: Math.min(8, Math.max(1, manifest.length)) }, () => worker()))
 }
 
+/** Test-only counters for the Git worktree overlay path. */
+export const __childWorkspaceCopyStats = { overlayPaths: [] as string[] }
+
+type DirtyWorktreePlan = {
+  copy: Set<string>
+  remove: Set<string>
+  tracked: Set<string>
+}
+
+/**
+ * The parent's Git checkout already contains every clean tracked file, so a
+ * child worktree only needs the dirty/untracked overlay. Returns undefined when
+ * Git is unavailable (fake adapters, non-repo fixtures) so callers fall back to
+ * the full-manifest copy.
+ */
+function dirtyWorktreePlan(root: string): DirtyWorktreePlan | undefined {
+  try {
+    const output = execGitSync(root, [
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--no-renames",
+      "--",
+      ".",
+    ]).toString("utf8")
+    const copy = new Set<string>()
+    const remove = new Set<string>()
+    for (const record of output.split("\0").filter(Boolean)) {
+      const status = record.slice(0, 2)
+      const relative = record.slice(3).replaceAll("/", path.sep)
+      if (!relative) continue
+      if (status !== "??" && status.includes("D")) remove.add(relative)
+      else copy.add(relative)
+    }
+    const tracked = new Set(gitPaths(root, ["ls-files", "-z", "--cached", "--", "."]))
+    return { copy, remove, tracked }
+  } catch {
+    return undefined
+  }
+}
+
+async function overlayDirtyWorktree(input: {
+  source: string
+  target: string
+  manifest: readonly BaselineManifestEntry[]
+  plan: DirtyWorktreePlan
+}) {
+  // Git may apply autocrlf/eol filters on checkout. Re-check out with filters
+  // disabled so clean tracked bytes line up with the parent working tree that
+  // the baseline manifest hashed. Adapters without a real Git dir ignore this.
+  try {
+    execGitSync(input.target, ["-c", "core.autocrlf=false", "-c", "core.eol=lf", "checkout", "--", "."])
+  } catch {
+    // Keep the original checkout bytes when the worktree cannot be re-checked out.
+  }
+  const baseline = new Set(input.manifest.map((entry) => entry.relative_path))
+  const discard = new Set([...input.plan.remove, ...[...input.plan.tracked].filter((relative) => !baseline.has(relative))])
+  for (const relative of discard) {
+    const target = path.join(input.target, relative)
+    if (fs.lstatSync(target, { throwIfNoEntry: false })) fs.rmSync(target, { recursive: true, force: true })
+  }
+  const copies = input.manifest.filter((entry) => input.plan.copy.has(entry.relative_path))
+  __childWorkspaceCopyStats.overlayPaths.push(...copies.map((entry) => entry.relative_path))
+  await copyManifest(input.source, input.target, [...copies])
+}
+
 function clearTreeExceptGit(directory: string, preserveGit = true) {
   if (!fs.existsSync(directory)) return
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -735,8 +802,21 @@ export class ChildWorkspace {
             directory: info.directory,
           })
         const worktreeDirectory = path.resolve(info.directory)
-        clearTreeExceptGit(worktreeDirectory)
-        await copyManifest(effectiveBaselineDirectory, worktreeDirectory, baselineManifest)
+        const dirty = dirtyWorktreePlan(this.project.root)
+        if (!dirty) {
+          // Fallback for non-Git fixtures and adapters that do not check out files.
+          clearTreeExceptGit(worktreeDirectory)
+          await copyManifest(effectiveBaselineDirectory, worktreeDirectory, baselineManifest)
+        } else {
+          // Git already checked out every clean tracked file; only overlay the
+          // parent's dirty/untracked state instead of copying the whole repo.
+          await overlayDirtyWorktree({
+            source: effectiveBaselineDirectory,
+            target: worktreeDirectory,
+            manifest: baselineManifest,
+            plan: dirty,
+          })
+        }
         const handle: WorkspaceHandle = {
           ...reservation,
           directory: worktreeDirectory,

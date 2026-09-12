@@ -3,7 +3,7 @@ import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "bun:test"
-import { ChildWorkspace, ChildWorkspaceError, type WorktreeAdapter } from "../../src/plan/child-workspace"
+import { ChildWorkspace, ChildWorkspaceError, __childWorkspaceCopyStats, type WorktreeAdapter } from "../../src/plan/child-workspace"
 import { assertRuntimePath, WorkspacePathError } from "../../src/plan/workspace-path"
 
 function tempDirectory(prefix: string) {
@@ -267,6 +267,42 @@ describe("ChildWorkspace", () => {
     expect(created.baseline_manifest_size).toBeGreaterThan(0)
     expect(created.baseline_manifest_file_count).toBe(created.baseline_manifest.length)
     expect(fs.existsSync(created.baseline_manifest_path!)).toBe(true)
+  })
+
+  it("overlays only dirty and untracked files into a Git worktree", async () => {
+    const root = tempDirectory("jyycode-child-overlay-project-")
+    const runtime = tempDirectory("jyycode-child-overlay-runtime-")
+    fs.writeFileSync(path.join(root, "clean.ts"), "export const clean = true\n")
+    fs.writeFileSync(path.join(root, "dirty.ts"), "export const value = 1\n")
+    execFileSync("git", ["init", "--quiet"], { cwd: root })
+    execFileSync("git", ["config", "user.email", "child-test@example.com"], { cwd: root })
+    execFileSync("git", ["config", "user.name", "Child Test"], { cwd: root })
+    execFileSync("git", ["add", "clean.ts", "dirty.ts"], { cwd: root })
+    execFileSync("git", ["commit", "--quiet", "-m", "base"], { cwd: root })
+    fs.writeFileSync(path.join(root, "dirty.ts"), "export const value = 2\n")
+    fs.writeFileSync(path.join(root, "untracked.ts"), "export const fresh = true\n")
+
+    const adapter: WorktreeAdapter = {
+      async makeWorktreeInfo(input) {
+        return { name: input.name, directory: path.join(runtime, input.name) }
+      },
+      async createFromInfo(info) {
+        fs.mkdirSync(path.join(info.directory, ".git"), { recursive: true })
+      },
+      async remove(directory) {
+        fs.rmSync(directory, { recursive: true, force: true })
+        return true
+      },
+    }
+    __childWorkspaceCopyStats.overlayPaths = []
+    const manager = new ChildWorkspace({ project: { root, vcs: "git" }, runtimeRoot: runtime, worktree: adapter })
+    const created = await manager.create(manager.reserve("ses_root", "s1_t1"))
+
+    expect(__childWorkspaceCopyStats.overlayPaths).not.toContain("clean.ts")
+    expect(__childWorkspaceCopyStats.overlayPaths).toContain("dirty.ts")
+    expect(__childWorkspaceCopyStats.overlayPaths).toContain("untracked.ts")
+    expect(fs.readFileSync(path.join(created.directory, "dirty.ts"), "utf8")).toContain("value = 2")
+    expect(fs.existsSync(path.join(created.directory, "untracked.ts"))).toBe(true)
   })
 
   it("applies the same ignore policy to non-Git snapshots and reports size limits", async () => {
