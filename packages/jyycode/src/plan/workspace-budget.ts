@@ -56,13 +56,24 @@ export function estimateSnapshotCost(input: {
 
 export async function directoryBytes(root: string, limit = Number.MAX_SAFE_INTEGER) {
   let total = 0
+  // Incremental baselines hardlink unchanged files, so count each inode once
+  // instead of charging every link against the runtime quota.
+  const seen = new Set<string>()
   async function walk(current: string): Promise<void> {
     if (total >= limit) return
     for (const entry of await fs.promises.readdir(current, { withFileTypes: true })) {
       if (total >= limit) return
       const pathname = path.join(current, entry.name)
       if (entry.isDirectory()) await walk(pathname)
-      else if (entry.isFile()) total += (await fs.promises.stat(pathname)).size
+      else if (entry.isFile()) {
+        const stat = await fs.promises.stat(pathname)
+        if (stat.ino !== 0) {
+          const key = `${stat.dev}:${stat.ino}`
+          if (seen.has(key)) continue
+          seen.add(key)
+        }
+        total += stat.size
+      }
     }
   }
   try {

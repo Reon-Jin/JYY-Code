@@ -2,7 +2,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it } from "bun:test"
-import { buildSnapshotManifest } from "../../src/plan/snapshot-manifest"
+import { buildSnapshotManifest, __snapshotHashStats } from "../../src/plan/snapshot-manifest"
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -29,6 +29,29 @@ describe("snapshot manifest budget accounting", () => {
     await expect(buildSnapshotManifest({ root, limits: { maxTotalBytes: 1000 } })).rejects.toThrow(
       /total-byte limit/,
     )
+  })
+
+  it("reuses the persisted hash cache on a second scan", async () => {
+    const root = fixtureRoot()
+    const runtime = fs.mkdtempSync(path.join(os.tmpdir(), "jyycode-manifest-runtime-"))
+    cleanups.push(() => fs.rmSync(runtime, { recursive: true, force: true }))
+    for (let index = 0; index < 40; index++) {
+      fs.writeFileSync(path.join(root, `file-${index}.txt`), "x".repeat(128))
+    }
+
+    const first = await buildSnapshotManifest({ root, runtimeRoot: runtime })
+    __snapshotHashStats.filesRead = 0
+    const second = await buildSnapshotManifest({ root, runtimeRoot: runtime })
+
+    expect(__snapshotHashStats.filesRead).toBe(0)
+    expect(second.source_manifest_hash).toBe(first.source_manifest_hash)
+
+    // A changed file invalidates only its own entry.
+    fs.writeFileSync(path.join(root, "file-0.txt"), "y".repeat(128))
+    __snapshotHashStats.filesRead = 0
+    const third = await buildSnapshotManifest({ root, runtimeRoot: runtime })
+    expect(__snapshotHashStats.filesRead).toBe(1)
+    expect(third.source_manifest_hash).not.toBe(first.source_manifest_hash)
   })
 
   it("accounts large trees linearly", async () => {

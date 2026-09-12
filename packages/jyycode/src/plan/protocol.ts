@@ -379,6 +379,18 @@ type WriteResult<T extends object> = { result: T; plan: PlanFile }
 /** Bound the dispatch burst so a large Step cannot create all child workspaces at once. */
 const DEFAULT_MAX_CONCURRENT_CHILDREN = 4
 
+/**
+ * Keep the total bytes materialized per dispatch burst under a ceiling. A
+ * 4-way burst over a multi-gigabyte workspace would otherwise copy the whole
+ * project four times concurrently and stall the machine.
+ */
+const MAX_WORKSPACE_BYTES_IN_FLIGHT = 512 * 1024 * 1024
+
+function effectiveConcurrency(limit: number, totalBytes: number | undefined) {
+  if (!totalBytes || totalBytes <= 0) return Math.max(1, limit)
+  return Math.max(1, Math.min(limit, Math.floor(MAX_WORKSPACE_BYTES_IN_FLIGHT / totalBytes)))
+}
+
 async function boundedAllSettled<T, R>(
   items: readonly T[],
   limit: number,
@@ -2221,12 +2233,25 @@ export class PlanProtocol {
           resume,
         })
       }
+      let launchConcurrency = this.maxConcurrentChildren
       if (prepared.size) {
         if (this.childWorkspace) {
+          const preflightStartedAt = this.now()
           try {
-            await this.childWorkspace.preflight(
+            const preflight = await this.childWorkspace.preflight(
               [...prepared.values()].flatMap((item) => (item.reservation ? [item.reservation] : [])),
             )
+            launchConcurrency = effectiveConcurrency(this.maxConcurrentChildren, preflight?.manifest.total_bytes)
+            this.metric(ctx.sessionId, {
+              metric: "dispatch",
+              phase: "preflight",
+              outcome: "completed",
+              duration_ms: Math.max(0, this.now() - preflightStartedAt),
+              count: prepared.size,
+              ...(preflight
+                ? { snapshot_files: preflight.manifest.file_count, snapshot_bytes: preflight.manifest.total_bytes }
+                : {}),
+            })
           } catch (error) {
             if (isWorkspaceQuotaError(error))
               throw new PlanProtocolError({
@@ -2270,7 +2295,7 @@ export class PlanProtocol {
         const launchItems = [...prepared]
         const launchResults = await boundedAllSettled(
           launchItems,
-          this.maxConcurrentChildren,
+          launchConcurrency,
           async ([taskId, item]) => {
             let actualChild: string | undefined
             let workspaceHandle: WorkspaceHandle | undefined = item.workspace

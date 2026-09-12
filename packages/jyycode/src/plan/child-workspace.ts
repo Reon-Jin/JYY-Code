@@ -8,6 +8,12 @@ import { assertManifestIdentity, assertRuntimePath, assertWorkspaceIdentity, isP
 import {
   buildSnapshotManifest,
   DEFAULT_SNAPSHOT_MANIFEST_LIMITS,
+  HASH_CONCURRENCY,
+  mapConcurrent,
+  readManifestHashCache,
+  removeManifestHashCache,
+  writeManifestHashCache,
+  type ManifestHashCache,
   type SnapshotManifest,
   type SnapshotManifestEntry,
   type SnapshotManifestLimits,
@@ -133,7 +139,11 @@ function hashFile(pathname: string) {
   return crypto.createHash("sha256").update(fs.readFileSync(pathname)).digest("hex")
 }
 
+/** Test-only counter proving the persistent manifest hash cache avoids re-reads. */
+export const __childWorkspaceHashStats = { filesRead: 0 }
+
 async function hashFileStream(pathname: string) {
+  __childWorkspaceHashStats.filesRead++
   const hash = crypto.createHash("sha256")
   await new Promise<void>((resolve, reject) => {
     const stream = fs.createReadStream(pathname)
@@ -283,42 +293,62 @@ function candidatePaths(root: string, vcs: "git" | "none") {
   return walkCandidatePaths(root)
 }
 
-async function snapshotManifest(root: string, vcs: "git" | "none", limits: SnapshotLimits): Promise<BaselineManifestEntry[]> {
+async function snapshotManifest(
+  root: string,
+  vcs: "git" | "none",
+  limits: SnapshotLimits,
+  runtimeRoot?: string,
+): Promise<BaselineManifestEntry[]> {
   const paths = candidatePaths(root, vcs).sort((left, right) => left.localeCompare(right))
   if (paths.length > limits.maxFileCount)
     throw new ChildWorkspaceError(
       `child snapshot exceeds the file-count limit (${paths.length} > ${limits.maxFileCount}); narrow the task scope`,
       { directory: root },
     )
+  const cache = runtimeRoot ? readManifestHashCache(runtimeRoot, root) : undefined
+  const nextCache: ManifestHashCache["entries"] = {}
+  // Stat in parallel instead of blocking the event loop with one lstatSync per file.
+  const pending = (
+    await mapConcurrent(paths, HASH_CONCURRENCY, async (relativePath) => {
+      const pathname = path.resolve(root, relativePath)
+      if (!isInside(root, pathname))
+        throw new ChildWorkspaceError("child snapshot path escapes workspace", { directory: pathname })
+      const stat = await fs.promises.lstat(pathname)
+      if (stat.isDirectory()) return undefined
+      if (!stat.isFile() && !stat.isSymbolicLink())
+        throw new ChildWorkspaceError(`unsupported workspace entry: ${relativePath}`, { directory: pathname })
+      const mode: "file" | "symlink" = stat.isSymbolicLink() ? "symlink" : "file"
+      const size = stat.isSymbolicLink() ? Buffer.byteLength(await fs.promises.readlink(pathname)) : stat.size
+      if (size > limits.maxFileBytes)
+        throw new ChildWorkspaceError(
+          `child snapshot file exceeds the per-file limit (${relativePath}: ${size} > ${limits.maxFileBytes}); narrow the task scope`,
+          { directory: pathname },
+        )
+      const cached = cache?.entries[relativePath]
+      const hash =
+        cached && cached.size === size && cached.mtime_ms === stat.mtimeMs && cached.mode === mode
+          ? cached.hash
+          : undefined
+      return { relativePath, pathname, size, mtimeMs: stat.mtimeMs, mode, ...(hash ? { hash } : {}) }
+    })
+  ).filter((item): item is NonNullable<typeof item> => item !== undefined)
   let totalBytes = 0
-  const manifest: BaselineManifestEntry[] = []
-  for (const relativePath of paths) {
-    const pathname = path.resolve(root, relativePath)
-    if (!isInside(root, pathname))
-      throw new ChildWorkspaceError("child snapshot path escapes workspace", { directory: pathname })
-    const stat = fs.lstatSync(pathname)
-    if (stat.isDirectory()) continue
-    if (!stat.isFile() && !stat.isSymbolicLink())
-      throw new ChildWorkspaceError(`unsupported workspace entry: ${relativePath}`, { directory: pathname })
-    const size = stat.isSymbolicLink() ? Buffer.byteLength(fs.readlinkSync(pathname)) : stat.size
-    if (size > limits.maxFileBytes)
-      throw new ChildWorkspaceError(
-        `child snapshot file exceeds the per-file limit (${relativePath}: ${size} > ${limits.maxFileBytes}); narrow the task scope`,
-        { directory: pathname },
-      )
-    totalBytes += size
+  for (const item of pending) {
+    totalBytes += item.size
     if (totalBytes > limits.maxTotalBytes)
       throw new ChildWorkspaceError(
         `child snapshot exceeds the total-byte limit (${totalBytes} > ${limits.maxTotalBytes}); narrow the task scope`,
         { directory: root },
       )
-    manifest.push({
-      relative_path: relativePath,
-      hash: stat.isSymbolicLink() ? fs.readlinkSync(pathname) : await hashFileStream(pathname),
-      size,
-      mode: stat.isSymbolicLink() ? "symlink" : "file",
-    })
   }
+  const manifest = await mapConcurrent(pending, HASH_CONCURRENCY, async (item) => {
+    const hash =
+      item.hash ??
+      (item.mode === "symlink" ? await fs.promises.readlink(item.pathname) : await hashFileStream(item.pathname))
+    nextCache[item.relativePath] = { size: item.size, mtime_ms: item.mtimeMs, mode: item.mode, hash }
+    return { relative_path: item.relativePath, hash, size: item.size, mode: item.mode }
+  })
+  if (cache && runtimeRoot) writeManifestHashCache(runtimeRoot, root, { version: 1, entries: nextCache })
   return manifest
 }
 
@@ -331,7 +361,7 @@ async function buildSourceManifest(
   include: readonly string[],
 ): Promise<SnapshotManifest> {
   if (vcs === "git") {
-    const entries = await snapshotManifest(root, vcs, limits)
+    const entries = await snapshotManifest(root, vcs, limits, runtimeRoot)
     return {
       version: 1,
       source_root: path.resolve(root),
@@ -356,6 +386,7 @@ function writeManifest(
   pathname: string,
   manifest: BaselineManifestEntry[],
   identity?: { rootSessionId: string; taskId: string; name: string; baselineId?: string | null },
+  precomputed?: { hash: string },
 ) {
   const payload = JSON.stringify({
     version: 1,
@@ -370,7 +401,7 @@ function writeManifest(
     entries: manifest,
   })
   fs.writeFileSync(pathname, payload, "utf8")
-  return { hash: hashManifest(manifest), size: manifestSize(manifest), fileCount: manifest.length }
+  return { hash: precomputed?.hash ?? hashManifest(manifest), size: manifestSize(manifest), fileCount: manifest.length }
 }
 
 function readManifest(
@@ -456,36 +487,76 @@ function assertSafeSymlink(root: string, pathname: string) {
   return target
 }
 
+async function copyEntry(source: string, target: string, item: BaselineManifestEntry) {
+  const sourcePath = path.join(source, item.relative_path)
+  const targetPath = path.join(target, item.relative_path)
+  await fs.promises.mkdir(path.dirname(targetPath), { recursive: true })
+  if (item.mode === "symlink") {
+    const link = assertSafeSymlink(source, sourcePath)
+    if (fs.existsSync(targetPath) || fs.lstatSync(targetPath, { throwIfNoEntry: false }))
+      fs.rmSync(targetPath, { recursive: true, force: true })
+    try {
+      await fs.promises.symlink(link, targetPath)
+    } catch (error) {
+      throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), {
+        directory: targetPath,
+      })
+    }
+    return
+  }
+  // Prefer a copy-on-write clone; COPYFILE_FICLONE transparently falls back
+  // to a regular copy on filesystems without reflink support.
+  await fs.promises.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
+}
+
 async function copyManifest(source: string, target: string, manifest: BaselineManifestEntry[]) {
   await fs.promises.mkdir(target, { recursive: true })
-  let next = 0
-  const worker = async () => {
-    while (true) {
-      const index = next++
-      const item = manifest[index]
-      if (!item) return
-      const sourcePath = path.join(source, item.relative_path)
-      const targetPath = path.join(target, item.relative_path)
-      await fs.promises.mkdir(path.dirname(targetPath), { recursive: true })
-      if (item.mode === "symlink") {
-        const link = assertSafeSymlink(source, sourcePath)
-        if (fs.existsSync(targetPath) || fs.lstatSync(targetPath, { throwIfNoEntry: false }))
-          fs.rmSync(targetPath, { recursive: true, force: true })
+  await mapConcurrent(manifest, HASH_CONCURRENCY, (item) => copyEntry(source, target, item))
+}
+
+/**
+ * Materialize a baseline, hardlinking unchanged files from a previous immutable
+ * baseline instead of re-copying their bytes. Baseline directories are only
+ * read after creation, so sharing inodes between them is safe.
+ */
+async function copyBaselineIncremental(input: {
+  source: string
+  target: string
+  entries: readonly BaselineManifestEntry[]
+  previousDir?: string
+  previousByPath?: ReadonlyMap<string, BaselineManifestEntry>
+}) {
+  await fs.promises.mkdir(input.target, { recursive: true })
+  await mapConcurrent(input.entries, HASH_CONCURRENCY, async (entry) => {
+    if (entry.mode === "file" && input.previousDir && input.previousByPath) {
+      const previous = input.previousByPath.get(entry.relative_path)
+      if (previous && previous.mode === entry.mode && previous.hash === entry.hash) {
+        const targetPath = path.join(input.target, entry.relative_path)
+        await fs.promises.mkdir(path.dirname(targetPath), { recursive: true })
         try {
-          await fs.promises.symlink(link, targetPath)
-        } catch (error) {
-          throw new ChildWorkspaceError(error instanceof Error ? error.message : String(error), {
-            directory: targetPath,
-          })
+          await fs.promises.link(path.join(input.previousDir, entry.relative_path), targetPath)
+          __childWorkspaceCopyStats.baselineLinks.push(entry.relative_path)
+          return
+        } catch {
+          // Cross-device, a missing previous entry, or a filesystem without
+          // hardlinks: fall through and copy the bytes instead.
         }
-      } else await fs.promises.copyFile(sourcePath, targetPath)
+      }
     }
-  }
-  await Promise.all(Array.from({ length: Math.min(8, Math.max(1, manifest.length)) }, () => worker()))
+    await copyEntry(input.source, input.target, entry)
+    __childWorkspaceCopyStats.baselineCopies.push(entry.relative_path)
+  })
 }
 
 /** Test-only counters for the Git worktree overlay path. */
-export const __childWorkspaceCopyStats = { overlayPaths: [] as string[] }
+export const __childWorkspaceCopyStats = {
+  overlayPaths: [] as string[],
+  baselineLinks: [] as string[],
+  baselineCopies: [] as string[],
+}
+
+/** Test-only counter: Git status is expected once per dispatch wave, not once per child. */
+export const __childWorkspaceGitStats = { dirtyScans: 0 }
 
 type DirtyWorktreePlan = {
   copy: Set<string>
@@ -500,6 +571,7 @@ type DirtyWorktreePlan = {
  * the full-manifest copy.
  */
 function dirtyWorktreePlan(root: string): DirtyWorktreePlan | undefined {
+  __childWorkspaceGitStats.dirtyScans++
   try {
     const output = execGitSync(root, [
       "status",
@@ -580,6 +652,11 @@ export class ChildWorkspace {
   >()
   private pendingManifest?: SnapshotManifest
   private pendingManifestUses = 0
+  /** Git status is identical for every child in one dispatch wave; compute it once. */
+  private waveDirtyPlan?: DirtyWorktreePlan
+  private waveDirtyPlanReady = false
+  /** Most recent immutable baseline, reused to hardlink unchanged files. */
+  private lastBaseline?: { directory: string; byPath: Map<string, BaselineManifestEntry> }
 
   constructor(options: ChildWorkspaceOptions) {
     this.project = { ...options.project, root: path.resolve(options.project.root) }
@@ -657,18 +734,36 @@ export class ChildWorkspace {
       this.snapshotExclude,
       this.snapshotInclude,
     )
-    const budget =
-      snapshots.length > 0
-        ? await preflightWorkspaceBudget({
-            runtimeRoot: this.runtimeRoot,
-            manifest,
-            taskCount: snapshots.length,
-            ...this.workspaceBudget,
-          })
-        : undefined
+    let budget
+    if (snapshots.length > 0) {
+      try {
+        budget = await preflightWorkspaceBudget({
+          runtimeRoot: this.runtimeRoot,
+          manifest,
+          taskCount: snapshots.length,
+          ...this.workspaceBudget,
+        })
+      } catch (error) {
+        // A rejected dispatch must not leave the scan cache behind.
+        removeManifestHashCache(this.runtimeRoot, this.project.root)
+        throw error
+      }
+    }
     this.pendingManifest = manifest
     this.pendingManifestUses = isolated.length
+    if (this.project.vcs === "git") {
+      this.waveDirtyPlan = dirtyWorktreePlan(this.project.root)
+      this.waveDirtyPlanReady = true
+    } else {
+      this.waveDirtyPlan = undefined
+      this.waveDirtyPlanReady = false
+    }
     return { manifest, ...(budget ? { budget } : {}) }
+  }
+
+  private dirtyPlanForWave() {
+    if (this.waveDirtyPlanReady) return this.waveDirtyPlan
+    return dirtyWorktreePlan(this.project.root)
   }
 
   private async ensureSharedBaseline(manifest: SnapshotManifest) {
@@ -688,11 +783,24 @@ export class ChildWorkspace {
         let published = false
         try {
           fs.mkdirSync(staging, { recursive: true })
-          await copyManifest(this.project.root, staging, manifest.entries)
+          const previousDir =
+            this.lastBaseline && fs.existsSync(this.lastBaseline.directory)
+              ? this.lastBaseline.directory
+              : undefined
+          await copyBaselineIncremental({
+            source: this.project.root,
+            target: staging,
+            entries: manifest.entries,
+            ...(previousDir ? { previousDir, previousByPath: this.lastBaseline!.byPath } : {}),
+          })
           fs.writeFileSync(path.join(staging, "source.json"), JSON.stringify(manifest), "utf8")
           fs.renameSync(staging, directory)
           published = true
           fs.renameSync(path.join(directory, "source.json"), sourcePath)
+          this.lastBaseline = {
+            directory,
+            byPath: new Map(manifest.entries.map((entry) => [entry.relative_path, entry])),
+          }
         } catch (error) {
           fs.rmSync(staging, { recursive: true, force: true })
           if (published) fs.rmSync(directory, { recursive: true, force: true })
@@ -766,7 +874,8 @@ export class ChildWorkspace {
 
       const sourceManifest = await this.sourceManifest()
       const baselineManifest =
-        sourceManifest?.entries ?? (await snapshotManifest(this.project.root, this.project.vcs, this.snapshotLimits))
+        sourceManifest?.entries ??
+        (await snapshotManifest(this.project.root, this.project.vcs, this.snapshotLimits, this.runtimeRoot))
       const shared = sourceManifest ? await this.ensureSharedBaseline(sourceManifest) : undefined
       snapshotBaselineId = shared?.baselineId
       const effectiveBaselineDirectory = shared?.directory ?? baselineDirectory
@@ -778,12 +887,17 @@ export class ChildWorkspace {
       const baselineManifestHash = shared?.manifest.source_manifest_hash ?? hashManifest(baselineManifest)
       const baselineManifestPath = manifestPath(this.runtimeRoot, reservation.name)
       snapshotManifestPath = baselineManifestPath
-      const manifestMetadata = writeManifest(baselineManifestPath, baselineManifest, {
-        rootSessionId: reservation.rootSessionId,
-        taskId: reservation.taskId,
-        name: reservation.name,
-        baselineId: shared?.baselineId,
-      })
+      const manifestMetadata = writeManifest(
+        baselineManifestPath,
+        baselineManifest,
+        {
+          rootSessionId: reservation.rootSessionId,
+          taskId: reservation.taskId,
+          name: reservation.name,
+          baselineId: shared?.baselineId,
+        },
+        { hash: baselineManifestHash },
+      )
 
       if (reservation.mode === "worktree") {
         if (!this.worktree) throw new ChildWorkspaceError("Git 项目缺少 Worktree service")
@@ -802,7 +916,7 @@ export class ChildWorkspace {
             directory: info.directory,
           })
         const worktreeDirectory = path.resolve(info.directory)
-        const dirty = dirtyWorktreePlan(this.project.root)
+        const dirty = this.dirtyPlanForWave()
         if (!dirty) {
           // Fallback for non-Git fixtures and adapters that do not check out files.
           clearTreeExceptGit(worktreeDirectory)

@@ -6,7 +6,12 @@ import { PlanProtocol } from "../../src/plan/protocol"
 import { PlanStore } from "../../src/plan/store"
 import { ChildWorkspace } from "../../src/plan/child-workspace"
 import { buildSnapshotManifest } from "../../src/plan/snapshot-manifest"
-import { estimateSnapshotCost, preflightWorkspaceBudget, WorkspaceQuotaError } from "../../src/plan/workspace-budget"
+import {
+  directoryBytes,
+  estimateSnapshotCost,
+  preflightWorkspaceBudget,
+  WorkspaceQuotaError,
+} from "../../src/plan/workspace-budget"
 
 function tempDirectory(prefix: string) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -19,6 +24,14 @@ describe("workspace snapshot budget", () => {
     expect(budget.childBytes).toBe(100)
     expect(budget.estimatedNewBytes).toBe(400)
     expect(budget.projectedBytes).toBe(450)
+  })
+
+  it("counts hardlinked files once so shared baselines do not double-charge the quota", async () => {
+    const root = tempDirectory("jyycode-budget-hardlink-")
+    const original = path.join(root, "original.bin")
+    fs.writeFileSync(original, Buffer.alloc(1024, 1))
+    fs.linkSync(original, path.join(root, "linked.bin"))
+    expect(await directoryBytes(root)).toBe(1024)
   })
 
   it("rejects a quota before any workspace is created", async () => {

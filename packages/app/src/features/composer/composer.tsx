@@ -540,7 +540,7 @@ export function Composer(props: ComposerProps) {
                     label={controller.sending() ? tr("composer.sending") : tr("composer.send")}
                     disabled={props.disabled || (!controller.draft().trim() && attachments().length === 0)}
                     loading={controller.sending()}
-                    loadingLabel={tr("composer.sending")}
+                    loadingLabel=""
                     onClick={submit}
                   >
                     <Send aria-hidden="true" />

@@ -3,7 +3,14 @@ import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "bun:test"
-import { ChildWorkspace, ChildWorkspaceError, __childWorkspaceCopyStats, type WorktreeAdapter } from "../../src/plan/child-workspace"
+import {
+  ChildWorkspace,
+  ChildWorkspaceError,
+  __childWorkspaceCopyStats,
+  __childWorkspaceGitStats,
+  __childWorkspaceHashStats,
+  type WorktreeAdapter,
+} from "../../src/plan/child-workspace"
 import { assertRuntimePath, WorkspacePathError } from "../../src/plan/workspace-path"
 
 function tempDirectory(prefix: string) {
@@ -106,6 +113,21 @@ describe("ChildWorkspace", () => {
     expect(children[0]?.baseline_manifest_hash).toBe(children[1]?.baseline_manifest_hash)
   })
 
+  it("reuses the persisted Git manifest hash cache across dispatch waves", async () => {
+    const root = tempDirectory("jyycode-child-git-cache-")
+    const runtime = tempDirectory("jyycode-child-git-cache-runtime-")
+    for (let index = 0; index < 20; index++) {
+      fs.writeFileSync(path.join(root, `file-${index}.ts`), "x".repeat(64))
+    }
+    const manager = new ChildWorkspace({ project: { root, vcs: "git" }, runtimeRoot: runtime })
+
+    await manager.preflight([manager.reserve("ses_root", "s1_t1")])
+    __childWorkspaceHashStats.filesRead = 0
+    await manager.preflight([manager.reserve("ses_root", "s1_t2")])
+
+    expect(__childWorkspaceHashStats.filesRead).toBe(0)
+  })
+
   it("snapshots non-Git projects and produces scoped baseline-relative changes", async () => {
     const root = tempDirectory("jyycode-child-project-")
     const runtime = tempDirectory("jyycode-child-runtime-")
@@ -194,6 +216,33 @@ describe("ChildWorkspace", () => {
     await manager.remove(children[1]!.directory)
     await manager.remove(children[2]!.directory)
     expect(fs.existsSync(children[2]!.baseline_directory!)).toBe(false)
+  })
+
+  it("hardlinks unchanged files into a later baseline instead of recopying them", async () => {
+    const root = tempDirectory("jyycode-child-incremental-project-")
+    const runtime = tempDirectory("jyycode-child-incremental-runtime-")
+    for (let index = 0; index < 10; index++) {
+      fs.writeFileSync(path.join(root, `file-${index}.txt`), "x".repeat(256))
+    }
+    const manager = new ChildWorkspace({ project: { root, vcs: "none" }, runtimeRoot: runtime })
+
+    __childWorkspaceCopyStats.baselineLinks = []
+    __childWorkspaceCopyStats.baselineCopies = []
+    const first = await manager.create(manager.reserve("ses_root", "s1_t1"))
+    expect(__childWorkspaceCopyStats.baselineCopies).toHaveLength(10)
+    expect(__childWorkspaceCopyStats.baselineLinks).toHaveLength(0)
+
+    fs.writeFileSync(path.join(root, "file-0.txt"), "y".repeat(256))
+    __childWorkspaceCopyStats.baselineLinks = []
+    __childWorkspaceCopyStats.baselineCopies = []
+    const second = await manager.create(manager.reserve("ses_root", "s2_t1"))
+
+    expect(second.baseline_directory).not.toBe(first.baseline_directory)
+    expect(__childWorkspaceCopyStats.baselineCopies).toEqual(["file-0.txt"])
+    expect([...__childWorkspaceCopyStats.baselineLinks].sort()).toEqual(
+      Array.from({ length: 9 }, (_, index) => `file-${index + 1}.txt`),
+    )
+    expect(fs.readFileSync(path.join(second.baseline_directory!, "file-9.txt"), "utf8")).toBe("x".repeat(256))
   })
 
   it("starts a Git child from the dirty parent snapshot while preserving worktree metadata", async () => {
@@ -303,6 +352,37 @@ describe("ChildWorkspace", () => {
     expect(__childWorkspaceCopyStats.overlayPaths).toContain("untracked.ts")
     expect(fs.readFileSync(path.join(created.directory, "dirty.ts"), "utf8")).toContain("value = 2")
     expect(fs.existsSync(path.join(created.directory, "untracked.ts"))).toBe(true)
+  })
+
+  it("scans Git status once per dispatch wave instead of once per child", async () => {
+    const root = tempDirectory("jyycode-child-wave-project-")
+    const runtime = tempDirectory("jyycode-child-wave-runtime-")
+    fs.writeFileSync(path.join(root, "clean.ts"), "export const clean = true\n")
+    execFileSync("git", ["init", "--quiet"], { cwd: root })
+    execFileSync("git", ["config", "user.email", "child-test@example.com"], { cwd: root })
+    execFileSync("git", ["config", "user.name", "Child Test"], { cwd: root })
+    execFileSync("git", ["add", "clean.ts"], { cwd: root })
+    execFileSync("git", ["commit", "--quiet", "-m", "base"], { cwd: root })
+    const adapter: WorktreeAdapter = {
+      async makeWorktreeInfo(input) {
+        return { name: input.name, directory: path.join(runtime, input.name) }
+      },
+      async createFromInfo(info) {
+        fs.mkdirSync(path.join(info.directory, ".git"), { recursive: true })
+      },
+      async remove(directory) {
+        fs.rmSync(directory, { recursive: true, force: true })
+        return true
+      },
+    }
+    const manager = new ChildWorkspace({ project: { root, vcs: "git" }, runtimeRoot: runtime, worktree: adapter })
+    const reservations = ["s1_t1", "s1_t2"].map((taskId) => manager.reserve("ses_root", taskId))
+
+    __childWorkspaceGitStats.dirtyScans = 0
+    await manager.preflight(reservations)
+    await Promise.all(reservations.map((reservation) => manager.create(reservation)))
+
+    expect(__childWorkspaceGitStats.dirtyScans).toBe(1)
   })
 
   it("applies the same ignore policy to non-Git snapshots and reports size limits", async () => {

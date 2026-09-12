@@ -115,9 +115,13 @@ export function isSnapshotPathIncluded(
   return true
 }
 
+/** Test-only counter proving the persistent manifest hash cache avoids re-reads. */
+export const __snapshotHashStats = { filesRead: 0 }
+
 async function hashFile(pathname: string, limits: SnapshotManifestLimits, size: number) {
   if (size > limits.maxFileBytes)
     throw new Error(`snapshot file exceeds the per-file limit (${size} > ${limits.maxFileBytes})`)
+  __snapshotHashStats.filesRead++
   const hash = crypto.createHash("sha256")
   await new Promise<void>((resolve, reject) => {
     const stream = fs.createReadStream(pathname)
@@ -127,6 +131,77 @@ async function hashFile(pathname: string, limits: SnapshotManifestLimits, size: 
   })
   return hash.digest("hex")
 }
+
+/** Hash file bodies with bounded parallelism instead of one serial await per file. */
+export const HASH_CONCURRENCY = 8
+
+export async function mapConcurrent<T, R>(
+  items: readonly T[],
+  width: number,
+  run: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const worker = async () => {
+    while (true) {
+      const index = next++
+      if (index >= items.length) return
+      results[index] = await run(items[index]!, index)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(width, items.length)) }, worker))
+  return results
+}
+
+/**
+ * Persistent per-runtime hash cache. Re-hashing every file on every dispatch
+ * is the dominant cost on large repositories; a file whose size, mtime, and
+ * mode are unchanged reuses its previous sha256.
+ */
+export type ManifestHashCache = {
+  version: 1
+  entries: Record<string, { size: number; mtime_ms: number; mode: "file" | "symlink"; hash: string }>
+}
+
+function manifestCachePath(runtimeRoot: string, root: string) {
+  const scope = crypto.createHash("sha256").update(path.resolve(root)).digest("hex").slice(0, 16)
+  return path.join(runtimeRoot, `.source-manifest-cache-${scope}.json`)
+}
+
+export function readManifestHashCache(runtimeRoot: string, root: string): ManifestHashCache {
+  try {
+    const value = JSON.parse(fs.readFileSync(manifestCachePath(runtimeRoot, root), "utf8")) as ManifestHashCache
+    if (value?.version === 1 && value.entries && typeof value.entries === "object") return value
+  } catch {
+    // A missing or corrupt cache only makes the next dispatch slower.
+  }
+  return { version: 1, entries: {} }
+}
+
+export function removeManifestHashCache(runtimeRoot: string, root: string) {
+  try {
+    fs.rmSync(manifestCachePath(runtimeRoot, root), { force: true })
+  } catch {
+    // Best effort cleanup; a leftover cache file is harmless.
+  }
+}
+
+export function writeManifestHashCache(runtimeRoot: string, root: string, cache: ManifestHashCache) {
+  const target = manifestCachePath(runtimeRoot, root)
+  const staging = `${target}.${crypto.randomBytes(6).toString("hex")}.tmp`
+  try {
+    fs.writeFileSync(staging, JSON.stringify(cache), "utf8")
+    fs.renameSync(staging, target)
+  } catch {
+    try {
+      fs.rmSync(staging, { force: true })
+    } catch {
+      // Best effort; a cache write failure must never fail a dispatch.
+    }
+  }
+}
+
+type PendingHash = { entry: SnapshotManifestEntry; pathname: string; size: number; mtimeMs: number }
 
 async function walk(
   root: string,
@@ -138,6 +213,7 @@ async function walk(
   limits: SnapshotManifestLimits,
   entries: SnapshotManifestEntry[],
   totals: { bytes: number },
+  pending: PendingHash[],
 ) {
   const dirents = await fs.promises.readdir(current, { withFileTypes: true })
   for (const entry of dirents) {
@@ -147,7 +223,7 @@ async function walk(
     if (options.runtimeRoot && path.resolve(pathname) === path.resolve(options.runtimeRoot)) continue
     if (entry.isDirectory()) {
       if (isSnapshotPathIncluded(relative, options, options.gitignore))
-        await walk(root, pathname, options, limits, entries, totals)
+        await walk(root, pathname, options, limits, entries, totals, pending)
       continue
     }
     if (!entry.isFile() && !entry.isSymbolicLink()) continue
@@ -159,13 +235,17 @@ async function walk(
       entries.push({ relative_path: relative, hash: target, size, mtime_ms: stat.mtimeMs, mode: "symlink" })
       totals.bytes += size
     } else {
-      entries.push({
+      if (stat.size > limits.maxFileBytes)
+        throw new Error(`snapshot file exceeds the per-file limit (${stat.size} > ${limits.maxFileBytes})`)
+      const record: SnapshotManifestEntry = {
         relative_path: relative,
-        hash: await hashFile(pathname, limits, stat.size),
+        hash: "",
         size: stat.size,
         mtime_ms: stat.mtimeMs,
         mode: "file",
-      })
+      }
+      entries.push(record)
+      pending.push({ entry: record, pathname, size: stat.size, mtimeMs: stat.mtimeMs })
       totals.bytes += stat.size
     }
     if (entries.length > limits.maxFileCount)
@@ -183,6 +263,7 @@ export async function buildSnapshotManifest(input: SnapshotManifestOptions): Pro
   const root = path.resolve(input.root)
   const limits = { ...DEFAULT_SNAPSHOT_MANIFEST_LIMITS, ...input.limits }
   const entries: SnapshotManifestEntry[] = []
+  const pending: PendingHash[] = []
   const gitignore = gitIgnorePatterns(root)
   const totals = { bytes: 0 }
   await walk(
@@ -192,7 +273,24 @@ export async function buildSnapshotManifest(input: SnapshotManifestOptions): Pro
     limits,
     entries,
     totals,
+    pending,
   )
+  const cache = input.runtimeRoot ? readManifestHashCache(input.runtimeRoot, root) : undefined
+  const nextCache: ManifestHashCache["entries"] = {}
+  await mapConcurrent(pending, HASH_CONCURRENCY, async (item) => {
+    const cached = cache?.entries[item.entry.relative_path]
+    item.entry.hash =
+      cached && cached.size === item.size && cached.mtime_ms === item.mtimeMs && cached.mode === "file"
+        ? cached.hash
+        : await hashFile(item.pathname, limits, item.size)
+    nextCache[item.entry.relative_path] = {
+      size: item.size,
+      mtime_ms: item.mtimeMs,
+      mode: "file",
+      hash: item.entry.hash,
+    }
+  })
+  if (cache && input.runtimeRoot) writeManifestHashCache(input.runtimeRoot, root, { version: 1, entries: nextCache })
   entries.sort((left, right) => left.relative_path.localeCompare(right.relative_path))
   return {
     version: 1,
