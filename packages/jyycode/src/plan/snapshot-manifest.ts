@@ -57,14 +57,24 @@ function normalize(relative: string) {
   return relative.replaceAll("\\", "/").replace(/^\.\//, "")
 }
 
-function matches(pattern: string, relative: string) {
+const patternCache = new Map<string, RegExp>()
+
+function compiled(pattern: string) {
+  const cached = patternCache.get(pattern)
+  if (cached) return cached
   const source = normalize(pattern)
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")
     .replaceAll("**", "@@DOUBLE_STAR@@")
     .replaceAll("*", "[^/]*")
     .replaceAll("@@DOUBLE_STAR@@", ".*")
     .replaceAll("?", "[^/]")
-  return new RegExp(`^${source}(?:/|$)`).test(relative)
+  const regex = new RegExp(`^${source}(?:/|$)`)
+  patternCache.set(pattern, regex)
+  return regex
+}
+
+function matches(pattern: string, relative: string) {
+  return compiled(pattern).test(relative)
 }
 
 function hardExcluded(relative: string) {
@@ -127,6 +137,7 @@ async function walk(
   },
   limits: SnapshotManifestLimits,
   entries: SnapshotManifestEntry[],
+  totals: { bytes: number },
 ) {
   const dirents = await fs.promises.readdir(current, { withFileTypes: true })
   for (const entry of dirents) {
@@ -136,7 +147,7 @@ async function walk(
     if (options.runtimeRoot && path.resolve(pathname) === path.resolve(options.runtimeRoot)) continue
     if (entry.isDirectory()) {
       if (isSnapshotPathIncluded(relative, options, options.gitignore))
-        await walk(root, pathname, options, limits, entries)
+        await walk(root, pathname, options, limits, entries, totals)
       continue
     }
     if (!entry.isFile() && !entry.isSymbolicLink()) continue
@@ -144,13 +155,9 @@ async function walk(
     const stat = await fs.promises.lstat(pathname)
     if (entry.isSymbolicLink()) {
       const target = await fs.promises.readlink(pathname)
-      entries.push({
-        relative_path: relative,
-        hash: target,
-        size: Buffer.byteLength(target),
-        mtime_ms: stat.mtimeMs,
-        mode: "symlink",
-      })
+      const size = Buffer.byteLength(target)
+      entries.push({ relative_path: relative, hash: target, size, mtime_ms: stat.mtimeMs, mode: "symlink" })
+      totals.bytes += size
     } else {
       entries.push({
         relative_path: relative,
@@ -159,12 +166,12 @@ async function walk(
         mtime_ms: stat.mtimeMs,
         mode: "file",
       })
+      totals.bytes += stat.size
     }
     if (entries.length > limits.maxFileCount)
       throw new Error(`snapshot contains too many files (${entries.length} > ${limits.maxFileCount})`)
-    const total = entries.reduce((sum, item) => sum + item.size, 0)
-    if (total > limits.maxTotalBytes)
-      throw new Error(`snapshot exceeds the total-byte limit (${total} > ${limits.maxTotalBytes})`)
+    if (totals.bytes > limits.maxTotalBytes)
+      throw new Error(`snapshot exceeds the total-byte limit (${totals.bytes} > ${limits.maxTotalBytes})`)
   }
 }
 
@@ -177,12 +184,14 @@ export async function buildSnapshotManifest(input: SnapshotManifestOptions): Pro
   const limits = { ...DEFAULT_SNAPSHOT_MANIFEST_LIMITS, ...input.limits }
   const entries: SnapshotManifestEntry[] = []
   const gitignore = gitIgnorePatterns(root)
+  const totals = { bytes: 0 }
   await walk(
     root,
     root,
     { exclude: input.exclude ?? [], include: input.include ?? [], runtimeRoot: input.runtimeRoot, gitignore },
     limits,
     entries,
+    totals,
   )
   entries.sort((left, right) => left.relative_path.localeCompare(right.relative_path))
   return {
@@ -191,7 +200,7 @@ export async function buildSnapshotManifest(input: SnapshotManifestOptions): Pro
     source_manifest_hash: snapshotManifestHash(entries),
     entries,
     file_count: entries.length,
-    total_bytes: entries.reduce((sum, item) => sum + item.size, 0),
+    total_bytes: totals.bytes,
   }
 }
 
