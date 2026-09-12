@@ -230,7 +230,7 @@ function selectedPath(relative: string, filter: ScanFilter | undefined) {
 
 function scanWorkspace(root: string, current = root, output = new Map<string, FileEntry>(), options: ScanOptions = {}) {
   const state = options.state ?? { totalBytes: 0, fileCount: 0 }
-  __mergeScanStats.workspaceScans++
+  if (current === root) __mergeScanStats.workspaceScans++
   for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
     if (INTERNAL_NAMES.has(entry.name)) continue
     const pathname = path.join(current, entry.name)
@@ -778,6 +778,15 @@ function currentTargetEntries(root: string) {
   return scanWorkspace(root)
 }
 
+function entryFingerprintAt(root: string, relative: string): string | null {
+  const pathname = targetPath(root, relative)
+  const stat = fs.lstatSync(pathname, { throwIfNoEntry: false })
+  if (!stat) return null
+  if (stat.isSymbolicLink()) return `symlink:${hashText(fs.readlinkSync(pathname))}`
+  if (stat.isDirectory()) fail(`refusing to fingerprint a directory: ${relative}`)
+  return `file:${hashBytes(new Uint8Array(fs.readFileSync(pathname)))}`
+}
+
 function targetMatchesJournal(root: string, journal: MergeJournal) {
   const current = targetEntries(
     journal.target_paths
@@ -803,8 +812,8 @@ function applyJournal(
   const writes = journal.applied_paths.length
   let completedWrites = writes
   for (const item of journal.items) {
-    const current = entryFingerprint(currentTargetEntries(journal.roots.main).get(item.path))
     if (journal.applied_paths.includes(item.path)) continue
+    const current = entryFingerprintAt(journal.roots.main, item.path)
     if (current !== item.before) fail(`target changed before applying ${item.path}`)
     item.backup_path = copyExistingToBackup(journal.roots.main, item.path, backupRoot)
     if (item.action === "delete") removeTarget(journal.roots.main, item.path)

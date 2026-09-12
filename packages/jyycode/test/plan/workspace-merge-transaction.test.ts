@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { describe, expect, it } from "bun:test"
-import { applyWorkspaceMerge, prepareWorkspaceMerge } from "../../src/plan/workspace-merge"
+import { applyWorkspaceMerge, prepareWorkspaceMerge, __mergeScanStats, __resetMergeScanStats } from "../../src/plan/workspace-merge"
 import { createMergeWorkspaceFixture } from "./hardening-fixtures"
 
 function writeFile(root: string, relative: string, content: string) {
@@ -126,6 +126,23 @@ describe("workspace merge transaction", () => {
       const second = applyWorkspaceMerge(input(fixture))
       expect(second.status).toBe("already_merged")
       expect(second.applied_paths).toEqual(["child.txt"])
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it("does not rescan the workspace once per journal item", () => {
+    const fixture = createMergeWorkspaceFixture()
+    try {
+      for (let index = 0; index < 60; index++) writeFile(fixture.baseline, `src/file-${index}.ts`, "base\n")
+      fs.cpSync(fixture.baseline, fixture.parent, { recursive: true })
+      fs.cpSync(fixture.baseline, fixture.child, { recursive: true })
+      for (let index = 0; index < 60; index++) writeFile(fixture.child, `src/file-${index}.ts`, "child\n")
+
+      __resetMergeScanStats()
+      const result = applyWorkspaceMerge(input(fixture))
+      expect(result.status).toBe("merged")
+      expect(__mergeScanStats.workspaceScans).toBeLessThan(6)
     } finally {
       fixture.cleanup()
     }
