@@ -70,4 +70,27 @@ describe("workspace merge scan budget", () => {
     expect(result.apply.map((entry) => entry.path)).toEqual(["pkg42/file.txt"])
     expect(__mergeScanStats.scannedPaths).toEqual(["pkg42/file.txt", "pkg42/file.txt", "pkg42/file.txt"])
   })
+
+  it("merges large both-sides-changed files without a quadratic allocation", () => {
+    const fixture = createMergeWorkspaceFixture()
+    cleanups.push(fixture.cleanup)
+    const lines = Array.from({ length: 8000 }, (_, index) => `line-${index}`)
+    writeFile(fixture.baseline, "large.txt", `${lines.join("\n")}\n`)
+    fs.cpSync(fixture.baseline, fixture.parent, { recursive: true })
+    fs.cpSync(fixture.baseline, fixture.child, { recursive: true })
+    const parent = [...lines]
+    parent[10] = "parent-10"
+    const child = [...lines]
+    child[7000] = "child-7000"
+    writeFile(fixture.parent, "large.txt", `${parent.join("\n")}\n`)
+    writeFile(fixture.child, "large.txt", `${child.join("\n")}\n`)
+
+    const before = process.memoryUsage().heapUsed
+    const result = planWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child })
+    const after = process.memoryUsage().heapUsed
+
+    expect(result.conflicts).toEqual([])
+    expect(result.apply.map((entry) => entry.path)).toEqual(["large.txt"])
+    expect(after - before).toBeLessThan(64 * 1024 * 1024)
+  })
 })

@@ -1,6 +1,7 @@
 import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
+import { diffLines } from "diff"
 import {
   DEFAULT_SNAPSHOT_LIMITS,
   isSnapshotPathAllowed,
@@ -383,33 +384,31 @@ function splitLines(text: string) {
 }
 
 function lineHunks(baseText: string, sideText: string): ChangeHunk[] {
-  const base = splitLines(baseText).lines
-  const side = splitLines(sideText).lines
-  const rows = Array.from({ length: base.length + 1 }, () => new Uint32Array(side.length + 1))
-  for (let i = base.length - 1; i >= 0; i--) {
-    for (let j = side.length - 1; j >= 0; j--)
-      rows[i]![j] = base[i] === side[j] ? rows[i + 1]![j + 1]! + 1 : Math.max(rows[i + 1]![j]!, rows[i]![j + 1]!)
-  }
+  const changes = diffLines(normalizeText(baseText), normalizeText(sideText))
   const hunks: ChangeHunk[] = []
-  let i = 0
-  let j = 0
-  while (i < base.length || j < side.length) {
-    if (i < base.length && j < side.length && base[i] === side[j]) {
-      i++
-      j++
+  let position = 0
+  let pending: ChangeHunk | undefined
+  const flush = () => {
+    if (pending) hunks.push(pending)
+    pending = undefined
+  }
+  for (const change of changes) {
+    const count = change.count ?? 0
+    if (change.removed) {
+      if (!pending) pending = { start: position, end: position, replacement: [] }
+      pending.end += count
+      position += count
       continue
     }
-    const start = i
-    const replacement: string[] = []
-    while (i < base.length || j < side.length) {
-      if (i < base.length && j < side.length && base[i] === side[j]) break
-      if (j < side.length && (i === base.length || rows[i]![j + 1]! >= rows[i + 1]![j]!)) {
-        replacement.push(side[j]!)
-        j++
-      } else i++
+    if (change.added) {
+      if (!pending) pending = { start: position, end: position, replacement: [] }
+      pending.replacement.push(...splitLines(change.value).lines)
+      continue
     }
-    hunks.push({ start, end: i, replacement })
+    flush()
+    position += count
   }
+  flush()
   return hunks
 }
 
