@@ -686,6 +686,21 @@ export function clonePlan(plan: PlanFile): PlanFile {
 /** Normalize persisted plans at the read boundary so old standard tasks remain valid. */
 export function normalizePlanFile(value: unknown): unknown {
   if (!isRecord(value)) return value
+  const needsMigration =
+    Array.isArray(value.steps) &&
+    value.steps.some(
+      (step) =>
+        isRecord(step) &&
+        Array.isArray(step.tasks) &&
+        step.tasks.some(
+          (task) =>
+            isRecord(task) &&
+            (task.mode === undefined ||
+              task.timeout_ms !== undefined ||
+              (isRecord(task.merge) && task.merge.cleanup_record === undefined)),
+        ),
+    )
+  if (!needsMigration) return value
   const normalized = structuredClone(value) as Record<string, unknown>
   if (Array.isArray(normalized.steps)) {
     normalized.steps = normalized.steps.map((step) => {

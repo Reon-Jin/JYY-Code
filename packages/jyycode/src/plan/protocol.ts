@@ -1455,14 +1455,12 @@ export class PlanProtocol {
   ): Promise<WriteResult<T>> {
     markPlanSessionActive(ctx.workspaceRoot, ctx.sessionId)
     const planPath = this.path(ctx)
-    const result = await this.store.enqueueWrite(planPath, {
+    const { result, plan } = await this.store.enqueueWriteWithPlan(planPath, {
       priority: ctx.runId ? "normal" : "high",
       holder: ctx.runId ?? ctx.sessionId,
       retryableOnTimeout: Boolean(ctx.runId),
       apply,
     })
-    const plan = this.store.read(planPath)
-    if (!plan) throw new Error("plan 写入后无法读取")
     const snapshot = projectPlanSnapshot(plan, {
       inboxPending: this.inbox.pendingCount(ctx.sessionId),
       activities: this.activities.get(ctx.sessionId),

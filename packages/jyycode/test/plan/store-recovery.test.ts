@@ -226,4 +226,28 @@ describe("PlanStore recovery", () => {
       value.cleanup()
     }
   })
+
+  it("returns the persisted plan with a single read", async () => {
+    const value = fixture()
+    try {
+      const store = new PlanStore()
+      const readSpy = spyOn(store, "read")
+      const seeded = plan()
+      const { result, plan: persisted } = await store.enqueueWriteWithPlan(value.planPath, {
+        priority: "high",
+        holder: "test",
+        apply: () => ({
+          mutate(target) {
+            Object.assign(target, seeded)
+          },
+          result: "ok",
+        }),
+      })
+      expect(result).toBe("ok")
+      expect(persisted.revision).toBe(1)
+      expect(readSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      value.cleanup()
+    }
+  })
 })

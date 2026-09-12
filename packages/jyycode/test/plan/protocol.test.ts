@@ -71,9 +71,9 @@ function mergeApply(protocol: PlanProtocol, root: string, input: Parameters<Merg
 class FailingPlanStore extends PlanStore {
   failWrites = false
 
-  override enqueueWrite<T>(planPath: string, request: WriteRequest<T>): Promise<T> {
+  override enqueueWriteWithPlan<T>(planPath: string, request: WriteRequest<T>) {
     if (this.failWrites) return Promise.reject(new Error("reservation write failed"))
-    return super.enqueueWrite(planPath, request)
+    return super.enqueueWriteWithPlan(planPath, request)
   }
 }
 

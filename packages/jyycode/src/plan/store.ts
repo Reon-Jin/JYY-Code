@@ -21,6 +21,9 @@ export type WriteOutcome<T> = {
   result: T
 }
 
+/** The persisted plan is returned alongside the mutation result so callers do not re-read it. */
+export type StoredWriteResult<T> = { result: T; plan: PlanFile }
+
 export type WriteRequest<T> = {
   priority: Priority
   holder: string
@@ -30,7 +33,7 @@ export type WriteRequest<T> = {
 
 type QueueItem<T> = {
   request: WriteRequest<T>
-  resolve: (value: T) => void
+  resolve: (value: StoredWriteResult<T>) => void
   reject: (error: unknown) => void
   enqueuedAt: number
   deadline: number
@@ -152,9 +155,13 @@ export class PlanStore {
   }
 
   async enqueueWrite<T>(planPath: string, request: WriteRequest<T>): Promise<T> {
+    return (await this.enqueueWriteWithPlan(planPath, request)).result
+  }
+
+  async enqueueWriteWithPlan<T>(planPath: string, request: WriteRequest<T>): Promise<StoredWriteResult<T>> {
     const state = this.queues.get(planPath) ?? { active: false, items: [] }
     this.queues.set(planPath, state)
-    return new Promise<T>((resolve, reject) => {
+    return new Promise<StoredWriteResult<T>>((resolve, reject) => {
       const item: QueueItem<T> = {
         request,
         resolve,
@@ -213,17 +220,18 @@ export class PlanStore {
   }
 
   private timeoutError(planPath: string, retryable: boolean) {
+    const latest = this.read(planPath)
     return new PlanProtocolError({
       code: ERROR_CODES.REVISION_CONFLICT,
       message: "写队列等待超时",
       hint: retryable ? "写冲突，请用同一 run_id 与相同参数重发" : "以最新 plan 为准重新决策，不要机械重发原 patch",
       retryable,
-      latest_plan: this.read(planPath) ?? undefined,
-      latest_revision: this.read(planPath)?.revision,
+      latest_plan: latest ?? undefined,
+      latest_revision: latest?.revision,
     })
   }
 
-  private async runWrite<T>(planPath: string, request: WriteRequest<T>): Promise<T> {
+  private async runWrite<T>(planPath: string, request: WriteRequest<T>): Promise<StoredWriteResult<T>> {
     const lockPath = `${planPath}.lock`
     const lock = await this.acquireLock(lockPath, request.holder, request.retryableOnTimeout === true)
     try {
@@ -233,18 +241,21 @@ export class PlanStore {
         holder: request.holder,
         priority: request.priority,
       })
+      let plan: PlanFile
       if (latest === null) {
         const created = {} as PlanFile
         outcome.mutate(created)
         assertPlanFile(created)
         this.writeAtomic(planPath, created)
+        plan = created
       } else {
         const next = clonePlan(latest)
         outcome.mutate(next)
         assertPlanFile(next)
         this.writeAtomic(planPath, next)
+        plan = next
       }
-      return outcome.result
+      return { result: outcome.result, plan }
     } finally {
       this.releaseLock(lockPath, lock)
     }
