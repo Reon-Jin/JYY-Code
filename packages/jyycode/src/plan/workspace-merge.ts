@@ -91,8 +91,9 @@ export type FileEntry = {
   path: string
   kind: "file" | "symlink"
   hash: string
-  bytes?: Uint8Array
-  text?: string
+  size: number
+  isText: boolean
+  root: string
   link?: string
 }
 
@@ -119,6 +120,21 @@ function hashBytes(bytes: Uint8Array) {
 
 function hashText(text: string) {
   return crypto.createHash("sha256").update(text).digest("hex")
+}
+
+function entryPath(entry: FileEntry) {
+  return path.resolve(entry.root, ...entry.path.replaceAll("/", path.sep).split(path.sep))
+}
+
+function readEntryBytes(entry: FileEntry): Uint8Array | undefined {
+  if (entry.kind !== "file") return undefined
+  return new Uint8Array(fs.readFileSync(entryPath(entry)))
+}
+
+function readEntryText(entry: FileEntry): string | undefined {
+  if (entry.kind !== "file" || !entry.isText) return undefined
+  const bytes = readEntryBytes(entry)
+  return bytes === undefined ? undefined : Buffer.from(bytes).toString("utf8")
 }
 
 function entryFingerprint(entry: FileEntry | undefined) {
@@ -243,12 +259,13 @@ function scanWorkspace(root: string, current = root, output = new Map<string, Fi
       }
       __mergeScanStats.scannedPaths.push(relative)
       __mergeScanStats.filesRead++
-      output.set(relative, { path: relative, kind: "symlink", link, hash: hashText(link) })
+      output.set(relative, { path: relative, kind: "symlink", link, hash: hashText(link), size, isText: true, root })
       continue
     }
     if (!entry.isFile()) fail(`unsupported workspace entry: ${relative}`)
+    const fileSize = fs.statSync(pathname).size
     if (options.limits) {
-      const size = fs.statSync(pathname).size
+      const size = fileSize
       if (size > options.limits.maxFileBytes) fail(`child merge file exceeds the per-file limit: ${relative}`)
       state.totalBytes += size
       state.fileCount++
@@ -258,15 +275,16 @@ function scanWorkspace(root: string, current = root, output = new Map<string, Fi
         fail("child merge exceeds the file-count limit; narrow the task scope")
     }
     const bytes = new Uint8Array(fs.readFileSync(pathname))
-    const text = isTextBytes(bytes) ? Buffer.from(bytes).toString("utf8") : undefined
+    const isText = isTextBytes(bytes)
     __mergeScanStats.scannedPaths.push(relative)
     __mergeScanStats.filesRead++
     output.set(relative, {
       path: relative,
       kind: "file",
       hash: hashBytes(bytes),
-      bytes,
-      ...(text !== undefined ? { text } : {}),
+      size: fileSize,
+      isText,
+      root,
     })
   }
   return output
@@ -345,12 +363,15 @@ function sameEntry(left: FileEntry | undefined, right: FileEntry | undefined) {
   if (!left || !right) return !left && !right
   if (left.kind !== right.kind) return false
   if (left.kind === "symlink" || right.kind === "symlink") return left.hash === right.hash
-  if (left.text !== undefined && right.text !== undefined) return normalizeText(left.text) === normalizeText(right.text)
-  return left.hash === right.hash
+  if (left.hash === right.hash) return true
+  if (!left.isText || !right.isText) return false
+  const leftText = readEntryText(left)
+  const rightText = readEntryText(right)
+  return leftText !== undefined && rightText !== undefined && normalizeText(leftText) === normalizeText(rightText)
 }
 
 function entryIsBinary(entry: FileEntry | undefined) {
-  return !!entry && entry.kind === "file" && entry.text === undefined
+  return !!entry && entry.kind === "file" && !entry.isText
 }
 
 function splitLines(text: string) {
@@ -473,8 +494,10 @@ function applyEntryFrom(
   if (!entry) return undefined
   if (entry.kind === "symlink") return { path: entry.path, kind: "symlink", source, link: entry.link }
   if (content !== undefined) return { path: entry.path, kind: "file", source, content }
-  if (entry.text !== undefined) return { path: entry.path, kind: "file", source, content: entry.text }
-  return { path: entry.path, kind: "file", source, bytes: entry.bytes }
+  const bytes = readEntryBytes(entry)
+  if (entry.isText && bytes !== undefined)
+    return { path: entry.path, kind: "file", source, content: Buffer.from(bytes).toString("utf8") }
+  return { path: entry.path, kind: "file", source, bytes: bytes ?? new Uint8Array() }
 }
 
 function inScope(relative: string, scopes: string[]) {
@@ -540,8 +563,13 @@ export function prepareWorkspaceMerge(input: WorkspaceMergeInput): WorkspaceMerg
     }
 
     let mergedContent: string | undefined
-    if (baseEntry?.text !== undefined && mainEntry?.text !== undefined && childEntry?.text !== undefined)
-      mergedContent = renderMergedText(baseEntry.text, mainEntry.text, childEntry.text)
+    if (baseEntry?.isText && mainEntry?.isText && childEntry?.isText) {
+      const baseText = readEntryText(baseEntry)
+      const mainText = readEntryText(mainEntry)
+      const childText = readEntryText(childEntry)
+      if (baseText !== undefined && mainText !== undefined && childText !== undefined)
+        mergedContent = renderMergedText(baseText, mainText, childText)
+    }
     if (mergedContent !== undefined) {
       result.apply.push(applyEntryFrom(mainEntry ?? childEntry, "merged", mergedContent)!)
       continue

@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { afterEach, describe, expect, it } from "bun:test"
-import { __mergeScanStats, buildScanFilter, planWorkspaceMerge } from "../../src/plan/workspace-merge"
+import { __mergeScanStats, buildScanFilter, planWorkspaceMerge, prepareWorkspaceMerge } from "../../src/plan/workspace-merge"
 import { createMergeWorkspaceFixture } from "./hardening-fixtures"
 
 function writeFile(root: string, relative: string, content: string) {
@@ -29,6 +29,23 @@ describe("workspace merge scan budget", () => {
 
     expect(result.apply.map((entry) => entry.path)).toEqual(["src/app.ts"])
     expect(__mergeScanStats.scannedPaths).not.toContain("node_modules/pkg/index.js")
+  })
+
+  it("does not retain file bodies after scanning", () => {
+    const fixture = createMergeWorkspaceFixture()
+    cleanups.push(fixture.cleanup)
+    const payload = "x".repeat(2 * 1024 * 1024)
+    writeFile(fixture.baseline, "big.txt", payload)
+    writeFile(fixture.baseline, "unchanged.txt", "same\n")
+    fs.cpSync(fixture.baseline, fixture.parent, { recursive: true })
+    fs.cpSync(fixture.baseline, fixture.child, { recursive: true })
+    writeFile(fixture.child, "big.txt", `${payload}y`)
+
+    const prepared = prepareWorkspaceMerge({ base: fixture.baseline, main: fixture.parent, child: fixture.child })
+    const entry = prepared.main.get("unchanged.txt")!
+    expect((entry as Record<string, unknown>).bytes).toBeUndefined()
+    expect((entry as Record<string, unknown>).text).toBeUndefined()
+    expect(prepared.plan.apply.map((item) => item.path)).toEqual(["big.txt"])
   })
 
   it("uses a directory index instead of scanning every candidate path", () => {
