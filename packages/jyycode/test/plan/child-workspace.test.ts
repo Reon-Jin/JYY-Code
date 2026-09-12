@@ -115,7 +115,7 @@ describe("ChildWorkspace", () => {
     const snapshot = await manager.snapshot("ses_root", "s1_t1")
     fs.writeFileSync(path.join(snapshot.directory, "src", "old.ts"), "new")
     fs.writeFileSync(path.join(snapshot.directory, "src", "new.ts"), "new")
-    const changes = manager.diff(snapshot, "src")
+    const changes = await manager.diff(snapshot, "src")
     expect(changes).toEqual([
       {
         relative_path: path.join("src", "new.ts"),

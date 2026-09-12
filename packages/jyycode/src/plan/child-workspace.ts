@@ -133,6 +133,17 @@ function hashFile(pathname: string) {
   return crypto.createHash("sha256").update(fs.readFileSync(pathname)).digest("hex")
 }
 
+async function hashFileStream(pathname: string) {
+  const hash = crypto.createHash("sha256")
+  await new Promise<void>((resolve, reject) => {
+    const stream = fs.createReadStream(pathname)
+    stream.on("data", (chunk) => hash.update(chunk))
+    stream.on("error", reject)
+    stream.on("end", () => resolve())
+  })
+  return hash.digest("hex")
+}
+
 function hashManifest(manifest: BaselineManifestEntry[]) {
   return crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex")
 }
@@ -272,7 +283,7 @@ function candidatePaths(root: string, vcs: "git" | "none") {
   return walkCandidatePaths(root)
 }
 
-function snapshotManifest(root: string, vcs: "git" | "none", limits: SnapshotLimits): BaselineManifestEntry[] {
+async function snapshotManifest(root: string, vcs: "git" | "none", limits: SnapshotLimits): Promise<BaselineManifestEntry[]> {
   const paths = candidatePaths(root, vcs).sort((left, right) => left.localeCompare(right))
   if (paths.length > limits.maxFileCount)
     throw new ChildWorkspaceError(
@@ -303,7 +314,7 @@ function snapshotManifest(root: string, vcs: "git" | "none", limits: SnapshotLim
       )
     manifest.push({
       relative_path: relativePath,
-      hash: stat.isSymbolicLink() ? fs.readlinkSync(pathname) : hashFile(pathname),
+      hash: stat.isSymbolicLink() ? fs.readlinkSync(pathname) : await hashFileStream(pathname),
       size,
       mode: stat.isSymbolicLink() ? "symlink" : "file",
     })
@@ -320,7 +331,7 @@ async function buildSourceManifest(
   include: readonly string[],
 ): Promise<SnapshotManifest> {
   if (vcs === "git") {
-    const entries = snapshotManifest(root, vcs, limits)
+    const entries = await snapshotManifest(root, vcs, limits)
     return {
       version: 1,
       source_root: path.resolve(root),
@@ -688,7 +699,7 @@ export class ChildWorkspace {
 
       const sourceManifest = await this.sourceManifest()
       const baselineManifest =
-        sourceManifest?.entries ?? snapshotManifest(this.project.root, this.project.vcs, this.snapshotLimits)
+        sourceManifest?.entries ?? (await snapshotManifest(this.project.root, this.project.vcs, this.snapshotLimits))
       const shared = sourceManifest ? await this.ensureSharedBaseline(sourceManifest) : undefined
       snapshotBaselineId = shared?.baselineId
       const effectiveBaselineDirectory = shared?.directory ?? baselineDirectory
@@ -876,7 +887,7 @@ export class ChildWorkspace {
     return fs.existsSync(directory) ? fs.realpathSync.native(directory) : path.resolve(directory)
   }
 
-  diff(snapshot: WorkspaceHandle, scope: string): ChangeSetEntry[] {
+  async diff(snapshot: WorkspaceHandle, scope: string): Promise<ChangeSetEntry[]> {
     assertInside(
       snapshot.directory,
       path.isAbsolute(scope) ? scope : path.join(snapshot.directory, scope),
@@ -886,7 +897,7 @@ export class ChildWorkspace {
     const normalizeRelative = (value: string) => value.replaceAll("\\", "/")
     const baseline = new Map(snapshot.baseline_manifest.map((entry) => [normalizeRelative(entry.relative_path), entry]))
     const current = new Map(
-      snapshotManifest(snapshot.directory, "none", this.snapshotLimits).map((entry) => [
+      (await snapshotManifest(snapshot.directory, "none", this.snapshotLimits)).map((entry) => [
         normalizeRelative(entry.relative_path),
         entry,
       ]),
