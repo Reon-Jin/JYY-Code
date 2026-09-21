@@ -4,6 +4,7 @@ import type { QueryClient } from "@tanstack/solid-query"
 import { createMemo, createSignal, Show } from "solid-js"
 import { InlineError } from "../../components/ui/inline-error"
 import { keys } from "../../data/query-keys"
+import { patchSessionList } from "../../data/session-cache"
 import type { DesktopClient } from "../../data/sdk"
 import { errorMessage } from "../projects/project-controller"
 import "./goal-mode.css"
@@ -11,15 +12,6 @@ import "./goal-mode.css"
 export function effectiveGoalRunning(session: Session) {
   if (session.parentID) return false
   return session.goal?.status === "running"
-}
-
-function patchSessionList(queryClient: QueryClient, queryKey: readonly unknown[], session: Session) {
-  const sessions = queryClient.getQueryData<Session[]>(queryKey)
-  if (!sessions) return
-  queryClient.setQueryData(
-    queryKey,
-    sessions.map((candidate) => (candidate.id === session.id ? session : candidate)),
-  )
 }
 
 export type GoalModeControlProps = {

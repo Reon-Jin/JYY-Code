@@ -41,12 +41,22 @@ function conversation(parts: Part[], message = info): ConversationMessage {
 afterEach(cleanup)
 
 describe("MessageTimeline", () => {
-  it("keeps cached messages visible while a failed refresh can be retried", () => {
-    const onRetry = vi.fn()
+  it("keeps cached messages visible while a refresh is pending", () => {
     render(() => (
       <MessageTimeline
         messages={[conversation([{ id: "part_user", sessionID, messageID: info.id, type: "text", text: "历史消息" }])]}
         loading
+      />
+    ))
+
+    expect(screen.getByText("历史消息")).toBeVisible()
+  })
+
+  it("keeps cached messages visible when a failed refresh can be retried", () => {
+    const onRetry = vi.fn()
+    render(() => (
+      <MessageTimeline
+        messages={[conversation([{ id: "part_user", sessionID, messageID: info.id, type: "text", text: "历史消息" }])]}
         error="Temporary failure"
         onRetry={onRetry}
       />

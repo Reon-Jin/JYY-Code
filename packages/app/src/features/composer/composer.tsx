@@ -296,7 +296,6 @@ export function Composer(props: ComposerProps) {
       .terminate()
       .then(() => {
         void props.queryClient.invalidateQueries({ queryKey: keys.sessions(props.directory), exact: true })
-        void props.queryClient.invalidateQueries({ queryKey: keys.sessionsAll(props.directory), exact: true })
         void props.queryClient.invalidateQueries({
           queryKey: keys.session(props.directory, props.sessionID),
           exact: true,

@@ -391,7 +391,6 @@ describe("event routing", () => {
   it("batches a frame and patches exact session and status caches", async () => {
     const queryClient = createDesktopQueryClient()
     queryClient.setQueryData(keys.sessions("C:\\a"), [session])
-    queryClient.setQueryData(keys.sessionsAll("C:\\a"), [session])
     queryClient.setQueryData(keys.session("C:\\a", session.id), session)
     queryClient.setQueryData(keys.status("C:\\a"), {})
 
@@ -439,7 +438,6 @@ describe("event routing", () => {
     await Promise.resolve()
 
     expect(queryClient.getQueryData<Session[]>(keys.sessions("C:\\a"))?.[0]?.title).toBe("Updated")
-    expect(queryClient.getQueryData<Session[]>(keys.sessionsAll("C:\\a"))?.[0]?.title).toBe("Updated")
     expect(queryClient.getQueryData(keys.status("C:\\a"))).toEqual({ ses_1: { type: "busy" } })
 
     bridge.abort()
@@ -1238,7 +1236,6 @@ describe("event routing", () => {
 
     expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
       keys.sessions("C:\\a"),
-      keys.sessionsAll("C:\\a"),
       keys.status("C:\\a"),
       keys.permissions("C:\\a"),
       keys.questions("C:\\a"),

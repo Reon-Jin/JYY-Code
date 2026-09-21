@@ -1074,7 +1074,6 @@ export function getPulseDriverConfig(
   size: BorderBeamSize,
   theme: "dark" | "light",
   duration: number,
-  hueRange: number,
   staticColors: boolean,
   id: string,
 ): PulseDriverConfig | null {

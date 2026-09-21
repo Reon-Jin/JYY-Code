@@ -48,7 +48,7 @@ export function SessionList(props: SessionListProps) {
         {(message) => <SessionListError message={message()} onRetry={props.onRetry} />}
       </Show>
       <Show
-        when={!props.loading || sorted().length > 0 || Boolean(props.error)}
+        when={!props.loading || sorted().length > 0}
         fallback={
           <div class="session-list__loading" role="status" aria-live="polite">
             <Spinner /> {tr("sessions.loading-session")}

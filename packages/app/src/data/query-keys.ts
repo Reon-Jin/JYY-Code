@@ -40,7 +40,6 @@ export const keys = {
     archived
       ? ([...project(directory), "sessions", "archived"] as const)
       : ([...project(directory), "sessions"] as const),
-  sessionsAll: (directory: string) => [...project(directory), "sessions", "all"] as const,
   session: (directory: string, sessionID: string) => [...project(directory), "session", sessionID] as const,
   messages: (directory: string, sessionID: string) =>
     [...project(directory), "session", sessionID, "messages"] as const,

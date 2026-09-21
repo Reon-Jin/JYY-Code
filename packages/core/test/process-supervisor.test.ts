@@ -18,7 +18,7 @@ describe("process supervisor", () => {
       }
     `
     const child = Bun.spawn([process.execPath, "--eval", script], {
-      env: { ...process.env, PATH: "" },
+      env: { ...process.env, PATH: "__jyycode_missing_process_inspector__" },
       stdout: "pipe",
       stderr: "pipe",
     })

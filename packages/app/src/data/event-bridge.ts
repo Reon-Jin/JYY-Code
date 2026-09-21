@@ -652,11 +652,6 @@ export class EventBridge {
         patchRootList(false)
         patchRootList(true)
 
-        const allKey = keys.sessionsAll(directory)
-        const allSessions = this.#options.queryClient.getQueryData<Session[]>(allKey)
-        if (allSessions) this.#options.queryClient.setQueryData(allKey, upsertByID(allSessions, action.info))
-        else this.#invalidate(allKey)
-
         const sessionKey = keys.session(directory, action.info.id)
         if (this.#options.queryClient.getQueryData(sessionKey)) {
           this.#options.queryClient.setQueryData(sessionKey, action.info)
@@ -679,16 +674,6 @@ export class EventBridge {
           }
         }
         this.#options.queryClient.removeQueries({ queryKey: keys.session(directory, action.sessionID), exact: true })
-        const allKey = keys.sessionsAll(directory)
-        const allSessions = this.#options.queryClient.getQueryData<Session[]>(allKey)
-        if (allSessions) {
-          this.#options.queryClient.setQueryData(
-            allKey,
-            allSessions.filter((session) => session.id !== action.sessionID),
-          )
-        } else {
-          this.#invalidate(allKey)
-        }
         break
       }
       case "status.set": {
@@ -788,7 +773,6 @@ export class EventBridge {
       const directory = this.#options.directory
       const queryFilters: Array<{ queryKey: readonly unknown[]; exact: boolean }> = [
         { queryKey: keys.sessions(directory), exact: true },
-        { queryKey: keys.sessionsAll(directory), exact: true },
         { queryKey: keys.status(directory), exact: true },
         { queryKey: keys.permissions(directory), exact: true },
         { queryKey: keys.questions(directory), exact: true },

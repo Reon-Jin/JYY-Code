@@ -11,6 +11,7 @@ import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { Global } from "@jyycode-ai/core/global"
 import * as Log from "@jyycode-ai/core/util/log"
 import { sanitizedProcessEnv } from "@jyycode-ai/core/util/jyycode-process"
+import { withTransientReadRetry } from "@/util/effect-http-client"
 import { which } from "@/util/which"
 import { NonNegativeInt } from "@jyycode-ai/core/schema"
 import { runtimeExclusionGlobs, shouldExcludeRuntimePath } from "./runtime-excludes"
@@ -234,7 +235,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | ChildPro
     Service,
     Effect.gen(function* () {
       const fs = yield* AppFileSystem.Service
-      const http = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
+      const http = HttpClient.filterStatusOk(withTransientReadRetry(yield* HttpClient.HttpClient))
       const spawner = yield* ChildProcessSpawner
 
       const run = Effect.fnUntraced(function* (command: string, args: string[], opts?: { cwd?: string }) {

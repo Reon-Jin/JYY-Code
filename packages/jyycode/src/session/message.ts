@@ -3,7 +3,6 @@ import { SessionID } from "./schema"
 import { ModelID, ProviderID } from "../provider/schema"
 import { NonNegativeInt } from "@jyycode-ai/core/schema"
 import { MessageError } from "./message-error"
-import { AuthError, OutputLengthError } from "./message-error"
 export { AuthError, OutputLengthError } from "./message-error"
 
 export const ToolCall = Schema.Struct({

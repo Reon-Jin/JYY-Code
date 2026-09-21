@@ -99,6 +99,29 @@ describe("desktop GUI journey", () => {
     vi.unstubAllGlobals()
   })
 
+  it("keeps the session list visible while the selected conversation loads", async () => {
+    const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_slow" } })
+    const backend = createFakeJyycode(desktop.directory)
+    backend.addSession({ id: "ses_slow", slug: "slow", title: "Saved Session" })
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      if (new URL(request.url).pathname === "/session/ses_slow" && request.method === "GET") await gate
+      return backend.fetch(input, init)
+    })
+
+    try {
+      render(() => <App bridge={desktop.bridge} />)
+      const list = await screen.findByRole("navigation", { name: "活动 Session" }, { timeout: 15_000 })
+      expect(await within(list).findByRole("link", { name: /Saved Session/ }, { timeout: 15_000 })).toBeVisible()
+    } finally {
+      release()
+    }
+  }, 20_000)
+
   it("refreshes the Composer catalog and open Plan after saving a subagent profile", async () => {
     const user = userEvent.setup()
     const desktop = createFakeDesktop({ lastLocation: { project: "C:\\work\\demo", sessionID: "ses_profile" } })

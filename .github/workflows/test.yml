@@ -45,6 +45,14 @@ jobs:
       - name: Test all workspaces
         run: bun run test:ci
 
+      - name: Ensure ripgrep for runtime tests
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ripgrep
+          fi
+          rg --version
+
       - name: Test product runtime
         run: bun run --cwd packages/jyycode test:ci
 
@@ -58,7 +66,7 @@ jobs:
           name: product-test-junit
           if-no-files-found: warn
           path: |
-            .artifacts/**/junit.xml
+            packages/*/.artifacts/unit/junit.xml
             packages/jyycode/.artifacts/runtime-budget/**
 
   desktop:
@@ -90,6 +98,7 @@ jobs:
           name: desktop-ui-diagnostics
           if-no-files-found: warn
           path: |
+            packages/app/.artifacts/unit/junit.xml
             packages/app/dist/performance-summary.json
             packages/app/test-results/**
             packages/app/screenshots/**

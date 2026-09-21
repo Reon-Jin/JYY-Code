@@ -135,9 +135,16 @@ describe("SessionList", () => {
     expect(screen.queryByRole("button", { name: "新建 Session" })).not.toBeInTheDocument()
   })
 
-  it("keeps loaded history visible during a refresh and after a refresh error", () => {
+  it("keeps loaded history visible during a refresh", () => {
+    renderList({ loading: true })
+
+    expect(screen.getByRole("link", { name: /Older session/ })).toBeVisible()
+    expect(screen.getByRole("link", { name: /Newer session/ })).toBeVisible()
+  })
+
+  it("keeps loaded history visible after a refresh error", () => {
     const onRetry = vi.fn()
-    renderList({ loading: true, error: "Temporary failure", onRetry })
+    renderList({ error: "Temporary failure", onRetry })
 
     expect(screen.getByRole("link", { name: /Older session/ })).toBeVisible()
     expect(screen.getByRole("link", { name: /Newer session/ })).toBeVisible()
