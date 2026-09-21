@@ -40,7 +40,7 @@ export function sessionQueryOptions(input: SessionQueryInput) {
 }
 
 function sessionsFrom(result: { data?: Session[] }, archived: boolean) {
-  if (!Array.isArray(result.data)) throw new Error(tr("sessions.unable-to-load-session"))
+  if (!Array.isArray(result.data)) throw new TypeError(tr("sessions.unable-to-load-session"))
   return [...result.data]
     .filter(
       (session) =>
@@ -71,11 +71,6 @@ export function createSessionApi(input: SessionApiInput) {
       { throwOnError: true },
     )
     return sessionsFrom(result, archived)
-  }
-
-  async function listAll() {
-    const result = await input.client.session.list({ directory: input.directory, roots: false }, { throwOnError: true })
-    return result.data ?? []
   }
 
   async function status() {
@@ -118,7 +113,7 @@ export function createSessionApi(input: SessionApiInput) {
     return result.data ?? false
   }
 
-  return { list, listAll, load, status, create, rename, archive, remove }
+  return { list, load, status, create, rename, archive, remove }
 }
 
 export type SessionApi = ReturnType<typeof createSessionApi>

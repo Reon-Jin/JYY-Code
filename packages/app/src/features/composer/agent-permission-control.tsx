@@ -4,6 +4,7 @@ import type { QueryClient } from "@tanstack/solid-query"
 import { ChevronDown, LoaderCircle, ShieldAlert, ShieldCheck, ShieldQuestion, UnlockKeyhole } from "lucide-solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import { keys } from "../../data/query-keys"
+import { patchSessionList } from "../../data/session-cache"
 import type { DesktopClient } from "../../data/sdk"
 import { errorMessage } from "../projects/project-controller"
 import { permissionModeFromRules, permissionRulesForMode, type AgentPermissionMode } from "./permission-mode"
@@ -30,15 +31,6 @@ function ModeIcon(props: { mode: AgentPermissionMode }) {
   if (props.mode === "request") return <ShieldQuestion aria-hidden="true" />
   if (props.mode === "full") return <UnlockKeyhole aria-hidden="true" />
   return <ShieldCheck aria-hidden="true" />
-}
-
-function patchSessionList(queryClient: QueryClient, queryKey: readonly unknown[], session: Session) {
-  const sessions = queryClient.getQueryData<Session[]>(queryKey)
-  if (!sessions) return
-  queryClient.setQueryData(
-    queryKey,
-    sessions.map((candidate) => (candidate.id === session.id ? session : candidate)),
-  )
 }
 
 export type AgentPermissionControlProps = {
@@ -73,7 +65,6 @@ export function AgentPermissionControl(props: AgentPermissionControlProps) {
       props.queryClient.setQueryData(keys.session(props.directory, session.id), session)
       patchSessionList(props.queryClient, keys.sessions(props.directory), session)
       patchSessionList(props.queryClient, keys.sessions(props.directory, true), session)
-      patchSessionList(props.queryClient, keys.sessionsAll(props.directory), session)
       setOptimistic(permissionModeFromRules(session.permission))
     } catch (cause) {
       setOptimistic(undefined)

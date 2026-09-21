@@ -963,7 +963,7 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
       activeSession={activeSession()}
       activeSessionID={props.activeSessionID}
       selectedRootSessionID={rootSessionID()}
-      activeLoading={activeQuery.isPending || (Boolean(props.activeSessionID) && sessionQuery.isPending)}
+      activeLoading={activeQuery.isPending}
       archivedLoading={archivedQuery.isPending}
       conversationLoading={Boolean(props.activeSessionID) && conversationQuery.isPending}
       activeError={

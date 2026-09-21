@@ -26,7 +26,7 @@ export async function loadConversation(input: ConversationQueryInput) {
     { directory: input.directory, sessionID: input.sessionID },
     input.signal ? { throwOnError: true, signal: input.signal } : { throwOnError: true },
   )
-  if (!Array.isArray(result.data)) throw new Error(tr("layout.unable-to-load-session-message"))
+  if (!Array.isArray(result.data)) throw new TypeError(tr("layout.unable-to-load-session-message"))
   const snapshot = snapshotFromMessages(input.sessionID, result.data)
   const previous = input.queryClient?.getQueryData(keys.messages(input.directory, input.sessionID))
   if (!isConversationSnapshot(previous)) return snapshot

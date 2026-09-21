@@ -4,7 +4,6 @@
 import type { TuiPlugin, TuiPluginApi } from "@jyycode-ai/plugin/tui"
 import type { SessionPlanResponse } from "@jyycode-ai/sdk/v2"
 import type { RGBA } from "@opentui/core"
-import { useBindings } from "@tui/keymap"
 import { useTheme } from "@tui/context/theme"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createResource, createSignal, For, onCleanup, Show } from "solid-js"
@@ -58,12 +57,6 @@ const statusPresentation: Record<PlanTask["status"], { tone: PlanTaskTone; label
   approved: { tone: "done", label: "已通过" },
   rejected: { tone: "failed", label: "已拒绝" },
   dismissed: { tone: "failed", label: "已忽略" },
-}
-
-function numeric(value: number | string): number {
-  if (typeof value === "number") return value
-  const parsed = Number.parseFloat(value)
-  return Number.isNaN(parsed) ? 0 : parsed
 }
 
 export function emptyPlanSnapshot(): PlanSnapshot {

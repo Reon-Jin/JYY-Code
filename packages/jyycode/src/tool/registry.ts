@@ -63,8 +63,6 @@ import {
   providerSafeToolName,
   toolIdentityFor,
   type IdentifiedToolDef,
-  type ResolvedToolNames,
-  type ToolIdentity,
   type ToolIdentityIndexes,
 } from "./identity"
 export {

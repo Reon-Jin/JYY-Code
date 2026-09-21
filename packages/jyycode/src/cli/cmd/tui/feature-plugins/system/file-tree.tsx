@@ -2,11 +2,10 @@
 // 文件树 / 预览 — 与 desktop features/files/* 对齐（终端语境：树内预览 + 外部编辑器由会话上下文负责）。
 // 数据全部来自 @jyycode-ai/sdk/v2（api.client.file.list/read、api.client.find.files）。
 import type { TuiPlugin, TuiPluginApi } from "@jyycode-ai/plugin/tui"
-import type { FileNode } from "@jyycode-ai/sdk/v2"
 import { useBindings } from "@tui/keymap"
 import { useTheme } from "@tui/context/theme"
 import { useTerminalDimensions } from "@opentui/solid"
-import { createMemo, createResource, createSignal, For, Show } from "solid-js"
+import { createResource, createSignal, For, Show } from "solid-js"
 
 export const ROUTE = "files"
 

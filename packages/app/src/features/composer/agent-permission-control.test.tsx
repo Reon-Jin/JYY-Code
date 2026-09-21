@@ -25,7 +25,7 @@ describe("AgentPermissionControl", () => {
     const queryClient = createDesktopQueryClient()
     let persisted: Session = baseSession
     queryClient.setQueryData(keys.session(directory, persisted.id), persisted)
-    queryClient.setQueryData(keys.sessionsAll(directory), [persisted])
+    queryClient.setQueryData(keys.sessions(directory), [persisted])
     const update = vi.fn(async (input: { permission: PermissionRuleset }) => {
       persisted = { ...persisted, permission: input.permission }
       return { data: persisted }
@@ -59,6 +59,6 @@ describe("AgentPermissionControl", () => {
       { throwOnError: true },
     )
     expect(queryClient.getQueryData<Session>(keys.session(directory, baseSession.id))?.permission).toEqual([])
-    expect(queryClient.getQueryData<Session[]>(keys.sessionsAll(directory))?.[0]?.permission).toEqual([])
+    expect(queryClient.getQueryData<Session[]>(keys.sessions(directory))?.[0]?.permission).toEqual([])
   })
 })

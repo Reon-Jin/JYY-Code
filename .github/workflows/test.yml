@@ -58,7 +58,7 @@ jobs:
           name: product-test-junit
           if-no-files-found: warn
           path: |
-            .artifacts/**/junit.xml
+            packages/*/.artifacts/unit/junit.xml
             packages/jyycode/.artifacts/runtime-budget/**
 
   desktop:
@@ -90,6 +90,7 @@ jobs:
           name: desktop-ui-diagnostics
           if-no-files-found: warn
           path: |
+            packages/app/.artifacts/unit/junit.xml
             packages/app/dist/performance-summary.json
             packages/app/test-results/**
             packages/app/screenshots/**

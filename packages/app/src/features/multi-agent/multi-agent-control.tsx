@@ -4,6 +4,7 @@ import type { QueryClient } from "@tanstack/solid-query"
 import { createMemo, createSignal, Show } from "solid-js"
 import { InlineError } from "../../components/ui/inline-error"
 import { keys } from "../../data/query-keys"
+import { patchSessionList } from "../../data/session-cache"
 import type { DesktopClient } from "../../data/sdk"
 import { errorMessage } from "../projects/project-controller"
 import "./multi-agent.css"
@@ -16,15 +17,6 @@ export function effectiveMultiAgent(session: Session) {
 function disabledReason(session: Session) {
   if (session.parentID) return tr("multi-agent.sub-agent-does-not-support-starting-multi-agent")
   return undefined
-}
-
-function patchSessionList(queryClient: QueryClient, queryKey: readonly unknown[], session: Session) {
-  const sessions = queryClient.getQueryData<Session[]>(queryKey)
-  if (!sessions) return
-  queryClient.setQueryData(
-    queryKey,
-    sessions.map((candidate) => (candidate.id === session.id ? session : candidate)),
-  )
 }
 
 export type MultiAgentControlProps = {

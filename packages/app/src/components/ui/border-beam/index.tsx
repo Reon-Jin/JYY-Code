@@ -178,7 +178,7 @@ export function BorderBeam(props: BorderBeamProps) {
 
   const driverConfig = createMemo(() =>
     isPulse()
-      ? getPulseDriverConfig(size(), resolvedTheme(), finalDuration(), finalHueRange(), finalStaticColors(), id)
+      ? getPulseDriverConfig(size(), resolvedTheme(), finalDuration(), finalStaticColors(), id)
       : null,
   )
 

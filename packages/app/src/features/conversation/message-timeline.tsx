@@ -369,84 +369,84 @@ export function MessageTimeline(props: MessageTimelineProps) {
 
   return (
     <section class="message-timeline" aria-label={tr("conversation.conversation-messages")}>
+      <Show when={props.error}>
+        {(message) => (
+          <div class="message-timeline__error">
+            <InlineError message={message()} />
+            <Show when={props.onRetry}>
+              <Button size="small" variant="secondary" onClick={props.onRetry}>
+                {tr("conversation.reload")}
+              </Button>
+            </Show>
+          </div>
+        )}
+      </Show>
       <Show
-        when={!props.loading}
+        when={!props.loading || props.messages.length > 0}
         fallback={
           <div class="message-timeline__loading" role="status">
             <Spinner /> {tr("conversation.loading-messages")}
           </div>
         }
       >
-        <Show
-          when={!props.error}
-          fallback={
-            <div class="message-timeline__error">
-              <InlineError message={props.error!} />
-              <Show when={props.onRetry}>
-                <Button size="small" variant="secondary" onClick={props.onRetry}>
-                  {tr("conversation.reload")}
-                </Button>
-              </Show>
-            </div>
-          }
-        >
-          <div
-            ref={viewport}
-            class="message-timeline__viewport"
-            onWheel={(event) => {
-              if (event.deltaY < 0) {
-                initialized = true
-                pinnedToBottom = false
-              }
-            }}
-            onTouchStart={(event) => {
-              touchStartY = event.touches[0]?.clientY ?? 0
-            }}
-            onTouchMove={(event) => {
-              const y = event.touches[0]?.clientY ?? touchStartY
-              if (y > touchStartY) {
-                initialized = true
-                pinnedToBottom = false
-              }
-              touchStartY = y
-            }}
-            onScroll={() => {
+        <div
+          ref={viewport}
+          class="message-timeline__viewport"
+          onWheel={(event) => {
+            if (event.deltaY < 0) {
               initialized = true
-              pinnedToBottom = distanceFromBottom() <= 4
-              if (pinnedToBottom) setHasNewMessages(false)
-            }}
-          >
-            <Show
-              when={presentedMessages().length > 0}
-              fallback={
+              pinnedToBottom = false
+            }
+          }}
+          onTouchStart={(event) => {
+            touchStartY = event.touches[0]?.clientY ?? 0
+          }}
+          onTouchMove={(event) => {
+            const y = event.touches[0]?.clientY ?? touchStartY
+            if (y > touchStartY) {
+              initialized = true
+              pinnedToBottom = false
+            }
+            touchStartY = y
+          }}
+          onScroll={() => {
+            initialized = true
+            pinnedToBottom = distanceFromBottom() <= 4
+            if (pinnedToBottom) setHasNewMessages(false)
+          }}
+        >
+          <Show
+            when={presentedMessages().length > 0}
+            fallback={
+              <Show when={!props.error}>
                 <div class="message-timeline__empty" role="status">
                   <MessageCircle aria-hidden="true" />
                   <span>{tr("conversation.no-news-yet-start-the-conversation-below")}</span>
                 </div>
-              }
-            >
-              <div class="message-timeline__content">
-                <CompactionIndicator status={props.compaction} />
-                <For each={markersByMessageIndex().get(-1) ?? []}>
-                  {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb} />}
-                </For>
-                <For each={messageIDs()}>
-                  {(messageID, index) => (
-                    <>
-                      <PresentedMessageView
-                        message={messagesByID().get(messageID)!}
-                        pendingActivityKeys={pendingActivityKeys()}
-                      />
-                      <For each={markersByMessageIndex().get(index()) ?? []}>
-                        {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb} />}
-                      </For>
-                    </>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
-        </Show>
+              </Show>
+            }
+          >
+            <div class="message-timeline__content">
+              <CompactionIndicator status={props.compaction} />
+              <For each={markersByMessageIndex().get(-1) ?? []}>
+                {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb} />}
+              </For>
+              <For each={messageIDs()}>
+                {(messageID, index) => (
+                  <>
+                    <PresentedMessageView
+                      message={messagesByID().get(messageID)!}
+                      pendingActivityKeys={pendingActivityKeys()}
+                    />
+                    <For each={markersByMessageIndex().get(index()) ?? []}>
+                      {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb} />}
+                    </For>
+                  </>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
       </Show>
 
       <Show when={hasNewMessages()}>
