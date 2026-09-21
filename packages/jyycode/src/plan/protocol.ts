@@ -1582,17 +1582,24 @@ export class PlanProtocol {
     })
   }
 
-  private recordedWorkspace(ctx: PlanExecutionContext, task: PlanTask): WorkspaceHandle | undefined {
+  private recordedWorkspace(
+    ctx: PlanExecutionContext,
+    task: PlanTask,
+    forCleanup = false,
+  ): WorkspaceHandle | undefined {
     const workspace = task.dispatch?.workspace
     if (!workspace || !this.childWorkspace) return undefined
     const reservation = this.childWorkspace.reserve(ctx.sessionId, task.id)
-    return this.childWorkspace.load({
-      ...reservation,
-      ...workspace,
-      rootSessionId: ctx.sessionId,
-      taskId: task.id,
-      name: reservation.name,
-    })
+    return this.childWorkspace.load(
+      {
+        ...reservation,
+        ...workspace,
+        rootSessionId: ctx.sessionId,
+        taskId: task.id,
+        name: reservation.name,
+      },
+      { forCleanup },
+    )
   }
 
   private async persistCleanupRecord(ctx: PlanExecutionContext, taskId: string, record: CleanupRecord) {
@@ -1661,7 +1668,7 @@ export class PlanProtocol {
       },
       remove: async () => {
         if (!this.childWorkspace) throw new Error("child workspace manager unavailable")
-        const loaded = this.recordedWorkspace(ctx, task)
+        const loaded = this.recordedWorkspace(ctx, task, true)
         if (!loaded) {
           const childExists = workspace.directory ? fs.existsSync(path.resolve(workspace.directory)) : false
           const baselineExists = workspace.baseline_directory
@@ -1670,10 +1677,8 @@ export class PlanProtocol {
           const manifestExists = workspace.baseline_manifest_path
             ? fs.existsSync(path.resolve(workspace.baseline_manifest_path))
             : false
-          if (!childExists && !baselineExists && !manifestExists) return true
-          throw new Error("recorded child workspace is missing")
-        }
-        await this.childWorkspace.remove(loaded.directory, this.workspaceRemovalGuard(childSessionId))
+          if (childExists || baselineExists || manifestExists) throw new Error("recorded child workspace is missing")
+        } else await this.childWorkspace.remove(loaded.directory, this.workspaceRemovalGuard(childSessionId))
         const journalDirectory = task.merge?.journal_directory
         const runtimeRoot = workspace.baseline_directory
           ? path.dirname(path.resolve(workspace.baseline_directory))
@@ -1681,10 +1686,9 @@ export class PlanProtocol {
         if (journalDirectory && runtimeRoot) removeMergeJournal(journalDirectory, runtimeRoot)
         return true
       },
-      // Keep one protocol invocation one cleanup attempt. A transient failure
-      // is persisted and the next explicit cleanup/merge or the online
-      // sweeper performs the bounded lock retry without repeating the merge.
-      retryDelaysMs: [],
+      // Retry transient file locks here: reported children may no longer have
+      // a lease, so the background sweeper cannot guarantee a later retry.
+      // The cleanup service bounds the waits and never repeats the merge.
       persist: (record) => this.persistCleanupRecord(ctx, taskId, record),
     })
     if (result.record.state === "failed" || result.record.state === "quarantined") {

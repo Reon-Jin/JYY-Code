@@ -238,6 +238,10 @@ export const Info = Schema.Struct({
     description:
       "Maximum number of child agents whose workspaces are created/started concurrently by a single Dispatch_dispatch call",
   }),
+  max_running_children: Schema.optional(PositiveInt).annotate({
+    description:
+      "Global limit for simultaneously executing Plan child agents across projects in one backend process (default: 4). Queued children remain cancellable. Configure in the global config.",
+  }),
   // User-facing plugin config is stored as Specs; provenance gets attached later while configs are merged.
   plugin: Schema.optional(Schema.mutable(Schema.Array(ConfigPlugin.Spec))),
   share: Schema.optional(Schema.Literals(["manual", "auto", "disabled"])).annotate({

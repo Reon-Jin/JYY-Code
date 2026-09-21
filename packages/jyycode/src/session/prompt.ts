@@ -77,6 +77,7 @@ import { Memory } from "@/memory/memory"
 import { Blackboard } from "@/plan/blackboard"
 import { Skill } from "@/skill"
 import { childBudgetFor, markChildBudgetFailure } from "@/plan/protocol"
+import { childExecutionLimiter } from "@/plan/child-execution"
 import { MAX_AGENT_STEPS } from "@/config/agent"
 
 // @ts-ignore
@@ -2633,7 +2634,15 @@ export const layer = Layer.effect(
     const loop: (input: LoopInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.loop")(function* (
       input: LoopInput,
     ) {
-      return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), runLoop(input.sessionID))
+      const work = Effect.gen(function* () {
+        if (!childBudgetFor(input.sessionID)) return yield* runLoop(input.sessionID)
+        yield* status.set(input.sessionID, { type: "busy" })
+        const globalConfig = yield* config.getGlobal()
+        return yield* childExecutionLimiter.run(runLoop(input.sessionID), globalConfig.max_running_children)
+      })
+      // Admission belongs inside the runner so cancel interrupts queued children
+      // as well as children already executing model/tool work.
+      return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), work)
     })
 
     const shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts, Session.BusyError> = Effect.fn(

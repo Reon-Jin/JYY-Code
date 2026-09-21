@@ -135,6 +135,17 @@ describe("SessionList", () => {
     expect(screen.queryByRole("button", { name: "新建 Session" })).not.toBeInTheDocument()
   })
 
+  it("keeps loaded history visible during a refresh and after a refresh error", () => {
+    const onRetry = vi.fn()
+    renderList({ loading: true, error: "Temporary failure", onRetry })
+
+    expect(screen.getByRole("link", { name: /Older session/ })).toBeVisible()
+    expect(screen.getByRole("link", { name: /Newer session/ })).toBeVisible()
+    expect(screen.getByText("Temporary failure")).toBeVisible()
+    screen.getByRole("button", { name: "重新加载" }).click()
+    expect(onRetry).toHaveBeenCalledOnce()
+  })
+
   it("validates an inline rename without closing the editor", async () => {
     const user = userEvent.setup()
     const props = renderList()

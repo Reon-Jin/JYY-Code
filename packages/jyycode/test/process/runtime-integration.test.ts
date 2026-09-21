@@ -81,14 +81,14 @@ describe("runtime integration", () => {
         "background process did not produce compatible output",
       )
       const result = yield* processes.kill({ id: background.id, forceAfterMs: 1_000 })
-      expect(result?.status).toBe("cancelled")
+      expect(result).toMatchObject({ status: "cancelled", termination_reason: "user_requested" })
       expect(result?.termination_reason).toBe("user_requested")
       expect(yield* Effect.promise(() => waitUntilDead(backgroundOutput.pid))).toBe(true)
 
       const shell = Shell.acceptable()
       const shellCommand =
         process.platform === "win32"
-          ? `$p = Start-Process -FilePath '${process.execPath.replaceAll("'", "''")}' -ArgumentList '-e','setInterval(() => {}, 60000)' -PassThru; Write-Output $p.Id; Write-Error 'child-ready'; while ($true) { Start-Sleep -Seconds 60 }`
+          ? `$p = Start-Process -WindowStyle Hidden -FilePath '${process.execPath.replaceAll("'", "''")}' -ArgumentList '-e','setInterval(() => {}, 60000)' -PassThru; Write-Output $p.Id; Write-Error 'child-ready'; while ($true) { Start-Sleep -Seconds 60 }`
           : `'${process.execPath.replaceAll("'", "'\\''")}' -e '${childScript.replaceAll("'", "'\\''")}'`
       const shellInfo = yield* processes.start({
         command: commandProcess(shell, shellCommand, process.cwd(), process.env),
@@ -107,7 +107,7 @@ describe("runtime integration", () => {
         "shell process did not produce compatible output",
       )
       const shellResult = yield* processes.kill({ id: shellInfo.id, forceAfterMs: 1_000 })
-      expect(shellResult?.status).toBe("cancelled")
+      expect(shellResult).toMatchObject({ status: "cancelled", termination_reason: "user_requested" })
       expect(yield* Effect.promise(() => waitUntilDead(shellOutput.pid))).toBe(true)
       expect(backgroundOutput.value.output).toContain("child-ready")
     }),

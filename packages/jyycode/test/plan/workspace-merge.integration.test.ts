@@ -42,7 +42,7 @@ function integrationInput() {
   }
 }
 
-async function runIntegration(vcs: "git" | "none", failCleanupOnce = false) {
+async function runIntegration(vcs: "git" | "none", failCleanupOnce: boolean | "partial" | "metadata" = false) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `jyycode-merge-${vcs}-integration-`))
   const runtime = fs.mkdtempSync(path.join(os.tmpdir(), `jyycode-merge-${vcs}-runtime-`))
   let childRoot = ""
@@ -86,6 +86,14 @@ async function runIntegration(vcs: "git" | "none", failCleanupOnce = false) {
       childWorkspace.remove = async (directory) => {
         if (!injected) {
           injected = true
+          if (failCleanupOnce === "partial") {
+            await fs.promises.rm(directory, { recursive: true })
+            throw new Error("simulated interruption before baseline cleanup")
+          }
+          if (failCleanupOnce === "metadata") {
+            await remove(directory)
+            throw new Error("simulated interruption before journal cleanup")
+          }
           throw Object.assign(new Error("workspace is temporarily busy"), { code: "EBUSY" })
         }
         return remove(directory)
@@ -134,15 +142,45 @@ async function runIntegration(vcs: "git" | "none", failCleanupOnce = false) {
     ).toMatchObject({ ok: true })
 
     const merged = await protocol.merge(context(root), { task_id: "s1_t1" })
+    if (failCleanupOnce === "partial" || failCleanupOnce === "metadata") {
+      expect(merged).toMatchObject({ ok: true, status: "merged", cleanup: "failed" })
+      expect(fs.existsSync(childRoot)).toBe(false)
+      const saved = JSON.parse(fs.readFileSync(planFilePath(root, "ses_main"), "utf8"))
+      const workspace = saved.steps[0].tasks[0].dispatch.workspace
+      expect(fs.existsSync(workspace.baseline_directory)).toBe(failCleanupOnce === "partial")
+      const journal = saved.steps[0].tasks[0].merge.journal_directory
+      expect(fs.existsSync(journal)).toBe(true)
+      const restarted = new PlanProtocol({
+        childWorkspace: new ChildWorkspace({ project: { root, vcs }, runtimeRoot: runtime }),
+        children: {
+          async create(input) {
+            return input.childSessionId
+          },
+          async start() {},
+          async terminate() {},
+        },
+      })
+      expect(await restarted.merge(context(root), { task_id: "s1_t1" })).toMatchObject({
+        ok: true,
+        status: "already_merged",
+        cleanup: "completed",
+        cleanup_attempts: 2,
+      })
+      expect(fs.existsSync(workspace.baseline_directory)).toBe(false)
+      expect(fs.existsSync(workspace.baseline_manifest_path)).toBe(false)
+      expect(fs.existsSync(journal)).toBe(false)
+      expect(fs.readFileSync(path.join(root, "src", "merged.ts"), "utf8")).toBe("export const merged = true\n")
+      return
+    }
     if (failCleanupOnce) {
-      expect(merged).toMatchObject({ ok: true, status: "merged", cleanup: "failed", cleanup_attempts: 1 })
-      expect(fs.existsSync(childRoot)).toBe(true)
+      expect(merged).toMatchObject({ ok: true, status: "merged", cleanup: "completed", cleanup_attempts: 1 })
+      expect(fs.existsSync(childRoot)).toBe(false)
       const retried = await protocol.merge(context(root), { task_id: "s1_t1" })
       expect(retried).toMatchObject({
         ok: true,
         status: "already_merged",
         cleanup: "completed",
-        cleanup_attempts: 2,
+        cleanup_attempts: 1,
       })
     } else {
       expect(merged).toMatchObject({ ok: true, status: "merged", cleanup: "completed" })
@@ -186,6 +224,12 @@ async function runIntegration(vcs: "git" | "none", failCleanupOnce = false) {
 }
 
 describe("unified workspace merge integration", () => {
+  it("finishes partial cleanup from durable Plan metadata after restart", async () => {
+    await runIntegration("none", "partial")
+  })
+  it("finishes journal cleanup when workspace metadata was already removed", async () => {
+    await runIntegration("none", "metadata")
+  })
   it("runs the complete non-Git flow and inherits merged files into the next Step", async () => {
     await runIntegration("none")
   })

@@ -1,5 +1,6 @@
 import type { DesktopClient } from "../../data/sdk"
 import { keys } from "../../data/query-keys"
+import { tr } from "../../i18n/i18n-context"
 import type { QueryClient } from "@tanstack/solid-query"
 import {
   isConversationSnapshot,
@@ -25,7 +26,8 @@ export async function loadConversation(input: ConversationQueryInput) {
     { directory: input.directory, sessionID: input.sessionID },
     input.signal ? { throwOnError: true, signal: input.signal } : { throwOnError: true },
   )
-  const snapshot = snapshotFromMessages(input.sessionID, result.data ?? [])
+  if (!Array.isArray(result.data)) throw new Error(tr("layout.unable-to-load-session-message"))
+  const snapshot = snapshotFromMessages(input.sessionID, result.data)
   const previous = input.queryClient?.getQueryData(keys.messages(input.directory, input.sessionID))
   if (!isConversationSnapshot(previous)) return snapshot
   const messages = isConversationSnapshotAhead(previous, snapshot) ? previous.messages : snapshot.messages

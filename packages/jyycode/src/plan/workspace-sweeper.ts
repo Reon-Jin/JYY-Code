@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { createHash } from "node:crypto"
+import * as Log from "@jyycode-ai/core/util/log"
 import {
   cleanupRecordFromLegacy,
   WorkspaceCleanupService,
@@ -10,6 +11,8 @@ import {
 import { leaseIsExpired, leaseIsRetained, readWorkspaceLease, type WorkspaceLease } from "./workspace-lease"
 import { assertManifestIdentity, assertRuntimePath, canonicalPath } from "./workspace-path"
 import { readPlanFileSync, type PlanFile, type PlanTask } from "./schema"
+
+const log = Log.create({ service: "workspace-sweeper" })
 
 export const WORKSPACE_RETENTION_DEFAULTS = {
   successCancelMs: 10 * 60_000,
@@ -168,6 +171,8 @@ export type WorkspaceMigrationApplyResult = {
 
 export type WorkspaceSweeperOptions = {
   runtimeRoot: string
+  /** Unknown liveness is not evidence of safe deletion. Opt in only after review. */
+  allowOrphanQuarantine?: boolean
   now?: () => number
   maxItemsPerScan?: number
   scanBudgetMs?: number
@@ -643,9 +648,11 @@ async function quarantineItem(item: WorkspaceInventoryItem, now: number) {
     throw error
   }
   const quarantineRoot = path.join(sourceRoot, ".quarantine")
+  assertRuntimePath({ runtimeRoot: sourceRoot, candidate: quarantineRoot, label: "workspace quarantine" })
   await fs.promises.mkdir(quarantineRoot, { recursive: true })
   const target = path.join(quarantineRoot, `${item.name}-${item.cleanup_id}-${now}`)
   await fs.promises.rename(directory, target)
+  await fs.promises.utimes(target, new Date(now), new Date(now))
   for (const sidecar of migrationSidecars(item.directory)) {
     const suffix = path.basename(sidecar).slice(item.name.length)
     await fs.promises
@@ -729,12 +736,15 @@ export async function purgeExpiredWorkspaceQuarantine(input: {
   const root = path.resolve(input.runtimeRoot)
   const quarantineRoot = path.join(root, ".quarantine")
   if (!fs.existsSync(quarantineRoot)) return { removed: [] as string[], failures: [] as string[] }
+  assertRuntimePath({ runtimeRoot: root, candidate: quarantineRoot, label: "workspace quarantine" })
   const removed: string[] = []
   const failures: string[] = []
   for (const entry of fs.readdirSync(quarantineRoot, { withFileTypes: true }).slice(0, input.maxItems ?? 20)) {
     const target = path.join(quarantineRoot, entry.name)
     try {
-      const stat = fs.statSync(target)
+      assertRuntimePath({ runtimeRoot: quarantineRoot, candidate: target, label: "quarantine entry" })
+      const stat = fs.lstatSync(target)
+      if (stat.isSymbolicLink()) continue
       if (now - stat.mtimeMs < (input.quarantineMs ?? WORKSPACE_RETENTION_DEFAULTS.quarantineMs)) continue
       await fs.promises.rm(target, { recursive: true, force: true })
       removed.push(target)
@@ -778,18 +788,23 @@ async function defaultRemove(candidate: WorkspaceSweepCandidate) {
     candidate.manifestPath,
     candidate.leasePath,
   ]
+  const runtimeRoot = path.dirname(candidate.leasePath)
+  for (const target of targets) assertRuntimePath({ runtimeRoot, candidate: target, label: "workspace cleanup target" })
   for (const target of targets) {
-    if (target === candidate.workspaceDirectory) await fs.promises.rm(target, { recursive: true, force: true })
+    if (target === candidate.workspaceDirectory || target.endsWith(".baseline"))
+      await fs.promises.rm(target, { recursive: true, force: true })
     else await fs.promises.rm(target, { force: true })
   }
 }
 
-async function defaultQuarantine(candidate: WorkspaceSweepCandidate) {
+async function defaultQuarantine(candidate: WorkspaceSweepCandidate, now = Date.now()) {
   const root = path.dirname(candidate.workspaceDirectory)
   const targetRoot = path.join(root, ".quarantine")
+  assertRuntimePath({ runtimeRoot: root, candidate: targetRoot, label: "workspace quarantine" })
   await fs.promises.mkdir(targetRoot, { recursive: true })
-  const target = path.join(targetRoot, `${path.basename(candidate.workspaceDirectory)}-${Date.now()}`)
+  const target = path.join(targetRoot, `${path.basename(candidate.workspaceDirectory)}-${now}`)
   await fs.promises.rename(candidate.workspaceDirectory, target)
+  await fs.promises.utimes(target, new Date(now), new Date(now))
   for (const sidecar of [candidate.manifestPath, candidate.leasePath]) await fs.promises.rm(sidecar, { force: true })
 }
 
@@ -833,11 +848,13 @@ export class WorkspaceSweeper {
   readonly cleanupService: WorkspaceCleanupService
   private readonly sessionState?: WorkspaceSweeperOptions["sessionState"]
   private readonly planState?: WorkspaceSweeperOptions["planState"]
+  private readonly allowOrphanQuarantine: boolean
   private readonly remove: NonNullable<WorkspaceSweeperOptions["remove"]>
   private readonly quarantine: NonNullable<WorkspaceSweeperOptions["quarantine"]>
   private queue: Queue
   private inFlight?: Promise<WorkspaceSweepResult>
   private interval?: ReturnType<typeof setInterval>
+  private lastCandidate?: string
 
   constructor(input: WorkspaceSweeperOptions) {
     this.runtimeRoot = path.resolve(input.runtimeRoot)
@@ -850,8 +867,9 @@ export class WorkspaceSweeper {
     this.cleanupService = input.cleanupService ?? new WorkspaceCleanupService()
     this.sessionState = input.sessionState
     this.planState = input.planState
+    this.allowOrphanQuarantine = input.allowOrphanQuarantine === true
     this.remove = input.remove ?? defaultRemove
-    this.quarantine = input.quarantine ?? defaultQuarantine
+    this.quarantine = input.quarantine ?? ((candidate) => defaultQuarantine(candidate, this.now()))
     this.queue = loadQueue(this.runtimeRoot)
   }
 
@@ -916,12 +934,17 @@ export class WorkspaceSweeper {
       timedOut: false,
     }
     const deadline = this.now() + this.scanBudgetMs
-    for (const candidate of this.candidates().slice(0, this.maxItemsPerScan)) {
+    const candidates = this.candidates()
+    const previous = candidates.findIndex((candidate) => candidate.leasePath === this.lastCandidate)
+    const start = previous < 0 ? 0 : (previous + 1) % candidates.length
+    const batch = [...candidates.slice(start), ...candidates.slice(0, start)].slice(0, this.maxItemsPerScan)
+    for (const candidate of batch) {
       if (this.now() >= deadline) {
         result.timedOut = true
         break
       }
       result.scanned++
+      this.lastCandidate = candidate.leasePath
       const lease = candidate.lease
       if (!leaseIsExpired(lease, this.now()) || leaseIsRetained(lease, this.now())) {
         result.preserved.push(candidate.workspaceDirectory)
@@ -947,6 +970,7 @@ export class WorkspaceSweeper {
       }
       if (session === "unknown" || plan === "unknown") {
         if (
+          !this.allowOrphanQuarantine ||
           session !== "unknown" ||
           plan !== "unknown" ||
           this.now() < Date.parse(lease.expires_at) + this.orphanGraceMs
@@ -999,7 +1023,7 @@ export class WorkspaceSweeper {
           message: cleanup.record.last_error?.message ?? cleanup.record.state,
         })
     }
-    if (!input.dryRun) {
+    if (!input.dryRun && this.allowOrphanQuarantine) {
       await purgeExpiredWorkspaceQuarantine({
         runtimeRoot: this.runtimeRoot,
         now: this.now(),
@@ -1020,9 +1044,11 @@ export class WorkspaceSweeper {
     if (!fs.existsSync(indexPath)) {
       void inspectWorkspaceStorage({ runtimeRoot: this.runtimeRoot, writeIndex: true }).catch(() => {})
     } else {
-      void this.scan({ dryRun: true })
+      void this.scan({ dryRun: true }).catch((error) => log.warn("workspace scan failed", { error: messageOf(error) }))
     }
-    this.interval = setInterval(() => void this.scan(), this.retention.sweepIntervalMs)
+    this.interval = setInterval(() => {
+      void this.scan().catch((error) => log.warn("workspace scan failed", { error: messageOf(error) }))
+    }, this.retention.sweepIntervalMs)
     if (typeof this.interval === "object" && "unref" in this.interval) this.interval.unref()
     return this
   }

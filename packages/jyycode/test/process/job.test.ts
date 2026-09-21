@@ -38,36 +38,58 @@ const stalledIt = testEffect(
 )
 
 let ownedPid = 10
-const ownedAppProcess = Layer.succeed(AppProcess.Service, {
-  spawn: () =>
-    Effect.succeed(
-      Object.assign(
-        ChildProcessSpawner.makeHandle({
-          pid: ChildProcessSpawner.ProcessId(ownedPid++),
-          exitCode: Effect.never,
-          isRunning: Effect.succeed(true),
-          kill: () => Effect.succeed(undefined),
-          stdin: fakeStdin,
-          stdout: Stream.empty,
-          stderr: Stream.empty,
-          all: Stream.empty,
-          getInputFd: () => fakeStdin,
-          getOutputFd: () => Stream.empty,
-          unref: Effect.succeed(Effect.void),
-        }),
-        {
-          terminate: (options?: { graceMs?: number }) =>
-            Effect.succeed({ state: "killed", pid: ownedPid, remainingPids: [], ...options } as any),
-        },
+const ownedAppProcessLayer = (delayMs = 0, overheadMs = 0) =>
+  Layer.succeed(AppProcess.Service, {
+    spawn: () =>
+      Effect.succeed(
+        Object.assign(
+          ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(ownedPid++),
+            exitCode: Effect.never,
+            isRunning: Effect.succeed(true),
+            kill: () => Effect.succeed(undefined),
+            stdin: fakeStdin,
+            stdout: Stream.empty,
+            stderr: Stream.empty,
+            all: Stream.empty,
+            getInputFd: () => fakeStdin,
+            getOutputFd: () => Stream.empty,
+            unref: Effect.succeed(Effect.void),
+          }),
+          {
+            terminationOverheadMs: overheadMs,
+            terminate: (options?: { graceMs?: number }) =>
+              Effect.sleep(delayMs).pipe(
+                Effect.as({ state: "killed", pid: ownedPid, remainingPids: [], ...options } as any),
+              ),
+          },
+        ),
       ),
-    ),
-} as unknown as AppProcess.Interface)
+  } as unknown as AppProcess.Interface)
 
 const ownedIt = testEffect(
-  BackgroundProcess.layer.pipe(Layer.provide(ownedAppProcess), Layer.provide(Truncate.defaultLayer)),
+  BackgroundProcess.layer.pipe(Layer.provide(ownedAppProcessLayer()), Layer.provide(Truncate.defaultLayer)),
+)
+
+const delayedIt = testEffect(
+  BackgroundProcess.layer.pipe(Layer.provide(ownedAppProcessLayer(600, 1_000)), Layer.provide(Truncate.defaultLayer)),
 )
 
 describe("process.job", () => {
+  delayedIt.live("includes adapter inspection overhead before declaring termination failed", () =>
+    Effect.gen(function* () {
+      const service = yield* BackgroundProcess.Service
+      const proc = yield* service.start({
+        command: ChildProcess.make("ignored"),
+        rawCommand: "ignored",
+        cwd: process.cwd(),
+        env: process.env,
+      })
+      const result = yield* service.kill({ id: proc.id, forceAfterMs: 50 })
+      expect(result?.status).toBe("cancelled")
+      expect(result?.termination_reason).toBe("user_requested")
+    }),
+  )
   it.instance("starts a process and captures output while running", () =>
     Effect.gen(function* () {
       const service = yield* BackgroundProcess.Service

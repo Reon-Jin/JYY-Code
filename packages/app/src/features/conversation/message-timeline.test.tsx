@@ -2,7 +2,7 @@ import type { Message, Part } from "@jyycode-ai/sdk/v2/client"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library"
 import userEvent from "@testing-library/user-event"
 import { createSignal } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ConversationMessage } from "./conversation-state"
 import { MessageTimeline } from "./message-timeline"
 import { TaskActivityContent } from "./task-activity"
@@ -41,6 +41,23 @@ function conversation(parts: Part[], message = info): ConversationMessage {
 afterEach(cleanup)
 
 describe("MessageTimeline", () => {
+  it("keeps cached messages visible while a failed refresh can be retried", () => {
+    const onRetry = vi.fn()
+    render(() => (
+      <MessageTimeline
+        messages={[conversation([{ id: "part_user", sessionID, messageID: info.id, type: "text", text: "历史消息" }])]}
+        loading
+        error="Temporary failure"
+        onRetry={onRetry}
+      />
+    ))
+
+    expect(screen.getByText("历史消息")).toBeVisible()
+    expect(screen.getByText("Temporary failure")).toBeVisible()
+    screen.getByRole("button", { name: "重新加载" }).click()
+    expect(onRetry).toHaveBeenCalledOnce()
+  })
+
   it("hides synthetic prompts but leaves JSON-shaped assistant text visible", () => {
     render(() => (
       <MessageTimeline

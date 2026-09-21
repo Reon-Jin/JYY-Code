@@ -192,7 +192,7 @@ export function BorderBeam(props: BorderBeamProps) {
 
     if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return
 
-    return registerPulseInstance(el, config)
+    onCleanup(registerPulseInstance(el, config))
   })
 
   const mergedStyle = () =>

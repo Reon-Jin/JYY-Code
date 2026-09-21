@@ -60,8 +60,12 @@ import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventRuntime } from "@/event-runtime"
 import { clearChildBudget, defaultPlanProtocol, registerChildBudget, resolveChildBudget } from "../../src/plan/protocol"
+import { childExecutionLimiter } from "../../src/plan/child-execution"
 
 void Log.init({ print: false })
+
+// Windows fixture startup includes shell and Git discovery before the mocked LLM is ready.
+const lifecycleTestTimeout = process.platform === "win32" ? 15_000 : 3_000
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -2070,6 +2074,50 @@ it.instance("cuts off repeated child-agent tool turns", () =>
   }),
 )
 
+it.instance("cancels a queued Plan child without blocking the root session", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const status = yield* SessionStatus.Service
+    const parent = yield* sessions.create({ title: "Pinned" })
+    const child = yield* sessions.create({ parentID: parent.id, title: "Queued child" })
+    yield* user(parent.id, "root work")
+    yield* user(child.id, "child work")
+    registerChildBudget(child.id, resolveChildBudget({ now: Date.now() }))
+    yield* Effect.addFinalizer(() => Effect.sync(() => clearChildBudget(child.id)))
+    const full = yield* Deferred.make<void>()
+    let occupied = 0
+    const holders = yield* Effect.forEach(
+      Array.from({ length: 4 }),
+      () =>
+        childExecutionLimiter.run(
+          Effect.gen(function* () {
+            occupied++
+            if (occupied === 4) yield* Deferred.succeed(full, undefined)
+            yield* Effect.never
+          }),
+        ),
+      { concurrency: "unbounded" },
+    ).pipe(Effect.forkChild)
+    yield* Deferred.await(full)
+    const queued = yield* prompt.loop({ sessionID: child.id }).pipe(Effect.forkChild)
+    yield* pollWithTimeout(
+      status.get(child.id).pipe(Effect.map((value) => value.type === "busy" || undefined)),
+      "child was not queued",
+    )
+    yield* llm.push(reply().text("root stays responsive").stop())
+    const rootResult = yield* prompt.loop({ sessionID: parent.id })
+    expect(rootResult.info.role).toBe("assistant")
+    expect(yield* llm.calls).toBe(1)
+    yield* prompt.cancel(child.id)
+    yield* Fiber.await(queued)
+    yield* Fiber.interrupt(holders)
+    expect((yield* status.get(child.id)).type).toBe("idle")
+    expect(yield* llm.calls).toBe(1)
+  }),
+)
+
 it.instance("stops a dispatched child after its no-progress budget and records a code", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
@@ -2191,7 +2239,7 @@ it.instance(
       yield* Fiber.await(fiber)
       expect((yield* status.get(chat.id)).type).toBe("idle")
     }),
-  3_000,
+  lifecycleTestTimeout,
 )
 
 // Cancel semantics
@@ -2219,7 +2267,7 @@ it.instance(
         expect(exit.value.info.role).toBe("assistant")
       }
     }),
-  3_000,
+  lifecycleTestTimeout,
 )
 
 it.instance(
@@ -2245,7 +2293,7 @@ it.instance(
         }
       }
     }),
-  3_000,
+  lifecycleTestTimeout,
 )
 
 raceNoLLMServer.instance(
@@ -2334,7 +2382,7 @@ raceNoLLMServer.instance(
       }
     }),
   { config: cfg },
-  3_000,
+  lifecycleTestTimeout,
 )
 
 it.instance(
@@ -2497,7 +2545,7 @@ it.instance(
       yield* prompt.cancel(chat.id)
       yield* Fiber.await(fiber)
     }),
-  3_000,
+  lifecycleTestTimeout,
 )
 
 noLLMServer.instance("assertNotBusy succeeds when idle", () =>
@@ -2537,7 +2585,7 @@ it.instance(
       yield* prompt.cancel(chat.id)
       yield* Fiber.await(fiber)
     }),
-  3_000,
+  lifecycleTestTimeout,
 )
 
 unixNoLLMServer(
@@ -3470,7 +3518,7 @@ it.instance(
         expect(last.info.error?.name).toBe("MessageAbortedError")
       }
     }),
-  3_000,
+  lifecycleTestTimeout,
 )
 
 // Agent variant

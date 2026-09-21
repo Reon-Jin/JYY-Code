@@ -32,7 +32,7 @@ async function listFiles(directory: string): Promise<string[]> {
   return files.sort()
 }
 
-async function compareDirectories(expectedDir: string, actualDir: string) {
+export async function compareDirectories(expectedDir: string, actualDir: string) {
   const [expectedFiles, actualFiles] = await Promise.all([listFiles(expectedDir), listFiles(actualDir)])
   const expectedSet = new Set(expectedFiles)
   const actualSet = new Set(actualFiles)
@@ -46,7 +46,10 @@ async function compareDirectories(expectedDir: string, actualDir: string) {
       readFile(path.join(expectedDir, file)),
       readFile(path.join(actualDir, file)),
     ])
-    if (!expected.equals(actual)) changed.push(file)
+    // Git can check out the tracked TypeScript as CRLF on Windows while the
+    // generator writes LF. Compare source text, retaining all other changes.
+    if (expected.toString("utf8").replace(/\r\n/g, "\n") !== actual.toString("utf8").replace(/\r\n/g, "\n"))
+      changed.push(file)
   }
 
   return { missing, unexpected, changed }

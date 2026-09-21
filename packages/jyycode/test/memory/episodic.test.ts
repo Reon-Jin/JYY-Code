@@ -73,7 +73,7 @@ function episode(turn: number): EpisodicMemory.EpisodeTurn {
     version: 1,
     sessionID,
     turn,
-    time: `2026-08-07T00:00:0${turn}Z`,
+    time: new Date(Date.now() - 60_000 + turn * 1_000).toISOString(),
     userText: `user request ${turn}`,
     files: [],
     toolCalls: turn % 2 === 0 ? [{ tool: "bash", input: "ls", output: "src\n" }] : [],

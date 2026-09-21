@@ -613,7 +613,10 @@ async function overlayDirtyWorktree(input: {
     // Keep the original checkout bytes when the worktree cannot be re-checked out.
   }
   const baseline = new Set(input.manifest.map((entry) => entry.relative_path))
-  const discard = new Set([...input.plan.remove, ...[...input.plan.tracked].filter((relative) => !baseline.has(relative))])
+  const discard = new Set([
+    ...input.plan.remove,
+    ...[...input.plan.tracked].filter((relative) => !baseline.has(relative)),
+  ])
   for (const relative of discard) {
     const target = path.join(input.target, relative)
     if (fs.lstatSync(target, { throwIfNoEntry: false })) fs.rmSync(target, { recursive: true, force: true })
@@ -623,11 +626,11 @@ async function overlayDirtyWorktree(input: {
   await copyManifest(input.source, input.target, [...copies])
 }
 
-function clearTreeExceptGit(directory: string, preserveGit = true) {
+async function clearTreeExceptGit(directory: string, preserveGit = true) {
   if (!fs.existsSync(directory)) return
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     if (preserveGit && entry.name === ".git") continue
-    fs.rmSync(path.join(directory, entry.name), { recursive: true, force: true })
+    await fs.promises.rm(path.join(directory, entry.name), { recursive: true, force: true })
   }
 }
 
@@ -784,9 +787,7 @@ export class ChildWorkspace {
         try {
           fs.mkdirSync(staging, { recursive: true })
           const previousDir =
-            this.lastBaseline && fs.existsSync(this.lastBaseline.directory)
-              ? this.lastBaseline.directory
-              : undefined
+            this.lastBaseline && fs.existsSync(this.lastBaseline.directory) ? this.lastBaseline.directory : undefined
           await copyBaselineIncremental({
             source: this.project.root,
             target: staging,
@@ -881,7 +882,7 @@ export class ChildWorkspace {
       const effectiveBaselineDirectory = shared?.directory ?? baselineDirectory
       if (!shared) {
         fs.mkdirSync(effectiveBaselineDirectory, { recursive: true })
-        clearTreeExceptGit(effectiveBaselineDirectory, false)
+        await clearTreeExceptGit(effectiveBaselineDirectory, false)
         await copyManifest(this.project.root, effectiveBaselineDirectory, baselineManifest)
       }
       const baselineManifestHash = shared?.manifest.source_manifest_hash ?? hashManifest(baselineManifest)
@@ -919,7 +920,7 @@ export class ChildWorkspace {
         const dirty = this.dirtyPlanForWave()
         if (!dirty) {
           // Fallback for non-Git fixtures and adapters that do not check out files.
-          clearTreeExceptGit(worktreeDirectory)
+          await clearTreeExceptGit(worktreeDirectory)
           await copyManifest(effectiveBaselineDirectory, worktreeDirectory, baselineManifest)
         } else {
           // Git already checked out every clean tracked file; only overlay the
@@ -949,7 +950,7 @@ export class ChildWorkspace {
         return structuredClone(handle)
       } else {
         if (!fs.existsSync(directory)) fs.mkdirSync(directory, { recursive: true })
-        clearTreeExceptGit(directory, false)
+        await clearTreeExceptGit(directory, false)
         await copyManifest(effectiveBaselineDirectory, directory, baselineManifest)
       }
       const canonical = fs.existsSync(directory) ? fs.realpathSync.native(directory) : directory
@@ -997,7 +998,7 @@ export class ChildWorkspace {
     return this.create(reservation)
   }
 
-  load(reservation: WorkspaceReservation): WorkspaceHandle | undefined {
+  load(reservation: WorkspaceReservation, options: { forCleanup?: boolean } = {}): WorkspaceHandle | undefined {
     if (reservation.mode === "shared_compat") {
       const handle = {
         ...reservation,
@@ -1028,7 +1029,7 @@ export class ChildWorkspace {
       throw new ChildWorkspaceError("baseline manifest must be inside the runtime workspace", {
         directory: savedManifestPath,
       })
-    if (!fs.existsSync(directory) || !fs.existsSync(savedManifestPath)) return undefined
+    if ((!options.forCleanup && !fs.existsSync(directory)) || !fs.existsSync(savedManifestPath)) return undefined
     if (!fs.existsSync(baselineDirectory)) {
       try {
         const metadata = JSON.parse(fs.readFileSync(savedManifestPath, "utf8")) as { baseline_id?: unknown }
@@ -1040,7 +1041,8 @@ export class ChildWorkspace {
         return undefined
       }
     }
-    if (!isInside(this.runtimeRoot, baselineDirectory) || !fs.existsSync(baselineDirectory)) return undefined
+    if (!isInside(this.runtimeRoot, baselineDirectory) || (!options.forCleanup && !fs.existsSync(baselineDirectory)))
+      return undefined
     const saved = readManifest(savedManifestPath, reservation.baseline_manifest_hash, {
       rootSessionId: reservation.rootSessionId,
       taskId: reservation.taskId,
@@ -1062,8 +1064,16 @@ export class ChildWorkspace {
     const baselineManifest = saved.entries
     const handle = {
       ...reservation,
-      directory: fs.realpathSync.native(directory),
-      baseline_directory: fs.realpathSync.native(baselineDirectory),
+      directory: assertRuntimePath({
+        runtimeRoot: this.runtimeRoot,
+        candidate: directory,
+        label: "workspace directory",
+      }),
+      baseline_directory: assertRuntimePath({
+        runtimeRoot: this.runtimeRoot,
+        candidate: baselineDirectory,
+        label: "baseline directory",
+      }),
       baseline_manifest_path: fs.realpathSync.native(savedManifestPath),
       baseline_manifest_hash: reservation.baseline_manifest_hash ?? saved.hash,
       baseline_manifest_size: reservation.baseline_manifest_size ?? saved.size,
@@ -1229,8 +1239,19 @@ export class ChildWorkspace {
     try {
       if (entry.mode === "worktree") {
         if (!this.worktree) throw new ChildWorkspaceError("Git 项目缺少 Worktree service", { directory })
-        await this.worktree.remove(canonical)
-      } else if (fs.existsSync(canonical)) fs.rmSync(canonical, { recursive: true, force: true })
+        if (!(await this.worktree.remove(canonical)))
+          throw new ChildWorkspaceError("worktree removal was not confirmed", {
+            directory: canonical,
+            code: "CLEANUP_NOT_CONFIRMED",
+            recoverable: true,
+          })
+      } else await fs.promises.rm(canonical, { recursive: true, force: true })
+      if (fs.existsSync(canonical))
+        throw new ChildWorkspaceError("workspace still exists after removal", {
+          directory: canonical,
+          code: "CLEANUP_NOT_CONFIRMED",
+          recoverable: true,
+        })
       if (entry.baseline_directory) {
         const baseline = assertRuntimePath({
           runtimeRoot: this.runtimeRoot,
@@ -1247,7 +1268,7 @@ export class ChildWorkspace {
           !entry.baseline_manifest_path ||
           !this.hasOtherBaselineReference(entry.baseline_id, entry.baseline_manifest_path)
         ) {
-          if (fs.existsSync(baseline)) fs.rmSync(baseline, { recursive: true, force: true })
+          await fs.promises.rm(baseline, { recursive: true, force: true })
           if (entry.baseline_id)
             fs.rmSync(path.join(this.runtimeRoot, `${entry.baseline_id}.source.json`), { force: true })
         }

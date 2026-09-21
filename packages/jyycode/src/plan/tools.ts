@@ -884,7 +884,13 @@ function protocolFor(
       }).pipe(
         Effect.catchCause((cause) => settleAndNotify(`Child start or execution failed: ${Cause.pretty(cause)}`)),
         Effect.flatMap(() => settleAndNotify()),
-        Effect.ensuring(Effect.sync(() => clearChildBudget(input.childSessionId))),
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (heartbeat) clearInterval(heartbeat)
+            if (activationHeartbeat) clearInterval(activationHeartbeat)
+            clearChildBudget(input.childSessionId)
+          }),
+        ),
       ),
     )
   }
@@ -893,9 +899,7 @@ function protocolFor(
       runtime.bridge.fork(bus.publish(RuntimeEvent, event).pipe(Effect.ignore))
     },
     profiles: runtime.profiles,
-    ...(runtime.maxConcurrentChildren !== undefined
-      ? { maxConcurrentChildren: runtime.maxConcurrentChildren }
-      : {}),
+    ...(runtime.maxConcurrentChildren !== undefined ? { maxConcurrentChildren: runtime.maxConcurrentChildren } : {}),
     children: {
       async create(input) {
         const run = runtime.bridge.promise

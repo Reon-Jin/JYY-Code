@@ -2,7 +2,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
-import { describe, expect, it } from "bun:test"
+import { afterEach, describe, expect, it } from "bun:test"
 import {
   ChildWorkspace,
   ChildWorkspaceError,
@@ -13,9 +13,18 @@ import {
 } from "../../src/plan/child-workspace"
 import { assertRuntimePath, WorkspacePathError } from "../../src/plan/workspace-path"
 
+const temporaryDirectories: string[] = []
+
 function tempDirectory(prefix: string) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  temporaryDirectories.push(directory)
+  return directory
 }
+
+afterEach(async () => {
+  for (const directory of temporaryDirectories.splice(0))
+    await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 3 })
+})
 
 describe("ChildWorkspace", () => {
   it("chooses isolated capabilities and reserves deterministically", () => {
@@ -178,6 +187,26 @@ describe("ChildWorkspace", () => {
       baseline_directory: created.baseline_directory,
       baseline_manifest_hash: created.baseline_manifest_hash,
     })
+  })
+
+  it.each([false, true])("recovers partial cleanup after restart (baseline removed: %s)", async (removeBaseline) => {
+    const root = tempDirectory("jyycode-cleanup-project-")
+    const runtime = tempDirectory("jyycode-cleanup-runtime-")
+    fs.writeFileSync(path.join(root, "keep.txt"), "parent data")
+    const options = { project: { root, vcs: "none" as const }, runtimeRoot: runtime }
+    const manager = new ChildWorkspace(options)
+    const created = await manager.create(manager.reserve("ses_root", "s1_t1"))
+    await fs.promises.rm(created.directory, { recursive: true })
+    if (removeBaseline) await fs.promises.rm(created.baseline_directory!, { recursive: true })
+    const restarted = new ChildWorkspace(options)
+    expect(restarted.load(created)).toBeUndefined()
+    expect(() => restarted.load({ ...created, taskId: "s1_forged" }, { forCleanup: true })).toThrow()
+    const recovered = restarted.load(created, { forCleanup: true })
+    expect(recovered).toBeDefined()
+    await restarted.remove(recovered!.directory)
+    expect(fs.existsSync(created.baseline_directory!)).toBe(false)
+    expect(fs.existsSync(created.baseline_manifest_path!)).toBe(false)
+    expect(fs.readFileSync(path.join(root, "keep.txt"), "utf8")).toBe("parent data")
   })
 
   it("reuses one immutable baseline for a snapshot dispatch batch", async () => {
@@ -449,7 +478,7 @@ describe("ChildWorkspace", () => {
     await expect(manager.remove(root)).rejects.toMatchObject({ recoverable: false })
   })
 
-  it("retains metadata when cleanup fails and refuses unknown directories", async () => {
+  it.each(["throws", "returns false", "leaves directory"])("retains metadata when cleanup %s", async (failure) => {
     const root = tempDirectory("jyycode-child-git-")
     const runtime = tempDirectory("jyycode-child-runtime-")
     const directory = path.join(runtime, "created")
@@ -461,6 +490,8 @@ describe("ChildWorkspace", () => {
         fs.mkdirSync(directory, { recursive: true })
       },
       async remove() {
+        if (failure === "returns false") return false
+        if (failure === "leaves directory") return true
         throw new Error("remove busy")
       },
     }

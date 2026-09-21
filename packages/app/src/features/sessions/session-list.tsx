@@ -44,35 +44,36 @@ export function SessionList(props: SessionListProps) {
       class="session-list"
       aria-label={props.archived ? tr("sessions.archive-session") : tr("sessions.activity-session")}
     >
+      <Show when={props.error}>
+        {(message) => <SessionListError message={message()} onRetry={props.onRetry} />}
+      </Show>
       <Show
-        when={!props.loading}
+        when={!props.loading || sorted().length > 0 || Boolean(props.error)}
         fallback={
           <div class="session-list__loading" role="status" aria-live="polite">
             <Spinner /> {tr("sessions.loading-session")}
           </div>
         }
       >
-        <Show when={!props.error} fallback={<SessionListError message={props.error!} onRetry={props.onRetry} />}>
-          <Show when={sorted().length > 0}>
-            <ul>
-              <For each={sorted()}>
-                {(session) => (
-                  <SessionListItem
-                    session={session}
-                    status={props.statuses[session.id]}
-                    active={props.activeSessionID === session.id}
-                    archived={props.archived}
-                    now={props.now ?? localNow()}
-                    disabled={props.disabled}
-                    onNavigate={props.onNavigate}
-                    onRename={props.onRename}
-                    onArchive={props.onArchive}
-                    onDelete={props.onDelete}
-                  />
-                )}
-              </For>
-            </ul>
-          </Show>
+        <Show when={sorted().length > 0}>
+          <ul>
+            <For each={sorted()}>
+              {(session) => (
+                <SessionListItem
+                  session={session}
+                  status={props.statuses[session.id]}
+                  active={props.activeSessionID === session.id}
+                  archived={props.archived}
+                  now={props.now ?? localNow()}
+                  disabled={props.disabled}
+                  onNavigate={props.onNavigate}
+                  onRename={props.onRename}
+                  onArchive={props.onArchive}
+                  onDelete={props.onDelete}
+                />
+              )}
+            </For>
+          </ul>
         </Show>
       </Show>
     </nav>

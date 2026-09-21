@@ -3,6 +3,11 @@ import { promisify } from "node:util"
 
 const execFile = promisify(execFileCallback)
 
+const INSPECTION_TIMEOUT_MS = 5_000
+// Initial/final snapshots, polling overrun, and two Windows taskkill calls
+// can occur outside the requested grace and verification intervals.
+export const PROCESS_TERMINATION_OVERHEAD_MS = 6 * INSPECTION_TIMEOUT_MS
+
 export type TerminationState = "exited" | "killed" | "kill_failed"
 
 export type TerminationResult = {
@@ -57,12 +62,28 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-async function processRecords(platform: NodeJS.Platform): Promise<readonly ProcessRecord[]> {
+export function createProcessInspector(query: (platform: NodeJS.Platform) => Promise<readonly ProcessRecord[]>) {
+  const inFlight = new Map<NodeJS.Platform, Promise<readonly ProcessRecord[]>>()
+  return (platform: NodeJS.Platform) => {
+    const existing = inFlight.get(platform)
+    if (existing) return existing
+    const pending = Promise.resolve()
+      .then(() => query(platform))
+      .finally(() => inFlight.delete(platform))
+    inFlight.set(platform, pending)
+    return pending
+  }
+}
+
+const processRecords = createProcessInspector(queryProcessRecords)
+
+async function queryProcessRecords(platform: NodeJS.Platform): Promise<readonly ProcessRecord[]> {
   if (platform === "win32") {
     const script = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress"
     try {
       const result = await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
         windowsHide: true,
+        timeout: INSPECTION_TIMEOUT_MS,
         maxBuffer: 2 * 1024 * 1024,
       })
       const parsed: unknown = JSON.parse(result.stdout.trim() || "[]")
@@ -74,12 +95,15 @@ async function processRecords(platform: NodeJS.Platform): Promise<readonly Proce
         const ppid = Number(value.ParentProcessId)
         return validPid(pid) && validPid(ppid) ? [{ pid, ppid }] : []
       })
-    } catch {
-      return []
+    } catch (cause) {
+      throw new Error("Unable to inspect Windows process tree", { cause })
     }
   }
   try {
-    const result = await execFile("ps", ["-eo", "pid=,ppid=,pgid="], { maxBuffer: 2 * 1024 * 1024 })
+    const result = await execFile("ps", ["-eo", "pid=,ppid=,pgid="], {
+      maxBuffer: 2 * 1024 * 1024,
+      timeout: INSPECTION_TIMEOUT_MS,
+    })
     return result.stdout.split(/\r?\n/).flatMap((line) => {
       const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s*$/.exec(line)
       if (!match) return []
@@ -88,8 +112,8 @@ async function processRecords(platform: NodeJS.Platform): Promise<readonly Proce
       const pgid = Number(match[3])
       return validPid(pid) && validPid(ppid) && validPid(pgid) ? [{ pid, ppid, pgid }] : []
     })
-  } catch {
-    return []
+  } catch (cause) {
+    throw new Error("Unable to inspect process tree", { cause })
   }
 }
 
@@ -135,8 +159,7 @@ export async function listProcessGroupPids(
 }
 
 async function activeProcessPids(pid: number, platform: NodeJS.Platform): Promise<number[]> {
-  const tree = await listProcessTreePids(pid, platform)
-  const group = await listProcessGroupPids(pid, platform)
+  const [tree, group] = await Promise.all([listProcessTreePids(pid, platform), listProcessGroupPids(pid, platform)])
   return [...new Set([...tree, ...group])]
 }
 
@@ -148,21 +171,19 @@ async function waitUntilDead(
   pollMs: number,
 ): Promise<boolean> {
   const deadline = Date.now() + Math.max(0, timeoutMs)
-  do {
+  while (true) {
     const current = await activeProcessPids(pid, platform)
     if (current.length === 0 && originalTree.every((item) => !isProcessAlive(item))) return true
-    if (Date.now() >= deadline) break
+    if (Date.now() >= deadline) return false
     await delay(Math.min(pollMs, Math.max(1, deadline - Date.now())))
-  } while (Date.now() <= deadline)
-  const current = await activeProcessPids(pid, platform)
-  return current.length === 0 && originalTree.every((item) => !isProcessAlive(item))
+  }
 }
 
 async function windowsKill(pid: number): Promise<{ degraded: boolean }> {
   if (process.env.JYYCODE_RELEASE === "1" && !process.env.JYYCODE_PROCESS_GUARDIAN) {
     throw new Error("PROCESS_GUARDIAN_MISSING")
   }
-  await execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true })
+  await execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, timeout: INSPECTION_TIMEOUT_MS })
   return { degraded: !process.env.JYYCODE_PROCESS_GUARDIAN }
 }
 
@@ -236,10 +257,8 @@ export async function terminateProcessTree(pid: number, options: TerminationOpti
 
   if (await waitUntilDead(pid, originalTree, platform, verifyMs, pollMs))
     return { state: "killed", pid, remainingPids: [], signal: killSignal, ...(degraded ? { degraded: true } : {}) }
-  const remaining =
-    (await activeProcessPids(pid, platform)).length > 0
-      ? await activeProcessPids(pid, platform)
-      : originalTree.filter(isProcessAlive)
+  const active = await activeProcessPids(pid, platform)
+  const remaining = active.length > 0 ? active : originalTree.filter(isProcessAlive)
   return {
     state: "kill_failed",
     pid,

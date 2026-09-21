@@ -421,6 +421,9 @@ export const layer: Layer.Layer<
 
       const directory = yield* canonical(input.directory)
 
+      if (directory === (yield* canonical(ctx.worktree)))
+        return yield* new RemoveFailedError({ message: "Cannot remove the primary workspace" })
+
       const list = yield* git(["worktree", "list", "--porcelain"], { cwd: ctx.worktree })
       if (list.code !== 0) {
         return yield* new RemoveFailedError({ message: list.stderr || list.text || "Failed to read git worktrees" })
@@ -432,6 +435,15 @@ export const layer: Layer.Layer<
       if (!entry?.path) {
         const directoryExists = yield* fs.exists(directory).pipe(Effect.orDie)
         if (directoryExists) {
+          // Git may already have detached a managed worktree before a failed
+          // filesystem cleanup. Only that managed root is safe for fallback
+          // deletion; an arbitrary unregistered directory is user data.
+          const managedRoot = yield* canonical(pathSvc.join(Global.Path.data, "worktree", ctx.project.id))
+          const relative = pathSvc.relative(managedRoot, directory)
+          if (!relative || relative === ".." || relative.startsWith(`..${pathSvc.sep}`) || pathSvc.isAbsolute(relative))
+            return yield* new RemoveFailedError({
+              message: "Refusing to remove an unregistered directory outside the managed worktree root",
+            })
           yield* stopFsmonitor(directory)
           yield* cleanDirectoryWithDeadline(directory)
         }

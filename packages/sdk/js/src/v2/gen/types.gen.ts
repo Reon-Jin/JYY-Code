@@ -1357,6 +1357,8 @@ export type Config = {
     exclude?: Array<string>
     include?: Array<string>
   }
+  max_concurrent_children?: number
+  max_running_children?: number
   plugin?: Array<
     | string
     | [

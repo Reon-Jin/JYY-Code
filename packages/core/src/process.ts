@@ -5,7 +5,12 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner, type ChildProcessHandle } from "effect/unstable/process/ChildProcessSpawner"
 import { CrossSpawnSpawner } from "./cross-spawn-spawner"
 import type { ProcessSpec } from "./process-spec"
-import { terminateProcessTree, type TerminationOptions, type TerminationResult } from "./process-supervisor"
+import {
+  PROCESS_TERMINATION_OVERHEAD_MS,
+  terminateProcessTree,
+  type TerminationOptions,
+  type TerminationResult,
+} from "./process-supervisor"
 
 export type { ProcessSpec } from "./process-spec"
 
@@ -35,6 +40,8 @@ export interface RunStreamOptions {
 export type ProcessInput = ChildProcess.Command | ProcessSpec
 
 export type AppProcessHandle = ChildProcessHandle & {
+  /** Additional bounded OS inspection/command time required by this adapter. */
+  readonly terminationOverheadMs?: number
   readonly terminate: (options?: TerminationOptions) => Effect.Effect<TerminationResult, AppProcessError>
 }
 
@@ -213,6 +220,7 @@ export const layer = Layer.effect(
         })
       const result = Object.assign(Object.create(Object.getPrototypeOf(handle)), handle, {
         terminate,
+        terminationOverheadMs: PROCESS_TERMINATION_OVERHEAD_MS,
       }) as AppProcessHandle
       if (timeout !== undefined) {
         yield* Effect.forkScoped(

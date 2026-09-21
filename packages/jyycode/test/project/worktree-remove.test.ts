@@ -2,7 +2,7 @@ import { $ } from "bun"
 import { describe, expect } from "bun:test"
 import * as fs from "fs/promises"
 import path from "path"
-import { Effect, Layer } from "effect"
+import { Effect, Exit, Layer } from "effect"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { Worktree } from "../../src/worktree"
 import { provideTmpdirInstance } from "../fixture/fixture"
@@ -12,6 +12,46 @@ const it = testEffect(Layer.mergeAll(Worktree.defaultLayer, CrossSpawnSpawner.de
 const wintest = process.platform === "win32" ? it.live : it.live.skip
 
 describe("Worktree.remove", () => {
+  it.live("preserves an unrelated directory that is not a registered worktree", () =>
+    provideTmpdirInstance(
+      (root) =>
+        Effect.gen(function* () {
+          const svc = yield* Worktree.Service
+          const directory = path.join(root, "user-data")
+          yield* Effect.promise(() => fs.mkdir(directory))
+          yield* Effect.promise(() => fs.writeFile(path.join(directory, "keep.txt"), "keep"))
+          const result = yield* Effect.exit(svc.remove({ directory }))
+          expect(Exit.isFailure(result)).toBe(true)
+          expect(yield* Effect.promise(() => fs.readFile(path.join(directory, "keep.txt"), "utf8"))).toBe("keep")
+          expect(Exit.isFailure(yield* Effect.exit(svc.remove({ directory: root })))).toBe(true)
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live("can finish removing an unregistered directory inside its managed root", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const svc = yield* Worktree.Service
+          const info = yield* svc.makeWorktreeInfo({ name: "cleanup-retry" })
+          yield* Effect.promise(() => fs.mkdir(info.directory, { recursive: true }))
+          yield* Effect.promise(() => fs.writeFile(path.join(info.directory, "leftover.txt"), "leftover"))
+          expect(Exit.isFailure(yield* Effect.exit(svc.remove({ directory: path.dirname(info.directory) })))).toBe(true)
+          expect(yield* svc.remove({ directory: info.directory })).toBe(true)
+          expect(
+            yield* Effect.promise(() =>
+              fs.access(info.directory).then(
+                () => true,
+                () => false,
+              ),
+            ),
+          ).toBe(false)
+        }),
+      { git: true },
+    ),
+  )
+
   it.live("continues when git remove exits non-zero after detaching", () =>
     provideTmpdirInstance(
       (root) =>

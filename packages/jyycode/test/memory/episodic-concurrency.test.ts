@@ -18,7 +18,7 @@ function episode(sessionID: SessionID, turn: number): EpisodicMemory.EpisodeTurn
     version: 1,
     sessionID,
     turn,
-    time: `2026-08-08T00:00:${String(turn).padStart(2, "0")}Z`,
+    time: new Date(Date.now() - 60_000 + turn * 1_000).toISOString(),
     userText: `request ${turn}`,
     files: [],
     toolCalls: [],

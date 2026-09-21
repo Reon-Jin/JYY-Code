@@ -194,7 +194,8 @@ export const layer = Layer.effect(
       // The supervisor may spend the grace interval, issue the escalation
       // signal, and then use the full verification interval. The previous
       // forceAfter*2 timeout could expire before that contract completed.
-      const terminationTimeoutMs = forceAfter + verifyMs + 250
+      // Real adapters also budget bounded OS discovery/termination commands.
+      const terminationTimeoutMs = forceAfter + verifyMs + (active.handle.terminationOverheadMs ?? 0) + 250
       const result = yield* Effect.exit(
         active.handle
           .terminate({

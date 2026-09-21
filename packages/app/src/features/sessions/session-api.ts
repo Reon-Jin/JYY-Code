@@ -40,7 +40,8 @@ export function sessionQueryOptions(input: SessionQueryInput) {
 }
 
 function sessionsFrom(result: { data?: Session[] }, archived: boolean) {
-  return [...(result.data ?? [])]
+  if (!Array.isArray(result.data)) throw new Error(tr("sessions.unable-to-load-session"))
+  return [...result.data]
     .filter(
       (session) =>
         session.parentID === undefined &&

@@ -54,6 +54,13 @@ describe("session api", () => {
     expect(client.session.list).toHaveBeenCalledWith({ directory, roots: false }, { throwOnError: true })
   })
 
+  it("rejects a missing session list response instead of reporting no history", async () => {
+    const { api, client } = createHarness()
+    vi.mocked(client.session.list).mockResolvedValueOnce({ data: undefined } as Awaited<ReturnType<typeof client.session.list>>)
+
+    await expect(api.list(false)).rejects.toThrow()
+  })
+
   it.each([
     ["ses_1", undefined],
     ["ses_child", "ses_1"],
