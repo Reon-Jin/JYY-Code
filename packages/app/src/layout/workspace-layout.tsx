@@ -494,19 +494,24 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
   const api = createMemo(() =>
     createSessionApi({ client: data.client(), directory: data.directory(), queryClient: data.queryClient() }),
   )
-  const activeQuery = createQuery(
-    () => ({ queryKey: keys.sessions(data.directory()), queryFn: () => api().list(false) }),
-    data.queryClient,
-  )
+  const activeQuery = createQuery(() => {
+    const directory = data.directory()
+    const sessionApi = api()
+    return { queryKey: keys.sessions(directory), queryFn: () => sessionApi.list(false) }
+  }, data.queryClient)
   const archivedQuery = createQuery(
-    () => ({
-      queryKey: keys.sessions(data.directory(), true),
-      queryFn: () => api().list(true),
-      // Archived sessions are not needed to render the active workspace. Load
-      // them only when the user opens the archive view, or when an active child
-      // needs its archived root session for context.
-      enabled: archiveRequested(),
-    }),
+    () => {
+      const directory = data.directory()
+      const sessionApi = api()
+      return {
+        queryKey: keys.sessions(directory, true),
+        queryFn: () => sessionApi.list(true),
+        // Archived sessions are not needed to render the active workspace. Load
+        // them only when the user opens the archive view, or when an active child
+        // needs its archived root session for context.
+        enabled: archiveRequested(),
+      }
+    },
     data.queryClient,
   )
   const sessionQuery = createQuery(
@@ -520,10 +525,11 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     }),
     data.queryClient,
   )
-  const statusQuery = createQuery(
-    () => ({ queryKey: keys.status(data.directory()), queryFn: () => api().status() }),
-    data.queryClient,
-  )
+  const statusQuery = createQuery(() => {
+    const directory = data.directory()
+    const sessionApi = api()
+    return { queryKey: keys.status(directory), queryFn: () => sessionApi.status() }
+  }, data.queryClient)
   const conversationQuery = createQuery(
     () => ({
       ...conversationQueryOptions({
