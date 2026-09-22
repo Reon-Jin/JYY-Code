@@ -1,13 +1,13 @@
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { Effect } from "effect"
 import { AppProcess } from "@jyycode-ai/core/process"
-import windowsScript from "./windows.ps1" with { type: "file" }
+import { runWindows } from "./windows-worker"
 
-export type Action = {
-  action: "observe" | "move" | "click" | "scroll" | "key" | "type" | "drag"
+export type Step = {
+  action: "move" | "click" | "scroll" | "key" | "type" | "drag" | "wait"
   x?: number
   y?: number
   toX?: number
@@ -18,7 +18,10 @@ export type Action = {
   amount?: number
   keys?: string
   text?: string
+  milliseconds?: number
 }
+
+export type Action = Step | { action: "observe" } | { action: "batch"; steps: Step[] }
 
 export type Observation = {
   screen: { x: number; y: number; width: number; height: number }
@@ -45,8 +48,25 @@ function isInteger(value: unknown): value is number {
 }
 
 export function validateAction(input: Action) {
-  const coordinate = (name: keyof Action) => {
-    if (!isInteger(input[name])) throw new Error(`${name} must be an integer screen coordinate`)
+  if (input.action === "batch") {
+    if (!Array.isArray(input.steps) || input.steps.length < 1 || input.steps.length > 12) {
+      throw new Error("batch requires 1 to 12 steps")
+    }
+    for (const step of input.steps) {
+      if (!step || !["move", "click", "scroll", "key", "type", "drag", "wait"].includes(step.action)) {
+        throw new Error("invalid batch step")
+      }
+      validateAction(step)
+    }
+    if (input.steps.reduce((total, step) => total + (step.action === "wait" ? step.milliseconds ?? 0 : 0), 0) > 6000) {
+      throw new Error("batch wait time must not exceed 6000 milliseconds")
+    }
+    return
+  }
+  if ("steps" in input && input.steps !== undefined) throw new Error("steps are only valid for batch")
+  if (input.action === "observe") return
+  const coordinate = (name: keyof Step) => {
+    if (!isInteger(input[name])) throw new Error(`${name} must be an integer screenshot coordinate`)
   }
   if (["move", "drag"].includes(input.action)) {
     coordinate("x")
@@ -72,6 +92,31 @@ export function validateAction(input: Action) {
     throw new Error("text must be at most 10000 characters")
   }
   if (input.double && input.action !== "click") throw new Error("double is only valid for click")
+  if (input.action === "wait" && (!isInteger(input.milliseconds) || input.milliseconds < 1 || input.milliseconds > 2000)) {
+    throw new Error("wait milliseconds must be an integer from 1 to 2000")
+  }
+}
+
+/** Model coordinates are pixels in the last screenshot, not physical desktop pixels. */
+export function toDesktopAction(input: Action, frame: Observation): Action {
+  const point = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= frame.image.width || y >= frame.image.height) {
+      throw new Error(`Coordinate (${x},${y}) is outside the ${frame.image.width}×${frame.image.height} screenshot`)
+    }
+    return {
+      x: frame.screen.x + Math.round(x * frame.screen.width / frame.image.width),
+      y: frame.screen.y + Math.round(y * frame.screen.height / frame.image.height),
+    }
+  }
+  if (input.action === "batch") return { action: "batch", steps: input.steps.map((step) => toDesktopAction(step, frame) as Step) }
+  if (input.action === "observe" || input.action === "wait" || input.action === "key" || input.action === "type") return input
+  if (input.action === "drag") {
+    const start = point(input.x!, input.y!)
+    const end = point(input.toX!, input.toY!)
+    return { ...input, ...start, toX: end.x, toY: end.y }
+  }
+  if (input.x === undefined || input.y === undefined) return input
+  return { ...input, ...point(input.x, input.y) }
 }
 
 let tail: Promise<unknown> = Promise.resolve()
@@ -92,12 +137,15 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
   const dir = await mkdtemp(path.join(tmpdir(), "jyycode-computer-"))
   const imagePath = path.join(dir, "screen.png")
   try {
+    if (process.platform === "win32") {
+      const observation = await runWindows(input, imagePath, signal)
+      if (!observation.screen || !Array.isArray(observation.elements)) throw new Error("Computer helper returned invalid observation")
+      const png = await readFile(imagePath)
+      if (png.length === 0) throw new Error("Computer helper returned an empty screenshot")
+      return { observation, png }
+    }
     const payload = Buffer.from(JSON.stringify(input), "utf8").toString("base64")
-    const helperPath = path.join(dir, "computer.ps1")
-    if (process.platform === "win32") await writeFile(helperPath, Buffer.from(await Bun.file(windowsScript).arrayBuffer()))
-    const command = process.platform === "win32"
-      ? ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", helperPath]
-      : [
+    const command = [
           process.env.JYYCODE_COMPUTER_HELPER ?? path.join(path.dirname(process.execPath), "jyycode-computer"),
           imagePath,
           payload,
@@ -117,10 +165,7 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
           {
             command: command[0]!,
             args: command.slice(1),
-            env: {
-              mode: "inherit-allowlist",
-              values: { JYYCODE_COMPUTER_INPUT: payload, JYYCODE_COMPUTER_IMAGE: imagePath },
-            },
+            env: { mode: "inherit-allowlist" },
             output: "capture",
           },
           { signal, maxOutputBytes: 2 * 1024 * 1024, maxErrorBytes: 64 * 1024 },
@@ -142,18 +187,24 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
 
 export function formatObservation(observation: Observation) {
   const { screen, image, cursor, window, elements } = observation
+  const imageX = (x: number) => Math.round((x - screen.x) * image.width / screen.width)
+  const imageY = (y: number) => Math.round((y - screen.y) * image.height / screen.height)
   const lines = [
     `Foreground window: ${window || "unknown"}`,
-    `Desktop coordinates: origin (${screen.x}, ${screen.y}), size ${screen.width}×${screen.height}. Cursor: (${cursor.x}, ${cursor.y}).`,
-    `Attached screenshot: ${image.width}×${image.height}; it is scaled from the desktop. Use desktop coordinates below for actions.`,
+    `Screenshot coordinates: origin (0, 0), size ${image.width}×${image.height}. Cursor: (${imageX(cursor.x)}, ${imageY(cursor.y)}).`,
+    "All x/y and toX/toY action coordinates use this screenshot's pixels. The host maps them to the physical desktop.",
     `Visible foreground accessibility elements (${elements.length}; IDs are valid only for this observation):`,
   ]
   for (const element of elements) {
-    const centerX = Math.round(element.x + element.width / 2)
-    const centerY = Math.round(element.y + element.height / 2)
+    const x = imageX(element.x)
+    const y = imageY(element.y)
+    const width = imageX(element.x + element.width) - x
+    const height = imageY(element.y + element.height) - y
+    const centerX = imageX(element.x + element.width / 2)
+    const centerY = imageY(element.y + element.height / 2)
     lines.push(
       `${"  ".repeat(Math.min(element.depth, 6))}#${element.index} ${element.role} ${JSON.stringify(element.name || element.automationId || "")}` +
-        ` at (${element.x},${element.y}) ${element.width}×${element.height}; center (${centerX},${centerY})` +
+        ` at (${x},${y}) ${width}×${height}; center (${centerX},${centerY})` +
         `${element.automationId ? ` id=${JSON.stringify(element.automationId)}` : ""}` +
         `${element.enabled ? "" : " disabled"}${element.focused ? " focused" : ""}`,
     )

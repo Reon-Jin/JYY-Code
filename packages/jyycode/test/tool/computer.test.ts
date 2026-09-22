@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { available } from "@/tool/computer"
-import { formatObservation, runExclusive, validateAction } from "@/tool/computer/native"
+import { formatObservation, runExclusive, toDesktopAction, validateAction } from "@/tool/computer/native"
 
 describe("computer control boundary", () => {
   test("requires a Desktop single-Agent root session", () => {
@@ -16,10 +16,15 @@ describe("computer control boundary", () => {
     expect(() => validateAction({ action: "click", x: 4 })).toThrow("together")
     expect(() => validateAction({ action: "scroll", direction: "down", amount: 0 })).toThrow("wheel steps")
     expect(() => validateAction({ action: "key", keys: "" })).toThrow("keys")
+    expect(() => validateAction({ action: "batch", steps: [] })).toThrow("1 to 12")
+    expect(() => validateAction({ action: "batch", steps: [{ action: "drag", x: 4, y: 5, toX: 20 }] })).toThrow("toY")
+    expect(() => validateAction({ action: "batch", steps: [{ action: "wait", milliseconds: 2001 }] })).toThrow("2000")
+    expect(() => validateAction({ action: "batch", steps: Array.from({ length: 4 }, () => ({ action: "wait", milliseconds: 2000 })) })).toThrow("6000")
+    expect(() => validateAction({ action: "batch", steps: [{ action: "click", x: 4, y: 5 }, { action: "type", text: "hi" }] })).not.toThrow()
   })
 
-  test("reports desktop coordinates alongside scaled image dimensions", () => {
-    const output = formatObservation({
+  test("reports screenshot coordinates and maps actions onto a negative-origin desktop", () => {
+    const frame = {
       screen: { x: -1920, y: 0, width: 3840, height: 1080 },
       image: { width: 2000, height: 563 },
       cursor: { x: -100, y: 10 },
@@ -28,10 +33,20 @@ describe("computer control boundary", () => {
         index: 1, name: "Save", role: "Button", automationId: "save", x: -110, y: 20,
         width: 80, height: 40, enabled: true, focused: false, depth: 1,
       }],
-    })
-    expect(output).toContain("origin (-1920, 0)")
+    }
+    const output = formatObservation(frame)
+    expect(output).toContain("origin (0, 0)")
     expect(output).toContain("2000×563")
-    expect(output).toContain("#1 Button \"Save\" at (-110,20) 80×40; center (-70,40) id=\"save\"")
+    expect(output).toContain("#1 Button \"Save\" at (943,10) 41×21; center (964,21) id=\"save\"")
+    expect(toDesktopAction({ action: "click", x: 1000, y: 281 }, frame)).toEqual({ action: "click", x: 0, y: 539 })
+    expect(toDesktopAction({ action: "batch", steps: [
+      { action: "click", x: 1000, y: 281 },
+      { action: "drag", x: 0, y: 0, toX: 1999, toY: 562 },
+    ] }, frame)).toEqual({ action: "batch", steps: [
+      { action: "click", x: 0, y: 539 },
+      { action: "drag", x: -1920, y: 0, toX: 1918, toY: 1078 },
+    ] })
+    expect(() => toDesktopAction({ action: "click", x: 2000, y: 0 }, frame)).toThrow("outside")
   })
 
   test("serializes actions and recovers after a failed action", async () => {

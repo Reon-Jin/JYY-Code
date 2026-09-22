@@ -110,7 +110,8 @@ if !CGPreflightScreenCaptureAccess() {
   fail("macOS Screen Recording permission is required for JYYCode computer control; grant it in System Settings and retry")
 }
 
-switch action {
+func perform(_ data: [String: Any]) {
+switch property(data, "action") {
 case "observe": break
 case "move": emitMouse(.mouseMoved, position(data))
 case "click":
@@ -168,9 +169,15 @@ case "drag":
     usleep(15000)
   }
   emitMouse(.leftMouseUp, CGPoint(x: CGFloat(toX), y: CGFloat(toY)))
-default: fail("Unsupported action: \(action)")
+case "wait": usleep(useconds_t(integer(data, "milliseconds") ?? 0) * 1000)
+default: fail("Unsupported action: \(property(data, "action"))")
 }
-if action != "observe" { usleep(180000) }
+}
+if action == "batch" {
+  guard let steps = data["steps"] as? [[String: Any]] else { fail("Invalid batch steps") }
+  for step in steps { perform(step) }
+} else { perform(data) }
+if action != "observe" && action != "wait" { usleep(100000) }
 
 var displayIDs = [CGDirectDisplayID](repeating: 0, count: 32)
 var displayCount: UInt32 = 0
@@ -233,6 +240,7 @@ let yScale = CGFloat(imageHeight) / bounds.height
 context.setStrokeColor(CGColor(red: 1, green: 0.3, blue: 0.17, alpha: 0.9))
 context.setLineWidth(2)
 for element in elements.prefix(80) {
+  if !["Button", "TextField", "TextArea", "MenuItem", "TabItem", "ListItem", "CheckBox", "RadioButton", "ComboBox", "Link", "ScrollBar", "Slider"].contains(element.role) { continue }
   let rect = CGRect(x: CGFloat(element.x - originX) * xScale,
     y: CGFloat(imageHeight) - CGFloat(element.y - originY + element.height) * yScale,
     width: CGFloat(element.width) * xScale, height: CGFloat(element.height) * yScale)
