@@ -1,4 +1,5 @@
 import type { Part } from "@jyycode-ai/sdk/v2/client"
+import { File as FileIcon } from "lucide-solid"
 import { Match, Switch } from "solid-js"
 import { ReasoningPartView } from "./reasoning-part"
 import { presentMessageText } from "./message-presentation"
@@ -41,6 +42,18 @@ export function MessagePartView(props: { part: Part; messageRole?: string; messa
       </Match>
       <Match when={props.part.type === "tool" ? props.part : undefined}>
         {(part) => <ToolCallCard part={part()} />}
+      </Match>
+      <Match when={props.part.type === "file" ? props.part : undefined}>
+        {(part) => (
+          <figure class="conversation-attachment" data-kind={part().mime.startsWith("image/") ? "image" : "file"}>
+            {part().mime.startsWith("image/") ? (
+              <img src={part().url} alt={part().filename ?? part().mime} loading="lazy" />
+            ) : (
+              <FileIcon aria-hidden="true" />
+            )}
+            <figcaption title={part().filename ?? part().mime}>{part().filename ?? part().mime}</figcaption>
+          </figure>
+        )}
       </Match>
     </Switch>
   )

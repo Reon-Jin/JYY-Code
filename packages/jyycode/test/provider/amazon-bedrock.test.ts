@@ -152,6 +152,37 @@ it.instance(
 // These should NOT be double-prefixed when passed to the SDK.
 
 it.instance(
+  "Bedrock: preserves DeepSeek V3.2 and ARN model IDs while prefixing R1",
+  () =>
+    Effect.gen(function* () {
+      yield* set("AWS_PROFILE", "default")
+      const models = (yield* list)[ProviderID.amazonBedrock].models
+      for (const [id, expected] of [
+        ["deepseek.r1-v1:0", "us.deepseek.r1-v1:0"],
+        ["deepseek.v3.2", "deepseek.v3.2"],
+        ["arn:aws:bedrock:us-east-1::foundation-model/deepseek.v3.2", "arn:aws:bedrock:us-east-1::foundation-model/deepseek.v3.2"],
+      ] as const) {
+        const language = yield* Provider.use.getLanguage(models[id])
+        expect(language.modelId).toBe(expected)
+      }
+    }),
+  {
+    config: {
+      provider: {
+        "amazon-bedrock": {
+          options: { region: "us-east-1" },
+          models: {
+            "deepseek.r1-v1:0": { name: "DeepSeek R1" },
+            "deepseek.v3.2": { name: "DeepSeek V3.2" },
+            "arn:aws:bedrock:us-east-1::foundation-model/deepseek.v3.2": { name: "DeepSeek V3.2 ARN" },
+          },
+        },
+      },
+    },
+  },
+)
+
+it.instance(
   "Bedrock: model with us. prefix should not be double-prefixed",
   () =>
     Effect.gen(function* () {

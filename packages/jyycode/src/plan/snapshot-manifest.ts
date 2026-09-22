@@ -202,6 +202,7 @@ export function writeManifestHashCache(runtimeRoot: string, root: string, cache:
 }
 
 type PendingHash = { entry: SnapshotManifestEntry; pathname: string; size: number; mtimeMs: number }
+type Candidate = { pathname: string; relative: string; mode: "file" | "symlink" }
 
 async function walk(
   root: string,
@@ -211,9 +212,7 @@ async function walk(
     gitignore: readonly string[]
   },
   limits: SnapshotManifestLimits,
-  entries: SnapshotManifestEntry[],
-  totals: { bytes: number },
-  pending: PendingHash[],
+  candidates: Candidate[],
 ) {
   const dirents = await fs.promises.readdir(current, { withFileTypes: true })
   for (const entry of dirents) {
@@ -223,35 +222,14 @@ async function walk(
     if (options.runtimeRoot && path.resolve(pathname) === path.resolve(options.runtimeRoot)) continue
     if (entry.isDirectory()) {
       if (isSnapshotPathIncluded(relative, options, options.gitignore))
-        await walk(root, pathname, options, limits, entries, totals, pending)
+        await walk(root, pathname, options, limits, candidates)
       continue
     }
     if (!entry.isFile() && !entry.isSymbolicLink()) continue
     if (!isSnapshotPathIncluded(relative, options, options.gitignore)) continue
-    const stat = await fs.promises.lstat(pathname)
-    if (entry.isSymbolicLink()) {
-      const target = await fs.promises.readlink(pathname)
-      const size = Buffer.byteLength(target)
-      entries.push({ relative_path: relative, hash: target, size, mtime_ms: stat.mtimeMs, mode: "symlink" })
-      totals.bytes += size
-    } else {
-      if (stat.size > limits.maxFileBytes)
-        throw new Error(`snapshot file exceeds the per-file limit (${stat.size} > ${limits.maxFileBytes})`)
-      const record: SnapshotManifestEntry = {
-        relative_path: relative,
-        hash: "",
-        size: stat.size,
-        mtime_ms: stat.mtimeMs,
-        mode: "file",
-      }
-      entries.push(record)
-      pending.push({ entry: record, pathname, size: stat.size, mtimeMs: stat.mtimeMs })
-      totals.bytes += stat.size
-    }
-    if (entries.length > limits.maxFileCount)
-      throw new Error(`snapshot contains too many files (${entries.length} > ${limits.maxFileCount})`)
-    if (totals.bytes > limits.maxTotalBytes)
-      throw new Error(`snapshot exceeds the total-byte limit (${totals.bytes} > ${limits.maxTotalBytes})`)
+    candidates.push({ pathname, relative, mode: entry.isSymbolicLink() ? "symlink" : "file" })
+    if (candidates.length > limits.maxFileCount)
+      throw new Error(`snapshot contains too many files (${candidates.length} > ${limits.maxFileCount})`)
   }
 }
 
@@ -262,19 +240,40 @@ export function snapshotManifestHash(entries: readonly SnapshotManifestEntry[]) 
 export async function buildSnapshotManifest(input: SnapshotManifestOptions): Promise<SnapshotManifest> {
   const root = path.resolve(input.root)
   const limits = { ...DEFAULT_SNAPSHOT_MANIFEST_LIMITS, ...input.limits }
-  const entries: SnapshotManifestEntry[] = []
-  const pending: PendingHash[] = []
+  const candidates: Candidate[] = []
   const gitignore = gitIgnorePatterns(root)
-  const totals = { bytes: 0 }
   await walk(
     root,
     root,
     { exclude: input.exclude ?? [], include: input.include ?? [], runtimeRoot: input.runtimeRoot, gitignore },
     limits,
-    entries,
-    totals,
-    pending,
+    candidates,
   )
+  const measured = await mapConcurrent(candidates, HASH_CONCURRENCY, async (candidate) => {
+    const stat = await fs.promises.lstat(candidate.pathname)
+    const link = candidate.mode === "symlink" ? await fs.promises.readlink(candidate.pathname) : undefined
+    const size = link === undefined ? stat.size : Buffer.byteLength(link)
+    if (size > limits.maxFileBytes)
+      throw new Error(`snapshot file exceeds the per-file limit (${size} > ${limits.maxFileBytes})`)
+    const entry: SnapshotManifestEntry = {
+      relative_path: candidate.relative,
+      hash: link ?? "",
+      size,
+      mtime_ms: stat.mtimeMs,
+      mode: candidate.mode,
+    }
+    return { entry, pathname: candidate.pathname }
+  })
+  const entries = measured.map((item) => item.entry)
+  const totals = { bytes: 0 }
+  const pending: PendingHash[] = []
+  for (const item of measured) {
+    totals.bytes += item.entry.size
+    if (totals.bytes > limits.maxTotalBytes)
+      throw new Error(`snapshot exceeds the total-byte limit (${totals.bytes} > ${limits.maxTotalBytes})`)
+    if (item.entry.mode === "file")
+      pending.push({ entry: item.entry, pathname: item.pathname, size: item.entry.size, mtimeMs: item.entry.mtime_ms! })
+  }
   const cache = input.runtimeRoot ? readManifestHashCache(input.runtimeRoot, root) : undefined
   const nextCache: ManifestHashCache["entries"] = {}
   await mapConcurrent(pending, HASH_CONCURRENCY, async (item) => {

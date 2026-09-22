@@ -1445,8 +1445,7 @@ describe("session.message-v2.fromError", () => {
       "Your input exceeds the context window of this model",
       "The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)",
       "Please reduce the length of the messages or completion",
-      "400 status code (no body)",
-      "413 status code (no body)",
+      "Prompt too long",
     ]
 
     cases.forEach((message) => {
@@ -1461,6 +1460,25 @@ describe("session.message-v2.fromError", () => {
       const result = MessageV2.fromError(error, { providerID })
       expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(true)
     })
+  })
+
+  test("only treats bodyless 400/413 as overflow for Cerebras", () => {
+    for (const statusCode of [400, 413]) {
+      const error = new APICallError({
+        message: `${statusCode} status code (no body)`,
+        url: "https://example.com",
+        requestBodyValues: {},
+        statusCode,
+        isRetryable: false,
+      })
+
+      expect(MessageV2.APIError.isInstance(MessageV2.fromError(error, { providerID }))).toBe(true)
+      expect(
+        MessageV2.ContextOverflowError.isInstance(
+          MessageV2.fromError(error, { providerID: ProviderID.make("cerebras") }),
+        ),
+      ).toBe(true)
+    }
   })
 
   test("detects context overflow from context_length_exceeded code in response body", () => {

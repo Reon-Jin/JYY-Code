@@ -68,6 +68,40 @@ describe("MessageTimeline", () => {
     expect(onRetry).toHaveBeenCalledOnce()
   })
 
+  it("shows image previews and files in attachment-only user messages", () => {
+    const imageUrl = "data:image/png;base64,aGVsbG8="
+    render(() => (
+      <MessageTimeline
+        messages={[
+          conversation([
+            {
+              id: "part_image",
+              sessionID,
+              messageID: info.id,
+              type: "file",
+              mime: "image/png",
+              filename: "photo.png",
+              url: imageUrl,
+            },
+            {
+              id: "part_file",
+              sessionID,
+              messageID: info.id,
+              type: "file",
+              mime: "application/pdf",
+              filename: "report.pdf",
+              url: "data:application/pdf;base64,aGVsbG8=",
+            },
+          ]),
+        ]}
+      />
+    ))
+
+    const message = screen.getByLabelText("我的消息")
+    expect(within(message).getByRole("img", { name: "photo.png" })).toHaveAttribute("src", imageUrl)
+    expect(within(message).getByText("report.pdf")).toBeVisible()
+  })
+
   it("hides synthetic prompts but leaves JSON-shaped assistant text visible", () => {
     render(() => (
       <MessageTimeline

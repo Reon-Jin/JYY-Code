@@ -102,6 +102,49 @@
   gap: var(--space-2);
 }
 
+.conversation-attachment {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+}
+
+.conversation-attachment[data-kind="image"] {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.conversation-attachment[data-kind="image"] img {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+}
+
+.conversation-attachment[data-kind="file"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  background: var(--color-panel);
+}
+
+.conversation-attachment[data-kind="file"] svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.conversation-attachment figcaption {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .conversation-markdown {
   min-width: 0;
   color: var(--color-text);

@@ -587,6 +587,30 @@ describe("tool.read truncation", () => {
     }),
   )
 
+  it.live("reads text beginning with GIF8 without treating it as an image", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const filepath = path.join(dir, "sample.txt")
+      yield* put(filepath, "GIF8_DATA = 'book'\n")
+
+      const result = yield* exec(dir, { filePath: filepath })
+      expect(result.attachments).toBeUndefined()
+      expect(result.output).toContain("GIF8_DATA = 'book'")
+    }),
+  )
+
+  it.live("recognizes complete GIF87a and GIF89a headers", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      for (const version of ["GIF87a", "GIF89a"]) {
+        const filepath = path.join(dir, `${version}.bin`)
+        yield* put(filepath, Buffer.from(version + "\u0000\u0000"))
+        const result = yield* exec(dir, { filePath: filepath })
+        expect(result.attachments?.[0]?.mime).toBe("image/gif")
+      }
+    }),
+  )
+
   it.live("preserves PDF filename in attachment metadata and preview", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()

@@ -279,12 +279,9 @@ function walkCandidatePaths(root: string, current = root, rules = readIgnoreRule
 function candidatePaths(root: string, vcs: "git" | "none") {
   if (vcs === "git") {
     try {
-      return [
-        ...new Set([
-          ...gitPaths(root, ["ls-files", "-z"]),
-          ...gitPaths(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
-        ]),
-      ].filter((relative) => !hardExcluded(relative, false))
+      return [...new Set(gitPaths(root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]))].filter(
+        (relative) => !hardExcluded(relative, false),
+      )
     } catch {
       // A test adapter or a newly-created project may advertise Git before
       // the repository is available. The non-Git policy is still bounded.
@@ -490,7 +487,6 @@ function assertSafeSymlink(root: string, pathname: string) {
 async function copyEntry(source: string, target: string, item: BaselineManifestEntry) {
   const sourcePath = path.join(source, item.relative_path)
   const targetPath = path.join(target, item.relative_path)
-  await fs.promises.mkdir(path.dirname(targetPath), { recursive: true })
   if (item.mode === "symlink") {
     const link = assertSafeSymlink(source, sourcePath)
     if (fs.existsSync(targetPath) || fs.lstatSync(targetPath, { throwIfNoEntry: false }))
@@ -509,8 +505,17 @@ async function copyEntry(source: string, target: string, item: BaselineManifestE
   await fs.promises.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_FICLONE)
 }
 
-async function copyManifest(source: string, target: string, manifest: BaselineManifestEntry[]) {
+async function prepareCopyDirectories(target: string, entries: readonly BaselineManifestEntry[]) {
   await fs.promises.mkdir(target, { recursive: true })
+  const directories = new Set(entries.map((entry) => path.dirname(path.join(target, entry.relative_path))))
+  directories.delete(target)
+  await mapConcurrent([...directories], HASH_CONCURRENCY, (directory) =>
+    fs.promises.mkdir(directory, { recursive: true }),
+  )
+}
+
+async function copyManifest(source: string, target: string, manifest: BaselineManifestEntry[]) {
+  await prepareCopyDirectories(target, manifest)
   await mapConcurrent(manifest, HASH_CONCURRENCY, (item) => copyEntry(source, target, item))
 }
 
@@ -526,13 +531,12 @@ async function copyBaselineIncremental(input: {
   previousDir?: string
   previousByPath?: ReadonlyMap<string, BaselineManifestEntry>
 }) {
-  await fs.promises.mkdir(input.target, { recursive: true })
+  await prepareCopyDirectories(input.target, input.entries)
   await mapConcurrent(input.entries, HASH_CONCURRENCY, async (entry) => {
     if (entry.mode === "file" && input.previousDir && input.previousByPath) {
       const previous = input.previousByPath.get(entry.relative_path)
       if (previous && previous.mode === entry.mode && previous.hash === entry.hash) {
         const targetPath = path.join(input.target, entry.relative_path)
-        await fs.promises.mkdir(path.dirname(targetPath), { recursive: true })
         try {
           await fs.promises.link(path.join(input.previousDir, entry.relative_path), targetPath)
           __childWorkspaceCopyStats.baselineLinks.push(entry.relative_path)

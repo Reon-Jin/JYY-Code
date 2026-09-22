@@ -20,6 +20,7 @@ const MAX_PATH_LENGTH = 4096
  */
 export const __mergeScanStats = {
   workspaceScans: 0,
+  directoryReads: 0,
   filesRead: 0,
   scannedPaths: [] as string[],
 }
@@ -27,6 +28,7 @@ export const __mergeScanStats = {
 /** @internal reset helper for tests */
 export function __resetMergeScanStats() {
   __mergeScanStats.workspaceScans = 0
+  __mergeScanStats.directoryReads = 0
   __mergeScanStats.filesRead = 0
   __mergeScanStats.scannedPaths = []
 }
@@ -202,6 +204,7 @@ function assertSafeLink(root: string, pathname: string) {
 
 type ScanOptions = {
   childSnapshot?: boolean
+  hashOnly?: boolean
   limits?: SnapshotLimits
   state?: { totalBytes: number; fileCount: number }
   filter?: ScanFilter
@@ -209,64 +212,26 @@ type ScanOptions = {
 
 export type ScanFilter = {
   files: ReadonlySet<string>
-  dirs: ReadonlySet<string>
 }
 
 export function buildScanFilter(paths: ReadonlySet<string>): ScanFilter {
-  const dirs = new Set<string>()
-  for (const relative of paths) {
-    let index = relative.indexOf("/")
-    while (index >= 0) {
-      dirs.add(relative.slice(0, index))
-      index = relative.indexOf("/", index + 1)
-    }
-  }
-  return { files: paths, dirs }
+  return { files: paths }
 }
 
-function selectedPath(relative: string, filter: ScanFilter | undefined) {
-  if (!filter) return true
-  return filter.files.has(relative) || filter.dirs.has(relative)
-}
-
-function scanWorkspace(root: string, current = root, output = new Map<string, FileEntry>(), options: ScanOptions = {}) {
-  const state = options.state ?? { totalBytes: 0, fileCount: 0 }
-  if (current === root) __mergeScanStats.workspaceScans++
-  for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-    if (INTERNAL_NAMES.has(entry.name)) continue
-    const pathname = path.join(current, entry.name)
-    const relative = canonicalRelative(path.relative(root, pathname), "workspace path")
-    // Without a Git-derived path filter, fall back to the same hard excludes
-    // the child snapshot used, so node_modules/dist/build are never walked.
-    if (!options.filter && !isSnapshotPathAllowed(relative, entry.isDirectory())) continue
-    if (!selectedPath(relative, options.filter)) continue
-    if (entry.isDirectory()) {
-      if (options.childSnapshot && !isSnapshotPathAllowed(relative, true)) continue
-      scanWorkspace(root, pathname, output, { ...options, state })
-      continue
-    }
-    if (options.childSnapshot && !isSnapshotPathAllowed(relative)) continue
-    if (entry.isSymbolicLink()) {
-      const link = assertSafeLink(root, pathname)
-      const size = Buffer.byteLength(link)
-      if (options.limits) {
-        if (size > options.limits.maxFileBytes) fail(`child merge file exceeds the per-file limit: ${relative}`)
-        state.totalBytes += size
-        state.fileCount++
-        if (state.totalBytes > options.limits.maxTotalBytes)
-          fail("child merge exceeds the total-byte limit; narrow the task scope")
-        if (state.fileCount > options.limits.maxFileCount)
-          fail("child merge exceeds the file-count limit; narrow the task scope")
-      }
-      __mergeScanStats.scannedPaths.push(relative)
-      __mergeScanStats.filesRead++
-      output.set(relative, { path: relative, kind: "symlink", link, hash: hashText(link), size, isText: true, root })
-      continue
-    }
-    if (!entry.isFile()) fail(`unsupported workspace entry: ${relative}`)
-    const fileSize = fs.statSync(pathname).size
+function scanFile(
+  root: string,
+  pathname: string,
+  relative: string,
+  entry: fs.Stats | fs.Dirent,
+  output: Map<string, FileEntry>,
+  options: ScanOptions,
+  state: { totalBytes: number; fileCount: number },
+) {
+  if (options.childSnapshot && !isSnapshotPathAllowed(relative)) return
+  if (entry.isSymbolicLink()) {
+    const link = assertSafeLink(root, pathname)
+    const size = Buffer.byteLength(link)
     if (options.limits) {
-      const size = fileSize
       if (size > options.limits.maxFileBytes) fail(`child merge file exceeds the per-file limit: ${relative}`)
       state.totalBytes += size
       state.fileCount++
@@ -275,18 +240,87 @@ function scanWorkspace(root: string, current = root, output = new Map<string, Fi
       if (state.fileCount > options.limits.maxFileCount)
         fail("child merge exceeds the file-count limit; narrow the task scope")
     }
-    const bytes = new Uint8Array(fs.readFileSync(pathname))
-    const isText = isTextBytes(bytes)
     __mergeScanStats.scannedPaths.push(relative)
     __mergeScanStats.filesRead++
-    output.set(relative, {
-      path: relative,
-      kind: "file",
-      hash: hashBytes(bytes),
-      size: fileSize,
-      isText,
-      root,
-    })
+    output.set(relative, { path: relative, kind: "symlink", link, hash: hashText(link), size, isText: true, root })
+    return
+  }
+  if (!entry.isFile()) fail(`unsupported workspace entry: ${relative}`)
+  const fileSize = "size" in entry ? entry.size : fs.statSync(pathname).size
+  if (options.limits) {
+    const size = fileSize
+    if (size > options.limits.maxFileBytes) fail(`child merge file exceeds the per-file limit: ${relative}`)
+    state.totalBytes += size
+    state.fileCount++
+    if (state.totalBytes > options.limits.maxTotalBytes)
+      fail("child merge exceeds the total-byte limit; narrow the task scope")
+    if (state.fileCount > options.limits.maxFileCount)
+      fail("child merge exceeds the file-count limit; narrow the task scope")
+  }
+  const bytes = new Uint8Array(fs.readFileSync(pathname))
+  const isText = options.hashOnly ? false : isTextBytes(bytes)
+  __mergeScanStats.scannedPaths.push(relative)
+  __mergeScanStats.filesRead++
+  output.set(relative, {
+    path: relative,
+    kind: "file",
+    hash: hashBytes(bytes),
+    size: fileSize,
+    isText,
+    root,
+  })
+}
+
+function scanWorkspace(root: string, current = root, output = new Map<string, FileEntry>(), options: ScanOptions = {}) {
+  const state = options.state ?? { totalBytes: 0, fileCount: 0 }
+  if (current === root) {
+    __mergeScanStats.workspaceScans++
+    if (options.filter) {
+      const directories = new Set<string>()
+      for (const relative of options.filter.files) {
+        if (output.has(relative)) continue
+        const parts = canonicalRelative(relative, "workspace path").split("/")
+        let pathname = root
+        let parentRelative = ""
+        let blocked = false
+        for (const part of parts.slice(0, -1)) {
+          pathname = path.join(pathname, part)
+          parentRelative = parentRelative ? `${parentRelative}/${part}` : part
+          if (directories.has(pathname)) continue
+          const parent = fs.lstatSync(pathname, { throwIfNoEntry: false })
+          if (!parent) {
+            blocked = true
+            break
+          }
+          if (!parent.isDirectory()) {
+            if (!output.has(parentRelative)) scanFile(root, pathname, parentRelative, parent, output, options, state)
+            blocked = true
+            break
+          }
+          directories.add(pathname)
+        }
+        if (blocked) continue
+        pathname = path.join(pathname, parts.at(-1)!)
+        const entry = fs.lstatSync(pathname, { throwIfNoEntry: false })
+        if (!entry || entry.isDirectory()) continue
+        scanFile(root, pathname, relative, entry, output, options, state)
+      }
+      return output
+    }
+  }
+  __mergeScanStats.directoryReads++
+  for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+    if (INTERNAL_NAMES.has(entry.name)) continue
+    const pathname = path.join(current, entry.name)
+    const relative = canonicalRelative(path.relative(root, pathname), "workspace path")
+    // Without a Git-derived path filter, fall back to the same hard excludes
+    // the child snapshot used, so node_modules/dist/build are never walked.
+    if (!isSnapshotPathAllowed(relative, entry.isDirectory())) continue
+    if (entry.isDirectory()) {
+      scanWorkspace(root, pathname, output, { ...options, state })
+      continue
+    }
+    scanFile(root, pathname, relative, entry, output, options, state)
   }
   return output
 }
@@ -358,6 +392,45 @@ function optimizedGitMergePaths(input: WorkspaceMergeInput, roots: { base: strin
 
   const scopes = (input.paths ?? []).map((value) => canonicalRelative(value, "paths entry"))
   return buildScanFilter(new Set([...paths].filter((relative) => inScope(relative, scopes))))
+}
+
+function changedSnapshotPaths(
+  manifest: readonly BaselineManifestEntry[],
+  main: Map<string, FileEntry>,
+  child: Map<string, FileEntry>,
+  scopes: string[],
+) {
+  const expected = new Map<string, string>()
+  for (const entry of manifest) {
+    const relative = canonicalRelative(entry.relative_path, "baseline manifest path")
+    expected.set(relative, `${entry.mode}:${entry.mode === "symlink" ? hashText(entry.hash) : entry.hash}`)
+  }
+  const paths = new Set([...expected.keys(), ...main.keys(), ...child.keys()])
+  return buildScanFilter(
+    new Set(
+      [...paths].filter(
+        (relative) =>
+          inScope(relative, scopes) &&
+          (entryFingerprint(main.get(relative)) !== (expected.get(relative) ?? null) ||
+            entryFingerprint(child.get(relative)) !== (expected.get(relative) ?? null)),
+      ),
+    ),
+  )
+}
+
+function selectChangedEntries(entries: Map<string, FileEntry>, paths: ReadonlySet<string>) {
+  const selected = new Map<string, FileEntry>()
+  for (const relative of paths) {
+    const entry = entries.get(relative)
+    if (!entry) continue
+    if (entry.kind === "file") {
+      const bytes = readEntryBytes(entry)!
+      __mergeScanStats.filesRead++
+      entry.isText = isTextBytes(bytes)
+    }
+    selected.set(relative, entry)
+  }
+  return selected
 }
 
 function sameEntry(left: FileEntry | undefined, right: FileEntry | undefined) {
@@ -517,15 +590,28 @@ export function prepareWorkspaceMerge(input: WorkspaceMergeInput): WorkspaceMerg
     if (resolutions.has(relative)) fail(`duplicate resolution for ${relative}`)
     resolutions.set(relative, { path: relative, use: resolution.use })
   }
-  const scanFilter = input.__scanFilter ?? optimizedGitMergePaths(input, roots)
-  const scanOptions = scanFilter ? { filter: scanFilter } : undefined
-  const base = scanWorkspace(roots.base, roots.base, new Map(), scanOptions)
-  const main = scanWorkspace(roots.main, roots.main, new Map(), scanOptions)
-  const child = scanWorkspace(roots.child, roots.child, new Map(), {
-    ...(scanOptions ?? {}),
+  let scanFilter = input.__scanFilter ?? optimizedGitMergePaths(input, roots)
+  const childOptions: ScanOptions = {
     childSnapshot: input.childManifest !== undefined,
     limits: input.childLimits ?? (input.childManifest !== undefined ? DEFAULT_SNAPSHOT_LIMITS : undefined),
-  })
+  }
+  let main: Map<string, FileEntry>
+  let child: Map<string, FileEntry>
+  if (input.childManifest && !scanFilter) {
+    // A snapshot has no Git index to enumerate changed paths. Read the two
+    // writable trees once, then inspect the immutable baseline only where
+    // either side differs from its recorded manifest.
+    const fullMain = scanWorkspace(roots.main, roots.main, new Map(), { hashOnly: true })
+    const fullChild = scanWorkspace(roots.child, roots.child, new Map(), { ...childOptions, hashOnly: true })
+    scanFilter = changedSnapshotPaths(input.childManifest, fullMain, fullChild, scopes)
+    main = selectChangedEntries(fullMain, scanFilter.files)
+    child = selectChangedEntries(fullChild, scanFilter.files)
+  } else {
+    const scanOptions = scanFilter ? { filter: scanFilter } : undefined
+    main = scanWorkspace(roots.main, roots.main, new Map(), scanOptions)
+    child = scanWorkspace(roots.child, roots.child, new Map(), { ...childOptions, ...scanOptions })
+  }
+  const base = scanWorkspace(roots.base, roots.base, new Map(), scanFilter ? { filter: scanFilter } : {})
   if (input.childManifest) {
     for (const entry of input.childManifest) {
       const relative = entry.relative_path.replaceAll("\\", "/")
