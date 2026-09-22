@@ -33,13 +33,13 @@ Neither a screenshot alone nor an accessibility tree alone covers arbitrary desk
 User prompt → Desktop Session (multiAgent=false)
   → SessionTools.resolve catalog gate
   → computer permission request
-  → tool execution checks persisted Session mode
+  → tool execution checks persisted Session mode, including when a queued action starts
   → serialized platform helper
   → native action → foreground accessibility snapshot + desktop screenshot
   → annotated PNG attachment + structured text → LLM
 ```
 
-The backend executable is bundled as a Tauri sidecar, so the tool cannot call a frontend `invoke` command directly. The Tauri supervisor sets `JYYCODE_CLIENT=desktop` only for that child. Registry construction omits the tool for other clients; `SessionTools` omits it from both the live catalog and `tool_search` for multi Agent roots and children. The tool itself checks the stored Session before and after a permission wait, covering stale model calls and mode changes. The subagent profile policy forbids selecting the tool. Native calls share one asynchronous queue so parallel LLM tool calls cannot interleave mouse and keyboard events.
+The backend executable is bundled as a Tauri sidecar, so the tool cannot call a frontend `invoke` command directly. The Tauri supervisor sets `JYYCODE_CLIENT=desktop` only for that child. Registry construction omits the tool for other clients; `SessionTools` omits it from both the live catalog and `tool_search` for multi Agent roots and children. The tool itself checks the stored Session before and after a permission wait and again when its queued action starts, covering stale model calls and mode changes. The subagent profile policy forbids selecting the tool. Native calls share one asynchronous queue so parallel LLM tool calls cannot interleave mouse and keyboard events.
 
 ### Observation contract
 

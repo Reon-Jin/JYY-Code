@@ -57,6 +57,8 @@ export const ComputerTool = Tool.define(
           if (!available(flags.client, current)) throw new Error("Computer control is no longer available in this session")
           return yield* Effect.promise(() =>
             runExclusive(async () => {
+              const latest = await Effect.runPromise(sessions.get(ctx.sessionID))
+              if (!available(flags.client, latest)) throw new Error("Computer control is no longer available in this session")
               const { observation, png } = await runNative(input, ctx.abort)
               return {
                 title: `Computer ${input.action}: ${observation.window || "desktop"}`,
