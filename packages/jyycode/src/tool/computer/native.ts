@@ -2,6 +2,8 @@ import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { Effect } from "effect"
+import { AppProcess } from "@jyycode-ai/core/process"
 import windowsScript from "./windows.ps1" with { type: "file" }
 
 export type Action = {
@@ -109,33 +111,30 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
         else throw new Error("Bundled macOS computer helper is missing")
       }
     }
-    const child = Bun.spawn(command, {
-      env: {
-        ...process.env,
-        JYYCODE_COMPUTER_INPUT: payload,
-        JYYCODE_COMPUTER_IMAGE: imagePath,
-      },
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    const abort = () => child.kill()
-    signal?.addEventListener("abort", abort, { once: true })
-    try {
-      const [stdout, stderr, code] = await Promise.all([
-        new Response(child.stdout).text(),
-        new Response(child.stderr).text(),
-        child.exited,
-      ])
-      if (signal?.aborted) throw new Error("Computer operation interrupted")
-      if (code !== 0) throw new Error(stderr.trim() || `Computer helper exited with ${code}`)
-      const observation = JSON.parse(stdout) as Observation
-      if (!observation.screen || !Array.isArray(observation.elements)) throw new Error("Computer helper returned invalid observation")
-      const png = await readFile(imagePath)
-      if (png.length === 0) throw new Error("Computer helper returned an empty screenshot")
-      return { observation, png }
-    } finally {
-      signal?.removeEventListener("abort", abort)
-    }
+    const result = await Effect.runPromise(
+      AppProcess.Service.use((processService) =>
+        processService.run(
+          {
+            command: command[0]!,
+            args: command.slice(1),
+            env: {
+              mode: "inherit-allowlist",
+              values: { JYYCODE_COMPUTER_INPUT: payload, JYYCODE_COMPUTER_IMAGE: imagePath },
+            },
+            output: "capture",
+          },
+          { signal, maxOutputBytes: 2 * 1024 * 1024, maxErrorBytes: 64 * 1024 },
+        ),
+      ).pipe(Effect.provide(AppProcess.defaultLayer)),
+    )
+    if (signal?.aborted) throw new Error("Computer operation interrupted")
+    if (result.exitCode !== 0) throw new Error(result.stderr.toString("utf8").trim() || `Computer helper exited with ${result.exitCode}`)
+    if (result.stdoutTruncated) throw new Error("Computer helper observation exceeded the output limit")
+    const observation = JSON.parse(result.stdout.toString("utf8")) as Observation
+    if (!observation.screen || !Array.isArray(observation.elements)) throw new Error("Computer helper returned invalid observation")
+    const png = await readFile(imagePath)
+    if (png.length === 0) throw new Error("Computer helper returned an empty screenshot")
+    return { observation, png }
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
