@@ -93,7 +93,8 @@ switch ($action) {
     $amount = [int]$inputData.amount * 120
     $flag = if ($inputData.direction -eq 'left' -or $inputData.direction -eq 'right') { 0x1000 } else { 0x0800 }
     if ($inputData.direction -eq 'down' -or $inputData.direction -eq 'left') { $amount = -$amount }
-    [JyyComputerNative]::mouse_event([uint32]$flag, 0, 0, [uint32]$amount, [UIntPtr]::Zero)
+    $wheelData = [BitConverter]::ToUInt32([BitConverter]::GetBytes([int32]$amount), 0)
+    [JyyComputerNative]::mouse_event([uint32]$flag, 0, 0, $wheelData, [UIntPtr]::Zero)
   }
   key {
     $parts = @(([string]$inputData.keys).Split('+') | ForEach-Object { $_.Trim() })
