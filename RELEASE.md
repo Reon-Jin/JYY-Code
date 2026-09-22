@@ -4,9 +4,9 @@ This repository publishes the user-facing npm package `jyycode-ai`.
 
 ## One-time setup
 
-1. Create an npm automation token with publish permission.
-2. Add it to the GitHub repository secrets as `NPM_TOKEN`.
-3. Make sure the npm package name `jyycode-ai` is owned by the publishing npm account.
+1. Sign in to npm as a maintainer of `jyycode-ai` and open the package's **Settings → Trusted Publisher** section.
+2. Add a **GitHub Actions** trusted publisher with organization/user `Reon-Jin`, repository `JYY-Code`, and workflow filename `release-cli-npm.yml`. Leave the environment name empty and allow direct `npm publish`.
+3. The workflow uses GitHub OIDC to publish, so it does not need an `NPM_TOKEN` secret. Remove any old publishing token after a successful OIDC release.
 
 ## Publish
 
@@ -25,7 +25,7 @@ This repository publishes the user-facing npm package `jyycode-ai`.
    The persistence smoke must print `session persisted`.
 
 6. Open GitHub Actions and run the `release-cli-npm` workflow.
-7. Enter a new semver version, for example `1.15.11`.
+7. Enter a semver version that has not yet been published to npm, for example `2.1.2`. A failed run can be retried with the same version as long as npm has not published it. The workflow reuses the draft GitHub Release and replaces its assets.
 8. Keep `npm_tag` as `latest` for normal releases.
 
 The workflow creates a GitHub Release, builds platform binaries, uploads release assets, publishes the lightweight npm wrapper, and then makes the GitHub Release public.
