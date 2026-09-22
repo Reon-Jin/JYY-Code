@@ -62,6 +62,10 @@ func axSize(_ element: AXUIElement) -> CGSize? {
 func axChildren(_ element: AXUIElement) -> [AXUIElement] {
   axAttribute(element, kAXChildrenAttribute as CFString) as? [AXUIElement] ?? []
 }
+func axElement(_ value: CFTypeRef?) -> AXUIElement? {
+  guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
+  return value as! AXUIElement
+}
 
 func emitMouse(_ kind: CGEventType, _ position: CGPoint, _ button: CGMouseButton = .left) {
   guard let event = CGEvent(mouseEventSource: nil, mouseType: kind, mouseCursorPosition: position, mouseButton: button) else {
@@ -185,7 +189,7 @@ var elements: [Element] = []
 var windowName = ""
 if let app = NSWorkspace.shared.frontmostApplication {
   let root = AXUIElementCreateApplication(app.processIdentifier)
-  let window = (axAttribute(root, kAXFocusedWindowAttribute as CFString) as? AXUIElement)
+  let window = axElement(axAttribute(root, kAXFocusedWindowAttribute as CFString))
     ?? ((axAttribute(root, kAXWindowsAttribute as CFString) as? [AXUIElement])?.first)
   windowName = window.map { axString($0, kAXTitleAttribute as CFString) } ?? app.localizedName ?? ""
   if let window {
