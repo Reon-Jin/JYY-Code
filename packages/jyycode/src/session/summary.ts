@@ -6,6 +6,21 @@ import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID } from "./schema"
 
+// A workspace may contain a growing log or generated file. Keep change counts
+// and filenames, but do not copy an unbounded patch into every user message.
+export const MAX_SUMMARY_PATCH_BYTES = 512 * 1024
+
+export function limitSummaryPatches(diffs: Snapshot.FileDiff[]): Snapshot.FileDiff[] {
+  let remaining = MAX_SUMMARY_PATCH_BYTES
+  return diffs.map((diff) => {
+    if (!diff.patch) return diff
+    const size = Buffer.byteLength(diff.patch, "utf8")
+    if (size > remaining) return { ...diff, patch: undefined }
+    remaining -= size
+    return diff
+  })
+}
+
 function unquoteGitPath(input: string) {
   if (!input.startsWith('"')) return input
   if (!input.endsWith('"')) return input
@@ -105,7 +120,7 @@ export const layer = Layer.effect(
       const all = yield* sessions.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
       if (!all.length) return
 
-      const diffs = yield* computeDiff({ messages: all })
+      const diffs = limitSummaryPatches(yield* computeDiff({ messages: all }))
       yield* sessions.setSummary({
         sessionID: input.sessionID,
         summary: {
@@ -122,7 +137,7 @@ export const layer = Layer.effect(
       )
       const target = messages.find((m) => m.info.id === input.messageID)
       if (!target || target.info.role !== "user") return
-      const msgDiffs = yield* computeDiff({ messages })
+      const msgDiffs = limitSummaryPatches(yield* computeDiff({ messages }))
       target.info.summary = { ...target.info.summary, diffs: msgDiffs }
       yield* sessions.updateMessage(target.info)
     })

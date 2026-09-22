@@ -29,7 +29,7 @@ import { AuthError, OutputLengthError } from "./message-error"
 import { CompactionCheckpointSchema } from "./compaction-checkpoint"
 import { BlobStore } from "@/storage/blob"
 import { retainOutput } from "@jyycode-ai/core/output-retention"
-import { decodeStoredJSONRow, isDecoded } from "./row-decoder"
+import { decodeStoredJSONRow, isDecoded, MAX_SESSION_ROW_BYTES } from "./row-decoder"
 export { AuthError, OutputLengthError } from "./message-error"
 
 /** Error shape thrown by Bun's fetch() when gzip/br decompression fails mid-stream */
@@ -618,13 +618,34 @@ const info = (row: typeof MessageTable.$inferSelect) =>
     sessionID: row.session_id,
   }) as Info
 
-const safeInfo = (row: typeof MessageTable.$inferSelect) =>
-  decodeStoredJSONRow({
+const safeInfo = (row: typeof MessageTable.$inferSelect) => {
+  const decoded = decodeStoredJSONRow({
     table: "message",
     id: row.id,
     data: row.data,
     decode: (value) => ({ ...(value as Record<string, unknown>), id: row.id, sessionID: row.session_id }) as Info,
   })
+  if (isDecoded(decoded) || decoded.error.reason !== "oversized") return decoded
+  // Older versions stored entire workspace patches in user.summary.diffs.
+  // Recover the original request without the oversized display-only diffs,
+  // so a live session does not lose its user message and abort the tool loop.
+  return recoverOversizedUserInfo(row.data, row.id, row.session_id) ?? decoded
+}
+
+export function recoverOversizedUserInfo(data: unknown, id: MessageID, sessionID: SessionID) {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return undefined
+  const value = data as Record<string, unknown>
+  if (value.role !== "user" || typeof value.summary !== "object" || value.summary === null) return undefined
+  const summary = value.summary as Record<string, unknown>
+  if (!Array.isArray(summary.diffs)) return undefined
+  const recovered = { ...value, summary: { ...summary, diffs: [] }, id, sessionID }
+  if (Buffer.byteLength(JSON.stringify(recovered), "utf8") > MAX_SESSION_ROW_BYTES) return undefined
+  try {
+    return { value: Schema.decodeUnknownSync(User)(recovered) as Info }
+  } catch {
+    return undefined
+  }
+}
 
 const safePart = (row: typeof PartTable.$inferSelect) =>
   decodeStoredJSONRow({
