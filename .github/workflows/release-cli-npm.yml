@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish, for example 1.15.11"
+        description: "Version to publish, for example 2.1.2"
         required: true
         type: string
       npm_tag:
@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency: release-cli-npm-${{ inputs.version }}
 
@@ -26,7 +27,6 @@ jobs:
       NPM_TAG: ${{ inputs.npm_tag }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Checkout
@@ -43,19 +43,19 @@ jobs:
           toolchain: stable
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Setup npm for trusted publishing
+        run: npm install --global npm@^11.5.1
 
       - name: Validate release inputs
         shell: bash
         run: |
           node -e "const version=process.env.VERSION; if (!/^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error('Invalid semver: ' + version)"
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "Missing repository secret: NPM_TOKEN"
-            exit 1
-          fi
 
       - name: Install archive tools
         run: sudo apt-get update && sudo apt-get install -y zip
@@ -92,8 +92,6 @@ jobs:
 
       - name: Publish npm wrapper
         run: npm publish --access public --tag "$NPM_TAG"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish GitHub release
         run: gh release edit "v$VERSION" --repo "$GH_REPO" --draft=false
