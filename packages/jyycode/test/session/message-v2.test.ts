@@ -408,6 +408,32 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("clears older computer screenshots while retaining recent observations and unrelated media", async () => {
+    const input: MessageV2.WithParts[] = [
+      { info: userInfo("m-user"), parts: [{ ...basePart("m-user", "u1"), type: "text", text: "draw" }] as MessageV2.Part[] },
+      ...Array.from({ length: 9 }, (_, index) => {
+        const id = `m-computer-${index}`
+        const tool = index === 8 ? "bash" : "computer"
+        return {
+          info: assistantInfo(id, "m-user"),
+          parts: [{
+            ...basePart(id, `a${index}`), type: "tool", callID: `call-${index}`, tool,
+            state: {
+              status: "completed", input: {}, output: `observation ${index}`, title: tool,
+              metadata: {}, time: { start: 0, end: 1 },
+              attachments: [{ ...basePart(id, `file-${index}`), type: "file", mime: "image/png", filename: "screen.png", url: "data:image/png;base64,Zm9v" }],
+            },
+          }] as MessageV2.Part[],
+        }
+      }),
+    ]
+    const output = JSON.stringify(await MessageV2.toModelMessages(input, model))
+    expect((output.match(/Earlier computer observation cleared/g) ?? []).length).toBe(5)
+    expect((output.match(/"type":"media"/g) ?? []).length).toBe(4)
+    expect(output).toContain("observation 7")
+    expect(output).toContain("observation 8")
+  })
+
   test("preserves jpeg tool-result media for anthropic models", async () => {
     const anthropicModel: Provider.Model = {
       ...model,

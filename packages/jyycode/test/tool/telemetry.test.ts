@@ -45,7 +45,7 @@ function def(id: string, execute: Tool.Def<typeof Parameters>["execute"]): Tool.
   }
 }
 
-function registryLayer(tools: Tool.Def[]) {
+function registryLayer(tools: Tool.Def[], visible?: (input: { includeComputer?: boolean }) => Tool.Def[]) {
   const read = tools[0] as any
   return Layer.succeed(
     ToolRegistry.Service,
@@ -53,7 +53,7 @@ function registryLayer(tools: Tool.Def[]) {
       ids: () => Effect.succeed(tools.map((item) => item.id)),
       all: () => Effect.succeed(tools),
       named: () => Effect.succeed({ task: read, read }),
-      tools: () => Effect.succeed(tools),
+      tools: (input) => Effect.succeed(visible ? visible(input) : tools),
     }),
   )
 }
@@ -121,6 +121,52 @@ function processor() {
 }
 
 describe("ToolTelemetry", () => {
+  it.instance("resolves computer only for image-capable Desktop single-Agent roots", () =>
+    Effect.gen(function* () {
+      const computer = def("computer", () => Effect.succeed({ title: "Computer", output: "ok", metadata: {} }))
+      const registry = registryLayer([computer], (input) => (input.includeComputer ? [computer] : []))
+      const flags = yield* RuntimeFlags.Service
+      const vision = {
+        ...provider.model,
+        capabilities: {
+          ...provider.model.capabilities,
+          input: { ...provider.model.capabilities.input, image: true },
+        },
+      }
+      const resolve = (current: typeof session, model = vision, client = "desktop", currentAgent = agent) =>
+        SessionTools.resolve({
+          agent: currentAgent,
+          model,
+          session: current,
+          processor: processor(),
+          bypassAgentCheck: false,
+          messages: [],
+          promptOps: {} as any,
+        }).pipe(
+          Effect.provide(registry),
+          Effect.provideService(RuntimeFlags.Service, RuntimeFlags.Service.of({ ...flags, client })),
+        )
+
+      expect((yield* resolve({ ...session, multiAgent: false })).computer).toBeDefined()
+      expect((yield* resolve({ ...session, multiAgent: true })).computer).toBeUndefined()
+      expect((yield* resolve({
+        ...session,
+        directory: process.cwd(),
+        parentID: SessionID.make("ses_parent"),
+        multiAgent: false,
+      })).computer).toBeUndefined()
+      expect((yield* resolve({ ...session, multiAgent: false }, {
+        ...vision,
+        capabilities: { ...vision.capabilities, input: { ...vision.capabilities.input, image: false } },
+      })).computer).toBeUndefined()
+      expect((yield* resolve({ ...session, multiAgent: false }, vision, "cli")).computer).toBeUndefined()
+      expect((yield* resolve({ ...session, multiAgent: false }, vision, "desktop", {
+        ...agent,
+        mode: "subagent",
+      })).computer).toBeUndefined()
+    }),
+  )
+
   it.instance("preserves the tool start time across metadata updates", () =>
     Effect.gen(function* () {
       const started = Date.now() - 5_000

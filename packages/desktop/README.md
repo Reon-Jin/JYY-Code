@@ -63,11 +63,27 @@ sub-agent profiles in the right rail; changes do not switch models for tasks alr
 Desktop and the TUI share the same Sessions, SQLite-backed state, HTTP API, and SSE events. Actions and progress remain
 authoritative in the shared backend and are visible from either interface.
 
-The TUI mirrors every Desktop capability through keyboard-driven equivalents — Global MCP management, Skills management,
+The TUI mirrors Desktop project-management capabilities through keyboard-driven equivalents — Global MCP management, Skills management,
 Memory management, Settings, Plan drawer, Blackboard, Subagent profiles, Changes (per-file diff), Git branches, and a file
 tree with preview. See `packages/jyycode/README.md` for the full parity table and TUI entry points. Both interfaces use the
 same `paper` color system from the shared `@jyycode-ai/design-tokens` package: Desktop `tokens.css` color values and the TUI
 `paper` theme are generated from one source of truth and guarded by drift tests.
+
+## Computer control
+
+In a Desktop root Session with Multi-Agent switched off, ask the Agent explicitly to operate the computer. The `computer`
+tool first requests the existing `computer` permission, then observes the screen or sends a mouse/keyboard action. Its
+result contains a fresh annotated screenshot, foreground accessibility controls with screen rectangles and centers,
+the active window title, cursor position, and virtual-display bounds. Each action returns a new observation. The tool
+supports cursor movement, left/right/middle click, double click, drag, vertical/horizontal wheel scrolling, key
+combinations, and literal text entry. Element numbers describe only the current observation.
+
+Windows uses UI Automation, GDI screen capture, and Win32 input. macOS uses Accessibility and Quartz through a bundled
+helper; grant that helper Accessibility and Screen Recording access in System Settings when macOS requests it. The
+coordinates in the tool result match the platform's native desktop coordinates: physical pixels on Windows and Quartz
+display points on macOS. The tool is absent from Multi-Agent, child Agent, and non-Desktop sessions. Screen contents
+and accessibility labels are untrusted data, and screenshots exist only in the tool result after temporary capture files
+are removed.
 
 ## Home, Skill, and MCP management
 

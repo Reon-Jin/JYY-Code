@@ -20,6 +20,7 @@ type SupportedTarget =
 const packageRoot = resolve(import.meta.dir, "..")
 const jyycodeRoot = resolve(packageRoot, "../jyycode")
 const binariesRoot = resolve(packageRoot, "src-tauri/binaries")
+const computerSource = resolve(jyycodeRoot, "src/tool/computer/macos.swift")
 
 export function sidecarTarget(platform: string, architecture: string): SupportedTarget {
   if (platform === "win32" && architecture === "x64") {
@@ -47,6 +48,11 @@ export function sidecarName(platform: string, architecture: string) {
   const target = sidecarTarget(platform, architecture)
   const extension = target.platform === "win32" ? ".exe" : ""
   return `jyycode-sidecar-${target.triple}${extension}`
+}
+
+export function computerHelperName(platform: string, architecture: string) {
+  const target = sidecarTarget(platform, architecture)
+  return `jyycode-computer-${target.triple}`
 }
 
 export function sourceBinary(platform: string, architecture: string) {
@@ -90,6 +96,14 @@ export async function stageSidecar(options: { skipBuild?: boolean; dev?: boolean
   const destination = resolve(binariesRoot, sidecarName(target.platform, target.architecture))
   await copyFile(source, destination)
   if (target.platform === "darwin") await chmod(destination, 0o755)
+  if (target.platform === "darwin") {
+    const helper = resolve(binariesRoot, computerHelperName(target.platform, target.architecture))
+    const compile = Bun.spawn(["swiftc", "-O", "-target", "arm64-apple-macos13.0", computerSource, "-o", helper], {
+      stdout: "inherit", stderr: "inherit",
+    })
+    if (await compile.exited !== 0) throw new Error("macOS computer helper compilation failed")
+    await chmod(helper, 0o755)
+  }
   return destination
 }
 

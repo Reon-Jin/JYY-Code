@@ -56,6 +56,7 @@ import { CatalogSearch } from "./catalog-search"
 import { ToolTelemetry } from "./telemetry"
 import { PlanProtocolTools } from "@/plan/tools"
 import { GoalTool } from "./goal"
+import { ComputerTool } from "./computer"
 import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
 import {
   identifyTool,
@@ -134,6 +135,8 @@ export interface Interface {
     includeMemory?: boolean
     /** Read-only context memory (context_read) availability; defaults to includeMemory. */
     includeContextRead?: boolean
+    /** Computer control is only exposed to Desktop single-Agent root sessions. */
+    includeComputer?: boolean
     /** Optional allowlist used by protocol phases with a deliberately narrow tool surface. */
     toolIDs?: ReadonlySet<string>
   }) => Effect.Effect<Tool.Def[]>
@@ -190,6 +193,7 @@ export const layer: Layer.Layer<
     const greptool = yield* GrepTool
     const skilltool = yield* SkillTool
     const goal = yield* GoalTool
+    const computer = flags.client === "desktop" ? yield* ComputerTool : undefined
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
     const memtool = memory ? yield* MemoryTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
     const episodic = Option.getOrUndefined(yield* Effect.serviceOption(EpisodicMemory.Service))
@@ -327,6 +331,7 @@ export const layer: Layer.Layer<
           memory: memtool ? Tool.init(memtool) : Effect.succeed(undefined),
           contextRead: contextRead ? Tool.init(contextRead) : Effect.succeed(undefined),
           goal: Tool.init(goal),
+          computer: computer ? Tool.init(computer) : Effect.succeed(undefined),
         })
 
         const builtin = [
@@ -343,6 +348,7 @@ export const layer: Layer.Layer<
           tool.search,
           tool.skill,
           tool.goal,
+          ...(tool.computer ? [tool.computer] : []),
           ...(tool.memory ? [tool.memory] : []),
           ...(tool.contextRead ? [tool.contextRead] : []),
           ...planProtocolTools,
@@ -416,7 +422,8 @@ export const layer: Layer.Layer<
         ...s.builtin.filter(
           (tool) =>
             (input.includeMemory !== false || tool.id !== MemoryTool.id) &&
-            (includeContextRead !== false || tool.id !== ContextReadTool.id),
+            (includeContextRead !== false || tool.id !== ContextReadTool.id) &&
+            (input.includeComputer === true || tool.id !== ComputerTool.id),
         ),
         ...s.custom,
       ].filter((tool) => !input.toolIDs || input.toolIDs.has(tool.id))

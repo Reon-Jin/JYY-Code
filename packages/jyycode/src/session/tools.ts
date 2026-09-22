@@ -24,6 +24,8 @@ import { EffectBridge } from "@/effect/bridge"
 import { Bus } from "@/bus"
 import { ToolTelemetry } from "@/tool/telemetry"
 import { CatalogSearch } from "@/tool/catalog-search"
+import { Computer } from "@/tool/computer"
+import { RuntimeFlags } from "@/effect/runtime-flags"
 import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
 import { Skill } from "@/skill"
 import { budgetFor, DEFAULT_BUDGETS, type BudgetConfig } from "@/execution/budget"
@@ -532,6 +534,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   const plugin = yield* Plugin.Service
   const permission = yield* Permission.Service
   const registry = yield* ToolRegistry.Service
+  const runtimeFlags = Option.getOrUndefined(yield* Effect.serviceOption(RuntimeFlags.Service))
   const mcp = yield* MCP.Service
   const bus = yield* Bus.Service
   const configService = yield* Effect.serviceOption(Config.Service)
@@ -944,6 +947,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     // memory tool itself stays root-only via includeMemory and the subagent
     // forbidden-tool policy.
     includeContextRead: true,
+    includeComputer:
+      Computer.available(runtimeFlags?.client ?? process.env.JYYCODE_CLIENT ?? "cli", input.session) &&
+      input.agent.mode !== "subagent" &&
+      input.model.capabilities.input.image === true,
     ...(allowedToolIDs ? { toolIDs: allowedToolIDs } : {}),
   })
   // A profile-backed child that has no MCP allowance should not even resolve
