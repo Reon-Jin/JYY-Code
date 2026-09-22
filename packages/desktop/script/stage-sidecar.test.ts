@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { sidecarName, sidecarTarget, sourceBinary } from "./stage-sidecar"
+import { computerHelperName, sidecarName, sidecarTarget, sourceBinary } from "./stage-sidecar"
 
 describe("sidecar staging", () => {
   it("uses Tauri's Windows x64 target-triple suffix", () => {
@@ -16,6 +16,7 @@ describe("sidecar staging", () => {
 
   it("uses Tauri's Apple Silicon target-triple suffix", () => {
     expect(sidecarName("darwin", "arm64")).toBe("jyycode-sidecar-aarch64-apple-darwin")
+    expect(computerHelperName("darwin", "arm64")).toBe("jyycode-computer-aarch64-apple-darwin")
   })
 
   it("selects the existing Bun-compiled Apple Silicon binary", () => {

@@ -106,6 +106,16 @@ jobs:
       - name: Test Desktop release scripts
         run: bun run --cwd packages/desktop test
 
+  desktop-computer-macos:
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Typecheck macOS computer helper
+        run: swiftc -typecheck packages/jyycode/src/tool/computer/macos.swift
+
   core-process:
     runs-on: ubuntu-latest
     timeout-minutes: 15

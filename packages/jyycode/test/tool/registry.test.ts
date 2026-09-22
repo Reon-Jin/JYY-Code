@@ -36,6 +36,7 @@ import { EpisodicMemory } from "@/memory/episodic"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { MessageID, SessionID } from "@/session/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { Permission } from "@/permission"
 
 bunIt("keeps source and model identity indexes lossless", () => {
   const make = (sourceID: string, modelName: string) =>
@@ -117,6 +118,7 @@ const brokenPluginLayer = Layer.succeed(
 )
 
 const it = testEffect(Layer.mergeAll(registryLayer(), node, Agent.defaultLayer))
+const desktopIt = testEffect(Layer.mergeAll(registryLayer({ flags: { client: "desktop" } }), node, Agent.defaultLayer))
 const itWithEpisodic = testEffect(
   Layer.mergeAll(registryLayer().pipe(Layer.provide(EpisodicMemory.defaultLayer)), node, Agent.defaultLayer),
 )
@@ -129,6 +131,16 @@ afterEach(async () => {
 })
 
 describe("tool.registry", () => {
+  desktopIt.instance("only includes computer control when the session gate opts in", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+      const agent = yield* (yield* Agent.Service).defaultInfo()
+      expect(Permission.evaluate("computer", "observe", agent.permission).action).toBe("ask")
+      const input = { providerID: ProviderID.jyycode, modelID: ModelID.make("test"), agent }
+      expect((yield* registry.tools(input)).map((tool) => tool.id)).not.toContain("computer")
+      expect((yield* registry.tools({ ...input, includeComputer: true })).map((tool) => tool.id)).toContain("computer")
+    }),
+  )
   itWithEpisodic.instance("context_read is exposed for roots and hidden when includeMemory is false", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service

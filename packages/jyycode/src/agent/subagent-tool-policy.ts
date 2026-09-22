@@ -75,6 +75,7 @@ export const SUBAGENT_FORBIDDEN_TOOL_IDS = [
   "Dispatch.roles",
   "Dispatch.cancel",
   "Goal_done",
+  "computer",
 ] as const
 
 export function defaultSubagentToolIDs(profileID: string | undefined) {
