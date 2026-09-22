@@ -113,8 +113,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - name: Typecheck macOS computer helper
-        run: swiftc -typecheck packages/jyycode/src/tool/computer/macos.swift
+      - name: Build macOS computer helper
+        run: swiftc -O -target arm64-apple-macos13.0 packages/jyycode/src/tool/computer/macos.swift -o "$RUNNER_TEMP/jyycode-computer"
 
   core-process:
     runs-on: ubuntu-latest
