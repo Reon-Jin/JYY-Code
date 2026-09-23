@@ -12,6 +12,9 @@ export type Step = {
   y?: number
   toX?: number
   toY?: number
+  element?: number
+  points?: Array<{ x: number; y: number }>
+  expectWindow?: string
   button?: "left" | "right" | "middle"
   double?: boolean
   direction?: "up" | "down" | "left" | "right"
@@ -19,15 +22,21 @@ export type Step = {
   keys?: string
   text?: string
   milliseconds?: number
+  untilWindow?: string
 }
 
-export type Action = Step | { action: "observe" } | { action: "batch"; steps: Step[] }
+export type Action = (Step | { action: "observe" } | { action: "batch"; steps: Step[] }) & {
+  includeElements?: boolean
+  annotate?: boolean
+  resolution?: "standard" | "high"
+}
 
 export type Observation = {
   screen: { x: number; y: number; width: number; height: number }
   image: { width: number; height: number }
   cursor: { x: number; y: number }
   window: string
+  windowID?: string
   elements: Array<{
     index: number
     name: string
@@ -48,6 +57,15 @@ function isInteger(value: unknown): value is number {
 }
 
 export function validateAction(input: Action) {
+  if (input.includeElements !== undefined && typeof input.includeElements !== "boolean") {
+    throw new Error("includeElements must be a boolean")
+  }
+  if (input.annotate !== undefined && typeof input.annotate !== "boolean") {
+    throw new Error("annotate must be a boolean")
+  }
+  if (input.resolution !== undefined && input.resolution !== "standard" && input.resolution !== "high") {
+    throw new Error("resolution must be standard or high")
+  }
   if (input.action === "batch") {
     if (!Array.isArray(input.steps) || input.steps.length < 1 || input.steps.length > 12) {
       throw new Error("batch requires 1 to 12 steps")
@@ -61,6 +79,9 @@ export function validateAction(input: Action) {
     if (input.steps.reduce((total, step) => total + (step.action === "wait" ? step.milliseconds ?? 0 : 0), 0) > 6000) {
       throw new Error("batch wait time must not exceed 6000 milliseconds")
     }
+    if (input.steps.reduce((total, step) => total + (step.points?.length ?? 0), 0) > 480) {
+      throw new Error("batch drag paths must have at most 480 points total")
+    }
     return
   }
   if ("steps" in input && input.steps !== undefined) throw new Error("steps are only valid for batch")
@@ -68,7 +89,24 @@ export function validateAction(input: Action) {
   const coordinate = (name: keyof Step) => {
     if (!isInteger(input[name])) throw new Error(`${name} must be an integer screenshot coordinate`)
   }
-  if (["move", "drag"].includes(input.action)) {
+  if (input.element !== undefined) {
+    if (input.action !== "click" || !isInteger(input.element) || input.element < 1 || input.element > 160) {
+      throw new Error("element must be a click target from 1 to 160")
+    }
+    if (input.x !== undefined || input.y !== undefined) throw new Error("element cannot be combined with x/y")
+  }
+  if (input.points !== undefined) {
+    if (input.action !== "drag" || !Array.isArray(input.points) || input.points.length < 2 || input.points.length > 128) {
+      throw new Error("drag points must contain 2 to 128 coordinates")
+    }
+    if (input.x !== undefined || input.y !== undefined || input.toX !== undefined || input.toY !== undefined) {
+      throw new Error("drag points cannot be combined with x/y/toX/toY")
+    }
+    for (const point of input.points) {
+      if (!point || !isInteger(point.x) || !isInteger(point.y)) throw new Error("drag points must use integer screenshot coordinates")
+    }
+  }
+  if (input.action === "move" || (input.action === "drag" && input.points === undefined)) {
     coordinate("x")
     coordinate("y")
   }
@@ -79,7 +117,7 @@ export function validateAction(input: Action) {
       coordinate("y")
     }
   }
-  if (input.action === "drag") {
+  if (input.action === "drag" && input.points === undefined) {
     coordinate("toX")
     coordinate("toY")
   }
@@ -91,9 +129,12 @@ export function validateAction(input: Action) {
   if (input.action === "type" && (input.text === undefined || input.text.length > 10000)) {
     throw new Error("text must be at most 10000 characters")
   }
+  if (input.untilWindow !== undefined && (input.action !== "wait" || typeof input.untilWindow !== "string" || !input.untilWindow.trim() || input.untilWindow.length > 120)) {
+    throw new Error("untilWindow is only valid for wait and must be a nonempty window name")
+  }
   if (input.double && input.action !== "click") throw new Error("double is only valid for click")
-  if (input.action === "wait" && (!isInteger(input.milliseconds) || input.milliseconds < 1 || input.milliseconds > 2000)) {
-    throw new Error("wait milliseconds must be an integer from 1 to 2000")
+  if (input.action === "wait" && (!isInteger(input.milliseconds) || input.milliseconds < 1 || input.milliseconds > 5000)) {
+    throw new Error("wait milliseconds must be an integer from 1 to 5000")
   }
 }
 
@@ -108,15 +149,26 @@ export function toDesktopAction(input: Action, frame: Observation): Action {
       y: frame.screen.y + Math.round(y * frame.screen.height / frame.image.height),
     }
   }
-  if (input.action === "batch") return { action: "batch", steps: input.steps.map((step) => toDesktopAction(step, frame) as Step) }
+  if (input.action === "batch") return { ...input, steps: input.steps.map((step) => toDesktopAction(step, frame) as Step) }
   if (input.action === "observe" || input.action === "wait" || input.action === "key" || input.action === "type") return input
   if (input.action === "drag") {
+    if (input.points) return { ...input, points: input.points.map((value) => point(value.x, value.y)), expectWindow: frame.windowID }
     const start = point(input.x!, input.y!)
     const end = point(input.toX!, input.toY!)
-    return { ...input, ...start, toX: end.x, toY: end.y }
+    return { ...input, ...start, toX: end.x, toY: end.y, expectWindow: frame.windowID }
   }
-  if (input.x === undefined || input.y === undefined) return input
-  return { ...input, ...point(input.x, input.y) }
+  if (input.action === "click" && input.element !== undefined) {
+    const target = frame.elements.find((element) => element.index === input.element)
+    if (!target) throw new Error(`Element #${input.element} is not in the latest observation; observe again`)
+    if (!target.enabled) throw new Error(`Element #${input.element} is disabled`)
+    const { element, ...rest } = input
+    return { ...rest, x: Math.round(target.x + target.width / 2), y: Math.round(target.y + target.height / 2), expectWindow: frame.windowID }
+  }
+  const guarded = (input.action === "click" || input.action === "scroll") && frame.windowID
+    ? { ...input, expectWindow: frame.windowID }
+    : input
+  if (input.x === undefined || input.y === undefined) return guarded
+  return { ...guarded, ...point(input.x, input.y) }
 }
 
 let tail: Promise<unknown> = Promise.resolve()
@@ -128,8 +180,21 @@ export function runExclusive<T>(work: () => Promise<T>): Promise<T> {
   return current
 }
 
+export function shouldIncludeElements(input: Action) {
+  const targeted = input.action === "batch"
+    ? input.steps.some((step) => step.action === "click" && step.element !== undefined)
+    : input.action === "click" && input.element !== undefined
+  return input.annotate === true || (input.includeElements ?? (input.action === "observe" || targeted))
+}
+
 export async function runNative(input: Action, signal?: AbortSignal): Promise<{ observation: Observation; png: Buffer }> {
   validateAction(input)
+  const request = {
+    ...input,
+    includeElements: shouldIncludeElements(input),
+    annotate: input.annotate ?? false,
+    resolution: input.resolution ?? "standard",
+  }
   if (signal?.aborted) throw new Error("Computer operation interrupted")
   if (process.platform !== "win32" && process.platform !== "darwin") {
     throw new Error(`Computer control is unavailable on ${process.platform}`)
@@ -138,13 +203,13 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
   const imagePath = path.join(dir, "screen.png")
   try {
     if (process.platform === "win32") {
-      const observation = await runWindows(input, imagePath, signal)
+      const observation = await runWindows(request, imagePath, signal)
       if (!observation.screen || !Array.isArray(observation.elements)) throw new Error("Computer helper returned invalid observation")
       const png = await readFile(imagePath)
       if (png.length === 0) throw new Error("Computer helper returned an empty screenshot")
       return { observation, png }
     }
-    const payload = Buffer.from(JSON.stringify(input), "utf8").toString("base64")
+    const payload = Buffer.from(JSON.stringify(request), "utf8").toString("base64")
     const command = [
           process.env.JYYCODE_COMPUTER_HELPER ?? path.join(path.dirname(process.execPath), "jyycode-computer"),
           imagePath,
@@ -185,7 +250,7 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
   }
 }
 
-export function formatObservation(observation: Observation) {
+export function formatObservation(observation: Observation, includeElements = true) {
   const { screen, image, cursor, window, elements } = observation
   const imageX = (x: number) => Math.round((x - screen.x) * image.width / screen.width)
   const imageY = (y: number) => Math.round((y - screen.y) * image.height / screen.height)
@@ -193,9 +258,11 @@ export function formatObservation(observation: Observation) {
     `Foreground window: ${window || "unknown"}`,
     `Screenshot coordinates: origin (0, 0), size ${image.width}×${image.height}. Cursor: (${imageX(cursor.x)}, ${imageY(cursor.y)}).`,
     "All x/y and toX/toY action coordinates use this screenshot's pixels. The host maps them to the physical desktop.",
-    `Visible foreground accessibility elements (${elements.length}; IDs are valid only for this observation):`,
+    includeElements
+      ? `Visible foreground accessibility elements (${elements.length}; IDs are valid only for this observation):`
+      : "Accessibility elements omitted for speed; call observe or set includeElements=true when you need their names and bounds.",
   ]
-  for (const element of elements) {
+  for (const element of includeElements ? elements : []) {
     const x = imageX(element.x)
     const y = imageY(element.y)
     const width = imageX(element.x + element.width) - x

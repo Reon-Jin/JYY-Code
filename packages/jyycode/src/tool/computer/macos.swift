@@ -27,6 +27,7 @@ struct Observation: Encodable {
   let image: ImageSize
   let cursor: Point
   let window: String
+  let windowID: String?
   let elements: [Element]
 }
 
@@ -76,6 +77,14 @@ func emitMouse(_ kind: CGEventType, _ position: CGPoint, _ button: CGMouseButton
 func currentCursor() -> CGPoint {
   CGEvent(source: nil)?.location ?? CGPoint.zero
 }
+func foregroundID() -> String? {
+  NSWorkspace.shared.frontmostApplication.map { String($0.processIdentifier) }
+}
+func assertWindow(_ data: [String: Any]) {
+  if let expected = data["expectWindow"] as? String, !expected.isEmpty && foregroundID() != expected {
+    fail("Foreground window changed since the last observation; observe and refocus the target before clicking or dragging")
+  }
+}
 func position(_ data: [String: Any]) -> CGPoint {
   guard let x = integer(data, "x"), let y = integer(data, "y") else { return currentCursor() }
   return CGPoint(x: CGFloat(x), y: CGFloat(y))
@@ -101,6 +110,7 @@ let imagePath = CommandLine.arguments[1]
 guard let payload = Data(base64Encoded: CommandLine.arguments[2]),
       let data = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any] else { fail("Invalid action payload") }
 let action = property(data, "action")
+let includeElements = (data["annotate"] as? Bool == true) || (data["includeElements"] as? Bool ?? (action == "observe"))
 let trustOptions = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
 if !AXIsProcessTrustedWithOptions(trustOptions) {
   fail("macOS Accessibility permission is required for JYYCode computer control; grant it in System Settings and retry")
@@ -115,6 +125,7 @@ switch property(data, "action") {
 case "observe": break
 case "move": emitMouse(.mouseMoved, position(data))
 case "click":
+  assertWindow(data)
   let point = position(data)
   if integer(data, "x") != nil { emitMouse(.mouseMoved, point) }
   let button = property(data, "button").isEmpty ? "left" : property(data, "button")
@@ -133,6 +144,7 @@ case "click":
     usleep(70000)
   }
 case "scroll":
+  assertWindow(data)
   if integer(data, "x") != nil { emitMouse(.mouseMoved, position(data)) }
   let amount = Int32(integer(data, "amount") ?? 1)
   let direction = property(data, "direction")
@@ -158,24 +170,66 @@ case "type":
     }
   }
 case "drag":
+  assertWindow(data)
+  if let points = data["points"] as? [[String: Any]], let first = points.first, let last = points.last,
+      let startX = integer(first, "x"), let startY = integer(first, "y"),
+      let endX = integer(last, "x"), let endY = integer(last, "y") {
+    let start = CGPoint(x: CGFloat(startX), y: CGFloat(startY))
+    emitMouse(.mouseMoved, start)
+    emitMouse(.leftMouseDown, start)
+    var current = start
+    for item in points.dropFirst() {
+      if let expected = data["expectWindow"] as? String, !expected.isEmpty && foregroundID() != expected {
+        emitMouse(.leftMouseUp, current)
+        fail("Foreground window changed during drag")
+      }
+      guard let x = integer(item, "x"), let y = integer(item, "y") else { emitMouse(.leftMouseUp, current); fail("Invalid drag point") }
+      current = CGPoint(x: CGFloat(x), y: CGFloat(y))
+      emitMouse(.leftMouseDragged, current)
+      usleep(8000)
+    }
+    emitMouse(.leftMouseUp, CGPoint(x: CGFloat(endX), y: CGFloat(endY)))
+    break
+  }
   let start = position(data)
   guard let toX = integer(data, "toX"), let toY = integer(data, "toY") else { fail("Missing drag destination") }
   emitMouse(.mouseMoved, start)
   emitMouse(.leftMouseDown, start)
   for step in 1...12 {
+    if let expected = data["expectWindow"] as? String, !expected.isEmpty && foregroundID() != expected {
+      emitMouse(.leftMouseUp, currentCursor())
+      fail("Foreground window changed during drag")
+    }
     let fraction = CGFloat(step) / 12
     let point = CGPoint(x: start.x + (CGFloat(toX) - start.x) * fraction, y: start.y + (CGFloat(toY) - start.y) * fraction)
     emitMouse(.leftMouseDragged, point)
     usleep(15000)
   }
   emitMouse(.leftMouseUp, CGPoint(x: CGFloat(toX), y: CGFloat(toY)))
-case "wait": usleep(useconds_t(integer(data, "milliseconds") ?? 0) * 1000)
+case "wait":
+  let milliseconds = integer(data, "milliseconds") ?? 0
+  let wanted = property(data, "untilWindow")
+  if wanted.isEmpty { usleep(useconds_t(milliseconds) * 1000); break }
+  let deadline = Date().addingTimeInterval(Double(milliseconds) / 1000)
+  var found = false
+  repeat {
+    if NSWorkspace.shared.frontmostApplication?.localizedName?.localizedCaseInsensitiveContains(wanted) == true {
+      found = true
+      break
+    }
+    usleep(50000)
+  } while Date() < deadline
+  if !found { fail("Timed out waiting for foreground application containing: \(wanted)") }
 default: fail("Unsupported action: \(property(data, "action"))")
 }
 }
 if action == "batch" {
   guard let steps = data["steps"] as? [[String: Any]] else { fail("Invalid batch steps") }
-  for step in steps { perform(step) }
+  for (index, step) in steps.enumerated() {
+    perform(step)
+    if index + 1 < steps.count && property(steps[index + 1], "action") != "wait" &&
+        ["click", "key"].contains(property(step, "action")) { usleep(50000) }
+  }
 } else { perform(data) }
 if action != "observe" && action != "wait" { usleep(100000) }
 
@@ -193,8 +247,8 @@ let screenWidth = Int(bounds.width.rounded())
 let screenHeight = Int(bounds.height.rounded())
 
 var elements: [Element] = []
-var windowName = ""
-if let app = NSWorkspace.shared.frontmostApplication {
+var windowName = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+if includeElements, let app = NSWorkspace.shared.frontmostApplication {
   let root = AXUIElementCreateApplication(app.processIdentifier)
   let window = axElement(axAttribute(root, kAXFocusedWindowAttribute as CFString))
     ?? ((axAttribute(root, kAXWindowsAttribute as CFString) as? [AXUIElement])?.first)
@@ -226,34 +280,38 @@ if let app = NSWorkspace.shared.frontmostApplication {
   }
 }
 
-let scale = min(1.0, min(2000.0 / CGFloat(capture.width), 1400.0 / CGFloat(capture.height)))
+let maxWidth: CGFloat = property(data, "resolution") == "high" ? 2000 : 1280
+let maxHeight: CGFloat = property(data, "resolution") == "high" ? 1400 : 800
+let scale = min(1.0, min(maxWidth / CGFloat(capture.width), maxHeight / CGFloat(capture.height)))
 let imageWidth = max(1, Int((CGFloat(capture.width) * scale).rounded()))
 let imageHeight = max(1, Int((CGFloat(capture.height) * scale).rounded()))
 let colorSpace = CGColorSpaceCreateDeviceRGB()
 guard let context = CGContext(data: nil, width: imageWidth, height: imageHeight, bitsPerComponent: 8,
   bytesPerRow: 0, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { fail("Could not create image buffer") }
 context.draw(capture, in: CGRect(x: 0, y: 0, width: CGFloat(imageWidth), height: CGFloat(imageHeight)))
-NSGraphicsContext.saveGraphicsState()
-NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-let xScale = CGFloat(imageWidth) / bounds.width
-let yScale = CGFloat(imageHeight) / bounds.height
-context.setStrokeColor(CGColor(red: 1, green: 0.3, blue: 0.17, alpha: 0.9))
-context.setLineWidth(2)
-for element in elements.prefix(80) {
-  if !["Button", "TextField", "TextArea", "MenuItem", "TabItem", "ListItem", "CheckBox", "RadioButton", "ComboBox", "Link", "ScrollBar", "Slider"].contains(element.role) { continue }
-  let rect = CGRect(x: CGFloat(element.x - originX) * xScale,
-    y: CGFloat(imageHeight) - CGFloat(element.y - originY + element.height) * yScale,
-    width: CGFloat(element.width) * xScale, height: CGFloat(element.height) * yScale)
-  if rect.width < 8 || rect.height < 8 { continue }
-  context.stroke(rect)
-  let label = "\(element.index)" as NSString
-  let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: 11), .foregroundColor: NSColor.white]
-  let size = label.size(withAttributes: attributes)
-  context.setFillColor(CGColor(red: 1, green: 0.3, blue: 0.17, alpha: 0.95))
-  context.fill(CGRect(x: rect.minX, y: rect.maxY - size.height - 3, width: size.width + 5, height: size.height + 3))
-  label.draw(at: NSPoint(x: rect.minX + 2, y: rect.maxY - size.height - 1), withAttributes: attributes)
+if data["annotate"] as? Bool == true {
+  NSGraphicsContext.saveGraphicsState()
+  NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+  let xScale = CGFloat(imageWidth) / bounds.width
+  let yScale = CGFloat(imageHeight) / bounds.height
+  context.setStrokeColor(CGColor(red: 1, green: 0.3, blue: 0.17, alpha: 0.9))
+  context.setLineWidth(2)
+  for element in elements.prefix(80) {
+    if !["Button", "TextField", "TextArea", "MenuItem", "TabItem", "ListItem", "CheckBox", "RadioButton", "ComboBox", "Link", "ScrollBar", "Slider"].contains(element.role) { continue }
+    let rect = CGRect(x: CGFloat(element.x - originX) * xScale,
+      y: CGFloat(imageHeight) - CGFloat(element.y - originY + element.height) * yScale,
+      width: CGFloat(element.width) * xScale, height: CGFloat(element.height) * yScale)
+    if rect.width < 8 || rect.height < 8 { continue }
+    context.stroke(rect)
+    let label = "\(element.index)" as NSString
+    let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: 11), .foregroundColor: NSColor.white]
+    let size = label.size(withAttributes: attributes)
+    context.setFillColor(CGColor(red: 1, green: 0.3, blue: 0.17, alpha: 0.95))
+    context.fill(CGRect(x: rect.minX, y: rect.maxY - size.height - 3, width: size.width + 5, height: size.height + 3))
+    label.draw(at: NSPoint(x: rect.minX + 2, y: rect.maxY - size.height - 1), withAttributes: attributes)
+  }
+  NSGraphicsContext.restoreGraphicsState()
 }
-NSGraphicsContext.restoreGraphicsState()
 guard let result = context.makeImage(), let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: imagePath) as CFURL, UTType.png.identifier as CFString, 1, nil) else {
   fail("Could not create screenshot")
 }
@@ -262,6 +320,6 @@ guard CGImageDestinationFinalize(destination) else { fail("Could not save screen
 let cursor = currentCursor()
 let observation = Observation(screen: Rect(x: originX, y: originY, width: screenWidth, height: screenHeight),
   image: ImageSize(width: imageWidth, height: imageHeight), cursor: Point(x: Int(cursor.x), y: Int(cursor.y)),
-  window: windowName, elements: elements)
+  window: windowName, windowID: foregroundID(), elements: elements)
 let encoded = try JSONEncoder().encode(observation)
 FileHandle.standardOutput.write(encoded)

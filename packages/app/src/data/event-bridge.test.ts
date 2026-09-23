@@ -615,6 +615,96 @@ describe("event routing", () => {
     releaseStream()
   })
 
+  it("flushes events if an occluded WebView stops animation frames", async () => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible")
+    const queryClient = createDesktopQueryClient()
+    const queryKey = keys.messages("C:\\a", session.id)
+    queryClient.setQueryData(queryKey, snapshotFromMessages(session.id, [{ info: message, parts: [part] }]))
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => { releaseStream = resolve })
+    const stream = (async function* () {
+      yield {
+        directory: "C:\\a",
+        payload: {
+          id: "evt_occluded",
+          type: "message.part.delta",
+          properties: { sessionID: session.id, messageID: message.id, partID: part.id, field: "text", delta: "!" },
+        },
+      } as GlobalEvent
+      await streamWait
+    })()
+    const requestFrame = vi.fn(() => 1)
+    const cancelFrame = vi.fn()
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame,
+      cancelFrame,
+    })
+
+    bridge.start()
+    await vi.waitFor(() => {
+      expect(queryClient.getQueryData<ConversationSnapshot>(queryKey)?.messages[0]?.parts[0]).toMatchObject({ text: "Hello!" })
+    })
+    expect(requestFrame).toHaveBeenCalledTimes(1)
+    expect(cancelFrame).toHaveBeenCalledWith(1)
+    bridge.abort()
+    releaseStream()
+  })
+
+  it("flushes conversation events while the desktop window is hidden", async () => {
+    let visibility = "visible"
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility)
+    const queryClient = createDesktopQueryClient()
+    const queryKey = keys.messages("C:\\a", session.id)
+    queryClient.setQueryData(queryKey, snapshotFromMessages(session.id, [{ info: message, parts: [part] }]))
+    let releaseSecond = () => {}
+    const secondGate = new Promise<void>((resolve) => { releaseSecond = resolve })
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => { releaseStream = resolve })
+    const delta = (id: string, text: string) => ({
+      directory: "C:\\a",
+      payload: {
+        id,
+        type: "message.part.delta",
+        properties: { sessionID: session.id, messageID: message.id, partID: part.id, field: "text", delta: text },
+      },
+    }) as GlobalEvent
+    const stream = (async function* () {
+      yield delta("evt_hidden_1", "!")
+      await secondGate
+      yield delta("evt_hidden_2", "!")
+      await streamWait
+    })()
+    const requestFrame = vi.fn(() => 1)
+    const cancelFrame = vi.fn()
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame,
+      cancelFrame,
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(requestFrame).toHaveBeenCalledTimes(1))
+    visibility = "hidden"
+    document.dispatchEvent(new Event("visibilitychange"))
+    await vi.waitFor(() => {
+      expect(queryClient.getQueryData<ConversationSnapshot>(queryKey)?.messages[0]?.parts[0]).toMatchObject({ text: "Hello!" })
+    })
+    expect(cancelFrame).toHaveBeenCalledWith(1)
+
+    releaseSecond()
+    await vi.waitFor(() => {
+      expect(queryClient.getQueryData<ConversationSnapshot>(queryKey)?.messages[0]?.parts[0]).toMatchObject({ text: "Hello!!" })
+    })
+    expect(requestFrame).toHaveBeenCalledTimes(1)
+    bridge.abort()
+    releaseStream()
+  })
+
   it("patches the active conversation snapshot without replaying a duplicate delta", async () => {
     const queryClient = createDesktopQueryClient()
     queryClient.setQueryData(

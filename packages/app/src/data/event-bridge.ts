@@ -435,9 +435,13 @@ export class EventBridge {
   readonly #seenEventIDs = new Set<string>()
   readonly #partTypes = new Map<string, Part["type"]>()
   #frame: number | undefined
+  #timer: number | undefined
   #started = false
   #reconnectAttempt = 0
   #wasDisconnected = false
+  readonly #onVisibilityChange = () => {
+    if (document.visibilityState === "hidden") void this.#flushNow()
+  }
 
   constructor(options: EventBridgeOptions) {
     this.#options = options
@@ -446,6 +450,7 @@ export class EventBridge {
   start() {
     if (this.#started || this.#abort.signal.aborted) return
     this.#started = true
+    document.addEventListener("visibilitychange", this.#onVisibilityChange)
     this.#setConnection("connecting")
     void this.#run()
   }
@@ -453,9 +458,14 @@ export class EventBridge {
   abort() {
     if (this.#abort.signal.aborted) return
     this.#abort.abort()
+    document.removeEventListener("visibilitychange", this.#onVisibilityChange)
     if (this.#frame !== undefined) {
       ;(this.#options.cancelFrame ?? cancelFrame)(this.#frame)
       this.#frame = undefined
+    }
+    if (this.#timer !== undefined) {
+      window.clearTimeout(this.#timer)
+      this.#timer = undefined
     }
     this.#queue.length = 0
     this.#seenEventIDs.clear()
@@ -502,11 +512,23 @@ export class EventBridge {
 
     if (event.payload.type === "server.connected") this.#reconnectAttempt = 0
     this.#queue.push({ ...event, payload: normalized })
-    if (this.#frame !== undefined) return
+    if (this.#frame !== undefined || this.#timer !== undefined) return
+    if (document.visibilityState === "hidden") {
+      this.#timer = window.setTimeout(() => {
+        this.#timer = undefined
+        void this.#flush()
+      }, 100)
+      return
+    }
     this.#frame = (this.#options.requestFrame ?? requestFrame)(() => {
       this.#frame = undefined
-      void this.#flush()
+      void this.#flushNow()
     })
+    // Occluded WebViews can stop animation frames without reporting a hidden document.
+    this.#timer = window.setTimeout(() => {
+      this.#timer = undefined
+      void this.#flushNow()
+    }, 250)
   }
 
   async #flushNow() {
@@ -514,6 +536,10 @@ export class EventBridge {
     if (this.#frame !== undefined) {
       ;(this.#options.cancelFrame ?? cancelFrame)(this.#frame)
       this.#frame = undefined
+    }
+    if (this.#timer !== undefined) {
+      window.clearTimeout(this.#timer)
+      this.#timer = undefined
     }
     await this.#flush()
   }
