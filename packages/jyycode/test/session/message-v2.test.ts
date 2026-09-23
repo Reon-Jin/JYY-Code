@@ -6,6 +6,7 @@ import type { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { SessionID, MessageID, PartID } from "../../src/session/schema"
 import { Question } from "../../src/question"
+import { decodeStoredJSONRow, MAX_SESSION_ROW_BYTES } from "@/session/row-decoder"
 
 const sessionID = SessionID.make("session")
 const providerID = ProviderID.make("test")
@@ -1735,6 +1736,33 @@ describe("session.message-v2.latest", () => {
     expect(state.finished?.id).toBe(olderAssistant.info.id)
     expect(state.assistant?.id).toBe(olderAssistant.info.id)
   })
+})
+
+test("recovers an oversized user message whose workspace diff grew past the row limit", () => {
+  const id = MessageID.make("msg_oversized_user")
+  const data = {
+    role: "user",
+    time: { created: 1 },
+    agent: "build",
+    model: { providerID, modelID: ModelID.make("test") },
+    summary: {
+      title: "drawing task",
+      diffs: [{ file: "log/llm-trace.log", patch: "x".repeat(MAX_SESSION_ROW_BYTES), additions: 1, deletions: 0 }],
+    },
+  }
+  const rejected = decodeStoredJSONRow({ table: "message", id, data, decode: (value) => value })
+  expect("error" in rejected && rejected.error.reason).toBe("oversized")
+
+  const recovered = MessageV2.recoverOversizedUserInfo(data, id, sessionID)
+  expect(recovered?.value.role).toBe("user")
+  if (!recovered || recovered.value.role !== "user") return
+  expect(recovered.value.summary?.title).toBe("drawing task")
+  expect(recovered.value.summary?.diffs).toEqual([])
+  const assistant: MessageV2.WithParts = {
+    info: { ...assistantInfo("msg_tool", id), finish: "tool-calls", time: { created: 2 } },
+    parts: [],
+  }
+  expect(MessageV2.latest([{ info: recovered.value, parts: [] }, assistant]).user?.id).toBe(id)
 })
 
 describe("session.message-v2.filterCompacted", () => {

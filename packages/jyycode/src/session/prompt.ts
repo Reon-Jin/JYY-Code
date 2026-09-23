@@ -1541,7 +1541,15 @@ export const layer = Layer.effect(
 
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
 
-          if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+          if (!lastUser) {
+            yield* bus.publish(Session.Event.Error, {
+              sessionID,
+              error: new NamedError.Unknown({
+                message: "The session's user request could not be read, so the task stopped. Try again in a new session or repair the session history.",
+              }).toObject(),
+            })
+            break
+          }
           // A genuinely new user message (not a synthetic reminder) starts a
           // fresh recovery budget for truncation and empty-response retries.
           const latestUserMsg = msgs.find((message) => message.info.id === lastUser.id)
