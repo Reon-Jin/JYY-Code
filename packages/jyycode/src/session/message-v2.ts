@@ -1158,6 +1158,7 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
   const compactionIndex = result.findLastIndex(
     (msg) =>
       msg.info.role === "user" &&
+      completed.has(msg.info.id) &&
       msg.parts.some((item): item is CompactionPart => item.type === "compaction" && item.tail_start_id !== undefined),
   )
   const compaction = result[compactionIndex]
@@ -1170,6 +1171,9 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
           index > compactionIndex &&
           msg.info.role === "assistant" &&
           msg.info.summary &&
+          msg.info.finish &&
+          !msg.info.error &&
+          msg.parts.some((part) => part.type === "text" && part.text.trim().length > 0) &&
           msg.info.parentID === compaction.info.id,
       )
     : -1

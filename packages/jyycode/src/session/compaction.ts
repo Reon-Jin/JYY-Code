@@ -554,7 +554,9 @@ export const layer = Layer.effect(
         model,
       })
       const source = marker?.checkpoint?.sourceHighWatermark ?? sourceHighWatermark(input.messages)
-      const before = marker?.checkpoint?.before ?? measureEffectiveContext(MessageV2.filterCompacted(history))
+      // Prompt already supplies effective history; persisted markers carry the
+      // measurement captured when compaction was requested.
+      const before = marker?.checkpoint?.before ?? measureEffectiveContext(history)
       let checkpoint: CompactionCheckpoint =
         marker?.checkpoint ??
         createCheckpoint({
@@ -664,25 +666,38 @@ export const layer = Layer.effect(
 
       const persisted = yield* session.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
       const stable = compactionSourceMessages(persisted, source)
-      const after = measureEffectiveContext(MessageV2.filterCompacted(stable))
+      // Session.messages is oldest-first, while filterCompacted consumes newest-first.
+      // Assess the candidate tail without persisting it: a failed summary must not
+      // activate a compaction marker that hides the original conversation.
+      const candidate = stable.map((message) =>
+        message.info.id !== input.parentID || !selected.tail_start_id
+          ? message
+          : {
+              ...message,
+              parts: message.parts.map((part) =>
+                part.type === "compaction" ? { ...part, tail_start_id: selected.tail_start_id } : part,
+              ),
+            },
+      )
+      const after = measureEffectiveContext(MessageV2.filterCompacted(candidate.toReversed()))
       const assessment = assessProgress(before, after)
       checkpoint = updateCheckpoint(checkpoint, {
         after,
         status: assessment.ok ? "complete" : "no_progress",
         reason: assessment.ok ? undefined : assessment.reason,
       })
-      if (marker) {
-        yield* session.updatePart({
-          ...marker,
-          ...(selected.tail_start_id ? { tail_start_id: selected.tail_start_id } : {}),
-          checkpoint,
-        })
-      }
-
       // A short manual compaction can be useful even when it cannot save
       // 4,096 tokens. Automatic compaction is strict once the history is large
       // enough to make the invariant meaningful, and always rejects growth.
       const enforceProgress = input.auto && before.tokens >= 4_096
+      const accepted = result === "continue" && !processor.message.error && (!enforceProgress || assessment.ok)
+      if (marker) {
+        yield* session.updatePart({
+          ...marker,
+          tail_start_id: accepted ? selected.tail_start_id : undefined,
+          checkpoint,
+        })
+      }
       if (result === "continue" && enforceProgress && !assessment.ok) {
         processor.message.error = new NamedError.Unknown({
           message: `Compaction made insufficient progress (${assessment.tokenReduction} token reduction; required ${assessment.requiredTokens})`,
@@ -1005,7 +1020,7 @@ export const layer = Layer.effect(
       }
 
       const source = sourceHighWatermark(messages)
-      const before = measureEffectiveContext(MessageV2.filterCompacted(messages))
+      const before = measureEffectiveContext(MessageV2.filterCompacted(messages.toReversed()))
       const attempt = Math.max(
         1,
         ...messages.flatMap((message) => {

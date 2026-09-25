@@ -1362,6 +1362,70 @@ describe("session.compaction.process", () => {
     }).pipe(withCompaction({ llm: stub.layer }))
   })
 
+  itCompaction.instance("resumes after a substantial automatic compaction with a retained tail", () => {
+    const stub = llm()
+    stub.push(reply("The current task is still in progress. Keep the most recent game state and continue."))
+
+    return Effect.gen(function* () {
+      const ssn = yield* SessionNs.Service
+      const session = yield* ssn.create({})
+      const old = yield* createUserMessage(
+        session.id,
+        "An older observation that is no longer needed. ".repeat(1_000),
+      )
+      const keep = yield* createUserMessage(session.id, "Current game state: continue from this screen.")
+
+      expect(yield* SessionCompaction.use.create({
+        sessionID: session.id,
+        agent: "build",
+        model: ref,
+        auto: true,
+      })).toBe(true)
+      const messages = yield* ssn.messages({ sessionID: session.id })
+      const marker = messages.at(-1)
+      expect(marker?.info.role).toBe("user")
+
+      const result = yield* SessionCompaction.use.process({
+        parentID: marker!.info.id,
+        messages,
+        sessionID: session.id,
+        auto: true,
+      })
+
+      const all = yield* ssn.messages({ sessionID: session.id })
+      const compact = all
+        .find((message) => message.info.id === marker!.info.id)
+        ?.parts.find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+      const checkpoint = compact?.checkpoint
+      const summary = all.find((message) => message.info.role === "assistant" && message.info.summary === true)
+      const continuations = all.filter((message) =>
+        message.parts.some((part) => part.type === "text" && part.metadata?.compaction_continue === true),
+      )
+      const effective = MessageV2.filterCompacted([...all].reverse())
+
+      expect(result).toBe("continue")
+      expect(compact?.tail_start_id).toBe(keep.id)
+      expect(checkpoint?.status).toBe("complete")
+      expect(checkpoint?.before.tokens).toBeGreaterThan(4_096)
+      expect(checkpoint?.after?.tokens).toBeLessThanOrEqual(
+        checkpoint!.before.tokens - Math.max(4_096, Math.ceil(checkpoint!.before.tokens * 0.1)),
+      )
+      expect(summary?.info.role).toBe("assistant")
+      if (summary?.info.role === "assistant") expect(summary.info.error).toBeUndefined()
+      expect(continuations).toHaveLength(1)
+      expect(continuations[0]?.parts[0]).toMatchObject({
+        type: "text",
+        synthetic: true,
+        metadata: { compaction_continue: true },
+      })
+      expect(effective.some((message) => message.info.id === old.id)).toBe(false)
+      expect(effective.some((message) => message.info.id === keep.id)).toBe(true)
+    }).pipe(withCompaction({
+      llm: stub.layer,
+      config: cfg({ tail_turns: 1, preserve_recent_tokens: 1_000 }),
+    }))
+  }, 20_000)
+
   itCompaction.instance("predictive auto-continue does not claim provider size failure", () => {
     const stub = llm()
     stub.push(reply("summary"))

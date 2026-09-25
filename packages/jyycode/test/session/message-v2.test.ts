@@ -1766,6 +1766,38 @@ test("recovers an oversized user message whose workspace diff grew past the row 
 })
 
 describe("session.message-v2.filterCompacted", () => {
+  test("does not activate a failed summary even when its marker has a retained tail", () => {
+    const older: MessageV2.WithParts = {
+      info: userInfo("msg_older"),
+      parts: [{ ...basePart("msg_older", "p1"), type: "text", text: "original request" }] as MessageV2.Part[],
+    }
+    const tail: MessageV2.WithParts = {
+      info: userInfo("msg_tail"),
+      parts: [{ ...basePart("msg_tail", "p1"), type: "text", text: "recent state" }] as MessageV2.Part[],
+    }
+    const marker: MessageV2.WithParts = {
+      info: userInfo("msg_compact"),
+      parts: [{
+        ...basePart("msg_compact", "p1"),
+        type: "compaction",
+        auto: true,
+        tail_start_id: tail.info.id,
+      }] as MessageV2.Part[],
+    }
+    const failed: MessageV2.WithParts = {
+      info: {
+        ...assistantInfo("msg_summary", marker.info.id),
+        summary: true,
+        finish: "error",
+        error: { name: "UnknownError", data: { message: "Compaction made insufficient progress" } },
+      } as MessageV2.Assistant,
+      parts: [{ ...basePart("msg_summary", "p1"), type: "text", text: "partial summary" }] as MessageV2.Part[],
+    }
+
+    const result = MessageV2.filterCompacted([failed, marker, tail, older])
+    expect(result.map((message) => message.info.id)).toContain(older.info.id)
+  })
+
   test("does not treat an empty summary as a completed compaction", () => {
     const tailUser: MessageV2.WithParts = {
       info: userInfo("msg_tail"),
