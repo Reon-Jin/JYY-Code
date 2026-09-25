@@ -550,6 +550,7 @@ export class EventBridge {
     const conversations = new Map<string, GlobalEvent[]>()
     const changedPlans = new Set<string>()
     const changedBlackboards = new Set<string>()
+    const changedUsageSessionIDs = new Set<string>()
     const idleSessionIDs = new Set<string>()
     const invalidatedVcs = new Set<string>()
 
@@ -560,10 +561,14 @@ export class EventBridge {
         publishNotificationAction(action)
         if (action.kind === "part.upsert") {
           this.#partTypes.set(action.part.id, action.part.type)
+          if (action.part.type === "step-finish") changedUsageSessionIDs.add(action.sessionID)
           if (this.#partTypes.size > 4_096) {
             const oldest = this.#partTypes.keys().next().value
             if (oldest !== undefined) this.#partTypes.delete(oldest)
           }
+        }
+        if (action.kind === "part.remove" || action.kind === "message.remove") {
+          changedUsageSessionIDs.add(action.sessionID)
         }
         if (action.kind === "part.delta" && action.field === "text" && this.#shouldPlayTypingSound(action)) {
           publishSoundEffectEvent({ kind: "typing", eventID: action.eventID })
@@ -622,6 +627,12 @@ export class EventBridge {
         queryKey: keys.blackboard(this.#options.directory, rootSessionID),
         exact: false,
       })
+    }
+    if (changedUsageSessionIDs.size > 0) {
+      // Usage is projected into the session row when a step-finish part is
+      // persisted. No session.updated event is emitted for that projection.
+      for (const sessionID of changedUsageSessionIDs) this.#invalidate(keys.session(this.#options.directory, sessionID))
+      this.#invalidate(keys.sessions(this.#options.directory))
     }
     for (const sessionID of idleSessionIDs) {
       this.#invalidate(keys.messages(this.#options.directory, sessionID))

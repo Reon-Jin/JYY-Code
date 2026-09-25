@@ -5,8 +5,7 @@ export type TokenUsageBreakdown = {
   input: number
   output: number
   reasoning: number
-  other: number
-  subagents: number
+  cache: number
   total: number
 }
 
@@ -24,18 +23,39 @@ function tokenTotal(tokens: NonNullable<Session["tokens"]>) {
   return tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write
 }
 
-function sessionFamily(root: Session, sessions: readonly Session[]) {
-  const ids = new Set([root.id])
-  let changed = true
-  while (changed) {
-    changed = false
-    for (const session of sessions) {
-      if (!session.parentID || !ids.has(session.parentID) || ids.has(session.id)) continue
-      ids.add(session.id)
-      changed = true
+function billedFromMessages(messages: readonly ConversationMessage[]) {
+  const tokens: TokenUsageBreakdown = { input: 0, output: 0, reasoning: 0, cache: 0, total: 0 }
+  let cost = 0
+  let found = false
+
+  const add = (usage: NonNullable<Session["tokens"]>) => {
+    tokens.input += usage.input
+    tokens.output += usage.output
+    tokens.reasoning += usage.reasoning
+    tokens.cache += usage.cache.read + usage.cache.write
+    found = true
+  }
+
+  for (const message of messages) {
+    if (message.info.role !== "assistant") continue
+    // The billing ledger is cumulative for this assistant message. Its plain
+    // `tokens` field is only the latest context snapshot and must not be summed.
+    if (message.info.usage?.billing) {
+      add(message.info.usage.billing)
+      cost += message.info.usage.cost
+      continue
+    }
+    // Older messages predate the billing ledger, but persist billed step parts.
+    for (const part of message.parts) {
+      if (part.type !== "step-finish") continue
+      add(part.tokens)
+      cost += part.cost
     }
   }
-  return [root, ...sessions.filter((session) => session.id !== root.id && ids.has(session.id))]
+
+  if (!found) return undefined
+  tokens.total = tokens.input + tokens.output + tokens.reasoning + tokens.cache
+  return { tokens, cost }
 }
 
 export function currentContextTokens(messages: readonly ConversationMessage[]) {
@@ -48,24 +68,25 @@ export function currentContextTokens(messages: readonly ConversationMessage[]) {
   return message ? tokenTotal(message.info.tokens) : undefined
 }
 
-export function aggregateSessionUsage(root: Session, sessions: readonly Session[]) {
-  const family = sessionFamily(root, sessions)
-  const main = root.tokens
-  const children = family.filter((session) => session.id !== root.id)
-  const subagents = children.reduce((total, session) => total + (session.tokens ? tokenTotal(session.tokens) : 0), 0)
-  const input = main?.input ?? 0
-  const output = main?.output ?? 0
-  const reasoning = main?.reasoning ?? 0
-  const other = (main?.cache.read ?? 0) + (main?.cache.write ?? 0)
+export function aggregateSessionUsage(root: Session, messages: readonly ConversationMessage[] = []) {
+  // The workspace list contains root sessions only. A partial child list must
+  // not be presented as a complete main + subagent total.
+  const input = root.tokens?.input ?? 0
+  const output = root.tokens?.output ?? 0
+  const reasoning = root.tokens?.reasoning ?? 0
+  const cache = (root.tokens?.cache.read ?? 0) + (root.tokens?.cache.write ?? 0)
+  const total = input + output + reasoning + cache
+  const billed = billedFromMessages(messages)
   return {
-    tokens: { input, output, reasoning, other, subagents, total: input + output + reasoning + other + subagents },
-    cost: family.reduce((total, session) => total + (session.cost ?? 0), 0),
+    // Message history is complete in the composer. It can be ahead of a
+    // session row while the backfill or live session-query refresh is pending.
+    tokens: billed && billed.tokens.total > total ? billed.tokens : { input, output, reasoning, cache, total },
+    cost: Math.max(root.cost ?? 0, billed?.cost ?? 0),
   }
 }
 
 export function composerUsageMetrics(input: {
   session: Session
-  sessions: readonly Session[]
   messages: readonly ConversationMessage[]
   contextWindow?: number
 }): ComposerUsageMetrics {
@@ -78,6 +99,6 @@ export function composerUsageMetrics(input: {
     contextWindow: input.contextWindow,
     contextUsed,
     contextPercent,
-    ...(input.session.parentID ? {} : { aggregate: aggregateSessionUsage(input.session, input.sessions) }),
+    ...(input.session.parentID ? {} : { aggregate: aggregateSessionUsage(input.session, input.messages) }),
   }
 }

@@ -1,4 +1,4 @@
-import type { AssistantMessage, Session } from "@jyycode-ai/sdk/v2/client"
+import type { AssistantMessage, Part, Session } from "@jyycode-ai/sdk/v2/client"
 import { describe, expect, it } from "vitest"
 import { aggregateSessionUsage, composerUsageMetrics, currentContextTokens } from "./usage-metrics"
 
@@ -17,7 +17,7 @@ function session(overrides: Partial<Session> = {}): Session {
   }
 }
 
-function assistant(id: string, tokens: AssistantMessage["tokens"]) {
+function assistant(id: string, tokens: AssistantMessage["tokens"]): { info: AssistantMessage; parts: Part[] } {
   const info: AssistantMessage = {
     id,
     sessionID: "ses_root",
@@ -45,46 +45,110 @@ describe("usage metrics", () => {
     expect(currentContextTokens(messages)).toBe(760)
   })
 
-  it("aggregates the root and all descendants without folding child tokens into main categories", () => {
+  it("reports the current root's durable usage", () => {
     const root = session({
       cost: 0.25,
       tokens: { input: 100, output: 40, reasoning: 20, cache: { read: 10, write: 5 } },
     })
-    const child = session({
-      id: "ses_child",
-      parentID: root.id,
-      cost: 0.1,
-      tokens: { input: 50, output: 20, reasoning: 5, cache: { read: 4, write: 1 } },
-    })
-    const grandchild = session({
-      id: "ses_grandchild",
-      parentID: child.id,
-      cost: 0.05,
-      tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
-    })
-    const unrelated = session({
-      id: "ses_other",
-      cost: 99,
-      tokens: { input: 999, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-    })
-
-    const usage = aggregateSessionUsage(root, [root, child, grandchild, unrelated])
+    const usage = aggregateSessionUsage(root)
     expect(usage.tokens).toEqual({
       input: 100,
       output: 40,
       reasoning: 20,
-      other: 15,
-      subagents: 95,
-      total: 270,
+      cache: 15,
+      total: 175,
     })
-    expect(usage.cost).toBeCloseTo(0.4)
+    expect(usage.cost).toBeCloseTo(0.25)
+
+    const metrics = composerUsageMetrics({
+      session: root,
+      messages: [],
+    })
+    expect(metrics.aggregate).toEqual(usage)
+  })
+
+  it("uses billed message usage while an older session's durable totals are still zero", () => {
+    const root = session({
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    })
+    const current = assistant("msg_billed", {
+      input: 900,
+      output: 20,
+      reasoning: 0,
+      cache: { read: 100, write: 0 },
+    })
+    current.info.usage = {
+      version: 1,
+      context: current.info.tokens,
+      billing: { input: 120, output: 20, reasoning: 5, cache: { read: 30, write: 0 } },
+      cost: 0.03,
+    }
+    const legacy = assistant("msg_legacy", {
+      input: 2_000,
+      output: 30,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    })
+    legacy.parts.push({
+      id: "part_legacy_step",
+      sessionID: root.id,
+      messageID: legacy.info.id,
+      type: "step-finish",
+      reason: "stop",
+      cost: 0.02,
+      tokens: { input: 40, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+    })
+
+    expect(aggregateSessionUsage(root, [current, legacy])).toEqual({
+      tokens: { input: 160, output: 30, reasoning: 5, cache: 30, total: 225 },
+      cost: 0.05,
+    })
+  })
+
+  it("does not sum context snapshots when billed usage is unavailable", () => {
+    const root = session({
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    })
+    const contextOnly = assistant("msg_context", {
+      input: 5_000,
+      output: 500,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    })
+
+    expect(aggregateSessionUsage(root, [contextOnly]).tokens.total).toBe(0)
+  })
+
+  it("uses more complete billed messages while a nonzero session row is stale", () => {
+    const root = session({
+      cost: 0.01,
+      tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+    })
+    const message = assistant("msg_billed", {
+      input: 1_000,
+      output: 20,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    })
+    message.info.usage = {
+      version: 1,
+      context: message.info.tokens,
+      billing: { input: 200, output: 20, reasoning: 0, cache: { read: 0, write: 0 } },
+      cost: 0.02,
+    }
+
+    expect(aggregateSessionUsage(root, [message])).toEqual({
+      tokens: { input: 200, output: 20, reasoning: 0, cache: 0, total: 220 },
+      cost: 0.02,
+    })
   })
 
   it("omits aggregate usage for a child session", () => {
     const child = session({ id: "ses_child", parentID: "ses_root" })
     const metrics = composerUsageMetrics({
       session: child,
-      sessions: [child],
       messages: [assistant("msg_1", { input: 400, output: 50, reasoning: 25, cache: { read: 20, write: 5 } })],
       contextWindow: 10_000,
     })

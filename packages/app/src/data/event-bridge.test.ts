@@ -444,6 +444,62 @@ describe("event routing", () => {
     releaseStream()
   })
 
+  it("refreshes session usage once per frame after step-finish parts", async () => {
+    const queryClient = createDesktopQueryClient()
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+    let releaseStream = () => {}
+    const streamWait = new Promise<void>((resolve) => { releaseStream = resolve })
+    const stream = (async function* () {
+      for (const index of [1, 2]) {
+        yield {
+          directory: "C:\\a",
+          payload: {
+            id: `evt_usage_${index}`,
+            type: "message.part.updated",
+            properties: {
+              sessionID: session.id,
+              part: {
+                id: `part_usage_${index}`,
+                sessionID: session.id,
+                messageID: message.id,
+                type: "step-finish",
+                reason: "tool-calls",
+                cost: 0.001,
+                tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+              },
+            },
+          },
+        } as GlobalEvent
+      }
+      await streamWait
+    })()
+    let scheduled: FrameRequestCallback | undefined
+    const bridge = new EventBridge({
+      client: { global: { event: vi.fn(async () => ({ stream })) } } as never,
+      directory: "C:\\a",
+      queryClient,
+      requestFrame: (callback) => {
+        scheduled = callback
+        return 1
+      },
+      cancelFrame: vi.fn(),
+    })
+
+    bridge.start()
+    await vi.waitFor(() => expect(scheduled).toBeTypeOf("function"))
+    scheduled?.(0)
+    await vi.waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.session("C:\\a", session.id), exact: true }),
+    )
+    const called = (key: readonly unknown[]) =>
+      invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(key))
+    expect(called(keys.session("C:\\a", session.id))).toHaveLength(1)
+    expect(called(keys.sessions("C:\\a"))).toHaveLength(1)
+
+    bridge.abort()
+    releaseStream()
+  })
+
   it("patches compaction status caches from started and ended events", async () => {
     const queryClient = createDesktopQueryClient()
     let releaseStream = () => {}

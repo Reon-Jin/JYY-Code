@@ -2,7 +2,6 @@ import { NotFoundError } from "@/storage/storage"
 import { eq } from "drizzle-orm"
 import { and } from "drizzle-orm"
 import { sql } from "drizzle-orm"
-import type { TxOrDb } from "@/storage/db"
 import { SyncEvent } from "@/sync"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
@@ -11,6 +10,7 @@ import { SessionShareTable } from "@/share/share.sql"
 import { WorkspaceTable } from "@/control-plane/workspace.sql"
 import { Log } from "@jyycode-ai/core/util/log"
 import nextProjectors from "./projectors-next"
+import { applyUsage, stepFinishUsage } from "./usage-projection"
 
 const log = Log.create({ service: "session.projector" })
 
@@ -21,29 +21,6 @@ function foreign(err: unknown) {
 }
 
 export type DeepPartial<T> = T extends object ? { [K in keyof T]?: DeepPartial<T[K]> | null } : T
-
-type Usage = Pick<MessageV2.StepFinishPart, "cost" | "tokens">
-
-function usage(part: MessageV2.Part | (typeof PartTable.$inferSelect)["data"]): Usage | undefined {
-  if (part.type !== "step-finish") return undefined
-  if (!("cost" in part) || !("tokens" in part)) return undefined
-  return { cost: part.cost, tokens: part.tokens }
-}
-
-function applyUsage(db: TxOrDb, sessionID: Session.Info["id"], value: Usage, sign = 1) {
-  db.update(SessionTable)
-    .set({
-      cost: sql`${SessionTable.cost} + ${value.cost * sign}`,
-      tokens_input: sql`${SessionTable.tokens_input} + ${value.tokens.input * sign}`,
-      tokens_output: sql`${SessionTable.tokens_output} + ${value.tokens.output * sign}`,
-      tokens_reasoning: sql`${SessionTable.tokens_reasoning} + ${value.tokens.reasoning * sign}`,
-      tokens_cache_read: sql`${SessionTable.tokens_cache_read} + ${value.tokens.cache.read * sign}`,
-      tokens_cache_write: sql`${SessionTable.tokens_cache_write} + ${value.tokens.cache.write * sign}`,
-      time_updated: sql`${SessionTable.time_updated}`,
-    })
-    .where(eq(SessionTable.id, sessionID))
-    .run()
-}
 
 function grab<T extends object, K1 extends keyof T, X>(
   obj: T,
@@ -155,7 +132,7 @@ export default [
       .from(PartTable)
       .where(and(eq(PartTable.message_id, data.messageID), eq(PartTable.session_id, data.sessionID)))
       .all()) {
-      const previous = usage(row.data)
+      const previous = stepFinishUsage(row.data)
       if (previous) applyUsage(db, data.sessionID, previous, -1)
     }
     db.delete(MessageTable)
@@ -169,7 +146,7 @@ export default [
       .from(PartTable)
       .where(and(eq(PartTable.id, data.partID), eq(PartTable.session_id, data.sessionID)))
       .get()
-    const previous = row && usage(row.data)
+    const previous = row && stepFinishUsage(row.data)
     if (previous) applyUsage(db, data.sessionID, previous, -1)
 
     db.delete(PartTable)
@@ -192,8 +169,8 @@ export default [
         })
         .onConflictDoUpdate({ target: PartTable.id, set: { data: rest } })
         .run()
-      const previous = row && usage(row.data)
-      const next = usage(data.part)
+      const previous = row && stepFinishUsage(row.data)
+      const next = stepFinishUsage(data.part)
       if (previous) applyUsage(db, row.session_id, previous, -1)
       if (next) applyUsage(db, sessionID, next)
     } catch (err) {

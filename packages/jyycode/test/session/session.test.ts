@@ -14,6 +14,10 @@ import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { BackgroundJob } from "@/background/job"
 import { SessionEvent } from "@jyycode-ai/core/session-event"
+import { Database } from "@/storage/db"
+import { SessionTable } from "@/session/session.sql"
+import { backfillSessionUsageFromStepFinishParts } from "@/data-migration"
+import { eq } from "drizzle-orm"
 
 void Log.init({ print: false })
 
@@ -27,6 +31,7 @@ const it = testEffect(
       Layer.provide(BackgroundJob.defaultLayer),
     ),
     CrossSpawnSpawner.defaultLayer,
+    SyncEvent.defaultLayer,
   ),
 )
 
@@ -168,6 +173,165 @@ describe("step-finish token propagation via Bus event", () => {
         yield* session.remove(info.id)
       }),
     { timeout: 30000 },
+  )
+})
+
+describe("session usage projection", () => {
+  it.instance("keeps the older message.part.updated event path compatible", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionNs.Service
+      const session = yield* sessions.create({})
+      const messageID = MessageID.ascending()
+      yield* sessions.updateMessage({
+        id: messageID,
+        sessionID: session.id,
+        role: "user",
+        time: { created: Date.now() },
+        agent: "user",
+        model: { providerID: "test", modelID: "test" },
+        tools: {},
+        mode: "",
+      } as unknown as MessageV2.Info)
+      const part = {
+        id: PartID.ascending(), messageID, sessionID: session.id,
+        type: "step-finish" as const, reason: "stop", cost: 0.2,
+        tokens: { total: 42, input: 15, output: 12, reasoning: 5, cache: { read: 8, write: 2 } },
+      }
+      yield* SyncEvent.use.run(MessageV2.Event.PartUpdated, {
+        sessionID: session.id, part, time: Date.now(),
+      })
+      let current = yield* sessions.get(session.id)
+      expect(current.cost).toBeCloseTo(0.2)
+      expect(current.tokens).toEqual({
+        input: 15, output: 12, reasoning: 5, cache: { read: 8, write: 2 },
+      })
+
+      yield* SyncEvent.use.run(MessageV2.Event.PartRemoved, {
+        sessionID: session.id, messageID, partID: part.id,
+      })
+      current = yield* sessions.get(session.id)
+      expect(current.cost).toBeCloseTo(0)
+      expect(current.tokens).toEqual({
+        input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 },
+      })
+    }),
+  )
+
+  it.instance("keeps totals in sync when step parts are inserted, updated, and removed", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionNs.Service
+      const session = yield* sessions.create({})
+      const messageID = MessageID.ascending()
+      yield* sessions.updateMessage({
+        id: messageID,
+        sessionID: session.id,
+        role: "user",
+        time: { created: Date.now() },
+        agent: "user",
+        model: { providerID: "test", modelID: "test" },
+        tools: {},
+        mode: "",
+      } as unknown as MessageV2.Info)
+
+      const part = {
+        id: PartID.ascending(),
+        messageID,
+        sessionID: session.id,
+        type: "step-finish" as const,
+        reason: "stop",
+        cost: 0.125,
+        tokens: { total: 80, input: 30, output: 20, reasoning: 10, cache: { read: 15, write: 5 } },
+      }
+      yield* sessions.updatePart(part)
+      let current = yield* sessions.get(session.id)
+      expect(current.cost).toBeCloseTo(0.125)
+      expect(current.tokens).toEqual({
+        input: 30, output: 20, reasoning: 10, cache: { read: 15, write: 5 },
+      })
+
+      const revised = {
+        ...part,
+        cost: 0.25,
+        tokens: { total: 120, input: 40, output: 30, reasoning: 20, cache: { read: 20, write: 10 } },
+      }
+      yield* sessions.updatePart(revised)
+      current = yield* sessions.get(session.id)
+      expect(current.cost).toBeCloseTo(0.25)
+      expect(current.tokens).toEqual({
+        input: 40, output: 30, reasoning: 20, cache: { read: 20, write: 10 },
+      })
+
+      const second = { ...part, id: PartID.ascending(), cost: 0.5 }
+      yield* sessions.updatePart(second)
+      current = yield* sessions.get(session.id)
+      expect(current.cost).toBeCloseTo(0.75)
+      expect(current.tokens).toEqual({
+        input: 70, output: 50, reasoning: 30, cache: { read: 35, write: 15 },
+      })
+
+      yield* sessions.removePart({ sessionID: session.id, messageID, partID: part.id })
+      current = yield* sessions.get(session.id)
+      expect(current.cost).toBeCloseTo(0.5)
+      expect(current.tokens).toEqual({
+        input: 30, output: 20, reasoning: 10, cache: { read: 15, write: 5 },
+      })
+
+      yield* sessions.removeMessage({ sessionID: session.id, messageID })
+      current = yield* sessions.get(session.id)
+      expect(current.cost).toBeCloseTo(0)
+      expect(current.tokens).toEqual({ input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } })
+    }),
+  )
+
+  it.instance("backfills zeroed historical totals from step parts without double counting", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionNs.Service
+      const session = yield* sessions.create({})
+      const other = yield* sessions.create({})
+      const messageID = MessageID.ascending()
+      yield* sessions.updateMessage({
+        id: messageID,
+        sessionID: session.id,
+        role: "user",
+        time: { created: Date.now() },
+        agent: "user",
+        model: { providerID: "test", modelID: "test" },
+        tools: {},
+        mode: "",
+      } as unknown as MessageV2.Info)
+      const tokens = { total: 77, input: 31, output: 20, reasoning: 6, cache: { read: 15, write: 5 } }
+      yield* sessions.updatePart({
+        id: PartID.ascending(), messageID, sessionID: session.id,
+        type: "step-finish", reason: "stop", cost: 0.375, tokens,
+      })
+
+      yield* Database.query((db) =>
+        db.update(SessionTable)
+          .set({ cost: 0, tokens_input: 0, tokens_output: 0, tokens_reasoning: 0,
+            tokens_cache_read: 0, tokens_cache_write: 0 })
+          .where(eq(SessionTable.id, session.id))
+          .run(),
+      )
+      yield* Database.query((db) =>
+        db.update(SessionTable).set({ cost: 1, tokens_input: 9 }).where(eq(SessionTable.id, other.id)).run(),
+      )
+
+      expect((yield* sessions.get(session.id)).tokens?.input).toBe(0)
+      yield* backfillSessionUsageFromStepFinishParts()
+      let current = yield* sessions.get(session.id)
+      expect(current.cost).toBeCloseTo(0.375)
+      expect(current.tokens).toEqual({
+        input: 31, output: 20, reasoning: 6, cache: { read: 15, write: 5 },
+      })
+      expect((yield* sessions.get(other.id)).cost).toBe(1)
+
+      yield* backfillSessionUsageFromStepFinishParts()
+      current = yield* sessions.get(session.id)
+      expect(current.cost).toBeCloseTo(0.375)
+      expect(current.tokens).toEqual({
+        input: 31, output: 20, reasoning: 6, cache: { read: 15, write: 5 },
+      })
+    }),
   )
 })
 

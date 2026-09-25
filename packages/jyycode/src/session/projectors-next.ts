@@ -9,6 +9,7 @@ import { EventRuntime } from "@/event-runtime"
 import { MessageTable, PartTable, SessionMessageTable, SessionTable } from "./session.sql"
 import { MessageV2 } from "./message-v2"
 import { MessageID, PartID, SessionID } from "./schema"
+import { applyUsage, stepFinishUsage } from "./usage-projection"
 import { Schema } from "effect"
 
 const toSyncDefinition = EventRuntime.toSyncDefinition
@@ -133,6 +134,19 @@ export default [
       .run()
   }),
   SyncEvent.project(toSyncDefinition(SessionEvent.Legacy.MessageRemoved), (db, data) => {
+    for (const row of db
+      .select()
+      .from(PartTable)
+      .where(
+        and(
+          eq(PartTable.message_id, MessageID.make(data.messageID)),
+          eq(PartTable.session_id, SessionID.make(data.sessionID)),
+        ),
+      )
+      .all()) {
+      const previous = stepFinishUsage(row.data)
+      if (previous) applyUsage(db, row.session_id, previous, -1)
+    }
     db.delete(PartTable)
       .where(
         and(
@@ -153,12 +167,24 @@ export default [
   SyncEvent.project(toSyncDefinition(SessionEvent.Legacy.PartUpdated), (db, data) => {
     const part = data.part as MessageV2.Part
     const { id, messageID, sessionID, ...rest } = part
+    const previousRow = db.select().from(PartTable).where(eq(PartTable.id, id)).get()
     db.insert(PartTable)
       .values({ id, message_id: messageID, session_id: sessionID, time_created: data.time, data: rest })
       .onConflictDoUpdate({ target: PartTable.id, set: { data: rest } })
       .run()
+    const previous = previousRow && stepFinishUsage(previousRow.data)
+    const next = stepFinishUsage(part)
+    if (previous) applyUsage(db, previousRow.session_id, previous, -1)
+    if (next) applyUsage(db, sessionID, next)
   }),
   SyncEvent.project(toSyncDefinition(SessionEvent.Legacy.PartRemoved), (db, data) => {
+    const row = db
+      .select()
+      .from(PartTable)
+      .where(and(eq(PartTable.id, PartID.make(data.partID)), eq(PartTable.session_id, SessionID.make(data.sessionID))))
+      .get()
+    const previous = row && stepFinishUsage(row.data)
+    if (previous) applyUsage(db, row.session_id, previous, -1)
     db.delete(PartTable)
       .where(and(eq(PartTable.id, PartID.make(data.partID)), eq(PartTable.session_id, SessionID.make(data.sessionID))))
       .run()
