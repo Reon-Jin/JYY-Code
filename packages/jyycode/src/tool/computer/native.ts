@@ -17,6 +17,7 @@ export type Step = {
   element?: number
   points?: Array<{ x: number; y: number }>
   expectWindow?: string
+  expectTarget?: { name?: string; automationId?: string; kind: string; x: number; y: number; width: number; height: number }
   button?: "left" | "right" | "middle"
   double?: boolean
   direction?: "up" | "down" | "left" | "right"
@@ -162,7 +163,10 @@ export function toDesktopAction(input: Action, frame: Observation): Action {
     }, { x, y }, "display")
   }
   if (input.action === "batch") return { ...input, steps: input.steps.map((step) => toDesktopAction(step, frame) as Step) }
-  if (input.action === "observe" || input.action === "wait" || input.action === "key" || input.action === "type") return input
+  if (input.action === "observe" || input.action === "wait") return input
+  if (input.action === "key" || input.action === "type") {
+    return frame.windowID ? { ...input, expectWindow: frame.windowID } : input
+  }
   if (input.action === "drag") {
     if (input.points) return { ...input, points: input.points.map((value) => point(value.x, value.y)), expectWindow: frame.windowID }
     const start = point(input.x!, input.y!)

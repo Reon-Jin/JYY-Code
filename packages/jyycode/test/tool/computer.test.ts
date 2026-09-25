@@ -76,6 +76,8 @@ describe("computer control boundary", () => {
     }
     expect(toDesktopAction({ action: "click", element: 7 }, frame)).toEqual({ action: "click", x: -70, y: 40, expectWindow: "41234" })
     expect(toDesktopAction({ action: "click", x: 1000, y: 281 }, frame)).toEqual({ action: "click", x: 0, y: 539, expectWindow: "41234" })
+    expect(toDesktopAction({ action: "key", keys: "Enter" }, frame)).toEqual({ action: "key", keys: "Enter", expectWindow: "41234" })
+    expect(toDesktopAction({ action: "type", text: "abc" }, frame)).toEqual({ action: "type", text: "abc", expectWindow: "41234" })
     expect(toDesktopAction({ action: "scroll", direction: "down", amount: 1 }, frame)).toEqual({ action: "scroll", direction: "down", amount: 1, expectWindow: "41234" })
     expect(toDesktopAction({ action: "drag", points: [{ x: 0, y: 0 }, { x: 1000, y: 281 }, { x: 1999, y: 562 }] }, frame)).toEqual({
       action: "drag", points: [{ x: -1920, y: 0 }, { x: 0, y: 539 }, { x: 1918, y: 1078 }], expectWindow: "41234",

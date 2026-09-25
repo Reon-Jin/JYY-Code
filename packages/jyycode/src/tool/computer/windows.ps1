@@ -116,12 +116,43 @@ function Assert-Window($step) {
   }
 }
 
+function Assert-Target($step) {
+  if (-not $step.expectTarget) { return }
+  $expected = $step.expectTarget
+  if ($null -eq $step.x -or $null -eq $step.y) { throw 'Target guard requires a coordinate' }
+  $point = [System.Windows.Point]::new([double]$step.x, [double]$step.y)
+  try { $hit = [System.Windows.Automation.AutomationElement]::FromPoint($point) }
+  catch { throw 'Target at coordinate could not be verified' }
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  for ($depth = 0; $depth -lt 12 -and $null -ne $hit; $depth++) {
+    try {
+      $current = $hit.Current
+      $rect = $current.BoundingRectangle
+      $matchIdentity = if ($expected.automationId) {
+        [string]$current.AutomationId -eq [string]$expected.automationId
+      } elseif ($expected.name) {
+        [string]$current.Name -eq [string]$expected.name
+      } else {
+        [string]$current.ControlType.ProgrammaticName -match [string]$expected.kind
+      }
+      $matchBox = [Math]::Abs($rect.Left - [double]$expected.x) -le 5 -and
+        [Math]::Abs($rect.Top - [double]$expected.y) -le 5 -and
+        [Math]::Abs($rect.Width - [double]$expected.width) -le 8 -and
+        [Math]::Abs($rect.Height - [double]$expected.height) -le 8
+      if ($matchIdentity -and $matchBox -and $current.IsEnabled -and -not $current.IsOffscreen) { return }
+      $hit = $walker.GetParent($hit)
+    } catch { break }
+  }
+  throw 'Target at coordinate changed or is covered; observe again'
+}
+
 function Perform-Action($step) {
 switch ([string]$step.action) {
   observe { }
   move { MoveTo $step.x $step.y }
   click {
     Assert-Window $step
+    Assert-Target $step
     if ($null -ne $step.x -and $null -ne $step.y) { MoveTo $step.x $step.y }
     $button = [string]$step.button
     if (-not $button) { $button = 'left' }
@@ -135,6 +166,7 @@ switch ([string]$step.action) {
   }
   scroll {
     Assert-Window $step
+    Assert-Target $step
     if ($null -ne $step.x -and $null -ne $step.y) { MoveTo $step.x $step.y }
     $amount = [int]$step.amount * 120
     $flag = if ($step.direction -eq 'left' -or $step.direction -eq 'right') { 0x1000 } else { 0x0800 }
@@ -143,6 +175,7 @@ switch ([string]$step.action) {
     [JyyComputerNative]::SendMouse([uint32]$flag, $wheelData)
   }
   key {
+    Assert-Window $step
     $parts = @(([string]$step.keys).Split('+') | ForEach-Object { $_.Trim() })
     $codes = @($parts | ForEach-Object { KeyCode $_ })
     $pressed = New-Object System.Collections.ArrayList
@@ -153,9 +186,13 @@ switch ([string]$step.action) {
       foreach ($code in $pressed) { PressKey $code $true }
     }
   }
-  type { [JyyComputerNative]::TypeText([string]$step.text) }
+  type {
+    Assert-Window $step
+    [JyyComputerNative]::TypeText([string]$step.text)
+  }
   drag {
     Assert-Window $step
+    Assert-Target $step
     if ($step.points) {
       $first = $step.points[0]
       MoveTo $first.x $first.y
