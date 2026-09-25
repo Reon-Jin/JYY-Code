@@ -1,0 +1,131 @@
+[
+  {
+    "name": "computer-synthetic-96.png",
+    "dpi": 96,
+    "screen": {
+      "x": 0,
+      "y": 0,
+      "width": 1280,
+      "height": 720
+    },
+    "targets": {
+      "save": [
+        48,
+        60,
+        148,
+        101
+      ],
+      "open": [
+        166,
+        60,
+        266,
+        101
+      ],
+      "icon_only": [
+        1210,
+        63,
+        1246,
+        99
+      ],
+      "search": [
+        235,
+        164,
+        830,
+        208
+      ],
+      "tiny_icon": [
+        1142,
+        161,
+        1158,
+        177
+      ]
+    },
+    "limitations": "Synthetic geometry and parser smoke only; not a detector accuracy benchmark"
+  },
+  {
+    "name": "computer-synthetic-144.png",
+    "dpi": 144,
+    "screen": {
+      "x": 0,
+      "y": 0,
+      "width": 1920,
+      "height": 1080
+    },
+    "targets": {
+      "save": [
+        72,
+        90,
+        222,
+        152
+      ],
+      "open": [
+        249,
+        90,
+        399,
+        152
+      ],
+      "icon_only": [
+        1815,
+        94,
+        1869,
+        148
+      ],
+      "search": [
+        352,
+        246,
+        1245,
+        312
+      ],
+      "tiny_icon": [
+        1713,
+        242,
+        1737,
+        266
+      ]
+    },
+    "limitations": "Synthetic geometry and parser smoke only; not a detector accuracy benchmark"
+  },
+  {
+    "name": "computer-synthetic-192.png",
+    "dpi": 192,
+    "screen": {
+      "x": -2560,
+      "y": 0,
+      "width": 2560,
+      "height": 1440
+    },
+    "targets": {
+      "save": [
+        96,
+        120,
+        296,
+        202
+      ],
+      "open": [
+        332,
+        120,
+        532,
+        202
+      ],
+      "icon_only": [
+        2420,
+        126,
+        2492,
+        198
+      ],
+      "search": [
+        470,
+        328,
+        1660,
+        416
+      ],
+      "tiny_icon": [
+        2284,
+        322,
+        2316,
+        354
+      ]
+    },
+    "limitations": "Synthetic geometry and parser smoke only; not a detector accuracy benchmark"
+  }
+]
