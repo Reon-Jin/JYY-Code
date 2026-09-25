@@ -429,8 +429,8 @@ describe("session.message-v2.toModelMessage", () => {
       }),
     ]
     const output = JSON.stringify(await MessageV2.toModelMessages(input, model))
-    expect((output.match(/Earlier computer observation cleared/g) ?? []).length).toBe(5)
-    expect((output.match(/"type":"media"/g) ?? []).length).toBe(4)
+    expect((output.match(/Earlier computer observation cleared/g) ?? []).length).toBe(6)
+    expect((output.match(/"type":"media"/g) ?? []).length).toBe(3)
     expect(output).toContain("observation 7")
     expect(output).toContain("observation 8")
   })

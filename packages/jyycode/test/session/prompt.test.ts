@@ -2182,6 +2182,44 @@ it.instance("warns then cuts off repeated main-session tool turns", () =>
   }),
 )
 
+it.instance("does not stop distinct long tool calls that share a setup prefix", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "Long tool calls",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+
+    yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "Continue until all scans are complete" }],
+    })
+    const commonPrefix = "# initialize screenshot analysis " + "x".repeat(240)
+    for (let index = 0; index < 4; index++) {
+      yield* llm.push(reply().tool("bash", {
+        command: `${commonPrefix}\necho scan-${index}`,
+        description: "Inspect a different screen sample",
+      }).stop())
+    }
+    yield* llm.text("all scans complete")
+
+    const result = yield* prompt.loop({ sessionID: session.id })
+    expect(yield* llm.calls).toBe(5)
+    expect(result.info.role).toBe("assistant")
+    if (result.info.role === "assistant") {
+      expect(result.parts.some((part) => part.type === "text" && part.text === "all scans complete")).toBe(true)
+    }
+    const msgs = yield* MessageV2.filterCompactedEffect(session.id)
+    expect(msgs.some((msg) =>
+      msg.parts.some((part) => part.type === "text" && part.synthetic && part.metadata?.kind === "stuck_loop_warning"),
+    )).toBe(false)
+  }),
+)
+
 it.instance("re-prompts when the assistant finishes with an empty response", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)

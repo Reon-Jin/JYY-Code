@@ -3,7 +3,7 @@ import type { RuntimeFlags } from "@/effect/runtime-flags"
 import { InstanceState } from "@/effect/instance-state"
 import { Permission } from "@/permission"
 import type { Agent } from "@/agent/agent"
-import type { MessageV2 } from "../message-v2"
+import { SYNTHETIC_ATTACHMENT_PROMPT, type MessageV2 } from "../message-v2"
 import type { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
 import { SystemPrompt } from "../system"
@@ -65,6 +65,23 @@ export type Prepared = {
 const mergeOptions = (target: Record<string, any>, source: Record<string, any> | undefined): Record<string, any> =>
   mergeDeep(target, source ?? {}) as Record<string, any>
 
+export function hasActiveComputerCall(messages: ModelMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!
+    if (message.role === "assistant" && Array.isArray(message.content) &&
+      message.content.some((part) => part.type === "tool-call" && part.toolName === "computer")) return true
+    if (message.role !== "user") continue
+    const content = message.content
+    const text = typeof content === "string"
+      ? content
+      : content.filter((part) => part.type === "text").map((part) => part.text).join("\n")
+    const trimmed = text.trim()
+    if (trimmed && trimmed !== SYNTHETIC_ATTACHMENT_PROMPT &&
+      !(trimmed.startsWith("<system-reminder>") && trimmed.endsWith("</system-reminder>"))) return false
+  }
+  return false
+}
+
 export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: PrepareInput) {
   const isOpenaiOauth = input.provider.id === "openai" && input.auth?.type === "oauth"
   const system = [
@@ -99,13 +116,14 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
   const options = mergeOptions(mergeOptions(mergeOptions(base, input.model.options), input.agent.options), variant)
   if (isOpenaiOauth) options.instructions = system.join("\n")
 
-  // DeepSeek V4 rejects `tool_choice` while thinking is enabled. Protocol
-  // gate turns intentionally force a tool, so switch only those turns to the
-  // provider's non-thinking mode instead of failing the assistant request.
+  // DeepSeek V4 rejects forced tool_choice while thinking is enabled. The
+  // model can also spend many seconds reasoning before every desktop action;
+  // switch subsequent actions in the current computer-use turn to its native
+  // non-thinking mode. A later user turn starts with the selected variant again.
   if (
-    isForcedToolChoice(input.toolChoice) &&
     input.model.providerID === "deepseek" &&
-    input.model.api.id.includes("deepseek-v4")
+    (input.model.api.id.includes("deepseek-v4") || input.model.api.id === "deepseek-flash") &&
+    (isForcedToolChoice(input.toolChoice) || hasActiveComputerCall(input.messages))
   ) {
     options.thinking = { type: "disabled" }
     delete options.reasoningEffort

@@ -1,5 +1,6 @@
 import path from "path"
 import os from "os"
+import { createHash } from "node:crypto"
 import { SessionID, MessageID, PartID } from "./schema"
 import { MessageV2 } from "./message-v2"
 import * as Log from "@jyycode-ai/core/util/log"
@@ -1707,11 +1708,18 @@ export const layer = Layer.effect(
               lastAssistantMsg.parts
                 .filter((part): part is MessageV2.ToolPart => part.type === "tool" && !part.metadata?.providerExecuted)
                 .map((part) => {
-                  // Include a truncated input fingerprint: identical tool names with
-                  // different arguments (e.g. a specialist issuing many distinct
-                  // searches) are progress, not a stuck loop.
+                  // Hash the complete input and result. Long commands often share
+                  // the same setup prefix while changing the actual operation;
+                  // truncating that prefix falsely stops productive sessions.
                   const input = "input" in part.state ? JSON.stringify(part.state.input) : undefined
-                  return `${part.tool}:${part.state.status}:${input?.slice(0, 200) ?? ""}`
+                  const result = part.state.status === "completed" ? part.state.output
+                    : part.state.status === "error" ? part.state.error : ""
+                  const fingerprint = createHash("sha256")
+                    .update(input ?? "")
+                    .update("\0")
+                    .update(result)
+                    .digest("hex")
+                  return `${part.tool}:${part.state.status}:${fingerprint}`
                 })
                 .join(","),
             ].join("|")

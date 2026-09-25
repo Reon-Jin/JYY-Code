@@ -717,9 +717,10 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
   const toolNames = new Set<string>()
   const computerCount = input.reduce((total, message) => total + message.parts.filter((part) =>
     part.type === "tool" && part.tool === "computer" && part.state.status === "completed").length, 0)
-  // Clear old screenshots in stable groups so every new observation does not
-  // invalidate the entire model prompt prefix. Keep at least the latest three.
-  const clearedComputerCount = Math.max(0, Math.floor((computerCount - 3) / 5) * 5)
+  // The latest screenshot is the current desktop state. Retain two or three
+  // observations so the model can compare a recent UI transition while keeping
+  // image-heavy prompts small and preserving a stable prefix every other step.
+  const clearedComputerCount = Math.max(0, Math.floor((computerCount - 2) / 2) * 2)
   let seenComputer = 0
   // Track media from tool results that need to be injected as user messages
   // for providers that don't support that media type in tool results.
