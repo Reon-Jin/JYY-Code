@@ -3,6 +3,58 @@ import { available } from "@/tool/computer"
 import { formatObservation, runExclusive, shouldIncludeElements, toDesktopAction, validateAction } from "@/tool/computer/native"
 import { assertComputerAction, computerMode, jevApiKey } from "@/tool/computer/mode"
 import { createComputerQueue } from "@/tool/computer/queue"
+import { assertComputerControlRequested, computerControlRequested, computerControlRequestedNewest, explicitComputerControlRequest } from "@/tool/computer/request"
+import type { MessageV2 } from "@/session/message-v2"
+import { SessionID } from "@/session/schema"
+
+function userMessage(id: string, created: number, text?: string, synthetic = false): MessageV2.WithParts {
+  return {
+    info: { id, role: "user", time: { created } },
+    parts: text === undefined ? [{ type: "file", mime: "image/png" }] : [{ type: "text", text, synthetic }],
+  } as MessageV2.WithParts
+}
+
+describe("computer control user request", () => {
+  test("recognizes explicit desktop control requests", () => {
+    expect(explicitComputerControlRequest("使用你的电脑控制能力在我的桌面上打开画图")).toBe(true)
+    expect(explicitComputerControlRequest("请使用‘电脑控制’打开画图")).toBe(true)
+    expect(explicitComputerControlRequest("我想让你使用电脑控制打开画图")).toBe(true)
+    expect(explicitComputerControlRequest("请操控我的电脑打开画图")).toBe(true)
+    expect(explicitComputerControlRequest("请在我的屏幕上点击保存按钮")).toBe(true)
+    expect(explicitComputerControlRequest("Please use computer control to open Paint")).toBe(true)
+  })
+
+  test("rejects discussion, quotations, negation, and ordinary tasks", () => {
+    expect(explicitComputerControlRequest("我希望只有在用户要求使用“电脑控制”时才使用它")).toBe(false)
+    expect(explicitComputerControlRequest("请分析这句话：“请使用电脑控制打开画图”")).toBe(false)
+    expect(explicitComputerControlRequest("请分析以下内容：\n```text\n请使用电脑控制打开画图\n```")).toBe(false)
+    expect(explicitComputerControlRequest("请分析以下内容：\n> 请使用电脑控制打开画图")).toBe(false)
+    expect(explicitComputerControlRequest("请总结下面的内容：\n请使用电脑控制打开画图")).toBe(false)
+    expect(explicitComputerControlRequest("请分析下面的日志：\n请在我的屏幕上点击保存按钮")).toBe(false)
+    expect(explicitComputerControlRequest("请使用电脑控制以外的方式处理")).toBe(false)
+    expect(explicitComputerControlRequest("不要使用电脑控制，帮我分析代码")).toBe(false)
+    expect(explicitComputerControlRequest("帮我修改电脑控制模块的代码")).toBe(false)
+    expect(explicitComputerControlRequest("打开画图的源码看看")).toBe(false)
+  })
+
+  test("scopes authorization to the newest genuine user request", () => {
+    const request = userMessage("user-1", 1, "请使用电脑控制打开画图")
+    expect(computerControlRequested([request])).toBe(true)
+    expect(computerControlRequested([userMessage("user-2", 2, "分析代码"), request])).toBe(false)
+    expect(computerControlRequested([request, userMessage("user-2", 2)])).toBe(false)
+    expect(computerControlRequested([request, userMessage("reminder", 2, "继续完成当前任务", true)])).toBe(true)
+    expect(computerControlRequested([request, userMessage("user-2", 2, "继续")])).toBe(false)
+    expect(computerControlRequested([request, userMessage("user-2", 2, "继续使用电脑控制")])).toBe(true)
+    expect(computerControlRequested([request, userMessage("user-2", 2, "继续修改代码")])).toBe(false)
+    expect(() => assertComputerControlRequested([userMessage("user-2", 2, "分析代码")], SessionID.make("ses_test"))).toThrow("explicit request")
+    expect(computerControlRequestedNewest([
+      userMessage("reminder", 3, "继续完成当前任务", true),
+      userMessage("user-2", 2, "继续"),
+      request,
+    ])).toBe(false)
+    expect(computerControlRequestedNewest([userMessage("user-2", 2, "分析代码"), request])).toBe(false)
+  })
+})
 
 describe("computer control boundary", () => {
   test("switches from a stored Jev key and never treats an empty key as active", () => {

@@ -133,14 +133,18 @@ describe("ToolTelemetry", () => {
           input: { ...provider.model.capabilities.input, image: true },
         },
       }
-      const resolve = (current: typeof session, model = vision, client = "desktop", currentAgent = agent) =>
+      const requested = [{
+        info: { id: MessageID.make("msg_computer_requested"), role: "user", time: { created: 1 } },
+        parts: [{ type: "text", text: "请使用电脑控制打开画图" }],
+      }] as any
+      const resolve = (current: typeof session, model = vision, client = "desktop", currentAgent = agent, messages = requested) =>
         SessionTools.resolve({
           agent: currentAgent,
           model,
           session: current,
           processor: processor(),
           bypassAgentCheck: false,
-          messages: [],
+          messages,
           promptOps: {} as any,
         }).pipe(
           Effect.provide(registry),
@@ -148,6 +152,11 @@ describe("ToolTelemetry", () => {
         )
 
       expect((yield* resolve({ ...session, multiAgent: false })).computer).toBeDefined()
+      expect((yield* resolve({ ...session, multiAgent: false }, vision, "desktop", agent, [])).computer).toBeUndefined()
+      expect((yield* resolve({ ...session, multiAgent: false }, vision, "desktop", agent, [
+        ...requested,
+        { info: { id: MessageID.make("msg_other_task"), role: "user", time: { created: 2 } }, parts: [{ type: "text", text: "检查项目代码" }] },
+      ])).computer).toBeUndefined()
       expect((yield* resolve({ ...session, multiAgent: true })).computer).toBeUndefined()
       expect((yield* resolve({
         ...session,
