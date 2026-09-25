@@ -146,8 +146,11 @@ describe("grounded desktop action execution", () => {
     let ocrCalls = 0
     let choices = 0
     const parser = { health: async () => ({ ready: true }), close: async () => undefined,
-      parse: async (visualFrame: { id: string }) => ({ frameID: visualFrame.id,
-        boxes: [{ x: 1400, y: 60, width: 100, height: 40, confidence: 0.8, source: "detector" as const }], inferMs: 1, totalMs: 1 }) }
+      parse: async (visualFrame: { id: string }, region?: { x: number; y: number; width: number; height: number }) => {
+        expect(region).toEqual({ x: 960, y: 0, width: 960, height: 540 })
+        return { frameID: visualFrame.id,
+          boxes: [{ x: 1400, y: 60, width: 100, height: 40, confidence: 0.8, source: "detector" as const }], inferMs: 1, totalMs: 1 }
+      } }
     const choose: typeof selectJev = async ({ candidates: offered }) => {
       choices++
       return choices === 1 ? { status: "needs_vision", reason: "abstained" } :

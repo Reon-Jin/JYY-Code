@@ -156,7 +156,8 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
     }
     visualFrame = { id: frame.id, png: observed.rawPng, width: frame.rawImageSize.width, height: frame.rawImageSize.height }
     let detected: Awaited<ReturnType<VisualParser["parse"]>>
-    try { detected = await parser.parse(visualFrame, undefined, signal) }
+    // A named screen corner is a cheap high-resolution crop and often avoids a full tiled retry.
+    try { detected = await parser.parse(visualFrame, regionFromIntent(visualFrame, input.intent), signal) }
     catch { return fallback("vision_unavailable") }
     detections = detected.boxes
     fusion = fuseTargets({ frame, accessibilitySource: source, elements: observed.observation.elements,
