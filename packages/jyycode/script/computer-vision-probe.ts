@@ -27,13 +27,20 @@ try {
   const runs = []
   for (let i = 0; i < count; i++) {
     const result = await parser.parse({ id: `probe-${i}`, png, width: known?.screen.width ?? 1280, height: known?.screen.height ?? 720 })
-    runs.push({ totalMs: Math.round(result.totalMs), inferMs: result.inferMs, boxes: result.boxes.length })
+    const matchedTargets = known ? Object.values(known.targets).filter(([left, top, right, bottom]) =>
+      result.boxes.some((box) => {
+        const centerX = box.x + box.width / 2
+        const centerY = box.y + box.height / 2
+        return centerX >= left && centerX < right && centerY >= top && centerY < bottom
+      })).length : undefined
+    runs.push({ totalMs: Math.round(result.totalMs), inferMs: result.inferMs, boxes: result.boxes.length, matchedTargets })
   }
   process.stdout.write(JSON.stringify({
     modelSha256: hash.digest("hex"),
     modelLicense: "MIT (icon_detect_v3; verify upstream LICENSE before redistribution)",
     image: path.basename(imagePath),
     synthetic: true,
+    labeledTargets: known ? Object.keys(known.targets).length : undefined,
     loadMs: Math.round(loadMs),
     runs,
     note: "Synthetic fixture is only a smoke test; it cannot establish real desktop recall or misclick rate",

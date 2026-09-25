@@ -16,6 +16,51 @@ export interface VisualParser {
   close(): Promise<void>
 }
 
+export function imageTiles(width: number, height: number, tileSize = 1280, overlap = 128): Rect[] {
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 ||
+    !Number.isSafeInteger(tileSize) || tileSize < 1 || !Number.isSafeInteger(overlap) || overlap < 0 || overlap >= tileSize) {
+    throw new Error("Invalid image tile geometry")
+  }
+  const positions = (length: number) => {
+    if (length <= tileSize) return [0]
+    const result = [0]
+    while (result[result.length - 1]! + tileSize < length) {
+      const next = Math.min(length - tileSize, result[result.length - 1]! + tileSize - overlap)
+      if (next === result[result.length - 1]) break
+      result.push(next)
+    }
+    return result
+  }
+  return positions(height).flatMap((y) => positions(width).map((x) => ({
+    x, y, width: Math.min(tileSize, width - x), height: Math.min(tileSize, height - y),
+  })))
+}
+
+function boxIoU(a: VisualBox, b: VisualBox) {
+  const x = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x))
+  const y = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
+  const shared = x * y
+  return shared / (a.width * a.height + b.width * b.height - shared)
+}
+
+export async function parseTiled(parser: VisualParser, frame: VisualFrame, signal?: AbortSignal): Promise<VisualParse> {
+  const started = performance.now()
+  const tiles = imageTiles(frame.width, frame.height)
+  if (tiles.length === 1) return parser.parse(frame, undefined, signal)
+  const boxes: VisualBox[] = []
+  let inferMs = 0
+  for (const tile of tiles) {
+    const result = await parser.parse(frame, tile, signal)
+    inferMs += result.inferMs
+    for (const box of result.boxes) {
+      const existing = boxes.findIndex((item) => boxIoU(item, box) > 0.6)
+      if (existing < 0) boxes.push(box)
+      else if (box.confidence > boxes[existing]!.confidence) boxes[existing] = box
+    }
+  }
+  return { frameID: frame.id, boxes, inferMs, totalMs: performance.now() - started }
+}
+
 export class VisionUnavailableError extends Error {
   readonly code = "vision_unavailable"
 }
@@ -35,6 +80,8 @@ export class LocalVisualParser implements VisualParser {
   private sequence = 0
 
   constructor(private readonly options: { modelPath?: string; python?: string; device?: "cpu" | "cuda"; timeoutMs?: number; workerScriptPath?: string } = {}) {}
+
+  isReady() { return !!this.worker }
 
   private modelPath() {
     return this.options.modelPath ?? process.env.JYYCODE_COMPUTER_VISION_MODEL
