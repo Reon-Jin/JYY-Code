@@ -67,6 +67,17 @@ function relevance(intent: string, target: VisualTarget, frame: Frame) {
   return score
 }
 
+function scrollDirection(intent: string): "up" | "down" | "left" | "right" | undefined {
+  const value = intent.toLocaleLowerCase()
+  const match = value.match(/(?:向|往|朝)(上|下|左|右)(?:滚动|滑动)|(?:滚动|滚轮|滑动|scroll)\s*(?:向|往|朝)?\s*(上|下|左|右|up|down|left|right)/i)
+  const direction = match?.[1] ?? match?.[2]
+  if (direction === "上" || direction === "up") return "up"
+  if (direction === "下" || direction === "down") return "down"
+  if (direction === "左" || direction === "left") return "left"
+  if (direction === "右" || direction === "right") return "right"
+  return undefined
+}
+
 export function buildCandidates(input: {
   frame: Frame
   intent: string
@@ -80,13 +91,14 @@ export function buildCandidates(input: {
 }): CandidateSet {
   const limit = Math.max(1, Math.min(254, input.limit ?? 64))
   const items: Array<ActionCandidate & { rank: number }> = []
+  const direction = scrollDirection(input.intent)
   for (const target of input.targets) {
     if (target.frameID !== input.frame.id) continue
     const point = safePoint(target, input.targets)
     if (!point) continue
     for (const action of input.allowedActions) {
       if (!legal(action, target, input.literalText, input.endPoint)) continue
-      const direction = /上|up/i.test(input.intent) ? "up" : /左|left/i.test(input.intent) ? "left" : /右|right/i.test(input.intent) ? "right" : "down"
+      if (action === "scroll" && !direction) continue
       items.push({
         id: "", frameID: input.frame.id, action, targetID: target.id, label: target.label,
         kind: target.kind, box: target.box, point,

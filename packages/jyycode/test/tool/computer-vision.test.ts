@@ -141,6 +141,17 @@ describe("visual target fusion and closed action candidates", () => {
     expect(candidates.items[0]).toMatchObject({ action: "click", point: { x: 150, y: 80 }, frameID: "frame-1" })
   })
 
+  test("grounds scroll direction to the requested motion rather than the target location", () => {
+    const targets = fuseTargets({ frame, accessibilitySource: "uia", elements: [
+      { index: 1, name: "右上角列表", role: "ScrollBar", automationId: "list", x: -920, y: 30,
+        width: 100, height: 400, enabled: true, focused: false, depth: 1 },
+    ], detected: [], ocr: [] }).targets
+    const scrolling = buildCandidates({ frame, intent: "在右上角列表向下滚动", targets, allowedActions: ["scroll"] })
+    expect(scrolling.items).toMatchObject([{ action: "scroll", direction: "down" }])
+    const clicking = buildCandidates({ frame, intent: "点击右上角列表", targets, allowedActions: ["scroll"] })
+    expect(clicking.items).toHaveLength(0)
+  })
+
   test("caps Jev options without silently treating excluded targets as absent", () => {
     const detected = Array.from({ length: 300 }, (_, index) => ({
       x: (index % 20) * 88, y: Math.floor(index / 20) * 54, width: 60, height: 34,
