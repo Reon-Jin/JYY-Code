@@ -35,6 +35,7 @@ JYY-Code does not assume an LLM will reliably remember the plan, coordinate peer
 | Route selection      | Candidate competition with blind proposals, cross-review and final synthesis             |
 | Long-task continuity | Layered context, episodic digests and structured persistent memory                       |
 | Crash recovery       | Durable events, rebuildable projections, activation leases and reconciliation            |
+| Desktop control      | Explicitly requested screen observation and mouse/keyboard control; optional Jev selection |
 
 The result is not “one agent with more tools”. It is an **engineering runtime that gives agents boundaries, shared state, recovery semantics and a reviewable execution protocol**.
 
@@ -128,6 +129,16 @@ JYY-Code deliberately limits what different actors can mutate.
 - Durable session state is owned by the privileged runtime; external extensions may consume documented events but cannot append to the durable event log or directly mutate projection tables.
 
 These boundaries reduce the blast radius of a bad sub-agent decision and make orchestration state harder to corrupt accidentally.
+
+## Desktop computer control
+
+In the Desktop app, a **single-Agent root Session** can observe and operate the Windows or macOS desktop. Select a model that accepts images and explicitly request computer control in your current message, for example: “Use computer control to open Paint and save a drawing.” Ordinary requests do not enable the `computer` tool. It is unavailable in the TUI, Multi-Agent and child Sessions. Actions are subject to the `computer` permission.
+
+- **Without a Jev API key**, the original control mode is used. The Agent can observe a screenshot and numbered accessibility controls, then move or click the pointer, scroll, type text, press keys, drag, wait for a window, or batch up to 12 predictable steps. Each action returns a fresh screenshot.
+- **With an active Jev API key**, Desktop switches automatically to visual action selection. Enter the key under **Settings → Advanced → Jev API computer control**. The Agent can observe or request a `choose` action: local accessibility and visual detection produce candidates, and Jev selects the action type and screenshot coordinate when needed. Direct actions from the original mode are disabled while Jev is active. If the target is uncertain or the screen changes, the action stops and returns a fresh screenshot; it does not fall back to the original mode. Deactivating the key restores the original mode.
+- **For graphical controls**, configure the local OmniParser `icon_detect_v3/model.pt` weight, with Python, PyTorch, torchvision, NumPy and Pillow available. The tested weight is detected in the standard Hugging Face cache; otherwise set `JYYCODE_COMPUTER_VISION_MODEL` to its absolute path. EasyOCR is optional. Without a working visual detector, Jev may still select uniquely named accessibility controls but may abstain on icons or other graphical targets.
+
+Jev receives structured candidate data rather than the raw screenshot. On macOS, grant the desktop helper Accessibility and Screen Recording access. See the [Desktop computer control guide](packages/desktop/README.md#computer-control) for platform details, model setup and current limitations.
 
 ## Quick Start
 
