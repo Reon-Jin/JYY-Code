@@ -48,6 +48,7 @@ export class Service extends ConfigService.Service<Service>()("@jyycode/RuntimeF
   outputTokenMax: positiveInteger("JYYCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX"),
   bashDefaultTimeoutMs: positiveInteger("JYYCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS"),
   experimentalNativeLlm: enabledByExperimental("JYYCODE_EXPERIMENTAL_NATIVE_LLM"),
+  experimentalComputerJev: bool("JYYCODE_EXPERIMENTAL_COMPUTER_JEV"),
   client: Config.string("JYYCODE_CLIENT").pipe(Config.withDefault("cli")),
   // --- New feature flags ---
   skillSearch: enabledByExperimental("JYYCODE_SKILL_SEARCH"),
