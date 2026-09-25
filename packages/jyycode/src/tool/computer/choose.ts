@@ -202,7 +202,7 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
   // Jev sees JSON rather than pixels. A nameless icon cannot be matched to a semantic intent from coordinates alone.
   if (!selected.label && !hasExplicitPosition(input.intent)) return fallback("unlabeled_target")
   const action = candidateToNative(selected, frame)
-  const nativeTargetGuard = process.platform === "win32" && selected.sources?.includes("uia") &&
+  const nativeTargetGuard = source === "uia" && selected.sources?.includes("uia") &&
     action.action !== "key" && (action.action !== "batch" || action.steps[0]?.expectTarget)
   if (!nativeTargetGuard) {
     const guard = await native({ action: "observe", includeElements: false, captureRaw: true, resolution: input.resolution }, signal)
