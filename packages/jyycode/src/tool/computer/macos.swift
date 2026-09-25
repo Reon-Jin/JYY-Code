@@ -9,6 +9,12 @@ import UniformTypeIdentifiers
 struct Point: Encodable { let x: Int; let y: Int }
 struct Rect: Encodable { let x: Int; let y: Int; let width: Int; let height: Int }
 struct ImageSize: Encodable { let width: Int; let height: Int }
+struct Monitor: Encodable {
+  let id: String
+  let bounds: Rect
+  let pixelScaleX: Double
+  let pixelScaleY: Double
+}
 struct Element: Encodable {
   let index: Int
   let name: String
@@ -25,6 +31,8 @@ struct Element: Encodable {
 struct Observation: Encodable {
   let screen: Rect
   let image: ImageSize
+  let rawImage: ImageSize
+  let monitors: [Monitor]
   let cursor: Point
   let window: String
   let windowID: String?
@@ -241,10 +249,24 @@ guard !bounds.isNull else { fail("No desktop bounds") }
 guard let capture = CGWindowListCreateImage(bounds, .optionOnScreenOnly, kCGNullWindowID, [.nominalResolution]) else {
   fail("macOS Screen Recording permission is required for JYYCode screenshots")
 }
+if let rawImagePath = data["rawImagePath"] as? String, !rawImagePath.isEmpty {
+  guard let rawDestination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: rawImagePath) as CFURL,
+    UTType.png.identifier as CFString, 1, nil) else { fail("Could not create raw screenshot") }
+  CGImageDestinationAddImage(rawDestination, capture, nil)
+  guard CGImageDestinationFinalize(rawDestination) else { fail("Could not save raw screenshot") }
+}
 let originX = Int(bounds.minX.rounded())
 let originY = Int(bounds.minY.rounded())
 let screenWidth = Int(bounds.width.rounded())
 let screenHeight = Int(bounds.height.rounded())
+let monitors = displayIDs.prefix(Int(displayCount)).map { displayID -> Monitor in
+  let box = CGDisplayBounds(displayID)
+  return Monitor(id: String(displayID),
+    bounds: Rect(x: Int(box.minX.rounded()), y: Int(box.minY.rounded()),
+      width: Int(box.width.rounded()), height: Int(box.height.rounded())),
+    pixelScaleX: box.width > 0 ? Double(CGDisplayPixelsWide(displayID)) / Double(box.width) : 1,
+    pixelScaleY: box.height > 0 ? Double(CGDisplayPixelsHigh(displayID)) / Double(box.height) : 1)
+}
 
 var elements: [Element] = []
 var windowName = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
@@ -319,7 +341,9 @@ CGImageDestinationAddImage(destination, result, nil)
 guard CGImageDestinationFinalize(destination) else { fail("Could not save screenshot") }
 let cursor = currentCursor()
 let observation = Observation(screen: Rect(x: originX, y: originY, width: screenWidth, height: screenHeight),
-  image: ImageSize(width: imageWidth, height: imageHeight), cursor: Point(x: Int(cursor.x), y: Int(cursor.y)),
+  image: ImageSize(width: imageWidth, height: imageHeight),
+  rawImage: ImageSize(width: capture.width, height: capture.height), monitors: monitors,
+  cursor: Point(x: Int(cursor.x), y: Int(cursor.y)),
   window: windowName, windowID: foregroundID(), elements: elements)
 let encoded = try JSONEncoder().encode(observation)
 FileHandle.standardOutput.write(encoded)
