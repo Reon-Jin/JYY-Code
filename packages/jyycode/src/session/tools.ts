@@ -25,6 +25,7 @@ import { Bus } from "@/bus"
 import { ToolTelemetry } from "@/tool/telemetry"
 import { CatalogSearch } from "@/tool/catalog-search"
 import { Computer } from "@/tool/computer"
+import { computerControlRequestedInSession } from "@/tool/computer/request"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
 import { Skill } from "@/skill"
@@ -950,7 +951,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     includeComputer:
       Computer.available(runtimeFlags?.client ?? process.env.JYYCODE_CLIENT ?? "cli", input.session) &&
       input.agent.mode !== "subagent" &&
-      input.model.capabilities.input.image === true,
+      input.model.capabilities.input.image === true &&
+      computerControlRequestedInSession(input.messages, input.session.id),
     ...(allowedToolIDs ? { toolIDs: allowedToolIDs } : {}),
   })
   // A profile-backed child that has no MCP allowance should not even resolve

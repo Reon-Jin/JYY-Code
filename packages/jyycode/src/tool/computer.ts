@@ -8,6 +8,7 @@ import { formatObservation, runExclusive, runNative, shouldIncludeElements, toDe
 import { prewarmComputerVision, runChoose } from "./computer/choose"
 import { FrameStore } from "./computer/frame"
 import { JEV_CREDENTIAL_ID, assertComputerAction, computerMode, jevApiKey } from "./computer/mode"
+import { assertComputerControlRequested, assertComputerControlRequestedLive } from "./computer/request"
 
 const frameStore = new FrameStore()
 
@@ -60,7 +61,6 @@ export const ComputerTool = Tool.define(
     const flags = yield* RuntimeFlags.Service
     const auth = yield* Auth.Service
     const mode = computerMode(yield* auth.get(JEV_CREDENTIAL_ID).pipe(Effect.orDie))
-    if (flags.client === "desktop" && mode === "jev") prewarmComputerVision()
     return {
       description:
         "Observe and control the user's real desktop only when they explicitly ask you to operate it. " +
@@ -77,9 +77,11 @@ export const ComputerTool = Tool.define(
       catalog: { category: "execution", mutability: "external", risk: "high", detail: "standard" },
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          assertComputerControlRequested(ctx.messages, ctx.sessionID)
           const choosing = params.action === "choose"
           const apiKey = jevApiKey(yield* auth.get(JEV_CREDENTIAL_ID).pipe(Effect.orDie))
           assertComputerAction(apiKey, params.action)
+          if (apiKey) prewarmComputerVision()
           const input = params as Action
           if (!choosing) validateAction(input)
           const session = yield* sessions.get(ctx.sessionID)
@@ -99,6 +101,11 @@ export const ComputerTool = Tool.define(
           if (!available(flags.client, current)) throw new Error("Computer control is no longer available in this session")
           return yield* Effect.promise(() =>
             runExclusive(async () => {
+              assertComputerControlRequestedLive(ctx.sessionID)
+              const authorizedNative = (action: Action, signal?: AbortSignal) => {
+                assertComputerControlRequestedLive(ctx.sessionID)
+                return runNative(action, signal)
+              }
               const latest = await Effect.runPromise(sessions.get(ctx.sessionID))
               if (!available(flags.client, latest)) throw new Error("Computer control is no longer available in this session")
               const liveKey = jevApiKey(await Effect.runPromise(auth.get(JEV_CREDENTIAL_ID)))
@@ -111,7 +118,7 @@ export const ComputerTool = Tool.define(
                   keys: params.keys,
                   allowedActions: params.allowedActions,
                   resolution: params.resolution,
-                }, ctx.abort)
+                }, ctx.abort, { native: authorizedNative })
                 frameStore.remember(ctx.sessionID, chosen.observation)
                 return {
                   title: chosen.status === "executed" ? `Computer choose: ${chosen.observation.window || "desktop"}` : `Computer choose needs vision: ${chosen.reasonCode}`,
@@ -131,12 +138,12 @@ export const ComputerTool = Tool.define(
               const native = frame ? toDesktopAction({ ...input, includeElements }, frame) : { ...input, includeElements }
               let blocked = false
               let reasonCode = "selected"
-              const { observation, png } = await runNative(native, ctx.abort).catch(async (error: unknown) => {
+              const { observation, png } = await authorizedNative(native, ctx.abort).catch(async (error: unknown) => {
                 if (!(error instanceof Error) ||
                   (!error.message.includes("Foreground window changed") && !error.message.includes("Target at coordinate"))) throw error
                 blocked = true
                 reasonCode = error.message.includes("Target at coordinate") ? "target_changed" : "foreground_changed"
-                return runNative({ action: "observe", includeElements: true, resolution: input.resolution }, ctx.abort)
+                return authorizedNative({ action: "observe", includeElements: true, resolution: input.resolution }, ctx.abort)
               })
               frameStore.remember(ctx.sessionID, observation)
               return {

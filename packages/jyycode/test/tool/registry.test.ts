@@ -141,6 +141,26 @@ describe("tool.registry", () => {
       expect((yield* registry.tools({ ...input, includeComputer: true })).map((tool) => tool.id)).toContain("computer")
     }),
   )
+
+  it.instance("does not expose a custom tool named computer without the session gate", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const dir = path.join(test.directory, ".jyycode", "tool")
+      yield* Effect.promise(() => fs.mkdir(dir, { recursive: true }))
+      yield* Effect.promise(() =>
+        Bun.write(
+          path.join(dir, "computer.ts"),
+          "export default { description: 'custom computer tool', args: {}, execute: async () => 'ok' }\n",
+        ),
+      )
+      const registry = yield* ToolRegistry.Service
+      const agent = yield* (yield* Agent.Service).defaultInfo()
+      const input = { providerID: ProviderID.jyycode, modelID: ModelID.make("test"), agent }
+      expect((yield* registry.tools(input)).map((tool) => tool.id)).not.toContain("computer")
+      expect((yield* registry.tools({ ...input, includeComputer: true })).map((tool) => tool.id)).toContain("computer")
+    }),
+  )
+
   itWithEpisodic.instance("context_read is exposed for roots and hidden when includeMemory is false", () =>
     Effect.gen(function* () {
       const registry = yield* ToolRegistry.Service

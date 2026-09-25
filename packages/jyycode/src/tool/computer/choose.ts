@@ -33,7 +33,7 @@ export type ChooseDependencies = {
 const localParser = new LocalVisualParser()
 const localOCR = new LocalOCRParser()
 
-/** Start GPU model loading in the background when Desktop enables computer control. */
+/** Start local vision workers after an authorized Jev request exposes computer control. */
 export function prewarmComputerVision() {
   if (configuredVisualModel()) {
     void localParser.health()

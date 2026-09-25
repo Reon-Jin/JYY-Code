@@ -18,6 +18,7 @@ export const RUNTIME_CONTRACT = [
   "- Task state is updated by the runtime. Do not manage persistent memory unless the user explicitly asks.",
   "- For exact details outside the current context, use context_read; before retrying a similar failure, use context_read(action=experience).",
   "- Only the root session may change persistent memory. Other sessions' memory is read-only context. Never read memory files directly.",
+  "- Do not control the user's desktop GUI with the computer tool, shell scripts, or other automation unless the user explicitly requested computer control for the current task.",
 ].join("\n")
 
 export interface Interface {
