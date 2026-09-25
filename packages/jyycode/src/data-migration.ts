@@ -3,7 +3,7 @@ import { Database } from "./storage/db"
 import { DataMigrationTable } from "./data-migration.sql"
 import * as Log from "@jyycode-ai/core/util/log"
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm"
-import { MessageTable, SessionTable } from "./session/session.sql"
+import { MessageTable, PartTable, SessionTable } from "./session/session.sql"
 import type { SessionID } from "./session/schema"
 import { ensurePlanEventInboxSchema } from "./plan/event-store"
 
@@ -13,6 +13,62 @@ export type Migration<R = never> = {
 }
 
 const log = Log.create({ service: "data-migration" })
+
+/** Recompute durable session totals from the billed step parts. Safe to resume or repeat. */
+export const backfillSessionUsageFromStepFinishParts = Effect.fn(
+  "DataMigration.backfillSessionUsageFromStepFinishParts",
+)(function* () {
+  for (let cursor: SessionID | undefined; ;) {
+    const sessions = Database.legacyQuery((db) =>
+      db
+        .select({ id: SessionTable.id })
+        .from(SessionTable)
+        .where(cursor ? gt(SessionTable.id, cursor) : undefined)
+        .orderBy(asc(SessionTable.id))
+        .limit(100)
+        .all(),
+    )
+    if (sessions.length === 0) return
+
+    Database.legacyTransaction((db) => {
+      for (const row of db
+        .select({
+          session_id: PartTable.session_id,
+          cost: sql<number>`coalesce(sum(coalesce(json_extract(${PartTable.data}, '$.cost'), 0)), 0)`,
+          tokens_input: sql<number>`coalesce(sum(coalesce(json_extract(${PartTable.data}, '$.tokens.input'), 0)), 0)`,
+          tokens_output: sql<number>`coalesce(sum(coalesce(json_extract(${PartTable.data}, '$.tokens.output'), 0)), 0)`,
+          tokens_reasoning: sql<number>`coalesce(sum(coalesce(json_extract(${PartTable.data}, '$.tokens.reasoning'), 0)), 0)`,
+          tokens_cache_read: sql<number>`coalesce(sum(coalesce(json_extract(${PartTable.data}, '$.tokens.cache.read'), 0)), 0)`,
+          tokens_cache_write: sql<number>`coalesce(sum(coalesce(json_extract(${PartTable.data}, '$.tokens.cache.write'), 0)), 0)`,
+        })
+        .from(PartTable)
+        .where(
+          and(
+            inArray(PartTable.session_id, sessions.map((session) => session.id)),
+            sql`json_extract(${PartTable.data}, '$.type') = 'step-finish'`,
+          ),
+        )
+        .groupBy(PartTable.session_id)
+        .all()) {
+        db.update(SessionTable)
+          .set({
+            cost: row.cost,
+            tokens_input: row.tokens_input,
+            tokens_output: row.tokens_output,
+            tokens_reasoning: row.tokens_reasoning,
+            tokens_cache_read: row.tokens_cache_read,
+            tokens_cache_write: row.tokens_cache_write,
+            time_updated: sql`${SessionTable.time_updated}`,
+          })
+          .where(eq(SessionTable.id, row.session_id))
+          .run()
+      }
+    })
+
+    cursor = sessions.at(-1)?.id
+    yield* Effect.sleep("10 millis")
+  }
+})
 
 export interface Interface {}
 
@@ -122,6 +178,10 @@ export const layer = Layer.effect(
             yield* Effect.sleep("10 millis")
           }
         }),
+      },
+      {
+        name: "session_usage_from_step_finish_parts_v2",
+        run: backfillSessionUsageFromStepFinishParts(),
       },
     ]
 

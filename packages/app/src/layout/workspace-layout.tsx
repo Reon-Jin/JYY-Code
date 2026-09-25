@@ -731,7 +731,6 @@ export function WorkspaceLayout(props: { activeSessionID?: string }) {
     )?.contextWindow
     return composerUsageMetrics({
       session,
-      sessions: [...(activeQuery.data ?? []), ...(archivedQuery.data ?? [])],
       messages: conversationQuery.data?.messages ?? [],
       contextWindow,
     })

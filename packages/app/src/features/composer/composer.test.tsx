@@ -424,7 +424,7 @@ describe("Composer", () => {
     await waitFor(() => expect(client.session.promptAsync).toHaveBeenCalledOnce())
   })
 
-  it("uses the area below the input for root context, aggregate tokens, cost, and an exact breakdown", () => {
+  it("uses the area below the input for root context, reported tokens, and estimated USD cost", () => {
     renderComposer({
       permissionControl: <span>权限 自动模式</span>,
       usage: {
@@ -432,7 +432,7 @@ describe("Composer", () => {
         contextUsed: 32_000,
         contextPercent: 25,
         aggregate: {
-          tokens: { input: 10_000, output: 2_000, reasoning: 1_000, other: 500, subagents: 6_500, total: 20_000 },
+          tokens: { input: 10_000, output: 2_000, reasoning: 1_000, cache: 500, total: 13_500 },
           cost: 1.2345,
         },
       },
@@ -441,10 +441,28 @@ describe("Composer", () => {
     expect(screen.getByLabelText("会话用量")).toHaveTextContent("权限 自动模式")
     expect(screen.getByLabelText("会话用量")).not.toHaveTextContent("上下文窗口")
     expect(screen.getByLabelText("会话用量")).toHaveTextContent("25.0%")
-    expect(screen.getByLabelText("会话用量")).toHaveTextContent("主 + 子智能体 Token")
+    expect(screen.getByLabelText("会话用量")).toHaveTextContent("本会话 Token")
     expect(screen.getByRole("tooltip")).toHaveTextContent("输入10,000")
-    expect(screen.getByRole("tooltip")).toHaveTextContent("工具调用已计入输入/输出，提供商未单列")
-    expect(screen.getByLabelText("会话用量")).toHaveTextContent("¥8.8884")
+    expect(screen.getByRole("tooltip")).toHaveTextContent("缓存500")
+    expect(screen.getByRole("tooltip")).not.toHaveTextContent("子智能体")
+    expect(screen.getByRole("tooltip")).not.toHaveTextContent("工具调用")
+    expect(screen.getByLabelText("会话用量")).toHaveTextContent("$1.2345")
+  })
+
+  it("shows unavailable usage and pricing without false zeroes", () => {
+    renderComposer({
+      usage: {
+        aggregate: {
+          tokens: { input: 0, output: 0, reasoning: 0, cache: 0, total: 0 },
+          cost: 0,
+        },
+      },
+    })
+
+    expect(screen.getByLabelText("会话用量")).toHaveTextContent("本会话 Token暂无数据")
+    expect(screen.getByLabelText("会话用量")).toHaveTextContent("预估模型费用暂无费用数据")
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("会话用量")).not.toHaveTextContent("$0")
   })
 
   it("shows only context metrics in a child composer", () => {
@@ -457,8 +475,8 @@ describe("Composer", () => {
     expect(screen.getByLabelText("会话用量")).toHaveTextContent("权限 自动模式")
     expect(screen.getByLabelText("会话用量")).not.toHaveTextContent("上下文窗口")
     expect(screen.getByLabelText("会话用量")).toHaveTextContent("窗口使用情况")
-    expect(screen.queryByText("主 + 子智能体 Token")).not.toBeInTheDocument()
-    expect(screen.queryByText("API 消费")).not.toBeInTheDocument()
+    expect(screen.queryByText("本会话 Token")).not.toBeInTheDocument()
+    expect(screen.queryByText("预估模型费用")).not.toBeInTheDocument()
   })
 
   it("does not submit during IME composition", () => {
