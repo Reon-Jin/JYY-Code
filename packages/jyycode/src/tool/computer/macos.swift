@@ -9,6 +9,12 @@ import UniformTypeIdentifiers
 struct Point: Encodable { let x: Int; let y: Int }
 struct Rect: Encodable { let x: Int; let y: Int; let width: Int; let height: Int }
 struct ImageSize: Encodable { let width: Int; let height: Int }
+struct Monitor: Encodable {
+  let id: String
+  let bounds: Rect
+  let pixelScaleX: Double
+  let pixelScaleY: Double
+}
 struct Element: Encodable {
   let index: Int
   let name: String
@@ -25,6 +31,8 @@ struct Element: Encodable {
 struct Observation: Encodable {
   let screen: Rect
   let image: ImageSize
+  let rawImage: ImageSize
+  let monitors: [Monitor]
   let cursor: Point
   let window: String
   let windowID: String?
@@ -78,12 +86,59 @@ func currentCursor() -> CGPoint {
   CGEvent(source: nil)?.location ?? CGPoint.zero
 }
 func foregroundID() -> String? {
-  NSWorkspace.shared.frontmostApplication.map { String($0.processIdentifier) }
+  guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+  let pid = app.processIdentifier
+  if let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+    for info in windows {
+      guard let owner = info[kCGWindowOwnerPID as String] as? Int, owner == Int(pid),
+        let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+        let number = info[kCGWindowNumber as String] as? Int else { continue }
+      return "\(pid):\(number)"
+    }
+  }
+  let root = AXUIElementCreateApplication(pid)
+  if let focused = axElement(axAttribute(root, kAXFocusedWindowAttribute as CFString)) {
+    let title = axString(focused, kAXTitleAttribute as CFString)
+    let point = axPoint(focused) ?? .zero
+    let size = axSize(focused) ?? .zero
+    return "\(pid):AX:\(title):\(Int(point.x)):\(Int(point.y)):\(Int(size.width)):\(Int(size.height))"
+  }
+  return "\(pid):unknown"
 }
 func assertWindow(_ data: [String: Any]) {
   if let expected = data["expectWindow"] as? String, !expected.isEmpty && foregroundID() != expected {
     fail("Foreground window changed since the last observation; observe and refocus the target before clicking or dragging")
   }
+}
+func assertTarget(_ data: [String: Any]) {
+  guard let expected = data["expectTarget"] as? [String: Any] else { return }
+  guard let x = integer(data, "x"), let y = integer(data, "y"),
+    let expectedX = expected["x"] as? Int, let expectedY = expected["y"] as? Int,
+    let expectedWidth = expected["width"] as? Int, let expectedHeight = expected["height"] as? Int else {
+    fail("Target guard requires coordinates")
+  }
+  var hit: AXUIElement?
+  guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(x), Float(y), &hit) == .success else {
+    fail("Target at coordinate could not be verified")
+  }
+  for _ in 0..<12 {
+    guard let current = hit else { break }
+    let identifier = axString(current, kAXIdentifierAttribute as CFString)
+    let title = axString(current, kAXTitleAttribute as CFString)
+    let description = axString(current, kAXDescriptionAttribute as CFString)
+    let role = axString(current, kAXRoleAttribute as CFString).lowercased()
+    let expectedID = expected["automationId"] as? String ?? ""
+    let expectedName = expected["name"] as? String ?? ""
+    let kind = expected["kind"] as? String ?? ""
+    let identity = !expectedID.isEmpty ? identifier == expectedID :
+      (!expectedName.isEmpty ? title == expectedName || description == expectedName : role.contains(kind))
+    if let point = axPoint(current), let size = axSize(current), identity,
+      abs(point.x - CGFloat(expectedX)) <= 5, abs(point.y - CGFloat(expectedY)) <= 5,
+      abs(size.width - CGFloat(expectedWidth)) <= 8, abs(size.height - CGFloat(expectedHeight)) <= 8,
+      axBoolean(current, kAXEnabledAttribute as CFString, fallback: true) { return }
+    hit = axElement(axAttribute(current, kAXParentAttribute as CFString))
+  }
+  fail("Target at coordinate changed or is covered; observe again")
 }
 func position(_ data: [String: Any]) -> CGPoint {
   guard let x = integer(data, "x"), let y = integer(data, "y") else { return currentCursor() }
@@ -126,6 +181,7 @@ case "observe": break
 case "move": emitMouse(.mouseMoved, position(data))
 case "click":
   assertWindow(data)
+  assertTarget(data)
   let point = position(data)
   if integer(data, "x") != nil { emitMouse(.mouseMoved, point) }
   let button = property(data, "button").isEmpty ? "left" : property(data, "button")
@@ -145,6 +201,7 @@ case "click":
   }
 case "scroll":
   assertWindow(data)
+  assertTarget(data)
   if integer(data, "x") != nil { emitMouse(.mouseMoved, position(data)) }
   let amount = Int32(integer(data, "amount") ?? 1)
   let direction = property(data, "direction")
@@ -153,12 +210,14 @@ case "scroll":
   guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: vertical, wheel2: horizontal, wheel3: 0) else { fail("Could not create scroll event") }
   event.post(tap: .cghidEventTap)
 case "key":
+  assertWindow(data)
   let names = property(data, "keys").split(separator: "+").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
   let codes = names.map { keyCode($0) }
   if codes.contains(where: { $0 == nil }) { fail("Unsupported key combination: \(property(data, "keys"))") }
   for code in codes { emitKey(code!, true) }
   for code in codes.reversed() { emitKey(code!, false) }
 case "type":
+  assertWindow(data)
   for character in property(data, "text") {
     let units = Array(String(character).utf16)
     for down in [true, false] {
@@ -171,6 +230,7 @@ case "type":
   }
 case "drag":
   assertWindow(data)
+  assertTarget(data)
   if let points = data["points"] as? [[String: Any]], let first = points.first, let last = points.last,
       let startX = integer(first, "x"), let startY = integer(first, "y"),
       let endX = integer(last, "x"), let endY = integer(last, "y") {
@@ -241,10 +301,24 @@ guard !bounds.isNull else { fail("No desktop bounds") }
 guard let capture = CGWindowListCreateImage(bounds, .optionOnScreenOnly, kCGNullWindowID, [.nominalResolution]) else {
   fail("macOS Screen Recording permission is required for JYYCode screenshots")
 }
+if let rawImagePath = data["rawImagePath"] as? String, !rawImagePath.isEmpty {
+  guard let rawDestination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: rawImagePath) as CFURL,
+    UTType.png.identifier as CFString, 1, nil) else { fail("Could not create raw screenshot") }
+  CGImageDestinationAddImage(rawDestination, capture, nil)
+  guard CGImageDestinationFinalize(rawDestination) else { fail("Could not save raw screenshot") }
+}
 let originX = Int(bounds.minX.rounded())
 let originY = Int(bounds.minY.rounded())
 let screenWidth = Int(bounds.width.rounded())
 let screenHeight = Int(bounds.height.rounded())
+let monitors = displayIDs.prefix(Int(displayCount)).map { displayID -> Monitor in
+  let box = CGDisplayBounds(displayID)
+  return Monitor(id: String(displayID),
+    bounds: Rect(x: Int(box.minX.rounded()), y: Int(box.minY.rounded()),
+      width: Int(box.width.rounded()), height: Int(box.height.rounded())),
+    pixelScaleX: box.width > 0 ? Double(CGDisplayPixelsWide(displayID)) / Double(box.width) : 1,
+    pixelScaleY: box.height > 0 ? Double(CGDisplayPixelsHigh(displayID)) / Double(box.height) : 1)
+}
 
 var elements: [Element] = []
 var windowName = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
@@ -319,7 +393,9 @@ CGImageDestinationAddImage(destination, result, nil)
 guard CGImageDestinationFinalize(destination) else { fail("Could not save screenshot") }
 let cursor = currentCursor()
 let observation = Observation(screen: Rect(x: originX, y: originY, width: screenWidth, height: screenHeight),
-  image: ImageSize(width: imageWidth, height: imageHeight), cursor: Point(x: Int(cursor.x), y: Int(cursor.y)),
+  image: ImageSize(width: imageWidth, height: imageHeight),
+  rawImage: ImageSize(width: capture.width, height: capture.height), monitors: monitors,
+  cursor: Point(x: Int(cursor.x), y: Int(cursor.y)),
   window: windowName, windowID: foregroundID(), elements: elements)
 let encoded = try JSONEncoder().encode(observation)
 FileHandle.standardOutput.write(encoded)

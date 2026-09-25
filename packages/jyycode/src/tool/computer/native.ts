@@ -1,10 +1,13 @@
 import { existsSync } from "node:fs"
+import { randomUUID } from "node:crypto"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { Effect } from "effect"
 import { AppProcess } from "@jyycode-ai/core/process"
 import { runWindows } from "./windows-worker"
+import { createComputerQueue } from "./queue"
+import { imagePointToDesktop, type Monitor } from "./frame"
 
 export type Step = {
   action: "move" | "click" | "scroll" | "key" | "type" | "drag" | "wait"
@@ -15,6 +18,7 @@ export type Step = {
   element?: number
   points?: Array<{ x: number; y: number }>
   expectWindow?: string
+  expectTarget?: { name?: string; automationId?: string; kind: string; x: number; y: number; width: number; height: number }
   button?: "left" | "right" | "middle"
   double?: boolean
   direction?: "up" | "down" | "left" | "right"
@@ -29,11 +33,16 @@ export type Action = (Step | { action: "observe" } | { action: "batch"; steps: S
   includeElements?: boolean
   annotate?: boolean
   resolution?: "standard" | "high"
+  captureRaw?: boolean
 }
 
 export type Observation = {
   screen: { x: number; y: number; width: number; height: number }
   image: { width: number; height: number }
+  rawImage?: { width: number; height: number }
+  monitors?: Monitor[]
+  frameID?: string
+  capturedAt?: number
   cursor: { x: number; y: number }
   window: string
   windowID?: string
@@ -57,6 +66,9 @@ function isInteger(value: unknown): value is number {
 }
 
 export function validateAction(input: Action) {
+  if (input.captureRaw !== undefined && typeof input.captureRaw !== "boolean") {
+    throw new Error("captureRaw must be a boolean")
+  }
   if (input.includeElements !== undefined && typeof input.includeElements !== "boolean") {
     throw new Error("includeElements must be a boolean")
   }
@@ -141,16 +153,21 @@ export function validateAction(input: Action) {
 /** Model coordinates are pixels in the last screenshot, not physical desktop pixels. */
 export function toDesktopAction(input: Action, frame: Observation): Action {
   const point = (x: number, y: number) => {
-    if (x < 0 || y < 0 || x >= frame.image.width || y >= frame.image.height) {
-      throw new Error(`Coordinate (${x},${y}) is outside the ${frame.image.width}×${frame.image.height} screenshot`)
-    }
-    return {
-      x: frame.screen.x + Math.round(x * frame.screen.width / frame.image.width),
-      y: frame.screen.y + Math.round(y * frame.screen.height / frame.image.height),
-    }
+    return imagePointToDesktop({
+      id: frame.frameID ?? "legacy",
+      capturedAt: frame.capturedAt ?? 0,
+      screen: frame.screen,
+      rawImageSize: frame.rawImage ?? frame.image,
+      displayImageSize: frame.image,
+      monitors: frame.monitors ?? [],
+      foregroundWindow: { id: frame.windowID ?? "unknown", title: frame.window },
+    }, { x, y }, "display")
   }
   if (input.action === "batch") return { ...input, steps: input.steps.map((step) => toDesktopAction(step, frame) as Step) }
-  if (input.action === "observe" || input.action === "wait" || input.action === "key" || input.action === "type") return input
+  if (input.action === "observe" || input.action === "wait") return input
+  if (input.action === "key" || input.action === "type") {
+    return frame.windowID ? { ...input, expectWindow: frame.windowID } : input
+  }
   if (input.action === "drag") {
     if (input.points) return { ...input, points: input.points.map((value) => point(value.x, value.y)), expectWindow: frame.windowID }
     const start = point(input.x!, input.y!)
@@ -162,7 +179,21 @@ export function toDesktopAction(input: Action, frame: Observation): Action {
     if (!target) throw new Error(`Element #${input.element} is not in the latest observation; observe again`)
     if (!target.enabled) throw new Error(`Element #${input.element} is disabled`)
     const { element, ...rest } = input
-    return { ...rest, x: Math.round(target.x + target.width / 2), y: Math.round(target.y + target.height / 2), expectWindow: frame.windowID }
+    return {
+      ...rest,
+      x: Math.round(target.x + target.width / 2),
+      y: Math.round(target.y + target.height / 2),
+      expectWindow: frame.windowID,
+      expectTarget: {
+        name: target.name,
+        automationId: target.automationId,
+        kind: target.role,
+        x: target.x,
+        y: target.y,
+        width: target.width,
+        height: target.height,
+      },
+    }
   }
   const guarded = (input.action === "click" || input.action === "scroll") && frame.windowID
     ? { ...input, expectWindow: frame.windowID }
@@ -171,14 +202,8 @@ export function toDesktopAction(input: Action, frame: Observation): Action {
   return { ...guarded, ...point(input.x, input.y) }
 }
 
-let tail: Promise<unknown> = Promise.resolve()
-
 /** OS input and observation are one transaction. Parallel tool calls must not interleave. */
-export function runExclusive<T>(work: () => Promise<T>): Promise<T> {
-  const current = tail.then(work, work)
-  tail = current.catch(() => undefined)
-  return current
-}
+export const runExclusive = createComputerQueue()
 
 export function shouldIncludeElements(input: Action) {
   const targeted = input.action === "batch"
@@ -187,27 +212,33 @@ export function shouldIncludeElements(input: Action) {
   return input.annotate === true || (input.includeElements ?? (input.action === "observe" || targeted))
 }
 
-export async function runNative(input: Action, signal?: AbortSignal): Promise<{ observation: Observation; png: Buffer }> {
+export async function runNative(input: Action, signal?: AbortSignal): Promise<{ observation: Observation; png: Buffer; rawPng?: Buffer }> {
   validateAction(input)
-  const request = {
-    ...input,
-    includeElements: shouldIncludeElements(input),
-    annotate: input.annotate ?? false,
-    resolution: input.resolution ?? "standard",
-  }
   if (signal?.aborted) throw new Error("Computer operation interrupted")
   if (process.platform !== "win32" && process.platform !== "darwin") {
     throw new Error(`Computer control is unavailable on ${process.platform}`)
   }
   const dir = await mkdtemp(path.join(tmpdir(), "jyycode-computer-"))
   const imagePath = path.join(dir, "screen.png")
+  const rawImagePath = input.captureRaw ? path.join(dir, "raw.png") : undefined
+  const request = {
+    ...input,
+    includeElements: shouldIncludeElements(input),
+    annotate: input.annotate ?? false,
+    resolution: input.resolution ?? "standard",
+    rawImagePath,
+  }
+  const capturedAt = Date.now()
   try {
     if (process.platform === "win32") {
       const observation = await runWindows(request, imagePath, signal)
       if (!observation.screen || !Array.isArray(observation.elements)) throw new Error("Computer helper returned invalid observation")
       const png = await readFile(imagePath)
       if (png.length === 0) throw new Error("Computer helper returned an empty screenshot")
-      return { observation, png }
+      const rawPng = rawImagePath ? await readFile(rawImagePath) : undefined
+      observation.frameID = randomUUID()
+      observation.capturedAt = capturedAt
+      return { observation, png, rawPng }
     }
     const payload = Buffer.from(JSON.stringify(request), "utf8").toString("base64")
     const command = [
@@ -224,6 +255,8 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
         else throw new Error("Bundled macOS computer helper is missing")
       }
     }
+    const timeoutSignal = AbortSignal.timeout(input.action === "batch" ? 25_000 : 18_000)
+    const operationSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
     const result = await Effect.runPromise(
       AppProcess.Service.use((processService) =>
         processService.run(
@@ -233,10 +266,13 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
             env: { mode: "inherit-allowlist" },
             output: "capture",
           },
-          { signal, maxOutputBytes: 2 * 1024 * 1024, maxErrorBytes: 64 * 1024 },
+          { signal: operationSignal, maxOutputBytes: 2 * 1024 * 1024, maxErrorBytes: 64 * 1024 },
         ),
       ).pipe(Effect.provide(AppProcess.defaultLayer)),
-    )
+    ).catch((error: unknown) => {
+      if (timeoutSignal.aborted) throw new Error("Computer operation timed out")
+      throw error
+    })
     if (signal?.aborted) throw new Error("Computer operation interrupted")
     if (result.exitCode !== 0) throw new Error(result.stderr.toString("utf8").trim() || `Computer helper exited with ${result.exitCode}`)
     if (result.stdoutTruncated) throw new Error("Computer helper observation exceeded the output limit")
@@ -244,7 +280,10 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
     if (!observation.screen || !Array.isArray(observation.elements)) throw new Error("Computer helper returned invalid observation")
     const png = await readFile(imagePath)
     if (png.length === 0) throw new Error("Computer helper returned an empty screenshot")
-    return { observation, png }
+    const rawPng = rawImagePath ? await readFile(rawImagePath) : undefined
+    observation.frameID = randomUUID()
+    observation.capturedAt = capturedAt
+    return { observation, png, rawPng }
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

@@ -832,6 +832,23 @@ const scenarios: Scenario[] = [
       check(body === true, "log route should return true")
     }),
   http.protected
+    .get("/auth/{providerID}", "auth.status")
+    .global()
+    .seeded(() =>
+      Effect.promise(() =>
+        Bun.write(
+          path.join(exerciseDataDirectory, "auth.json"),
+          JSON.stringify({ "typesafe-jev": { type: "api", key: "secret-jev-key" } }),
+        ),
+      ),
+    )
+    .at(() => ({ path: route("/auth/{providerID}", { providerID: "typesafe-jev" }) }))
+    .json(200, (body) => {
+      object(body)
+      check(body.active === true, "Jev auth status should report an active key")
+      check(!JSON.stringify(body).includes("secret-jev-key"), "auth status must not expose the key")
+    }),
+  http.protected
     .put("/auth/{providerID}", "auth.set")
     .global()
     .at(() => ({ path: route("/auth/{providerID}", { providerID: "test" }), body: { type: "api", key: "test-key" } }))

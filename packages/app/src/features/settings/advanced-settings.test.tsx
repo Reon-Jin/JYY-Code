@@ -11,6 +11,7 @@ import { AdvancedSettings } from "./advanced-settings"
 
 function management(shell = "cmd", directory = "C:\\Users\\dev", config = "C:\\Users\\dev\\.config\\jyycode") {
   const client = {
+    auth: { status: vi.fn(async () => ({ data: { active: false } })) },
     global: {
       config: {
         get: vi.fn(async () => ({ data: { shell } })),

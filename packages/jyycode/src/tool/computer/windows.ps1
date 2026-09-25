@@ -24,6 +24,8 @@ public static class JyyComputerNative {
   [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT point);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern IntPtr MonitorFromPoint(POINT point, uint flags);
+  [DllImport("shcore.dll")] public static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr window, StringBuilder title, int capacity);
   [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint count, INPUT[] inputs, int size);
   public static void SendKey(byte vk, bool up) {
@@ -55,6 +57,14 @@ public static class JyyComputerNative {
       if (SendInput(2, new INPUT[] {down, up}, Marshal.SizeOf(typeof(INPUT))) != 2)
         throw new InvalidOperationException("SendInput could not type into the foreground application");
     }
+  }
+  public static int GetEffectiveDpi(int x, int y) {
+    try {
+      POINT point = new POINT(); point.X = x; point.Y = y;
+      IntPtr monitor = MonitorFromPoint(point, 2);
+      uint dpiX, dpiY;
+      return monitor != IntPtr.Zero && GetDpiForMonitor(monitor, 0, out dpiX, out dpiY) == 0 ? (int)dpiX : 96;
+    } catch { return 96; }
   }
 }
 '@
@@ -106,12 +116,43 @@ function Assert-Window($step) {
   }
 }
 
+function Assert-Target($step) {
+  if (-not $step.expectTarget) { return }
+  $expected = $step.expectTarget
+  if ($null -eq $step.x -or $null -eq $step.y) { throw 'Target guard requires a coordinate' }
+  $point = [System.Windows.Point]::new([double]$step.x, [double]$step.y)
+  try { $hit = [System.Windows.Automation.AutomationElement]::FromPoint($point) }
+  catch { throw 'Target at coordinate could not be verified' }
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  for ($depth = 0; $depth -lt 12 -and $null -ne $hit; $depth++) {
+    try {
+      $current = $hit.Current
+      $rect = $current.BoundingRectangle
+      $matchIdentity = if ($expected.automationId) {
+        [string]$current.AutomationId -eq [string]$expected.automationId
+      } elseif ($expected.name) {
+        [string]$current.Name -eq [string]$expected.name
+      } else {
+        [string]$current.ControlType.ProgrammaticName -match [string]$expected.kind
+      }
+      $matchBox = [Math]::Abs($rect.Left - [double]$expected.x) -le 5 -and
+        [Math]::Abs($rect.Top - [double]$expected.y) -le 5 -and
+        [Math]::Abs($rect.Width - [double]$expected.width) -le 8 -and
+        [Math]::Abs($rect.Height - [double]$expected.height) -le 8
+      if ($matchIdentity -and $matchBox -and $current.IsEnabled -and -not $current.IsOffscreen) { return }
+      $hit = $walker.GetParent($hit)
+    } catch { break }
+  }
+  throw 'Target at coordinate changed or is covered; observe again'
+}
+
 function Perform-Action($step) {
 switch ([string]$step.action) {
   observe { }
   move { MoveTo $step.x $step.y }
   click {
     Assert-Window $step
+    Assert-Target $step
     if ($null -ne $step.x -and $null -ne $step.y) { MoveTo $step.x $step.y }
     $button = [string]$step.button
     if (-not $button) { $button = 'left' }
@@ -125,6 +166,7 @@ switch ([string]$step.action) {
   }
   scroll {
     Assert-Window $step
+    Assert-Target $step
     if ($null -ne $step.x -and $null -ne $step.y) { MoveTo $step.x $step.y }
     $amount = [int]$step.amount * 120
     $flag = if ($step.direction -eq 'left' -or $step.direction -eq 'right') { 0x1000 } else { 0x0800 }
@@ -133,6 +175,7 @@ switch ([string]$step.action) {
     [JyyComputerNative]::SendMouse([uint32]$flag, $wheelData)
   }
   key {
+    Assert-Window $step
     $parts = @(([string]$step.keys).Split('+') | ForEach-Object { $_.Trim() })
     $codes = @($parts | ForEach-Object { KeyCode $_ })
     $pressed = New-Object System.Collections.ArrayList
@@ -143,9 +186,13 @@ switch ([string]$step.action) {
       foreach ($code in $pressed) { PressKey $code $true }
     }
   }
-  type { [JyyComputerNative]::TypeText([string]$step.text) }
+  type {
+    Assert-Window $step
+    [JyyComputerNative]::TypeText([string]$step.text)
+  }
   drag {
     Assert-Window $step
+    Assert-Target $step
     if ($step.points) {
       $first = $step.points[0]
       MoveTo $first.x $first.y
@@ -209,6 +256,7 @@ $bitmap = New-Object System.Drawing.Bitmap($width, $height)
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 try { $graphics.CopyFromScreen($screen.Left, $screen.Top, 0, 0, $bitmap.Size) }
 finally { $graphics.Dispose() }
+if ($inputData.rawImagePath) { $bitmap.Save([string]$inputData.rawImagePath, [System.Drawing.Imaging.ImageFormat]::Png) }
 
 $elements = New-Object System.Collections.ArrayList
 $handle = [JyyComputerNative]::GetForegroundWindow()
@@ -235,7 +283,10 @@ if ($inputData.includeElements) {
     $queue = New-Object System.Collections.Queue
     $queue.Enqueue(@($root, 0))
     $visited = 0
-    while ($queue.Count -gt 0 -and $elements.Count -lt 160 -and $visited -lt 800) {
+    # UI Automation providers are cross-process and can be arbitrarily slow.
+    # Keep the element map useful without making every observation wait for a full tree.
+    $scanClock = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($queue.Count -gt 0 -and $elements.Count -lt 160 -and $visited -lt 800 -and $scanClock.ElapsedMilliseconds -lt 2500) {
     $entry = $queue.Dequeue()
     $element = $entry[0]
     $depth = [int]$entry[1]
@@ -312,9 +363,16 @@ try {
 }
 $point = New-Object JyyComputerNative+POINT
 [void][JyyComputerNative]::GetCursorPos([ref]$point)
+$monitors = @([System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
+  $bounds = $_.Bounds
+  $dpi = [JyyComputerNative]::GetEffectiveDpi([int]($bounds.Left + $bounds.Width / 2), [int]($bounds.Top + $bounds.Height / 2))
+  @{ id = $_.DeviceName; bounds = @{ x = $bounds.Left; y = $bounds.Top; width = $bounds.Width; height = $bounds.Height }; dpiX = $dpi; dpiY = $dpi }
+})
 @{
   screen = @{ x = $screen.Left; y = $screen.Top; width = $width; height = $height }
   image = @{ width = $imageWidth; height = $imageHeight }
+  rawImage = @{ width = $width; height = $height }
+  monitors = $monitors
   cursor = @{ x = $point.X; y = $point.Y }
   window = $windowName
   windowID = $handle.ToInt64().ToString()

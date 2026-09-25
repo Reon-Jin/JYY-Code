@@ -89,6 +89,17 @@ export type Event =
   | EventCatalogModelUpdated
   | EventModelsDevRefreshed
 
+export type EffectHttpApiErrorBadRequest = {
+  _tag: "BadRequest"
+}
+
+export type InvalidRequestError = {
+  _tag: "InvalidRequestError"
+  message: string
+  kind?: string
+  field?: string
+}
+
 export type OAuth = {
   type: "oauth"
   refresh: string
@@ -113,17 +124,6 @@ export type WellKnownAuth = {
 }
 
 export type Auth = OAuth | ApiAuth | WellKnownAuth
-
-export type EffectHttpApiErrorBadRequest = {
-  _tag: "BadRequest"
-}
-
-export type InvalidRequestError = {
-  _tag: "InvalidRequestError"
-  message: string
-  kind?: string
-  field?: string
-}
 
 export type EventTuiPromptAppend = {
   id: string
@@ -4812,6 +4812,35 @@ export type AuthRemoveResponses = {
 }
 
 export type AuthRemoveResponse = AuthRemoveResponses[keyof AuthRemoveResponses]
+
+export type AuthStatusData = {
+  body?: never
+  path: {
+    providerID: string
+  }
+  query?: never
+  url: "/auth/{providerID}"
+}
+
+export type AuthStatusErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+}
+
+export type AuthStatusError = AuthStatusErrors[keyof AuthStatusErrors]
+
+export type AuthStatusResponses = {
+  /**
+   * Whether credentials are configured; never includes the secret
+   */
+  200: {
+    active: boolean
+  }
+}
+
+export type AuthStatusResponse = AuthStatusResponses[keyof AuthStatusResponses]
 
 export type AuthSetData = {
   body?: Auth

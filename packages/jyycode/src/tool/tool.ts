@@ -87,7 +87,7 @@ export type Context<M extends Metadata = Metadata> = {
   extra?: { [key: string]: unknown }
   messages: MessageV2.WithParts[]
   metadata(input: { title?: string; metadata?: M }): Effect.Effect<void>
-  ask(input: Omit<Permission.Request, "id" | "sessionID" | "tool">): Effect.Effect<void>
+  ask(input: Omit<Permission.Request, "id" | "sessionID" | "tool"> & { timeoutMs?: number }): Effect.Effect<void>
 }
 
 export interface ExecuteResult<M extends Metadata = Metadata> {

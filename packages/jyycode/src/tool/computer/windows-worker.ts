@@ -8,6 +8,7 @@ import type * as PlatformError from "effect/PlatformError"
 import { AppProcess } from "@jyycode-ai/core/process"
 import windowsScript from "./windows.ps1" with { type: "file" }
 import type { Action, Observation } from "./native"
+import { createComputerQueue } from "./queue"
 
 type Reply = Observation | { error: string }
 
@@ -84,6 +85,7 @@ async function start(): Promise<Worker> {
       fail(reason)
       lines.close()
       stdin.end()
+      try { process.kill(Number(spawned.handle.pid)) } catch { /* already exited */ }
       process.removeListener("exit", onExit)
       closing = (async () => {
         await Effect.runPromise(Scope.close(spawned.processScope, Exit.void)).catch(() => undefined)
@@ -99,10 +101,10 @@ async function start(): Promise<Worker> {
     try {
       await Promise.race([
         ready,
-        new Promise<never>((_, reject) => { startupTimer = setTimeout(() => reject(new Error("Computer helper startup timed out")), 15_000) }),
+        new Promise<never>((_, reject) => { startupTimer = setTimeout(() => reject(new Error("Computer helper startup timed out")), 10_000) }),
       ])
     }
-    catch (error) { await close(); throw error }
+    catch (error) { void close(); throw error }
     finally { clearTimeout(startupTimer) }
     return {
       request: (input, image, signal) => new Promise<Observation>((resolve, reject) => {
@@ -111,7 +113,8 @@ async function start(): Promise<Worker> {
         if (signal?.aborted) { reject(new Error("Computer operation interrupted")); return }
         const abort = () => { void close(new Error("Computer operation interrupted")) }
         signal?.addEventListener("abort", abort, { once: true })
-        const timeout = setTimeout(() => { void close(new Error("Computer operation timed out")) }, 30_000)
+        const timeoutMs = input.action === "batch" ? 25_000 : input.includeElements ? 18_000 : 12_000
+        const timeout = setTimeout(() => { void close(new Error(`Computer operation timed out after ${timeoutMs}ms`)) }, timeoutMs)
         pending = {
           resolve: (value) => { clearTimeout(timeout); signal?.removeEventListener("abort", abort); resolve(value) },
           reject: (error) => { clearTimeout(timeout); signal?.removeEventListener("abort", abort); reject(error) },
@@ -123,27 +126,26 @@ async function start(): Promise<Worker> {
       isClosed: () => closed,
     }
   } catch (error) {
-    if (scope) await Effect.runPromise(Scope.close(scope, Exit.void)).catch(() => undefined)
-    await rm(dir, { recursive: true, force: true })
+    if (scope) void Effect.runPromise(Scope.close(scope, Exit.void)).catch(() => undefined)
+    void rm(dir, { recursive: true, force: true }).catch(() => undefined)
     throw error
   }
 }
 
 let shared: Promise<Worker> | undefined
-let tail: Promise<unknown> = Promise.resolve()
+const queue = createComputerQueue()
 
 export function runWindows(input: Action, image: string, signal?: AbortSignal) {
   const run = async () => {
     const worker = await (shared ??= start().catch((error) => { shared = undefined; throw error }))
+    if (signal?.aborted) throw new Error("Computer operation interrupted")
     try { return await worker.request(input, image, signal) }
     catch (error) {
-      if (worker.isClosed()) await worker.close()
+      if (worker.isClosed()) void worker.close()
       throw error
     }
   }
-  const current = tail.then(run, run)
-  tail = current.catch(() => undefined)
-  return current
+  return queue(run, signal)
 }
 
 export async function stopWindows() {

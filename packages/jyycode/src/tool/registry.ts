@@ -57,6 +57,7 @@ import { ToolTelemetry } from "./telemetry"
 import { PlanProtocolTools } from "@/plan/tools"
 import { GoalTool } from "./goal"
 import { ComputerTool } from "./computer"
+import { Auth } from "@/auth"
 import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
 import {
   identifyTool,
@@ -193,7 +194,7 @@ export const layer: Layer.Layer<
     const greptool = yield* GrepTool
     const skilltool = yield* SkillTool
     const goal = yield* GoalTool
-    const computer = flags.client === "desktop" ? yield* ComputerTool : undefined
+    const computer = flags.client === "desktop" ? yield* ComputerTool.pipe(Effect.provide(Auth.defaultLayer)) : undefined
     const memory = Option.getOrUndefined(yield* Effect.serviceOption(Memory.Service))
     const memtool = memory ? yield* MemoryTool.pipe(Effect.provideService(Memory.Service, memory)) : undefined
     const episodic = Option.getOrUndefined(yield* Effect.serviceOption(EpisodicMemory.Service))

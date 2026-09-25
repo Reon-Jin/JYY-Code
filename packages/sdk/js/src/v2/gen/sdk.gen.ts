@@ -15,6 +15,8 @@ import type {
   AuthRemoveResponses,
   AuthSetErrors,
   AuthSetResponses,
+  AuthStatusErrors,
+  AuthStatusResponses,
   CommandListErrors,
   CommandListResponses,
   Config as Config4,
@@ -448,6 +450,25 @@ export class Auth extends HeyApiClient {
   ) {
     const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "providerID" }] }])
     return (options?.client ?? this.client).delete<AuthRemoveResponses, AuthRemoveErrors, ThrowOnError>({
+      url: "/auth/{providerID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get auth status
+   *
+   * Report whether credentials are configured without revealing them
+   */
+  public status<ThrowOnError extends boolean = false>(
+    parameters: {
+      providerID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "providerID" }] }])
+    return (options?.client ?? this.client).get<AuthStatusResponses, AuthStatusErrors, ThrowOnError>({
       url: "/auth/{providerID}",
       ...options,
       ...params,

@@ -35,6 +35,17 @@ export const ControlPaths = {
 export const ControlApi = HttpApi.make("control").add(
   HttpApiGroup.make("control")
     .add(
+      HttpApiEndpoint.get("authStatus", ControlPaths.auth, {
+        params: AuthParams,
+        success: described(Schema.Struct({ active: Schema.Boolean }), "Whether credentials are configured; never includes the secret"),
+        error: HttpApiError.BadRequest,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "auth.status",
+          summary: "Get auth status",
+          description: "Report whether credentials are configured without revealing them",
+        }),
+      ),
       HttpApiEndpoint.put("authSet", ControlPaths.auth, {
         params: AuthParams,
         payload: Auth.Info,
