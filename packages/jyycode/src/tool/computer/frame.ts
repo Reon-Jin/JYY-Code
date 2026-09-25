@@ -1,4 +1,5 @@
 /** Geometry and identity of a single screenshot. All visual targets use raw pixels. */
+import type { Observation } from "./native"
 export type Point = { x: number; y: number }
 export type Size = { width: number; height: number }
 export type Rect = Point & Size
@@ -92,6 +93,33 @@ export function imagePointToTile(frame: Frame, tile: Tile, point: Point): Point 
     x: Math.min(tile.imageWidth - 1, Math.round((point.x - tile.x) * tile.imageWidth / tile.width)),
     y: Math.min(tile.imageHeight - 1, Math.round((point.y - tile.y) * tile.imageHeight / tile.height)),
   }
+}
+
+/** Keeps only the latest observation for each Desktop session. */
+export class FrameStore {
+  private readonly entries = new Map<string, Observation>()
+
+  constructor(private readonly capacity = 32) {
+    if (!Number.isSafeInteger(capacity) || capacity < 1) throw new Error("FrameStore capacity must be positive")
+  }
+
+  get(sessionID: string) {
+    const frame = this.entries.get(sessionID)
+    if (frame) {
+      this.entries.delete(sessionID)
+      this.entries.set(sessionID, frame)
+    }
+    return frame
+  }
+
+  remember(sessionID: string, observation: Observation) {
+    if (!sessionID || !observation.frameID) throw new Error("Cannot remember an unversioned computer frame")
+    this.entries.delete(sessionID)
+    this.entries.set(sessionID, observation)
+    while (this.entries.size > this.capacity) this.entries.delete(this.entries.keys().next().value!)
+  }
+
+  forget(sessionID: string) { this.entries.delete(sessionID) }
 }
 
 export * as ComputerFrame from "./frame"

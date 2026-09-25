@@ -82,6 +82,10 @@ function regionFromIntent(frame: VisualFrame, intent: string): Rect | undefined 
   return { x: right ? frame.width - width : 0, y: bottom ? frame.height - height : 0, width, height }
 }
 
+function hasExplicitPosition(intent: string) {
+  return /右上|右下|左上|左下|右侧|左侧|顶部|底部|上方|下方|中央|中心|top|bottom|left|right|center|第[一二三四五六七八九十\d]+个/i.test(intent)
+}
+
 export function candidateToNative(candidate: ActionCandidate, frame: Frame): Action {
   if (candidate.frameID !== frame.id) throw new Error("Candidate belongs to an old frame")
   const expectWindow = frame.foregroundWindow.id
@@ -193,6 +197,8 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
   if (decision.status !== "selected") return fallback(decision.reason)
   const selected = candidates.items.find((item) => item.id === decision.candidate.id && item.frameID === frame.id)
   if (!selected) return fallback("invalid_candidate")
+  // Jev sees JSON rather than pixels. A nameless icon cannot be matched to a semantic intent from coordinates alone.
+  if (!selected.label && !hasExplicitPosition(input.intent)) return fallback("unlabeled_target")
   const action = candidateToNative(selected, frame)
   const nativeTargetGuard = process.platform === "win32" && selected.sources?.includes("uia") &&
     action.action !== "key" && (action.action !== "batch" || action.steps[0]?.expectTarget)

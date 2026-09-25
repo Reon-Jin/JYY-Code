@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   createFrame,
   desktopPointToImage,
+  FrameStore,
   imagePointToDesktop,
   imagePointToTile,
   tilePointToImage,
@@ -14,6 +15,20 @@ const screens = [
 ] as const
 
 describe("computer frame geometry", () => {
+  test("keeps the latest frame per session and evicts old sessions", () => {
+    const store = new FrameStore(2)
+    const observation = (frameID: string) => ({
+      frameID, screen: { x: 0, y: 0, width: 100, height: 100 }, image: { width: 100, height: 100 },
+      cursor: { x: 0, y: 0 }, window: "Synthetic", elements: [],
+    })
+    store.remember("a", observation("a1"))
+    store.remember("b", observation("b1"))
+    expect(store.get("a")?.frameID).toBe("a1")
+    store.remember("c", observation("c1"))
+    expect(store.get("b")).toBeUndefined()
+    store.remember("a", observation("a2"))
+    expect(store.get("a")?.frameID).toBe("a2")
+  })
   for (const fixture of screens) {
     test(`maps raw pixels to desktop and back on ${fixture.name}`, () => {
       const frame = createFrame({

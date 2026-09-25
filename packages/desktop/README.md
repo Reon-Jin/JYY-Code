@@ -73,17 +73,32 @@ same `paper` color system from the shared `@jyycode-ai/design-tokens` package: D
 
 In a Desktop root Session with Multi-Agent switched off, ask the Agent explicitly to operate the computer. The `computer`
 tool first requests the existing `computer` permission, then observes the screen or sends a mouse/keyboard action. Its
-result contains a fresh annotated screenshot, foreground accessibility controls with screen rectangles and centers,
-the active window title, cursor position, and virtual-display bounds. Each action returns a new observation. The tool
-supports cursor movement, left/right/middle click, double click, drag, vertical/horizontal wheel scrolling, key
-combinations, and literal text entry. Element numbers describe only the current observation.
+result contains a fresh **clean** screenshot, active-window title, cursor position, and virtual-display bounds. `observe`
+and element-targeted clicks also include the foreground accessibility controls; set `annotate=true` to draw element
+numbers on the screenshot. Each action returns a new observation. The tool supports cursor movement, left/right/middle
+click, double click, drag, vertical/horizontal wheel scrolling, key combinations, and literal text entry. Element numbers
+describe only the current observation.
 
 Windows uses UI Automation, GDI screen capture, and Win32 input. macOS uses Accessibility and Quartz through a bundled
 helper; grant that helper Accessibility and Screen Recording access in System Settings when macOS requests it. The
-coordinates in the tool result match the platform's native desktop coordinates: physical pixels on Windows and Quartz
+coordinates in the tool result are **screenshot pixels**; the host maps them to physical pixels on Windows or Quartz
 display points on macOS. The tool is absent from Multi-Agent, child Agent, and non-Desktop sessions. Screen contents
 and accessibility labels are untrusted data, and screenshots exist only in the tool result after temporary capture files
 are removed.
+
+Experimental `action=choose` is enabled by `JYYCODE_EXPERIMENTAL_COMPUTER_JEV=true`. It observes a raw-resolution frame,
+grounds a single visible action to a closed set of action-and-coordinate candidates, asks TypeSafe Jev to choose one,
+checks the current window and frame before input, then returns a fresh screenshot. Configure `TYPESAFE_API_KEY` for Jev.
+To include local visual detection, provision the MIT-licensed OmniParser `icon_detect_v3/model.pt` outside the repository
+and set `JYYCODE_COMPUTER_VISION_MODEL` to its absolute path; the Python environment must have PyTorch, torchvision,
+NumPy and Pillow. EasyOCR can optionally add labels when installed with its cached Chinese/English weights. Missing
+credentials, detector startup, uncertain targets, or a changed frame return `needs_vision` with a screenshot so the
+image-capable main model can use the direct computer actions. The experimental mode remains off until real desktop
+accuracy and latency meet the benchmarks in the [implementation plan](../../docs/plans/2026-09-25-computer-control-visual-jev.md).
+The tested weight revision is `f55d0750e5b94db2125ef0b45b0fa4a85ddc59b4`, SHA-256
+`11c6cbb77f22569fab22d86c76407a83ec81ab89dbfe28279854822d6e3fb00c`. A 16-target public screenshot pilot
+covered 7/16 targets with fast whole-screen detection and 15/16 with slower tiling; it does not establish production
+accuracy or end-to-end latency.
 
 ## Home, Skill, and MCP management
 

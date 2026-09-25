@@ -90,9 +90,24 @@ describe("grounded desktop action execution", () => {
     const parser = { health: async () => ({ ready: true }), close: async () => undefined,
       parse: async (visualFrame: { id: string }) => ({ frameID: visualFrame.id,
         boxes: [{ x: 100, y: 60, width: 100, height: 40, confidence: 0.9, source: "detector" as const }], inferMs: 1, totalMs: 1 }) }
-    const result = await runChoose({ intent: "点击保存", allowedActions: ["click"] }, undefined, { native, select: selected, parser })
+    const result = await runChoose({ intent: "点击左上角图标", allowedActions: ["click"] }, undefined, { native, select: selected, parser })
     expect(result).toMatchObject({ status: "needs_vision", reasonCode: "stale_frame" })
     expect(actions.map((action) => action.action)).toEqual(["observe", "observe"])
+  })
+
+  test("does not click an unlabeled detector box for a semantic intent Jev cannot see", async () => {
+    const actions: Action[] = []
+    const native = (async (action: Action) => {
+      actions.push(action)
+      return { observation: { ...observation(`f${actions.length}`), elements: [] },
+        png: Buffer.from([1]), rawPng: Buffer.from([1]) }
+    }) as typeof import("@/tool/computer/native").runNative
+    const parser = { health: async () => ({ ready: true }), close: async () => undefined,
+      parse: async (visualFrame: { id: string }) => ({ frameID: visualFrame.id,
+        boxes: [{ x: 100, y: 60, width: 100, height: 40, confidence: 0.9, source: "detector" as const }], inferMs: 1, totalMs: 1 }) }
+    const result = await runChoose({ intent: "点击保存图标", allowedActions: ["click"] }, undefined, { native, parser, select: selected })
+    expect(result).toMatchObject({ status: "needs_vision", reasonCode: "unlabeled_target" })
+    expect(actions.map((action) => action.action)).toEqual(["observe"])
   })
 
   test("uses the host-owned candidate even if a selector returns mutated coordinates", async () => {

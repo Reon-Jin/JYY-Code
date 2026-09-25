@@ -43,7 +43,7 @@ describe("local visual parser", () => {
       "print(json.dumps({'ready': True, 'device': 'fake', 'loadMs': 1}), flush=True)",
       "for line in sys.stdin:",
       "    request = json.loads(line)",
-      "    if request['id'].startswith('crash:'): sys.exit(2)",
+      "    if request['id'].startswith('crash'): sys.exit(2)",
       "    print(json.dumps({'id': request['id'], 'boxes': [{'x': 3, 'y': 4, 'width': 10, 'height': 11, 'confidence': 0.9}], 'inferMs': 1}), flush=True)",
     ].join("\n"))
     const parser = new LocalVisualParser({ modelPath: weight, workerScriptPath: script, timeoutMs: 1000 })
