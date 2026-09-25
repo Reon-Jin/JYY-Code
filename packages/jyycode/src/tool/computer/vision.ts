@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import path from "node:path"
 import workerAsset from "./vision-worker.py" with { type: "file" }
 import type { Rect } from "./frame"
@@ -17,6 +17,15 @@ export interface VisualParser {
 
 export class VisionUnavailableError extends Error {
   readonly code = "vision_unavailable"
+}
+
+/** Prefer an explicit weight, then the pinned OmniParser revision already present in the HF cache. */
+export function configuredVisualModel(env: NodeJS.ProcessEnv = process.env, home = homedir()) {
+  if (env.JYYCODE_COMPUTER_VISION_MODEL) return env.JYYCODE_COMPUTER_VISION_MODEL
+  const hub = env.HF_HOME ? path.join(env.HF_HOME, "hub") : path.join(home, ".cache", "huggingface", "hub")
+  const cached = path.join(hub, "models--microsoft--OmniParser-v2.0", "snapshots",
+    "f55d0750e5b94db2125ef0b45b0fa4a85ddc59b4", "icon_detect_v3", "model.pt")
+  return existsSync(cached) ? cached : undefined
 }
 
 export function imageTiles(width: number, height: number, tileSize = 1280, overlap = 128): Rect[] {
@@ -82,7 +91,7 @@ export class LocalVisualParser implements VisualParser {
   constructor(private readonly options: { modelPath?: string; python?: string; device?: "cpu" | "cuda"; timeoutMs?: number; workerScriptPath?: string } = {}) {}
   isReady() { return !!this.worker && !this.worker.isClosed() }
 
-  private modelPath() { return this.options.modelPath ?? process.env.JYYCODE_COMPUTER_VISION_MODEL }
+  private modelPath() { return this.options.modelPath ?? configuredVisualModel() }
 
   async health() {
     if (!this.modelPath() || !existsSync(this.modelPath()!)) return { ready: false, reason: "model weight is not configured" }

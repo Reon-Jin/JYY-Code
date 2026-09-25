@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { tmpdir } from "../fixture/fixture"
-import { imageTiles, LocalVisualParser, normalizeVisualBoxes, parseTiled, type VisualParser, VisionUnavailableError } from "@/tool/computer/vision"
+import { configuredVisualModel, imageTiles, LocalVisualParser, normalizeVisualBoxes, parseTiled, type VisualParser, VisionUnavailableError } from "@/tool/computer/vision"
 import { fuseTargets } from "@/tool/computer/fuse"
 import { buildCandidates } from "@/tool/computer/candidate"
 import { createFrame } from "@/tool/computer/frame"
@@ -17,6 +17,16 @@ const frame = createFrame({
 })
 
 describe("local visual parser", () => {
+  test("finds an already cached pinned model unless an explicit path is set", async () => {
+    await using tmp = await tmpdir()
+    const model = path.join(tmp.path, "hub", "models--microsoft--OmniParser-v2.0", "snapshots",
+      "f55d0750e5b94db2125ef0b45b0fa4a85ddc59b4", "icon_detect_v3", "model.pt")
+    await mkdir(path.dirname(model), { recursive: true })
+    await writeFile(model, "weight")
+    expect(configuredVisualModel({ HF_HOME: tmp.path }, tmp.path)).toBe(model)
+    expect(configuredVisualModel({ JYYCODE_COMPUTER_VISION_MODEL: "custom.pt", HF_HOME: tmp.path }, tmp.path)).toBe("custom.pt")
+  })
+
   test("reports unavailable promptly when model weight is absent", async () => {
     const parser = new LocalVisualParser({ modelPath: path.join(process.cwd(), "missing-model.pt") })
     expect(await parser.health()).toEqual({ ready: false, reason: "model weight is not configured" })

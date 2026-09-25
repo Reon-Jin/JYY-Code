@@ -3,11 +3,12 @@ import { createFrame, imagePointToDesktop, type Frame, type Rect } from "./frame
 import { fuseTargets, type OCRToken, type VisualTarget } from "./fuse"
 import { selectJev, type JevDecision } from "./jev"
 import { runNative, type Action, type Observation, type Step } from "./native"
-import { LocalVisualParser, parseTiled, type VisualBox, type VisualFrame, type VisualParser } from "./vision"
+import { configuredVisualModel, LocalVisualParser, parseTiled, type VisualBox, type VisualFrame, type VisualParser } from "./vision"
 import { LocalOCRParser } from "./ocr"
 
 export type ChooseInput = {
   intent: string
+  apiKey?: string
   literalText?: string
   keys?: string
   allowedActions?: readonly CandidateAction[]
@@ -34,7 +35,7 @@ const localOCR = new LocalOCRParser()
 
 /** Start GPU model loading in the background when Desktop enables computer control. */
 export function prewarmComputerVision() {
-  if (process.env.JYYCODE_COMPUTER_VISION_MODEL) {
+  if (configuredVisualModel()) {
     void localParser.health()
     void localOCR.health()
   }
@@ -169,7 +170,7 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
     allowedActions: input.allowedActions ?? ["click", "double_click", "right_click", "scroll", "type", "key", "drag"],
     literalText: input.literalText, keys: input.keys, sourceTruncated: fusion.truncated,
   })
-  let decision: JevDecision = await select({ intent: input.intent, window: frame.foregroundWindow.title, candidates, signal })
+  let decision: JevDecision = await select({ intent: input.intent, window: frame.foregroundWindow.title, candidates, apiKey: input.apiKey, signal })
   if (decision.status === "needs_vision" && ["abstained", "low_confidence", "no_candidates"].includes(decision.reason) &&
     visualFrame && ocrProvider) {
     try { ocrTokens = await ocrProvider(visualFrame, signal, regionFromIntent(visualFrame, input.intent)) }
@@ -180,7 +181,7 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
       candidates = buildCandidates({ frame, intent: input.intent, targets: fusion.targets,
         allowedActions: input.allowedActions ?? ["click", "double_click", "right_click", "scroll", "type", "key", "drag"],
         literalText: input.literalText, keys: input.keys, sourceTruncated: fusion.truncated })
-      decision = await select({ intent: input.intent, window: frame.foregroundWindow.title, candidates, signal })
+      decision = await select({ intent: input.intent, window: frame.foregroundWindow.title, candidates, apiKey: input.apiKey, signal })
     }
   }
   if (decision.status === "needs_vision" && ["abstained", "low_confidence", "no_candidates"].includes(decision.reason) &&
@@ -192,7 +193,7 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
       candidates = buildCandidates({ frame, intent: input.intent, targets: fusion.targets,
         allowedActions: input.allowedActions ?? ["click", "double_click", "right_click", "scroll", "type", "key", "drag"],
         literalText: input.literalText, keys: input.keys, sourceTruncated: fusion.truncated })
-      decision = await select({ intent: input.intent, window: frame.foregroundWindow.title, candidates, signal })
+      decision = await select({ intent: input.intent, window: frame.foregroundWindow.title, candidates, apiKey: input.apiKey, signal })
     } catch { return fallback("vision_unavailable") }
   }
   if (decision.status !== "selected") return fallback(decision.reason)

@@ -6,6 +6,7 @@ import path from "node:path"
 import { Effect } from "effect"
 import { AppProcess } from "@jyycode-ai/core/process"
 import { runWindows } from "./windows-worker"
+import { createComputerQueue } from "./queue"
 import { imagePointToDesktop, type Monitor } from "./frame"
 
 export type Step = {
@@ -178,7 +179,21 @@ export function toDesktopAction(input: Action, frame: Observation): Action {
     if (!target) throw new Error(`Element #${input.element} is not in the latest observation; observe again`)
     if (!target.enabled) throw new Error(`Element #${input.element} is disabled`)
     const { element, ...rest } = input
-    return { ...rest, x: Math.round(target.x + target.width / 2), y: Math.round(target.y + target.height / 2), expectWindow: frame.windowID }
+    return {
+      ...rest,
+      x: Math.round(target.x + target.width / 2),
+      y: Math.round(target.y + target.height / 2),
+      expectWindow: frame.windowID,
+      expectTarget: {
+        name: target.name,
+        automationId: target.automationId,
+        kind: target.role,
+        x: target.x,
+        y: target.y,
+        width: target.width,
+        height: target.height,
+      },
+    }
   }
   const guarded = (input.action === "click" || input.action === "scroll") && frame.windowID
     ? { ...input, expectWindow: frame.windowID }
@@ -187,14 +202,8 @@ export function toDesktopAction(input: Action, frame: Observation): Action {
   return { ...guarded, ...point(input.x, input.y) }
 }
 
-let tail: Promise<unknown> = Promise.resolve()
-
 /** OS input and observation are one transaction. Parallel tool calls must not interleave. */
-export function runExclusive<T>(work: () => Promise<T>): Promise<T> {
-  const current = tail.then(work, work)
-  tail = current.catch(() => undefined)
-  return current
-}
+export const runExclusive = createComputerQueue()
 
 export function shouldIncludeElements(input: Action) {
   const targeted = input.action === "batch"
@@ -246,6 +255,8 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
         else throw new Error("Bundled macOS computer helper is missing")
       }
     }
+    const timeoutSignal = AbortSignal.timeout(input.action === "batch" ? 25_000 : 18_000)
+    const operationSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
     const result = await Effect.runPromise(
       AppProcess.Service.use((processService) =>
         processService.run(
@@ -255,10 +266,13 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
             env: { mode: "inherit-allowlist" },
             output: "capture",
           },
-          { signal, maxOutputBytes: 2 * 1024 * 1024, maxErrorBytes: 64 * 1024 },
+          { signal: operationSignal, maxOutputBytes: 2 * 1024 * 1024, maxErrorBytes: 64 * 1024 },
         ),
       ).pipe(Effect.provide(AppProcess.defaultLayer)),
-    )
+    ).catch((error: unknown) => {
+      if (timeoutSignal.aborted) throw new Error("Computer operation timed out")
+      throw error
+    })
     if (signal?.aborted) throw new Error("Computer operation interrupted")
     if (result.exitCode !== 0) throw new Error(result.stderr.toString("utf8").trim() || `Computer helper exited with ${result.exitCode}`)
     if (result.stdoutTruncated) throw new Error("Computer helper observation exceeded the output limit")

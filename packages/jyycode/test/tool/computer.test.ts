@@ -1,8 +1,36 @@
 import { describe, expect, test } from "bun:test"
 import { available } from "@/tool/computer"
 import { formatObservation, runExclusive, shouldIncludeElements, toDesktopAction, validateAction } from "@/tool/computer/native"
+import { assertComputerAction, computerMode, jevApiKey } from "@/tool/computer/mode"
+import { createComputerQueue } from "@/tool/computer/queue"
 
 describe("computer control boundary", () => {
+  test("switches from a stored Jev key and never treats an empty key as active", () => {
+    expect(computerMode(undefined)).toBe("legacy")
+    expect(computerMode({ type: "api", key: "  " })).toBe("legacy")
+    expect(computerMode({ type: "api", key: "secret" })).toBe("jev")
+    expect(jevApiKey({ type: "api", key: " secret " })).toBe("secret")
+    expect(() => assertComputerAction("secret", "click")).toThrow("Jev mode is active")
+    expect(() => assertComputerAction("secret", "batch")).toThrow("Jev mode is active")
+    expect(() => assertComputerAction("secret", "choose")).not.toThrow()
+    expect(() => assertComputerAction(undefined, "choose")).toThrow("Jev API is not active")
+    expect(() => assertComputerAction(undefined, "click")).not.toThrow()
+  })
+
+  test("cancels a waiting desktop request without running it", async () => {
+    const enqueue = createComputerQueue()
+    let release!: () => void
+    const first = enqueue(() => new Promise<void>((resolve) => { release = resolve }))
+    const controller = new AbortController()
+    let ran = false
+    const cancelled = enqueue(async () => { ran = true }, controller.signal)
+    controller.abort()
+    await expect(cancelled).rejects.toThrow("interrupted")
+    release()
+    await first
+    await enqueue(async () => { ran = false })
+    expect(ran).toBe(false)
+  })
   test("requires a Desktop single-Agent root session", () => {
     expect(available("desktop", { parentID: undefined, multiAgent: false })).toBe(true)
     expect(available("desktop", { parentID: undefined, multiAgent: undefined })).toBe(true)
@@ -74,7 +102,10 @@ describe("computer control boundary", () => {
         width: 80, height: 40, enabled: true, focused: false, depth: 1,
       }],
     }
-    expect(toDesktopAction({ action: "click", element: 7 }, frame)).toEqual({ action: "click", x: -70, y: 40, expectWindow: "41234" })
+    expect(toDesktopAction({ action: "click", element: 7 }, frame)).toEqual({
+      action: "click", x: -70, y: 40, expectWindow: "41234",
+      expectTarget: { name: "Brush", automationId: "brush", kind: "Button", x: -110, y: 20, width: 80, height: 40 },
+    })
     expect(toDesktopAction({ action: "click", x: 1000, y: 281 }, frame)).toEqual({ action: "click", x: 0, y: 539, expectWindow: "41234" })
     expect(toDesktopAction({ action: "key", keys: "Enter" }, frame)).toEqual({ action: "key", keys: "Enter", expectWindow: "41234" })
     expect(toDesktopAction({ action: "type", text: "abc" }, frame)).toEqual({ action: "type", text: "abc", expectWindow: "41234" })

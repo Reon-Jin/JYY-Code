@@ -86,15 +86,20 @@ display points on macOS. The tool is absent from Multi-Agent, child Agent, and n
 and accessibility labels are untrusted data, and screenshots exist only in the tool result after temporary capture files
 are removed.
 
-Experimental `action=choose` is enabled by `JYYCODE_EXPERIMENTAL_COMPUTER_JEV=true`. It observes a raw-resolution frame,
+Enter a Jev API key in Desktop **Settings → Advanced → Jev API computer control** to activate `action=choose` automatically.
+When the key is active, direct input actions are disabled; `observe` remains available and Jev never falls back to legacy
+input after an uncertain result. Deactivating the key restores the legacy actions. The key is stored in the protected auth
+store, and the status API never returns it. `choose` observes a raw-resolution frame,
 grounds a single visible action to a closed set of action-and-coordinate candidates, asks TypeSafe Jev to choose one,
-checks the current window and frame before input, then returns a fresh screenshot. Configure `TYPESAFE_API_KEY` for Jev.
-To include local visual detection, provision the MIT-licensed OmniParser `icon_detect_v3/model.pt` outside the repository
-and set `JYYCODE_COMPUTER_VISION_MODEL` to its absolute path; the Python environment must have PyTorch, torchvision,
+checks the current window and frame before input, then returns a fresh screenshot.
+To include local visual detection, provision the MIT-licensed OmniParser `icon_detect_v3/model.pt` outside the repository.
+The tested revision is found automatically in the standard Hugging Face cache; set `JYYCODE_COMPUTER_VISION_MODEL` to an
+absolute path when the weight lives elsewhere. The Python environment must have PyTorch, torchvision,
 NumPy and Pillow. EasyOCR can optionally add labels when installed with its cached Chinese/English weights. Missing
-credentials, detector startup, uncertain targets, or a changed frame return `needs_vision` with a screenshot so the
-image-capable main model can use the direct computer actions. The experimental mode remains off until real desktop
-accuracy and latency meet the benchmarks in the [implementation plan](../../docs/plans/2026-09-25-computer-control-visual-jev.md).
+credentials, detector startup, uncertain targets, or a changed frame return `needs_vision` with a screenshot for another
+grounded `choose` attempt. Without a configured local visual detector, Jev can select uniquely named accessibility
+controls but may abstain on graphical controls. The limitations and benchmark results are recorded in the
+[implementation plan](../../docs/plans/2026-09-25-computer-control-visual-jev.md).
 The tested weight revision is `f55d0750e5b94db2125ef0b45b0fa4a85ddc59b4`, SHA-256
 `11c6cbb77f22569fab22d86c76407a83ec81ab89dbfe28279854822d6e3fb00c`. A 16-target public screenshot pilot
 covered 7/16 targets with fast whole-screen detection and 15/16 with slower tiling; it does not establish production

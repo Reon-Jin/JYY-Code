@@ -283,7 +283,10 @@ if ($inputData.includeElements) {
     $queue = New-Object System.Collections.Queue
     $queue.Enqueue(@($root, 0))
     $visited = 0
-    while ($queue.Count -gt 0 -and $elements.Count -lt 160 -and $visited -lt 800) {
+    # UI Automation providers are cross-process and can be arbitrarily slow.
+    # Keep the element map useful without making every observation wait for a full tree.
+    $scanClock = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($queue.Count -gt 0 -and $elements.Count -lt 160 -and $visited -lt 800 -and $scanClock.ElapsedMilliseconds -lt 2500) {
     $entry = $queue.Dequeue()
     $element = $entry[0]
     $depth = [int]$entry[1]

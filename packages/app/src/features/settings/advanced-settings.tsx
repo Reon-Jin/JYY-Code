@@ -10,6 +10,7 @@ import { GlobalConfigReveal } from "./global-config-reveal"
 import { MemorySettings } from "./memory-settings"
 import { UpdateSettings } from "./update-settings"
 import { defaultShellOptions } from "../../platform/desktop-path"
+import { JevSettings } from "./jev-settings"
 
 export function AdvancedSettings(props: { management?: ManagementContextValue }) {
   const management = props.management ?? useManagement()
@@ -96,6 +97,8 @@ export function AdvancedSettings(props: { management?: ManagementContextValue })
         <p class="settings-description">{tr("settings.select-the-jyycode-global-configuration-file-provided-by")}</p>
         <GlobalConfigReveal management={management} />
       </section>
+
+      <JevSettings management={management} />
 
       <UpdateSettings />
       <CompactionSettings management={management} />
