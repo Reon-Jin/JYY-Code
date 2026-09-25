@@ -22,6 +22,8 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Permission } from "@/permission"
 import { LLMAISDK } from "@/session/llm/ai-sdk"
 import { Session as SessionNs } from "@/session/session"
+import { hasActiveComputerCall } from "@/session/llm/request"
+import { SYNTHETIC_ATTACHMENT_PROMPT } from "@/session/message-v2"
 
 type ConfigModel = NonNullable<NonNullable<Config.Info["provider"]>[string]["models"]>[string]
 
@@ -48,6 +50,37 @@ const openAIConfig = (model: ModelsDev.Provider["models"][string], baseURL: stri
 }
 
 const it = testEffect(Layer.mergeAll(LLM.defaultLayer, Provider.defaultLayer))
+
+describe("session.llm computer action pacing", () => {
+  const observation: ModelMessage = {
+    role: "assistant",
+    content: [{ type: "tool-call", toolCallId: "call-computer", toolName: "computer", input: { action: "observe" } }],
+  }
+
+  test("recognizes the current computer-use turn through a synthetic screenshot message", () => {
+    expect(hasActiveComputerCall([
+      { role: "user", content: "Draw a picture in Paint" },
+      observation,
+      { role: "user", content: [{ type: "text", text: SYNTHETIC_ATTACHMENT_PROMPT }] },
+    ])).toBe(true)
+  })
+
+  test("restores normal reasoning for the next user turn", () => {
+    expect(hasActiveComputerCall([
+      { role: "user", content: "Draw a picture in Paint" },
+      observation,
+      { role: "user", content: "Explain the code" },
+    ])).toBe(false)
+  })
+
+  test("keeps the computer turn active through an internal continuation reminder", () => {
+    expect(hasActiveComputerCall([
+      { role: "user", content: "Draw a picture in Paint" },
+      observation,
+      { role: "user", content: "<system-reminder>Continue the task.</system-reminder>" },
+    ])).toBe(true)
+  })
+})
 
 // LLM.stream returns a Stream, not an Effect, so we can't use the serviceUse proxy.
 const drain = (input: LLM.StreamInput) => LLM.Service.use((svc) => svc.stream(input).pipe(Stream.runDrain))
@@ -838,6 +871,73 @@ describe("session.llm.stream", () => {
               npm: "@ai-sdk/openai-compatible",
               api: "https://api.deepseek.com/v1",
               models: { [fixture.model.id]: configModel(fixture.model) as ConfigModel },
+              options: { apiKey: "test-deepseek-key", baseURL: `${state.server!.url.origin}/v1` },
+            },
+          },
+        }
+      },
+    },
+  )
+
+  it.instance(
+    "disables DeepSeek Flash thinking after a desktop computer action",
+    Effect.gen(function* () {
+      const fixture = loadFixture("deepseek", "deepseek-v4-flash")
+      const model = { ...fixture.model, id: "deepseek-flash" }
+      const request = waitRequest(
+        "/chat/completions",
+        new Response(createChatStream("next-action"), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      )
+      const resolved = yield* Provider.use.getModel(ProviderID.make("deepseek"), ModelID.make(model.id))
+      const sessionID = SessionID.make("session-deepseek-computer-fast")
+      const agent = {
+        name: "test",
+        mode: "primary",
+        options: {},
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      } satisfies Agent.Info
+
+      yield* drain({
+        user: {
+          id: MessageID.make("msg_deepseek-computer-fast"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make("deepseek"), modelID: resolved.id, variant: "low" },
+        },
+        sessionID,
+        model: resolved,
+        agent,
+        system: ["Use the computer."],
+        messages: [
+          { role: "user", content: "Draw in Paint." },
+          { role: "assistant", content: [{ type: "tool-call", toolCallId: "call-observe", toolName: "computer", input: { action: "observe" } }] },
+          { role: "tool", content: [{ type: "tool-result", toolCallId: "call-observe", toolName: "computer", output: { type: "text", value: "Screenshot ready." } }] },
+        ],
+        tools: {},
+      })
+
+      const body = (yield* Effect.promise(() => request)).body
+      expect(body.thinking).toEqual({ type: "disabled" })
+      expect(body.reasoning_effort).toBeUndefined()
+    }),
+    {
+      config: () => {
+        const fixture = loadFixture("deepseek", "deepseek-v4-flash")
+        const model = { ...fixture.model, id: "deepseek-flash" }
+        return {
+          enabled_providers: ["deepseek"],
+          provider: {
+            deepseek: {
+              name: "DeepSeek",
+              env: ["DEEPSEEK_API_KEY"],
+              npm: "@ai-sdk/openai-compatible",
+              api: "https://api.deepseek.com/v1",
+              models: { [model.id]: configModel(model) as ConfigModel },
               options: { apiKey: "test-deepseek-key", baseURL: `${state.server!.url.origin}/v1` },
             },
           },
