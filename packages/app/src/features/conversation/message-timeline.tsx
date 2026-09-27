@@ -37,6 +37,9 @@ export type MessageTimelineProps = {
   onRetry?: () => void
 }
 
+const INITIAL_VISIBLE_MESSAGES = 100
+const OLDER_MESSAGE_BATCH = 100
+
 const messageSignatures = new WeakMap<object, string>()
 
 function messageSignatureFor(message: ConversationMessage) {
@@ -291,9 +294,20 @@ function PresentedMessageView(props: {
 
 export function MessageTimeline(props: MessageTimelineProps) {
   const [hasNewMessages, setHasNewMessages] = createSignal(false)
+  const [oldestVisible, setOldestVisible] = createSignal<{ sessionID: string; messageID: string }>()
   let conversationPainted = false
   const signatureFor = createMessageSignatureTracker()
   const presentedMessages = createMemo(() => presentConversationMessages(props.messages))
+  const visibleStartIndex = createMemo(() => {
+    const messages = presentedMessages()
+    const anchor = oldestVisible()
+    if (anchor && anchor.sessionID === props.messages[0]?.info.sessionID) {
+      const index = messages.findIndex((message) => message.info.id === anchor.messageID)
+      if (index >= 0) return index
+    }
+    return Math.max(0, messages.length - INITIAL_VISIBLE_MESSAGES)
+  })
+  const visibleMessages = createMemo(() => presentedMessages().slice(visibleStartIndex()))
   const goalMarkers = createMemo(() => goalTimelineMarkers(props.goal, presentedMessages()))
   const markersByMessageIndex = createMemo(() => {
     const markers = new Map<number, GoalTimelineMarkerEvent[]>()
@@ -310,10 +324,10 @@ export function MessageTimeline(props: MessageTimelineProps) {
         .map((marker) => `${marker.key}:${marker.messageIndex}:${marker.time}:${marker.showOrb}`)
         .join(",")}`,
   )
-  const messageIDs = createMemo(() => presentedMessages().map((message) => message.info.id))
-  const messagesByID = createMemo(() => new Map(presentedMessages().map((message) => [message.info.id, message])))
+  const messageIDs = createMemo(() => visibleMessages().map((message) => message.info.id))
+  const messagesByID = createMemo(() => new Map(visibleMessages().map((message) => [message.info.id, message])))
   const pendingActivityKeys = createMemo(() => {
-    const groups = presentedMessages().flatMap((message) => message.groups)
+    const groups = visibleMessages().flatMap((message) => message.groups)
     const keys = new Set<string>()
     let hasFormalContentAfter = false
     for (let i = groups.length - 1; i >= 0; i -= 1) {
@@ -336,6 +350,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
   let pinnedToBottom = true
   let initialized = false
   let scrollFrame: number | undefined
+  let prependFrame: number | undefined
   let touchStartY = 0
 
   function distanceFromBottom() {
@@ -348,6 +363,43 @@ export function MessageTimeline(props: MessageTimelineProps) {
     viewport.scrollTop = viewport.scrollHeight
     pinnedToBottom = true
     setHasNewMessages(false)
+  }
+
+  function freezeVisibleStart() {
+    const anchor = oldestVisible()
+    if (anchor && anchor.sessionID === props.messages[0]?.info.sessionID) return
+    const message = presentedMessages()[visibleStartIndex()]
+    if (message) setOldestVisible({ sessionID: message.info.sessionID, messageID: message.info.id })
+  }
+
+  function showEarlierMessages() {
+    const start = visibleStartIndex()
+    if (start === 0) return
+    const message = presentedMessages()[Math.max(0, start - OLDER_MESSAGE_BATCH)]
+    if (!message) return
+
+    const anchor = viewport?.querySelector<HTMLElement>(".conversation-message")
+    const anchorTop = anchor?.getBoundingClientRect().top
+    const previousHeight = viewport?.scrollHeight
+    const previousScrollTop = viewport?.scrollTop
+    if (scrollFrame !== undefined) {
+      window.cancelAnimationFrame(scrollFrame)
+      scrollFrame = undefined
+    }
+    initialized = true
+    pinnedToBottom = false
+    setOldestVisible({ sessionID: message.info.sessionID, messageID: message.info.id })
+    if (prependFrame !== undefined) window.cancelAnimationFrame(prependFrame)
+    prependFrame = window.requestAnimationFrame(() => {
+      prependFrame = undefined
+      if (!viewport || previousHeight === undefined || previousScrollTop === undefined) return
+      const nextTop = anchor?.isConnected ? anchor.getBoundingClientRect().top : undefined
+      const shift =
+        nextTop !== undefined && anchorTop !== undefined && nextTop !== anchorTop
+          ? nextTop - anchorTop
+          : viewport.scrollHeight - previousHeight
+      viewport.scrollTop = previousScrollTop + shift
+    })
   }
 
   createEffect(
@@ -365,6 +417,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
 
   onCleanup(() => {
     if (scrollFrame !== undefined) window.cancelAnimationFrame(scrollFrame)
+    if (prependFrame !== undefined) window.cancelAnimationFrame(prependFrame)
   })
 
   return (
@@ -396,6 +449,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
             if (event.deltaY < 0) {
               initialized = true
               pinnedToBottom = false
+              freezeVisibleStart()
             }
           }}
           onTouchStart={(event) => {
@@ -406,12 +460,14 @@ export function MessageTimeline(props: MessageTimelineProps) {
             if (y > touchStartY) {
               initialized = true
               pinnedToBottom = false
+              freezeVisibleStart()
             }
             touchStartY = y
           }}
           onScroll={() => {
             initialized = true
             pinnedToBottom = distanceFromBottom() <= 4
+            if (!pinnedToBottom) freezeVisibleStart()
             if (pinnedToBottom) setHasNewMessages(false)
           }}
         >
@@ -428,6 +484,11 @@ export function MessageTimeline(props: MessageTimelineProps) {
           >
             <div class="message-timeline__content">
               <CompactionIndicator status={props.compaction} />
+              <Show when={visibleStartIndex() > 0}>
+                <Button class="message-timeline__older" variant="secondary" size="small" onClick={showEarlierMessages}>
+                  {tr("conversation.show-earlier-messages")}
+                </Button>
+              </Show>
               <For each={markersByMessageIndex().get(-1) ?? []}>
                 {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb} />}
               </For>
@@ -438,7 +499,7 @@ export function MessageTimeline(props: MessageTimelineProps) {
                       message={messagesByID().get(messageID)!}
                       pendingActivityKeys={pendingActivityKeys()}
                     />
-                    <For each={markersByMessageIndex().get(index()) ?? []}>
+                    <For each={markersByMessageIndex().get(visibleStartIndex() + index()) ?? []}>
                       {(marker) => <GoalTimelineMarker marker={marker.marker} showOrb={marker.showOrb} />}
                     </For>
                   </>

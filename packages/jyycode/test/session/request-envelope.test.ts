@@ -68,3 +68,55 @@ test("request envelopes strip secret-bearing transport headers before persistenc
   })
   expect(replaySecretFindings({ headers })).toEqual([])
 })
+
+test("computer request envelopes record media identity without duplicating screenshot bytes", () => {
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, ...Array.from({ length: 1024 }, (_, index) => index % 251)])
+  const jpg = Buffer.from([255, 216, 255, ...Array.from({ length: 1024 }, (_, index) => (index * 7) % 251)])
+  const pngBase64 = png.toString("base64")
+  const jpgURL = `data:image/jpeg;base64,${jpg.toString("base64")}`
+  const messages = [
+    { role: "assistant", content: [{ type: "tool-call", toolName: "computer", toolCallId: "call-1", input: {} }] },
+    { role: "tool", content: [
+      { type: "media", mediaType: "image/png", data: pngBase64 },
+      { type: "image", image: jpgURL },
+      { type: "image", image: new Uint8Array(png) },
+    ] },
+  ]
+  const artifact = createRequestEnvelope({
+    sessionID: "session-computer",
+    stepID: "step-2",
+    runtime: "ai-sdk",
+    model: { providerID: "test", id: "test-model" } as never,
+    prepared,
+    messages,
+  })
+  const content = (artifact.envelope.messages[1] as { content: Array<Record<string, unknown>> }).content
+  const record = { omitted: "request-envelope-media", mime: "image/png", bytes: png.byteLength, sha256: sha256(png) }
+  expect(content[0]?.data).toEqual(record)
+  expect(content[1]?.image).toEqual({ omitted: "request-envelope-media", mime: "image/jpeg", bytes: jpg.byteLength, sha256: sha256(jpg) })
+  expect(content[2]?.image).toEqual(record)
+  const saved = new TextDecoder().decode(artifact.bytes)
+  expect(saved).not.toContain(pngBase64)
+  expect(saved).not.toContain(jpgURL)
+  expect(saved.length).toBeLessThan(2000)
+  expect((messages[1]!.content[1] as { image: string }).image).toBe(jpgURL)
+})
+
+test("computer request envelopes cap unstructured large media strings", () => {
+  const large = "x".repeat(64 * 1024)
+  const messages = [{ role: "user", content: [{ type: "text", text: large }] }]
+  const artifact = createRequestEnvelope({
+    sessionID: "session-computer",
+    stepID: "step-1",
+    runtime: "ai-sdk",
+    model: { providerID: "test", id: "test-model" } as never,
+    prepared: {
+      system: [], messages, tools: { computer: { description: "Computer control" } },
+      params: { options: {} }, headers: {},
+    } as never,
+    messages,
+  })
+  const text = ((artifact.envelope.messages[0] as { content: Array<{ text: unknown }> }).content[0]!).text
+  expect(text).toEqual({ omitted: "request-envelope-media", mime: "text/plain; charset=utf-8", bytes: 64 * 1024, sha256: sha256(large) })
+  expect(artifact.bytes.byteLength).toBeLessThan(1000)
+})

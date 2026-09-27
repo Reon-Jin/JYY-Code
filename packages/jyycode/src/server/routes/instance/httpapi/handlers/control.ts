@@ -1,7 +1,6 @@
 import { Auth } from "@/auth"
 import { ProviderID } from "@/provider/schema"
 import { JEV_CREDENTIAL_ID, jevApiKey } from "@/tool/computer/mode"
-import { prewarmComputerVision } from "@/tool/computer/choose"
 import * as Log from "@jyycode-ai/core/util/log"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
@@ -24,7 +23,6 @@ export const controlHandlers = HttpApiBuilder.group(RootHttpApi, "control", (han
       payload: Auth.Info
     }) {
       yield* auth.set(ctx.params.providerID, ctx.payload).pipe(Effect.orDie)
-      if (ctx.params.providerID === JEV_CREDENTIAL_ID && jevApiKey(ctx.payload)) prewarmComputerVision()
       return true
     })
 

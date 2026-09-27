@@ -1,6 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
 import path from "node:path"
+import { Global } from "@jyycode-ai/core/global"
 import workerAsset from "./ocr-worker.py" with { type: "file" }
 import type { OCRToken } from "./fuse"
 import type { Rect } from "./frame"
@@ -34,7 +34,7 @@ export class LocalOCRParser {
     if (signal?.aborted) throw new Error("OCR cancelled")
     if (!frame.id || frame.png.length === 0 || frame.width < 1 || frame.height < 1) throw new Error("Invalid OCR frame")
     const worker = await this.ensureWorker()
-    const dir = await mkdtemp(path.join(tmpdir(), "jyycode-ocr-frame-"))
+    const dir = await mkdtemp(path.join(Global.Path.tmp, "ocr-frame-"))
     try {
       const imagePath = path.join(dir, "raw.png")
       await writeFile(imagePath, frame.png)

@@ -17,6 +17,8 @@ import { isForcedToolChoice } from "./tool-choice"
 
 const USER_AGENT = `jyycode/${InstallationVersion}`
 const INTERNAL_PROMPT_ONLY_AGENTS = new Set(["compaction", "summary", "title"])
+const COMPUTER_ACTION_PACING =
+  "During requested desktop control, use computer directly when a screen action is needed. After each computer result, use its screenshot; if another action is needed, issue the next computer or other appropriate tool call directly. Do not write routine visual analysis, click plans, or step-by-step self-talk as assistant text. Other tools remain available when needed. Give brief user-facing updates only for substantial progress, completion, or a genuine blocker."
 
 export function usesCanonicalBasePolicy(agent: Pick<Agent.Info, "name">) {
   return !INTERNAL_PROMPT_ONLY_AGENTS.has(agent.name)
@@ -84,8 +86,14 @@ export function hasActiveComputerCall(messages: ModelMessage[]) {
 
 export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: PrepareInput) {
   const isOpenaiOauth = input.provider.id === "openai" && input.auth?.type === "oauth"
+  const tools = resolveTools(input)
   const system = [
-    [composeAgentSystemPrompt(input.agent), ...input.system, ...(input.user.system ? [input.user.system] : [])]
+    [
+      composeAgentSystemPrompt(input.agent),
+      ...input.system,
+      ...(input.user.system ? [input.user.system] : []),
+      ...(tools.computer ? [COMPUTER_ACTION_PACING] : []),
+    ]
       .filter((x) => x)
       .join("\n"),
   ]
@@ -177,7 +185,6 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     },
   )
 
-  const tools = resolveTools(input)
   if (
     input.model.providerID.includes("github-copilot") &&
     Object.keys(tools).length === 0 &&

@@ -811,6 +811,75 @@ describe("session.llm.stream", () => {
   )
 
   it.instance(
+    "prompts the first DeepSeek V4 desktop action without excluding other tools",
+    Effect.gen(function* () {
+      const fixture = loadFixture("deepseek", "deepseek-v4-flash")
+      const request = waitRequest(
+        "/chat/completions",
+        new Response(createChatStream("ready"), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      )
+      const resolved = yield* Provider.use.getModel(ProviderID.make("deepseek"), ModelID.make(fixture.model.id))
+      const sessionID = SessionID.make("session-deepseek-computer-first")
+      const agent = {
+        name: "test",
+        mode: "primary",
+        options: {},
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      } satisfies Agent.Info
+
+      yield* drain({
+        user: {
+          id: MessageID.make("msg_deepseek-computer-first"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make("deepseek"), modelID: resolved.id, variant: "low" },
+        },
+        sessionID,
+        model: resolved,
+        agent,
+        system: [],
+        messages: [{ role: "user", content: "Use computer control to draw in Paint." }],
+        tools: {
+          computer: tool({ description: "Control the desktop.", inputSchema: z.object({}), execute: async () => ({ output: "", title: "", metadata: {} }) }),
+          read: tool({ description: "Read a file.", inputSchema: z.object({}), execute: async () => ({ output: "", title: "", metadata: {} }) }),
+        },
+      })
+
+      const body = (yield* Effect.promise(() => request)).body
+      const system = JSON.stringify(body.messages)
+      expect(system).toContain("During requested desktop control")
+      expect(system).toContain("Do not write routine visual analysis")
+      expect(system).toContain("completion, or a genuine blocker")
+      expect(JSON.stringify(body.tools)).toContain('"name":"computer"')
+      expect(JSON.stringify(body.tools)).toContain('"name":"read"')
+      expect(body.thinking).not.toEqual({ type: "disabled" })
+    }),
+    {
+      config: () => {
+        const fixture = loadFixture("deepseek", "deepseek-v4-flash")
+        return {
+          enabled_providers: ["deepseek"],
+          provider: {
+            deepseek: {
+              name: "DeepSeek",
+              env: ["DEEPSEEK_API_KEY"],
+              npm: "@ai-sdk/openai-compatible",
+              api: "https://api.deepseek.com/v1",
+              models: { [fixture.model.id]: configModel(fixture.model) as ConfigModel },
+              options: { apiKey: "test-deepseek-key", baseURL: `${state.server!.url.origin}/v1` },
+            },
+          },
+        }
+      },
+    },
+  )
+
+  it.instance(
     "disables DeepSeek V4 thinking for required protocol tools",
     Effect.gen(function* () {
       const fixture = loadFixture("deepseek", "deepseek-v4-flash")
@@ -838,6 +907,7 @@ describe("session.llm.stream", () => {
           time: { created: Date.now() },
           agent: agent.name,
           model: { providerID: ProviderID.make("deepseek"), modelID: resolved.id, variant: "low" },
+          tools: { computer: false },
         },
         sessionID,
         model: resolved,
@@ -850,6 +920,7 @@ describe("session.llm.stream", () => {
             inputSchema: z.object({}),
             execute: async () => ({ output: "{}", title: "Plan", metadata: {} }),
           }),
+          computer: tool({ description: "Control the desktop.", inputSchema: z.object({}), execute: async () => ({ output: "", title: "", metadata: {} }) }),
         },
         toolChoice: { type: "tool", toolName: "Plan_read" },
       })
@@ -858,6 +929,8 @@ describe("session.llm.stream", () => {
       expect(body.tool_choice).toMatchObject({ type: "function", function: { name: "Plan_read" } })
       expect(body.thinking).toEqual({ type: "disabled" })
       expect(body.reasoning_effort).toBeUndefined()
+      expect(JSON.stringify(body.messages)).not.toContain("During requested desktop control")
+      expect(JSON.stringify(body.tools)).not.toContain('"name":"computer"')
     }),
     {
       config: () => {
@@ -918,12 +991,16 @@ describe("session.llm.stream", () => {
           { role: "assistant", content: [{ type: "tool-call", toolCallId: "call-observe", toolName: "computer", input: { action: "observe" } }] },
           { role: "tool", content: [{ type: "tool-result", toolCallId: "call-observe", toolName: "computer", output: { type: "text", value: "Screenshot ready." } }] },
         ],
-        tools: {},
+        tools: {
+          computer: tool({ description: "Control the desktop.", inputSchema: z.object({}), execute: async () => ({ output: "", title: "", metadata: {} }) }),
+          read: tool({ description: "Read a file.", inputSchema: z.object({}), execute: async () => ({ output: "", title: "", metadata: {} }) }),
+        },
       })
 
       const body = (yield* Effect.promise(() => request)).body
       expect(body.thinking).toEqual({ type: "disabled" })
       expect(body.reasoning_effort).toBeUndefined()
+      expect(JSON.stringify(body.messages)).toContain("During requested desktop control")
     }),
     {
       config: () => {

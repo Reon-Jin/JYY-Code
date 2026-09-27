@@ -1,11 +1,11 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
 import path from "node:path"
 import { PassThrough } from "node:stream"
 import { createInterface } from "node:readline"
 import { Effect, Exit, Scope, Stream } from "effect"
 import type * as PlatformError from "effect/PlatformError"
 import { AppProcess } from "@jyycode-ai/core/process"
+import { Global } from "@jyycode-ai/core/global"
 import windowsScript from "./windows.ps1" with { type: "file" }
 import type { Action, Observation } from "./native"
 import { createComputerQueue } from "./queue"
@@ -25,7 +25,7 @@ function pump(source: Stream.Stream<Uint8Array, unknown>, target: PassThrough) {
 }
 
 async function start(): Promise<Worker> {
-  const dir = await mkdtemp(path.join(tmpdir(), "jyycode-computer-worker-"))
+  const dir = await mkdtemp(path.join(Global.Path.tmp, "computer-worker-"))
   const script = path.join(dir, "computer.ps1")
   let scope: Scope.Scope | undefined
   try {
@@ -61,7 +61,8 @@ async function start(): Promise<Worker> {
     let closed = false
     let closing: Promise<void> | undefined
     const onExit = () => { try { process.kill(Number(spawned.handle.pid)) } catch { /* already exited */ } }
-    process.once("exit", onExit)
+    // Stop PowerShell before Global.Path.tmp's exit hook attempts to remove its script.
+    process.prependOnceListener("exit", onExit)
     const fail = (error: Error) => {
       readyReject?.(error)
       pending?.reject(error)

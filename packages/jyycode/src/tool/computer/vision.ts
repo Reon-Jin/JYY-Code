@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { homedir, tmpdir } from "node:os"
+import { homedir } from "node:os"
 import path from "node:path"
+import { Global } from "@jyycode-ai/core/global"
 import workerAsset from "./vision-worker.py" with { type: "file" }
 import type { Rect } from "./frame"
 import { startJsonLineWorker, type JsonLineWorker } from "./json-line-worker"
@@ -12,6 +13,7 @@ export type VisualParse = { frameID: string; boxes: VisualBox[]; inferMs: number
 export interface VisualParser {
   health(): Promise<{ ready: boolean; reason?: string }>
   parse(frame: VisualFrame, region?: Rect, signal?: AbortSignal): Promise<VisualParse>
+  parseRegions?(frame: VisualFrame, regions: readonly Rect[], signal?: AbortSignal): Promise<VisualParse[]>
   close(): Promise<void>
 }
 
@@ -61,8 +63,15 @@ export async function parseTiled(parser: VisualParser, frame: VisualFrame, signa
   if (tiles.length === 1) return parser.parse(frame, undefined, signal)
   const boxes: VisualBox[] = []
   let inferMs = 0
-  for (const tile of tiles) {
-    const result = await parser.parse(frame, tile, signal)
+  const results = parser.parseRegions
+    ? await parser.parseRegions(frame, tiles, signal)
+    : await (async () => {
+        const values: VisualParse[] = []
+        for (const tile of tiles) values.push(await parser.parse(frame, tile, signal))
+        return values
+      })()
+  if (results.length !== tiles.length) throw new Error("Visual detector returned an invalid tile count")
+  for (const result of results) {
     inferMs += result.inferMs
     for (const box of result.boxes) {
       const existing = boxes.findIndex((item) => boxIoU(item, box) > 0.6)
@@ -117,7 +126,7 @@ export class LocalVisualParser implements VisualParser {
     if (!frame.id || frame.png.length === 0 || frame.width < 1 || frame.height < 1) throw new Error("Invalid visual frame")
     const started = performance.now()
     const worker = await this.ensureWorker()
-    const dir = await mkdtemp(path.join(tmpdir(), "jyycode-vision-frame-"))
+    const dir = await mkdtemp(path.join(Global.Path.tmp, "vision-frame-"))
     try {
       const imagePath = path.join(dir, "raw.png")
       await writeFile(imagePath, frame.png)
@@ -127,6 +136,41 @@ export class LocalVisualParser implements VisualParser {
       }
       const boxes = normalizeVisualBoxes(frame, reply.boxes as Array<{ x: number; y: number; width: number; height: number; confidence: number }>)
       return { frameID: frame.id, boxes, inferMs: reply.inferMs as number, totalMs: performance.now() - started }
+    } catch (error) {
+      if (worker.isClosed()) this.worker = undefined
+      throw error
+    } finally { await rm(dir, { recursive: true, force: true }) }
+  }
+
+  /** Send every tile through one temporary image and one worker image decode. */
+  async parseRegions(frame: VisualFrame, regions: readonly Rect[], signal?: AbortSignal): Promise<VisualParse[]> {
+    if (signal?.aborted) throw new VisionUnavailableError("Visual detection was cancelled")
+    if (!frame.id || frame.png.length === 0 || frame.width < 1 || frame.height < 1) throw new Error("Invalid visual frame")
+    if (regions.length < 1 || regions.length > 64) throw new Error("Visual detector requires 1 to 64 regions")
+    const started = performance.now()
+    const worker = await this.ensureWorker()
+    const dir = await mkdtemp(path.join(Global.Path.tmp, "vision-frame-"))
+    try {
+      const imagePath = path.join(dir, "raw.png")
+      await writeFile(imagePath, frame.png)
+      const timeoutMs = Math.min(120_000, (this.options.timeoutMs ?? 10_000) * regions.length)
+      const reply = await worker.request({ id: frame.id, imagePath, regions }, signal, timeoutMs)
+      if (reply.id !== frame.id || !Array.isArray(reply.results) || reply.results.length !== regions.length) {
+        throw new Error("Visual detector returned an invalid region response")
+      }
+      return reply.results.map((value: unknown) => {
+        if (!value || typeof value !== "object") throw new Error("Visual detector returned an invalid region response")
+        const result = value as Record<string, unknown>
+        if (!Array.isArray(result.boxes) || !Number.isFinite(result.inferMs)) {
+          throw new Error("Visual detector returned an invalid region response")
+        }
+        return {
+          frameID: frame.id,
+          boxes: normalizeVisualBoxes(frame, result.boxes as Array<{ x: number; y: number; width: number; height: number; confidence: number }>),
+          inferMs: result.inferMs as number,
+          totalMs: performance.now() - started,
+        }
+      })
     } catch (error) {
       if (worker.isClosed()) this.worker = undefined
       throw error

@@ -13,6 +13,7 @@ import { WebSocketTracker } from "./routes/instance/httpapi/websocket-tracker"
 import { PublicApi } from "./routes/instance/httpapi/public"
 import type { CorsOptions } from "./cors"
 import { lazy } from "@/util/lazy"
+import { acquireBlobGCScheduler } from "@/storage/blob-gc"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -74,11 +75,18 @@ export let url: URL
 
 export async function listen(opts: ListenOptions): Promise<Listener> {
   const listener = await Effect.runPromise(listenEffect(opts))
+  // Schedule storage maintenance after the server is ready so startup remains
+  // responsive. The timer is shared across listeners and stopped with them.
+  const stopBlobGC = acquireBlobGCScheduler((error) =>
+    log.warn("blob GC skipped", { error: error instanceof Error ? error.message : String(error) }))
   return {
     hostname: listener.hostname,
     port: listener.port,
     url: listener.url,
-    stop: (close?: boolean) => Effect.runPromiseExit(listener.stop(close)).then(() => undefined),
+    stop: async (close?: boolean) => {
+      await stopBlobGC()
+      await Effect.runPromiseExit(listener.stop(close))
+    },
   }
 }
 

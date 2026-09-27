@@ -65,6 +65,7 @@ describe("grounded desktop action execution", () => {
 
   test("chooses a raw-pixel point with an atomic native accessibility target guard", async () => {
     const actions: Action[] = []
+    let visionHealthCalls = 0
     const native = (async (action: Action) => {
       actions.push(action)
       const index = actions.length
@@ -72,9 +73,10 @@ describe("grounded desktop action execution", () => {
         rawPng: action.captureRaw ? Buffer.from([10, 20, 30]) : undefined }
     }) as typeof import("@/tool/computer/native").runNative
     const result = await runChoose({ intent: "点击保存", resolution: "high", allowedActions: ["click"] }, undefined, {
-      native, select: selected, parser: { health: async () => ({ ready: true }), parse: async () => { throw new Error("detector should not run") }, close: async () => undefined },
+      native, select: selected, parser: { health: async () => { visionHealthCalls++; return { ready: true } }, parse: async () => { throw new Error("detector should not run") }, close: async () => undefined },
     })
     expect(result.status).toBe("executed")
+    expect(visionHealthCalls).toBe(0)
     expect(actions.map((action) => action.action)).toEqual(["observe", "click"])
     expect(actions[1]).toMatchObject({ action: "click", x: -1770, y: 80, expectWindow: "42",
       expectTarget: { name: "保存", automationId: "save", x: -1820, y: 60, width: 100, height: 40 } })
@@ -168,6 +170,25 @@ describe("grounded desktop action execution", () => {
     expect(ocrCalls).toBe(1)
     expect(choices).toBe(2)
     expect(actions.map((action) => action.action)).toEqual(["observe", "observe", "click"])
+  })
+
+  test("starts the detector only after choose needs visual candidates", async () => {
+    const actions: Action[] = []
+    const native = (async (action: Action) => {
+      actions.push(action)
+      return { observation: { ...observation("f1"), elements: [] }, png: Buffer.from([1]), rawPng: Buffer.from([1]) }
+    }) as typeof import("@/tool/computer/native").runNative
+    let healthCalls = 0
+    const parser = {
+      isReady: () => false,
+      health: async () => { healthCalls++; return { ready: true } },
+      parse: async () => { throw new Error("detector should warm before parsing") },
+      close: async () => undefined,
+    }
+    const result = await runChoose({ intent: "点击保存", allowedActions: ["click"] }, undefined, { native, parser })
+    expect(result).toMatchObject({ status: "needs_vision", reasonCode: "vision_warming" })
+    expect(healthCalls).toBe(1)
+    expect(actions.map((action) => action.action)).toEqual(["observe"])
   })
 
   test("high resolution offers tiled small targets before selection and does not tile twice", async () => {

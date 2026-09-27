@@ -57,8 +57,6 @@ import { ToolTelemetry } from "./telemetry"
 import { PlanProtocolTools } from "@/plan/tools"
 import { GoalTool } from "./goal"
 import { ComputerTool } from "./computer"
-import { prewarmComputerVision } from "./computer/choose"
-import { JEV_CREDENTIAL_ID, jevApiKey } from "./computer/mode"
 import { Auth } from "@/auth"
 import { modelFacingPlanToolName, PLAN_TOOL_IDS } from "@/plan/tools"
 import {
@@ -418,16 +416,8 @@ export const layer: Layer.Layer<
       ].join("\n")
     })
 
-    let computerVisionPrewarmed = false
     const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
       const s = yield* InstanceState.get(state)
-      if (input.includeComputer === true && flags.client === "desktop" && !computerVisionPrewarmed) {
-        const auth = yield* Auth.Service.pipe(Effect.provide(Auth.defaultLayer))
-        if (jevApiKey(yield* auth.get(JEV_CREDENTIAL_ID).pipe(Effect.orDie))) {
-          prewarmComputerVision()
-          computerVisionPrewarmed = true
-        }
-      }
       const includeContextRead = input.includeContextRead ?? input.includeMemory
       const available = [
         ...s.builtin.filter(

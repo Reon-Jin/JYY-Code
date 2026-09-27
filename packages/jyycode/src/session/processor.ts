@@ -29,8 +29,12 @@ import * as DateTime from "effect/DateTime"
 import { Usage, type LLMEvent } from "@jyycode-ai/llm"
 import { ToolTelemetry } from "@/tool/telemetry"
 import { UsageLedger } from "./usage-ledger"
+import { enforceComputerScreenshotBudget, pruneComputerScreenshotAttachments } from "./computer-screenshot-retention"
+import { collectReleasedComputerScreenshots } from "./computer-screenshot-gc"
 
 const DOOM_LOOP_THRESHOLD = 3
+const COMPUTER_SCREENSHOT_BUDGET_CHECK_EVERY = 16
+let computerScreenshotResults = 0
 const log = Log.create({ service: "session.processor" })
 
 export type Result = "compact" | "stop" | "continue"
@@ -175,7 +179,7 @@ export const layer = Layer.effect(
         return part
       })
 
-      const completeToolCall = Effect.fn("SessionProcessor.completeToolCall")(function* (
+      const persistCompletedToolCall = Effect.fn("SessionProcessor.persistCompletedToolCall")(function* (
         toolCallID: string,
         output: {
           title: string
@@ -185,8 +189,13 @@ export const layer = Layer.effect(
         },
       ) {
         const match = yield* readToolCall(toolCallID)
-        if (!match || match.part.state.status !== "running") return
-        yield* session.updatePart({
+        if (!match) return
+        // SessionTools executes and persists local tools before the model
+        // emits tool-result. In that case the stored part already has the
+        // normalized blob references needed by the durable success event.
+        if (match.part.state.status === "completed") return match.part
+        if (match.part.state.status !== "running") return
+        return yield* session.updatePart({
           ...match.part,
           state: {
             status: "completed",
@@ -198,6 +207,18 @@ export const layer = Layer.effect(
             attachments: output.attachments,
           },
         })
+      })
+
+      const completeToolCall = Effect.fn("SessionProcessor.completeToolCall")(function* (
+        toolCallID: string,
+        output: {
+          title: string
+          metadata: Record<string, any>
+          output: string
+          attachments?: MessageV2.FilePart[]
+        },
+      ) {
+        yield* persistCompletedToolCall(toolCallID, output)
         yield* settleToolCall(toolCallID)
       })
 
@@ -470,6 +491,13 @@ export const layer = Layer.effect(
                   : `${rawOutput.output}\n\n[${omitted} image${omitted === 1 ? "" : "s"} omitted: could not be resized below the image size limit.]`,
               attachments: attachments.length ? attachments : undefined,
             }
+            // updatePart stores image attachments as blob references. Publish
+            // those references instead of repeating a multi-megabyte data URL
+            // in the durable tool event and every desktop event stream.
+            const completed = (yield* persistCompletedToolCall(value.id, output)) ??
+              (yield* MessageV2.partsAsync(ctx.assistantMessage.id)).find((part): part is MessageV2.ToolPart =>
+                part.type === "tool" && part.callID === value.id && part.state.status === "completed")
+            const storedAttachments = completed?.state.status === "completed" ? completed.state.attachments : undefined
             yield* events.publish(SessionEvent.Tool.Success, {
               sessionID: ctx.sessionID,
               callID: value.id,
@@ -479,7 +507,7 @@ export const layer = Layer.effect(
                   type: "text",
                   text: output.output,
                 },
-                ...(output.attachments?.map((item: MessageV2.FilePart) => ({
+                ...(storedAttachments?.map((item: MessageV2.FilePart) => ({
                   type: "file" as const,
                   uri: item.url,
                   mime: item.mime,
@@ -491,6 +519,37 @@ export const layer = Layer.effect(
               },
               timestamp: DateTime.makeUnsafe(Date.now()),
             })
+            if (completed?.tool === "computer") {
+              // Model prompts already use only the latest observations. Release
+              // older screenshot references after publishing this result, then
+              // collect the retired files in batches to avoid per-click GC.
+              const retention = yield* pruneComputerScreenshotAttachments({ sessionID: ctx.sessionID }).pipe(
+                Effect.provideService(Session.Service, session),
+                Effect.catchCause((cause) => {
+                  slog.warn("computer screenshot retention failed", { error: Cause.pretty(cause) })
+                  return Effect.succeed(undefined)
+                }),
+              )
+              const released = retention?.released ?? []
+              computerScreenshotResults++
+              // Check the cross-session quota occasionally. When over budget,
+              // each pass removes up to 32 old results, faster than new ones
+              // arrive even if every action starts a different session.
+              if (computerScreenshotResults === 1 || computerScreenshotResults % COMPUTER_SCREENSHOT_BUDGET_CHECK_EVERY === 0) {
+                const budget = yield* enforceComputerScreenshotBudget({
+                  activeSessionID: ctx.sessionID,
+                  batchSize: 32,
+                }).pipe(
+                  Effect.provideService(Session.Service, session),
+                  Effect.catchCause((cause) => {
+                    slog.warn("computer screenshot budget cleanup failed", { error: Cause.pretty(cause) })
+                    return Effect.succeed(undefined)
+                  }),
+                )
+                if (budget) released.push(...budget.released)
+              }
+              yield* collectReleasedComputerScreenshots(released)
+            }
             if (value.providerExecuted === true || toolCall?.part.metadata?.providerExecuted === true) {
               yield* ToolTelemetry.executionCompleted(bus, {
                 sessionID: ctx.sessionID,
@@ -501,7 +560,7 @@ export const layer = Layer.effect(
                 status: "success",
               })
             }
-            yield* completeToolCall(value.id, output)
+            yield* settleToolCall(value.id)
             return
           }
 

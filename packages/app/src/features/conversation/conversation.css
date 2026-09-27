@@ -52,6 +52,10 @@
   animation: ui-rise-in var(--motion-normal) var(--ease-out) both;
 }
 
+.message-timeline__older {
+  justify-self: center;
+}
+
 .conversation-message {
   display: grid;
   min-width: 0;

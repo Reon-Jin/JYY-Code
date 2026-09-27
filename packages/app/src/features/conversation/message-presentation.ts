@@ -93,6 +93,8 @@ export function presentConversationMessages(messages: readonly ConversationMessa
     presented.push({ info: message.info, groups })
   }
 
+  for (const message of presented) collapseIntermediateComputerText(message)
+
   return presented
 }
 
@@ -104,8 +106,35 @@ function sameAgent(left: Message, right: Message) {
 function appendPresentedParts(groups: PresentedMessageGroup[], parts: readonly Part[]) {
   for (const part of parts) {
     const type = isActivityPart(part) ? "activity" : "content"
-    const previous = groups.at(-1)
-    if (previous?.type === type) previous.parts.push(part)
-    else groups.push({ type, parts: [part] })
+    appendPresentedPart(groups, part, type)
   }
+}
+
+function appendPresentedPart(groups: PresentedMessageGroup[], part: Part, type: PresentedMessageGroup["type"]) {
+  const previous = groups.at(-1)
+  if (previous?.type === type) previous.parts.push(part)
+  else groups.push({ type, parts: [part] })
+}
+
+function collapseIntermediateComputerText(message: PresentedConversationMessage) {
+  if (message.info.role !== "assistant") return
+  if (!message.groups.some((group) => group.parts.some((part) => part.type === "tool" && part.tool === "computer")))
+    return
+  const parts = message.groups.flatMap((group) => group.parts)
+  let lastComputer = -1
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index]!
+    if (part.type === "tool" && part.tool === "computer") {
+      lastComputer = index
+      break
+    }
+  }
+  if (lastComputer < 0) return
+
+  const groups: PresentedMessageGroup[] = []
+  for (const [index, part] of parts.entries()) {
+    const type = (index < lastComputer && part.type === "text") || isActivityPart(part) ? "activity" : "content"
+    appendPresentedPart(groups, part, type)
+  }
+  message.groups = groups
 }

@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs"
 import { randomUUID } from "node:crypto"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
 import path from "node:path"
 import { Effect } from "effect"
 import { AppProcess } from "@jyycode-ai/core/process"
+import { Global } from "@jyycode-ai/core/global"
 import { runWindows } from "./windows-worker"
 import { createComputerQueue } from "./queue"
 import { imagePointToDesktop, tilePointToImage, type Monitor, type Rect } from "./frame"
@@ -234,7 +234,7 @@ export async function runNative(input: Action, signal?: AbortSignal): Promise<{ 
   if (process.platform !== "win32" && process.platform !== "darwin") {
     throw new Error(`Computer control is unavailable on ${process.platform}`)
   }
-  const dir = await mkdtemp(path.join(tmpdir(), "jyycode-computer-"))
+  const dir = await mkdtemp(path.join(Global.Path.tmp, "computer-frame-"))
   const imagePath = path.join(dir, "screen.png")
   const rawImagePath = input.captureRaw ? path.join(dir, "raw.png") : undefined
   const request = {

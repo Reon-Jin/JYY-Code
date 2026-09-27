@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { Global } from "@jyycode-ai/core/global"
 import { tmpdir } from "../fixture/fixture"
 import { configuredVisualModel, imageTiles, LocalVisualParser, normalizeVisualBoxes, parseTiled, type VisualParser, VisionUnavailableError } from "@/tool/computer/vision"
 import { fuseTargets } from "@/tool/computer/fuse"
 import { buildCandidates } from "@/tool/computer/candidate"
 import { createFrame } from "@/tool/computer/frame"
 import { LocalOCRParser } from "@/tool/computer/ocr"
+import { startJsonLineWorker } from "@/tool/computer/json-line-worker"
 
 const frame = createFrame({
   id: "frame-1", capturedAt: 123,
@@ -17,6 +19,27 @@ const frame = createFrame({
 })
 
 describe("local visual parser", () => {
+  test("stores a live worker script in the process temp directory and removes it on close", async () => {
+    await using tmp = await tmpdir()
+    const script = path.join(tmp.path, "fake-worker.py")
+    await writeFile(script, [
+      "import json, sys",
+      "print(json.dumps({'ready': True}), flush=True)",
+      "for line in sys.stdin:",
+      "    request = json.loads(line)",
+      "    print(json.dumps({'id': request['id'], 'script': __file__}), flush=True)",
+    ].join("\n"))
+    const worker = await startJsonLineWorker({ asset: script, command: "python" })
+    let workerDir: string | undefined
+    try {
+      const reply = await worker.request({ id: "inspect" })
+      workerDir = path.dirname(String(reply.script))
+      expect(path.dirname(workerDir)).toBe(Global.Path.tmp)
+      expect((await stat(path.join(workerDir, "worker.py"))).isFile()).toBe(true)
+    } finally { await worker.close() }
+    expect(await stat(workerDir!).catch(() => undefined)).toBeUndefined()
+  })
+
   test("finds an already cached pinned model unless an explicit path is set", async () => {
     await using tmp = await tmpdir()
     const model = path.join(tmp.path, "hub", "models--microsoft--OmniParser-v2.0", "snapshots",
@@ -53,6 +76,7 @@ describe("local visual parser", () => {
       "print(json.dumps({'ready': True, 'device': 'fake', 'loadMs': 1}), flush=True)",
       "for line in sys.stdin:",
       "    request = json.loads(line)",
+      `    assert request['imagePath'].startswith(${JSON.stringify(`${Global.Path.tmp}${path.sep}`)})`,
       "    if request['id'].startswith('crash'): sys.exit(2)",
       "    print(json.dumps({'id': request['id'], 'boxes': [{'x': 3, 'y': 4, 'width': 10, 'height': 11, 'confidence': 0.9}], 'inferMs': 1}), flush=True)",
     ].join("\n"))
@@ -66,6 +90,31 @@ describe("local visual parser", () => {
       expect((await parser.parse(frame)).boxes).toHaveLength(1)
     } finally { await parser.close() }
   })
+
+  test("sends all high resolution tiles through one image file and worker request", async () => {
+    await using tmp = await tmpdir()
+    const script = path.join(tmp.path, "fake-batch-worker.py")
+    const weight = path.join(tmp.path, "fake-model.pt")
+    await writeFile(weight, "fake")
+    await writeFile(script, [
+      "import json, sys",
+      "print(json.dumps({'ready': True}), flush=True)",
+      "count = 0",
+      "for line in sys.stdin:",
+      "    request = json.loads(line)",
+      `    assert request['imagePath'].startswith(${JSON.stringify(`${Global.Path.tmp}${path.sep}`)})`,
+      "    count += 1",
+      "    regions = request['regions']",
+      "    results = [{'boxes': [{'x': 1200, 'y': 350, 'width': 40, 'height': 30, 'confidence': 0.8}], 'inferMs': count} for _ in regions]",
+      "    print(json.dumps({'id': request['id'], 'results': results}), flush=True)",
+    ].join("\n"))
+    const parser = new LocalVisualParser({ modelPath: weight, workerScriptPath: script, timeoutMs: 1000 })
+    try {
+      const result = await parseTiled(parser, { id: "large", png: Buffer.from([1, 2, 3]), width: 2560, height: 1600 })
+      expect(result.boxes).toHaveLength(1)
+      expect(result.inferMs).toBe(6)
+    } finally { await parser.close() }
+  })
 })
 
 describe("optional OCR parser", () => {
@@ -77,6 +126,7 @@ describe("optional OCR parser", () => {
       "print(json.dumps({'ready': True}), flush=True)",
       "for line in sys.stdin:",
       "    request = json.loads(line)",
+      `    assert request['imagePath'].startswith(${JSON.stringify(`${Global.Path.tmp}${path.sep}`)})`,
       "    print(json.dumps({'id': request['id'], 'tokens': [",
       "      {'text':'保存','box':{'x':10,'y':12,'width':35,'height':20},'confidence':0.9},",
       "      {'text':'outside','box':{'x':999,'y':12,'width':35,'height':20},'confidence':0.9}",

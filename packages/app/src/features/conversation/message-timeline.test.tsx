@@ -38,9 +38,152 @@ function conversation(parts: Part[], message = info): ConversationMessage {
   return { info: message, parts }
 }
 
+function longConversation(count: number): ConversationMessage[] {
+  return Array.from({ length: count }, (_, index) => {
+    const message = { ...info, id: `msg_long_${index}`, time: { created: index + 1 } }
+    return conversation(
+      [{ id: `part_long_${index}`, sessionID, messageID: message.id, type: "text", text: `Message ${index}` }],
+      message,
+    )
+  })
+}
+
 afterEach(cleanup)
 
 describe("MessageTimeline", () => {
+  it("mounts the latest 100 messages and reveals older messages in stable batches", async () => {
+    const user = userEvent.setup()
+    const initial = longConversation(205)
+    const [messages, setMessages] = createSignal(initial)
+    const { container } = render(() => <MessageTimeline messages={messages()} />)
+
+    expect(container.querySelectorAll(".conversation-message")).toHaveLength(100)
+    expect(screen.queryByText("Message 104")).not.toBeInTheDocument()
+    expect(screen.getByText("Message 105")).toBeVisible()
+    expect(screen.getByText("Message 204")).toBeVisible()
+
+    await user.click(screen.getByRole("button", { name: "显示更早消息" }))
+    expect(container.querySelectorAll(".conversation-message")).toHaveLength(200)
+    expect(screen.queryByText("Message 4")).not.toBeInTheDocument()
+    expect(screen.getByText("Message 5")).toBeVisible()
+
+    setMessages([...initial, ...longConversation(206).slice(205)])
+    expect(screen.getByText("Message 5")).toBeVisible()
+    expect(screen.getByText("Message 205")).toBeVisible()
+
+    await user.click(screen.getByRole("button", { name: "显示更早消息" }))
+    expect(screen.getByText("Message 0")).toBeVisible()
+    expect(screen.queryByRole("button", { name: "显示更早消息" })).not.toBeInTheDocument()
+  })
+
+  it("preserves the scroll anchor when older messages are prepended", async () => {
+    const user = userEvent.setup()
+    const { container } = render(() => <MessageTimeline messages={longConversation(101)} />)
+    const viewport = container.querySelector<HTMLDivElement>(".message-timeline__viewport")!
+    Object.defineProperty(viewport, "scrollHeight", {
+      configurable: true,
+      get: () => container.querySelectorAll(".conversation-message").length * 20,
+    })
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+    viewport.scrollTop = 100
+    fireEvent.scroll(viewport)
+
+    await user.click(screen.getByRole("button", { name: "显示更早消息" }))
+    await waitFor(() => expect(viewport.scrollTop).toBe(120))
+  })
+
+  it("keeps the visible window steady when new messages arrive during upward reading", () => {
+    const initial = longConversation(105)
+    const [messages, setMessages] = createSignal(initial)
+    const { container } = render(() => <MessageTimeline messages={messages()} />)
+    const viewport = container.querySelector<HTMLDivElement>(".message-timeline__viewport")!
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 2_000 },
+    })
+    viewport.scrollTop = 100
+    fireEvent.scroll(viewport)
+
+    setMessages([...initial, ...longConversation(106).slice(105)])
+    expect(screen.getByText("Message 5")).toBeVisible()
+    expect(screen.getByText("Message 105")).toBeVisible()
+    expect(container.querySelectorAll(".conversation-message")).toHaveLength(101)
+  })
+
+  it("keeps goal markers aligned with messages inside the visible slice", () => {
+    const { container } = render(() => (
+      <MessageTimeline
+        messages={longConversation(105)}
+        goal={{
+          condition: "finish",
+          status: "done",
+          startedAt: 104,
+          updatedAt: 104,
+          completedAt: 104,
+          maxTurns: 30,
+        }}
+      />
+    ))
+
+    expect(container.querySelectorAll(".goal-timeline-marker")).toHaveLength(2)
+    const article = screen.getByText("Message 103").closest(".conversation-message")!
+    const marker = container.querySelector(".goal-timeline-marker")!
+    expect(article.compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("restores older activity groups when their messages are revealed", async () => {
+    const user = userEvent.setup()
+    const messages = longConversation(101)
+    messages[0] = conversation(
+      [{ id: "part_old_reasoning", sessionID, messageID: "msg_old_activity", type: "reasoning", text: "old thought", time: { start: 1, end: 2 } }],
+      { ...assistantInfo, id: "msg_old_activity", time: { created: 1, completed: 2 } },
+    )
+    render(() => <MessageTimeline messages={messages} />)
+
+    expect(screen.queryByRole("button", { name: /思考与工具调用/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "显示更早消息" }))
+    await user.click(screen.getByRole("button", { name: /思考与工具调用/ }))
+    expect(screen.getByRole("button", { name: "思考过程" })).toBeVisible()
+  })
+
+  it("keeps the final answer visible and folds computer progress text", async () => {
+    const user = userEvent.setup()
+    render(() => (
+      <MessageTimeline
+        messages={[
+          conversation(
+            [
+              { id: "part_progress", sessionID, messageID: assistantInfo.id, type: "text", text: "Navigating the app" },
+              {
+                id: "part_computer",
+                sessionID,
+                messageID: assistantInfo.id,
+                type: "tool",
+                callID: "call_computer",
+                tool: "computer",
+                state: {
+                  status: "completed",
+                  input: {},
+                  output: "",
+                  title: "Computer click",
+                  metadata: {},
+                  time: { start: 1, end: 2 },
+                },
+              },
+              { id: "part_final", sessionID, messageID: assistantInfo.id, type: "text", text: "Final answer" },
+            ],
+            assistantInfo,
+          ),
+        ]}
+      />
+    ))
+
+    expect(screen.queryByText("Navigating the app")).not.toBeInTheDocument()
+    expect(screen.getByText("Final answer")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: /思考与工具调用/ }))
+    expect(screen.getByText("Navigating the app")).toBeVisible()
+  })
+
   it("keeps cached messages visible while a refresh is pending", () => {
     render(() => (
       <MessageTimeline

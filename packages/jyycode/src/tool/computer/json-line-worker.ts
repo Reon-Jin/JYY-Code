@@ -1,11 +1,11 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
 import path from "node:path"
 import { PassThrough } from "node:stream"
 import { createInterface } from "node:readline"
 import { Effect, Exit, Scope, Stream } from "effect"
 import type * as PlatformError from "effect/PlatformError"
 import { AppProcess } from "@jyycode-ai/core/process"
+import { Global } from "@jyycode-ai/core/global"
 
 export type JsonLineWorker = {
   request: (input: Record<string, unknown>, signal?: AbortSignal, timeoutMs?: number) => Promise<Record<string, unknown>>
@@ -26,7 +26,7 @@ export async function startJsonLineWorker(input: {
   args?: string[]
   startupTimeoutMs?: number
 }): Promise<JsonLineWorker> {
-  const dir = await mkdtemp(path.join(tmpdir(), "jyycode-computer-model-"))
+  const dir = await mkdtemp(path.join(Global.Path.tmp, "computer-model-"))
   const script = path.join(dir, "worker.py")
   let scope: Scope.Scope | undefined
   try {
@@ -63,7 +63,8 @@ export async function startJsonLineWorker(input: {
     let closed = false
     let closing: Promise<void> | undefined
     const onExit = () => { try { process.kill(Number(spawned.handle.pid)) } catch { /* already exited */ } }
-    process.once("exit", onExit)
+    // Stop the child before Global.Path.tmp's exit hook attempts to remove its script.
+    process.prependOnceListener("exit", onExit)
     const fail = (error: Error) => { readyReject(error); pending?.reject(error); pending = undefined }
     const close = (reason = new Error("Computer model worker stopped")) => {
       if (closing) return closing

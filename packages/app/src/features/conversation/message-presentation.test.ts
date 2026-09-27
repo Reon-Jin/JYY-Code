@@ -110,6 +110,38 @@ describe("presentConversationMessages", () => {
     ])
   })
 
+  it("folds text before the last computer action while leaving the final answer visible", () => {
+    const first = { ...assistant, id: "msg_computer_1" }
+    const second = { ...assistant, id: "msg_computer_2" }
+    const third = { ...assistant, id: "msg_computer_3" }
+    const intro: Part = { id: "part_intro", sessionID, messageID: first.id, type: "text", text: "opening app" }
+    const middle: Part = { id: "part_middle", sessionID, messageID: second.id, type: "text", text: "clicking next" }
+    const answer: Part = { id: "part_final", sessionID, messageID: third.id, type: "text", text: "task finished" }
+    const computer = (id: string, messageID: string): Part => ({
+      id,
+      sessionID,
+      messageID,
+      type: "tool",
+      callID: id,
+      tool: "computer",
+      state: { status: "completed", input: {}, output: "", title: "Computer", metadata: {}, time: { start: 1, end: 2 } },
+    })
+    const firstAction = computer("part_computer_1", first.id)
+    const lastAction = computer("part_computer_2", second.id)
+
+    const result = presentConversationMessages([
+      { info: first, parts: [intro, firstAction] },
+      { info: second, parts: [middle, lastAction] },
+      { info: third, parts: [answer] },
+    ])
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.groups).toEqual([
+      { type: "activity", parts: [intro, firstAction, middle, lastAction] },
+      { type: "content", parts: [answer] },
+    ])
+  })
+
   it("hides internal patch metadata from conversation messages", () => {
     const patch: Part = {
       id: "part_patch",

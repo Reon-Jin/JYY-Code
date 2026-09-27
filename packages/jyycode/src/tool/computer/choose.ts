@@ -3,7 +3,7 @@ import { createFrame, imagePointToDesktop, type Frame, type Rect } from "./frame
 import { fuseTargets, type OCRToken, type VisualTarget } from "./fuse"
 import { selectJev, type JevDecision } from "./jev"
 import { runNative, type Action, type Observation, type Step } from "./native"
-import { configuredVisualModel, LocalVisualParser, parseTiled, type VisualBox, type VisualFrame, type VisualParser } from "./vision"
+import { LocalVisualParser, parseTiled, type VisualBox, type VisualFrame, type VisualParser } from "./vision"
 import { LocalOCRParser } from "./ocr"
 
 export type ChooseInput = {
@@ -32,14 +32,6 @@ export type ChooseDependencies = {
 
 const localParser = new LocalVisualParser()
 const localOCR = new LocalOCRParser()
-
-/** Start local vision workers after an authorized Jev request exposes computer control. */
-export function prewarmComputerVision() {
-  if (configuredVisualModel()) {
-    void localParser.health()
-    void localOCR.health()
-  }
-}
 
 function frameOf(observation: Observation): Frame | undefined {
   if (!observation.frameID || !observation.windowID || !observation.rawImage) return undefined
@@ -149,11 +141,10 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
   let detections: VisualBox[] = []
   let ocrTokens: OCRToken[] = []
   let usedTiled = false
-  const ocrProvider = deps.ocr ?? (localOCR.isReady() ? (value: VisualFrame, nextSignal?: AbortSignal, region?: Rect) => localOCR.parse(value, nextSignal, region) : undefined)
   if (!relevant) {
     const ready = "isReady" in parser && typeof parser.isReady === "function" ? parser.isReady() : true
     if (!ready) {
-      prewarmComputerVision()
+      void parser.health().catch(() => undefined)
       return fallback("vision_warming")
     }
     visualFrame = { id: frame.id, png: observed.rawPng, width: frame.rawImageSize.width, height: frame.rawImageSize.height }
@@ -176,8 +167,11 @@ export async function runChoose(input: ChooseInput, signal?: AbortSignal, deps: 
   })
   let decision: JevDecision = await select({ intent: input.intent, window: frame.foregroundWindow.title, candidates, apiKey: input.apiKey, signal })
   if (decision.status === "needs_vision" && ["abstained", "low_confidence", "no_candidates"].includes(decision.reason) &&
-    visualFrame && ocrProvider) {
-    try { ocrTokens = await ocrProvider(visualFrame, signal, regionFromIntent(visualFrame, input.intent)) }
+    visualFrame) {
+    const ocrProvider = deps.ocr ?? ((await localOCR.health()).ready
+      ? (value: VisualFrame, nextSignal?: AbortSignal, region?: Rect) => localOCR.parse(value, nextSignal, region)
+      : undefined)
+    try { ocrTokens = ocrProvider ? await ocrProvider(visualFrame, signal, regionFromIntent(visualFrame, input.intent)) : [] }
     catch { ocrTokens = [] }
     if (ocrTokens.length > 0) {
       fusion = fuseTargets({ frame, accessibilitySource: source, elements: observed.observation.elements,

@@ -1,13 +1,21 @@
 """Optional persistent EasyOCR worker for unlabeled desktop controls."""
 import json
+import os
 import sys
 import time
+
+os.environ["OMP_NUM_THREADS"] = "2"
+os.environ["MKL_NUM_THREADS"] = "2"
+os.environ["OPENBLAS_NUM_THREADS"] = "2"
 import numpy as np
 from PIL import Image
 
 try:
-    import easyocr
     import torch
+
+    torch.set_num_threads(min(2, os.cpu_count() or 1))
+    torch.set_num_interop_threads(1)
+    import easyocr
 
     reader = easyocr.Reader(["ch_sim", "en"], gpu=torch.cuda.is_available(), download_enabled=False, verbose=False)
     print(json.dumps({"ready": True}), flush=True)

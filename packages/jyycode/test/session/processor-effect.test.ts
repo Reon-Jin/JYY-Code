@@ -24,11 +24,16 @@ import { Snapshot } from "../../src/snapshot"
 import * as Log from "@jyycode-ai/core/util/log"
 import { CrossSpawnSpawner } from "@jyycode-ai/core/cross-spawn-spawner"
 import { provideTmpdirServer } from "../fixture/fixture"
-import { testEffect } from "../lib/effect"
+import { pollWithTimeout, testEffect } from "../lib/effect"
 import { raw, reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { EffectBridge } from "@/effect/bridge"
 import { EventRuntime } from "@/event-runtime"
+import { Database } from "@/storage/db"
+import { EventTable } from "@/sync/event.sql"
+import { BlobRefTable } from "@/storage/blob.sql"
+import { and, eq } from "drizzle-orm"
 
 void Log.init({ print: false })
 
@@ -703,6 +708,15 @@ it.live("session.processor effect tests complete AI SDK tool calls when native f
                 title: "Weather lookup",
                 output: `result:${input.query}`,
                 metadata: { source: "test" },
+                attachments: [{
+                  type: "file" as const,
+                  id: PartID.ascending(),
+                  sessionID: chat.id,
+                  messageID: msg.id,
+                  mime: "image/png",
+                  filename: "screen.png",
+                  url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                }],
               }),
             }),
           },
@@ -721,8 +735,16 @@ it.live("session.processor effect tests complete AI SDK tool calls when native f
         expect(call.state.output).toBe("result:weather")
         expect(call.state.title).toBe("Weather lookup")
         expect(call.state.metadata).toEqual({ source: "test" })
+        expect(call.state.attachments?.[0]?.url).toStartWith("blob:sha256:")
         expect(call.state.time.start).toBeDefined()
         expect(call.state.time.end).toBeDefined()
+        const successes = yield* Database.query((db) => db.select().from(EventTable).where(and(
+          eq(EventTable.aggregate_id, chat.id),
+          eq(EventTable.type, "session.next.tool.success.1"),
+        )).all())
+        expect(successes).toHaveLength(1)
+        expect(JSON.stringify(successes[0]?.data)).toContain(call.state.attachments![0]!.url)
+        expect(JSON.stringify(successes[0]?.data)).not.toContain("data:image/png;base64,")
 
         // A late timeout/defect notification must not overwrite the already
         // completed tool result or finalize the call a second time.
@@ -734,6 +756,178 @@ it.live("session.processor effect tests complete AI SDK tool calls when native f
           (part): part is MessageV2.ToolPart => part.type === "tool" && part.callID === "call_1",
         )
         expect(afterLateFailure?.state.status).toBe("completed")
+      }),
+    { config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("session.processor effect tests publish blob references after a tool completes before tool-result", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        yield* llm.tool("lookup", { query: "weather" })
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "tool")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({ assistantMessage: msg, sessionID: chat.id, model: mdl })
+        const run = yield* EffectBridge.make()
+        const pngURL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        let completedInExecute = false
+        const inspect = Effect.gen(function* () {
+          const parts = yield* MessageV2.partsAsync(msg.id)
+          const events = yield* Database.query((db) => db.select().from(EventTable).all())
+          return {
+            parts: parts.filter((part) => part.type === "tool").map((part) => `${part.callID}:${part.state.status}`),
+            events: events.filter((event) => event.aggregate_id === chat.id && event.type.startsWith("session.next.tool."))
+              .sort((a, b) => a.seq - b.seq).map((event) => `${event.seq}:${event.type}`),
+          }
+        })
+        let beforeComplete: { parts: string[]; events: string[] } | undefined
+        let afterComplete: { parts: string[]; events: string[] } | undefined
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "tool" }],
+          tools: {
+            lookup: tool({
+              description: "Look up information",
+              inputSchema: z.object({ query: z.string() }),
+              execute: async (_input, options) => {
+                await run.promise(pollWithTimeout(
+                  MessageV2.partsAsync(msg.id).pipe(Effect.map((parts) => parts.find((part) =>
+                    part.type === "tool" && part.callID === options.toolCallId && part.state.status === "running"))),
+                  "tool call did not become running before execute completed",
+                ))
+                beforeComplete = await run.promise(inspect)
+                const output = {
+                  title: "Weather lookup",
+                  output: "result:weather",
+                  metadata: { source: "test" },
+                  attachments: [{
+                    type: "file" as const,
+                    id: PartID.ascending(),
+                    sessionID: chat.id,
+                    messageID: msg.id,
+                    mime: "image/png",
+                    filename: "screen.png",
+                    url: pngURL,
+                  }],
+                }
+                await run.promise(handle.completeToolCall(options.toolCallId, output))
+                afterComplete = await run.promise(inspect)
+                completedInExecute = true
+                return output
+              },
+            }),
+          },
+        })
+
+        const parts = yield* MessageV2.partsAsync(msg.id)
+        const call = parts.find(
+          (part): part is MessageV2.ToolPart => part.type === "tool" && part.callID === "call_1",
+        )
+        expect(value).toBe("continue")
+        expect(completedInExecute).toBe(true)
+        expect(beforeComplete?.parts).toEqual(["call_1:running"])
+        expect(afterComplete?.parts).toEqual(["call_1:completed"])
+        expect(afterComplete?.events).toEqual(beforeComplete?.events)
+        expect(afterComplete?.events.some((event) => event.includes("tool.success"))).toBe(false)
+
+        const successes = (yield* Database.query((db) => db.select().from(EventTable).all())).filter(
+          (event) => event.aggregate_id === chat.id && event.type === "session.next.tool.success.1",
+        )
+        expect(successes).toHaveLength(1)
+        const durable = JSON.stringify(successes[0]!.data)
+        expect(durable).toContain("blob:sha256:")
+        expect(call?.state.status).toBe("completed")
+        if (call?.state.status !== "completed") return
+        const blobURL = call.state.attachments?.[0]?.url
+        expect(blobURL).toStartWith("blob:sha256:")
+        expect(durable).toContain(blobURL!)
+        expect(durable).not.toContain(pngURL)
+      }),
+    { config: (url) => providerCfg(url) },
+  ),
+)
+
+it.live("session.processor effect tests retire older computer screenshots after a new result", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        yield* llm.tool("computer", { action: "click" })
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "computer")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const pngURL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        const old: MessageV2.ToolPart[] = []
+        for (let index = 0; index < 3; index++) {
+          old.push(yield* session.updatePart({
+            id: PartID.ascending(), messageID: msg.id, sessionID: chat.id,
+            type: "tool", tool: "computer", callID: `old_${index}`,
+            state: {
+              status: "completed", input: {}, output: `old ${index}`, title: "Computer",
+              metadata: {}, time: { start: Date.now(), end: Date.now() },
+              attachments: [{
+                id: PartID.ascending(), messageID: msg.id, sessionID: chat.id,
+                type: "file", mime: "image/png", url: pngURL,
+              }],
+            },
+          }))
+        }
+
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({ assistantMessage: msg, sessionID: chat.id, model: mdl })
+        const value = yield* handle.process({
+          user: {
+            id: parent.id, sessionID: chat.id, role: "user", time: parent.time,
+            agent: parent.agent, model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id, model: mdl, agent: agent(), system: [],
+          messages: [{ role: "user", content: "computer" }],
+          tools: {
+            computer: tool({
+              description: "Computer",
+              inputSchema: z.object({ action: z.string() }),
+              execute: async () => ({
+                title: "Computer", output: "new screenshot", metadata: {},
+                attachments: [{
+                  id: PartID.ascending(), messageID: msg.id, sessionID: chat.id,
+                  type: "file" as const, mime: "image/png", url: pngURL,
+                }],
+              }),
+            }),
+          },
+        })
+        const parts = (yield* MessageV2.partsAsync(msg.id)).filter(
+          (part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "computer",
+        )
+        const oldest = parts.find((part) => part.id === old[0]?.id)
+        const newest = parts.find((part) => part.callID === "call_1")
+        const retiredRefs = yield* Database.query((db) => db.select().from(BlobRefTable)
+          .where(eq(BlobRefTable.part_id, old[0]!.id)).all())
+        expect(value).toBe("continue")
+        expect(parts).toHaveLength(4)
+        expect(oldest?.state.status).toBe("completed")
+        if (oldest?.state.status === "completed") expect(oldest.state.attachments).toBeUndefined()
+        expect(newest?.state.status).toBe("completed")
+        if (newest?.state.status === "completed") expect(newest.state.attachments).toHaveLength(1)
+        expect(retiredRefs).toHaveLength(0)
       }),
     { config: (url) => providerCfg(url) },
   ),

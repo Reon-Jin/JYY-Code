@@ -5,12 +5,19 @@ The MIT-licensed model weight is provisioned separately in the Hugging Face cach
 """
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
+os.environ["OMP_NUM_THREADS"] = "2"
+os.environ["MKL_NUM_THREADS"] = "2"
+os.environ["OPENBLAS_NUM_THREADS"] = "2"
+
 import numpy as np
 import torch
+torch.set_num_threads(min(2, os.cpu_count() or 1))
+torch.set_num_interop_threads(1)
 from PIL import Image
 from torchvision.ops import nms
 
@@ -26,8 +33,7 @@ def emit(value):
     sys.stdout.flush()
 
 
-def detect(model, device, image_path, region=None):
-    image = Image.open(image_path).convert("RGB")
+def detect(model, device, image, region=None):
     offset_x = offset_y = 0
     if region:
         offset_x, offset_y = int(region["x"]), int(region["y"])
@@ -88,11 +94,10 @@ def main():
     device = torch.device(args.device)
     started = time.perf_counter()
     model = torch.jit.load(args.model, map_location=device).eval()
-    warm = torch.zeros((1, 3, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.float32, device=device)
-    with torch.inference_mode():
-        model(warm)
-        model(warm)
     if device.type == "cuda":
+        warm = torch.zeros((1, 3, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.float32, device=device)
+        with torch.inference_mode():
+            model(warm)
         torch.cuda.synchronize()
     load_ms = round((time.perf_counter() - started) * 1000, 2)
     emit({"ready": True, "device": str(device), "loadMs": load_ms})
@@ -100,7 +105,23 @@ def main():
         try:
             request = json.loads(line)
             started = time.perf_counter()
-            boxes = detect(model, device, request["imagePath"], request.get("region"))
+            with Image.open(request["imagePath"]) as source:
+                image = source.convert("RGB")
+            regions = request.get("regions")
+            if regions is not None:
+                if not isinstance(regions, list) or not 1 <= len(regions) <= 64:
+                    raise ValueError("regions must contain 1 to 64 tiles")
+                results = []
+                for region in regions:
+                    tile_started = time.perf_counter()
+                    boxes = detect(model, device, image, region)
+                    if device.type == "cuda":
+                        torch.cuda.synchronize()
+                    results.append({"boxes": boxes, "inferMs": round((time.perf_counter() - tile_started) * 1000, 2)})
+                emit({"id": request["id"], "results": results,
+                      "inferMs": round((time.perf_counter() - started) * 1000, 2)})
+                continue
+            boxes = detect(model, device, image, request.get("region"))
             if device.type == "cuda":
                 torch.cuda.synchronize()
             emit({"id": request["id"], "boxes": boxes, "inferMs": round((time.perf_counter() - started) * 1000, 2)})
